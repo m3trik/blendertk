@@ -1,0 +1,352 @@
+{
+  "name": "blendertk",
+  "source_root": "blendertk/blendertk",
+  "generated_at": "2026-06-12",
+  "modules": [
+    {
+      "relpath": "cam_utils/_cam_utils.py",
+      "summary": "Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).",
+      "functions": [
+        {
+          "name": "adjust_camera_clipping",
+          "qualname": "adjust_camera_clipping",
+          "kind": "function",
+          "signature": "(camera=None, near_clip=None, far_clip=None)",
+          "summary": "Adjust near/far clip planes of camera object(s) — mirror of ``mtk.adjust_camera_clipping``.",
+          "line": 61,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "CamUtils",
+          "summary": "Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).",
+          "line": 89,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "core_utils/_core_utils.py",
+      "summary": "Core blendertk utilities — DCC-environment info + cross-cutting decorators.",
+      "functions": [
+        {
+          "name": "undoable",
+          "qualname": "undoable",
+          "kind": "function",
+          "signature": "(fn)",
+          "summary": "Wrap ``fn`` so its changes collapse into a single Blender undo step.",
+          "line": 18,
+          "deprecated": false
+        },
+        {
+          "name": "get_env_info",
+          "qualname": "get_env_info",
+          "kind": "function",
+          "signature": "(key=None)",
+          "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
+          "line": 77,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "CoreUtils",
+          "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
+          "line": 103,
+          "bases": [
+            "ptk.CoreUtils"
+          ],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "edit_utils/_edit_utils.py",
+      "summary": "Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,",
+      "functions": [
+        {
+          "name": "decimate",
+          "qualname": "decimate",
+          "kind": "function",
+          "signature": "(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)",
+          "summary": "Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "dissolve_coplanar",
+          "qualname": "dissolve_coplanar",
+          "kind": "function",
+          "signature": "(objects, angle_tolerance=1.0, apply=True)",
+          "summary": "Dissolve near-coplanar faces via a Decimate (PLANAR) modifier — mirror of",
+          "line": 75,
+          "deprecated": false
+        },
+        {
+          "name": "triangulate",
+          "qualname": "triangulate",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Triangulate all faces of the given mesh object(s) (bmesh, headless).",
+          "line": 89,
+          "deprecated": false
+        },
+        {
+          "name": "tris_to_quads",
+          "qualname": "tris_to_quads",
+          "kind": "function",
+          "signature": "(objects, angle=40.0)",
+          "summary": "Merge adjacent triangles back into quads where the face/shape angle is within ``angle``",
+          "line": 97,
+          "deprecated": false
+        },
+        {
+          "name": "subdivide_mesh",
+          "qualname": "subdivide_mesh",
+          "kind": "function",
+          "signature": "(objects, cuts=1)",
+          "summary": "Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — \"Add Divisions\".",
+          "line": 115,
+          "deprecated": false
+        },
+        {
+          "name": "set_subdivision",
+          "qualname": "set_subdivision",
+          "kind": "function",
+          "signature": "(objects, viewport_levels=None, render_levels=None, ensure=True)",
+          "summary": "Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive",
+          "line": 125,
+          "deprecated": false
+        },
+        {
+          "name": "set_shading",
+          "qualname": "set_shading",
+          "kind": "function",
+          "signature": "(objects, smooth=True)",
+          "summary": "Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the",
+          "line": 149,
+          "deprecated": false
+        },
+        {
+          "name": "set_edge_hardness",
+          "qualname": "set_edge_hardness",
+          "kind": "function",
+          "signature": "(objects, angle=30.0)",
+          "summary": "Smooth-shade, then mark edges **sharp** where the dihedral angle ≥ ``angle`` degrees —",
+          "line": 160,
+          "deprecated": false
+        },
+        {
+          "name": "flip_normals",
+          "qualname": "flip_normals",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Reverse face winding / normals (bmesh ``reverse_faces``, headless).",
+          "line": 178,
+          "deprecated": false
+        },
+        {
+          "name": "recalculate_normals",
+          "qualname": "recalculate_normals",
+          "kind": "function",
+          "signature": "(objects, inside=False)",
+          "summary": "Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).",
+          "line": 186,
+          "deprecated": false
+        },
+        {
+          "name": "clean_geometry",
+          "qualname": "clean_geometry",
+          "kind": "function",
+          "signature": "(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)",
+          "summary": "Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose",
+          "line": 200,
+          "deprecated": false
+        },
+        {
+          "name": "crease_edges",
+          "qualname": "crease_edges",
+          "kind": "function",
+          "signature": "(objects, amount=10.0)",
+          "summary": "Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's",
+          "line": 243,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "EditUtils",
+          "summary": "Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).",
+          "line": 271,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "node_utils/_node_utils.py",
+      "summary": "Node / datablock utilities — instancing via shared object data.",
+      "functions": [
+        {
+          "name": "get_instances",
+          "qualname": "get_instances",
+          "kind": "function",
+          "signature": "(objects=None)",
+          "summary": "Return objects that share their data with another object (Maya-style instances).",
+          "line": 24,
+          "deprecated": false
+        },
+        {
+          "name": "replace_with_instances",
+          "qualname": "replace_with_instances",
+          "kind": "function",
+          "signature": "(objects, freeze_transforms=False, center_pivot=False, delete_history=False)",
+          "summary": "Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked",
+          "line": 41,
+          "deprecated": false
+        },
+        {
+          "name": "uninstance",
+          "qualname": "uninstance",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).",
+          "line": 71,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "NodeUtils",
+          "summary": "Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).",
+          "line": 84,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "uv_utils/_uv_utils.py",
+      "summary": "UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``",
+      "functions": [
+        {
+          "name": "move_uvs",
+          "qualname": "move_uvs",
+          "kind": "function",
+          "signature": "(objects, du=0.0, dv=0.0)",
+          "summary": "Translate the UVs of the given mesh object(s) by ``(du, dv)`` — \"move to UV space\"",
+          "line": 16,
+          "deprecated": false
+        },
+        {
+          "name": "delete_extra_uv_sets",
+          "qualname": "delete_extra_uv_sets",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Remove all but the first UV map on the given mesh object(s) — \"Cleanup UV Sets\".",
+          "line": 39,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "UvUtils",
+          "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
+          "line": 46,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "xform_utils/_xform_utils.py",
+      "summary": "Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,",
+      "functions": [
+        {
+          "name": "get_world_bbox",
+          "qualname": "get_world_bbox",
+          "kind": "function",
+          "signature": "(obj)",
+          "summary": "Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.",
+          "line": 17,
+          "deprecated": false
+        },
+        {
+          "name": "freeze_transforms",
+          "qualname": "freeze_transforms",
+          "kind": "function",
+          "signature": "(objects, location=True, rotation=False, scale=True)",
+          "summary": "Apply (bake) the given transform channels into the object data — Blender's",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "drop_to_grid",
+          "qualname": "drop_to_grid",
+          "kind": "function",
+          "signature": "(objects, align='Min', origin=False, center_pivot=False)",
+          "summary": "Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).",
+          "line": 65,
+          "deprecated": false
+        },
+        {
+          "name": "center_pivot",
+          "qualname": "center_pivot",
+          "kind": "function",
+          "signature": "(objects, mode='object')",
+          "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
+          "line": 93,
+          "deprecated": false
+        },
+        {
+          "name": "get_pivot_modes",
+          "qualname": "get_pivot_modes",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
+          "line": 121,
+          "deprecated": false
+        },
+        {
+          "name": "match_scale",
+          "qualname": "match_scale",
+          "kind": "function",
+          "signature": "(source, target, average=True)",
+          "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
+          "line": 126,
+          "deprecated": false
+        },
+        {
+          "name": "move_to",
+          "qualname": "move_to",
+          "kind": "function",
+          "signature": "(source, target, pivot='center')",
+          "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
+          "line": 143,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "XformUtils",
+          "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
+          "line": 157,
+          "bases": [],
+          "members": [
+            {
+              "name": "get_pivot_options",
+              "qualname": "XformUtils.get_pivot_options",
+              "kind": "staticmethod",
+              "signature": "()",
+              "summary": "Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).",
+              "line": 169,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
