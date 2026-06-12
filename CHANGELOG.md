@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] — 2026-06-12 (post-completion stub deepening)
+
+- `anim_utils`: + `move_keys_to_frame(objects, frame=None, retain_spacing=True)` — mirror of
+  `mtk.move_keys_to_frame` (backs the shared `animation tb006` Move Keys): one global offset
+  lands the selection's earliest key on the target frame preserving relative timing, or
+  per-action first-key alignment. Returns the number of actions moved. Shift mechanics
+  extracted to `_shift_fcurves` (now shared by `shift_keys`/`stagger_keys`/
+  `move_keys_to_frame`). Headless suite extended to 20/20.
+
 ## [Unreleased] — 2026-06-12 (Phase-4 completion)
 
 The full tentacle Blender slot surface is now backed — blendertk = 9 util modules:

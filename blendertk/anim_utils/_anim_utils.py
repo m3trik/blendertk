@@ -57,14 +57,45 @@ def _key_range(fcurves):
     return (min(frames), max(frames)) if frames else None
 
 
-def shift_keys(objects, offset):
-    """Shift every key of the given objects by ``offset`` frames."""
-    for fc in _fcurves(objects):
+def _shift_fcurves(fcurves, offset):
+    """Shift every key (and its handles) of ``fcurves`` by ``offset`` frames."""
+    for fc in fcurves:
         for k in fc.keyframe_points:
             k.co.x += offset
             k.handle_left.x += offset
             k.handle_right.x += offset
         fc.update()
+
+
+def shift_keys(objects, offset):
+    """Shift every key of the given objects by ``offset`` frames."""
+    _shift_fcurves(_fcurves(objects), offset)
+
+
+def move_keys_to_frame(objects, frame=None, retain_spacing=True):
+    """Move the objects' keys so they align to ``frame`` (default: the current frame).
+
+    ``retain_spacing=True`` applies one global offset — the earliest key across the selection
+    lands on ``frame`` and relative timing between objects is kept; ``False`` aligns each
+    action's own first key to ``frame``. Returns the number of actions moved.
+    """
+    import bpy
+
+    if frame is None:
+        frame = bpy.context.scene.frame_current
+    pairs = [
+        (action, slot, rng)
+        for action, slot in _actions(objects)
+        if (rng := _key_range(_slot_fcurves(action, slot)))
+    ]
+    if not pairs:
+        return 0
+    global_offset = frame - min(rng[0] for _a, _s, rng in pairs)
+    for action, slot, rng in pairs:
+        offset = global_offset if retain_spacing else frame - rng[0]
+        if offset:
+            _shift_fcurves(_slot_fcurves(action, slot), offset)
+    return len(pairs)
 
 
 def invert_keys(objects):
@@ -96,12 +127,7 @@ def stagger_keys(objects, spacing=5):
             cursor = rng[1] + spacing
             continue
         offset = cursor - rng[0]
-        for fc in fcurves:
-            for k in fc.keyframe_points:
-                k.co.x += offset
-                k.handle_left.x += offset
-                k.handle_right.x += offset
-            fc.update()
+        _shift_fcurves(fcurves, offset)
         cursor = rng[1] + offset + spacing
 
 
@@ -193,6 +219,7 @@ class AnimUtils:
 
     get_fcurves = staticmethod(get_fcurves)
     shift_keys = staticmethod(shift_keys)
+    move_keys_to_frame = staticmethod(move_keys_to_frame)
     invert_keys = staticmethod(invert_keys)
     stagger_keys = staticmethod(stagger_keys)
     snap_keys = staticmethod(snap_keys)

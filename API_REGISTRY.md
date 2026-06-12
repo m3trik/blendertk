@@ -24,17 +24,18 @@ _Generated: 2026-06-12_
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
 - [`get_fcurves(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L46) — All fcurves across the given objects' actions (slot-aware;
-- [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L60) — Shift every key of the given objects by ``offset`` frames.
-- [`invert_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L70) — Mirror key times about the center of each object's own key range (reverses the motion).
-- [`stagger_keys(objects, spacing=5)`](blendertk/blendertk/anim_utils/_anim_utils.py#L86) — Re-time the objects sequentially: each object's keys start ``spacing`` frames after the
-- [`snap_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L108) — Snap every key to whole frames.
-- [`scale_keys(objects, factor, pivot=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L116) — Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).
-- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L132) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
-- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L141) — Remove all animation from the given objects.
-- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L151) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
-- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L168) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
-- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L174) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
-- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L191)** — Namespace mirror (helpers also exposed module-level).
+- [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L70) — Shift every key of the given objects by ``offset`` frames.
+- [`move_keys_to_frame(objects, frame=None, retain_spacing=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L75) — Move the objects' keys so they align to ``frame`` (default: the current frame).
+- [`invert_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L101) — Mirror key times about the center of each object's own key range (reverses the motion).
+- [`stagger_keys(objects, spacing=5)`](blendertk/blendertk/anim_utils/_anim_utils.py#L117) — Re-time the objects sequentially: each object's keys start ``spacing`` frames after the
+- [`snap_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L139) — Snap every key to whole frames.
+- [`scale_keys(objects, factor, pivot=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L147) — Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).
+- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L163) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
+- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L172) — Remove all animation from the given objects.
+- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L182) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
+- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L199) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
+- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L205) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
+- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L222)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="cam_utils--_cam_utils"></a>
 ### `cam_utils/_cam_utils.py`

@@ -84,6 +84,24 @@ try:
     check("fit_playback_range", rng == (sc.frame_start, sc.frame_end) and sc.frame_start == 6,
           f"{rng}")
 
+    # move_keys_to_frame: a=6-26, b=31-51 after stagger. Global (retain_spacing): earliest
+    # key (6) lands on the target, b keeps its +25 offset; per-action: both start at target.
+    moved = btk.move_keys_to_frame([a, b], frame=100, retain_spacing=True)
+    check("move_keys_to_frame retain_spacing keeps offsets",
+          moved == 2 and key_times(a)[0] == 100.0 and key_times(b)[0] == 125.0,
+          f"a={key_times(a)} b={key_times(b)}")
+    btk.move_keys_to_frame([a, b], frame=50, retain_spacing=False)
+    check("move_keys_to_frame per-action aligns first keys",
+          key_times(a)[0] == 50.0 and key_times(b)[0] == 50.0,
+          f"a={key_times(a)} b={key_times(b)}")
+    check("move_keys_to_frame keyless -> 0", btk.move_keys_to_frame([], frame=1) == 0)
+    sc0 = sc.frame_current
+    sc.frame_set(60)
+    btk.move_keys_to_frame(a)  # frame defaults to the current frame
+    check("move_keys_to_frame defaults to current frame", key_times(a)[0] == 60.0,
+          f"{key_times(a)}")
+    sc.frame_set(sc0)
+
     action = btk.copy_keys(a)
     btk.paste_keys(b, action)
     check("copy/paste keys independent copy",

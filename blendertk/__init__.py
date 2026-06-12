@@ -74,6 +74,7 @@ DEFAULT_INCLUDE = {
         "AnimUtils",
         "get_fcurves",
         "shift_keys",
+        "move_keys_to_frame",
         "invert_keys",
         "stagger_keys",
         "snap_keys",

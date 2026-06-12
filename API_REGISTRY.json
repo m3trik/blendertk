@@ -22,7 +22,16 @@
           "kind": "function",
           "signature": "(objects, offset)",
           "summary": "Shift every key of the given objects by ``offset`` frames.",
-          "line": 60,
+          "line": 70,
+          "deprecated": false
+        },
+        {
+          "name": "move_keys_to_frame",
+          "qualname": "move_keys_to_frame",
+          "kind": "function",
+          "signature": "(objects, frame=None, retain_spacing=True)",
+          "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
+          "line": 75,
           "deprecated": false
         },
         {
@@ -31,7 +40,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Mirror key times about the center of each object's own key range (reverses the motion).",
-          "line": 70,
+          "line": 101,
           "deprecated": false
         },
         {
@@ -40,7 +49,7 @@
           "kind": "function",
           "signature": "(objects, spacing=5)",
           "summary": "Re-time the objects sequentially: each object's keys start ``spacing`` frames after the",
-          "line": 86,
+          "line": 117,
           "deprecated": false
         },
         {
@@ -49,7 +58,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Snap every key to whole frames.",
-          "line": 108,
+          "line": 139,
           "deprecated": false
         },
         {
@@ -58,7 +67,7 @@
           "kind": "function",
           "signature": "(objects, factor, pivot=None)",
           "summary": "Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).",
-          "line": 116,
+          "line": 147,
           "deprecated": false
         },
         {
@@ -67,7 +76,7 @@
           "kind": "function",
           "signature": "(objects, stepped=True)",
           "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-          "line": 132,
+          "line": 163,
           "deprecated": false
         },
         {
@@ -76,7 +85,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all animation from the given objects.",
-          "line": 141,
+          "line": 172,
           "deprecated": false
         },
         {
@@ -85,7 +94,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-          "line": 151,
+          "line": 182,
           "deprecated": false
         },
         {
@@ -94,7 +103,7 @@
           "kind": "function",
           "signature": "(source)",
           "summary": "Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).",
-          "line": 168,
+          "line": 199,
           "deprecated": false
         },
         {
@@ -103,7 +112,7 @@
           "kind": "function",
           "signature": "(objects, action)",
           "summary": "Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).",
-          "line": 174,
+          "line": 205,
           "deprecated": false
         }
       ],
@@ -111,7 +120,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 191,
+          "line": 222,
           "bases": [],
           "members": []
         }
