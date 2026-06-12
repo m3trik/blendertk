@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+cover/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Type checkers
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Editor / misc
+*.bak
+*.log
+
+# Test artifacts (regenerated each run)
+test/temp_tests/
+test/logs/

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blendertk"
+dynamic = ["version", "readme"]
+description = "A toolkit for Blender mirroring the mayatk public API, backing the tentacle Blender slots."
+authors = [{name = "Ryan Simpson", email = "m3trik@outlook.com"}]
+license = {text = "MIT"}
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# bpy is provided by the Blender runtime, not pip-installed.
+dependencies = [
+    "pythontk>=0.8.63",
+]
+
+[project.urls]
+Homepage = "https://github.com/m3trik/blendertk"
+Repository = "https://github.com/m3trik/blendertk"
+
+[tool.setuptools.dynamic]
+version = {attr = "blendertk.__version__"}
+readme = {file = "docs/README.md", content-type = "text/markdown"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["blendertk*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.ui", "*.json", "*.txt", "*.md"]
