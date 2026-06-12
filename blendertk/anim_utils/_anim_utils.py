@@ -100,6 +100,74 @@ def move_keys_to_frame(objects, frame=None, retain_spacing=True):
     return len(pairs)
 
 
+def adjust_key_spacing(objects, spacing=1, frame=None):
+    """Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
+    frame) — every key at/after ``frame`` shifts by ``spacing``; mirror of
+    ``mtk.adjust_key_spacing``. Negative spacing larger than the gap can collide keys with
+    the ones before ``frame`` (as in Maya without preserve-keys). Returns keys shifted."""
+    import bpy
+
+    if frame is None:
+        frame = bpy.context.scene.frame_current
+    moved = 0
+    for fc in _fcurves(objects):
+        for k in fc.keyframe_points:
+            if k.co.x >= frame:
+                k.co.x += spacing
+                k.handle_left.x += spacing
+                k.handle_right.x += spacing
+                moved += 1
+        fc.update()
+    return moved
+
+
+def align_selected_keyframes(objects, target_frame=None, use_earliest=True):
+    """Move the SELECTED keyframes (``select_control_point``, e.g. picked in the Dope Sheet /
+    Graph Editor) to one frame — mirror of ``mtk.align_selected_keyframes``. Auto target =
+    the earliest (or latest) selected frame. Returns the number of keys moved (0 = none
+    selected)."""
+    selected = [
+        (fc, k)
+        for fc in _fcurves(objects)
+        for k in fc.keyframe_points
+        if k.select_control_point
+    ]
+    if not selected:
+        return 0
+    frames = [k.co.x for _fc, k in selected]
+    target = (
+        target_frame
+        if target_frame is not None
+        else (min(frames) if use_earliest else max(frames))
+    )
+    for fc, k in selected:
+        delta = target - k.co.x
+        k.co.x = target
+        k.handle_left.x += delta
+        k.handle_right.x += delta
+    for fc, _k in selected:
+        fc.update()
+    return len(selected)
+
+
+def set_visibility_keys(objects, visible=True, frame=None):
+    """Key viewport + render visibility (``hide_viewport``/``hide_render``) at ``frame``
+    (default: the current frame) — mirror of ``mtk.set_visibility_keys``. Returns the
+    objects keyed."""
+    import bpy
+
+    if frame is None:
+        frame = bpy.context.scene.frame_current
+    keyed = []
+    for o in ptk.make_iterable(objects):
+        o.hide_viewport = not visible
+        o.hide_render = not visible
+        o.keyframe_insert("hide_viewport", frame=frame)
+        o.keyframe_insert("hide_render", frame=frame)
+        keyed.append(o)
+    return keyed
+
+
 def invert_keys(objects):
     """Mirror key times about the center of each object's own key range (reverses the motion)."""
     for action, slot in _actions(objects):
@@ -222,6 +290,9 @@ class AnimUtils:
     get_fcurves = staticmethod(get_fcurves)
     shift_keys = staticmethod(shift_keys)
     move_keys_to_frame = staticmethod(move_keys_to_frame)
+    adjust_key_spacing = staticmethod(adjust_key_spacing)
+    align_selected_keyframes = staticmethod(align_selected_keyframes)
+    set_visibility_keys = staticmethod(set_visibility_keys)
     invert_keys = staticmethod(invert_keys)
     stagger_keys = staticmethod(stagger_keys)
     snap_keys = staticmethod(snap_keys)

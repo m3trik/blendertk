@@ -26,16 +26,19 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
 - [`get_fcurves(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L46) — All fcurves across the given objects' actions (slot-aware;
 - [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L70) — Shift every key of the given objects by ``offset`` frames.
 - [`move_keys_to_frame(objects, frame=None, retain_spacing=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L75) — Move the objects' keys so they align to ``frame`` (default: the current frame).
-- [`invert_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L101) — Mirror key times about the center of each object's own key range (reverses the motion).
-- [`stagger_keys(objects, spacing=5)`](blendertk/blendertk/anim_utils/_anim_utils.py#L117) — Re-time the objects sequentially: each object's keys start ``spacing`` frames after the
-- [`snap_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L139) — Snap every key to whole frames.
-- [`scale_keys(objects, factor, pivot=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L147) — Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).
-- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L163) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
-- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L172) — Remove all animation from the given objects.
-- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L182) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
-- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L199) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
-- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L205) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
-- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L222)** — Namespace mirror (helpers also exposed module-level).
+- [`adjust_key_spacing(objects, spacing=1, frame=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L103) — Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
+- [`align_selected_keyframes(objects, target_frame=None, use_earliest=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L124) — Move the SELECTED keyframes (``select_control_point``, e.g.
+- [`set_visibility_keys(objects, visible=True, frame=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L153) — Key viewport + render visibility (``hide_viewport``/``hide_render``) at ``frame``
+- [`invert_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L171) — Mirror key times about the center of each object's own key range (reverses the motion).
+- [`stagger_keys(objects, spacing=5)`](blendertk/blendertk/anim_utils/_anim_utils.py#L187) — Re-time the objects sequentially: each object's keys start ``spacing`` frames after the
+- [`snap_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L204) — Snap every key to whole frames.
+- [`scale_keys(objects, factor, pivot=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L212) — Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).
+- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L228) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
+- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L237) — Remove all animation from the given objects.
+- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L247) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
+- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L264) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
+- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L270) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
+- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L287)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="cam_utils--_cam_utils"></a>
 ### `cam_utils/_cam_utils.py`
@@ -113,9 +116,13 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
 
 UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 
-- [`move_uvs(objects, du=0.0, dv=0.0)`](blendertk/blendertk/uv_utils/_uv_utils.py#L16) — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
-- [`delete_extra_uv_sets(objects)`](blendertk/blendertk/uv_utils/_uv_utils.py#L39) — Remove all but the first UV map on the given mesh object(s) — "Cleanup UV Sets".
-- **[`class UvUtils`](blendertk/blendertk/uv_utils/_uv_utils.py#L46)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
+- [`move_uvs(objects, du=0.0, dv=0.0)`](blendertk/blendertk/uv_utils/_uv_utils.py#L29) — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
+- [`transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0)`](blendertk/blendertk/uv_utils/_uv_utils.py#L63) — Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s) about
+- [`pin_uvs(objects, pin=True, selected_only=True)`](blendertk/blendertk/uv_utils/_uv_utils.py#L92) — Pin/unpin UVs (bmesh ``pin_uv``).
+- [`get_texel_density(objects, map_size)`](blendertk/blendertk/uv_utils/_uv_utils.py#L134) — Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —
+- [`set_texel_density(objects, density=1.0, map_size=4096)`](blendertk/blendertk/uv_utils/_uv_utils.py#L158) — Scale each object's UVs (about its own UV bbox center) to the target texel density —
+- [`delete_extra_uv_sets(objects)`](blendertk/blendertk/uv_utils/_uv_utils.py#L182) — Remove all but the first UV map on the given mesh object(s) — "Cleanup UV Sets".
+- **[`class UvUtils`](blendertk/blendertk/uv_utils/_uv_utils.py#L189)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
 
 <a id="xform_utils--_xform_utils"></a>
 ### `xform_utils/_xform_utils.py`

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — 2026-06-12 (stub-deepening batch: uv + anim helpers)
+
+- `uv_utils`: + `get_texel_density` / `set_texel_density` (mirror of mtk — density =
+  `sqrt(uv_area / world_area) * map_size`; world area via Newell's method, UV area via the
+  shoelace formula — exact for non-convex faces where fan-triangulation overcounts; SET is
+  per-OBJECT about its UV bbox center, a documented divergence from Maya's per-shell scale),
+  + `transform_uvs` (flip U/V + rotate about the combined UV bbox center — one shared pivot
+  so multi-object maps stay aligned), + `pin_uvs` (bmesh `pin_uv`; `selected_only` pins the
+  selected verts' UVs — the 3D-edit-mode workflow, no UV editor needed). The mode-aware
+  edit/object bmesh pattern extracted from `move_uvs` into `_uv_edit` (now shared by all).
+- `anim_utils`: + `adjust_key_spacing` (shift keys at/after a frame), `align_selected_keyframes`
+  (moves `select_control_point` keys to the earliest/latest/explicit frame — co-located keys on
+  one fcurve merge, as expected), `set_visibility_keys` (keys `hide_viewport`+`hide_render`).
+- Headless suites: uv 15/15, mat/anim 25/25.
+
 ## [Unreleased] — 2026-06-12 (post-completion stub deepening)
 
 - `anim_utils`: + `move_keys_to_frame(objects, frame=None, retain_spacing=True)` — mirror of

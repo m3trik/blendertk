@@ -102,6 +102,41 @@ try:
           f"{key_times(a)}")
     sc.frame_set(sc0)
 
+    # adjust_key_spacing: a = 60,80 -> shift keys >= 70 by +5 (only the 80 moves)
+    moved = btk.adjust_key_spacing(a, spacing=5, frame=70)
+    check("adjust_key_spacing shifts only keys at/after the frame",
+          moved == 1 and key_times(a) == [60.0, 85.0], f"{key_times(a)}")
+    check("adjust_key_spacing no keys after frame -> 0",
+          btk.adjust_key_spacing(a, spacing=5, frame=1000) == 0)
+
+    # align_selected_keyframes: only SELECTED keys move
+    for k in [k for fc in btk.get_fcurves(a) for k in fc.keyframe_points]:
+        k.select_control_point = False
+    last = max(
+        (k for fc in btk.get_fcurves(a) for k in fc.keyframe_points),
+        key=lambda k: k.co.x,
+    )
+    last.select_control_point = True
+    moved = btk.align_selected_keyframes(a, target_frame=70)
+    check("align_selected_keyframes moves only the selected key",
+          moved == 1 and key_times(a) == [60.0, 70.0], f"{key_times(a)}")
+    for k in [k for fc in btk.get_fcurves(a) for k in fc.keyframe_points]:
+        k.select_control_point = False
+    check("align_selected_keyframes none selected -> 0",
+          btk.align_selected_keyframes(a) == 0)
+
+    # set_visibility_keys: keys hide_viewport/hide_render at the frame
+    keyed = btk.set_visibility_keys(b, visible=False, frame=42)
+    vis_curves = [
+        fc for fc in btk.get_fcurves(b)
+        if fc.data_path in ("hide_viewport", "hide_render")
+    ]
+    check("set_visibility_keys keys both hide props",
+          keyed == [b] and len(vis_curves) == 2
+          and all(any(k.co.x == 42.0 for k in fc.keyframe_points) for fc in vis_curves)
+          and b.hide_render,
+          f"curves={[fc.data_path for fc in vis_curves]}")
+
     action = btk.copy_keys(a)
     btk.paste_keys(b, action)
     check("copy/paste keys independent copy",

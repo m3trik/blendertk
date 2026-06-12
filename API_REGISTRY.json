@@ -35,12 +35,39 @@
           "deprecated": false
         },
         {
+          "name": "adjust_key_spacing",
+          "qualname": "adjust_key_spacing",
+          "kind": "function",
+          "signature": "(objects, spacing=1, frame=None)",
+          "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
+          "line": 103,
+          "deprecated": false
+        },
+        {
+          "name": "align_selected_keyframes",
+          "qualname": "align_selected_keyframes",
+          "kind": "function",
+          "signature": "(objects, target_frame=None, use_earliest=True)",
+          "summary": "Move the SELECTED keyframes (``select_control_point``, e.g.",
+          "line": 124,
+          "deprecated": false
+        },
+        {
+          "name": "set_visibility_keys",
+          "qualname": "set_visibility_keys",
+          "kind": "function",
+          "signature": "(objects, visible=True, frame=None)",
+          "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) at ``frame``",
+          "line": 153,
+          "deprecated": false
+        },
+        {
           "name": "invert_keys",
           "qualname": "invert_keys",
           "kind": "function",
           "signature": "(objects)",
           "summary": "Mirror key times about the center of each object's own key range (reverses the motion).",
-          "line": 101,
+          "line": 171,
           "deprecated": false
         },
         {
@@ -49,7 +76,7 @@
           "kind": "function",
           "signature": "(objects, spacing=5)",
           "summary": "Re-time the objects sequentially: each object's keys start ``spacing`` frames after the",
-          "line": 117,
+          "line": 187,
           "deprecated": false
         },
         {
@@ -58,7 +85,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Snap every key to whole frames.",
-          "line": 139,
+          "line": 204,
           "deprecated": false
         },
         {
@@ -67,7 +94,7 @@
           "kind": "function",
           "signature": "(objects, factor, pivot=None)",
           "summary": "Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).",
-          "line": 147,
+          "line": 212,
           "deprecated": false
         },
         {
@@ -76,7 +103,7 @@
           "kind": "function",
           "signature": "(objects, stepped=True)",
           "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-          "line": 163,
+          "line": 228,
           "deprecated": false
         },
         {
@@ -85,7 +112,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all animation from the given objects.",
-          "line": 172,
+          "line": 237,
           "deprecated": false
         },
         {
@@ -94,7 +121,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-          "line": 182,
+          "line": 247,
           "deprecated": false
         },
         {
@@ -103,7 +130,7 @@
           "kind": "function",
           "signature": "(source)",
           "summary": "Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).",
-          "line": 199,
+          "line": 264,
           "deprecated": false
         },
         {
@@ -112,7 +139,7 @@
           "kind": "function",
           "signature": "(objects, action)",
           "summary": "Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).",
-          "line": 205,
+          "line": 270,
           "deprecated": false
         }
       ],
@@ -120,7 +147,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 222,
+          "line": 287,
           "bases": [],
           "members": []
         }
@@ -489,7 +516,43 @@
           "kind": "function",
           "signature": "(objects, du=0.0, dv=0.0)",
           "summary": "Translate the UVs of the given mesh object(s) by ``(du, dv)`` — \"move to UV space\"",
-          "line": 16,
+          "line": 29,
+          "deprecated": false
+        },
+        {
+          "name": "transform_uvs",
+          "qualname": "transform_uvs",
+          "kind": "function",
+          "signature": "(objects, flip_u=False, flip_v=False, angle=0.0)",
+          "summary": "Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s) about",
+          "line": 63,
+          "deprecated": false
+        },
+        {
+          "name": "pin_uvs",
+          "qualname": "pin_uvs",
+          "kind": "function",
+          "signature": "(objects, pin=True, selected_only=True)",
+          "summary": "Pin/unpin UVs (bmesh ``pin_uv``).",
+          "line": 92,
+          "deprecated": false
+        },
+        {
+          "name": "get_texel_density",
+          "qualname": "get_texel_density",
+          "kind": "function",
+          "signature": "(objects, map_size)",
+          "summary": "Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —",
+          "line": 134,
+          "deprecated": false
+        },
+        {
+          "name": "set_texel_density",
+          "qualname": "set_texel_density",
+          "kind": "function",
+          "signature": "(objects, density=1.0, map_size=4096)",
+          "summary": "Scale each object's UVs (about its own UV bbox center) to the target texel density —",
+          "line": 158,
           "deprecated": false
         },
         {
@@ -498,7 +561,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all but the first UV map on the given mesh object(s) — \"Cleanup UV Sets\".",
-          "line": 39,
+          "line": 182,
           "deprecated": false
         }
       ],
@@ -506,7 +569,7 @@
         {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 46,
+          "line": 189,
           "bases": [],
           "members": []
         }
