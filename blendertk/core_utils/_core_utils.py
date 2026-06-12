@@ -100,6 +100,55 @@ def get_env_info(key=None):
     return info.get(key) if key is not None else info
 
 
+def get_recent_files(index=None):
+    """Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
+
+    Reads Blender's own ``recent-files.txt`` (the source of File ▸ Open Recent). ``index``
+    may be an int or slice. Missing files are filtered out.
+    """
+    import bpy
+
+    config_dir = bpy.utils.user_resource("CONFIG")
+    path = os.path.join(config_dir, "recent-files.txt") if config_dir else ""
+    files = []
+    if path and os.path.isfile(path):
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            files = [line.strip() for line in f if line.strip()]
+        files = [p for p in files if os.path.isfile(p)]
+    return files[index] if index is not None else files
+
+
+def get_recent_autosave(filter_time=24, timestamp_format="%H:%M:%S"):
+    """Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
+    (mirror of ``mtk.get_recent_autosave``). ``filter_time`` is the max age in hours.
+
+    Blender autosaves land in the temporary directory (Preferences ▸ File Paths, falling
+    back to the OS temp dir) as ``.blend`` files.
+    """
+    import time
+    import glob
+    import tempfile
+    import bpy
+
+    temp_dir = (
+        bpy.context.preferences.filepaths.temporary_directory or tempfile.gettempdir()
+    )
+    cutoff = time.time() - filter_time * 3600
+    results = []
+    for path in glob.glob(os.path.join(temp_dir, "*.blend")):
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if mtime >= cutoff:
+            results.append((path, mtime))
+    results.sort(key=lambda x: x[1], reverse=True)
+    return [
+        (path, time.strftime(timestamp_format, time.localtime(mtime)))
+        for path, mtime in results
+    ]
+
+
 class CoreUtils(ptk.CoreUtils):
     """Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
     ``mayatk.CoreUtils(ptk.CoreUtils, ...)``), inheriting the shared helpers and adding the
@@ -111,3 +160,5 @@ class CoreUtils(ptk.CoreUtils):
 
     undoable = staticmethod(undoable)
     get_env_info = staticmethod(get_env_info)
+    get_recent_files = staticmethod(get_recent_files)
+    get_recent_autosave = staticmethod(get_recent_autosave)

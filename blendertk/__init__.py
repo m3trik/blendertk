@@ -24,7 +24,13 @@ graphs) the name mirror is relaxed in favor of Blender-idiomatic names. Prefer a
 # Unified include dictionary; mirrors the mayatk pattern (list form exposes a class plus
 # module-level helpers, e.g. ["CoreUtils", "undoable", "get_env_info"]).
 DEFAULT_INCLUDE = {
-    "core_utils._core_utils": ["CoreUtils", "undoable", "get_env_info"],
+    "core_utils._core_utils": [
+        "CoreUtils",
+        "undoable",
+        "get_env_info",
+        "get_recent_files",
+        "get_recent_autosave",
+    ],
     "xform_utils._xform_utils": [
         "XformUtils",
         "freeze_transforms",
@@ -54,6 +60,29 @@ DEFAULT_INCLUDE = {
         "UiUtils",
         "open_editor",
         "get_editor_types",
+    ],
+    "mat_utils._mat_utils": [
+        "MatUtils",
+        "get_mats",
+        "create_mat",
+        "assign_mat",
+        "find_by_mat_id",
+        "select_by_material",
+        "reload_textures",
+    ],
+    "anim_utils._anim_utils": [
+        "AnimUtils",
+        "get_fcurves",
+        "shift_keys",
+        "invert_keys",
+        "stagger_keys",
+        "snap_keys",
+        "scale_keys",
+        "set_stepped",
+        "delete_keys",
+        "fit_playback_range",
+        "copy_keys",
+        "paste_keys",
     ],
     "edit_utils._edit_utils": [
         "EditUtils",
