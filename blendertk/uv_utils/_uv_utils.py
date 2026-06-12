@@ -26,6 +26,20 @@ def _uv_edit(obj, fn):
         _bmesh_edit(obj, fn)
 
 
+def _uv_read(obj, fn):
+    """Read-only variant of :func:`_uv_edit` — no mesh write-back (a get must not touch the
+    mesh) and no edit-bmesh update."""
+    import bmesh
+
+    if obj.mode == "EDIT":
+        fn(bmesh.from_edit_mesh(obj.data))
+    else:
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+        fn(bm)
+        bm.free()
+
+
 def move_uvs(objects, du=0.0, dv=0.0):
     """Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
     (whole UV map)."""
@@ -42,22 +56,33 @@ def move_uvs(objects, du=0.0, dv=0.0):
 
 
 def _uv_bounds(objects):
-    """Combined UV bounding box (min_u, min_v, max_u, max_v) across the meshes, or None."""
-    bounds = []
+    """Combined UV bounding box (min_u, min_v, max_u, max_v) across the meshes, or None.
+
+    Running min/max, not a coordinate list — dense (photogrammetry-scale) meshes would
+    otherwise materialize tens of millions of tuples. Read-only: a missing UV layer is
+    skipped, never created.
+    """
+    box = [float("inf"), float("inf"), float("-inf"), float("-inf")]
 
     def _gather(bm):
-        uvl = bm.loops.layers.uv.verify()
+        uvl = bm.loops.layers.uv.active
+        if uvl is None:
+            return
         for face in bm.faces:
             for loop in face.loops:
                 uv = loop[uvl].uv
-                bounds.append((uv.x, uv.y))
+                if uv.x < box[0]:
+                    box[0] = uv.x
+                if uv.y < box[1]:
+                    box[1] = uv.y
+                if uv.x > box[2]:
+                    box[2] = uv.x
+                if uv.y > box[3]:
+                    box[3] = uv.y
 
     for o in _meshes(objects):
-        _uv_edit(o, _gather)
-    if not bounds:
-        return None
-    us, vs = zip(*bounds)
-    return min(us), min(vs), max(us), max(vs)
+        _uv_read(o, _gather)
+    return None if box[0] == float("inf") else tuple(box)
 
 
 def transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0):
@@ -110,11 +135,13 @@ def _face_areas(obj, bm):
 
     World area via Newell's method, UV area via the shoelace formula — both exact for the
     simple (possibly non-convex) polygons real meshes carry; fan-triangulation would
-    overcount non-convex UV faces.
+    overcount non-convex UV faces. Read-only: a missing UV layer yields (0, 0).
     """
     from mathutils import Vector
 
-    uvl = bm.loops.layers.uv.verify()
+    uvl = bm.loops.layers.uv.active
+    if uvl is None:
+        return 0.0, 0.0
     mw = obj.matrix_world
     world_sum = uv_sum = 0.0
     for face in bm.faces:
@@ -148,7 +175,7 @@ def get_texel_density(objects, map_size):
         return _sum
 
     for o in _meshes(objects):
-        _uv_edit(o, _accumulate(o))
+        _uv_read(o, _accumulate(o))
     world_sum, uv_sum = totals
     if not world_sum or not uv_sum:
         return 0

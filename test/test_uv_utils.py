@@ -117,7 +117,15 @@ try:
     center = ((b[0] + b[1]) / 2.0, (b[2] + b[3]) / 2.0)
     check("set_texel_density scales about the UV bbox center",
           abs(center[0] - 0.5) < 1e-4 and abs(center[1] - 0.5) < 1e-4, f"center={center}")
-    check("get_texel_density keyless/empty -> 0", btk.get_texel_density([], 1024) == 0)
+    check("get_texel_density empty -> 0", btk.get_texel_density([], 1024) == 0)
+    # reads must not create a UV layer on a layerless mesh
+    reset()
+    bpy.ops.mesh.primitive_cube_add(); o = bpy.context.active_object
+    while o.data.uv_layers:
+        o.data.uv_layers.remove(o.data.uv_layers[0])
+    check("get_texel_density layerless -> 0, creates no layer",
+          btk.get_texel_density(o, 1024) == 0 and len(o.data.uv_layers) == 0,
+          f"layers={len(o.data.uv_layers)}")
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
