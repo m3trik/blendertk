@@ -88,6 +88,7 @@ DEFAULT_INCLUDE = {
         "EditUtils",
         "decimate",
         "dissolve_coplanar",
+        "boolean_op",
         "triangulate",
         "tris_to_quads",
         "subdivide_mesh",

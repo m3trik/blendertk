@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — 2026-06-12 (Phase-4 completion)
+
+The full tentacle Blender slot surface is now backed — blendertk = 9 util modules:
+
+- `ui_utils`: `open_editor` / `get_editor_types` (new-window `Area.ui_type` switch — the
+  Blender analogue of Maya's editor windows; 22 editors).
+- `mat_utils`: `get_mats`, `create_mat`, `assign_mat`, `find_by_mat_id`,
+  `select_by_material`, `reload_textures` (datablock-level; no shading engines).
+- `anim_utils`: `get_fcurves`, `shift/invert/stagger/snap/scale_keys`, `set_stepped`,
+  `delete_keys`, `fit_playback_range`, `copy/paste_keys`. **Slot-aware:** Blender 5.x drops
+  the legacy `Action.fcurves` (slotted/layered actions) — fcurves resolve via
+  `layers → strips → channelbag(slot)` with a legacy fallback; paste assigns the copied
+  action and its first slot.
+- `edit_utils.boolean_op`: Boolean-modifier orchestration (base = first object).
+- `core_utils`: `get_recent_files` (Blender's recent-files.txt) and `get_recent_autosave`
+  (temp-dir scan), mirroring the mayatk names.
+- New headless suite `test_mat_anim_utils.py` (16 checks); edit_utils suite extended.
+
 ## [Unreleased] — 2026-06-12 (review fixes)
 
 Full-port review fixes (regression cases added to `test/test_edit_utils.py`):

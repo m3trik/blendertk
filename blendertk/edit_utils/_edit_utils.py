@@ -122,6 +122,24 @@ def subdivide_mesh(objects, cuts=1):
     _bmesh_each(objects, _sub)
 
 
+@_object_mode
+def boolean_op(objects, operation="DIFFERENCE", apply=True):
+    """Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
+    Maya's boolean macros). ``operation``: ``UNION`` / ``DIFFERENCE`` / ``INTERSECT``.
+    ``apply`` bakes each modifier (destructive, matching Maya). Returns the base object."""
+    objs = _meshes(objects)
+    if len(objs) < 2:
+        return None
+    base, operands = objs[0], objs[1:]
+    for operand in operands:
+        mod = base.modifiers.new(name="Boolean", type="BOOLEAN")
+        mod.operation = operation
+        mod.object = operand
+        if apply:
+            _apply_modifier(base, mod.name)
+    return base
+
+
 def set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True):
     """Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
     smooth preview — the Blender analogue of Maya's smooth-mesh preview / smoothLevel).
@@ -273,6 +291,7 @@ class EditUtils:
 
     decimate = staticmethod(decimate)
     dissolve_coplanar = staticmethod(dissolve_coplanar)
+    boolean_op = staticmethod(boolean_op)
     triangulate = staticmethod(triangulate)
     tris_to_quads = staticmethod(tris_to_quads)
     subdivide_mesh = staticmethod(subdivide_mesh)

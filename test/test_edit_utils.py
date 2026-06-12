@@ -233,6 +233,15 @@ try:
     check("triangulate from EDIT -> 12 tris applied", faces(o) == 12, f"n={faces(o)}")
     check("triangulate from EDIT restores EDIT mode", restored == "EDIT", f"mode={restored}")
 
+    # boolean_op: cube minus overlapping cube — modifier applied, geometry changed
+    reset()
+    bpy.ops.mesh.primitive_cube_add(); base = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(1.0, 1.0, 1.0)); cutter = bpy.context.active_object
+    out = btk.boolean_op([base, cutter], operation="DIFFERENCE")
+    check("boolean_op returns base, modifier applied", out is base and len(base.modifiers) == 0)
+    check("boolean_op changed geometry", len(base.data.vertices) != 8,
+          f"v={len(base.data.vertices)}")
+
     # non-mesh objects are ignored (empty)
     reset()
     bpy.ops.object.empty_add(); e = bpy.context.active_object

@@ -6,14 +6,35 @@ _Generated: 2026-06-12_
 
 ## Index
 
+- [`anim_utils/_anim_utils.py`](#anim_utils--_anim_utils) — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - [`cam_utils/_cam_utils.py`](#cam_utils--_cam_utils) — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).
 - [`core_utils/_core_utils.py`](#core_utils--_core_utils) — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
+- [`mat_utils/_mat_utils.py`](#mat_utils--_mat_utils) — Material utilities — get/assign/create/select-by-material (mirror of mayatk's ``MatUtils``
 - [`node_utils/_node_utils.py`](#node_utils--_node_utils) — Node / datablock utilities — instancing via shared object data.
+- [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - [`xform_utils/_xform_utils.py`](#xform_utils--_xform_utils) — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 
 ---
+
+<a id="anim_utils--_anim_utils"></a>
+### `anim_utils/_anim_utils.py`
+
+Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
+
+- [`get_fcurves(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L46) — All fcurves across the given objects' actions (slot-aware;
+- [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L60) — Shift every key of the given objects by ``offset`` frames.
+- [`invert_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L70) — Mirror key times about the center of each object's own key range (reverses the motion).
+- [`stagger_keys(objects, spacing=5)`](blendertk/blendertk/anim_utils/_anim_utils.py#L86) — Re-time the objects sequentially: each object's keys start ``spacing`` frames after the
+- [`snap_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L108) — Snap every key to whole frames.
+- [`scale_keys(objects, factor, pivot=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L116) — Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).
+- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L132) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
+- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L141) — Remove all animation from the given objects.
+- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L151) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
+- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L168) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
+- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L174) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
+- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L191)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="cam_utils--_cam_utils"></a>
 ### `cam_utils/_cam_utils.py`
@@ -30,7 +51,9 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
 - [`undoable(fn)`](blendertk/blendertk/core_utils/_core_utils.py#L18) — Wrap ``fn`` so its changes collapse into a single Blender undo step.
 - [`get_env_info(key=None)`](blendertk/blendertk/core_utils/_core_utils.py#L77) — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
-- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L103)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- [`get_recent_files(index=None)`](blendertk/blendertk/core_utils/_core_utils.py#L103) — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
+- [`get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`](blendertk/blendertk/core_utils/_core_utils.py#L121) — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
+- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L152)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
 
 <a id="edit_utils--_edit_utils"></a>
 ### `edit_utils/_edit_utils.py`
@@ -42,14 +65,28 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
 - [`triangulate(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L89) — Triangulate all faces of the given mesh object(s) (bmesh, headless).
 - [`tris_to_quads(objects, angle=40.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L97) — Merge adjacent triangles back into quads where the face/shape angle is within ``angle``
 - [`subdivide_mesh(objects, cuts=1)`](blendertk/blendertk/edit_utils/_edit_utils.py#L115) — Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions".
-- [`set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L125) — Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
-- [`set_shading(objects, smooth=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L149) — Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the
-- [`set_edge_hardness(objects, angle=30.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L160) — Smooth-shade, then mark edges **sharp** where the dihedral angle ≥ ``angle`` degrees —
-- [`flip_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L178) — Reverse face winding / normals (bmesh ``reverse_faces``, headless).
-- [`recalculate_normals(objects, inside=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L186) — Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).
-- [`clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L200) — Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
-- [`crease_edges(objects, amount=10.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L243) — Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
-- **[`class EditUtils`](blendertk/blendertk/edit_utils/_edit_utils.py#L271)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- [`boolean_op(objects, operation='DIFFERENCE', apply=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L126) — Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
+- [`set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L143) — Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
+- [`set_shading(objects, smooth=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L167) — Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the
+- [`set_edge_hardness(objects, angle=30.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L178) — Smooth-shade, then mark edges **sharp** where the dihedral angle ≥ ``angle`` degrees —
+- [`flip_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L196) — Reverse face winding / normals (bmesh ``reverse_faces``, headless).
+- [`recalculate_normals(objects, inside=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L204) — Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).
+- [`clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L218) — Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
+- [`crease_edges(objects, amount=10.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L261) — Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
+- **[`class EditUtils`](blendertk/blendertk/edit_utils/_edit_utils.py#L289)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+
+<a id="mat_utils--_mat_utils"></a>
+### `mat_utils/_mat_utils.py`
+
+Material utilities — get/assign/create/select-by-material (mirror of mayatk's ``MatUtils``
+
+- [`get_mats(objects)`](blendertk/blendertk/mat_utils/_mat_utils.py#L15) — Unique materials assigned to the given object(s), in slot order.
+- [`create_mat(mat_type='standard', name='')`](blendertk/blendertk/mat_utils/_mat_utils.py#L25) — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
+- [`assign_mat(objects, material)`](blendertk/blendertk/mat_utils/_mat_utils.py#L47) — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
+- [`find_by_mat_id(material, objects=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L61) — Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).
+- [`select_by_material(material, add=False)`](blendertk/blendertk/mat_utils/_mat_utils.py#L76) — Select every scene object using ``material`` (optionally adding to the selection).
+- [`reload_textures()`](blendertk/blendertk/mat_utils/_mat_utils.py#L91) — Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).
+- **[`class MatUtils`](blendertk/blendertk/mat_utils/_mat_utils.py#L103)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
 
 <a id="node_utils--_node_utils"></a>
 ### `node_utils/_node_utils.py`
@@ -60,6 +97,15 @@ Node / datablock utilities — instancing via shared object data.
 - [`replace_with_instances(objects, freeze_transforms=False, center_pivot=False, delete_history=False)`](blendertk/blendertk/node_utils/_node_utils.py#L41) — Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked
 - [`uninstance(objects)`](blendertk/blendertk/node_utils/_node_utils.py#L71) — Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
 - **[`class NodeUtils`](blendertk/blendertk/node_utils/_node_utils.py#L84)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
+
+<a id="ui_utils--_ui_utils"></a>
+### `ui_utils/_ui_utils.py`
+
+UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
+
+- [`get_editor_types()`](blendertk/blendertk/ui_utils/_ui_utils.py#L40) — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
+- [`open_editor(editor)`](blendertk/blendertk/ui_utils/_ui_utils.py#L45) — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
+- **[`class UiUtils`](blendertk/blendertk/ui_utils/_ui_utils.py#L68)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="uv_utils--_uv_utils"></a>
 ### `uv_utils/_uv_utils.py`

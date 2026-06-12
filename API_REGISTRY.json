@@ -4,6 +4,120 @@
   "generated_at": "2026-06-12",
   "modules": [
     {
+      "relpath": "anim_utils/_anim_utils.py",
+      "summary": "Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's",
+      "functions": [
+        {
+          "name": "get_fcurves",
+          "qualname": "get_fcurves",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "All fcurves across the given objects' actions (slot-aware;",
+          "line": 46,
+          "deprecated": false
+        },
+        {
+          "name": "shift_keys",
+          "qualname": "shift_keys",
+          "kind": "function",
+          "signature": "(objects, offset)",
+          "summary": "Shift every key of the given objects by ``offset`` frames.",
+          "line": 60,
+          "deprecated": false
+        },
+        {
+          "name": "invert_keys",
+          "qualname": "invert_keys",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Mirror key times about the center of each object's own key range (reverses the motion).",
+          "line": 70,
+          "deprecated": false
+        },
+        {
+          "name": "stagger_keys",
+          "qualname": "stagger_keys",
+          "kind": "function",
+          "signature": "(objects, spacing=5)",
+          "summary": "Re-time the objects sequentially: each object's keys start ``spacing`` frames after the",
+          "line": 86,
+          "deprecated": false
+        },
+        {
+          "name": "snap_keys",
+          "qualname": "snap_keys",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Snap every key to whole frames.",
+          "line": 108,
+          "deprecated": false
+        },
+        {
+          "name": "scale_keys",
+          "qualname": "scale_keys",
+          "kind": "function",
+          "signature": "(objects, factor, pivot=None)",
+          "summary": "Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).",
+          "line": 116,
+          "deprecated": false
+        },
+        {
+          "name": "set_stepped",
+          "qualname": "set_stepped",
+          "kind": "function",
+          "signature": "(objects, stepped=True)",
+          "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
+          "line": 132,
+          "deprecated": false
+        },
+        {
+          "name": "delete_keys",
+          "qualname": "delete_keys",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Remove all animation from the given objects.",
+          "line": 141,
+          "deprecated": false
+        },
+        {
+          "name": "fit_playback_range",
+          "qualname": "fit_playback_range",
+          "kind": "function",
+          "signature": "(objects=None)",
+          "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
+          "line": 151,
+          "deprecated": false
+        },
+        {
+          "name": "copy_keys",
+          "qualname": "copy_keys",
+          "kind": "function",
+          "signature": "(source)",
+          "summary": "Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).",
+          "line": 168,
+          "deprecated": false
+        },
+        {
+          "name": "paste_keys",
+          "qualname": "paste_keys",
+          "kind": "function",
+          "signature": "(objects, action)",
+          "summary": "Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).",
+          "line": 174,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "AnimUtils",
+          "summary": "Namespace mirror (helpers also exposed module-level).",
+          "line": 191,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
       "relpath": "cam_utils/_cam_utils.py",
       "summary": "Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).",
       "functions": [
@@ -48,13 +162,31 @@
           "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
           "line": 77,
           "deprecated": false
+        },
+        {
+          "name": "get_recent_files",
+          "qualname": "get_recent_files",
+          "kind": "function",
+          "signature": "(index=None)",
+          "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
+          "line": 103,
+          "deprecated": false
+        },
+        {
+          "name": "get_recent_autosave",
+          "qualname": "get_recent_autosave",
+          "kind": "function",
+          "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
+          "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
+          "line": 121,
+          "deprecated": false
         }
       ],
       "classes": [
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 103,
+          "line": 152,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -112,12 +244,21 @@
           "deprecated": false
         },
         {
+          "name": "boolean_op",
+          "qualname": "boolean_op",
+          "kind": "function",
+          "signature": "(objects, operation='DIFFERENCE', apply=True)",
+          "summary": "Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for",
+          "line": 126,
+          "deprecated": false
+        },
+        {
           "name": "set_subdivision",
           "qualname": "set_subdivision",
           "kind": "function",
           "signature": "(objects, viewport_levels=None, render_levels=None, ensure=True)",
           "summary": "Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive",
-          "line": 125,
+          "line": 143,
           "deprecated": false
         },
         {
@@ -126,7 +267,7 @@
           "kind": "function",
           "signature": "(objects, smooth=True)",
           "summary": "Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the",
-          "line": 149,
+          "line": 167,
           "deprecated": false
         },
         {
@@ -135,7 +276,7 @@
           "kind": "function",
           "signature": "(objects, angle=30.0)",
           "summary": "Smooth-shade, then mark edges **sharp** where the dihedral angle ≥ ``angle`` degrees —",
-          "line": 160,
+          "line": 178,
           "deprecated": false
         },
         {
@@ -144,7 +285,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Reverse face winding / normals (bmesh ``reverse_faces``, headless).",
-          "line": 178,
+          "line": 196,
           "deprecated": false
         },
         {
@@ -153,7 +294,7 @@
           "kind": "function",
           "signature": "(objects, inside=False)",
           "summary": "Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).",
-          "line": 186,
+          "line": 204,
           "deprecated": false
         },
         {
@@ -162,7 +303,7 @@
           "kind": "function",
           "signature": "(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)",
           "summary": "Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose",
-          "line": 200,
+          "line": 218,
           "deprecated": false
         },
         {
@@ -171,7 +312,7 @@
           "kind": "function",
           "signature": "(objects, amount=10.0)",
           "summary": "Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's",
-          "line": 243,
+          "line": 261,
           "deprecated": false
         }
       ],
@@ -179,7 +320,76 @@
         {
           "name": "EditUtils",
           "summary": "Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).",
-          "line": 271,
+          "line": 289,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "mat_utils/_mat_utils.py",
+      "summary": "Material utilities — get/assign/create/select-by-material (mirror of mayatk's ``MatUtils``",
+      "functions": [
+        {
+          "name": "get_mats",
+          "qualname": "get_mats",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Unique materials assigned to the given object(s), in slot order.",
+          "line": 15,
+          "deprecated": false
+        },
+        {
+          "name": "create_mat",
+          "qualname": "create_mat",
+          "kind": "function",
+          "signature": "(mat_type='standard', name='')",
+          "summary": "Create a new material (mirror of ``mtk.MatUtils.create_mat``).",
+          "line": 25,
+          "deprecated": false
+        },
+        {
+          "name": "assign_mat",
+          "qualname": "assign_mat",
+          "kind": "function",
+          "signature": "(objects, material)",
+          "summary": "Assign ``material`` to the given object(s) — whole-object assignment (all slots).",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "find_by_mat_id",
+          "qualname": "find_by_mat_id",
+          "kind": "function",
+          "signature": "(material, objects=None)",
+          "summary": "Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).",
+          "line": 61,
+          "deprecated": false
+        },
+        {
+          "name": "select_by_material",
+          "qualname": "select_by_material",
+          "kind": "function",
+          "signature": "(material, add=False)",
+          "summary": "Select every scene object using ``material`` (optionally adding to the selection).",
+          "line": 76,
+          "deprecated": false
+        },
+        {
+          "name": "reload_textures",
+          "qualname": "reload_textures",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).",
+          "line": 91,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "MatUtils",
+          "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
+          "line": 103,
           "bases": [],
           "members": []
         }
@@ -222,6 +432,39 @@
           "name": "NodeUtils",
           "summary": "Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).",
           "line": 84,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "ui_utils/_ui_utils.py",
+      "summary": "UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).",
+      "functions": [
+        {
+          "name": "get_editor_types",
+          "qualname": "get_editor_types",
+          "kind": "function",
+          "signature": "()",
+          "summary": "The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.",
+          "line": 40,
+          "deprecated": false
+        },
+        {
+          "name": "open_editor",
+          "qualname": "open_editor",
+          "kind": "function",
+          "signature": "(editor)",
+          "summary": "Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)",
+          "line": 45,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "UiUtils",
+          "summary": "Namespace mirror (helpers also exposed module-level).",
+          "line": 68,
           "bases": [],
           "members": []
         }
