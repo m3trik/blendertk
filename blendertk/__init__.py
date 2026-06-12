@@ -50,6 +50,11 @@ DEFAULT_INCLUDE = {
         "move_uvs",
         "delete_extra_uv_sets",
     ],
+    "ui_utils._ui_utils": [
+        "UiUtils",
+        "open_editor",
+        "get_editor_types",
+    ],
     "edit_utils._edit_utils": [
         "EditUtils",
         "decimate",
