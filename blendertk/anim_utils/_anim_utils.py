@@ -190,8 +190,11 @@ def add_intermediate_keys(objects, step=1.0):
             if not near:
                 frames.append(f)
             f += step
-        for f in frames:
-            pts.insert(f, fc.evaluate(f))
+        # Sample BEFORE inserting: each insert re-smooths the curve's handles, so
+        # evaluating as we go would drift later samples off the original curve.
+        samples = [(f, fc.evaluate(f)) for f in frames]
+        for f, v in samples:
+            pts.insert(f, v)
             added += 1
         fc.update()
     return added
