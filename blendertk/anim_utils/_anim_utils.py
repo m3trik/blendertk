@@ -77,24 +77,26 @@ def move_keys_to_frame(objects, frame=None, retain_spacing=True):
 
     ``retain_spacing=True`` applies one global offset — the earliest key across the selection
     lands on ``frame`` and relative timing between objects is kept; ``False`` aligns each
-    action's own first key to ``frame``. Returns the number of actions moved.
+    action's own first key to ``frame``. Returns the number of keyed actions (an already-
+    aligned action counts — it is at the target).
     """
     import bpy
 
     if frame is None:
         frame = bpy.context.scene.frame_current
-    pairs = [
-        (action, slot, rng)
-        for action, slot in _actions(objects)
-        if (rng := _key_range(_slot_fcurves(action, slot)))
-    ]
+    pairs = []
+    for action, slot in _actions(objects):
+        fcurves = _slot_fcurves(action, slot)
+        rng = _key_range(fcurves)
+        if rng:
+            pairs.append((fcurves, rng))
     if not pairs:
         return 0
-    global_offset = frame - min(rng[0] for _a, _s, rng in pairs)
-    for action, slot, rng in pairs:
+    global_offset = frame - min(rng[0] for _fc, rng in pairs)
+    for fcurves, rng in pairs:
         offset = global_offset if retain_spacing else frame - rng[0]
         if offset:
-            _shift_fcurves(_slot_fcurves(action, slot), offset)
+            _shift_fcurves(fcurves, offset)
     return len(pairs)
 
 
