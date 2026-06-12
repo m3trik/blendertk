@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] — 2026-06-12 (final anim helpers + aggregate test runner)
+
+- `anim_utils`: + `add_intermediate_keys` (sampled key every ``step`` frames between each
+  fcurve's endpoints, bisect-guarded against existing keys), `remove_intermediate_keys`
+  (keeps only the endpoints — Maya tooltip semantics), `select_keys`
+  (`select_control_point` by all/range, mirror of `mtk.select_keys`). Mat/anim suite 31/31.
+- `test/Run-Tests.ps1`: aggregate runner — every suite in its own fresh background Blender,
+  `===RESULT===` sentinels collected, non-zero exit on any failure.
+
 ## [Unreleased] — 2026-06-12 (stub-deepening batch: uv + anim helpers)
 
 - `uv_utils`: + `get_texel_density` / `set_texel_density` (mirror of mtk — density =

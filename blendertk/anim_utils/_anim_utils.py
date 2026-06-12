@@ -168,6 +168,64 @@ def set_visibility_keys(objects, visible=True, frame=None):
     return keyed
 
 
+def add_intermediate_keys(objects, step=1.0):
+    """Insert sampled keys every ``step`` frames between each fcurve's first and last key
+    (existing keys untouched) — mirror of ``mtk.add_intermediate_keys``. Returns keys added."""
+    import bisect
+
+    added = 0
+    for fc in _fcurves(objects):
+        pts = fc.keyframe_points
+        if len(pts) < 2:
+            continue
+        existing = sorted(k.co.x for k in pts)
+        start, end = existing[0], existing[-1]
+        frames = []
+        f = start + step
+        while f < end - 1e-6:
+            i = bisect.bisect_left(existing, f)
+            near = any(
+                abs(existing[j] - f) <= 1e-4 for j in (i - 1, i) if 0 <= j < len(existing)
+            )
+            if not near:
+                frames.append(f)
+            f += step
+        for f in frames:
+            pts.insert(f, fc.evaluate(f))
+            added += 1
+        fc.update()
+    return added
+
+
+def remove_intermediate_keys(objects):
+    """Remove every key strictly between each fcurve's first and last (keeps only the
+    endpoints) — mirror of ``mtk.remove_intermediate_keys``. Returns keys removed."""
+    removed = 0
+    for fc in _fcurves(objects):
+        pts = fc.keyframe_points
+        while len(pts) > 2:
+            pts.remove(pts[1], fast=True)
+            removed += 1
+        fc.update()
+    return removed
+
+
+def select_keys(objects, time=None, add_to_selection=False):
+    """Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
+    Graph Editor) — mirror of ``mtk.select_keys``. ``time`` is None for all keys or a
+    ``(start, end)`` frame range; ``add_to_selection`` keeps out-of-range keys selected.
+    Returns the number of keys selected."""
+    selected = 0
+    for fc in _fcurves(objects):
+        for k in fc.keyframe_points:
+            if time is None or time[0] <= k.co.x <= time[1]:
+                k.select_control_point = True
+                selected += 1
+            elif not add_to_selection:
+                k.select_control_point = False
+    return selected
+
+
 def invert_keys(objects):
     """Mirror key times about the center of each object's own key range (reverses the motion)."""
     for action, slot in _actions(objects):
@@ -293,6 +351,9 @@ class AnimUtils:
     adjust_key_spacing = staticmethod(adjust_key_spacing)
     align_selected_keyframes = staticmethod(align_selected_keyframes)
     set_visibility_keys = staticmethod(set_visibility_keys)
+    add_intermediate_keys = staticmethod(add_intermediate_keys)
+    remove_intermediate_keys = staticmethod(remove_intermediate_keys)
+    select_keys = staticmethod(select_keys)
     invert_keys = staticmethod(invert_keys)
     stagger_keys = staticmethod(stagger_keys)
     snap_keys = staticmethod(snap_keys)

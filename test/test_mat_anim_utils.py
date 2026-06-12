@@ -125,6 +125,21 @@ try:
     check("align_selected_keyframes none selected -> 0",
           btk.align_selected_keyframes(a) == 0)
 
+    # intermediate keys: a = 60,70 -> sampled key on every frame between (61..69)
+    added = btk.add_intermediate_keys(a)
+    check("add_intermediate_keys fills the span", added == 9 and len(key_times(a)) == 11,
+          f"added={added} n={len(key_times(a))}")
+    removed = btk.remove_intermediate_keys(a)
+    check("remove_intermediate_keys keeps endpoints",
+          removed == 9 and key_times(a) == [60.0, 70.0], f"{key_times(a)}")
+
+    # select_keys: range selects in-range, deselects the rest; None = all
+    n = btk.select_keys(a, time=(65, 75))
+    sel = [k.co.x for fc in btk.get_fcurves(a) for k in fc.keyframe_points
+           if k.select_control_point]
+    check("select_keys range", n == 1 and sel == [70.0], f"n={n} sel={sel}")
+    check("select_keys all", btk.select_keys(a) == 2)
+
     # set_visibility_keys: keys hide_viewport/hide_render at the frame
     keyed = btk.set_visibility_keys(b, visible=False, frame=42)
     vis_curves = [

@@ -62,12 +62,39 @@
           "deprecated": false
         },
         {
+          "name": "add_intermediate_keys",
+          "qualname": "add_intermediate_keys",
+          "kind": "function",
+          "signature": "(objects, step=1.0)",
+          "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
+          "line": 171,
+          "deprecated": false
+        },
+        {
+          "name": "remove_intermediate_keys",
+          "qualname": "remove_intermediate_keys",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
+          "line": 200,
+          "deprecated": false
+        },
+        {
+          "name": "select_keys",
+          "qualname": "select_keys",
+          "kind": "function",
+          "signature": "(objects, time=None, add_to_selection=False)",
+          "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
+          "line": 213,
+          "deprecated": false
+        },
+        {
           "name": "invert_keys",
           "qualname": "invert_keys",
           "kind": "function",
           "signature": "(objects)",
           "summary": "Mirror key times about the center of each object's own key range (reverses the motion).",
-          "line": 171,
+          "line": 229,
           "deprecated": false
         },
         {
@@ -76,7 +103,7 @@
           "kind": "function",
           "signature": "(objects, spacing=5)",
           "summary": "Re-time the objects sequentially: each object's keys start ``spacing`` frames after the",
-          "line": 187,
+          "line": 245,
           "deprecated": false
         },
         {
@@ -85,7 +112,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Snap every key to whole frames.",
-          "line": 204,
+          "line": 262,
           "deprecated": false
         },
         {
@@ -94,7 +121,7 @@
           "kind": "function",
           "signature": "(objects, factor, pivot=None)",
           "summary": "Scale key times by ``factor`` about ``pivot`` (defaults to each action's first key).",
-          "line": 212,
+          "line": 270,
           "deprecated": false
         },
         {
@@ -103,7 +130,7 @@
           "kind": "function",
           "signature": "(objects, stepped=True)",
           "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-          "line": 228,
+          "line": 286,
           "deprecated": false
         },
         {
@@ -112,7 +139,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all animation from the given objects.",
-          "line": 237,
+          "line": 295,
           "deprecated": false
         },
         {
@@ -121,7 +148,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-          "line": 247,
+          "line": 305,
           "deprecated": false
         },
         {
@@ -130,7 +157,7 @@
           "kind": "function",
           "signature": "(source)",
           "summary": "Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).",
-          "line": 264,
+          "line": 322,
           "deprecated": false
         },
         {
@@ -139,7 +166,7 @@
           "kind": "function",
           "signature": "(objects, action)",
           "summary": "Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).",
-          "line": 270,
+          "line": 328,
           "deprecated": false
         }
       ],
@@ -147,7 +174,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 287,
+          "line": 345,
           "bases": [],
           "members": []
         }
@@ -516,7 +543,7 @@
           "kind": "function",
           "signature": "(objects, du=0.0, dv=0.0)",
           "summary": "Translate the UVs of the given mesh object(s) by ``(du, dv)`` — \"move to UV space\"",
-          "line": 29,
+          "line": 43,
           "deprecated": false
         },
         {
@@ -525,7 +552,7 @@
           "kind": "function",
           "signature": "(objects, flip_u=False, flip_v=False, angle=0.0)",
           "summary": "Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s) about",
-          "line": 63,
+          "line": 88,
           "deprecated": false
         },
         {
@@ -534,7 +561,7 @@
           "kind": "function",
           "signature": "(objects, pin=True, selected_only=True)",
           "summary": "Pin/unpin UVs (bmesh ``pin_uv``).",
-          "line": 92,
+          "line": 117,
           "deprecated": false
         },
         {
@@ -543,7 +570,7 @@
           "kind": "function",
           "signature": "(objects, map_size)",
           "summary": "Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —",
-          "line": 134,
+          "line": 161,
           "deprecated": false
         },
         {
@@ -552,7 +579,7 @@
           "kind": "function",
           "signature": "(objects, density=1.0, map_size=4096)",
           "summary": "Scale each object's UVs (about its own UV bbox center) to the target texel density —",
-          "line": 158,
+          "line": 185,
           "deprecated": false
         },
         {
@@ -561,7 +588,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all but the first UV map on the given mesh object(s) — \"Cleanup UV Sets\".",
-          "line": 182,
+          "line": 209,
           "deprecated": false
         }
       ],
@@ -569,7 +596,7 @@
         {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 189,
+          "line": 216,
           "bases": [],
           "members": []
         }
