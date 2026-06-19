@@ -88,6 +88,28 @@ try:
     check("uninstance fake-user single object -> no copy",
           btk.uninstance([A]) == [] and A.data.use_fake_user, f"data.users={A.data.users}")
 
+    # --- hierarchy helpers: get_parent / get_children / get_shape / reparent ---
+    reset()
+    p = cube("Parent", (0, 0, 0))
+    c1 = cube("Child1", (5, 0, 0))
+    c2 = cube("Child2", (0, 5, 0))
+    w1 = tuple(round(v, 3) for v in c1.matrix_world.translation)
+    out = btk.reparent([c1, c2], p)
+    check("reparent sets parent + keeps world transform",
+          out == [c1, c2] and c1.parent is p
+          and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1, f"{w1}")
+    check("get_parent immediate", btk.get_parent(c1) is p)
+    check("get_children", set(btk.get_children(p)) == {c1, c2})
+    g = cube("Grand", (5, 5, 0))
+    btk.reparent(g, c1)
+    check("get_children recursive", set(btk.get_children(p, recursive=True)) == {c1, c2, g})
+    check("get_parent all -> ancestor chain", btk.get_parent(g, all=True) == [c1, p])
+    check("get_shape returns object data", btk.get_shape(c1) is c1.data)
+    btk.reparent(c1, None)   # unparent, keep transform
+    check("reparent to None unparents",
+          c1.parent is None and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1)
+    check("reparent skips self-parent", btk.reparent([p], p) == [])
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

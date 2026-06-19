@@ -34,6 +34,9 @@ venv/
 *.bak
 *.log
 
+# Compiled Switchboard UI (regenerated from the co-located .ui by the loader; .ui is the SSoT)
+*_ui.py
+
 # Test artifacts (regenerated each run)
 test/temp_tests/
 test/logs/

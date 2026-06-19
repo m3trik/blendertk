@@ -1,9 +1,11 @@
 # blendertk — API Changes
 
-_Diff vs prior baseline. Generated 2026-06-12._
+_Diff vs prior baseline. Generated 2026-06-19._
 
-## Added (3)
+## Removed (1)
 
-- `anim_utils/_anim_utils.py::add_intermediate_keys(objects, step=1.0)`
-- `anim_utils/_anim_utils.py::remove_intermediate_keys(objects)`
-- `anim_utils/_anim_utils.py::select_keys(objects, time=None, add_to_selection=False)`
+- `light_utils/hdr_manager.py::HdrManagerSlots.b000` — was `(self)`
+
+## Added (1)
+
+- `light_utils/hdr_manager.py::HdrManagerSlots.cmb000(self, index, widget)`

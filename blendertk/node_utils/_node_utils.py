@@ -81,9 +81,60 @@ def uninstance(objects):
     return result
 
 
+def get_parent(obj, all=False):
+    """The object's parent — mirror of ``mtk.get_parent``. ``all=True`` returns the full
+    ancestor chain (immediate parent first)."""
+    if not all:
+        return getattr(obj, "parent", None)
+    chain = []
+    node = getattr(obj, "parent", None)
+    while node is not None:
+        chain.append(node)
+        node = node.parent
+    return chain
+
+
+def get_children(obj, recursive=False):
+    """The object's children — mirror of ``mtk.get_children``. ``recursive=True`` returns the
+    whole descendant subtree."""
+    if recursive:
+        return list(getattr(obj, "children_recursive", []))
+    return list(getattr(obj, "children", []))
+
+
+def get_shape(obj):
+    """The object's data datablock (mesh/curve/…) — the Blender analogue of Maya's shape node
+    under a transform (mirror of ``mtk.get_shape``). Returns ``None`` for data-less objects
+    (e.g. Empties)."""
+    return getattr(obj, "data", None)
+
+
+def reparent(objects, parent, keep_transform=True):
+    """Parent ``objects`` under ``parent`` (``None`` to unparent) — mirror of ``mtk.reparent``.
+
+    ``keep_transform`` preserves each object's world position (Blender's "Keep Transform").
+    Skips parenting an object to itself. Returns the reparented objects.
+    """
+    import bpy
+
+    out = []
+    for o in (x for x in ptk.make_iterable(objects) if x is not None and x is not parent):
+        world = o.matrix_world.copy()
+        o.parent = parent
+        if keep_transform:
+            o.matrix_world = world
+        out.append(o)
+    bpy.context.view_layer.update()
+    return out
+
+
 class NodeUtils:
     """Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level)."""
 
     get_instances = staticmethod(get_instances)
     replace_with_instances = staticmethod(replace_with_instances)
     uninstance = staticmethod(uninstance)
+    get_parent = staticmethod(get_parent)
+    get_children = staticmethod(get_children)
+    get_shape = staticmethod(get_shape)
+    reparent = staticmethod(reparent)
