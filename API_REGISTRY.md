@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-06-19_
+_Generated: 2026-06-21_
 
 ## Index
 
@@ -39,13 +39,8 @@ _Generated: 2026-06-19_
 - [`env_utils/maya_bridge/_maya_bridge.py`](#env_utils--maya_bridge--_maya_bridge) — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 - [`env_utils/maya_bridge/maya_bridge_slots.py`](#env_utils--maya_bridge--maya_bridge_slots) — Slots for the Maya bridge panel.
 - [`env_utils/maya_bridge/parameters.py`](#env_utils--maya_bridge--parameters) — Registry of user-tunable Maya-bridge parameters exposed to the panel.
-- [`env_utils/maya_bridge/templates/import.py`](#env_utils--maya_bridge--templates--import) — Import the bridged FBX into the current Maya scene.
-- [`env_utils/maya_bridge/templates/import_and_frame.py`](#env_utils--maya_bridge--templates--import_and_frame) — Import the bridged FBX, select the new top-level objects, and frame them in the viewport.
-- [`env_utils/maya_bridge/templates/new_scene.py`](#env_utils--maya_bridge--templates--new_scene) — Open a new (empty) Maya scene, then import the bridged FBX -- a clean-slate hand-off when the
+- [`env_utils/maya_bridge/templates/import.py`](#env_utils--maya_bridge--templates--import) — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 - [`env_utils/reference_manager.py`](#env_utils--reference_manager) — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
-- [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
-- [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel.
-- [`env_utils/unity_bridge/unity_bridge_slots.py`](#env_utils--unity_bridge--unity_bridge_slots) — Slots for the Blender->Unity bridge panel.
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — HDR Manager tool panel — Switchboard slot wiring for the co-located ``hdr_manager.ui``.
 - [`light_utils/lightmap_baker/lightmap_baker.py`](#light_utils--lightmap_baker--lightmap_baker) — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
@@ -566,30 +561,16 @@ Slots for the Maya bridge panel.
 
 Registry of user-tunable Maya-bridge parameters exposed to the panel.
 
-- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L90) — Registered keys present in *script_text* (delegates to uitk.bridge).
-- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L95) — Return ``{key: default}`` for every registered parameter.
-- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L100) — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
+- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L106) — Registered keys present in *script_text* (delegates to uitk.bridge).
+- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L111) — Return ``{key: default}`` for every registered parameter.
+- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L116) — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
 
-Import the bridged FBX into the current Maya scene.
+Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L16)
-
-<a id="env_utils--maya_bridge--templates--import_and_frame"></a>
-### `env_utils/maya_bridge/templates/import_and_frame.py`
-
-Import the bridged FBX, select the new top-level objects, and frame them in the viewport.
-
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import_and_frame.py#L17)
-
-<a id="env_utils--maya_bridge--templates--new_scene"></a>
-### `env_utils/maya_bridge/templates/new_scene.py`
-
-Open a new (empty) Maya scene, then import the bridged FBX -- a clean-slate hand-off when the
-
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/new_scene.py#L17)
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L26)
 
 <a id="env_utils--reference_manager"></a>
 ### `env_utils/reference_manager.py`
@@ -616,37 +597,6 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
   - `ReferenceManagerSlots.reload_all(self)` — Reload every linked library from disk (Maya's Update References).
   - `ReferenceManagerSlots.make_local_all(self)` — Make every linked library's data local (Maya's Unlink-and-Import All).
   - `ReferenceManagerSlots.remove_all(self)` — Remove every linked library and its data (Maya's Un-Reference All).
-
-<a id="env_utils--unity_bridge--_unity_bridge"></a>
-### `env_utils/unity_bridge/_unity_bridge.py`
-
-Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
-
-- [`list_delivery_modes() -> List[Tuple[str, str]]`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L30) — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
-- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L38)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
-  - `UnityBridge.list_template_modes(self)`
-  - `UnityBridge.params_defaults(self)`
-
-<a id="env_utils--unity_bridge--parameters"></a>
-### `env_utils/unity_bridge/parameters.py`
-
-User-tunable parameters for the Blender->Unity bridge panel.
-
-- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L95) — Registered keys present in *script_text* (delegates to uitk.bridge).
-- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L100) — Return ``{key: default}`` for every registered parameter.
-- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L105) — Format *values* for substitution (kept for API parity;
-
-<a id="env_utils--unity_bridge--unity_bridge_slots"></a>
-### `env_utils/unity_bridge/unity_bridge_slots.py`
-
-Slots for the Blender->Unity bridge panel.
-
-- **[`class UnityBridgeSlots(BridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L28)** — Slots wired to ``unity_bridge.ui`` via :class:`BridgeSlotsBase`.
-  - `UnityBridgeSlots.params_module(self)` *(property)*
-  - `UnityBridgeSlots.template_dir(self) -> Path` *(property)*
-  - `UnityBridgeSlots.make_bridge(self) -> UnityBridge`
-  - `UnityBridgeSlots.list_template_modes(self)`
-  - `UnityBridgeSlots.b000(self)` — Export the selected objects and copy them into the Unity project.
 
 <a id="light_utils--_light_utils"></a>
 ### `light_utils/_light_utils.py`

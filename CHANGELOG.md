@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+- **2026-06-19 Unity bridge REMOVED from blendertk — Blender now reuses the extapps `unity_workflow`
+  panel (marmoset/substance architecture).** The blendertk `env_utils/unity_bridge` package (a
+  byte-identical mirror of mayatk's) is deleted. Blender's "Unity Bridge" now follows the same
+  "reuse the DCC-agnostic extapps panel" pattern as its Marmoset/Substance bridges: tentacle's
+  Blender slot exports the selection to FBX and hands it to the rebuilt `extapps.unity_workflow`
+  (file-driven `BridgeSlotsBase`, engine = `unitytk.FileToUnityBridge`) via `set_model_path`. This
+  removes the duplicate panel + its `parameters.py`/`_unity_bridge.py`/`.ui`; mayatk keeps its
+  native selection-driven `unity_bridge` (Maya was always native, as with marmoset). Removed
+  `test_unity_bridge.py`; dropped `unity_bridge` from `test_blender_ui_handler.py`'s expected panels.
+  (The option-box / `LAUNCH_MODE` / Studio-removal work below was on the now-deleted panel and is
+  superseded — its substance lives on in the shared `unitytk` engine + the extapps panel.)
+- **2026-06-19 Unity bridge — Unity Project field gets option-box buttons; project actions off the
+  header (parity with mayatk).** Following uitk's `BridgeSlotsBase` switch to option-box buttons on
+  the Output Dir row, the **Unity Project** field overrides `_configure_output_dir_options` to show a
+  recent-projects history button + an option menu (▾) with **Set Project…** (shared `_pick_output_dir`
+  browse), **Open Unity Project**, **New Unity Project…** — moved off the header (`HEADER_MENU_ITEMS`
+  is now just Clear Log). Old `...` button gone. `compare_panel_surface.py --panel unity_bridge` clean.
+- **2026-06-19 Unity bridge — "Launch Editor" toggle replaced by a "Launch Unity" mode (parity with
+  mayatk).** The `LAUNCH_EDITOR` bool is now a `LAUNCH_MODE` choice: *Don't launch* (default, import
+  on focus), *Open Editor* (windowed), *Headless (batch)* (`-batchmode -quit`; needs a batch-capable
+  license). Logic lives in the shared `unitytk.CopyToAssetsDeliverer`; this slot just exposes the
+  param. Fixes the "Send to Unity copied but Unity never opened" report (launch was default-off).
+- **2026-06-19 Unity bridge — removed the "Unity Studio" delivery mode (parity with mayatk).**
+  *Unity Studio* is a separate paid, browser-based product (created in Unity Cloud's Asset Manager),
+  not this desktop FBX hand-off; the same-day two-mode addition had reused the name for a
+  version-aware *desktop* launch, which collided with the real product and confused users. Per user
+  direction it's dropped: `cmb000` collapses back to the single `copy_to_assets` delivery target
+  ("Copy to Project"), all params are always visible, and the Send button is always "Send to Unity". Launch Editor + Unity
+  Version + New Unity Project… remain as plain-Unity features. `compare_panel_surface.py --panel
+  unity_bridge` clean.
+- **2026-06-19 Unity bridge — two delivery modes: Existing Project + Unity Studio (parity with
+  mayatk).** The `cmb000` dropdown selects the delivery target (friendly labels over `existing`/
+  `studio` stems). *Existing Project* keeps the opt-in Launch Editor toggle; *Unity Studio* adds a
+  dynamic **Unity Version** dropdown (from `unitytk.UnityFinder.find_editors()`), a **New Unity
+  Project…** header action (`unitytk.UnityLauncher.create_project`), and always launches the chosen
+  Editor. Per-mode param visibility + Send-button label tracking; delivery stays DRY on the shared
+  `unitytk.CopyToAssetsDeliverer` (version-aware launch). `compare_panel_surface.py --panel
+  unity_bridge` clean. (Slot is Qt-bound → exercised via the mayatk twin + headless engine tests.)
+- **2026-06-19 Unity bridge — exposed an export Scope option (parity with mayatk).** New `SCOPE`
+  choice param (Selected / Entire Scene / Visible Only, default Selected) leading the **Export**
+  section; `UnityBridgeSlots.b000` resolves the export set via `_resolve_scope_objects` instead of
+  always using the selection — *Entire Scene* / *Visible Only* gather the view-layer's mesh objects
+  (visible filtered by `obj.visible_get()`). `compare_panel_surface.py` clean for the unity pair.
+  Test: `test_unity_bridge.py` (+2 scope checks, headless bpy).
 - **2026-06-19 HDR Manager — removed the separate "Set HDR" button; selecting a map applies it.**
   Parity with mayatk: the world-environment build moved from `b000` (the deleted **Set HDR** button)
   to a new `cmb000` selection handler that calls the renamed `_apply_selection`. `_populate_maps` now

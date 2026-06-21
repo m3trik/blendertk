@@ -8,8 +8,8 @@ values into the template before launching Maya (via :func:`StrUtils.replace_deli
 
 Export-affecting knobs (``INCLUDE_MATERIALS`` / ``EMBED_TEXTURES`` / ``APPLY_UNIT_SCALE`` /
 ``INCLUDE_ANIMATION`` / ``TRIANGULATE``) are read by :class:`MayaBridge` to configure the
-Blender-side FBX export; import-affecting knobs (``FRAME_VIEW``) are substituted into the Maya
-import template. Each template references the subset it exposes.
+Blender-side FBX export; import-affecting knobs (``CLEAR_SCENE`` / ``FRAME_VIEW``) are substituted
+into the Maya import template. Each template references the subset it exposes.
 
 Counterpart of :mod:`mayatk.env_utils.blender_bridge.parameters` (the Maya->Blender direction).
 
@@ -77,12 +77,28 @@ PARAMS: "dict[str, AttributeSpec]" = {
         default=False,
         tooltip="Triangulate meshes on export.",
     ),
+    "CLEAR_SCENE": AttributeSpec(
+        key="CLEAR_SCENE",
+        label="Clear Scene First",
+        kind="bool",
+        default=False,
+        tooltip=(
+            "Open a new (empty) Maya scene before importing (clean-slate hand-off). Off imports\n"
+            "additively into the current scene."
+        ),
+    ),
     "FRAME_VIEW": AttributeSpec(
         key="FRAME_VIEW",
         label="Frame in View",
         kind="bool",
-        default=True,
-        tooltip="After import, frame the imported objects in Maya's viewport (viewFit).",
+        # Off by default so the unified template's default behavior matches the old plain
+        # "import" template (no selection change / no viewFit); opt in for the old
+        # "import_and_frame" behavior.
+        default=False,
+        tooltip=(
+            "After import, select the new top-level objects and frame them in Maya's viewport\n"
+            "(viewFit)."
+        ),
     ),
 }
 

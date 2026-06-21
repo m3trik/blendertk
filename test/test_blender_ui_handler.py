@@ -81,8 +81,9 @@ try:
     sb = Switchboard()
     handler = BlenderUiHandler(switchboard=sb)
 
-    # 1. The handler's recursive scan of the blendertk package registers exactly the eight
-    #    co-located tool panels (and nothing spurious) — the core architectural guarantee.
+    # 1. The handler's recursive scan of the blendertk package registers exactly the
+    #    co-located tool panels listed in PANELS (and nothing spurious) — the core
+    #    architectural guarantee.
     registry = sb.registry.ui_registry
     registered = set(registry.get("filename") or [])
     for panel in PANELS:

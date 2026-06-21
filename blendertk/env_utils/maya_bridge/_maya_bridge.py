@@ -124,7 +124,8 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
 
 if __name__ == "__main__":
     bridge = MayaBridge()
-    # bridge.send()                                  # default: import template
-    # bridge.send(template="import_and_frame")
-    # bridge.send(params={"INCLUDE_MATERIALS": False})
+    # bridge.send()                                       # additive import
+    # bridge.send(params={"CLEAR_SCENE": True})           # clean-slate / new scene
+    # bridge.send(params={"FRAME_VIEW": True})            # import + frame in view
+    # bridge.send(params={"INCLUDE_MATERIALS": False})    # geometry only
     bridge.send()

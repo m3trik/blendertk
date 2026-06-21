@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-06-19",
+  "generated_at": "2026-06-21",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -2805,7 +2805,7 @@
           "kind": "function",
           "signature": "(script_text: str) -> 'set[str]'",
           "summary": "Registered keys present in *script_text* (delegates to uitk.bridge).",
-          "line": 90,
+          "line": 106,
           "deprecated": false
         },
         {
@@ -2814,7 +2814,7 @@
           "kind": "function",
           "signature": "() -> 'dict[str, Any]'",
           "summary": "Return ``{key: default}`` for every registered parameter.",
-          "line": 95,
+          "line": 111,
           "deprecated": false
         },
         {
@@ -2823,7 +2823,7 @@
           "kind": "function",
           "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
           "summary": "Format *values* for ``StrUtils.replace_delimited`` using Python literals.",
-          "line": 100,
+          "line": 116,
           "deprecated": false
         }
       ],
@@ -2831,7 +2831,7 @@
     },
     {
       "relpath": "env_utils/maya_bridge/templates/import.py",
-      "summary": "Import the bridged FBX into the current Maya scene.",
+      "summary": "Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.",
       "functions": [
         {
           "name": "main",
@@ -2839,39 +2839,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "",
-          "line": 16,
-          "deprecated": false
-        }
-      ],
-      "classes": []
-    },
-    {
-      "relpath": "env_utils/maya_bridge/templates/import_and_frame.py",
-      "summary": "Import the bridged FBX, select the new top-level objects, and frame them in the viewport.",
-      "functions": [
-        {
-          "name": "main",
-          "qualname": "main",
-          "kind": "function",
-          "signature": "()",
-          "summary": "",
-          "line": 17,
-          "deprecated": false
-        }
-      ],
-      "classes": []
-    },
-    {
-      "relpath": "env_utils/maya_bridge/templates/new_scene.py",
-      "summary": "Open a new (empty) Maya scene, then import the bridged FBX -- a clean-slate hand-off when the",
-      "functions": [
-        {
-          "name": "main",
-          "qualname": "main",
-          "kind": "function",
-          "signature": "()",
-          "summary": "",
-          "line": 17,
+          "line": 26,
           "deprecated": false
         }
       ],
@@ -3059,148 +3027,6 @@
               "signature": "(self)",
               "summary": "Remove every linked library and its data (Maya's Un-Reference All).",
               "line": 974,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "relpath": "env_utils/unity_bridge/_unity_bridge.py",
-      "summary": "Unity bridge engine -- export the Blender selection into a Unity project's Assets/.",
-      "functions": [
-        {
-          "name": "list_delivery_modes",
-          "qualname": "list_delivery_modes",
-          "kind": "function",
-          "signature": "() -> List[Tuple[str, str]]",
-          "summary": "``[(mode_stem, \"\"), ...]`` for the panel's delivery combo.",
-          "line": 30,
-          "deprecated": false
-        }
-      ],
-      "classes": [
-        {
-          "name": "UnityBridge",
-          "summary": "Export the Blender selection and copy it into a Unity project's ``Assets/``.",
-          "line": 38,
-          "bases": [
-            "BlenderExportMixin",
-            "ptk.HandoffBridge"
-          ],
-          "members": [
-            {
-              "name": "list_template_modes",
-              "qualname": "UnityBridge.list_template_modes",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 54,
-              "deprecated": false
-            },
-            {
-              "name": "params_defaults",
-              "qualname": "UnityBridge.params_defaults",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 57,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "relpath": "env_utils/unity_bridge/parameters.py",
-      "summary": "User-tunable parameters for the Blender->Unity bridge panel.",
-      "functions": [
-        {
-          "name": "referenced_keys",
-          "qualname": "referenced_keys",
-          "kind": "function",
-          "signature": "(script_text: str) -> 'set[str]'",
-          "summary": "Registered keys present in *script_text* (delegates to uitk.bridge).",
-          "line": 95,
-          "deprecated": false
-        },
-        {
-          "name": "defaults",
-          "qualname": "defaults",
-          "kind": "function",
-          "signature": "() -> 'dict[str, Any]'",
-          "summary": "Return ``{key: default}`` for every registered parameter.",
-          "line": 100,
-          "deprecated": false
-        },
-        {
-          "name": "render_context",
-          "qualname": "render_context",
-          "kind": "function",
-          "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
-          "summary": "Format *values* for substitution (kept for API parity;",
-          "line": 105,
-          "deprecated": false
-        }
-      ],
-      "classes": []
-    },
-    {
-      "relpath": "env_utils/unity_bridge/unity_bridge_slots.py",
-      "summary": "Slots for the Blender->Unity bridge panel.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "UnityBridgeSlots",
-          "summary": "Slots wired to ``unity_bridge.ui`` via :class:`BridgeSlotsBase`.",
-          "line": 28,
-          "bases": [
-            "BridgeSlotsBase"
-          ],
-          "members": [
-            {
-              "name": "params_module",
-              "qualname": "UnityBridgeSlots.params_module",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 84,
-              "deprecated": false
-            },
-            {
-              "name": "template_dir",
-              "qualname": "UnityBridgeSlots.template_dir",
-              "kind": "property",
-              "signature": "(self) -> Path",
-              "summary": "",
-              "line": 88,
-              "deprecated": false
-            },
-            {
-              "name": "make_bridge",
-              "qualname": "UnityBridgeSlots.make_bridge",
-              "kind": "method",
-              "signature": "(self) -> UnityBridge",
-              "summary": "",
-              "line": 91,
-              "deprecated": false
-            },
-            {
-              "name": "list_template_modes",
-              "qualname": "UnityBridgeSlots.list_template_modes",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 94,
-              "deprecated": false
-            },
-            {
-              "name": "b000",
-              "qualname": "UnityBridgeSlots.b000",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Export the selected objects and copy them into the Unity project.",
-              "line": 106,
               "deprecated": false
             }
           ]

@@ -52,20 +52,20 @@ try:
     # ---- template discovery (Qt-free) ---------------------------------------
     pairs = list_template_modes()
     stems = {t for t, _ in pairs}
-    check("templates discovered", stems == {"import", "import_and_frame", "new_scene"}, f"{sorted(stems)}")
+    # The three near-identical recipes collapsed into one options-driven template.
+    check("templates discovered", stems == {"import"}, f"{sorted(stems)}")
     check("all modes send_to", all(m == "send_to" for _, m in pairs))
     check("template_modes parses BRIDGE_MODES",
           template_modes(_TEMPLATE_DIR / "import.py") == ("send_to",))
 
     # ---- raw template text (Qt-free; render_template itself needs Qt) -------
     import_txt = (_TEMPLATE_DIR / "import.py").read_text()
-    frame_txt = (_TEMPLATE_DIR / "import_and_frame.py").read_text()
     check("import template: FBXImport + FBX_PATH placeholder",
           "FBXImport" in import_txt and '__FBX_PATH__' in import_txt)
     check("import template: export-options placeholders present (panel visibility)",
           "__INCLUDE_MATERIALS__" in import_txt and "__EMBED_TEXTURES__" in import_txt)
-    check("FRAME_VIEW exposed only by the frame template",
-          "__FRAME_VIEW__" in frame_txt and "__FRAME_VIEW__" not in import_txt)
+    check("unified template exposes both scene-behavior options",
+          "__FRAME_VIEW__" in import_txt and "__CLEAR_SCENE__" in import_txt)
 
     # ---- MEL command builder (Qt-free) --------------------------------------
     mel = MayaBridge._build_mel_command(r"C:\tmp\btk_to_maya.py")
