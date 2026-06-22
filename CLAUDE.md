@@ -9,6 +9,14 @@ public API.
 
 > **1:1 check — do NOT eyeball.** The whole-surface name-level gap list is [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`) — every mayatk↔blendertk panel + every `tentacle/slots/maya`↔`blender` file, plus the Maya tools/files with no Blender counterpart. For one pair while working: `compare_panel_surface.py --panel <name>`. It AST-diffs `config_buttons`, every menu/option-box/action control (by objectName+label), `set_toggle`/`pin`/`add_presets`, and widget-handler slot defs. Every delta must be either in the script's `KNOWN_MAYA_ONLY` allowlist (with a stated reason) or fixed. Manual reads repeatedly missed flat-out-missing header options; the diff does not.
 
+## API surface
+
+**Before adding a helper, check the registry** (navigation rules: [root](../CLAUDE.md)):
+
+- [`API_INDEX.md`](API_INDEX.md) (compact — read first) · [`API_REGISTRY.md`](API_REGISTRY.md) (grep, don't Read whole) · [`API_CHANGES.md`](API_CHANGES.md)
+- Upstream: [pythontk](../pythontk/API_INDEX.md)
+- Cross-package shadows: [`m3trik/docs/API_SHADOWS.md`](../m3trik/docs/API_SHADOWS.md)
+
 ## Hard rule — session safety (protect user work)
 
 NEVER attach to or test against a **running** Blender. Always launch a **fresh** instance.
