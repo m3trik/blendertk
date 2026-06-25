@@ -2,10 +2,11 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-06-22_
+_Generated: 2026-06-25_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `get_fcurves(objects)`
+- `scene_has_animation()`
 - `shift_keys(objects, offset)`
 - `move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')`
 - `adjust_key_spacing(objects, spacing=1, frame=None, selected_keys_only=False, exact_gap=False)`

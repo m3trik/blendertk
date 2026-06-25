@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-06-22",
+  "generated_at": "2026-06-25",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -17,12 +17,21 @@
           "deprecated": false
         },
         {
+          "name": "scene_has_animation",
+          "qualname": "scene_has_animation",
+          "kind": "function",
+          "signature": "()",
+          "summary": "True if the blend file contains any action carrying fcurves (keyed motion).",
+          "line": 63,
+          "deprecated": false
+        },
+        {
           "name": "shift_keys",
           "qualname": "shift_keys",
           "kind": "function",
           "signature": "(objects, offset)",
           "summary": "Shift every key of the given objects by ``offset`` frames.",
-          "line": 79,
+          "line": 96,
           "deprecated": false
         },
         {
@@ -31,7 +40,7 @@
           "kind": "function",
           "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')",
           "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
-          "line": 84,
+          "line": 101,
           "deprecated": false
         },
         {
@@ -40,7 +49,7 @@
           "kind": "function",
           "signature": "(objects, spacing=1, frame=None, selected_keys_only=False, exact_gap=False)",
           "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
-          "line": 150,
+          "line": 167,
           "deprecated": false
         },
         {
@@ -49,7 +58,7 @@
           "kind": "function",
           "signature": "(objects, target_frame=None, use_earliest=True)",
           "summary": "Move the SELECTED keyframes (``select_control_point``, e.g.",
-          "line": 194,
+          "line": 211,
           "deprecated": false
         },
         {
@@ -58,7 +67,7 @@
           "kind": "function",
           "signature": "(objects, visible=True, frame=None, when='current', offset=0)",
           "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of",
-          "line": 253,
+          "line": 270,
           "deprecated": false
         },
         {
@@ -67,7 +76,7 @@
           "kind": "function",
           "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False)",
           "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
-          "line": 278,
+          "line": 295,
           "deprecated": false
         },
         {
@@ -76,7 +85,7 @@
           "kind": "function",
           "signature": "(objects, time_range=None, ignore_visibility=False)",
           "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
-          "line": 320,
+          "line": 337,
           "deprecated": false
         },
         {
@@ -85,7 +94,7 @@
           "kind": "function",
           "signature": "(objects, time=None, add_to_selection=False)",
           "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
-          "line": 345,
+          "line": 362,
           "deprecated": false
         },
         {
@@ -94,7 +103,7 @@
           "kind": "function",
           "signature": "(objects, mode='time', value_pivot=0.0)",
           "summary": "Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both).",
-          "line": 361,
+          "line": 378,
           "deprecated": false
         },
         {
@@ -103,7 +112,7 @@
           "kind": "function",
           "signature": "(objects, selected_only=False, time_range=None)",
           "summary": "Snap keys to whole frames — mirror of ``mtk.snap_keys_to_frames`` (nearest rounding).",
-          "line": 389,
+          "line": 406,
           "deprecated": false
         },
         {
@@ -112,7 +121,7 @@
           "kind": "function",
           "signature": "(objects, interpolation='CONSTANT', handle=None)",
           "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-          "line": 414,
+          "line": 431,
           "deprecated": false
         },
         {
@@ -121,7 +130,7 @@
           "kind": "function",
           "signature": "(objects, stepped=True)",
           "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-          "line": 431,
+          "line": 448,
           "deprecated": false
         },
         {
@@ -130,7 +139,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Remove all animation from the given objects.",
-          "line": 436,
+          "line": 453,
           "deprecated": false
         },
         {
@@ -139,7 +148,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-          "line": 446,
+          "line": 463,
           "deprecated": false
         },
         {
@@ -148,7 +157,7 @@
           "kind": "function",
           "signature": "(source)",
           "summary": "Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).",
-          "line": 463,
+          "line": 480,
           "deprecated": false
         },
         {
@@ -157,7 +166,7 @@
           "kind": "function",
           "signature": "(objects, action)",
           "summary": "Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).",
-          "line": 469,
+          "line": 486,
           "deprecated": false
         },
         {
@@ -166,7 +175,7 @@
           "kind": "function",
           "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)",
           "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-          "line": 560,
+          "line": 577,
           "deprecated": false
         },
         {
@@ -175,7 +184,7 @@
           "kind": "function",
           "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)",
           "summary": "Detect and repair corrupted animation fcurves — mirror of",
-          "line": 610,
+          "line": 627,
           "deprecated": false
         },
         {
@@ -184,7 +193,7 @@
           "kind": "function",
           "signature": "(objects=None, untie=False, frame_range=None, absolute=False)",
           "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-          "line": 679,
+          "line": 696,
           "deprecated": false
         },
         {
@@ -193,7 +202,7 @@
           "kind": "function",
           "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, bake_types=None)",
           "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-          "line": 732,
+          "line": 749,
           "deprecated": false
         },
         {
@@ -202,7 +211,7 @@
           "kind": "function",
           "signature": "(objects=None, frame_range=None, step=1)",
           "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-          "line": 783,
+          "line": 800,
           "deprecated": false
         },
         {
@@ -211,7 +220,7 @@
           "kind": "function",
           "signature": "(objects=None, by_time=False)",
           "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-          "line": 848,
+          "line": 865,
           "deprecated": false
         },
         {
@@ -220,7 +229,7 @@
           "kind": "function",
           "signature": "(records)",
           "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-          "line": 883,
+          "line": 900,
           "deprecated": false
         },
         {
@@ -229,7 +238,7 @@
           "kind": "function",
           "signature": "(records)",
           "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-          "line": 909,
+          "line": 926,
           "deprecated": false
         },
         {
@@ -238,7 +247,7 @@
           "kind": "function",
           "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
           "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-          "line": 946,
+          "line": 963,
           "deprecated": false
         }
       ],
@@ -246,7 +255,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 983,
+          "line": 1000,
           "bases": [],
           "members": []
         }

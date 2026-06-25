@@ -60,6 +60,23 @@ def get_fcurves(objects):
 _fcurves = get_fcurves  # internal alias
 
 
+def scene_has_animation():
+    """True if the blend file contains any action carrying fcurves (keyed motion).
+
+    Mirror of mayatk's ``AnimUtils.scene_has_animation`` (name + behavior): the
+    canonical, lightweight "does anything move over time?" check used to early-out
+    of a playblast on a static scene. Scans every action's fcurves (slot-aware),
+    so it covers all animated datablocks (objects, shape keys, cameras, materials,
+    lights, …), not just one. Checks for *existence* of fcurves, not whether they
+    carry non-flat motion. Returns ``False`` when Blender is unavailable.
+    """
+    try:
+        import bpy
+    except ImportError:
+        return False
+    return any(_slot_fcurves(action) for action in bpy.data.actions)
+
+
 def _key_range(fcurves):
     """(min, max) key frame across ``fcurves``, or None when keyless."""
     frames = [k.co.x for fc in fcurves for k in fc.keyframe_points]
@@ -984,6 +1001,7 @@ class AnimUtils:
     """Namespace mirror (helpers also exposed module-level)."""
 
     get_fcurves = staticmethod(get_fcurves)
+    scene_has_animation = staticmethod(scene_has_animation)
     shift_keys = staticmethod(shift_keys)
     move_keys_to_frame = staticmethod(move_keys_to_frame)
     adjust_key_spacing = staticmethod(adjust_key_spacing)

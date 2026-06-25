@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-06-22_
+_Generated: 2026-06-25_
 
 ## Index
 
@@ -85,32 +85,33 @@ _Generated: 2026-06-22_
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
 - [`get_fcurves(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L55) — All fcurves across the given objects' actions (slot-aware;
-- [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L79) — Shift every key of the given objects by ``offset`` frames.
-- [`move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')`](blendertk/blendertk/anim_utils/_anim_utils.py#L84) — Move the objects' keys so they align to ``frame`` (default: the current frame).
-- [`adjust_key_spacing(objects, spacing=1, frame=None, selected_keys_only=False, exact_gap=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L150) — Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
-- [`align_selected_keyframes(objects, target_frame=None, use_earliest=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L194) — Move the SELECTED keyframes (``select_control_point``, e.g.
-- [`set_visibility_keys(objects, visible=True, frame=None, when='current', offset=0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L253) — Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of
-- [`add_intermediate_keys(objects, step=1.0, time_range=None, ignore_visibility=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L278) — Insert sampled keys every ``step`` frames between each fcurve's first and last key
-- [`remove_intermediate_keys(objects, time_range=None, ignore_visibility=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L320) — Remove every key strictly between each fcurve's first and last (keeps only the
-- [`select_keys(objects, time=None, add_to_selection=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L345) — Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
-- [`invert_keys(objects, mode='time', value_pivot=0.0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L361) — Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both).
-- [`snap_keys(objects, selected_only=False, time_range=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L389) — Snap keys to whole frames — mirror of ``mtk.snap_keys_to_frames`` (nearest rounding).
-- [`set_interpolation(objects, interpolation='CONSTANT', handle=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L414) — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
-- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L431) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
-- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L436) — Remove all animation from the given objects.
-- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L446) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
-- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L463) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
-- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L469) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
-- [`optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L560) — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
-- [`repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L610) — Detect and repair corrupted animation fcurves — mirror of
-- [`tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L679) — Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
-- [`bake_keys(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, bake_types=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L732) — Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the
-- [`bake_blend_shapes(objects=None, frame_range=None, step=1)`](blendertk/blendertk/anim_utils/_anim_utils.py#L783) — Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender
-- [`get_animation_info(objects=None, by_time=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L848) — Per-object animation summary — mirror of ``mtk`` get-animation-info.
-- [`format_animation_info_csv(records)`](blendertk/blendertk/anim_utils/_anim_utils.py#L883) — Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of
-- [`format_animation_info_html(records)`](blendertk/blendertk/anim_utils/_anim_utils.py#L909) — Render :func:`get_animation_info` records as an HTML table for the text-view dialog.
-- [`configure_render_output(scene, file_format='PNG', container=None, codec=None, quality=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L946) — Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering
-- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L983)** — Namespace mirror (helpers also exposed module-level).
+- [`scene_has_animation()`](blendertk/blendertk/anim_utils/_anim_utils.py#L63) — True if the blend file contains any action carrying fcurves (keyed motion).
+- [`shift_keys(objects, offset)`](blendertk/blendertk/anim_utils/_anim_utils.py#L96) — Shift every key of the given objects by ``offset`` frames.
+- [`move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')`](blendertk/blendertk/anim_utils/_anim_utils.py#L101) — Move the objects' keys so they align to ``frame`` (default: the current frame).
+- [`adjust_key_spacing(objects, spacing=1, frame=None, selected_keys_only=False, exact_gap=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L167) — Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current
+- [`align_selected_keyframes(objects, target_frame=None, use_earliest=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L211) — Move the SELECTED keyframes (``select_control_point``, e.g.
+- [`set_visibility_keys(objects, visible=True, frame=None, when='current', offset=0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L270) — Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of
+- [`add_intermediate_keys(objects, step=1.0, time_range=None, ignore_visibility=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L295) — Insert sampled keys every ``step`` frames between each fcurve's first and last key
+- [`remove_intermediate_keys(objects, time_range=None, ignore_visibility=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L337) — Remove every key strictly between each fcurve's first and last (keeps only the
+- [`select_keys(objects, time=None, add_to_selection=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L362) — Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
+- [`invert_keys(objects, mode='time', value_pivot=0.0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L378) — Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both).
+- [`snap_keys(objects, selected_only=False, time_range=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L406) — Snap keys to whole frames — mirror of ``mtk.snap_keys_to_frames`` (nearest rounding).
+- [`set_interpolation(objects, interpolation='CONSTANT', handle=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L431) — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
+- [`set_stepped(objects, stepped=True)`](blendertk/blendertk/anim_utils/_anim_utils.py#L448) — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
+- [`delete_keys(objects)`](blendertk/blendertk/anim_utils/_anim_utils.py#L453) — Remove all animation from the given objects.
+- [`fit_playback_range(objects=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L463) — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
+- [`copy_keys(source)`](blendertk/blendertk/anim_utils/_anim_utils.py#L480) — Return the action carrying ``source``'s keys (the copy buffer for :func:`paste_keys`).
+- [`paste_keys(objects, action)`](blendertk/blendertk/anim_utils/_anim_utils.py#L486) — Link a COPY of ``action`` to each target (independent keys, mirror of Maya paste).
+- [`optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L577) — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
+- [`repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)`](blendertk/blendertk/anim_utils/_anim_utils.py#L627) — Detect and repair corrupted animation fcurves — mirror of
+- [`tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L696) — Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
+- [`bake_keys(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, bake_types=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L749) — Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the
+- [`bake_blend_shapes(objects=None, frame_range=None, step=1)`](blendertk/blendertk/anim_utils/_anim_utils.py#L800) — Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender
+- [`get_animation_info(objects=None, by_time=False)`](blendertk/blendertk/anim_utils/_anim_utils.py#L865) — Per-object animation summary — mirror of ``mtk`` get-animation-info.
+- [`format_animation_info_csv(records)`](blendertk/blendertk/anim_utils/_anim_utils.py#L900) — Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of
+- [`format_animation_info_html(records)`](blendertk/blendertk/anim_utils/_anim_utils.py#L926) — Render :func:`get_animation_info` records as an HTML table for the text-view dialog.
+- [`configure_render_output(scene, file_format='PNG', container=None, codec=None, quality=None)`](blendertk/blendertk/anim_utils/_anim_utils.py#L963) — Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering
+- **[`class AnimUtils`](blendertk/blendertk/anim_utils/_anim_utils.py#L1000)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="anim_utils--scale_keys"></a>
 ### `anim_utils/scale_keys.py`

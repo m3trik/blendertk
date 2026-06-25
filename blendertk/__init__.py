@@ -249,6 +249,7 @@ DEFAULT_INCLUDE = {
     "anim_utils._anim_utils": [
         "AnimUtils",
         "get_fcurves",
+        "scene_has_animation",
         "shift_keys",
         "move_keys_to_frame",
         "adjust_key_spacing",

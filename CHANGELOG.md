@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- **2026-06-24 `scene_has_animation()` — mirror of mayatk's `AnimUtils.scene_has_animation` (name + behavior).** Lightweight canonical "does anything move over time?" check: `any(_slot_fcurves(a) for a in bpy.data.actions)` — scans every action's fcurves (slot-aware, so it covers all animated datablocks: objects, shape keys, cameras, materials, lights, …), checks existence not non-flat motion, `False` when bpy is unavailable. Exposed module-level and on the `AnimUtils` namespace (`DEFAULT_INCLUDE` + `staticmethod`). Backs tentacle's Blender Export Playblast early-exit on a static scene. Verified via headless-Blender smoke (empty→False, keyed object→True, surface resolves both ways).
 - **2026-06-19 Unity bridge REMOVED from blendertk — Blender now reuses the extapps `unity_workflow`
   panel (marmoset/substance architecture).** The blendertk `env_utils/unity_bridge` package (a
   byte-identical mirror of mayatk's) is deleted. Blender's "Unity Bridge" now follows the same
