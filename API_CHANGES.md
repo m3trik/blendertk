@@ -2,4 +2,7 @@
 
 _Diff vs prior baseline. Generated 2026-06-25._
 
-No public API changes since last refresh.
+## Added (2)
+
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb_resolution_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb_scope_init(self, widget) -> None`

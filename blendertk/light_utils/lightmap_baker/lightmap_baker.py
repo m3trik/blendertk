@@ -447,6 +447,16 @@ class LightmapBakerSlots(ptk.LoggingMixin):
 
     _MODE_LABELS = ("Lighting Only (keep maps)", "Fused Unlit (single map)")
 
+    # Fixed lightmap sizes (square, px) for the Resolution combobox
+    # (cmb_resolution). Power-of-two atlas sizes; every Quality preset lands on
+    # one of these. _resolution() reads the selection back as an int.
+    _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
+
+    # Scope labels for the Scope combobox (cmb_scope): which objects b000 bakes.
+    # Selected (index 0, default) preserves the prior selection-only behavior;
+    # _scope() / _scope_objects() resolve it to the mesh objects to bake.
+    _SCOPE_LABELS = ("Selected", "Visible", "Scene")
+
     def __init__(self, switchboard, log_level: str = "WARNING"):
         super().__init__()
         self.logger.setLevel(log_level)
@@ -490,7 +500,8 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                 body="Bake Blender scene lighting (Cycles) into a texture per object for game "
                 "engines (Unity-first) and wire it up in one step — no manual export prep.",
                 steps=[
-                    "Select the mesh objects to bake.",
+                    "Choose a <b>Scope</b> — bake the <b>Selected</b> objects (default), all "
+                    "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
                     "Pick a <b>Mode</b> (see below) and a <b>Quality</b> preset (fills "
                     "Resolution / Samples; override either to taste).",
                     "Press <b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
@@ -551,33 +562,87 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         text = (self.ui.cmb001.currentText() or "").lower()
         return "fused" if "fused" in text else "separated"
 
+    def cmb_scope_init(self, widget) -> None:
+        """Populate the Scope combobox; Selected (current selection) is the default."""
+        widget.clear()
+        widget.addItems(self._SCOPE_LABELS)
+        widget.setCurrentIndex(0)  # Selected — the prior selection-only behavior
+
+    def _scope(self) -> str:
+        """``"selected"`` (default), ``"visible"`` or ``"scene"`` from cmb_scope."""
+        return (self.ui.cmb_scope.currentText() or "Selected").split()[0].lower()
+
+    def _scope_objects(self):
+        """The mesh objects to bake for the current Scope.
+
+        ``selected`` is the raw selection (unchanged behavior); ``visible`` and
+        ``scene`` gather mesh objects across the scene so a bake needn't be
+        preceded by a manual select-all.
+        """
+        scope = self._scope()
+        if scope == "selected":
+            return selected_objects()
+        import bpy
+
+        # resolve_meshes is the baker's own "what counts as a bakeable mesh" SSoT,
+        # so the scope's count matches what bake() will actually process.
+        meshes = TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
+        if scope == "visible":
+            return [o for o in meshes if o.visible_get()]
+        return meshes  # scene
+
+    def cmb_resolution_init(self, widget) -> None:
+        """Populate the Resolution combobox (value carried as item data); default 1024."""
+        widget.clear()
+        for r in self._RESOLUTIONS:
+            widget.addItem(f"Resolution:\t{r}", r)
+        widget.setCurrentIndex(self._RESOLUTIONS.index(1024))
+
+    def _resolution(self) -> int:
+        """The selected lightmap resolution (px) from cmb_resolution (its item data)."""
+        value = self.ui.cmb_resolution.currentData()
+        return int(value) if value is not None else 1024
+
+    def _set_resolution(self, value: int) -> None:
+        """Select *value* in the Resolution combobox, snapping to the nearest fixed size."""
+        nearest = min(self._RESOLUTIONS, key=lambda r: abs(r - value))
+        cmb = self.ui.cmb_resolution
+        cmb.blockSignals(True)
+        try:
+            cmb.setCurrentIndex(self._RESOLUTIONS.index(nearest))
+        finally:
+            cmb.blockSignals(False)
+
     def _apply_preset(self, name: str) -> bool:
         store = LightmapBaker.preset_store()
         if not name or not store.exists(name):
             return False
         data = store.load(name)
-        for key, spin in (
-            ("resolution", self.ui.spn_resolution),
-            ("samples", self.ui.spn_samples),
-        ):
-            if key in data:
-                spin.blockSignals(True)
-                try:
-                    spin.setValue(int(data[key]))
-                finally:
-                    spin.blockSignals(False)
+        if "resolution" in data:
+            self._set_resolution(int(data["resolution"]))
+        if "samples" in data:
+            spin = self.ui.spn_samples
+            spin.blockSignals(True)
+            try:
+                spin.setValue(int(data["samples"]))
+            finally:
+                spin.blockSignals(False)
         return True
 
     # ------------------------------------------------------------------ actions
     def b000(self) -> None:
         """Bake lightmaps for the selection in the chosen Mode (revert → bake → commit)."""
-        objects = selected_objects()
+        objects = self._scope_objects()
         if not objects:
-            self.ui.footer.setText("Select one or more mesh objects to bake.")
+            self.ui.footer.setText(
+                "Select one or more mesh objects to bake."
+                if self._scope() == "selected"
+                else f"No meshes found for scope '{self._scope()}'."
+            )
             return
 
         self._baker = LightmapBaker(
-            resolution=self.ui.spn_resolution.value(),
+            resolution=self._resolution(),
             samples=self.ui.spn_samples.value(),
         )
         self._baker.revert(objects)  # clear prior wiring so we bake the real material

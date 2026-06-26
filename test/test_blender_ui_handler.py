@@ -122,6 +122,7 @@ try:
         ("shadow_rig", "ShadowRigSlots"),  # __init__ (Preview + btn connect) is bpy-free
         ("render_opacity", "RenderOpacitySlots"),  # __init__ (btn connect) is bpy-free
         ("tube_rig", "TubeRigSlots"),  # __init__ (mode combo + dynamic options) is bpy-free
+        ("lightmap_baker", "LightmapBakerSlots"),  # __init__ + cmb _init are bpy-free (preset store)
     ):
         ui = sb.get_ui(panel)
         check(f"{panel} ui loads", ui is not None)
@@ -203,6 +204,36 @@ try:
             "num_controls" not in anchor_keys and "enable_stretch" in anchor_keys,
             f"{sorted(anchor_keys)}",
         )
+
+    # lightmap_baker: the Resolution combo is a fixed power-of-two list (replacing the old
+    # spinbox) and the Scope combo gates which objects bake; both are Qt-only (no bpy). Verify
+    # the lists, the defaults, and that a Quality preset snaps the Resolution combo.
+    lb_ui = sb.get_ui("lightmap_baker")
+    lb = getattr(lb_ui, "slots", None)
+    if lb is not None:
+        res_items = [lb_ui.cmb_resolution.itemText(i) for i in range(lb_ui.cmb_resolution.count())]
+        check(
+            "lightmap_baker Resolution combo lists the fixed sizes (default 1024)",
+            res_items == [f"Resolution:\t{r}" for r in (256, 512, 1024, 2048, 4096)]
+            and lb._resolution() == 1024,
+            f"{res_items} _resolution()={lb._resolution()}",
+        )
+        scope_items = [lb_ui.cmb_scope.itemText(i) for i in range(lb_ui.cmb_scope.count())]
+        check(
+            "lightmap_baker Scope combo lists Selected/Visible/Scene (default selected)",
+            scope_items == ["Selected", "Visible", "Scene"] and lb._scope() == "selected",
+            f"{scope_items} _scope()={lb._scope()}",
+        )
+        lb._apply_preset("preview")
+        lb_preview = lb._resolution()
+        lb._apply_preset("desktop")
+        check(
+            "lightmap_baker Quality preset snaps the Resolution combo",
+            lb_preview == 256 and lb._resolution() == 2048,
+            f"preview={lb_preview} desktop={lb._resolution()}",
+        )
+    else:
+        check("lightmap_baker exposes slots for the combo check", False, "no slots")
 
     # channels: Compact View + the wheel-scrub step ladder are Qt-only (no bpy), so exercise them
     # on the real loaded panel here. Compact collapses row height + hides the table column header;

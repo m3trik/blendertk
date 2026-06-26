@@ -3373,7 +3373,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Configure the header menu + help text.",
-              "line": 468,
+              "line": 478,
               "deprecated": false
             },
             {
@@ -3382,7 +3382,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Quality combobox from the shared preset store.",
-              "line": 530,
+              "line": 541,
               "deprecated": false
             },
             {
@@ -3391,7 +3391,7 @@
               "kind": "method",
               "signature": "(self, index, widget) -> None",
               "summary": "Apply the selected preset's dials to Resolution / Samples.",
-              "line": 539,
+              "line": 550,
               "deprecated": false
             },
             {
@@ -3400,7 +3400,25 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the bake-level (Mode) combobox;",
-              "line": 544,
+              "line": 555,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_scope_init",
+              "qualname": "LightmapBakerSlots.cmb_scope_init",
+              "kind": "method",
+              "signature": "(self, widget) -> None",
+              "summary": "Populate the Scope combobox;",
+              "line": 565,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_resolution_init",
+              "qualname": "LightmapBakerSlots.cmb_resolution_init",
+              "kind": "method",
+              "signature": "(self, widget) -> None",
+              "summary": "Populate the Resolution combobox (value carried as item data);",
+              "line": 594,
               "deprecated": false
             },
             {
@@ -3409,7 +3427,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).",
-              "line": 572,
+              "line": 633,
               "deprecated": false
             },
             {
@@ -3418,7 +3436,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Undo the bake wiring on the selected objects (or all baked ones).",
-              "line": 622,
+              "line": 687,
               "deprecated": false
             },
             {
@@ -3427,7 +3445,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open the most recent output folder in the file browser.",
-              "line": 635,
+              "line": 700,
               "deprecated": false
             }
           ]

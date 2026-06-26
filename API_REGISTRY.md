@@ -654,6 +654,8 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
   - `LightmapBakerSlots.cmb001_init(self, widget) -> None` — Populate the bake-level (Mode) combobox;
+  - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox;
+  - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data);
   - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).
   - `LightmapBakerSlots.revert_to_source(self) -> None` — Undo the bake wiring on the selected objects (or all baked ones).
   - `LightmapBakerSlots.open_output(self) -> None` — Open the most recent output folder in the file browser.

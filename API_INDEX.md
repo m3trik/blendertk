@@ -277,7 +277,7 @@ _Generated: 2026-06-25_
 - `class LightmapBaker(ptk.LoggingMixin)`
   - methods: resolution, resolution, samples, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, revert_lightmap, commit_unlit, revert_unlit, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, cmb001_init, b000, revert_to_source, open_output
+  - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb_scope_init, cmb_resolution_init, b000, revert_to_source, open_output
 
 ### `mat_utils/_mat_utils.py` — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - `get_mats(objects)`
