@@ -4865,7 +4865,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "One-time table setup (action columns + context menu + signals), then a guarded refresh.",
-              "line": 753,
+              "line": 756,
               "deprecated": false
             }
           ]
