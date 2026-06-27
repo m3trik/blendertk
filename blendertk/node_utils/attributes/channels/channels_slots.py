@@ -680,6 +680,9 @@ class ChannelsSlots:
             parent=self.ui, position="cursor", add_defaults_button=False, fixed_item_height=20
         )
         menu.setTitle("Create Attribute")
+        # Chrome is deferred to first show; build it now so the header exists
+        # for the pin->hide swap below (this popup shows immediately).
+        menu.ensure_chrome()
         if menu.header:
             menu.header.config_buttons("hide")
 
