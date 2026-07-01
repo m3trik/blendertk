@@ -128,9 +128,9 @@ DEFAULT_INCLUDE = {
         "unexplode_all",
         "is_exploded",
     ],
-    # Color Manager tool — engine + co-located panel (ColorManagerSlots discovered by the handler).
-    "display_utils.color_manager": [
-        "ColorManager",
+    # Color ID tool — engine + co-located panel (ColorIdSlots discovered by the handler).
+    "display_utils.color_id": [
+        "ColorId",
     ],
     # Exploded View tool — co-located ``ExplodedViewSlots`` panel (discovered by the handler, not
     # registered); the explode/unexplode engine lives module-level in ``_display_utils`` above

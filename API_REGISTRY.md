@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-06-27_
+_Generated: 2026-07-01_
 
 ## Index
 
@@ -16,7 +16,7 @@ _Generated: 2026-06-27_
 - [`core_utils/preview.py`](#core_utils--preview) — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - [`core_utils/script_job_manager.py`](#core_utils--script_job_manager) — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - [`display_utils/_display_utils.py`](#display_utils--_display_utils) — Display utilities — the exploded-view toggle (mirror of mayatk's
-- [`display_utils/color_manager.py`](#display_utils--color_manager) — Color Manager tool panel — Switchboard slot wiring for the co-located ``color_manager.ui``.
+- [`display_utils/color_id.py`](#display_utils--color_id) — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
@@ -213,29 +213,29 @@ Display utilities — the exploded-view toggle (mirror of mayatk's
 - [`unexplode_all()`](blendertk/blendertk/display_utils/_display_utils.py#L96) — Restore every exploded object in the scene, regardless of selection (mirror of mayatk's
 - **[`class DisplayUtils`](blendertk/blendertk/display_utils/_display_utils.py#L104)** — Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).
 
-<a id="display_utils--color_manager"></a>
-### `display_utils/color_manager.py`
+<a id="display_utils--color_id"></a>
+### `display_utils/color_id.py`
 
-Color Manager tool panel — Switchboard slot wiring for the co-located ``color_manager.ui``.
+Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 
-- **[`class ColorManager`](blendertk/blendertk/display_utils/color_manager.py#L25)** — Engine: apply / select-by / reset object colors across material, object-color, and vertex
-  - `ColorManager.assign_id_material(obj, color: Color)` *(static)* — Assign an ID material named ``ID_<HEX>`` with ``color`` as its base color to ``obj``
-  - `ColorManager.set_object_color(obj, color: Color)` *(static)* — Set the object's viewport display color (``obj.color`` — Object-color shading).
-  - `ColorManager.set_vertex_color(obj, color: Color, name: str = 'Color')` *(static)* — Write ``color`` to every corner of a mesh color attribute (created/reused, set active).
-  - `ColorManager.apply_color(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False) -> None` *(class)* — Apply ``color`` (random when None) to each object across the enabled channels.
-  - `ColorManager.get_object_color(obj) -> Optional[Color]` *(static)* — The object's viewport display color (``obj.color`` RGB), or None.
-  - `ColorManager.get_material_color(obj) -> Optional[Color]` *(static)* — Base color of the object's active material (Principled base, else diffuse), or None.
-  - `ColorManager.get_average_vertex_color(obj) -> Optional[Color]` *(static)* — Average of the active mesh color attribute, or None when there is none.
-  - `ColorManager.color_difference(c1: Color, c2: Color) -> float` *(static)* — Average absolute per-channel RGB difference.
-  - `ColorManager.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
-  - `ColorManager.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
-  - `ColorManager.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
-- **[`class ColorManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/color_manager.py#L221)** — Switchboard slot wiring for the Color Manager panel (swatch palette + 3 channels).
-  - `ColorManagerSlots.header_init(self, widget)` — Configure header help text.
-  - `ColorManagerSlots.b000(self) -> None` — Reset Colors (Ctrl+click resets every object in the scene).
-  - `ColorManagerSlots.b001(self) -> None` — Set Color — apply the active color to the selected objects on the enabled channels.
-  - `ColorManagerSlots.b002(self) -> None` — Select By Color — select scene objects matching the active color (enabled channels).
-  - `ColorManagerSlots.b003(self) -> None` — Get Color — read the active object's color into the selected swatch.
+- **[`class ColorId`](blendertk/blendertk/display_utils/color_id.py#L25)** — Engine: apply / select-by / reset object colors across material, object-color, and vertex
+  - `ColorId.assign_id_material(obj, color: Color)` *(static)* — Assign an ID material named ``ID_<HEX>`` with ``color`` as its base color to ``obj``
+  - `ColorId.set_object_color(obj, color: Color)` *(static)* — Set the object's viewport display color (``obj.color`` — Object-color shading).
+  - `ColorId.set_vertex_color(obj, color: Color, name: str = 'Color')` *(static)* — Write ``color`` to every corner of a mesh color attribute (created/reused, set active).
+  - `ColorId.apply_color(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False) -> None` *(class)* — Apply ``color`` (random when None) to each object across the enabled channels.
+  - `ColorId.get_object_color(obj) -> Optional[Color]` *(static)* — The object's viewport display color (``obj.color`` RGB), or None.
+  - `ColorId.get_material_color(obj) -> Optional[Color]` *(static)* — Base color of the object's active material (Principled base, else diffuse), or None.
+  - `ColorId.get_average_vertex_color(obj) -> Optional[Color]` *(static)* — Average of the active mesh color attribute, or None when there is none.
+  - `ColorId.color_difference(c1: Color, c2: Color) -> float` *(static)* — Average absolute per-channel RGB difference.
+  - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
+  - `ColorId.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
+  - `ColorId.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
+- **[`class ColorIdSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L221)** — Switchboard slot wiring for the Color ID panel (swatch palette + 3 channels).
+  - `ColorIdSlots.header_init(self, widget)` — Configure header help text.
+  - `ColorIdSlots.b000(self) -> None` — Reset Colors (Ctrl+click resets every object in the scene).
+  - `ColorIdSlots.b001(self) -> None` — Set Color — apply the active color to the selected objects on the enabled channels.
+  - `ColorIdSlots.b002(self) -> None` — Select By Color — select scene objects matching the active color (enabled channels).
+  - `ColorIdSlots.b003(self) -> None` — Get Color — read the active object's color into the selected swatch.
 
 <a id="display_utils--exploded_view"></a>
 ### `display_utils/exploded_view.py`

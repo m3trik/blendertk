@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-06-27",
+  "generated_at": "2026-07-01",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -732,19 +732,19 @@
       ]
     },
     {
-      "relpath": "display_utils/color_manager.py",
-      "summary": "Color Manager tool panel — Switchboard slot wiring for the co-located ``color_manager.ui``.",
+      "relpath": "display_utils/color_id.py",
+      "summary": "Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.",
       "functions": [],
       "classes": [
         {
-          "name": "ColorManager",
+          "name": "ColorId",
           "summary": "Engine: apply / select-by / reset object colors across material, object-color, and vertex",
           "line": 25,
           "bases": [],
           "members": [
             {
               "name": "assign_id_material",
-              "qualname": "ColorManager.assign_id_material",
+              "qualname": "ColorId.assign_id_material",
               "kind": "staticmethod",
               "signature": "(obj, color: Color)",
               "summary": "Assign an ID material named ``ID_<HEX>`` with ``color`` as its base color to ``obj``",
@@ -753,7 +753,7 @@
             },
             {
               "name": "set_object_color",
-              "qualname": "ColorManager.set_object_color",
+              "qualname": "ColorId.set_object_color",
               "kind": "staticmethod",
               "signature": "(obj, color: Color)",
               "summary": "Set the object's viewport display color (``obj.color`` — Object-color shading).",
@@ -762,7 +762,7 @@
             },
             {
               "name": "set_vertex_color",
-              "qualname": "ColorManager.set_vertex_color",
+              "qualname": "ColorId.set_vertex_color",
               "kind": "staticmethod",
               "signature": "(obj, color: Color, name: str = 'Color')",
               "summary": "Write ``color`` to every corner of a mesh color attribute (created/reused, set active).",
@@ -771,7 +771,7 @@
             },
             {
               "name": "apply_color",
-              "qualname": "ColorManager.apply_color",
+              "qualname": "ColorId.apply_color",
               "kind": "classmethod",
               "signature": "(cls, objects: Sequence, color: Optional[Color] = None, apply_to_material: bool = False, apply_to_object: bool = False, apply_to_vertex: bool = False) -> None",
               "summary": "Apply ``color`` (random when None) to each object across the enabled channels.",
@@ -780,7 +780,7 @@
             },
             {
               "name": "get_object_color",
-              "qualname": "ColorManager.get_object_color",
+              "qualname": "ColorId.get_object_color",
               "kind": "staticmethod",
               "signature": "(obj) -> Optional[Color]",
               "summary": "The object's viewport display color (``obj.color`` RGB), or None.",
@@ -789,7 +789,7 @@
             },
             {
               "name": "get_material_color",
-              "qualname": "ColorManager.get_material_color",
+              "qualname": "ColorId.get_material_color",
               "kind": "staticmethod",
               "signature": "(obj) -> Optional[Color]",
               "summary": "Base color of the object's active material (Principled base, else diffuse), or None.",
@@ -798,7 +798,7 @@
             },
             {
               "name": "get_average_vertex_color",
-              "qualname": "ColorManager.get_average_vertex_color",
+              "qualname": "ColorId.get_average_vertex_color",
               "kind": "staticmethod",
               "signature": "(obj) -> Optional[Color]",
               "summary": "Average of the active mesh color attribute, or None when there is none.",
@@ -807,7 +807,7 @@
             },
             {
               "name": "color_difference",
-              "qualname": "ColorManager.color_difference",
+              "qualname": "ColorId.color_difference",
               "kind": "staticmethod",
               "signature": "(c1: Color, c2: Color) -> float",
               "summary": "Average absolute per-channel RGB difference.",
@@ -816,7 +816,7 @@
             },
             {
               "name": "get_objects_by_color",
-              "qualname": "ColorManager.get_objects_by_color",
+              "qualname": "ColorId.get_objects_by_color",
               "kind": "classmethod",
               "signature": "(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False) -> List",
               "summary": "View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.",
@@ -825,7 +825,7 @@
             },
             {
               "name": "reset_colors",
-              "qualname": "ColorManager.reset_colors",
+              "qualname": "ColorId.reset_colors",
               "kind": "classmethod",
               "signature": "(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True) -> None",
               "summary": "Clear color assignments on ``objects`` for the chosen channels.",
@@ -834,7 +834,7 @@
             },
             {
               "name": "reset_vertex_colors",
-              "qualname": "ColorManager.reset_vertex_colors",
+              "qualname": "ColorId.reset_vertex_colors",
               "kind": "staticmethod",
               "signature": "(obj) -> None",
               "summary": "Remove every color attribute from a mesh object.",
@@ -844,8 +844,8 @@
           ]
         },
         {
-          "name": "ColorManagerSlots",
-          "summary": "Switchboard slot wiring for the Color Manager panel (swatch palette + 3 channels).",
+          "name": "ColorIdSlots",
+          "summary": "Switchboard slot wiring for the Color ID panel (swatch palette + 3 channels).",
           "line": 221,
           "bases": [
             "ptk.LoggingMixin"
@@ -853,47 +853,47 @@
           "members": [
             {
               "name": "header_init",
-              "qualname": "ColorManagerSlots.header_init",
+              "qualname": "ColorIdSlots.header_init",
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 242,
+              "line": 243,
               "deprecated": false
             },
             {
               "name": "b000",
-              "qualname": "ColorManagerSlots.b000",
+              "qualname": "ColorIdSlots.b000",
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Reset Colors (Ctrl+click resets every object in the scene).",
-              "line": 310,
+              "line": 311,
               "deprecated": false
             },
             {
               "name": "b001",
-              "qualname": "ColorManagerSlots.b001",
+              "qualname": "ColorIdSlots.b001",
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Set Color — apply the active color to the selected objects on the enabled channels.",
-              "line": 322,
+              "line": 323,
               "deprecated": false
             },
             {
               "name": "b002",
-              "qualname": "ColorManagerSlots.b002",
+              "qualname": "ColorIdSlots.b002",
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Select By Color — select scene objects matching the active color (enabled channels).",
-              "line": 337,
+              "line": 338,
               "deprecated": false
             },
             {
               "name": "b003",
-              "qualname": "ColorManagerSlots.b003",
+              "qualname": "ColorIdSlots.b003",
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Get Color — read the active object's color into the selected swatch.",
-              "line": 357,
+              "line": 358,
               "deprecated": false
             }
           ]
@@ -2909,7 +2909,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "One-time table setup (clickable action columns + context menu + signals), then populate.",
-              "line": 290,
+              "line": 291,
               "deprecated": false
             },
             {
@@ -2918,7 +2918,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the selected .blend (replaces the current file;",
-              "line": 797,
+              "line": 798,
               "deprecated": false
             },
             {
@@ -2927,7 +2927,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Save the current scene into the workspace with the header naming conventions.",
-              "line": 819,
+              "line": 820,
               "deprecated": false
             },
             {
@@ -2936,7 +2936,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rename the selected .blend on disk.",
-              "line": 840,
+              "line": 841,
               "deprecated": false
             },
             {
@@ -2945,7 +2945,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete the selected .blend file(s) from disk (confirmed).",
-              "line": 861,
+              "line": 862,
               "deprecated": false
             },
             {
@@ -2954,7 +2954,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reveal the selected .blend in the OS file manager (any row).",
-              "line": 873,
+              "line": 874,
               "deprecated": false
             },
             {
@@ -2963,7 +2963,7 @@
               "kind": "method",
               "signature": "(self, link=True)",
               "summary": "Link (or Append) the selected .blend file(s) as references.",
-              "line": 885,
+              "line": 886,
               "deprecated": false
             },
             {
@@ -2972,7 +2972,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reload the selected file's library from disk.",
-              "line": 901,
+              "line": 902,
               "deprecated": false
             },
             {
@@ -2981,7 +2981,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Point the selected file's library at a different .blend (native file browser).",
-              "line": 909,
+              "line": 910,
               "deprecated": false
             },
             {
@@ -2990,7 +2990,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Make the selected file's library data local (Maya's per-reference Import).",
-              "line": 922,
+              "line": 923,
               "deprecated": false
             },
             {
@@ -2999,7 +2999,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Remove the selected file's library (and everything linked from it).",
-              "line": 932,
+              "line": 933,
               "deprecated": false
             },
             {
@@ -3008,7 +3008,7 @@
               "kind": "method",
               "signature": "(self, mode)",
               "summary": "Set the per-reference display mode (off / reference / template) on the selection.",
-              "line": 944,
+              "line": 945,
               "deprecated": false
             },
             {
@@ -3017,7 +3017,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reload every linked library from disk (Maya's Update References).",
-              "line": 954,
+              "line": 955,
               "deprecated": false
             },
             {
@@ -3026,7 +3026,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Make every linked library's data local (Maya's Unlink-and-Import All).",
-              "line": 962,
+              "line": 963,
               "deprecated": false
             },
             {
@@ -3035,7 +3035,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Remove every linked library and its data (Maya's Un-Reference All).",
-              "line": 974,
+              "line": 975,
               "deprecated": false
             }
           ]

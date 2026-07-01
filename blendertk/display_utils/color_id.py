@@ -1,17 +1,17 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Color Manager tool panel — Switchboard slot wiring for the co-located ``color_manager.ui``.
+"""Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 
-Blender port of mayatk's Color Manager: a swatch palette that color-codes scene objects across
+Blender port of mayatk's Color ID: a swatch palette that color-codes scene objects across
 three channels. Maya's four channels (material / outliner / wireframe / vertex) collapse to the
 three with Blender analogues — **Material** (an ID material's base color), **Object Color**
 (``obj.color``, Blender's per-object viewport tint, shown in Object-color shading; this is the
 single analogue of Maya's separate outliner + wireframe tints), and **Vertex** (a mesh color
 attribute). Apply to / select by / reset across any combination of the enabled channels.
 
-The engine (``ColorManager``) lives next to its panel + ``.ui`` (mirror of mayatk's
-``display_utils.color_manager``); served by ``BlenderUiHandler`` (``marking_menu.show
-("color_manager")``). Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helper is
+The engine (``ColorId``) lives next to its panel + ``.ui`` (mirror of mayatk's
+``display_utils.color_id``); served by ``BlenderUiHandler`` (``marking_menu.show
+("color_id")``). Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helper is
 deferred into its method (headless Blender ships no Qt binding). ``import bpy`` is deferred too.
 """
 import random
@@ -22,7 +22,7 @@ import pythontk as ptk
 Color = Tuple[float, float, float]
 
 
-class ColorManager:
+class ColorId:
     """Engine: apply / select-by / reset object colors across material, object-color, and vertex
     channels. Operates on ``bpy.types.Object`` references (Blender idiom), not name strings."""
 
@@ -218,8 +218,8 @@ class ColorManager:
 # ----------------------------------------------------------------------------
 
 
-class ColorManagerSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Color Manager panel (swatch palette + 3 channels).
+class ColorIdSlots(ptk.LoggingMixin):
+    """Switchboard slot wiring for the Color ID panel (swatch palette + 3 channels).
 
     Channel checkboxes: ``chk013`` Object Color · ``chk014`` Material · ``chk015`` Vertex
     (Maya's wireframe channel ``chk012`` is dropped — no Blender analogue). Self-contained
@@ -227,15 +227,16 @@ class ColorManagerSlots(ptk.LoggingMixin):
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
-        self.ui = self.sb.loaded_ui.color_manager
+        self.ui = self.sb.loaded_ui.color_id
         self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[color_manager] ")
+        self.logger.set_log_prefix("[color_id] ")
 
         self.button_grp = self.sb.create_button_groups(self.ui, "chk000-11")
         for i, button in enumerate(self.button_grp.buttons()):
             button._initialColor = self.sb.QtGui.QColor(
-                *ColorManager.DEFAULT_SWATCH_COLORS[i % len(ColorManager.DEFAULT_SWATCH_COLORS)]
+                *ColorId.DEFAULT_SWATCH_COLORS[i % len(ColorId.DEFAULT_SWATCH_COLORS)]
             )
+            button.keep_square = True  # square swatches that track column width
             button.settings = self.ui.settings
         self.ui.chk000.setChecked(True)
 
@@ -245,7 +246,7 @@ class ColorManagerSlots(ptk.LoggingMixin):
 
         widget.set_help_text(
             fmt(
-                title="Color Manager",
+                title="Color ID",
                 body="Color-code scene objects across three channels: an ID "
                 "<b>Material</b>, the <b>Object Color</b> (viewport tint), and "
                 "<b>Vertex</b> colors.",
@@ -317,7 +318,7 @@ class ColorManagerSlots(ptk.LoggingMixin):
             objects = self._selected
         if not objects:
             return
-        ColorManager.reset_colors(objects)
+        ColorId.reset_colors(objects)
 
     def b001(self) -> None:
         """Set Color — apply the active color to the selected objects on the enabled channels."""
@@ -326,7 +327,7 @@ class ColorManagerSlots(ptk.LoggingMixin):
         if not objects or color is None:
             return
         ch = self._channels()
-        ColorManager.apply_color(
+        ColorId.apply_color(
             objects,
             color=color,
             apply_to_object=ch["object"],
@@ -342,7 +343,7 @@ class ColorManagerSlots(ptk.LoggingMixin):
         if color is None:
             return
         ch = self._channels()
-        found = ColorManager.get_objects_by_color(
+        found = ColorId.get_objects_by_color(
             color,
             check_object=ch["object"],
             check_material=ch["material"],
@@ -368,11 +369,11 @@ class ColorManagerSlots(ptk.LoggingMixin):
         ch = self._channels()
         color = None
         if ch["object"]:
-            color = ColorManager.get_object_color(obj)
+            color = ColorId.get_object_color(obj)
         if color is None and ch["material"]:
-            color = ColorManager.get_material_color(obj)
+            color = ColorId.get_material_color(obj)
         if color is None and ch["vertex"]:
-            color = ColorManager.get_average_vertex_color(obj)
+            color = ColorId.get_average_vertex_color(obj)
         if color is None:
             self.sb.message_box("No color found on the active object's enabled channels.")
             return
@@ -386,5 +387,5 @@ class ColorManagerSlots(ptk.LoggingMixin):
 if __name__ == "__main__":
     from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
 
-    ui = BlenderUiHandler.instance().get("color_manager", reload=True)
+    ui = BlenderUiHandler.instance().get("color_id", reload=True)
     ui.show(pos="screen", app_exec=True)

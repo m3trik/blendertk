@@ -1,5 +1,5 @@
-"""blendertk Color Manager engine headless test (material / object-color / vertex channels).
-Run: blender --background --factory-startup --python blendertk/test/test_color_manager.py
+"""blendertk Color ID engine headless test (material / object-color / vertex channels).
+Run: blender --background --factory-startup --python blendertk/test/test_color_id.py
 """
 import sys, os, traceback
 
@@ -16,7 +16,7 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
-    from blendertk.display_utils.color_manager import ColorManager as CM
+    from blendertk.display_utils.color_id import ColorId as CM
 
     def reset_scene():
         if (bpy.context.view_layer.objects.active

@@ -273,6 +273,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 tooltip_on="Filter enabled. Click to disable.",
                 tooltip_off="Filter disabled. Click to enable.",
                 initial=True,
+                gate_wrapped=True,  # grey out the field while the filter is off
                 on_toggled=lambda *_: self._refresh(),
                 settings_key="reference_manager_filter",
             )

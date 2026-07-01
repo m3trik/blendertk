@@ -40,7 +40,7 @@ PANELS = [
     "hdr_manager",
     "lightmap_baker",
     "reference_manager",
-    "color_manager",
+    "color_id",
     "exploded_view",
     "calculator",
     "texture_path_editor",
@@ -109,6 +109,7 @@ try:
         ("game_shader", "GameShaderSlots"),  # cmb001_init bpy-free (static OpenGL/DirectX list)
         ("channels", "ChannelsSlots"),  # __init__ + table/header init are bpy-free (guarded refresh)
         ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
+        ("color_id", "ColorIdSlots"),  # __init__ (button groups + keep_square swatches) is bpy-free
         ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
         ("hdr_manager", "HdrManagerSlots"),  # __init__ + header/cmb _init are bpy-free (os dir scan)

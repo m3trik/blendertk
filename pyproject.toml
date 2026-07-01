@@ -17,7 +17,8 @@ classifiers = [
 
 # bpy is provided by the Blender runtime, not pip-installed.
 dependencies = [
-    "pythontk>=0.8.63",
+    "pythontk>=0.8.75",
+    "uitk>=1.2.91",
     "unitytk>=0.0.1",
 ]
 

@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-06-27_
+_Generated: 2026-07-01_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `get_fcurves(objects)`
@@ -84,10 +84,10 @@ _Generated: 2026-06-27_
 - `unexplode_all()`
 - `class DisplayUtils`
 
-### `display_utils/color_manager.py` — Color Manager tool panel — Switchboard slot wiring for the co-located ``color_manager.ui``.
-- `class ColorManager`
+### `display_utils/color_id.py` — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
+- `class ColorId`
   - methods: assign_id_material, set_object_color, set_vertex_color, apply_color, get_object_color, get_material_color, get_average_vertex_color, color_difference, get_objects_by_color, reset_colors, reset_vertex_colors
-- `class ColorManagerSlots(ptk.LoggingMixin)`
+- `class ColorIdSlots(ptk.LoggingMixin)`
   - methods: header_init, b000, b001, b002, b003
 
 ### `display_utils/exploded_view.py` — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
