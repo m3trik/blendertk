@@ -1,0 +1,7 @@
+{
+    "mesh_smooth_type": "FACE",
+    "use_tspace": true,
+    "embed_textures": true,
+    "path_mode": "COPY",
+    "bake_anim": true
+}

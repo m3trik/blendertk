@@ -320,12 +320,14 @@ def format_texture_info_html(info_list):
 
 
 # ------------------------------------------------------------------ cleanup
-def find_materials_with_duplicate_textures():
+def find_materials_with_duplicate_textures(materials=None):
     """Groups of materials that reference the *same* set of texture files — mirror of
     ``mtk.MatUtils.find_materials_with_duplicate_textures``. Materials with no textures are
-    skipped. Returns a list of duplicate groups (each 2+ materials)."""
+    skipped. ``materials=None`` scans every scene material (the default); pass an explicit list
+    to scope the scan (e.g. scene_exporter's export-object set via ``get_mats(objects)``).
+    Returns a list of duplicate groups (each 2+ materials)."""
     groups = {}
-    for mat in get_scene_mats():
+    for mat in (materials if materials is not None else get_scene_mats()):
         sig = tuple(sorted({_abspath(img) for _n, img in _material_image_nodes(mat) if _abspath(img)}))
         if sig:
             groups.setdefault(sig, []).append(mat)
@@ -446,6 +448,33 @@ def repath_image(image, new_path, reload=True):
     return True
 
 
+def to_project_relative(abspath, blenddir=None):
+    """Convert an absolute path to a Blender ``//``-relative path when it falls under the saved
+    .blend's own directory; otherwise return the normalized absolute path unchanged.
+
+    The Blender analogue of mayatk's Texture Path Editor ``_project_relative_converter`` (which
+    rewrites a path relative to *sourceimages* when it lands inside that folder). Shared by every
+    workflow that (re)points an image at a resolved file — :func:`set_texture_directory`,
+    :func:`find_and_copy_textures`, :func:`resolve_missing_textures`, and the ``"relative"`` mode
+    of :func:`normalize_texture_paths` — so a repathed image always ends up relative when possible,
+    the same way every one of mayatk's equivalent commands does.
+    """
+    if blenddir is None:
+        import bpy
+
+        blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
+    ap = os.path.normpath(abspath)
+    if not blenddir:
+        return ap
+    blenddir_norm = os.path.normpath(blenddir)
+    try:
+        if os.path.commonpath([ap, blenddir_norm]) != blenddir_norm:
+            return ap
+    except ValueError:  # different drive — can't be relative
+        return ap
+    return "//" + os.path.relpath(ap, blenddir_norm).replace("\\", "/")
+
+
 def _map_type_and_base(orig_stem):
     """``(map_type, base_name_lower)`` for an ORIGINAL-CASE stem via the shared MapFactory.
 
@@ -487,7 +516,9 @@ def _resolve_by_map_type(target_orig_stem, cand_meta, stem_index):
     return stem_index.get(same_keys[same_bases.index(match)])
 
 
-def resolve_missing_textures(search_dir, recursive=True, stem=False, texture=False, fuzzy=False):
+def resolve_missing_textures(
+    search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None
+):
     """Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture
     Path Editor 'Resolve Missing' and Blender's native Find Missing Files.
 
@@ -498,10 +529,12 @@ def resolve_missing_textures(search_dir, recursive=True, stem=False, texture=Fal
         never repaths to a ``_Normal``), then fuzzy-match the base name (shared ``ptk.MapFactory``);
       * ``fuzzy``: loose stem match via ``ptk.FuzzyMatcher`` (substring/ratio).
 
+    ``images=None`` scans every FILE image in the .blend (the default); pass an explicit list to
+    restrict the scan (the Texture Path Editor's selection-aware scope — mirrors mayatk's
+    ``file_nodes`` parameter on its Resolve Missing Textures command).
+
     Returns the count resolved.
     """
-    import bpy
-
     if not (search_dir and os.path.isdir(search_dir)):
         return 0
     index = {}  # lowercase basename (with ext) -> first (shallowest) path found
@@ -527,9 +560,7 @@ def resolve_missing_textures(search_dir, recursive=True, stem=False, texture=Fal
             mt, base = _map_type_and_base(orig)
             cand_meta.append((key, base, mt))
     resolved = 0
-    for img in bpy.data.images:
-        if img.source != "FILE":
-            continue
+    for img in _resolve_images(images):
         ap = _abspath(img)
         if ap and os.path.exists(ap):
             continue
@@ -550,7 +581,7 @@ def resolve_missing_textures(search_dir, recursive=True, stem=False, texture=Fal
             if status == "unique":
                 found = stem_index.get(match)
         if found:
-            img.filepath = found
+            img.filepath = to_project_relative(found)
             try:
                 img.reload()
             except RuntimeError:
@@ -559,7 +590,7 @@ def resolve_missing_textures(search_dir, recursive=True, stem=False, texture=Fal
     return resolved
 
 
-def normalize_texture_paths(mode="relative", project_dir=None):
+def normalize_texture_paths(mode="relative", project_dir=None, images=None):
     """Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.
 
     ``mode``:
@@ -568,12 +599,16 @@ def normalize_texture_paths(mode="relative", project_dir=None):
       * ``"copy"`` / ``"move"`` — bring *external* textures (outside ``project_dir``, default
         ``<blenddir>/textures``) into that folder and repath to them.
 
+    ``images=None`` targets every FILE image in the .blend (the default); pass an explicit list to
+    restrict the scope (the Texture Path Editor's selection-aware scope — mirrors mayatk's
+    ``file_nodes`` parameter on its Normalize Paths command).
+
     Returns the number of images changed.
     """
     import bpy
 
     blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
-    images = [i for i in bpy.data.images if i.source == "FILE"]
+    images = _resolve_images(images)
     changed = 0
 
     if mode in ("copy", "move"):
@@ -595,7 +630,7 @@ def normalize_texture_paths(mode="relative", project_dir=None):
             dst = os.path.join(project_dir, os.path.basename(ap))
             if _safe_relocate(ap, dst, mode) in ("skip", "error"):
                 continue  # different-size collision — don't clobber / wrong-rebind
-            img.filepath = dst
+            img.filepath = to_project_relative(dst, blenddir)
             changed += 1
         return changed
 
@@ -608,10 +643,9 @@ def normalize_texture_paths(mode="relative", project_dir=None):
         else:  # relative
             if not blenddir:
                 continue
-            try:
-                new = "//" + os.path.relpath(ap, blenddir).replace("\\", "/")
-            except ValueError:
-                continue
+            new = to_project_relative(ap, blenddir)
+            if not new.startswith("//"):
+                continue  # outside the .blend's folder — can't be made relative
         if new != (getattr(img, "filepath", "") or ""):
             img.filepath = new
             changed += 1
@@ -736,6 +770,7 @@ def _safe_relocate(src, dst, mode):
                           rebind to the wrong texture (and never destroy the external).
         ``"error"``     — the disk op failed.
     """
+    import logging
     import shutil
 
     if os.path.normpath(src) == os.path.normpath(dst):
@@ -747,6 +782,12 @@ def _safe_relocate(src, dst, mode):
             except OSError:
                 same = False
             if not same:
+                # Mirrors mayatk's ``cmds.warning`` on the same collision — never silently
+                # rebind to a wrong texture, never destroy the external file.
+                logging.getLogger(__name__).warning(
+                    f"'{os.path.basename(dst)}' already exists at destination with a "
+                    f"different size; skipping to avoid a wrong-file rebind: {dst}"
+                )
                 return "skip"  # different file, same name — don't clobber / wrong-rebind
             if mode == "move":
                 try:
@@ -782,7 +823,7 @@ def set_texture_directory(images=None, target_dir=None, mode="rewrite"):
         if mode in ("copy", "move") and ap and os.path.exists(ap):
             if _safe_relocate(ap, dst, mode) in ("skip", "error"):
                 continue  # leave the image on its current (valid) path
-        img.filepath = dst
+        img.filepath = to_project_relative(dst)
         try:
             img.reload()
         except RuntimeError:
@@ -819,7 +860,7 @@ def find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode="co
         dst = os.path.join(dest_dir, os.path.basename(src))
         if _safe_relocate(src, dst, mode) in ("skip", "error"):
             continue  # different-size collision — don't clobber / wrong-rebind
-        wanted[key].filepath = dst
+        wanted[key].filepath = to_project_relative(dst)
         try:
             wanted[key].reload()
         except RuntimeError:
@@ -1396,7 +1437,10 @@ class MatUpdater(ptk.LoggingMixin):
         Args:
             materials: materials (datablocks or names) to update; ``None`` = every scene material.
             config: preset name (str) or dict (may carry a ``preset`` key to inherit) — see
-                ``ptk.MapRegistry().get_workflow_presets()``.
+                ``ptk.MapRegistry().get_workflow_presets()``. A truthy ``discover_sourceimages``
+                (mirrors mayatk) gap-fills each texture set from the .blend's own folder — the
+                nearest Blender analogue of Maya's project ``sourceimages`` folder — unless an
+                explicit ``discover_dir`` is already given.
             verbose: INFO-level logging (else WARNING).
             progress_callback: ``cb(current, total, message)`` invoked per material in the loop.
 
@@ -1417,6 +1461,19 @@ class MatUpdater(ptk.LoggingMixin):
             if workspace:
                 move_to = os.path.join(workspace, move_to)
                 cfg["move_to_folder"] = move_to
+
+        # Resolve opt-in sibling discovery into a concrete directory for the factory. Mirrors
+        # mayatk's ``discover_sourceimages`` -> ``discover_dir`` resolution; Blender has no
+        # ``sourceimages`` project-folder convention, so the nearest analogue is the .blend's own
+        # directory (the same "workspace" concept already used above for move_to_folder).
+        if cfg.pop("discover_sourceimages", False) and not cfg.get("discover_dir"):
+            workspace = get_env_info("workspace")
+            if workspace:
+                cfg["discover_dir"] = workspace
+            else:
+                cls.logger.warning(
+                    "Discovery enabled but the .blend file hasn't been saved (no workspace folder)."
+                )
 
         if materials is None:
             materials = get_scene_mats(sort=True)
@@ -1575,6 +1632,7 @@ class MatUtils:
     get_image_material_map = staticmethod(get_image_material_map)
     materials_for_textures = staticmethod(materials_for_textures)
     repath_image = staticmethod(repath_image)
+    to_project_relative = staticmethod(to_project_relative)
     resolve_missing_textures = staticmethod(resolve_missing_textures)
     normalize_texture_paths = staticmethod(normalize_texture_paths)
     set_texture_directory = staticmethod(set_texture_directory)

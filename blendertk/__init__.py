@@ -183,6 +183,18 @@ DEFAULT_INCLUDE = {
     "env_utils.unity_bridge._unity_bridge": [
         "UnityBridge",
     ],
+    # Scene Exporter — batch FBX/GLB export task pipeline, mirror of mayatk's
+    # ``env_utils.scene_exporter`` (the ``SceneExporterSlots`` panel class is discovered by
+    # BlenderUiHandler, not registered).
+    "env_utils.scene_exporter._scene_exporter": [
+        "SceneExporter",
+    ],
+    "env_utils.scene_exporter.task_manager": [
+        "TaskManager",
+    ],
+    "env_utils.scene_exporter.task_factory": [
+        "TaskFactory",
+    ],
     "light_utils._light_utils": [
         "LightUtils",
         "set_world_hdri",
@@ -240,6 +252,7 @@ DEFAULT_INCLUDE = {
         "get_image_material_map",
         "materials_for_textures",
         "repath_image",
+        "to_project_relative",
         "resolve_missing_textures",
         "normalize_texture_paths",
         "fix_color_spaces",
