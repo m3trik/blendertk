@@ -4,9 +4,13 @@
 
 Focused Blender mirror of mayatk's ``RizomUVBridge`` *send-to-RizomUV* path (the one-way send): it
 exports the current selection to FBX, writes a small RizomUV Lua load-script, and launches RizomUV
-detached with ``-cfi <script>``. The Maya round-trip (re-import the UVs back into the scene) is
-intentionally **not** mirrored — Blender has strong native UV tooling, so the bridge is for
-interactive RizomUV work, not an automated round-trip.
+detached with ``-cfi <script>``. The Maya round-trip (export duplicates -> headless RizomUV run ->
+re-import -> transfer UVs back onto the originals) is **not yet ported** -- it's a genuinely
+substantial pipeline (own export/import/transfer machinery, versioned Lua wrapper templates), not a
+small addition, so ``rizom_bridge_slots.RizomBridgeSlots`` lists the round-trip presets in the combo
+for structural parity with mayatk but disables them.
+TODO(blender-parity): port the round-trip pipeline (see mayatk's ``_rizom_bridge.RizomUVBridge
+.process_with_rizomuv`` for the reference implementation), then drop the combo-item disabling.
 
 Co-located with its panel (``rizom_bridge_slots.RizomBridgeSlots`` + ``rizom_bridge.ui``) rather
 than living in the generic ``UvUtils`` namespace. Qt-only imports stay in the slots. RizomUV is
@@ -15,11 +19,18 @@ Windows-only.
 import os
 import tempfile
 import time
+from pathlib import Path
 
 import pythontk as ptk
 
 import blendertk as btk
 
+
+_PKG_DIR = Path(__file__).resolve().parent
+# Placeholder-discovery scripts (currently just ``send.lua``) -- mirrors mayatk's ``_SCRIPT_DIR``.
+# Round-trip preset scripts (``pack.lua`` / ``unwrap_hard.lua`` / ...) aren't bundled here since
+# there's no engine support to run them yet (see module docstring).
+_SCRIPT_DIR = _PKG_DIR / "scripts"
 
 # Candidate RizomUV executable names (AppLauncher.find_app), newest install wins on the dir scan.
 _RIZOM_APP_NAMES = ("Rizomuv_VS", "rizomuv", "RizomUV")

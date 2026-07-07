@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>300</width>
-    <height>260</height>
+    <width>220</width>
+    <height>240</height>
    </rect>
   </property>
   <property name="tabShape">
@@ -22,11 +22,14 @@
   <widget class="QWidget" name="central_widget">
    <property name="minimumSize">
     <size>
-     <width>300</width>
+     <width>220</width>
      <height>0</height>
     </size>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout_2">
+    <property name="spacing">
+     <number>2</number>
+    </property>
     <property name="leftMargin">
      <number>2</number>
     </property>
@@ -39,16 +42,13 @@
     <property name="bottomMargin">
      <number>2</number>
     </property>
-    <property name="spacing">
-     <number>2</number>
-    </property>
     <item>
      <layout class="QVBoxLayout" name="verticalLayout">
       <property name="spacing">
        <number>0</number>
       </property>
       <item>
-       <widget class="Header" name="header">
+       <widget class="Header" name="header" native="true">
         <property name="minimumSize">
          <size>
           <width>0</width>
@@ -68,7 +68,7 @@
          </font>
         </property>
         <property name="text">
-         <string>RIZOMUV BRIDGE</string>
+         <string>RIZOM BRIDGE</string>
         </property>
        </widget>
       </item>
@@ -94,59 +94,38 @@
           <number>0</number>
          </property>
          <item>
-          <widget class="QCheckBox" name="chk000">
+          <widget class="ComboBox" name="cmb000">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
            <property name="toolTip">
-            <string>Import the mesh's existing UVs (XYZUVW).</string>
+            <string>Select a Lua preset script bundled with blendertk's RizomUV bridge.</string>
            </property>
-           <property name="text">
-            <string>Load UVs</string>
+           <property name="maxVisibleItems">
+            <number>40</number>
            </property>
-           <property name="checked">
+           <property name="maxCount">
+            <number>500</number>
+           </property>
+           <property name="sizeAdjustPolicy">
+            <enum>QComboBox::AdjustToContents</enum>
+           </property>
+           <property name="frame">
             <bool>true</bool>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QCheckBox" name="chk001">
-           <property name="toolTip">
-            <string>Keep each object as a separate RizomUV group (ImportGroups).</string>
-           </property>
-           <property name="text">
-            <string>Import Groups</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QCheckBox" name="chk002">
-           <property name="toolTip">
-            <string>Load UVW properties (pinning / seams) from the file.</string>
-           </property>
-           <property name="text">
-            <string>Load UVW Props</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QCheckBox" name="chk003">
-           <property name="toolTip">
-            <string>Bind the selection's color textures in RizomUV (ZomLoadTexture).</string>
-           </property>
-           <property name="text">
-            <string>Load Textures</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="b000">
+          <widget class="PushButton" name="b000">
            <property name="minimumSize">
             <size>
              <width>0</width>
@@ -160,10 +139,10 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>Export the selected meshes and open them in a fresh RizomUV session.</string>
+            <string>Send the selected mesh object(s) through RizomUV using the chosen preset.</string>
            </property>
            <property name="text">
-            <string>Send to RizomUV</string>
+            <string>Process Selected</string>
            </property>
           </widget>
          </item>
@@ -179,7 +158,7 @@
          </size>
         </property>
         <property name="toolTip">
-         <string>Bridge log.</string>
+         <string>Bridge log. Click linked paths to open them in the file explorer.</string>
         </property>
         <property name="openLinks">
          <bool>false</bool>
@@ -212,14 +191,24 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>Header</class>
-   <extends>QLabel</extends>
-   <header>uitk.widgets.header.Header.h</header>
-  </customwidget>
-  <customwidget>
    <class>Footer</class>
    <extends>QWidget</extends>
    <header>uitk.widgets.footer</header>
+  </customwidget>
+  <customwidget>
+   <class>Header</class>
+   <extends>QWidget</extends>
+   <header>uitk.widgets.header</header>
+  </customwidget>
+  <customwidget>
+   <class>ComboBox</class>
+   <extends>QComboBox</extends>
+   <header>uitk.widgets.comboBox.ComboBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PushButton</class>
+   <extends>QPushButton</extends>
+   <header>widgets.pushbutton.h</header>
   </customwidget>
  </customwidgets>
  <resources/>
