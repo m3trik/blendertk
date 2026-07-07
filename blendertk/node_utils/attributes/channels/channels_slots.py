@@ -82,11 +82,71 @@ class ChannelsSlots:
         # MMB scrub-edit drag state — set by the scrub handlers; cleared on release.
         self._scrub_state = None
 
-        # Name filter — refresh on edit.
-        self.ui.txt000.textChanged.connect(lambda *_: self._refresh_table(self.ui.tbl000))
+        # Name filter — debounced refresh (mirror of mayatk: bursts of keystrokes collapse
+        # into a single rebuild 200ms after the user stops typing).
+        QtCore = self.sb.QtCore
+        self._filter_timer = QtCore.QTimer()
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(200)
+        self._filter_timer.timeout.connect(lambda: self._refresh_table(self.ui.tbl000))
+        self.ui.txt000.textChanged.connect(lambda *_: self._filter_timer.start())
+        self.ui.txt000.option_box.clear_option = True
+        self.ui.destroyed.connect(self._filter_timer.stop)
+
+        # Filter on/off toggle as an action button on the option_box (mirror of mayatk's
+        # txt000 3rd add_action — see tentacle/docs/parity_map.py "add_action"). The action
+        # cycles two states; each callback sets up the NEXT state before the cycle advances.
+        clr = self.ACTION_COLOR_MAP
+        self._filter_enabled = True
+        self.ui.txt000.option_box.add_action(
+            icon="filter",
+            tooltip="Toggle name filter",
+            states=[
+                {
+                    "icon": "filter",
+                    "tooltip": "Filter ON — click to disable",
+                    "color": clr["active"],
+                    "callback": lambda: self._set_filter_enabled(False),
+                },
+                {
+                    "icon": "filter",
+                    "tooltip": "Filter OFF — click to enable",
+                    "color": clr["off"],
+                    "callback": lambda: self._set_filter_enabled(True),
+                },
+            ],
+            settings_key=False,
+        )
 
         # txt001 — target display + double-click-to-rename (read-only until double-clicked).
         self._setup_target_field()
+
+    def apply_launch_config(self, targets=None, filter=None, search=None):
+        """Configure the window from an external launch call (mirror of mayatk).
+
+        Safe to call repeatedly — applies pin/filter/search to the already-constructed UI.
+        Pass ``targets=None`` to clear a pin.
+        """
+        self.controller.pin_targets(targets)
+
+        if filter:
+            if filter in Channels.FILTER_MAP:
+                cmb = getattr(self.ui, "cmb000", None)
+                if cmb is not None:
+                    cmb.setCurrentText(filter)
+            else:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "launch(filter=%r) ignored — not a FILTER_MAP key. Valid: %s",
+                    filter,
+                    sorted(Channels.FILTER_MAP.keys()),
+                )
+
+        if search is not None:
+            self.ui.txt000.setText(search)
+
+        self._refresh_table(self.ui.tbl000)
 
     # ------------------------------------------------------------------
     # Target field (txt001)
@@ -102,12 +162,31 @@ class ChannelsSlots:
         def _dbl_click(event, _orig=txt1.mouseDoubleClickEvent):
             if txt1.isReadOnly() and self._current_target is not None:
                 txt1.setReadOnly(False)
+                txt1.setToolTip(
+                    f"{self._current_target.name}"
+                    "\n\n(Type a new name and press Enter to rename.)"
+                )
                 txt1.selectAll()
                 txt1.setFocus()
                 return
             _orig(event)
 
         txt1.mouseDoubleClickEvent = _dbl_click
+
+        def _key_press(event, _orig=txt1.keyPressEvent):
+            Qt = self.sb.QtCore.Qt
+
+            if event.key() == Qt.Key_Escape and not txt1.isReadOnly():
+                if self._current_target is not None:
+                    txt1.blockSignals(True)
+                    txt1.setText(self._current_target.name)
+                    txt1.blockSignals(False)
+                txt1.setReadOnly(True)
+                txt1.setToolTip("Double-click to rename.")
+                return
+            _orig(event)
+
+        txt1.keyPressEvent = _key_press
 
         # Single-object-mode toggle on the field's option box (mirror of the Maya "target" action).
         clr = self.ACTION_COLOR_MAP
@@ -205,6 +284,11 @@ class ChannelsSlots:
         self._filter_invert = bool(enabled)
         self._refresh_table(self.ui.tbl000)
 
+    def _set_filter_enabled(self, enabled):
+        """Toggle whether the name filter (txt000) is applied (mirror of mayatk)."""
+        self._filter_enabled = bool(enabled)
+        self._refresh_table(self.ui.tbl000)
+
     def _filter_key(self):
         cmb = getattr(self.ui, "cmb000", None)
         label = cmb.currentText() if cmb else "Custom"
@@ -259,6 +343,11 @@ class ChannelsSlots:
         chk_auto_fit.toggled.connect(self._on_toggle_auto_fit)
         self._chk_auto_fit = chk_auto_fit
 
+        # TODO(blender-parity): mayatk's "Selection" header section (Select Shape Node /
+        # Select History Node) has no Blender analogue — a Blender object owns its mesh
+        # data directly (no DAG transform/shape split) and modifiers aren't selectable
+        # scene nodes. Intentionally omitted; ledgered in tentacle/docs/parity_map.py
+        # (hdr_select_shape / hdr_select_history).
         widget.menu.add("Separator", setTitle="Blender Editors")
         widget.menu.add(
             "QPushButton", setText="Properties Editor …", setObjectName="hdr_properties",
@@ -301,8 +390,8 @@ class ChannelsSlots:
                     ("Right-click (context menu)", [
                         "<b>Edit</b> — lock / unlock / reset to default.",
                         "<b>Values</b> — copy / paste channel values.",
-                        "<b>Animation</b> — key, breakdown, mute / unmute, "
-                        "select connection (driver / constraint target), break animation.",
+                        "<b>Animation</b> — breakdown, mute / unmute, select connection "
+                        "(driver / constraint target), break animation.",
                         "<b>Transform</b> — freeze / unfreeze transforms.",
                         "<b>Manage</b> — delete custom propert(ies).",
                     ]),
@@ -836,28 +925,42 @@ class ChannelsSlots:
         widget.actions.add(self.COL_CONN, states=conn_states)
 
     def _setup_context_menu(self, widget):
-        """Build the table's right-click context menu and bind handlers."""
+        """Build the table's right-click context menu and bind handlers.
+
+        objectNames and handler method names mirror mayatk's ``_setup_context_menu`` verbatim
+        for every item that has a Blender equivalent, so the two files diff side-by-side. Items
+        with no Blender analogue are omitted, each flagged with a TODO(blender-parity) below —
+        mayatk's own "Key" action lives only on the Connect-column icon click
+        (``_on_icon_cell_clicked``), not the context menu, so there is no ``ctx_key`` item here
+        either.
+        """
         menu = widget.menu
-        # Section order mirrors the Maya panel (Edit · Values · Animation · Transform · Manage).
+        # Section order mirrors the Maya panel (Edit · Values · Channel Box→Animation ·
+        # Transform · Manage). "Channel Box" is renamed "Animation" — Blender has no channel
+        # box, and every surviving item in that section is animation-related.
         # fmt: off
         _items = [
             ("Edit",          None),
             ("Lock",          "ctx_lock",          "Lock the selected transform channel(s)."),
             ("Unlock",        "ctx_unlock",        "Unlock the selected transform channel(s)."),
-            ("Reset to Default", "ctx_reset",      "Reset to default (loc/rot 0, scale 1; custom-prop default)."),
+            ("Reset to Default", "ctx_reset_default", "Reset to default (loc/rot 0, scale 1; custom-prop default)."),
+            # TODO(blender-parity): mayatk's "Toggle Keyable" has no Blender equivalent —
+            # every custom property is keyable; there is no per-channel keyable flag.
             ("Values",        None),
-            ("Copy Values",   "ctx_copy",          "Copy selected channel values."),
-            ("Paste Values",  "ctx_paste",         "Paste channel values onto the selection."),
+            ("Copy Values",   "ctx_copy_values",   "Copy selected channel values."),
+            ("Paste Values",  "ctx_paste_values",  "Paste channel values onto the selection."),
             ("Animation",     None),
-            ("Key",           "ctx_key",           "Set/remove a keyframe at the current frame."),
             ("Breakdown",     "ctx_breakdown",     "Insert a breakdown keyframe at the current frame."),
             ("Mute",          "ctx_mute",          "Mute the F-curve / driver on the selected channel(s)."),
             ("Unmute",        "ctx_unmute",        "Unmute the F-curve / driver on the selected channel(s)."),
+            # TODO(blender-parity): mayatk's "Hide Selected" / "Show Selected" / "Lock and
+            # Hide" have no Blender equivalent — there is no channel-box visibility flag;
+            # every channel shown here is already visible by definition.
             ("Select Connection", "ctx_select_connection", "Select the object driving this channel (driver variable / constraint target)."),
-            ("Break Animation", "ctx_break",       "Remove the F-curve / driver on the selected channel(s)."),
+            ("Break Connection", "ctx_break_connection", "Remove the F-curve / driver on the selected channel(s)."),
             ("Transform",     None),
-            ("Freeze Transforms", "ctx_freeze",    "Apply (freeze) transforms on the selected object(s)."),
-            ("Unfreeze Transforms", "ctx_unfreeze", "Restore the pre-freeze transforms (requires a prior freeze)."),
+            ("Freeze Transforms", "ctx_freeze_transforms", "Apply (freeze) transforms on the selected object(s)."),
+            ("Unfreeze Transforms", "ctx_unfreeze_transforms", "Restore the pre-freeze transforms (requires a prior freeze)."),
             ("Manage",        None),
             ("Delete Attribute", "ctx_delete",     "Delete the selected custom propert(ies)."),
         ]
@@ -865,21 +968,20 @@ class ChannelsSlots:
         handler_map = {
             "ctx_lock": self._ctx_lock,
             "ctx_unlock": self._ctx_unlock,
-            "ctx_reset": self._ctx_reset,
-            "ctx_key": self._ctx_key,
+            "ctx_reset_default": self._ctx_reset_default,
+            "ctx_copy_values": self._ctx_copy_values,
+            "ctx_paste_values": self._ctx_paste_values,
             "ctx_breakdown": self._ctx_breakdown,
             "ctx_mute": self._ctx_mute,
             "ctx_unmute": self._ctx_unmute,
             "ctx_select_connection": self._ctx_select_connection,
-            "ctx_break": self._ctx_break,
-            "ctx_copy": self._ctx_copy,
-            "ctx_paste": self._ctx_paste,
-            "ctx_freeze": self._ctx_freeze,
-            "ctx_unfreeze": self._ctx_unfreeze,
+            "ctx_break_connection": self._ctx_break_connection,
+            "ctx_freeze_transforms": self._ctx_freeze_transforms,
+            "ctx_unfreeze_transforms": self._ctx_unfreeze_transforms,
             "ctx_delete": self._ctx_delete,
         }
         # Node-level actions operate on the selection even with no row highlighted.
-        _node_level = {"ctx_freeze", "ctx_unfreeze", "ctx_paste"}
+        _node_level = {"ctx_freeze_transforms", "ctx_unfreeze_transforms", "ctx_paste_values"}
         for label, obj_name, *rest in _items:
             if obj_name is None:
                 menu.add("Separator", setTitle=label)
@@ -918,7 +1020,7 @@ class ChannelsSlots:
         menu = getattr(tbl, "menu", None)
         if menu is None:
             return
-        btn = getattr(menu, "ctx_unfreeze", None)
+        btn = getattr(menu, "ctx_unfreeze_transforms", None)
         if btn is None:
             return
         try:
@@ -961,7 +1063,7 @@ class ChannelsSlots:
 
             # Name filter (wildcard) — reuse pythontk's filter, like the Maya panel.
             text = self.ui.txt000.text().strip() if getattr(self.ui, "txt000", None) else ""
-            if text and self._row_descriptors:
+            if self._filter_enabled and text and self._row_descriptors:
                 import pythontk as ptk
 
                 keep = set(ptk.IterUtils.filter_list(
@@ -1320,37 +1422,42 @@ class ChannelsSlots:
                                  self._selected_descriptors(selection), False)
         self._refresh_table(self.ui.tbl000)
 
-    def _ctx_reset(self, selection):
+    def _ctx_reset_default(self, selection):
         self.controller.reset_to_default(self.controller.get_selected_nodes(),
                                          self._selected_descriptors(selection))
         self._refresh_table(self.ui.tbl000)
 
-    def _ctx_key(self, selection):
-        objects = self.controller.get_selected_nodes()
-        for d in self._selected_descriptors(selection):
-            self.controller.toggle_key_at_current_time(objects, d)
-        self._refresh_table(self.ui.tbl000)
-
-    def _ctx_break(self, selection):
+    def _ctx_break_connection(self, selection):
         objects = self.controller.get_selected_nodes()
         for d in self._selected_descriptors(selection):
             self.controller.break_connections(objects, d)
         self._refresh_table(self.ui.tbl000)
 
-    def _ctx_copy(self, selection):
+    def _ctx_copy_values(self, selection):
         self.controller.copy_values(self.controller.get_selected_nodes(),
                                     self._selected_descriptors(selection))
 
-    def _ctx_paste(self, selection):
+    def _ctx_paste_values(self, selection):
         self.controller.paste_values(self.controller.get_selected_nodes())
         self._refresh_table(self.ui.tbl000)
 
-    def _ctx_freeze(self, selection):
-        self.controller.freeze_transforms(self.controller.get_selected_nodes(),
-                                          self._selected_descriptors(selection) or None)
+    def _ctx_freeze_transforms(self, selection):
+        objects = self.controller.get_selected_nodes()
+        if not objects:
+            self.sb.message_box("Warning: No object(s) selected.")
+            return
+        descriptors = self._selected_descriptors(selection)
+        if not self.controller.freeze_transforms(objects, descriptors or None):
+            # Reached only when the selection names custom properties but no transform
+            # channel — the UI normally leaves this reachable only via a valid target.
+            self.sb.message_box(
+                "Warning: Selection is not a valid freeze target — select a "
+                "location / rotation / scale channel, or nothing."
+            )
+            return
         self._refresh_table(self.ui.tbl000)
 
-    def _ctx_unfreeze(self, selection):
+    def _ctx_unfreeze_transforms(self, selection):
         objects = self.controller.get_selected_nodes()
         if not objects:
             return

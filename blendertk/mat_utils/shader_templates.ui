@@ -9,8 +9,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>360</width>
-    <height>320</height>
+    <width>500</width>
+    <height>433</height>
    </rect>
   </property>
   <property name="tabShape">
@@ -25,7 +25,7 @@
   <widget class="QWidget" name="central_widget">
    <property name="minimumSize">
     <size>
-     <width>340</width>
+     <width>500</width>
      <height>0</height>
     </size>
    </property>
@@ -50,11 +50,20 @@
       <property name="spacing">
        <number>6</number>
       </property>
+      <property name="sizeConstraint">
+       <enum>QLayout::SetFixedSize</enum>
+      </property>
       <item>
        <widget class="Header" name="header">
         <property name="minimumSize">
          <size>
           <width>0</width>
+          <height>19</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>999</width>
           <height>19</height>
          </size>
         </property>
@@ -71,6 +80,18 @@
       </item>
       <item>
        <widget class="QGroupBox" name="main_group">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>145</height>
+         </size>
+        </property>
         <property name="title">
          <string/>
         </property>
@@ -108,7 +129,7 @@
             </size>
            </property>
            <property name="title">
-            <string>Template</string>
+            <string>Graph Template</string>
            </property>
            <layout class="QHBoxLayout" name="horizontalLayout_9">
             <property name="spacing">
@@ -134,8 +155,29 @@
                 <height>19</height>
                </size>
               </property>
+              <property name="maximumSize">
+               <size>
+                <width>999</width>
+                <height>19</height>
+               </size>
+              </property>
               <property name="toolTip">
-               <string>Principled-BSDF parameter preset (Metal / Glass / Emission / Skin …).</string>
+               <string/>
+              </property>
+              <property name="editable">
+               <bool>false</bool>
+              </property>
+              <property name="maxVisibleItems">
+               <number>30</number>
+              </property>
+              <property name="maxCount">
+               <number>20</number>
+              </property>
+              <property name="insertPolicy">
+               <enum>QComboBox::InsertAtTop</enum>
+              </property>
+              <property name="sizeAdjustPolicy">
+               <enum>QComboBox::AdjustToContents</enum>
               </property>
               <property name="frame">
                <bool>false</bool>
@@ -168,9 +210,15 @@
             </property>
             <item>
              <widget class="QPushButton" name="b001">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>0</width>
+                <width>200</width>
                 <height>19</height>
                </size>
               </property>
@@ -180,19 +228,47 @@
                 <height>30</height>
                </size>
               </property>
-              <property name="toolTip">
-               <string>Write the preset onto the materials already on the selection (textures/links untouched).</string>
+              <property name="text">
+               <string>Load Texture Maps</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="b002">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>200</width>
+                <height>19</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>30</height>
+               </size>
               </property>
               <property name="text">
-               <string>Apply to Selected</string>
+               <string>Save Template</string>
               </property>
              </widget>
             </item>
             <item>
              <widget class="QPushButton" name="b000">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="minimumSize">
                <size>
-                <width>0</width>
+                <width>200</width>
                 <height>40</height>
                </size>
               </property>
@@ -202,11 +278,8 @@
                 <height>30</height>
                </size>
               </property>
-              <property name="toolTip">
-               <string>Create a fresh material from the preset and assign it to the selected objects.</string>
-              </property>
               <property name="text">
-               <string>Create New</string>
+               <string>Create Network</string>
               </property>
              </widget>
             </item>
@@ -217,13 +290,29 @@
        </widget>
       </item>
       <item>
-       <widget class="CollapsableGroup" name="logging_group">
-        <property name="font">
-         <font>
-          <weight>75</weight>
-          <bold>true</bold>
-         </font>
+       <widget class="QProgressBar" name="progressBar">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>1</height>
+         </size>
         </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>1</height>
+         </size>
+        </property>
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="CollapsableGroup" name="logging_group">
         <property name="title">
          <string>• • •</string>
         </property>
@@ -244,15 +333,15 @@
           <number>0</number>
          </property>
          <item>
-          <widget class="QTextBrowser" name="txt001">
+          <widget class="QTextEdit" name="txt001">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
            <property name="verticalScrollBarPolicy">
             <enum>Qt::ScrollBarAlwaysOff</enum>
            </property>
-           <property name="openExternalLinks">
-            <bool>false</bool>
-           </property>
-           <property name="openLinks">
-            <bool>false</bool>
+           <property name="sizeAdjustPolicy">
+            <enum>QAbstractScrollArea::AdjustIgnored</enum>
            </property>
           </widget>
          </item>
@@ -282,14 +371,14 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>Header</class>
-   <extends>QLabel</extends>
-   <header>uitk.widgets.header.Header.h</header>
-  </customwidget>
-  <customwidget>
    <class>Footer</class>
    <extends>QWidget</extends>
    <header>uitk.widgets.footer</header>
+  </customwidget>
+  <customwidget>
+   <class>Header</class>
+   <extends>QLabel</extends>
+   <header>uitk.widgets.header.Header.h</header>
   </customwidget>
   <customwidget>
    <class>ComboBox</class>
@@ -305,4 +394,21 @@
  </customwidgets>
  <resources/>
  <connections/>
+ <designerdata>
+  <property name="gridDeltaX">
+   <number>5</number>
+  </property>
+  <property name="gridDeltaY">
+   <number>5</number>
+  </property>
+  <property name="gridSnapX">
+   <bool>true</bool>
+  </property>
+  <property name="gridSnapY">
+   <bool>true</bool>
+  </property>
+  <property name="gridVisible">
+   <bool>true</bool>
+  </property>
+ </designerdata>
 </ui>

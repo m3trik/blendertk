@@ -14,6 +14,15 @@ bake:
     points** gives exactly ``sections`` sides, ``resolution_u`` the ring density, ``use_fill_caps``
     the caps; baked to a mesh via ``curve_to_mesh``.
 
+The co-located ``.ui`` is now a byte-identical mirror of mayatk's (same objectNames, same widget
+tree, same tooltips) per the mayatk↔blendertk tool-panel parity sweep — cross-host QSettings
+collisions between identical objectNames are host-namespaced upstream in uitk, so there is no
+longer a reason to diverge the two panels' object trees. Some tooltip text is retained verbatim in
+Maya's own vocabulary (e.g. "NURBS curves", "construction history") for textual parity with
+mayatk's panel; the engine below is DCC-accurate regardless — it accepts any ``bpy`` ``CURVE``
+object and "Keep History" bevels the source curve in place rather than touching Maya-only
+construction-history nodes.
+
 Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.md``):
   * **``output_type`` decides the result type** (Blender unifies curve+surface): ``nurbs`` → a live
     beveled curve, ``polygon`` → a baked mesh. The **source curve is always preserved** (Maya does
@@ -161,13 +170,17 @@ class CurveToTube(ptk.LoggingMixin):
 
 
 class CurveToTubeSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Curve to Tube panel (hermetic Preview), mirror of mayatk's
-    ``CurveToTubeSlots``. Discovered + served by ``BlenderUiHandler``
-    (``marking_menu.show("curve_to_tube")``).
+    """Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's
+    ``CurveToTubeSlots`` (same objectNames, same widget count, same method names) driving
+    blendertk's engine through the snapshot/restore :class:`~blendertk.core_utils.preview.Preview`.
+    Discovered + served by ``BlenderUiHandler`` (``marking_menu.show("curve_to_tube")``).
     """
 
-    # A live NURBS tube bevels the source curve in place; tell the Preview to snapshot the selected
-    # curve(s) so rollback restores them (the blendertk Preview snapshots object data by default).
+    # Mirrors mayatk's PRESERVE_GEOMETRY marker: mayatk's node-diff Preview reads this attr to opt
+    # a slot into the duplicate-and-restore path for in-place ops (Curve to Tube resamples/bevels
+    # its source curve in place). blendertk's snapshot/restore Preview (core_utils/preview.py)
+    # always snapshots every captured object's data regardless of this flag, so it has no
+    # behavioral effect here — kept only for documentation parity with mayatk's slot.
     PRESERVE_GEOMETRY = True
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -177,12 +190,22 @@ class CurveToTubeSlots(ptk.LoggingMixin):
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[curve_to_tube] ")
 
+        # Output-type combo (NURBS / Polygon) drives which options apply.
         self.ui.cmb000.add(list(CurveToTube.OUTPUT_TYPES))
 
-        # Per-field reset buttons must precede connect_multi/Preview (wrap-first — reparenting a
-        # spinbox after a deferred-widget access invalidates its wrapper).
+        # Per-field reset buttons (uitk option-box): click resets a field to its default;
+        # Alt/Ctrl+click bypasses it to default (greyed, restorable). Must precede
+        # connect_multi/Preview — wrapping reparents the widgets and invalidates any
+        # already-deferred wrapper (see add_reset_buttons docstring).
         self.sb.add_reset_buttons(self.ui)
 
+        # NOTE (Preview architecture divergence): mayatk's Preview is a node-diff CleanupContract
+        # that offers validation_func / select_result_checkbox / result_provider hooks so a panel
+        # gets "at least one curve selected" gating and Select Result for free. blendertk's Preview
+        # (core_utils/preview.py) is snapshot/restore and has no equivalent hooks — the "at least
+        # one curve" gate is the engine's own RuntimeError (CurveToTube._curve_objects), surfaced
+        # through message_func exactly like an OperationError is in mayatk (see Preview._run /
+        # _report), and Select Result is hand-wired at the end of perform_operation below.
         self.preview = Preview(
             self,
             self.ui.chk000,
@@ -190,8 +213,10 @@ class CurveToTubeSlots(ptk.LoggingMixin):
             message_func=self.sb.message_box,
             undo_message="Curve to Tube",
         )
-
+        # Re-sweep live as any numeric field changes.
         self.sb.connect_multi(self.ui, "s000-3", "valueChanged", self.preview.refresh)
+        # Output type and the poly-only toggles also re-sweep; the combo also enables/disables
+        # the options that don't apply to the current type.
         self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
         self.ui.cmb000.currentIndexChanged.connect(self._toggle_output_options)
         self.ui.chk001.toggled.connect(self.preview.refresh)  # Caps
@@ -200,6 +225,13 @@ class CurveToTubeSlots(ptk.LoggingMixin):
 
         self._toggle_output_options()
 
+        # Footer doubles as a stats readout (triangle count, curve points) once a tube is built;
+        # show a hint until then.
+        try:
+            self.ui.footer.setDefaultStatusText("Select curve(s), then Preview.")
+        except Exception:
+            pass
+
     def header_init(self, widget):
         """Configure header help text."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
@@ -207,22 +239,28 @@ class CurveToTubeSlots(ptk.LoggingMixin):
         widget.set_help_text(
             fmt(
                 title="Curve to Tube",
-                body="Sweep a circular profile along selected curves to build a tube, as a smooth "
-                "NURBS-style beveled curve or a polygon mesh.",
+                body="Sweep a circular profile along selected curves to build a tube, output as "
+                "a smooth NURBS-style beveled curve or a polygon mesh.",
                 steps=[
                     "Select one or more curves.",
                     "Pick an <b>Output</b> type (NURBS or Polygon).",
                     "Set <b>Radius</b> and <b>Sections</b> (sides around).",
-                    "For polygon, set <b>Path Res</b> (ring density) and toggle <b>Caps</b> / "
-                    "<b>Quads</b>.",
+                    "For polygon, set <b>Path Res</b> (ring density along the curve) and toggle "
+                    "<b>Caps</b> / <b>Quads</b>.",
                     "Toggle <b>Preview</b> to iterate, then <b>Create</b> to commit.",
                 ],
                 notes=[
-                    "<b>NURBS</b> output stays an editable, smooth <i>beveled curve</i> (Blender's "
-                    "live surface); <b>Polygon</b> bakes a mesh with exactly <b>Sections</b> sides.",
-                    "<b>Keep History</b> (NURBS): bevel the source curve in place so it stays the "
-                    "live tube. Blender has no live curve→mesh, so a polygon tube is always baked.",
-                    "<b>Path Res</b>, <b>Caps</b>, <b>Quads</b> apply to polygon output only.",
+                    "<b>Sections</b> sets the profile smoothness for NURBS and the literal number "
+                    "of sides for polygon.",
+                    "<b>Path Res</b> sets ring density along the path (Blender's "
+                    "<i>resolution_u</i>). <b>Path Res</b>, <b>Caps</b>, and <b>Quads</b> apply to "
+                    "polygon output only.",
+                    "<b>Keep History</b> bevels the source curve in place so it stays the live "
+                    "tube (edit the curve and it updates). Blender has no live curve→mesh, so a "
+                    "polygon tube is always baked to a mesh — there <b>Keep History</b> only keeps "
+                    "the source curve as the editable driver instead of consuming it.",
+                    "<b>Select Result</b> selects the finished tube(s) on <b>Create</b> so you can "
+                    "see the resulting tessellation.",
                 ],
             )
         )
@@ -230,17 +268,14 @@ class CurveToTubeSlots(ptk.LoggingMixin):
     def _toggle_output_options(self, *_):
         """Enable only the options that apply to the current output type."""
         is_poly = self.ui.cmb000.currentData() == "polygon"
-        self.ui.s002.setEnabled(is_poly)   # Path divisions
+        self.ui.s002.setEnabled(is_poly)  # Path divisions
         self.ui.chk001.setEnabled(is_poly)  # Caps
         self.ui.chk002.setEnabled(is_poly)  # Quads
-        self.ui.s003.setEnabled(not is_poly)  # Degree (NURBS)
+        self.ui.s003.setEnabled(not is_poly)  # Degree (NURBS bevel resolution)
 
     def b001(self):
         """Reset to Defaults."""
-        try:
-            self.ui.state.reset_all()
-        except Exception:
-            pass
+        self.ui.state.reset_all()
 
     def perform_operation(self, objects):
         """Build the tube(s) from the selected curves (Preview entry point)."""
@@ -257,11 +292,50 @@ class CurveToTubeSlots(ptk.LoggingMixin):
             quads=self.ui.chk002.isChecked(),
             live=self.ui.chk003.isChecked(),
         )
+        # Select Result: not first-class in blendertk's Preview (unlike mayatk's, which owns
+        # chk004 via select_result_checkbox/result_provider) — hand-wired here so it (de)selects
+        # on every preview build and on commit, matching mayatk's user-visible behavior.
         if self.ui.chk004.isChecked() and self.last_tubes:
             bpy.ops.object.select_all(action="DESELECT")
             for t in self.last_tubes:
                 t.select_set(True)
             bpy.context.view_layer.objects.active = self.last_tubes[0]
+        self._update_footer()
+
+    def _update_footer(self):
+        """Show stats for the last build in the footer (triangle count for a polygon tube,
+        point / bevel-resolution readout for a NURBS one — Blender's analogue of mayatk's
+        triangle-count / spans readout). Updates live as the preview re-sweeps; clears to the
+        default hint when there is no result."""
+        import bpy
+
+        try:
+            footer = self.ui.footer
+        except Exception:
+            return
+        tubes = []
+        for t in self.last_tubes:
+            try:
+                if t and t.name in bpy.data.objects:
+                    tubes.append(t)
+            except ReferenceError:
+                continue  # a rolled-back/removed bpy object reference
+        if not tubes:
+            footer.setStatusText("")  # falls back to the default hint
+            return
+        prefix = f"{len(tubes)} tubes — " if len(tubes) > 1 else ""
+        if self.ui.cmb000.currentData() == "polygon":
+            tris = 0
+            for t in tubes:
+                t.data.calc_loop_triangles()
+                tris += len(t.data.loop_triangles)
+            footer.setStatusText(f"{prefix}{tris:,} tris")
+        else:
+            info = []
+            for t in tubes:
+                n_pts = sum((len(s.points) or len(s.bezier_points)) for s in t.data.splines)
+                info.append(f"{n_pts} pts, bevel res {t.data.bevel_resolution}")
+            footer.setStatusText(f"{prefix}beveled curve · {', '.join(info)}")
 
 
 # -----------------------------------------------------------------------------

@@ -497,10 +497,31 @@ def crease_edges(objects, amount=10.0, angle=None):
 _AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
 
+def _manip_point(obj):
+    """World point matching Blender's active Transform Pivot Point setting — the Blender
+    analogue of Maya's polyMirrorFace ``"manip"`` pivot (wherever the on-screen manipulator
+    currently sits). ``mirror``/``cut_along_axis`` process one object at a time, so the
+    per-selection modes (``ACTIVE_ELEMENT`` / ``INDIVIDUAL_ORIGINS`` / ``MEDIAN_POINT``) all
+    collapse to that object's own origin; only ``CURSOR`` and ``BOUNDING_BOX_CENTER`` resolve
+    to something else."""
+    import bpy
+
+    mode = bpy.context.scene.tool_settings.transform_pivot_point
+    if mode == "CURSOR":
+        return bpy.context.scene.cursor.location.copy()
+    if mode == "BOUNDING_BOX_CENTER":
+        from blendertk.xform_utils._xform_utils import get_world_bbox
+
+        mn, mx = get_world_bbox(obj)
+        return (mn + mx) / 2.0
+    return obj.matrix_world.translation.copy()
+
+
 def _plane_frame(obj, axis, pivot):
     """World-space ``(point, unit normal)`` of the mirror/cut plane for ``axis`` about ``pivot``.
 
-    ``pivot``: ``"object"`` (object origin, **object-local** axis), ``"world"`` (world origin),
+    ``pivot``: ``"manip"`` (Blender's current Transform Pivot Point, see :func:`_manip_point`),
+    ``"object"`` (object origin, **object-local** axis), ``"world"`` (world origin),
     ``"center"`` (world-bbox center), ``"xmin"`` / ``"xmax"`` / … (that world-bbox face), or a
     world ``(x, y, z)`` point. All but ``"object"`` use world axes. The normal is the unsigned
     +axis direction — callers carry the axis sign separately (it only picks a side, never the
@@ -515,6 +536,8 @@ def _plane_frame(obj, axis, pivot):
     n = Vector((0.0, 0.0, 0.0))
     n[idx] = 1.0
 
+    if pivot == "manip":
+        return _manip_point(obj), n
     if pivot == "object":
         m3 = obj.matrix_world.to_3x3()
         return obj.matrix_world.translation.copy(), (m3 @ n).normalized()

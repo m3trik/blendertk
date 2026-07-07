@@ -19,24 +19,49 @@ def undoable(fn):
     """Wrap ``fn`` so its changes collapse into a single Blender undo step.
 
     Blender has no explicit open/close undo chunk like Maya; an operator — or an explicit
-    ``bpy.ops.ed.undo_push`` — marks a restore point. This pushes one step after ``fn``
-    runs, tagged with the function name.
+    ``bpy.ops.ed.undo_push`` — marks a restore point. A raw ``bpy.data``/``bmesh`` edit pushes
+    nothing on its own, but a nested ``bpy.ops`` call (e.g. ``nla.bake``, which is
+    ``bl_options={'REGISTER', 'UNDO'}``) pushes its OWN step the moment it finishes — so ``fn``
+    mixing raw edits with operator calls would otherwise leave several separate undo-stack
+    entries instead of one, and a single Ctrl+Z would only partially revert it.
 
-    NOTE: undo granularity for raw ``bpy.data`` / ``bmesh`` edits (vs. operator calls) is
-    finicky; revisit the exact push placement per-slot once real edits are wired (the
-    cross-cutting name + contract is what matters at scaffold time).
+    Blender exposes no Python-callable "begin/end undo group" bracket (``bpy.ops.ed`` has no
+    such operator — verified live; it only has ``undo``/``undo_history``/``undo_push``/
+    ``undo_redo``) — the documented technique for collapsing a mixed raw-edit + operator-call
+    sequence into one step from plain Python is to toggle
+    ``bpy.context.preferences.edit.use_global_undo`` off for the duration of ``fn`` (which
+    suppresses every step an operator would otherwise push, without disabling the operators
+    themselves) and push exactly one consolidated step after restoring it.
     """
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        result = fn(*args, **kwargs)
         try:
             import bpy
-
-            bpy.ops.ed.undo_push(message=getattr(fn, "__name__", "blendertk op"))
         except Exception:
-            pass
-        return result
+            bpy = None
+        prefs = None
+        prior_global_undo = None
+        if bpy is not None:
+            try:
+                prefs = bpy.context.preferences.edit
+                prior_global_undo = prefs.use_global_undo
+                prefs.use_global_undo = False
+            except Exception:
+                prefs = None
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            if prefs is not None:
+                try:
+                    prefs.use_global_undo = prior_global_undo
+                except Exception:
+                    pass
+            if bpy is not None:
+                try:
+                    bpy.ops.ed.undo_push(message=getattr(fn, "__name__", "blendertk op"))
+                except Exception:
+                    pass
 
     return wrapper
 

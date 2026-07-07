@@ -379,6 +379,56 @@ def get_center_point(objects):
     return get_bounding_box(objects, "center")
 
 
+def get_operation_axis_matrix(obj, pivot):
+    """World pivot frame (orientation + position, scale stripped) for a per-object linear/
+    radial operation — mirror of ``mtk.XformUtils.get_operation_axis_matrix``. Shared by the
+    duplicate-array tools (``duplicate_linear`` et al.) that orbit/translate each copy about a
+    chosen pivot rather than the object's own origin.
+
+    ``pivot``:
+      - ``"object"`` — the object's own orientation + its origin.
+      - ``"world"`` — world axes at the world origin.
+      - ``"manip"`` — Blender's analogue of Maya's *manip* pivot (a manipulator position the
+        user can freely relocate mid-operation): the 3D cursor
+        (``bpy.context.scene.cursor``), itself freely positionable **and** orientable.
+      - ``"center"`` / ``"xmin"`` / ``"xmax"`` / ``"ymin"`` / ``"ymax"`` / ``"zmin"`` /
+        ``"zmax"`` — that world bounding-box location (axis-aligned, no rotation) — same
+        convention as ``edit_utils._plane_frame``.
+      - an explicit ``(x, y, z)`` world point (position only, no rotation).
+      - ``"baked"`` (Maya's rotate-pivot value baked distinct from the transform's own
+        origin) has no Blender analogue — an object carries a single origin — so, like any
+        unrecognized key, it falls back to the bounding-box center.
+
+    Returns a 4x4 ``Matrix``.
+    """
+    from mathutils import Matrix, Vector
+
+    if pivot == "object":
+        return obj.matrix_world.normalized()
+    if pivot == "manip":
+        import bpy
+
+        return bpy.context.scene.cursor.matrix.copy()
+    if pivot == "world":
+        return Matrix.Identity(4)
+    if isinstance(pivot, (tuple, list)) and len(pivot) == 3:
+        return Matrix.Translation(Vector(pivot))
+
+    mn, mx = get_world_bbox(obj)
+    center = (mn + mx) / 2.0
+    if (
+        isinstance(pivot, str)
+        and len(pivot) == 4
+        and pivot[0] in "xyz"
+        and pivot[1:] in ("min", "max")
+    ):
+        idx = {"x": 0, "y": 1, "z": 2}[pivot[0]]
+        pos = center.copy()
+        pos[idx] = (mn if pivot.endswith("min") else mx)[idx]
+        return Matrix.Translation(pos)
+    return Matrix.Translation(center)  # "center", "baked", or any unrecognized key
+
+
 def _as_point(value):
     """Coerce an object / Vector / 3-sequence to a world-space ``Vector`` position."""
     from mathutils import Vector
@@ -440,6 +490,7 @@ class XformUtils:
     get_world_bbox = staticmethod(get_world_bbox)
     get_bounding_box = staticmethod(get_bounding_box)
     get_center_point = staticmethod(get_center_point)
+    get_operation_axis_matrix = staticmethod(get_operation_axis_matrix)
     get_distance = staticmethod(get_distance)
     order_by_distance = staticmethod(order_by_distance)
     aim_object_at_point = staticmethod(aim_object_at_point)

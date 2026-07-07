@@ -586,6 +586,39 @@ try:
     check("select_keys range", n == 1 and sel == [70.0], f"n={n} sel={sel}")
     check("select_keys all", btk.select_keys(a) == 2)
 
+    # select_keys: current-frame-relative string scopes (mirrors Maya's cmb041 time-scope list)
+    frame_before = sc.frame_current
+
+    def selected_times():
+        return sorted(k.co.x for fc in btk.get_fcurves(a) for k in fc.keyframe_points
+                      if k.select_control_point)
+
+    sc.frame_set(65)
+    n = btk.select_keys(a, time="before")
+    check("select_keys before", n == 1 and selected_times() == [60.0],
+          f"n={n} sel={selected_times()}")
+    n = btk.select_keys(a, time="after")
+    check("select_keys after", n == 1 and selected_times() == [70.0],
+          f"n={n} sel={selected_times()}")
+
+    sc.frame_set(60)
+    n = btk.select_keys(a, time="current")
+    check("select_keys current", n == 1 and selected_times() == [60.0],
+          f"n={n} sel={selected_times()}")
+    n = btk.select_keys(a, time="before|current")
+    check("select_keys before|current", n == 1 and selected_times() == [60.0],
+          f"n={n} sel={selected_times()}")
+    n = btk.select_keys(a, time="after|current")
+    check("select_keys after|current", n == 2 and selected_times() == [60.0, 70.0],
+          f"n={n} sel={selected_times()}")
+    try:
+        btk.select_keys(a, time="bogus")
+        check("select_keys unknown scope raises", False)
+    except ValueError:
+        check("select_keys unknown scope raises", True)
+
+    sc.frame_set(frame_before)
+
     # set_visibility_keys: keys hide_viewport/hide_render at the frame
     keyed = btk.set_visibility_keys(b, visible=False, frame=42)
     vis_curves = [

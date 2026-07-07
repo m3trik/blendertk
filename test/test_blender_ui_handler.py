@@ -122,7 +122,7 @@ try:
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
         ("hdr_manager", "HdrManagerSlots"),  # __init__ + header/cmb _init are bpy-free (os dir scan)
         ("dynamic_pipe", "DynamicPipeSlots"),  # __init__ (logging only) is bpy-free
-        ("image_tracer", "ImageTracerSlots"),  # __init__ + txt000/b005 _init are bpy-free
+        ("image_tracer", "ImageTracerSlots"),  # __init__ + header/txt000 _init are bpy-free
         ("curve_to_tube", "CurveToTubeSlots"),  # __init__ (Preview/connect_multi/combo) is bpy-free
         ("image_to_plane", "ImageToPlaneSlots"),  # __init__ (button connects) is bpy-free
         ("naming", "NamingSlots"),  # __init__ + option-box *_init are bpy-free

@@ -19,7 +19,7 @@
   <widget class="QWidget" name="central_widget">
    <property name="minimumSize">
     <size>
-     <width>340</width>
+     <width>500</width>
      <height>0</height>
     </size>
    </property>
@@ -87,8 +87,13 @@
          <item row="0" column="0" colspan="2">
           <widget class="ComboBox" name="cmb001">
            <property name="toolTip">
-            <string>Workflow preset (resize / convert / pack options). Fine-tune individual options in the header menu (▸).</string>
+            <string>Select the workflow preset.</string>
            </property>
+           <item>
+            <property name="text">
+             <string>None</string>
+            </property>
+           </item>
           </widget>
          </item>
         </layout>
@@ -101,9 +106,6 @@
           <width>0</width>
           <height>30</height>
          </size>
-        </property>
-        <property name="toolTip">
-         <string>Reprocess the textures of the chosen materials and repath their image nodes to the results.</string>
         </property>
         <property name="text">
          <string>Update Materials</string>

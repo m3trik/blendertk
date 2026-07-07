@@ -21,8 +21,11 @@ from blendertk.edit_utils._edit_utils import EditUtils
 class CutOnAxisSlots(ptk.LoggingMixin):
     """Switchboard slot wiring for the cut-on-axis UI (live preview).
 
-    The pivot combo is Blender-specific (``cmb001`` — fresh number, no Manip entry).
-    Live preview via :class:`blendertk.Preview`.
+    ``cmb000`` mirrors mayatk's pivot combo verbatim (Manip / Object / World / Bounding Box
+    center). "Manip" resolves via the shared ``pivot="manip"`` path in ``_edit_utils``'s
+    ``_plane_frame``/``_manip_point`` — Blender's active Transform Pivot Point setting
+    (3D cursor / bounding-box center / else the object's own origin), the same mechanism
+    ``mirror.py`` uses. Live preview via :class:`blendertk.Preview` (snapshot/restore).
     """
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -31,7 +34,8 @@ class CutOnAxisSlots(ptk.LoggingMixin):
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[cut_on_axis] ")
 
-        # Per-field reset buttons must precede connect_multi/Preview.
+        # Per-field reset buttons must precede connect_multi/Preview (wrap-first
+        # optimization — see add_reset_buttons docstring).
         self.sb.add_reset_buttons(self.ui)
 
         self.preview = Preview(
@@ -42,9 +46,15 @@ class CutOnAxisSlots(ptk.LoggingMixin):
             undo_message="Cut On Axis",
         )
 
+        # Connect sliders and checkboxes to preview refresh function
         self.sb.connect_multi(self.ui, "chk001-6", "clicked", self.preview.refresh)
         self.sb.connect_multi(self.ui, "s000-1", "valueChanged", self.preview.refresh)
-        self.ui.cmb001.currentIndexChanged.connect(self.preview.refresh)
+        self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
+
+        # TODO(blender-parity): mayatk refreshes the preview on viewport pivot changes
+        # (selection / tool / manipulator drag release) via mayatk.xform_utils.PivotWatcher.
+        # blendertk has no equivalent poller yet; the Manip pivot only re-samples when a
+        # widget fires (any Preview refresh), not on a bare cursor/pivot-mode change.
 
     def header_init(self, widget):
         """Configure header help text."""
@@ -53,21 +63,24 @@ class CutOnAxisSlots(ptk.LoggingMixin):
         widget.set_help_text(
             fmt(
                 title="Cut on Axis",
-                body="Slice selected meshes along an axis, then optionally delete "
-                "or mirror the cut half.",
+                body="Slice selected meshes along an axis, then optionally "
+                "delete or mirror the cut half.",
                 steps=[
                     "Select one or more mesh objects.",
-                    "Check an <b>Axis</b>; the <b>—</b> toggle makes it negative.",
-                    "Pick a <b>Pivot</b> — Object / World / Bounding Box center.",
+                    "Check an <b>Axis</b> (X / -X / Y / -Y / Z / -Z).",
+                    "Pick a <b>Pivot</b> — Manip / Object / World / Center.",
                     "Set <b>Cuts</b> (number of slices) and <b>Offset</b>.",
                     "Toggle <b>Preview</b>, then press <b>Cut</b> to commit.",
                 ],
                 sections=[
                     ("Options", [
-                        "<b>Delete</b> — discard the geometry on the signed-axis "
-                        "side of the deepest cut.",
-                        "<b>Mirror</b> — after deleting, reflect the surviving half "
-                        "across the cut plane and weld the seam (symmetrize).",
+                        "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
+                        "setting (3D Cursor / Bounding Box / Active Element / …).",
+                        "<b>Delete</b> — discard faces on the negative side of "
+                        "the axis after cutting.",
+                        "<b>Mirror</b> — after deleting one side, mirror the "
+                        "remaining half across the axis to rebuild symmetric "
+                        "geometry.",
                     ]),
                 ],
             )
@@ -75,23 +88,23 @@ class CutOnAxisSlots(ptk.LoggingMixin):
 
     def perform_operation(self, objects):
         axis = self.sb.get_axis_from_checkboxes("chk001-4", self.ui)
-        if axis.lstrip("-") not in ("x", "y", "z"):
-            raise ValueError("Select an axis (X / Y / Z) to cut along.")
+        pivot_index = self.ui.cmb000.currentIndex()
         cuts = self.ui.s000.value()
-        if cuts < 1:
-            raise ValueError("Set at least one cut.")
+        cut_offset = self.ui.s001.value()
+        delete = self.ui.chk005.isChecked()
+        mirror = self.ui.chk006.isChecked()
 
-        pivot = {0: "object", 1: "world", 2: "center"}.get(
-            self.ui.cmb001.currentIndex(), "center"
-        )
+        pivot_options = {0: "manip", 1: "object", 2: "world", 3: "center"}
+        pivot = pivot_options.get(pivot_index, "center")
+
         EditUtils.cut_along_axis(
             objects,
             axis=axis,
             pivot=pivot,
             amount=cuts,
-            offset=self.ui.s001.value(),
-            delete=self.ui.chk005.isChecked(),
-            mirror=self.ui.chk006.isChecked(),
+            offset=cut_offset,
+            delete=delete,
+            mirror=mirror,
         )
 
 

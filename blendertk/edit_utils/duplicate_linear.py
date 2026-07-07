@@ -17,6 +17,7 @@ import pythontk as ptk
 from blendertk.core_utils._core_utils import _object_mode
 from blendertk.core_utils.preview import Preview
 from blendertk.edit_utils._edit_utils import _copy_object
+from blendertk.xform_utils._xform_utils import get_operation_axis_matrix
 
 
 @_object_mode
@@ -27,7 +28,7 @@ def duplicate_linear(
     rotate=(0, 0, 0),
     scale=(1, 1, 1),
     weight_bias=0.5,
-    weight_curve=4.0,
+    weight_curve=4,
     pivot="object",
     calculation_mode="weighted",
     instance=True,
@@ -37,9 +38,10 @@ def duplicate_linear(
 
     Each copy ``i`` interpolates toward the end-state ``translate`` / ``rotate`` / ``scale``
     by ``ptk.ProgressionCurves.calculate_progression_factor(i, num_copies, …)`` (the same
-    shared math as Maya — the last copy gets the full offset). ``pivot``: ``"object"`` (the
-    source's own frame — translate/orbit follow its local axes) or ``"world"``.
-    Returns ``{original: [copies]}``.
+    shared math as Maya — the last copy gets the full offset). ``pivot`` is resolved via
+    :func:`blendertk.xform_utils.get_operation_axis_matrix` (``"object"`` / ``"world"`` /
+    ``"manip"`` / bbox locations / an explicit point — mirror of mayatk's
+    ``XformUtils.get_operation_axis_matrix``). Returns ``{original: [copies]}``.
     """
     import bpy
     from mathutils import Euler, Matrix, Vector
@@ -47,26 +49,37 @@ def duplicate_linear(
     out = {}
     for src in (o for o in ptk.make_iterable(objects) if o):
         copies = []
-        pivot_mat = (
-            src.matrix_world.normalized() if pivot == "object" else Matrix.Identity(4)
-        )  # orientation + position only — scale must not leak into the pivot frame
+
+        # Get the pivot matrix (Orientation + Position) using the centralized utility
+        pivot_mat = get_operation_axis_matrix(src, pivot)
         pivot_inv = pivot_mat.inverted()
         m0 = src.matrix_world.copy()
+
         for i in range(num_copies):
+            dup = _copy_object(src, instance=instance)
+
+            # Calculate the transformation factor using the selected method
             f = ptk.ProgressionCurves.calculate_progression_factor(
                 i, num_copies, weight_bias, weight_curve, calculation_mode
             )
-            dup = _copy_object(src, instance=instance)
-            # 1. local scale (sign-preserving exponential ramp, mirroring Maya)
+
+            # Calculate transformations
             factors = [(abs(s) ** f) * (-1.0 if s < 0 else 1.0) for s in scale]
+
+            # 1. Local scale
             scaled = m0 @ Matrix.Diagonal((*factors, 1.0))
-            # 2. orbit about the pivot frame
+
+            # 2. Rotate around Pivot — orbits the object around the pivot frame (Pos + Ori)
             rot = Euler([math.radians(r * f) for r in rotate], "XYZ").to_matrix().to_4x4()
             orbit = pivot_mat @ rot @ pivot_inv
-            # 3. translation along the pivot frame's axes
+
+            # 3. Apply Translation (World Space, but respecting Pivot Orientation) — rotate
+            # the translation vector so it follows the pivot's axes (e.g. Manip axis).
             t = pivot_mat.to_3x3() @ Vector([v * f for v in translate])
+
             dup.matrix_world = Matrix.Translation(t) @ orbit @ scaled
             copies.append(dup)
+
         out[src] = copies
     bpy.context.view_layer.update()
     return out
@@ -84,11 +97,15 @@ class DuplicateLinear:
 
 
 class DuplicateLinearSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Duplicate-Linear panel.
+    """Switchboard slot wiring for the Duplicate-Linear panel — 1:1 objectName mirror of
+    mayatk's ``DuplicateLinearSlots`` (cross-host QSettings collision is host-namespaced by
+    Switchboard/MainWindow now, so identical objectNames between the two copies of this panel
+    are safe — no renumbering workaround needed here).
 
-    ``Instance`` maps to Blender linked duplicates. The pivot combo is Blender-specific
-    (``cmb003`` — Object / World, no Manip). Self-contained (``ptk.LoggingMixin`` only) so
-    blendertk carries no back-dependency on tentacle.
+    Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on
+    tentacle. Unlike mayatk's Preview (node-diff + ``MUTATES_SELECTION``-gated preserve/
+    restore), blendertk's ``Preview`` is snapshot-based (captures each object's datablock +
+    matrix + collection links up front), so there is no Blender analogue of that flag here.
     """
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -100,11 +117,31 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
         # Ensure preview cleanup triggers when resetting defaults
         self.ui.chk000.block_signals_on_restore = False
 
-        self.ui.cmb003.clear()
-        self.ui.cmb003.add(
-            [("Object", "object"), ("World", "world")], prefix="Pivot:"
-        )
+        # Populate pivot combobox — mirror of mayatk's XformUtils.get_pivot_options() list
+        # (kept local: blendertk's XformUtils.get_pivot_options() backs move_to's narrower
+        # pivot vocabulary, a different consumer). "manip" resolves to the 3D cursor and
+        # "baked" has no Blender analogue (both handled in get_operation_axis_matrix / below).
+        self.ui.cmb002.clear()
+        self.pivot_options = [
+            "object", "world", "center", "manip",
+            "xmin", "xmax", "ymin", "ymax", "zmin", "zmax",
+            "baked",
+        ]
+        self.ui.cmb002.add(self.pivot_options, prefix="Pivot:")
+        # TODO(blender-parity): "baked" is Maya's rotate-pivot value baked distinct from the
+        # transform's own origin — Blender objects carry a single origin, so there is no
+        # analogous value to bake. Disable the item rather than dropping it from the list, so
+        # the combo stays a 1:1 item-count mirror of mayatk's.
+        baked_index = self.ui.cmb002.findData("baked")
+        if baked_index >= 0:
+            baked_item = self.ui.cmb002.model().item(baked_index)
+            baked_item.setEnabled(False)
+            baked_item.setToolTip(
+                "Not supported in Blender: objects have a single origin, so there is no "
+                "separate baked-pivot value to resolve."
+            )
 
+        # Populate calculation mode combobox
         self.ui.cmb001.clear()
         self.interpolation_modes = [
             ("Linear", "linear"),
@@ -116,11 +153,17 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
             ("Weighted", "weighted"),
         ]
         self.ui.cmb001.add(self.interpolation_modes, prefix="Interpolation:")
+
+        # Set default calculation mode to "Weighted" to match tool defaults
         self.ui.cmb001.setAsCurrent("weighted")
 
-        self.ui.chk001.setChecked(True)  # default to instanced (linked) duplicates
+        # Set default state for instance checkbox
+        self.ui.chk001.setChecked(True)
 
-        # Per-field reset buttons must precede connect_multi/Preview.
+        # Per-field reset buttons (uitk option-box): click resets a field to its
+        # default; Alt/Ctrl+click bypasses it to default (greyed, restorable).
+        # Must precede connect_multi/Preview — wrapping reparents the widgets and
+        # invalidates any already-deferred wrapper (see add_reset_buttons docstring).
         self.sb.add_reset_buttons(self.ui)
 
         self.preview = Preview(
@@ -130,18 +173,43 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
             message_func=self.sb.message_box,
             undo_message="Duplicate Linear",
         )
-        self.sb.connect_multi(self.ui, "s000-11", "valueChanged", self.preview.refresh)
         self.sb.connect_multi(
-            self.ui, "cmb003", "currentIndexChanged", self.preview.refresh
+            self.ui,
+            "s000-11",
+            "valueChanged",
+            self.preview.refresh,
         )
+        # Connect pivot combobox to preview refresh
         self.sb.connect_multi(
-            self.ui, "cmb001", "currentIndexChanged", self.preview.refresh
+            self.ui,
+            "cmb002",
+            "currentIndexChanged",
+            self.preview.refresh,
         )
+        # Connect calculation mode combobox to preview refresh
         self.sb.connect_multi(
-            self.ui, "cmb001", "currentIndexChanged", self.toggle_weight_ui
+            self.ui,
+            "cmb001",
+            "currentIndexChanged",
+            self.preview.refresh,
         )
-        self.sb.connect_multi(self.ui, "chk001", "stateChanged", self.preview.refresh)
+        # Connect calculation mode combobox to toggle_weight_ui logic
+        self.sb.connect_multi(
+            self.ui,
+            "cmb001",
+            "currentIndexChanged",
+            self.toggle_weight_ui,
+        )
 
+        # Connect instance checkbox to preview refresh
+        self.sb.connect_multi(
+            self.ui,
+            "chk001",
+            "stateChanged",
+            self.preview.refresh,
+        )
+
+        # Initialize the UI state
         self.toggle_weight_ui()
 
     def header_init(self, widget):
@@ -151,30 +219,51 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
         widget.set_help_text(
             fmt(
                 title="Duplicate Linear",
-                body="Duplicate selected objects along a linear path with per-copy "
-                "translate, rotate, and scale offsets.",
+                body="Duplicate selected objects along a linear path with "
+                "per-copy translate, rotate, and scale offsets.",
                 steps=[
                     "Select one or more objects.",
                     "Set <b>Copies</b> and the end-state <b>Translate</b> / "
                     "<b>Rotate</b> / <b>Scale</b> offsets — each copy interpolates "
                     "from source to that final offset.",
-                    "Pick an interpolation <b>Mode</b> and a <b>Pivot</b>.",
+                    "Pick an interpolation <b>Mode</b> (linear, ease in/out, "
+                    "weighted, sine, bounce, elastic, …).",
+                    "Pick a <b>Pivot</b>.",
                     "Toggle <b>Preview</b>, then <b>Duplicate</b> to commit.",
                 ],
                 notes=[
-                    "<b>Instance</b> makes linked duplicates (shared mesh data — "
-                    "edits propagate).",
                     "<b>Weight Bias</b> only applies to the <i>weighted</i> mode; "
-                    "<b>Weight Curve</b> applies to non-linear modes.",
+                    "<b>Weight Curve</b> applies to non-linear modes. Disabled "
+                    "spinners are simply ignored by the current mode.",
+                    "<b>Inst</b> makes linked duplicates (shared mesh data — "
+                    "edits propagate) instead of full copies.",
                 ],
             )
         )
 
     def toggle_weight_ui(self):
-        """Disable the weight spinners for modes that don't use them."""
+        """Disable weight UI components if the current calculation mode doesn't use them."""
+        # Modes that don't typically use bias/curve parameters
+        # Based on pythontk.math_utils.progression.ProgressionCurves
         mode = self.ui.cmb001.currentData()
-        uses_curve = mode not in ("linear", "smooth_step")
-        uses_bias = mode == "weighted"
+
+        # 'linear' uses neither
+        # 'exponential' uses weight_curve
+        # 'logarithmic' uses weight_curve
+        # 'sine' uses weight_curve
+        # 'ease_in' uses weight_curve (power)
+        # 'ease_out' uses weight_curve
+        # 'ease_in_out' uses weight_curve
+        # 'smooth_step' uses neither (it's fixed hermite 3x^2 - 2x^3)
+        # 'bounce' uses weight_curve (bounciness?)
+        # 'elastic' uses weight_curve (period/amplitude?)
+        # 'weighted' uses BOTH weight_bias and weight_curve
+
+        # Define which modes need what
+        # (This is a simplified assumption based on typical usage)
+        uses_curve = mode not in ["linear", "smooth_step"]
+        uses_bias = mode in ["weighted"]
+
         self.ui.s010.setEnabled(uses_bias)  # Weight Bias
         self.ui.s011.setEnabled(uses_curve)  # Weight Curve
 
@@ -183,20 +272,46 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
         self.ui.state.reset_all()
 
     def perform_operation(self, objects):
-        num_copies = self.ui.s009.value() - 1  # the count includes the original
-        if num_copies < 1:
-            raise ValueError("Set Copies to at least 2 (the count includes the original).")
-        duplicate_linear(
+        """Perform the linear duplication operation."""
+        num_copies = self.ui.s009.value() - 1  # Include the orig object in the count
+        translate = (
+            self.ui.s000.value(),
+            self.ui.s001.value(),
+            self.ui.s002.value(),
+        )
+        rotate = (
+            self.ui.s003.value(),
+            self.ui.s004.value(),
+            self.ui.s005.value(),
+        )
+        scale = (
+            self.ui.s006.value(),
+            self.ui.s007.value(),
+            self.ui.s008.value(),
+        )
+        weight_bias = self.ui.s010.value()
+        weight_curve = self.ui.s011.value()
+
+        # Get pivot from dropdown
+        pivot = self.ui.cmb002.currentData()
+
+        # Get calculation mode from dropdown
+        calculation_mode = self.ui.cmb001.currentData()
+
+        # Get instance mode from checkbox
+        instance = self.ui.chk001.isChecked()
+
+        self.copies = duplicate_linear(
             objects,
             num_copies,
-            translate=(self.ui.s000.value(), self.ui.s001.value(), self.ui.s002.value()),
-            rotate=(self.ui.s003.value(), self.ui.s004.value(), self.ui.s005.value()),
-            scale=(self.ui.s006.value(), self.ui.s007.value(), self.ui.s008.value()),
-            weight_bias=self.ui.s010.value(),
-            weight_curve=self.ui.s011.value(),
-            pivot=self.ui.cmb003.currentData(),
-            calculation_mode=self.ui.cmb001.currentData(),
-            instance=self.ui.chk001.isChecked(),
+            translate,
+            rotate,
+            scale,
+            weight_bias,
+            weight_curve,
+            pivot,
+            calculation_mode,
+            instance,
         )
 
 
@@ -207,3 +322,7 @@ if __name__ == "__main__":
 
     ui = BlenderUiHandler.instance().get("duplicate_linear", reload=True)
     ui.show(pos="screen", app_exec=True)
+
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------

@@ -19,7 +19,9 @@ from blendertk.core_utils.preview import Preview
 from blendertk.edit_utils._edit_utils import _copy_object, _group_under_empty, _join_copies
 
 
-# Maya prompts before huge grids; headless we hard-cap instead (a 50³ drag would hang).
+# Maya prompts before huge grids; headless we also hard-cap (a 50³ drag would hang) — the
+# slots' BULK_THRESHOLD confirmation below sits well under this, so the cap is a last-resort
+# backstop for a build the user already confirmed (or a scripted call with no UI at all).
 GRID_MAX_COPIES = 10000
 
 
@@ -85,17 +87,32 @@ class DuplicateGrid:
 
 
 class DuplicateGridSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Duplicate-Grid panel.
+    """Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of
+    mayatk's ``DuplicateGridSlots`` (cross-host QSettings collision is host-namespaced by
+    Switchboard/MainWindow now, so identical objectNames between the two copies of this panel
+    are safe — no renumbering workaround needed here).
 
-    Oversized grids raise instead of prompting (``GRID_MAX_COPIES``), which the preview
-    surfaces as a message. Self-contained (``ptk.LoggingMixin`` only).
+    Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on
+    tentacle. Unlike mayatk's Preview (node-diff + ``MUTATES_SELECTION``-gated preserve/
+    restore), blendertk's ``Preview`` is snapshot-based (captures every operated object's
+    datablock + matrix + collection links up front, unconditionally), so there is no Blender
+    analogue of that flag here.
     """
+
+    # Total copies above which we ask the user to confirm before building — mirror of
+    # mayatk's ``BULK_THRESHOLD`` (grid growth is cubic, unlike duplicate_linear/_radial's
+    # linear counts, so this is the one duplicate_* tool where a confirm gate earns its keep).
+    BULK_THRESHOLD = 1000
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.duplicate_grid
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[duplicate_grid] ")
+
+        # Largest grid count the user has approved this session (so a confirmed
+        # bulk build doesn't re-prompt on every preview refresh).
+        self._confirmed_count = 0
 
         # Per-field reset buttons must precede connect_multi/Preview.
         self.sb.add_reset_buttons(self.ui)
@@ -147,6 +164,7 @@ class DuplicateGridSlots(ptk.LoggingMixin):
                 notes=[
                     "Counts can be negative to lay the grid out in the opposite "
                     "direction. The source object keeps the origin cell.",
+                    "Very large grids prompt for confirmation first.",
                 ],
             )
         )
@@ -154,18 +172,55 @@ class DuplicateGridSlots(ptk.LoggingMixin):
     def b001(self):
         """Reset to Defaults: Resets all UI widgets to their default values."""
         self.ui.state.reset_all()
+        self._confirmed_count = 0
 
     def perform_operation(self, objects):
-        duplicate_grid(
-            objects,
-            dimensions=(
-                self.ui.s000.value(),
-                self.ui.s001.value(),
-                self.ui.s002.value(),
-            ),
-            spacing=self.ui.s003.value(),
-            mode=self.ui.cmb000.currentData(),
+        dimensions = (
+            self.ui.s000.value(),
+            self.ui.s001.value(),
+            self.ui.s002.value(),
         )
+        spacing = self.ui.s003.value()
+        mode = self.ui.cmb000.currentData()
+
+        if not self._confirm_bulk(dimensions, objects):
+            return
+
+        duplicate_grid(objects, dimensions=dimensions, spacing=spacing, mode=mode)
+
+    def _confirm_bulk(self, dimensions, objects) -> bool:
+        """Gate large builds behind a confirmation dialog.
+
+        Returns True to proceed. The approved magnitude is cached so a confirmed
+        bulk build doesn't re-prompt on every preview refresh. On decline the
+        preview is switched off directly — safe to call from inside
+        ``perform_operation`` here: nothing has been created yet (we bail before
+        calling :func:`duplicate_grid`), so the resulting rollback is a no-op and
+        the checkbox simply unchecks, matching mayatk's deferred-disable outcome
+        without needing an evalDeferred-style trick.
+        """
+        counts = [max(abs(int(d)), 1) for d in dimensions]
+        total = (counts[0] * counts[1] * counts[2] - 1) * max(len(objects), 1)
+        if total <= self.BULK_THRESHOLD or total <= self._confirmed_count:
+            return True
+
+        proceed = (
+            self.sb.message_box(
+                f"This will create <b>{total:,}</b> objects, which may be slow.<br>"
+                "Continue?",
+                "Yes",
+                "No",
+            )
+            == "Yes"
+        )
+        if proceed:
+            self._confirmed_count = total
+            return True
+
+        # Declined: stop the preview so dragging the count further doesn't
+        # re-prompt on every refresh tick.
+        self.preview.disable()
+        return False
 
 
 # -----------------------------------------------------------------------------

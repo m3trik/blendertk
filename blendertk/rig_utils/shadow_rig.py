@@ -48,9 +48,16 @@ class ShadowRig(ptk.LoggingMixin):
 
     MODES = ("orbit", "stretch")
 
-    # UI axis (Blender names, Z-up) → ``rasterize_silhouette`` axis (its frame is Maya-Y-up; we feed
-    # it Y/Z-swapped coords so Blender-Z is its "up"). Top-down footprint = project along Z → 'y'.
-    _RASTER_AXIS = {"auto": "auto", "x": "x", "y": "z", "z": "y"}
+    # UI axis letter → ``rasterize_silhouette`` axis. The combo's item TEXT is copied verbatim from
+    # mayatk's Y-up labels ("Y (Top)" / "Z (Front)"), but the letter each maps to is unchanged
+    # (``ShadowRigSlots._AXIS_MAP``, identical to mayatk's). ``create_silhouette_texture`` already Y/Z-swaps
+    # the point columns before rasterizing so Blender-Z sits in the rasterizer's "up" (frame-col1)
+    # slot and Blender-Y sits in its "front" (frame-col2) slot — i.e. the swap alone reproduces
+    # Maya's Y-up/Z-front frame, so the UI letter needs NO further translation: 'y' → rasterize 'y'
+    # (excludes frame-col1 = Blender Z → true top-down, matching "Y (Top)") and 'z' → rasterize 'z'
+    # (excludes frame-col2 = Blender Y, matching "Z (Front)"). Identity map, kept explicit for
+    # readability / as the single place this reasoning is anchored.
+    _RASTER_AXIS = {"auto": "auto", "x": "x", "y": "y", "z": "z"}
 
     def __init__(self, targets=None, ground_height=0.0, mode="stretch"):
         super().__init__()
@@ -512,8 +519,10 @@ class ShadowRigSlots(ptk.LoggingMixin):
                     ]),
                 ],
                 notes=[
-                    "Blender is Z-up: the plane lies on the XY ground and the silhouette 'Top' "
-                    "projection is along Z.",
+                    "Blender is Z-up: the plane lies on the XY ground. The Axis combo's labels "
+                    "are mirrored verbatim from Maya's Y-up panel — <b>Y (Top)</b> is the "
+                    "top-down projection (along Blender's actual up axis, Z) and "
+                    "<b>Z (Front)</b> is the other horizontal (Blender Y).",
                     "Tweak <i>shadowIntensity</i> / <i>falloffPower</i> / <i>scaleInfluence</i> "
                     "live on the plane's Custom Properties.",
                     "For export: bake the drivers (Object ▸ Animation ▸ Bake Action, or leave "

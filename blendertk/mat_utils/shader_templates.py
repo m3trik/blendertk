@@ -3,26 +3,45 @@
 """Shader Templates tool panel — Switchboard slot wiring for the co-located
 ``shader_templates.ui``.
 
-Blender counterpart of mayatk's Shader Templates: a **graph save/restore** tool with a user-preset
-store, plus quick built-in Principled-BSDF parameter presets. Mirrors Maya's PURPOSE (capture a
-shader you like, reuse it later — rebinding fresh textures by map type) without cargo-culting Maya's
-``.sfx``/Stingray YAML specifics:
+Blender counterpart of mayatk's Shader Templates, mirroring its structure 1:1 (same objectNames,
+same header-menu layout, same method shapes: ``b000``/``b001``/``b002``, ``lbl000``-``lbl002`` on
+the combo's own submenu, ``lbl_open_templates_dir``/``lbl_graph_material`` on the header) so the
+two panels are a true mirror of each other:
 
-* **Save Selected as Template** captures the active material's node graph (``serialize_material``)
-  into the shared ``pythontk.PresetStore`` (JSON, user tier) — recording image **map types**, not
-  paths.
-* **Create New** rebuilds a template into a fresh material (``restore_material``); for a graph
-  template it **rebinds the loaded textures by map type** (Maya's GraphRestorer), then assigns it.
-* The fixed built-in presets (Metal / Glass / Emission / Skin …) remain as quick **parameter**
-  presets (``create_shader_template`` / ``apply_shader_template``); they and saved graphs share one
-  restore path.
+* **Save Template** (``b002``) captures the active material's node graph (``btk.serialize_material``
+  — the Blender analogue of mayatk's ``GraphSaver``) under the fixed working name (``template_name``,
+  same "test" placeholder mayatk uses); rename it via the combo's own **Rename** submenu item
+  immediately after, exactly like the Maya panel's workflow.
+* **Create Network** (``b000``) rebuilds the selected template into a fresh material
+  (``btk.restore_material`` — the analogue of mayatk's ``GraphRestorer``), rebinding any loaded
+  textures by map type, then assigns it to the current mesh selection (Blender materials are
+  meaningless with no object to carry them, unlike a bare Maya shading network — the one place this
+  port knowingly diverges from Maya's literal "just create nodes" behavior).
+* **Load Texture Maps** (``b001``) picks texture files to rebind by map type on the next Create
+  Network.
+
+Saved templates live in the shared ``pythontk.PresetStore`` (JSON, user tier) rather than mayatk's
+raw YAML-file-per-template directory — the same underlying *workflow* (pick from a combo; rename /
+delete / open-file live on the combo's own submenu), backed by the ecosystem's shared preset
+abstraction instead of hand-rolled file I/O.
+
+Dropped relative to blendertk's previous (non-mirrored) version of this panel: the built-in
+Principled-BSDF parameter presets (Metal / Glass / Emission / Skin …) and the "Apply to Selected"
+button that wrote them onto an *existing* material in place. mayatk's Shader Templates has no
+built-in-preset concept at all — only user-saved graph templates — so the verbatim structural
+mirror has no button left for that in-place-apply workflow. The engine functions themselves
+(``btk.get_shader_templates`` / ``create_shader_template`` / ``apply_shader_template``) are
+untouched and still covered by ``test/test_mat_anim_utils.py``; they're simply no longer wired into
+this particular panel.
 
 The engine lives in ``blendertk.MatUtils`` (``serialize_material`` / ``restore_material`` /
-``get_shader_templates`` / ``create_shader_template`` / ``apply_shader_template``); this is the thin
-driver. Self-contained (``ptk.LoggingMixin`` + the Qt-free ``ptk.PresetStore``); ``import bpy`` and
-the Qt-only ``uitk`` helpers are deferred into the call bodies. Served by ``BlenderUiHandler``
+``graph_materials``; in ``_mat_utils.py``); this is the thin driver. Self-contained
+(``ptk.LoggingMixin`` + the Qt-free ``ptk.PresetStore``); ``import bpy`` and the Qt-only ``uitk``
+helpers are deferred into the call bodies. Served by ``BlenderUiHandler``
 (``marking_menu.show("shader_templates")``).
 """
+import os
+
 import pythontk as ptk
 
 import blendertk as btk
@@ -34,92 +53,214 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.shader_templates
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[shader_templates] ")
-        # User-preset store for saved graph templates (Qt-free / bpy-free → safe at init).
+
+        # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — Blender's
+        # analogue of Maya's project workspace is the .blend's own folder (`workspace`), with a
+        # "textures" subfolder as the nearest match to Maya's `sourceimages` convention.
+        self.workspace_dir = btk.get_env_info("workspace")
+        self.source_images_dir = (
+            os.path.join(self.workspace_dir, "textures") if self.workspace_dir else ""
+        )
+        self.image_files = None  # texture files loaded via "Load Texture Maps"
+        self.last_restored_material = None  # analogue of mayatk's `last_restored_nodes`
+
+        # User-preset store for saved graph templates (Qt-free / bpy-free -> safe at init); the
+        # Blender analogue of mayatk's raw `templates/` YAML directory.
         self._store = ptk.PresetStore("shader_templates", package="blendertk")
-        self._textures = []  # texture files to rebind by map type on restore (Maya's "Load Textures")
+
+        self.set_log_level(log_level)
+        self.logger.hide_logger_name(True)
         try:
             self.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
             self.logger.setup_logging_redirect(self.ui.txt001)
         except Exception:
             pass
-        self.ui.txt001.setText("Pick a template, then Create New or Apply to Selected.")
+        self.ui.txt001.setText("Pick a template, then Create Network.")
+
+        # No Blender analogue of mayatk's `EnvUtils.load_plugin("shaderFXPlugin"/"mtoa")` — the
+        # Principled BSDF shader is always available; there is no render-plugin load step.
+
+    @property
+    def template_name(self):
+        return "test"
 
     # ------------------------------------------------------------------ header menu
     def header_init(self, widget):
-        """Build the header menu (Save / Load Textures / manage) + help text."""
+        """Initialize the header widget."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
-        widget.menu.add("Separator", setTitle="Templates")
+        widget.setTitle("Shader Templates")
         widget.menu.add(
-            "QPushButton", setText="Save Selected as Template…",
-            setObjectName="btn_save_template",
-            setToolTip="Capture the active material's node graph as a reusable template "
-            "(image nodes are saved by map type, so Create New can rebind fresh textures).",
-        ).clicked.connect(self.save_template)
+            self.sb.registered_widgets.Label,
+            setObjectName="lbl_open_templates_dir",
+            setText="Open Templates Directory",
+            setToolTip="Open the directory containing shader templates.",
+        )
         widget.menu.add(
-            "QPushButton", setText="Load Textures…", setObjectName="btn_load_textures",
-            setToolTip="Pick texture files to rebind (by map type) when a graph template is "
-            "restored with Create New.",
-        ).clicked.connect(self.load_textures)
-        widget.menu.add("Separator", setTitle="Manage (saved templates)")
-        widget.menu.add(
-            "QPushButton", setText="Rename Template…", setObjectName="btn_rename_template",
-            setToolTip="Rename the selected saved template.",
-        ).clicked.connect(self.rename_template)
-        widget.menu.add(
-            "QPushButton", setText="Delete Template", setObjectName="btn_delete_template",
-            setToolTip="Delete the selected saved template.",
-        ).clicked.connect(self.delete_template)
-        widget.menu.add(
-            "QPushButton", setText="Open Templates Folder", setObjectName="btn_open_templates_dir",
-            setToolTip="Reveal the saved-templates folder in the OS file manager.",
-        ).clicked.connect(self.open_templates_folder)
-
+            self.sb.registered_widgets.Label,
+            setObjectName="lbl_graph_material",
+            setText="Graph Material",
+            setToolTip="Open the last restored material in the Shader Editor.",
+        )
         widget.set_help_text(
             fmt(
                 title="Shader Templates",
-                body="Save a material's shader graph as a reusable template and recreate it later, "
-                "rebinding fresh textures by map type. Built-in parameter presets are also listed.",
+                body="Save and restore shader networks as reusable templates. Templates live "
+                "in blendertk's shared user-preset store.",
                 steps=[
-                    "<b>Save Selected as Template…</b> (header) captures the active material's graph.",
-                    "<b>Load Textures…</b> (header) picks textures to rebind on restore.",
-                    "Pick a template; <b>Create New</b> rebuilds it and assigns it to the selection.",
-                    "<b>Apply to Selected</b> writes a built-in parameter preset onto existing "
-                    "materials (graph templates create a new material instead).",
+                    "Select an object with a material in the scene to capture its full "
+                    "network.",
+                    "Press <b>Save Template</b> to write the current network out under a new "
+                    "name.",
+                    "To restore, pick a template from the combo and press "
+                    "<b>Create Network</b>.",
                 ],
                 sections=[
-                    ("Notes", [
-                        "Built-in presets are <i>parameter</i> presets (Principled BSDF); saved "
-                        "templates are full <i>graphs</i> — both restore through one path.",
-                        "Image nodes are saved by <b>map type</b>, not path, so a template re-uses "
-                        "on any texture set (Maya's GraphRestorer behavior).",
+                    ("Menu options", [
+                        "<b>Open Templates Directory</b> — reveal the templates folder in the "
+                        "OS file manager.",
+                        "<b>Graph Material</b> — open the most recently restored material in "
+                        "the Shader Editor.",
                     ]),
                 ],
             )
         )
 
+    def lbl_graph_material(self):
+        """Open the last restored material in the Shader Editor."""
+        if self.last_restored_material is not None:
+            btk.graph_materials(self.last_restored_material)
+        else:
+            self.logger.warning("No material has been restored yet.")
+
+    def lbl_open_templates_dir(self):
+        """Open the shader templates directory in the OS file manager."""
+        ptk.open_explorer(str(self._store.user_dir), create_dir=True)
+
+    # ------------------------------------------------------------------ template combo
     def cmb002_init(self, widget):
-        """Populate the template combo: built-in parameter presets + saved graph templates."""
-        widget.add(self._all_template_names(), clear=True)
+        """Initialize the ComboBox for shader templates."""
+        if not widget.is_initialized:
+            widget.restore_state = True
+            widget.refresh_on_show = True
+            widget.menu.add(
+                self.sb.registered_widgets.Label,
+                setObjectName="lbl000",
+                setText="Rename",
+                setToolTip="Rename the current template.",
+            )
+            widget.menu.add(
+                self.sb.registered_widgets.Label,
+                setObjectName="lbl001",
+                setText="Delete",
+                setToolTip="Delete the current template.",
+            )
+            widget.on_editing_finished.connect(
+                lambda text: self.rename_template_safe(widget, text)
+            )
+            widget.menu.add(
+                self.sb.registered_widgets.Label,
+                setObjectName="lbl002",
+                setText="Open Template File",
+                setToolTip="Open the selected template file in the default editor.",
+            )
+        self.refresh_templates(widget)
+
+    def refresh_templates(self, widget):
+        """Refresh the list of templates."""
+        self._store.user_dir.mkdir(parents=True, exist_ok=True)
+        widget.clear()
+        for name in self._store.list(tier="user"):
+            widget.addItem(name)
+
+    def rename_template_safe(self, widget, new_name):
+        """Safe rename that checks for None."""
+        current = widget.currentText()
+        if not current:
+            self.logger.error("No template selected or data is missing.")
+            return
+        if self._store.rename(current, new_name):
+            self.logger.info(f"Template renamed to: {new_name}")
+            widget.init_slot()
+        else:
+            self.logger.error("Could not rename (name already in use?).")
+
+    def lbl000(self):
+        """Set the ComboBox as editable to allow renaming."""
+        self.ui.cmb002.setEditable(True)
+        self.ui.cmb002.menu.hide()
+
+    def lbl001(self):
+        """Delete the selected template."""
+        template = self.ui.cmb002.currentText()
+        if self._store.delete(template):
+            self.logger.info(f"Template deleted: {template}")
+        self.ui.cmb002.init_slot()
+
+    def lbl002(self):
+        """Open the selected template in the default editor."""
+        template = self.ui.cmb002.currentText()
+        ptk.open_explorer(str(self._store.path(template, "user")))
+
+    # ------------------------------------------------------------------ buttons
+    def b000(self):
+        """Create shader network using selected template."""
+        self.ui.txt001.clear()
+        self.logger.info("Creating network based on template...")
+
+        template = self.ui.cmb002.currentText()
+        if not template:
+            self.logger.error("No template selected.")
+            return
+
+        try:
+            data = self._store.load(template)
+        except (KeyError, ValueError) as e:
+            self.logger.error(f"Could not load template '{template}': {e}")
+            return
+
+        mat = btk.restore_material(data, name=template, textures=self.image_files or [])
+        self.last_restored_material = mat
+
+        # Blender materials need an object to carry them (unlike a bare Maya shading network) —
+        # assign to the current mesh selection when there is one.
+        objects = [o for o in self._selected_objects() if o.type == "MESH"]
+        if objects:
+            btk.assign_mat(objects, mat)
+
+        self.logger.info("COMPLETED.")
+
+    def b001(self):
+        """Load texture maps and update GUI."""
+        image_files = self.sb.file_dialog(
+            file_types=[f"*.{ext}" for ext in ptk.ImgUtils.texture_file_types],
+            title="Select one or more image files to open.",
+            start_dir=self.source_images_dir,
+        )
+
+        if image_files:
+            self.image_files = image_files
+            self.ui.txt001.clear()
+            for img in image_files:
+                self.logger.info(ptk.truncate(img, 60))
+
+    def b002(self):
+        """Save current graph as a new shader template."""
+        if self._store.exists(self.template_name):
+            self.logger.error("File already exists.")
+            return
+
+        mat = self._active_material()
+        data = btk.serialize_material(mat)
+        if not data.get("nodes"):
+            self.logger.warning("No material selected or provided for template saving.")
+            return
+
+        self._store.save(self.template_name, data)
+        self.logger.info(f"Shader template saved as: {self.template_name}")
+        self.ui.cmb002.init_slot()
 
     # ------------------------------------------------------------------ helpers
-    def _builtin_names(self):
-        return list(btk.get_shader_templates())
-
-    def _all_template_names(self):
-        """Built-in parameter presets first, then user-saved graph templates."""
-        builtins = self._builtin_names()
-        user = [n for n in self._store.list(tier="user") if n not in builtins]
-        return builtins + user
-
-    def _template(self):
-        return self.ui.cmb002.currentText()
-
-    def _is_builtin(self, name):
-        return name in self._builtin_names()
-
     def _active_material(self):
         """The active object's active material (Save's capture source)."""
         import bpy
@@ -129,130 +270,6 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
 
     def _selected_objects(self):
         return btk.selected_objects()
-
-    def _refresh_combo(self, select=None):
-        self.ui.cmb002.add(self._all_template_names(), clear=True)
-        if select is not None:
-            self.ui.cmb002.setCurrentText(select)
-
-    # ------------------------------------------------------------------ create / apply slots
-    def b000(self):
-        """Create New — rebuild the template into a fresh material, assigned to the selection."""
-        template = self._template()
-        if not template:
-            self.sb.message_box("Pick a template first.")
-            return
-        if self._is_builtin(template):
-            mat = btk.create_shader_template(template)
-        else:
-            try:
-                data = self._store.load(template)
-            except (KeyError, ValueError) as e:
-                self.sb.message_box(f"Could not load template <hl>{template}</hl>: {e}")
-                return
-            mat = btk.restore_material(data, name=template, textures=self._textures)
-        objects = [o for o in self._selected_objects() if o.type == "MESH"]
-        if objects:
-            btk.assign_mat(objects, mat)
-            self.logger.info(f"Created '{mat.name}' and assigned to {len(objects)} object(s).")
-        else:
-            self.logger.info(f"Created material '{mat.name}' (no selection to assign).")
-
-    def b001(self):
-        """Apply to Selected — write a built-in parameter preset onto the selection's materials."""
-        template = self._template()
-        if not self._is_builtin(template):
-            self.sb.message_box(
-                "Apply to Selected works on the built-in <b>parameter</b> presets. "
-                "A saved graph template builds a new material — use <b>Create New</b>."
-            )
-            return
-        mats = []
-        for o in self._selected_objects():
-            for slot in getattr(o, "material_slots", []):
-                if slot.material and slot.material not in mats:
-                    mats.append(slot.material)
-        if not mats:
-            self.sb.message_box("No materials on the selection to apply the template to.")
-            return
-        applied = sum(1 for m in mats if btk.apply_shader_template(m, template))
-        self.logger.info(f"Applied '{template}' to {applied} material(s).")
-
-    # ------------------------------------------------------------------ save / load / manage slots
-    def save_template(self):
-        """Capture the active material's node graph into the user store."""
-        mat = self._active_material()
-        if mat is None:
-            self.sb.message_box("Select an object with a material to capture.")
-            return
-        data = btk.serialize_material(mat)
-        if not data.get("nodes"):
-            self.sb.message_box(f"<hl>{mat.name}</hl> has no node graph to capture.")
-            return
-        name = self.sb.input_dialog("Save Template", "Template name:", mat.name)
-        if not name:
-            return
-        if self._is_builtin(name):
-            self.sb.message_box(f"<hl>{name}</hl> is a built-in preset name — choose another.")
-            return
-        if self._store.exists(name) and self.sb.message_box(
-            f"Overwrite saved template <hl>{name}</hl>?", "Yes", "No"
-        ) != "Yes":
-            return
-        self._store.save(name, data)
-        self._refresh_combo(select=name)
-        self.logger.info(f"Saved template '{name}' ({len(data['nodes'])} nodes).")
-
-    def load_textures(self):
-        """Pick texture files to rebind by map type when a graph template is restored."""
-        from qtpy import QtWidgets
-
-        exts = " ".join(f"*.{e}" for e in ptk.ImgUtils.texture_file_types)
-        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            None, "Select textures to bind on restore", "", f"Textures ({exts});;All (*)"
-        )
-        self._textures = list(paths)
-        if self._textures:
-            self.logger.info(f"Loaded {len(self._textures)} texture(s) to bind on Create New.")
-
-    def rename_template(self):
-        """Rename the selected saved template."""
-        name = self._template()
-        if self._is_builtin(name) or not self._store.exists(name):
-            self.sb.message_box("Pick a saved template to rename (built-ins can't be renamed).")
-            return
-        new = self.sb.input_dialog("Rename Template", "New name:", name)
-        if not new or new == name:
-            return
-        if self._store.rename(name, new):
-            self._refresh_combo(select=new)
-            self.logger.info(f"Renamed '{name}' → '{new}'.")
-        else:
-            self.sb.message_box(f"Could not rename to <hl>{new}</hl> (name already in use?).")
-
-    def delete_template(self):
-        """Delete the selected saved template."""
-        name = self._template()
-        if self._is_builtin(name) or not self._store.exists(name):
-            self.sb.message_box("Pick a saved template to delete (built-ins can't be deleted).")
-            return
-        if self.sb.message_box(f"Delete saved template <hl>{name}</hl>?", "Yes", "No") != "Yes":
-            return
-        if self._store.delete(name):
-            self._refresh_combo()
-            self.logger.info(f"Deleted template '{name}'.")
-
-    def open_templates_folder(self):
-        """Reveal the saved-templates folder in the OS file manager."""
-        try:
-            ptk.FileUtils.reveal_in_file_manager(str(self._store.user_dir))
-        except (FileNotFoundError, OSError):
-            # The dir is created lazily on first save — make it so there's something to open.
-            self._store.user_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                ptk.FileUtils.reveal_in_file_manager(str(self._store.user_dir))
-            except (FileNotFoundError, OSError) as e:
-                self.sb.message_box(str(e))
 
 
 # -----------------------------------------------------------------------------

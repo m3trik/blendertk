@@ -20,9 +20,17 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
 The co-located ``DynamicPipeSlots`` panel is discovered by ``BlenderUiHandler``
 (``marking_menu.show("dynamic_pipe")``); like mayatk's, it is shelf/handler-launched and is **not**
 wired to a tentacle nav button — Maya does not expose ``dynamic_pipe`` through tentacle either
-(see ``tentacle/docs/BLENDER_FEATURE_GAPS.md``), so adding one would be a divergence, not parity.
+(see ``tentacle/docs/archive/BLENDER_FEATURE_GAPS.md``), so adding one would be a divergence, not parity.
+
+The ``.ui`` is now byte-for-byte mayatk's (see the mayatk/blendertk parity sweep); mayatk's copy
+carries a stale ``windowTitle``/header ("Create Shader Network" / "CREATE STINGRAY SHADER" — a
+leftover from ``mat_utils/game_shader.ui``, not a `dynamic_pipe`-authored string). That looks like an
+upstream mayatk bug rather than an intentional label; ported verbatim per the parity mandate since
+mayatk is read-only source of truth for this pass — flag for a mayatk-side fix in a follow-up.
 """
 import pythontk as ptk
+
+from blendertk.core_utils._core_utils import undoable
 
 
 class DynamicPipe(ptk.LoggingMixin):
@@ -165,17 +173,28 @@ class DynamicPipeSlots(ptk.LoggingMixin):
         )
 
     def b000(self):
-        """Initialize Pipe — build the pipe from the selected handle objects (name-ordered)."""
-        import bpy
+        """Initialize Pipe — build pipe from the current selection (name-ordered).
 
-        handles = sorted(
-            (o for o in (bpy.context.selected_objects or []) if o), key=lambda o: o.name
-        )
+        Mirror of mayatk's ``b000``: validates the selection *outside* the undo-atomic build
+        (mayatk only opens its ``undoInfo`` chunk once ``locators`` has ≥2 entries) so a doomed
+        click doesn't leave a stray undo step.
+        """
+        import blendertk as btk
+
+        handles = sorted(btk.selected_objects(), key=lambda o: o.name)
         if len(handles) < 2:
             self.sb.message_box(
                 "Select at least two objects (handles/Empties), then press Initialize Pipe."
             )
             return
+        self._build(handles)
+
+    @undoable
+    def _build(self, handles):
+        """Build the pipe and report the result — the productive half of :meth:`b000`, decorated
+        so the whole build collapses into one undo step (mirror of mayatk's
+        ``cmds.undoInfo(openChunk=True)`` / ``closeChunk`` wrap around ``DynamicPipe`` +
+        ``create_pipe_geometry``, which likewise excludes the pre-flight selection-count check)."""
         self.pipe = DynamicPipe(handles)
         self.sb.message_box(
             f"<hl>Built dynamic pipe through {len(self.pipe.handles)} handles.</hl>"

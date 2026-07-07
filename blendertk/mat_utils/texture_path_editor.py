@@ -3,23 +3,31 @@
 """Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 ``texture_path_editor.ui``.
 
-Blender counterpart of mayatk's Texture Path Editor, mirroring its structure: a header menu
-(General / Path Management / Selection) over a three-column table (**Material · Texture Path ·
-Image**) whose path cells are editable, with a per-row right-click menu. Maya file-node concepts
-map onto Blender image datablocks — a row is one FILE image (``img.filepath`` is the path); the
-Material column lists the material(s) whose shader graph references it. The path commands operate
-on the selected rows if any, otherwise on every image (the same selection-aware scope as Maya).
+Blender counterpart of mayatk's Texture Path Editor, mirroring its structure 1:1 (same
+objectNames, same layout, same header-menu sections — General / Path Management / Selection —
+over a three-column table whose path cells are editable, with a per-row right-click menu, the
+same selection-aware "scope" semantics, and the same in-session "Previous path" tooltip
+bookkeeping). Maya file-node concepts map onto Blender image datablocks — a row is one FILE
+image (``img.filepath`` is the path); the Material column lists the material(s) whose shader
+graph references it. Path commands operate on the selected rows if any, otherwise on every image
+(the same selection-aware scope as Maya).
 
-Maya-only concepts that don't map are dropped (with a note): Maya's *namespaces* / separable
-*file-node* selection (Blender has no node-name handle distinct from the image), the *Hypershade*
-graph (→ Blender's Shader Editor), and *sourceimages* as the implicit search root (Blender has no
-project workspace — Set Directory / Find & Copy / Resolve Missing prompt for a folder instead).
+Maya-only concepts that don't map are either adapted or dropped with a documented reason:
+Maya's *sourceimages* project folder has no Blender analogue (no project workspace) — the
+Blender analogue used throughout is ``<blenddir>/textures`` (falling back to the .blend's own
+folder), and paths are made ``//``-relative to it the same way mayatk's commands make paths
+relative to sourceimages; the Hypershade graph maps onto Blender's Shader Editor
+(``row_show_in_hypershade``); *Select File Node* is kept as a structural placeholder (disabled,
+``# TODO(blender-parity)``) because Blender images have no node-name handle distinct from the
+datablock the way a Maya ``file`` node does.
 
 The engine lives in ``blendertk.MatUtils`` (``get_image_records`` / ``repath_image`` /
-``resolve_missing_textures`` / ``normalize_texture_paths`` / ``reload_textures`` /
-``select_by_material``); this is the thin Qt driver. Self-contained (``ptk.LoggingMixin`` only) so
-blendertk carries no back-dependency on tentacle; ``import bpy`` and the Qt-only ``uitk`` helpers
-are deferred into the call bodies (headless Blender ships no Qt binding).
+``to_project_relative`` / ``resolve_missing_textures`` / ``normalize_texture_paths`` /
+``set_texture_directory`` / ``find_and_copy_textures`` / ``reload_textures`` /
+``select_by_material`` / ``graph_materials``); this is the thin Qt driver. Self-contained
+(``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on tentacle; ``import bpy``
+and the Qt-only ``uitk`` helpers are deferred into the call bodies (headless Blender ships no Qt
+binding).
 """
 import os
 
@@ -54,12 +62,23 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.texture_path_editor
         self._image_to_mats = {}  # image-name -> [material names] (rebuilt each refresh)
+        self._previous_paths = {}  # image name -> path before last in-session repath
+        self._refresh_pending = False
+        self._browse_in_progress = False  # re-entry guard
+        self._find_copy_in_progress = False  # re-entry guard
+        self._footer_controller = self._create_footer_controller()
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[texture_path_editor] ")
 
     # ------------------------------------------------------------------ header menu
     def header_init(self, widget):
-        """Build the header menu (General / Path Management / Selection) + help text."""
+        """Build the header menu (General / Path Management / Selection) + help text.
+
+        Plain action items are QPushButtons wired via ``clicked.connect``. The four items with
+        per-button option-box flyouts (Set Directory, Find & Copy, Normalize Paths, Resolve
+        Missing Textures) are uitk ``PushButton`` (``tb_*``) auto-wired by name; their flyout
+        contents are populated by the matching ``tb_*_init`` methods below.
+        """
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
         widget.config_buttons("refresh", "menu", "collapse", "hide")
@@ -67,109 +86,181 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
         widget.menu.add("Separator", setTitle="General")
         btn_open = widget.menu.add(
-            "QPushButton", setText="Open Textures Folder",
-            setObjectName="btn_open_textures_folder",
-            setToolTip="Open the project's textures directory (<blend>/textures) in the file explorer.",
+            "QPushButton",
+            setText="Open Textures Folder",
+            setObjectName="btn_open_source_images",
+            setToolTip="Open the project's textures directory in the file explorer.",
         )
-        btn_open.clicked.connect(self.open_textures_folder)
+        btn_open.clicked.connect(self.open_source_images)
+
         btn_reload = widget.menu.add(
-            "QPushButton", setText="Reload Scene Textures",
+            "QPushButton",
+            setText="Reload Scene Textures",
             setObjectName="btn_reload_scene_textures",
-            setToolTip="Force Blender to re-read every image datablock from disk.",
+            setToolTip=(
+                "Force Blender to re-read every image datablock from disk. Useful after "
+                "editing textures externally or after Find & Copy / Normalize Paths relocates "
+                "them."
+            ),
         )
         btn_reload.clicked.connect(self.reload_scene_textures)
 
         widget.menu.add("Separator", setTitle="Path Management")
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
-            setText="Set Directory…", setObjectName="tb_set_texture_directory",
-            setToolTip="Repath every (selected, or all) image so its file lives under the chosen "
-            "directory. The option box (▸) chooses leave / copy / move.",
+            setText="Set Directory…",
+            setObjectName="tb_set_texture_directory",
+            setToolTip=(
+                "Repath every (selected, or all) image so its file lives under the chosen "
+                "directory. Paths become // relative when the chosen directory is inside the "
+                ".blend's own folder. Option box (▸) chooses leave / copy / move."
+            ),
         )
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
-            setText="Find && Copy Textures…", setObjectName="tb_find_and_copy_textures",
-            setToolTip="Search a folder recursively for the textures used by (selected, or all) "
-            "images, relocate them into a destination, and repath. Option box (▸) toggles Copy / Move.",
+            setText="Find && Copy Textures…",
+            setObjectName="tb_find_and_copy_textures",
+            setToolTip=(
+                "Search recursively from a source directory for textures used by (selected, "
+                "or all) images, relocate them to a destination, and repath. Paths become // "
+                "relative when the destination is inside the .blend's own folder. Option box "
+                "(▸) toggles Copy / Move."
+            ),
         )
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
-            setText="Normalize Paths", setObjectName="tb_normalize_paths",
-            setToolTip="Rewrite (selected, or all) paths relative to the saved .blend (// paths). "
-            "The option box (▸) controls external textures: leave / copy / move into the project.",
+            setText="Normalize Paths",
+            setObjectName="tb_normalize_paths",
+            setToolTip=(
+                "Rewrite (selected, or all) paths relative to the saved .blend (// paths). "
+                "Option box (▸) controls external textures: leave / copy / move into the "
+                "project."
+            ),
         )
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
-            setText="Resolve Missing Textures", setObjectName="tb_resolve_missing_textures",
-            setToolTip="Search a folder (recursively) for replacement files for missing (selected, "
-            "or all) textures, matched by name.",
+            setText="Resolve Missing Textures",
+            setObjectName="tb_resolve_missing_textures",
+            setToolTip=(
+                "Search a folder (recursively) for replacement files for missing (selected, or "
+                "all) textures. Enabled strategies run in order: Stem → Texture → Fuzzy "
+                "(safest first); stops at first hit. Option box (▸) enables/disables "
+                "individual strategies."
+            ),
         )
 
         widget.menu.add("Separator", setTitle="Selection")
         btn_sel_obj = widget.menu.add(
-            "QPushButton", setText="Select Textures for Selected Objects",
+            "QPushButton",
+            setText="Select Textures for Selected Objects",
             setObjectName="btn_select_textures_for_objects",
-            setToolTip="Highlight the rows for textures used by the materials on the current scene selection.",
+            setToolTip=(
+                "Highlight the texture-path cells for textures used by the currently selected "
+                "scene objects."
+            ),
         )
         btn_sel_obj.clicked.connect(self.select_textures_for_objects)
+
         btn_sel_broken = widget.menu.add(
-            "QPushButton", setText="Select Broken Paths",
+            "QPushButton",
+            setText="Select Broken Paths",
             setObjectName="btn_select_broken_paths",
-            setToolTip="Highlight rows whose texture file is missing on disk.",
+            setToolTip="Highlight rows whose texture file is missing.",
         )
         btn_sel_broken.clicked.connect(self.select_broken_paths)
+
         btn_sel_abs = widget.menu.add(
-            "QPushButton", setText="Select Absolute Paths",
+            "QPushButton",
+            setText="Select Absolute Paths",
             setObjectName="btn_select_absolute_paths",
-            setToolTip="Highlight rows whose path is absolute (candidates for Normalize Paths).",
+            setToolTip=(
+                "Highlight rows whose path is absolute (regardless of validity). These are "
+                "candidates for Normalize Paths."
+            ),
         )
         btn_sel_abs.clicked.connect(self.select_absolute_paths)
 
         widget.set_help_text(
             fmt(
                 title="Texture Path Editor",
-                body="Inspect and fix image texture paths. Path commands operate on selected rows "
-                "if any, otherwise on every image in the file.",
+                body="Inspect and fix image texture paths. Path commands operate on selected "
+                "rows if any, otherwise on all images in the file.",
                 sections=[
                     ("Path management (header menu)", [
-                        "<b>Set Directory…</b> — repath to a chosen folder. Option box (▸): leave / copy / move.",
-                        "<b>Find &amp; Copy Textures…</b> — search a folder for matching textures, copy or move them.",
-                        "<b>Normalize Paths</b> — rewrite paths relative to the saved .blend. Option box (▸) handles external textures.",
-                        "<b>Resolve Missing Textures</b> — search a folder for replacements for ⚠ textures (by name).",
+                        "<b>Set Directory…</b> — repath to a chosen folder. Option box (▸) "
+                        "chooses leave / copy / move.",
+                        "<b>Find &amp; Copy Textures…</b> — search an external folder for "
+                        "matching textures, copy or move them into a destination. Option box "
+                        "(▸) toggles Copy / Move.",
+                        "<b>Normalize Paths</b> — rewrite paths relative to the saved .blend. "
+                        "Option box (▸) controls external textures: leave / copy / move into "
+                        "the project.",
+                        "<b>Resolve Missing Textures</b> — search a folder using strategy "
+                        "cascade <i>Stem → Texture → Fuzzy</i> (safest first; stops at first "
+                        "hit). Option box (▸) enables/disables individual strategies.",
+                    ]),
+                    ("General (header menu)", [
+                        "<b>Open Textures Folder</b> — Explorer shortcut.",
+                        "<b>Reload Scene Textures</b> — force Blender to re-read all images "
+                        "from disk (useful after relocations).",
                     ]),
                     ("Selection helpers (header menu)", [
-                        "<b>Select Textures for Selected Objects</b> — rows for textures on the current selection.",
-                        "<b>Select Broken Paths</b> — rows whose file is missing.",
-                        "<b>Select Absolute Paths</b> — rows with absolute paths.",
+                        "<b>Select Textures for Selected Objects</b> — highlight rows for "
+                        "textures used by the current scene selection.",
+                        "<b>Select Broken Paths</b> — rows whose file is missing on disk.",
+                        "<b>Select Absolute Paths</b> — rows with absolute paths (candidates "
+                        "for Normalize Paths).",
                     ]),
                 ],
                 notes=[
-                    "⚠ marks a path that does not exist on disk. Edit a path cell directly to repath that image.",
-                    "<b>Right-click</b> a row for per-texture actions: Browse for File, Select In Scene, Shader Editor, Delete Image.",
-                    "Make Relative / Copy to Project need the .blend to be saved.",
+                    "<b>Right-click</b> any row for per-texture actions: Browse for File, "
+                    "scene selection, Shader Editor graph, delete. <i>Select File Node</i> is "
+                    "disabled — Blender images have no node-name handle distinct from the "
+                    "datablock itself.",
+                    "Collision policy on Copy / Move: same-name + same-size files rebind "
+                    "without overwriting; different-size hits skip with a warning (never "
+                    "silently rebinds to a wrong texture, never destroys the external).",
+                    "Normalize Paths / Copy or Move into the project need the .blend to be "
+                    "saved.",
                 ],
             )
         )
 
     def tb_set_texture_directory_init(self, widget):
-        """Set Directory option-box: the relocate-mode combobox."""
+        """Populate the Set Directory option-box with the relocate-mode combobox."""
         widget.option_box.menu.setTitle("Set Directory")
         widget.option_box.menu.add(
-            "QComboBox", setObjectName="cmb_relocate_mode",
+            "QComboBox",
+            setObjectName="cmb_relocate_mode",
+            setToolTip=(
+                "Behavior for texture files when the directory changes:\n\n"
+                "• Leave in place — only rewrite the path.\n"
+                "• Copy — duplicate each texture into the chosen directory.\n"
+                "• Move — relocate each texture into the chosen directory.\n\n"
+                "Collision policy: same-name + same-size at destination is a safe rebind (no "
+                "overwrite). Different size is skipped + warned — never silently rebind to a "
+                "wrong texture."
+            ),
             addItems=[label for label, _key in self._RELOCATE_MODE_ITEMS],
-            setToolTip="Behavior for the texture files when the directory changes:\n"
-            "• Leave in place — only rewrite the path.\n"
-            "• Copy — duplicate each texture into the chosen directory.\n"
-            "• Move — relocate each texture into the chosen directory.",
         )
 
     def tb_find_and_copy_textures_init(self, widget):
-        """Find & Copy option-box: the copy/move combobox (also swaps the button text)."""
+        """Populate the Find & Copy option-box with the copy/move combobox.
+
+        Also wires the combobox to swap the button text between ``Find & Copy Textures…`` and
+        ``Find & Move Textures…`` so the active mode is visible on the menu item itself.
+        """
         widget.option_box.menu.setTitle("Find & Copy Textures")
         cmb = widget.option_box.menu.add(
-            "QComboBox", setObjectName="cmb_relocate_mode",
+            "QComboBox",
+            setObjectName="cmb_relocate_mode",
+            setToolTip=(
+                "How to relocate matched textures into the destination:\n\n"
+                "• Copy — duplicate each match into the destination.\n"
+                "• Move — relocate each match into the destination (removes the source file "
+                "after a successful copy)."
+            ),
             addItems=[label for label, _key in self._FIND_MODE_ITEMS],
-            setToolTip="How to relocate matched textures into the destination (Copy or Move).",
         )
 
         def _sync_text(idx):
@@ -177,38 +268,59 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             widget.setText(f"Find && {label} Textures…")
 
         cmb.currentIndexChanged.connect(_sync_text)
-        _sync_text(cmb.currentIndex())
+        _sync_text(cmb.currentIndex())  # initial sync
 
     def tb_normalize_paths_init(self, widget):
-        """Normalize Paths option-box: the external-texture-mode combobox."""
+        """Populate the Normalize Paths option-box with the external-mode combobox."""
         widget.option_box.menu.setTitle("Normalize Paths")
         widget.option_box.menu.add(
-            "QComboBox", setObjectName="cmb_external_mode",
+            "QComboBox",
+            setObjectName="cmb_external_mode",
+            setToolTip=(
+                "Behavior for external textures (paths outside the .blend's own folder) whose "
+                "file exists on disk:\n\n"
+                "• Leave untouched — only rewrite paths already inside the project folder.\n"
+                "• Copy into the project — duplicate the file in, then rebind.\n"
+                "• Move into the project — relocate the file in, then rebind.\n\n"
+                "Collision policy: same-name + same-size in the project folder is a safe "
+                "rebind (no overwrite). Different size is skipped + warned — never silently "
+                "rebind to a wrong texture."
+            ),
             addItems=[label for label, _key in self._NORMALIZE_MODE_ITEMS],
-            setToolTip="Behavior for external textures (outside the .blend folder):\n"
-            "• Leave untouched — only make in-project paths relative.\n"
-            "• Copy into the project — duplicate the file in, then repath.\n"
-            "• Move into the project — relocate the file in, then repath.",
         )
 
     def tb_resolve_missing_textures_init(self, widget):
-        """Resolve Missing option-box: the search strategy checkboxes (safest-first cascade)."""
+        """Populate the Resolve Missing option-box with the strategy checkboxes."""
         widget.option_box.menu.setTitle("Resolve Missing Textures")
         widget.option_box.menu.add(
-            "QCheckBox", setText="Stem  — exact name, any extension",
-            setObjectName="chk_stem", setChecked=True,
-            setToolTip="Match a file whose name (any extension) equals the missing texture's name.",
+            "QCheckBox",
+            setText="Stem  — exact name, any extension",
+            setObjectName="chk_stem",
+            setChecked=True,
+            setToolTip=(
+                "Match a file whose name (any extension) equals the missing texture's name."
+            ),
         )
         widget.option_box.menu.add(
-            "QCheckBox", setText="Texture  — same map type + base name (safest fuzzy)",
-            setObjectName="chk_texture", setChecked=True,
-            setToolTip="Restrict candidates to files of the same map type (AO / Normal / Roughness "
-            "/ …) and fuzzy-match the map-stripped base name — an _AO never repaths to a _Normal.",
+            "QCheckBox",
+            setText="Texture  — same map type + base name (safest fuzzy)",
+            setObjectName="chk_texture",
+            setChecked=True,
+            setToolTip=(
+                "Restrict candidates to files of the same map type (AO / Normal / Roughness / "
+                "…) and fuzzy-match on the map-stripped base name — an _AO file can never get "
+                "repathed to a _Normal file."
+            ),
         )
         widget.option_box.menu.add(
-            "QCheckBox", setText="Fuzzy  — similar name (loose; may mismatch)",
-            setObjectName="chk_fuzzy", setChecked=True,
-            setToolTip="Loose name matching when no exact-stem / same-map file is found.",
+            "QCheckBox",
+            setText="Fuzzy  — similar name (loose; may mismatch)",
+            setObjectName="chk_fuzzy",
+            setChecked=True,
+            setToolTip=(
+                "Loose name matching across all candidates. May mismatch on map-type "
+                "boundaries."
+            ),
         )
 
     # ------------------------------------------------------------------ table
@@ -217,25 +329,58 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         if not widget.is_initialized:
             widget.refresh_on_show = True
             widget.cellChanged.connect(self.handle_cell_edit)
+            if self._footer_controller:
+                widget.itemSelectionChanged.connect(self._footer_controller.update)
 
             widget.menu.add("Separator", setTitle="Path Management")
             widget.menu.add(
-                "QPushButton", setText="Browse for File…", setObjectName="row_browse_for_file",
-                setToolTip="Pick a file to repath this row's image to (single selection).",
+                "QPushButton",
+                setText="Browse for File...",
+                setObjectName="row_browse_for_file",
+                setToolTip=(
+                    "Open a file browser and pick a texture file to repath this row to. "
+                    "Single selection only."
+                ),
             )
+
             widget.menu.add("Separator", setTitle="Selection")
             widget.menu.add(
-                "QPushButton", setText="Select In Scene", setObjectName="select_material",
-                setToolTip="Select the scene objects using this row's material(s).",
+                "QPushButton",
+                setText="Select In Scene",
+                setObjectName="select_material",
+                setToolTip=(
+                    "Select all scene objects currently using this row's material(s)."
+                ),
+            )
+            # TODO(blender-parity): mayatk's "Select File Node" selects the shading node itself
+            # (distinct from selecting the objects that use it). Blender images have no separate
+            # node-name handle — the closest concept would be selecting the ShaderNodeTexImage
+            # node(s) referencing this image inside their material graphs, which needs its own
+            # small helper in the engine. Kept disabled for structural parity with mayatk's menu
+            # until that helper exists.
+            widget.menu.add(
+                "QPushButton",
+                setText="Select File Node",
+                setObjectName="select_file_node",
+                setEnabled=False,
+                setToolTip=(
+                    "No Blender equivalent: images have no node-name handle distinct from the "
+                    "datablock itself. Use Select In Scene or Show in Shader Editor instead."
+                ),
             )
             widget.menu.add(
-                "QPushButton", setText="Show in Shader Editor", setObjectName="row_show_in_shader_editor",
-                setToolTip="Open Blender's Shader Editor (Blender's Hypershade analogue).",
+                "QPushButton",
+                setText="Show in Shader Editor",
+                setObjectName="row_show_in_hypershade",
+                setToolTip="Graph the selected row's material in Blender's Shader Editor.",
             )
+
             widget.menu.add("Separator", setTitle="Edit")
             widget.menu.add(
-                "QPushButton", setText="Delete Image", setObjectName="delete_image",
-                setToolTip="Remove this image datablock from the file.",
+                "QPushButton",
+                setText="Delete Image",
+                setObjectName="delete_file_node",
+                setToolTip="Delete the selected image datablock(s).",
             )
 
             def _bind(action_name, method):
@@ -247,8 +392,11 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
             _bind("row_browse_for_file", self.row_browse_for_file)
             _bind("select_material", self.select_material)
-            _bind("row_show_in_shader_editor", self.row_show_in_shader_editor)
-            _bind("delete_image", self.delete_image)
+            _bind("select_file_node", self.select_file_node)
+            _bind("row_show_in_hypershade", self.row_show_in_hypershade)
+            _bind("delete_file_node", self.delete_file_node)
+
+            self._setup_scene_change_callback(widget)
 
         self._refresh_table_content(widget)
 
@@ -294,17 +442,18 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             widget.setColumnWidth(0, 200)
             widget.setColumnWidth(2, 200)
 
-            self._setup_formatting(widget, records)
+            self.setup_formatting(widget, records)
             widget.apply_formatting()
         finally:
             widget.blockSignals(False)
             widget.setUpdatesEnabled(True)
 
-        missing = sum(1 for r in records if not r["exists"])
-        self.ui.footer.setText(f"{len(records)} texture(s), {missing} missing.")
+        if self._footer_controller:
+            self._footer_controller.update()
 
-    def _setup_formatting(self, widget, records):
-        """Mark the path cell invalid (red) when its file is missing; tooltip the abs path."""
+    def setup_formatting(self, widget, records):
+        """Mark the path cell invalid (red) when its file is missing; tooltip the abs path (plus
+        the prior path, when this session repathed the row — mirrors mayatk's "Previous:" line)."""
         exists_by_path = {}
         abspath_by_path = {}
         for r in records:
@@ -320,12 +469,18 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 abspath_by_path[path] = ap
             widget.format_item(item, key="reset" if exists else "invalid")
             ap = abspath_by_path.get(path, path)
-            item.setToolTip(ap if exists else f"Missing file:\n{ap}")
+            tooltip_lines = [ap if exists else f"Missing file:\n{ap}"]
+            img_item = widget.item(row, 2)
+            img_name = str(img_item.text()).strip() if img_item else ""
+            previous = self._previous_paths.get(img_name) if img_name else None
+            if previous and previous != path:
+                tooltip_lines.append(f"Previous: {previous}")
+            item.setToolTip("\n\n".join(tooltip_lines))
 
         widget.set_column_formatter(1, format_if_invalid)
 
     # ------------------------------------------------------------------ scope
-    def _scope_images(self):
+    def _get_scope_images(self):
         """(images, label) — selected rows' images if any, else every FILE image."""
         selected = self._images_from_selection(None)
         if selected:
@@ -361,21 +516,16 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         return None
 
     # ------------------------------------------------------------------ header slots — General
-    def open_textures_folder(self):
-        """Open <blend>/textures (or the .blend folder) in the file explorer."""
-        import bpy
-
-        blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
-        if not blenddir:
+    def open_source_images(self):
+        """Open the project's textures directory in the file explorer."""
+        path = self._resolve_source_images_path()
+        if not path:
             self.sb.message_box("Save the .blend first — there is no project folder yet.")
             return
-        target = os.path.join(blenddir, "textures")
-        if not os.path.isdir(target):
-            target = blenddir
         try:
-            os.startfile(target)  # noqa: S606 — Windows-only convenience (matches the Maya slot)
+            os.startfile(path)  # noqa: S606 — Windows-only convenience (matches the Maya slot)
         except (AttributeError, OSError):
-            self.sb.message_box(f"Textures folder:<br><hl>{target}</hl>")
+            self.sb.message_box(f"Textures folder:<br><hl>{path}</hl>")
 
     def reload_scene_textures(self):
         """Force Blender to re-read every image from disk."""
@@ -385,57 +535,41 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ header slots — Path Management
     def tb_set_texture_directory(self, widget=None):
-        """Repath images (selection or all) so their files live under a chosen directory."""
-        images, scope_label = self._scope_images()
+        """Repath images (selection or all) so their files live under a chosen directory.
+
+        The option-box combobox selects whether files are also relocated to the new directory
+        (copy / move) or only the path attribute changes (rewrite, default).
+        """
+        images, scope_label = self._get_scope_images()
         if not images:
             self.sb.message_box("No textures to process.")
             return
         mode = self._read_combo_mode(widget, "cmb_relocate_mode", self._RELOCATE_MODE_ITEMS)
-        target_dir = self._pick_dir(f"Set Texture Directory — {scope_label}")
+
+        # Surface the active mode in the dialog title — last interaction before any file ops
+        # fire. Matches the dynamic-text intent in Find & Copy.
+        mode_hint = {"rewrite": "path only", "copy": "copy files", "move": "move files"}.get(
+            mode, mode
+        )
+        target_dir = self.sb.dir_dialog(
+            title=f"Set Texture Directory — {mode_hint} — {scope_label}"
+        )
         if not target_dir:
             return
+        record = self._snapshot_for_tracking(images)
         count = btk.set_texture_directory(images, target_dir, mode=mode)
+        record()
         self.sb.message_box(f"Updated <hl>{count}</hl>/{len(images)} texture path(s).")
         self.ui.tbl000.init_slot()
 
     def tb_find_and_copy_textures(self, widget=None):
         """Search a folder for the images' textures, copy/move to a destination, repath."""
-        images, _scope = self._scope_images()
+        images, _scope = self._get_scope_images()
         if not images:
             self.sb.message_box("No textures to process.")
             return
         mode = self._read_combo_mode(widget, "cmb_relocate_mode", self._FIND_MODE_ITEMS)
         self._find_and_copy_workflow(images, relocate_mode=mode)
-
-    def tb_normalize_paths(self, widget=None):
-        """Rewrite paths relative to the saved .blend; option box handles external textures."""
-        external_mode = self._read_combo_mode(
-            widget, "cmb_external_mode", self._NORMALIZE_MODE_ITEMS
-        )
-        if external_mode in ("copy", "move"):
-            btk.normalize_texture_paths(external_mode)
-        n = btk.normalize_texture_paths("relative")
-        self.sb.message_box(
-            f"Made <hl>{n}</hl> path(s) relative."
-            if n
-            else "Nothing changed — paths are already relative (or the .blend isn't saved)."
-        )
-        self.ui.tbl000.init_slot()
-
-    def tb_resolve_missing_textures(self, widget=None):
-        """Search a folder for replacements for missing textures (by name)."""
-        menu = getattr(widget, "option_box", None)
-        use_stem = bool(menu and menu.menu.chk_stem.isChecked())
-        use_texture = bool(menu and menu.menu.chk_texture.isChecked())
-        use_fuzzy = bool(menu and menu.menu.chk_fuzzy.isChecked())
-        search_dir = self._pick_dir("Resolve Missing Textures — pick a search folder")
-        if not search_dir:
-            return
-        n = btk.resolve_missing_textures(
-            search_dir, stem=use_stem, texture=use_texture, fuzzy=use_fuzzy
-        )
-        self.sb.message_box(f"Resolved <hl>{n}</hl> missing texture(s).")
-        self.ui.tbl000.init_slot()
 
     def _read_combo_mode(self, button, combo_name, mode_items):
         """Read a relocate/external combobox by index → mode key (safe default = first)."""
@@ -444,6 +578,65 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         except AttributeError:
             return mode_items[0][1]
         return mode_items[idx][1] if 0 <= idx < len(mode_items) else mode_items[0][1]
+
+    def tb_normalize_paths(self, widget=None):
+        """Rewrite (selected, or all) paths relative to the saved .blend; option box handles
+        external textures."""
+        images, scope_label = self._get_scope_images()
+        if not images:
+            self.sb.message_box("No textures to process.")
+            return
+
+        external_mode = self._read_combo_mode(
+            widget, "cmb_external_mode", self._NORMALIZE_MODE_ITEMS
+        )
+        record = self._snapshot_for_tracking(images)
+        if external_mode in ("copy", "move"):
+            btk.normalize_texture_paths(external_mode, images=images)
+        n = btk.normalize_texture_paths("relative", images=images)
+        record()
+        self.sb.message_box(
+            f"Made <hl>{n}</hl> path(s) relative ({scope_label})."
+            if n
+            else "Nothing changed — paths are already relative (or the .blend isn't saved)."
+        )
+        self.ui.tbl000.init_slot()
+
+    def tb_resolve_missing_textures(self, widget=None):
+        """Search a folder for replacements for missing (selected, or all) textures.
+
+        Strategy selection is read from this button's own option_box checkboxes.
+        """
+        images, _scope = self._get_scope_images()
+        if not images:
+            self.sb.message_box("No textures to process.")
+            return
+
+        use_stem, use_texture, use_fuzzy = self._read_resolve_modes(widget)
+        if not (use_stem or use_texture or use_fuzzy):
+            self.sb.message_box("No Resolve Missing strategies enabled in the option-box.")
+            return
+        search_dir = self.sb.dir_dialog(title="Resolve Missing Textures — pick a search folder")
+        if not search_dir:
+            return
+        record = self._snapshot_for_tracking(images)
+        n = btk.resolve_missing_textures(
+            search_dir, stem=use_stem, texture=use_texture, fuzzy=use_fuzzy, images=images
+        )
+        record()
+        self.sb.message_box(f"Resolved <hl>{n}</hl> missing texture(s).")
+        self.ui.tbl000.init_slot()
+
+    def _read_resolve_modes(self, button):
+        """Read the Resolve Missing strategy checkboxes → ``(use_stem, use_texture, use_fuzzy)``."""
+        menu = getattr(button, "option_box", None)
+        if menu is None:
+            return True, True, True
+        return (
+            bool(menu.menu.chk_stem.isChecked()),
+            bool(menu.menu.chk_texture.isChecked()),
+            bool(menu.menu.chk_fuzzy.isChecked()),
+        )
 
     # ------------------------------------------------------------------ header slots — Selection
     def select_textures_for_objects(self):
@@ -458,26 +651,31 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             for s in getattr(o, "material_slots", [])
             if s.material
         }
+        if not mat_names:
+            self.sb.message_box("No materials found on selected objects.")
+            return
         target_images = {
             img_name
             for img_name, mats in self._image_to_mats.items()
             if mat_names.intersection(mats)
         }
-        self._select_rows(lambda img_name, path: img_name in target_images, "matching textures")
+        self._select_rows_by_predicate(
+            lambda img_name, path: img_name in target_images, "matching textures"
+        )
 
     def select_broken_paths(self):
         """Select rows whose texture file is missing."""
         missing = {r["name"] for r in btk.get_image_records() if not r["exists"]}
-        self._select_rows(lambda img_name, path: img_name in missing, "broken paths")
+        self._select_rows_by_predicate(lambda img_name, path: img_name in missing, "broken paths")
 
     def select_absolute_paths(self):
         """Select rows whose path is absolute (not a // project-relative path)."""
-        self._select_rows(
+        self._select_rows_by_predicate(
             lambda img_name, path: bool(path) and not path.startswith("//") and os.path.isabs(path),
             "absolute paths",
         )
 
-    def _select_rows(self, predicate, label):
+    def _select_rows_by_predicate(self, predicate, label):
         """Select image-column cells where ``predicate(image_name, path)`` holds."""
         from qtpy import QtWidgets
 
@@ -505,9 +703,20 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             f"Selected <hl>{selected}</hl> {label}." if selected else f"No {label} found."
         )
 
-    # ------------------------------------------------------------------ row context slots
+    # ------------------------------------------------------------------ row-only context slots
     def row_browse_for_file(self, selection=None):
-        """Repath the selected row's image to a file chosen in a browser (single selection)."""
+        """Open a file dialog and repath the selected row's image (single selection only)."""
+        if getattr(self, "_browse_in_progress", False):
+            return
+        self._browse_in_progress = True
+        try:
+            self._do_browse_for_file(selection)
+        finally:
+            from qtpy.QtCore import QTimer
+
+            QTimer.singleShot(250, lambda: setattr(self, "_browse_in_progress", False))
+
+    def _do_browse_for_file(self, selection):
         images = self._images_from_selection(selection)
         if not images:
             return
@@ -515,10 +724,19 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             self.sb.message_box("Browse for File: select a single row.")
             return
         img = images[0]
-        new_path = self._pick_file(f"Repath '{img.name}'")
-        if not new_path:
+        chosen = self.sb.file_dialog(
+            file_types=["*.png", "*.jpg", "*.jpeg", "*.tga", "*.tif", "*.tiff", "*.exr", "*.hdr", "*.bmp", "*.*"],
+            title=f"Select texture file for {img.name}",
+            filter_description="Texture Files",
+            allow_multiple=False,
+        )
+        if not chosen:
             return
+        new_path = btk.to_project_relative(chosen)
+        old_path = img.filepath
         btk.repath_image(img, new_path)
+        if old_path and old_path != img.filepath:
+            self._previous_paths[img.name] = old_path
         self.sb.message_box(f"Repathed <hl>{img.name}</hl>.")
         self.ui.tbl000.init_slot()
 
@@ -540,11 +758,29 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         else:
             self.sb.message_box("No scene objects use the selected row's material(s).")
 
-    def row_show_in_shader_editor(self, selection=None):
-        """Open Blender's Shader Editor (the Hypershade analogue)."""
-        btk.open_editor("Shader Editor")
+    def select_file_node(self, selection=None):
+        """Disabled (see the row-menu tooltip) — retained for structural parity with mayatk's
+        row menu; a future pass could select the ShaderNodeTexImage node(s) for this image in
+        their material graphs. Unreachable while the menu item stays disabled."""
+        # TODO(blender-parity): implement node selection in the material's shader graph once a
+        # small "find image nodes for an image" helper exists in blendertk.mat_utils.
+        return
 
-    def delete_image(self, selection=None):
+    def row_show_in_hypershade(self, selection=None):
+        """Graph the selected row's material(s) in the Shader Editor (Hypershade analogue)."""
+        import bpy
+
+        images = self._images_from_selection(selection)
+        if not images:
+            return
+        mat_names = {m for img in images for m in self._image_to_mats.get(img.name, [])}
+        mats = [m for m in (bpy.data.materials.get(n) for n in mat_names) if m]
+        if mats:
+            btk.graph_materials(mats)
+        else:
+            btk.open_editor("Shader Editor")
+
+    def delete_file_node(self, selection=None):
         """Remove the selected image datablock(s)."""
         import bpy
 
@@ -584,10 +820,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             return
 
         if col == 1:  # path → repath
+            old_path = img.filepath
             btk.repath_image(img, new_value)
+            if old_path and old_path != new_value:
+                self._previous_paths[img.name] = old_path
             table.apply_formatting()
-            missing = sum(1 for r in btk.get_image_records() if not r["exists"])
-            self.ui.footer.setText(f"{table.rowCount()} texture(s), {missing} missing.")
+            if self._footer_controller:
+                self._footer_controller.update()
         elif col == 2 and new_value and new_value != img.name:  # rename datablock
             try:
                 img.name = new_value
@@ -601,14 +840,32 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ workflows
     def _find_and_copy_workflow(self, images, relocate_mode="copy"):
-        """Prompt for source + destination folders, then relocate/repath via the engine."""
-        source_dir = self._pick_dir("Find & Copy — pick a folder to search recursively")
+        """Run find/copy-or-move/repath with a re-entry guard.
+
+        Modal dir dialogs occasionally deliver trailing release events that retrigger the slot,
+        popping a second source-dir prompt. The guard protects against this (same pattern used by
+        row_browse_for_file).
+        """
+        if getattr(self, "_find_copy_in_progress", False):
+            return
+        self._find_copy_in_progress = True
+        try:
+            self._do_find_and_copy_workflow(images, relocate_mode=relocate_mode)
+        finally:
+            from qtpy.QtCore import QTimer
+
+            QTimer.singleShot(250, lambda: setattr(self, "_find_copy_in_progress", False))
+
+    def _do_find_and_copy_workflow(self, images, relocate_mode="copy"):
+        source_dir = self.sb.dir_dialog(title="Find & Copy — pick a folder to search recursively")
         if not source_dir:
             return
-        dest_dir = self._pick_dir("Find & Copy — pick the destination folder")
+        dest_dir = self.sb.dir_dialog(title="Find & Copy — pick the destination folder")
         if not dest_dir:
             return
+        record = self._snapshot_for_tracking(images)
         count = btk.find_and_copy_textures(images, source_dir, dest_dir, mode=relocate_mode)
+        record()
         self.sb.message_box(
             f"{relocate_mode.title()}d + repathed <hl>{count}</hl> texture(s)."
             if count
@@ -616,12 +873,78 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         )
         self.ui.tbl000.init_slot()
 
-    # ------------------------------------------------------------------ misc
+    # ------------------------------------------------------------------ scene refresh / misc
     def refresh_texture_table(self):
         """Manual refresh trigger from the header refresh button."""
         table = getattr(self.ui, "tbl000", None)
         if table:
             table.init_slot()
+
+    def _setup_scene_change_callback(self, widget):
+        """Subscribe to scene-change events via ScriptJobManager (mirrors mayatk's
+        ScriptJobManager wiring so the table auto-refreshes after a file load)."""
+        mgr = btk.ScriptJobManager.instance()
+        # TODO(blender-parity): mayatk also listens for "SceneImported" and "workspaceChanged" —
+        # blendertk's ScriptJobManager has no Blender-native backing for either (Blender doesn't
+        # distinguish opening a file from appending/importing into one; there is no per-project
+        # "workspace" concept the way Maya has), so only the two supported events are subscribed.
+        for event in ("SceneOpened", "NewSceneOpened"):
+            mgr.subscribe(event, lambda w=widget: self._on_scene_change(w), owner=self)
+        mgr.connect_cleanup(widget, owner=self)
+
+    def _on_scene_change(self, widget):
+        if self._refresh_pending:
+            return
+        self._refresh_pending = True
+
+        def do_refresh():
+            self._refresh_pending = False
+            self._previous_paths.clear()
+            try:
+                try:
+                    if not widget.isVisible():
+                        pass
+                except RuntimeError:
+                    # Widget has been deleted (C++ object gone).
+                    self.cleanup_scene_callbacks()
+                    return
+                self.logger.info("Scene changed, refreshing texture path table…")
+                self._refresh_table_content(widget)
+            except Exception as e:
+                self.logger.warning(f"Error refreshing table on scene change: {e}")
+
+        # Blender's handlers fire synchronously mid-load; defer the Qt repaint to the next event
+        # loop tick — the Blender-idiomatic equivalent of Maya's cmds.evalDeferred.
+        from qtpy.QtCore import QTimer
+
+        QTimer.singleShot(0, do_refresh)
+
+    def cleanup_scene_callbacks(self):
+        """Clean up scene-change subscriptions via ScriptJobManager."""
+        btk.ScriptJobManager.instance().unsubscribe_all(self)
+
+    # ------------------------------------------------------------------ path-tracking helpers
+    def _snapshot_for_tracking(self, images):
+        """Snapshot ``images``' current paths; returns a callback that records any path that
+        changed into ``self._previous_paths`` once the caller's batch operation finishes.
+
+        Batch engine calls (``set_texture_directory`` / ``find_and_copy_textures`` /
+        ``normalize_texture_paths`` / ``resolve_missing_textures``) mutate ``img.filepath``
+        internally and only return a count, so the before/after diff has to be taken by the
+        caller — this is the batched counterpart of mayatk's per-node inline
+        ``self._previous_paths[node_name] = old_path`` bookkeeping.
+        """
+        before = {img.name: img.filepath for img in images}
+
+        def record():
+            import bpy
+
+            for name, old_path in before.items():
+                img = bpy.data.images.get(name)
+                if img is not None and old_path and old_path != img.filepath:
+                    self._previous_paths[name] = old_path
+
+        return record
 
     @staticmethod
     def _resolve_path(path):
@@ -633,21 +956,36 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         except Exception:
             return os.path.normpath(path) if path else ""
 
-    @staticmethod
-    def _pick_dir(title):
-        from qtpy import QtWidgets
+    # ------------------------------------------------------------------ footer
+    def _create_footer_controller(self):
+        """Wrap the footer in a status controller showing the resolved textures folder — mirrors
+        mayatk's ``FooterStatusController`` wired to its sourceimages resolver."""
+        footer = getattr(self.ui, "footer", None)
+        if not footer:
+            return None
+        try:
+            from uitk.widgets.footer import FooterStatusController
 
-        return QtWidgets.QFileDialog.getExistingDirectory(None, title) or None
+            return FooterStatusController(
+                footer=footer,
+                resolver=self._resolve_source_images_path,
+                default_text="",
+                truncate_kwargs={"length": 96, "mode": "middle"},
+            )
+        except Exception:
+            return None
 
-    @staticmethod
-    def _pick_file(title):
-        from qtpy import QtWidgets
+    def _resolve_source_images_path(self) -> str:
+        """The project's texture folder — Blender analogue of mayatk's
+        ``EnvUtils.get_env_info("sourceimages")``: ``<blenddir>/textures`` when that folder
+        exists, else the .blend's own folder. Empty until the file has been saved."""
+        import bpy
 
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            None, title, "",
-            "Images (*.png *.jpg *.jpeg *.tga *.tif *.tiff *.exr *.hdr *.bmp);;All (*)",
-        )
-        return path or None
+        blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
+        if not blenddir:
+            return ""
+        target = os.path.join(blenddir, "textures")
+        return target if os.path.isdir(target) else blenddir
 
 
 # -----------------------------------------------------------------------------

@@ -355,7 +355,7 @@
           </widget>
          </item>
          <item row="6" column="0" colspan="4">
-          <widget class="ComboBox" name="cmb001">
+          <widget class="ComboBox" name="cmb000">
            <property name="minimumSize">
             <size>
              <width>0</width>
@@ -369,7 +369,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The frame the cuts are placed in: the object's own origin and local axes, the world origin, or the bounding-box center.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Controls how the edges of the mirrored geometry are treated. Set to 0 to keep border edges of the mirrored and original geometry separate, 1 to automatically merge border edges based on the specified 'mergeThreshold', or 2 to extrude and connect border edges to form a bridge between the original and mirrored parts.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
            <property name="maxVisibleItems">
             <number>40</number>
@@ -383,6 +383,11 @@
            <property name="frame">
             <bool>true</bool>
            </property>
+           <item>
+            <property name="text">
+             <string>Pivot:  Manip</string>
+            </property>
+           </item>
            <item>
             <property name="text">
              <string>Pivot:  Object</string>

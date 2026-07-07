@@ -726,7 +726,7 @@
           </widget>
          </item>
          <item row="2" column="0" colspan="6">
-          <widget class="ComboBox" name="cmb003">
+          <widget class="ComboBox" name="cmb002">
            <property name="minimumSize">
             <size>
              <width>0</width>
@@ -740,7 +740,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>The frame the offsets are applied in: the source object's own axes, or world axes.</string>
+            <string>Select the calculation method for transformation progression across duplicates.</string>
            </property>
            <property name="maxVisibleItems">
             <number>40</number>

@@ -29,9 +29,11 @@ def _scene_bbox_corners():
     from mathutils import Vector
     import blendertk as btk
 
-    geo = [o for o in bpy.data.objects if o.type == "MESH" and o.visible_get()]
+    geo = btk.get_visible_geometry()
     if not geo:
-        geo = [o for o in bpy.data.objects if o.type == "MESH"]
+        # Fall back to every mesh in the current scene (not bpy.data.objects — that would also
+        # sweep in objects belonging to other scenes / unlinked orphans).
+        geo = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     if not geo:
         return None
     boxes = [btk.get_world_bbox(o) for o in geo]

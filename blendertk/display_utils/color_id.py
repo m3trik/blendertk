@@ -3,21 +3,27 @@
 """Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 
 Blender port of mayatk's Color ID: a swatch palette that color-codes scene objects across
-three channels. Maya's four channels (material / outliner / wireframe / vertex) collapse to the
-three with Blender analogues — **Material** (an ID material's base color), **Object Color**
-(``obj.color``, Blender's per-object viewport tint, shown in Object-color shading; this is the
-single analogue of Maya's separate outliner + wireframe tints), and **Vertex** (a mesh color
-attribute). Apply to / select by / reset across any combination of the enabled channels.
+channels. Maya's four channels (material / outliner / wireframe / vertex) map to three working
+Blender channels — **Material** (an ID material's base color), **Object Color** (``obj.color``,
+Blender's per-object viewport tint shown in Object-color shading; the analogue of Maya's
+*Outliner* channel, ``chk013``), and **Vertex** (a mesh color attribute, ``chk015``). Maya's
+*Wireframe* channel (``chk012``, an ``overrideColorRGB`` draw-override) has no Blender
+analogue — the checkbox stays in the ``.ui`` for structural parity but is disabled; see the
+``# TODO(blender-parity)`` note below. Apply to / select by / reset across any combination of
+the enabled channels; save/restore swatch palettes as presets.
 
 The engine (``ColorId``) lives next to its panel + ``.ui`` (mirror of mayatk's
 ``display_utils.color_id``); served by ``BlenderUiHandler`` (``marking_menu.show
-("color_id")``). Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helper is
-deferred into its method (headless Blender ships no Qt binding). ``import bpy`` is deferred too.
+("color_id")``). Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helpers are
+deferred into the methods that use them (headless Blender ships no Qt binding). ``import bpy``
+is deferred too.
 """
 import random
 from typing import List, Optional, Sequence, Tuple
 
 import pythontk as ptk
+
+import blendertk as btk
 
 Color = Tuple[float, float, float]
 
@@ -219,11 +225,17 @@ class ColorId:
 
 
 class ColorIdSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the Color ID panel (swatch palette + 3 channels).
+    """Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
 
-    Channel checkboxes: ``chk013`` Object Color · ``chk014`` Material · ``chk015`` Vertex
-    (Maya's wireframe channel ``chk012`` is dropped — no Blender analogue). Self-contained
+    Channel checkboxes: ``chk013`` Object Color · ``chk014`` Material · ``chk015`` Vertex.
+    ``chk012`` Wireframe ships in the ``.ui`` (structural parity with mayatk) but is disabled —
+    see the ``# TODO(blender-parity)`` note on :meth:`_channels`. Self-contained
     (``ptk.LoggingMixin`` only)."""
+
+    # Storage key mirrors mayatk's own preset dir shape ("<pkg>/<tool>"); the swatch-preset
+    # mechanism (uitk's PresetManager) is DCC-agnostic — colors live in Qt widgets, not bpy.
+    _PRESET_DIR = "blendertk/color_id"
+    _DEFAULT_PRESET = "default"
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
@@ -232,6 +244,9 @@ class ColorIdSlots(ptk.LoggingMixin):
         self.logger.set_log_prefix("[color_id] ")
 
         self.button_grp = self.sb.create_button_groups(self.ui, "chk000-11")
+        # Note: mayatk's __init__ also migrates away from a legacy bug where colorSwatch
+        # loadColor fell back to "#ffffff" and auto-saved it over every swatch. Blender's
+        # swatches never had that bug, so there is nothing to migrate here.
         for i, button in enumerate(self.button_grp.buttons()):
             button._initialColor = self.sb.QtGui.QColor(
                 *ColorId.DEFAULT_SWATCH_COLORS[i % len(ColorId.DEFAULT_SWATCH_COLORS)]
@@ -240,8 +255,38 @@ class ColorIdSlots(ptk.LoggingMixin):
             button.settings = self.ui.settings
         self.ui.chk000.setChecked(True)
 
+    # ── Preset I/O ─────────────────────────────────────────────────────────
+
+    def _export_swatch_colors(self) -> dict:
+        """``PresetManager.metadata_provider`` — capture current swatch colors."""
+        return {"swatches": [btn.color.name() for btn in self.button_grp.buttons()]}
+
+    def _import_swatch_colors(self, meta: dict) -> None:
+        """``PresetManager.on_metadata_loaded`` — apply colors from a preset."""
+        colors = (meta or {}).get("swatches") or []
+        for btn, hex_color in zip(self.button_grp.buttons(), colors):
+            btn.color = self.sb.QtGui.QColor(hex_color)
+
+    @staticmethod
+    def _hex_from_rgb(rgb) -> str:
+        r, g, b = rgb
+        return f"#{int(r):02X}{int(g):02X}{int(b):02X}"
+
+    def _ensure_default_preset(self, presets) -> None:
+        """Write the factory-default preset on first use if it's missing."""
+        if presets.exists(self._DEFAULT_PRESET):
+            return
+        original = presets.metadata_provider
+        presets.metadata_provider = lambda: {
+            "swatches": [self._hex_from_rgb(rgb) for rgb in ColorId.DEFAULT_SWATCH_COLORS]
+        }
+        try:
+            presets.save(self._DEFAULT_PRESET)
+        finally:
+            presets.metadata_provider = original
+
     def header_init(self, widget):
-        """Configure header help text."""
+        """Configure header help text and preset combobox."""
         from uitk.widgets.mixins.tooltip_mixin import fmt, kbd
 
         widget.set_help_text(
@@ -267,40 +312,59 @@ class ColorIdSlots(ptk.LoggingMixin):
                         "shading mode (Solid display ▸ Color ▸ Object).",
                         "<b>Material</b> assigns a flat ID material (replaces the "
                         "object's material slots).",
+                        "<b>Wireframe</b> is disabled — Blender has no per-object "
+                        "wireframe-color override to mirror Maya's channel.",
+                    ]),
+                    ("Presets", [
+                        "The header menu's preset combo saves / restores swatch "
+                        "palettes. Use <b>Save</b> to capture the current colors; "
+                        "pick a preset to restore them.",
                     ]),
                 ],
             )
         )
+        # Preset combobox — swatches aren't standard widgets, so colors are carried in
+        # metadata rather than per-widget value reads.
+        widget.menu.add_presets = True
+        widget.menu.presets.preset_dir = self._PRESET_DIR
+        widget.menu.presets.metadata_provider = self._export_swatch_colors
+        widget.menu.presets.on_metadata_loaded = self._import_swatch_colors
+        self._ensure_default_preset(widget.menu.presets)
 
     # ── helpers ──────────────────────────────────────────────────────────────
     @property
-    def _selected(self) -> List:
-        from blendertk.core_utils._core_utils import selected_objects
-
-        objects = selected_objects()
+    def selected_objects(self) -> List:
+        """Return the currently selected objects, or an empty list if none are selected."""
+        objects = btk.selected_objects()
         if not objects:
             self.sb.message_box("No objects selected.")
         return objects
 
     @property
-    def _selected_button(self):
+    def selected_button(self):
+        """Return the currently checked swatch button in the palette group."""
         for button in self.button_grp.buttons():
             if button.isChecked():
                 return button
         return None
 
     @property
-    def _target_color(self) -> Optional[Color]:
-        button = self._selected_button
+    def target_color(self) -> Optional[Color]:
+        """Return the color of the selected swatch, or None if no swatch is selected."""
+        button = self.selected_button
         if not button:
             return None
         color = button.color
         if isinstance(color, self.sb.QtGui.QColor):
             return (color.redF(), color.greenF(), color.blueF())
-        # already an (r,g,b) 0-1 tuple
+        # already an (r, g, b) 0-1 tuple
         return tuple(color[:3])
 
     def _channels(self) -> dict:
+        # TODO(blender-parity): mayatk's chk012 (Wireframe — an overrideColorRGB draw-override)
+        # has no Blender analogue; Object Color (chk013) is the closest per-object color tag, so
+        # it stands in for both Maya's Outliner and Wireframe channels. chk012 stays in the .ui,
+        # disabled, for structural parity — there is nothing to wire it to here.
         return {
             "object": self.ui.chk013.isChecked(),
             "material": self.ui.chk014.isChecked(),
@@ -315,15 +379,15 @@ class ColorIdSlots(ptk.LoggingMixin):
         if self.sb.app.keyboardModifiers() == self.sb.QtCore.Qt.ControlModifier:
             objects = list(bpy.context.scene.objects)
         else:
-            objects = self._selected
+            objects = self.selected_objects
         if not objects:
             return
         ColorId.reset_colors(objects)
 
     def b001(self) -> None:
         """Set Color — apply the active color to the selected objects on the enabled channels."""
-        objects = self._selected
-        color = self._target_color
+        objects = self.selected_objects
+        color = self.target_color
         if not objects or color is None:
             return
         ch = self._channels()
@@ -339,7 +403,7 @@ class ColorIdSlots(ptk.LoggingMixin):
         """Select By Color — select scene objects matching the active color (enabled channels)."""
         import bpy
 
-        color = self._target_color
+        color = self.target_color
         if color is None:
             return
         ch = self._channels()
@@ -358,11 +422,13 @@ class ColorIdSlots(ptk.LoggingMixin):
     def b003(self) -> None:
         """Get Color — read the active object's color into the selected swatch.
 
-        Reads whichever enabled channel has a color (Object Color → Material → Vertex)."""
+        Reads whichever enabled channel has a color (Object Color → Material → Vertex).
+        (Mayatk's b003 is a fixed wireframe-color eyedropper — no Blender analogue for that
+        channel, so this reads the active object's color from the enabled channels instead.)"""
         import bpy
 
         obj = bpy.context.view_layer.objects.active
-        button = self._selected_button
+        button = self.selected_button
         if obj is None or button is None:
             self.sb.message_box("Select an object and a swatch first.")
             return

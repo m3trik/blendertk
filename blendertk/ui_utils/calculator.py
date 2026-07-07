@@ -11,6 +11,12 @@ Maya's. Served by ``BlenderUiHandler`` (``marking_menu.show("calculator")``).
 Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on tentacle.
 The Qt-only (``qtpy``/``uitk``) and ``bpy`` imports are deferred into their methods (headless
 Blender ships no Qt binding and the module surface must import without a running Blender).
+
+The ``.ui`` is a verbatim copy of mayatk's — same objectNames (including ``maya_container`` /
+``grid_maya`` for the animation-helpers group), same widget tree, same layout — a true 1:1 mirror.
+Identical objectNames between the mayatk and blendertk copies of this panel are safe: uitk's
+``Switchboard.add_ui`` / ``MainWindow._relative_state`` host-namespace the QSettings branch by
+context tag (``mirror_maya`` vs ``mirror_blender``), so the two panels never collide.
 """
 import pythontk as ptk
 
@@ -72,9 +78,9 @@ class CalculatorController:
 class CalculatorSlots(ptk.LoggingMixin):
     """Switchboard slot wiring for the Calculator panel.
 
-    Same widget names as the mayatk panel (``txt_display``/``calc_container``/``grp_units``/
-    ``cmb_unit_*``/``btn_convert``); the animation-helpers group is ``dcc_container`` (Blender's
-    scene FPS / current frame) in place of Maya's ``maya_container``.
+    Verbatim objectName mirror of the mayatk panel (``txt_display``/``calc_container``/
+    ``maya_container``/``grp_units``/``cmb_unit_*``/``btn_convert``) — only the engine calls
+    differ (Blender's scene FPS / current frame instead of Maya's MEL/``cmds`` time queries).
     """
 
     _CALC_BUTTONS = [
@@ -94,7 +100,7 @@ class CalculatorSlots(ptk.LoggingMixin):
         self.logger.set_log_prefix("[calculator] ")
 
         self._init_calc_grid()
-        self._init_dcc_grid()
+        self._init_maya_grid()
         self._init_units()
 
         self.ui.txt_display.returnPressed.connect(self.on_equal)
@@ -155,21 +161,23 @@ class CalculatorSlots(ptk.LoggingMixin):
             else:
                 btn.clicked.connect(lambda checked=False, t=text: self.on_input(t))
 
-    def _init_dcc_grid(self):
+    def _init_maya_grid(self):
+        # Animation-helper buttons (objectName ``maya_container`` mirrors mayatk verbatim;
+        # the buttons themselves call Blender's scene-time engine, not Maya's).
         from qtpy import QtWidgets
 
-        dcc_buttons = [
+        maya_buttons = [
             ("Get FPS", self.get_fps),
             ("Get Time", self.get_current_time),
             ("Frames -> Sec", self.frames_to_sec),
             ("Sec -> Frames", self.sec_to_frames),
         ]
         cols = 2
-        for i, (text, func) in enumerate(dcc_buttons):
+        for i, (text, func) in enumerate(maya_buttons):
             btn = QtWidgets.QPushButton(text)
             btn.setMinimumHeight(30)
             btn.clicked.connect(func)
-            self.ui.dcc_container.layout().addWidget(btn, i // cols, i % cols)
+            self.ui.maya_container.layout().addWidget(btn, i // cols, i % cols)
 
     def _init_units(self):
         self.ui.cmb_unit_from.addItems(self._UNITS)
@@ -237,8 +245,3 @@ class CalculatorSlots(ptk.LoggingMixin):
         if value is None:
             return
         self.ui.txt_display.setText(convert(value))
-
-
-# --------------------------------------------------------------------------------------------
-# Notes
-# --------------------------------------------------------------------------------------------

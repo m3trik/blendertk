@@ -77,7 +77,7 @@
      </widget>
     </item>
     <item>
-     <widget class="CollapsableGroup" name="dcc_container">
+     <widget class="CollapsableGroup" name="maya_container">
       <property name="title">
        <string>Animation Tools</string>
       </property>
@@ -87,7 +87,7 @@
       <property name="checked">
        <bool>false</bool>
       </property>
-      <layout class="QGridLayout" name="grid_dcc">
+      <layout class="QGridLayout" name="grid_maya">
        <property name="spacing">
         <number>2</number>
        </property>

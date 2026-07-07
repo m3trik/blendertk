@@ -21,6 +21,7 @@ from blendertk.edit_utils._edit_utils import (
     _group_under_empty,
     _join_copies,
 )
+from blendertk.edit_utils.naming._naming import Naming
 
 
 def _radial_factor(x, weight_bias, weight_curve):
@@ -52,6 +53,7 @@ def duplicate_radial(
     keep_original=False,
     instance=False,
     combine=False,
+    suffix=True,
 ):
     """Duplicate object(s) in a radial pattern — mirror of mayatk's
     ``DuplicateRadial.duplicate_radial``.
@@ -62,7 +64,10 @@ def duplicate_radial(
     first. The per-copy ``rotate`` / ``scale`` are applied in the source's local frame and
     ``translate`` ramps in world space, like Maya. ``combine`` joins the copies into one
     mesh; otherwise they're grouped under an Empty (``<name>_array``). ``keep_original``
-    ``False`` removes the source once the pattern is built. Returns ``{name: [copies]}``.
+    ``False`` removes the source once the pattern is built. ``suffix`` renames the finished
+    copy/copies with a location-based suffix (``Naming.append_location_based_suffix``,
+    alphabetical, ordered by distance from the source's origin), mirroring Maya. Returns
+    ``{name: [copies]}``.
     """
     import bpy
     from mathutils import Euler, Matrix, Vector
@@ -121,6 +126,10 @@ def duplicate_radial(
             copies = [_join_copies(copies, f"{name}_array")]
         else:
             _group_under_empty(copies, f"{name}_array")
+        if suffix:
+            Naming.append_location_based_suffix(
+                copies, first_obj_as_ref=True, alphabetical=True
+            )
         out[name] = copies
     bpy.context.view_layer.update()
     return out
@@ -141,8 +150,7 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
     """Switchboard slot wiring for the Duplicate-Radial panel.
 
     Copies are grouped under an Empty (``<name>_array``), so no Maya-style regroup finalize
-    step is needed. The Maya Suffix option is dropped (Blender's ``.001`` numbering already
-    disambiguates). Self-contained (``ptk.LoggingMixin`` only).
+    step is needed. Self-contained (``ptk.LoggingMixin`` only).
     """
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -162,7 +170,7 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
             undo_message="Duplicate Radial",
         )
         self.sb.connect_multi(self.ui, "s000-16", "valueChanged", self.preview.refresh)
-        self.sb.connect_multi(self.ui, "chk002-7", "toggled", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "chk002-8", "toggled", self.preview.refresh)
         self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
 
     def header_init(self, widget):
@@ -190,6 +198,8 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
                         "<b>Keep Original</b> — leave the source object in place "
                         "(off discards it after the pattern is built).",
                         "<b>Combine</b> — merge the result into a single mesh.",
+                        "<b>Suffix</b> — append a location-based alphabetical "
+                        "suffix to the copy names.",
                     ]),
                 ],
                 notes=[
@@ -227,6 +237,7 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
             keep_original=self.ui.chk006.isChecked(),
             instance=self.ui.chk005.isChecked(),
             combine=self.ui.chk007.isChecked(),
+            suffix=self.ui.chk008.isChecked(),
         )
 
     @staticmethod

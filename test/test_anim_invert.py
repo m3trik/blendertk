@@ -60,6 +60,36 @@ try:
     check("both inverts frames and values", sorted(co(fc)) == [(1, -10), (2, -5), (3, 0)],
           f"{sorted(co(fc))}")
 
+    # ---- copy mode (start_frame given): reversed copy ping-pongs right after the range end
+    # (relative=True, start_frame=0 -> inversion_point = max_key_frame + 0) ----
+    reset()
+    o, fc = keyed([0.0, 5.0, 10.0])  # frames 1,2,3
+    btk.invert_keys([o], mode="time", start_frame=0, relative=True)
+    check("copy mode ping-pongs immediately after the range end (originals kept)",
+          sorted(co(fc)) == [(1, 0), (2, 5), (3, 10), (4, 5), (5, 0)], f"{sorted(co(fc))}")
+
+    # ---- copy mode + delete_original: originals removed except where a copy key coincides ----
+    reset()
+    o, fc = keyed([0.0, 5.0, 10.0])
+    btk.invert_keys([o], mode="time", start_frame=0, relative=True, delete_original=True)
+    check("copy mode + delete_original drops originals not shared with the copy",
+          sorted(co(fc)) == [(3, 10), (4, 5), (5, 0)], f"{sorted(co(fc))}")
+
+    # ---- copy mode, relative=False: start_frame is an absolute frame, not an offset ----
+    reset()
+    o, fc = keyed([0.0, 5.0, 10.0])
+    btk.invert_keys([o], mode="time", start_frame=100, relative=False)
+    check("copy mode relative=False places the copy at the absolute frame",
+          sorted(co(fc)) == [(1, 0), (2, 5), (3, 10), (100, 10), (101, 5), (102, 0)],
+          f"{sorted(co(fc))}")
+
+    # ---- copy mode with mode='value': time unchanged, so the insert overwrites in place ----
+    reset()
+    o, fc = keyed([0.0, 5.0, 10.0])
+    btk.invert_keys([o], mode="value", value_pivot=0.0, start_frame=50)
+    check("copy mode + mode='value' mirrors values in place (time untouched by a value-only mode)",
+          co(fc) == [(1, 0), (2, -5), (3, -10)], f"{co(fc)}")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

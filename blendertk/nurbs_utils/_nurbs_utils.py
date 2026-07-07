@@ -73,6 +73,59 @@ class NurbsUtils(ptk.LoggingMixin):
         return obj
 
     @staticmethod
+    def duplicate_curve(curve_obj, name=None, link=True):
+        """A curve-data duplicate of ``curve_obj``, linked into the same collection(s) — the
+        curve-domain analogue of ``bpy.ops.object.duplicate`` usable without a viewport/selection
+        context (mirrors mayatk's ``cmds.duplicate``-driven curve copies).
+
+        Parameters:
+            curve_obj (bpy.types.Object): Source curve object.
+            name (str): Name for the duplicate (defaults to the source's name).
+            link (bool): Link the duplicate into the source's collection(s).
+
+        Returns:
+            bpy.types.Object: The duplicate curve object.
+        """
+        dup = curve_obj.copy()
+        dup.data = curve_obj.data.copy()
+        if name:
+            dup.name = name
+        if link:
+            for c in curve_obj.users_collection or []:
+                c.objects.link(dup)
+        return dup
+
+    @staticmethod
+    def create_plane(width=1.0, height=1.0, location=(0.0, 0.0, 0.0), name="plane",
+                     link=True, collection=None):
+        """Build a simple rectangular mesh plane centered at ``location`` — Blender analogue of
+        Maya's ``nurbsPlane`` (used e.g. as a projection/backing surface under traced curves).
+
+        Parameters:
+            width (float): Size along X.
+            height (float): Size along Y.
+            location (tuple): World-space center ``(x, y, z)``.
+            name (str): Object/data name.
+            link (bool): Link the object into a collection.
+            collection (bpy.types.Collection): Target collection (else the active one).
+
+        Returns:
+            bpy.types.Object: The plane mesh object.
+        """
+        import bpy
+
+        hw, hh = width / 2.0, height / 2.0
+        verts = [(-hw, -hh, 0.0), (hw, -hh, 0.0), (hw, hh, 0.0), (-hw, hh, 0.0)]
+        me = bpy.data.meshes.new(name)
+        me.from_pydata(verts, [], [(0, 1, 2, 3)])
+        me.update()
+        obj = bpy.data.objects.new(name, me)
+        obj.location = location
+        if link:
+            (collection or bpy.context.collection).objects.link(obj)
+        return obj
+
+    @staticmethod
     def curve_to_mesh(curve_obj, name=None, link=True, keep_curve=False, collection=None):
         """Bake a curve object's **evaluated** geometry (its bevel sweep / 2D fill) to a new mesh
         object — Blender's analogue of Maya's ``nurbsToPoly``.

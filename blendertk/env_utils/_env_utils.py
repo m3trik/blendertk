@@ -195,10 +195,15 @@ def make_library_local(library):
 # scene table + open/save/rename/delete operations (no bpy except open/save → testable on disk).
 
 
-def find_workspaces(root_dir):
+def find_workspaces(root_dir, recursive=False):
     """Project folders under ``root_dir`` — the root itself when it directly holds .blend files,
-    plus each immediate subdirectory that does. Mirror of mayatk's ``find_available_workspaces``
-    (Maya project dirs → Blender project folders). Returns absolute dir paths, root first.
+    plus every subdirectory that does. Mirror of mayatk's ``find_available_workspaces`` /
+    ``EnvUtils.find_workspaces`` (Maya project dirs → Blender project folders).
+
+    ``recursive=False`` (default) only looks at immediate children of ``root_dir`` — mirrors
+    mayatk's workspace-*discovery* toggle (a workspace never nests another workspace's scan, only
+    the search for *more* workspace folders goes deeper). Returns absolute dir paths, root first,
+    then the rest alphabetically.
     """
     if not (root_dir and os.path.isdir(root_dir)):
         return []
@@ -211,6 +216,16 @@ def find_workspaces(root_dir):
             )
         except OSError:
             return False
+
+    if recursive:
+        root_norm = os.path.normpath(root_dir)
+        found = [
+            os.path.normpath(dirpath)
+            for dirpath, _dirnames, _files in os.walk(root_dir)
+            if _has_blend(dirpath)
+        ]
+        found.sort(key=lambda p: (p != root_norm, p.lower()))
+        return found
 
     result = []
     if _has_blend(root_dir):
@@ -259,8 +274,11 @@ def format_scene_name(name, case=None, suffix=""):
 def save_scene_as(directory, name, case=None, suffix="", subfolder="", overwrite=True):
     """Save the current scene as a .blend under ``directory`` with naming conventions applied —
     mirror of mayatk's ``save_scene``. ``case``/``suffix`` format the name; ``subfolder`` is an
-    optional path pattern with ``{name}`` / ``{workspace}`` placeholders. Returns the saved path
-    (or ``None`` if it exists and ``overwrite`` is False, or on failure).
+    optional path pattern with ``{name}`` / ``{workspace}`` / ``{suffix}`` / ``{scenes}``
+    placeholders (``{scenes}`` has no Blender project-rule equivalent to mayatk's
+    ``workspace -q -fre "scene"``, so it always resolves to the literal ``"scenes"`` — the same
+    fallback mayatk itself uses when that query fails). Returns the saved path (or ``None`` if it
+    exists and ``overwrite`` is False, or on failure).
     """
     import bpy
     import pythontk as ptk
@@ -274,6 +292,8 @@ def save_scene_as(directory, name, case=None, suffix="", subfolder="", overwrite
             subfolder,
             name=format_scene_name(name, case, ""),
             workspace=os.path.basename(os.path.normpath(directory)),
+            suffix=suffix,
+            scenes="scenes",
         )
         target_dir = os.path.join(directory, resolved)
     try:

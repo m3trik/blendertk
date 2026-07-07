@@ -139,6 +139,33 @@ try:
         check("create_negative_space_mesh makes a mesh",
               neg is not None and len(neg.data.polygons) > 0)
 
+        # ---- NurbsUtils.create_plane / duplicate_curve (project_on_plane primitives) --------
+        reset()
+        plane = NurbsUtils.create_plane(width=4.0, height=2.0, location=(1.0, 1.0, -1.0), name="P")
+        check("create_plane makes a mesh object", plane is not None and plane.type == "MESH")
+        check("create_plane sizes + positions the quad",
+              len(plane.data.polygons) == 1 and tuple(plane.location) == (1.0, 1.0, -1.0))
+        src = NurbsUtils.create_curve(square, name="Dup", cyclic=True)
+        dup = NurbsUtils.duplicate_curve(src, name="Dup_copy")
+        check("duplicate_curve makes a distinct curve object with its own data",
+              dup is not None and dup.type == "CURVE" and dup.name != src.name
+              and dup.data is not src.data)
+        check("duplicate_curve links the copy into the source's collection",
+              dup.name in bpy.context.collection.objects)
+
+        # ---- project_on_plane: backing plane + Z-shifted curve duplicate --------------------
+        reset()
+        tracer = ImageTracer(image_path=None)
+        shape2 = NurbsUtils.create_curve(
+            [(0, 0, 0), (6, 0, 0), (6, 4, 0), (0, 4, 0)], name="proj_src", cyclic=True
+        )
+        projected = tracer.project_on_plane(curve=shape2, name="projected")
+        check("project_on_plane returns a curve object", projected is not None
+              and projected.type == "CURVE")
+        check("project_on_plane duplicate is shifted below the source (Z projected to -1)",
+              projected is not None and abs(projected.location.z - (-1.0)) < 1e-6)
+        check("project_on_plane created a backing plane", "projection_plane" in bpy.data.objects)
+
         # ---- engine fails loudly with no curve + no image (the Slots layer guards this) ------
         reset()
         raised = False
@@ -156,6 +183,8 @@ try:
                 return self.v
             def text(self):
                 return self.v
+            def isChecked(self):
+                return bool(self.v)
 
         class _SB:
             def __init__(self, ui):
@@ -168,6 +197,7 @@ try:
         ui.txt000 = _Field("")  # empty path
         ui.s000 = _Field(0.1)
         ui.s001 = _Field(1.0)
+        ui.chk000 = _Field(False)  # Use Blue Pencil — always disabled/unchecked, see header_init
         sb = _SB(ui)
         slots = ImageTracerSlots(sb)
         slots.b002()

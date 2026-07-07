@@ -101,10 +101,26 @@ def unexplode_all():
     return unexplode_view(list(bpy.data.objects))
 
 
+def get_visible_geometry(objects=None):
+    """Mesh objects visible in the current view layer — mirror of mayatk's
+    ``DisplayUtils.get_visible_geometry``. ``obj.visible_get()`` already resolves the full
+    visibility chain (hide_viewport / hide_get() / collection exclusion), so unlike Maya's
+    version this needs no extra templated/animated-visibility flags.
+
+    ``objects=None`` scans the current view layer (the default); pass an explicit list to
+    restrict the scan.
+    """
+    import bpy
+
+    pool = objects if objects is not None else bpy.context.view_layer.objects
+    return [o for o in pool if o.type == "MESH" and o.visible_get()]
+
+
 class DisplayUtils:
     """Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level)."""
 
     explode_view = staticmethod(explode_view)
     unexplode_view = staticmethod(unexplode_view)
     unexplode_all = staticmethod(unexplode_all)
+    get_visible_geometry = staticmethod(get_visible_geometry)
     is_exploded = staticmethod(is_exploded)

@@ -19,6 +19,9 @@
   <property name="dockOptions">
    <set>QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::AnimatedDocks|QMainWindow::ForceTabbedDocks</set>
   </property>
+  <property name="bnabled" stdset="0">
+   <bool>true</bool>
+  </property>
   <widget class="QWidget" name="central_widget">
    <property name="minimumSize">
     <size>
@@ -116,7 +119,7 @@
               </size>
              </property>
              <property name="toolTip">
-              <string>Start the curve-to-tube preview using any selected curves.</string>
+              <string>Start the curve-to-tube preview using any selected NURBS curves.</string>
              </property>
              <property name="text">
               <string>Preview</string>
@@ -149,7 +152,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>Output type: a NURBS-style beveled curve or a polygon mesh tube.</string>
+            <string>Output type: a NURBS surface tube or a polygon mesh tube.</string>
            </property>
            <property name="maxVisibleItems">
             <number>40</number>
@@ -254,7 +257,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>Polygon only: ring density along the path (resolution along the curve); higher = finer.</string>
+            <string>Polygon only: ring density along the path. Rings are placed by an RDP simplification of the curve — dense where it bends, sparse on straight runs; higher = finer.</string>
            </property>
            <property name="buttonSymbols">
             <enum>QAbstractSpinBox::NoButtons</enum>
@@ -288,7 +291,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>NURBS only: round-bevel resolution (1 = faceted, 3 = smooth).</string>
+            <string>NURBS only: degree of the profile circle and resulting surface (1 = faceted, 3 = smooth).</string>
            </property>
            <property name="buttonSymbols">
             <enum>QAbstractSpinBox::NoButtons</enum>
@@ -402,7 +405,7 @@
               </size>
              </property>
              <property name="toolTip">
-              <string>NURBS: bevel the source curve in place so it stays the live tube — edit the curve and the tube updates. (Polygon is always baked to a mesh; this keeps the source curve as the editable driver.)</string>
+              <string>Keep construction history so the curve keeps driving the tube — edit the curve and the tube updates. The topology is identical whether this is on or off; it only decides whether the history connection is kept.</string>
              </property>
              <property name="text">
               <string>Keep History</string>
@@ -521,6 +524,9 @@
              </property>
              <property name="flat">
               <bool>false</bool>
+             </property>
+             <property name="bnabled" stdset="0">
+              <bool>true</bool>
              </property>
             </widget>
            </item>

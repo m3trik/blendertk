@@ -130,6 +130,7 @@ DEFAULT_INCLUDE = {
         "unexplode_view",
         "unexplode_all",
         "is_exploded",
+        "get_visible_geometry",
     ],
     # Color ID tool — engine + co-located panel (ColorIdSlots discovered by the handler).
     "display_utils.color_id": [
@@ -299,6 +300,7 @@ DEFAULT_INCLUDE = {
         "AnimUtils",
         "get_fcurves",
         "scene_has_animation",
+        "set_current_frame",
         "shift_keys",
         "move_keys_to_frame",
         "adjust_key_spacing",
@@ -315,6 +317,7 @@ DEFAULT_INCLUDE = {
         "fit_playback_range",
         "copy_keys",
         "paste_keys",
+        "transfer_keyframes",
         "optimize_keys",
         "repair_corrupted_curves",
         "tie_keyframes",

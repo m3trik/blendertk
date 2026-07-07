@@ -22,6 +22,7 @@ Blender *or* a Qt binding — Blender's headless interpreter (``--background``) 
 neither (unlike mayapy, which bundles PySide6, so mayatk can import uitk at module top).
 """
 from pathlib import Path
+from typing import Optional
 
 import pythontk as ptk
 
@@ -313,17 +314,32 @@ class CurtainRig:
 
 
 class CurtainSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the curtain UI (live preview + rail resolution).
+    """Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).
 
     Blender port of mayatk's ``CurtainSlots``: the drape math is the shared
     :class:`ptk.CurtainDrape` engine, so every parameter behaves identically across
     DCCs — only the mesh build differs (``create_curtain``, bmesh). The rail resolves
-    from the selection (edit-mode edges / a curve object / 2+ object positions) or is
-    generated from the Rail fields. Live preview via :class:`blendertk.Preview`, and the same
-    in-panel **preset combo** as Maya (shared ``uitk.PresetManager`` + the identical built-in
-    presets). The wire-deformer rig is the :class:`CurtainRig` engine class (Maya's
-    ``CurtainRig``); like Maya it is **not** wired into this panel — it is an engine-level
-    capability with no tentacle nav button (Maya exposes it the same way).
+    from the selection (edit-mode edges / a curve object / 2+ object positions) or,
+    when nothing usable is selected, from a generated driver curve built from the
+    Width/Curvature/Position/Closed fields — :meth:`_ensure_rail` builds and selects
+    it the moment Preview is toggled on, mirroring mayatk's auto-rail so ``Preview``
+    never requires an unrelated selection first. The same in-panel **preset combo** as
+    Maya (shared ``uitk.PresetManager`` + the identical built-in presets). The
+    wire-deformer rig is the :class:`CurtainRig` engine class (Maya's ``CurtainRig``);
+    like Maya it is **not** wired into this panel — it is an engine-level capability
+    with no tentacle nav button (Maya exposes it the same way).
+
+    One real divergence from mayatk, driven by :class:`~blendertk.core_utils.preview.Preview`'s
+    snapshot/restore design (vs. mayatk's node-diff ``CleanupContract``): a node mayatk's Preview
+    didn't create survives a rollback untouched, so mayatk resyncs the driver curve's shape on
+    every rail-field change and discards it on a plain cancel. Here, any object captured at
+    ``enable()`` time is restored (even recreated) by every rollback, so a mid-preview resync would
+    be immediately undone and a cancel-time delete would just be recreated by Preview's own
+    restore — see :meth:`_ensure_rail` / :meth:`_sync_driver`. The curtain **mesh** itself is
+    unaffected (it re-reads the live field values on every refresh); only the driver curve's own
+    on-screen shape can lag behind the dialed Rail fields until the next Preview toggle, and a
+    cancelled (not committed) session's generated driver is reclaimed on the next use rather than
+    deleted immediately. Commit still drops it (see :meth:`_finalize`).
 
     Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency
     on tentacle — the selection comes from ``btk.selected_objects``, not a tentacle base.
@@ -334,11 +350,24 @@ class CurtainSlots(ptk.LoggingMixin):
         self.ui = self.sb.loaded_ui.curtain
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[curtain] ")
-        self._created = None  # last curtain object name (Select Result)
+        self.last_curtain: Optional[str] = None
         self.presets = None  # in-panel PresetManager (wired in cmb000_init)
+        # Auto-rail state: when nothing usable is selected we own a generated driver
+        # curve (``_driver``, its object name) built from the Width/Curvature/Hanging-
+        # Points/Closed fields. ``_generated`` flags that mode.
+        self._driver: Optional[str] = None
+        self._generated: bool = False
 
-        # Per-field reset buttons must precede connect_multi/Preview.
-        self.sb.add_reset_buttons(self.ui)
+        # Ensure a rail exists the moment Preview is toggled on (and, on commit,
+        # discard our generated one). Connected BEFORE Preview so it runs first and
+        # Preview.enable() finds a selection — you never have to select an unrelated
+        # object.
+        self.ui.chk000.toggled.connect(self._ensure_rail)
+
+        # Per-parameter reset buttons must precede connect_multi/Preview — wrapping
+        # reparents the widgets and invalidates any already-deferred wrapper. The X/Y/Z
+        # Position triplet is skipped — it already shares a tight row with the Get button.
+        self.sb.add_reset_buttons(self.ui, skip=("s025", "s026", "s027"))
 
         self.preview = Preview(
             self,
@@ -348,43 +377,91 @@ class CurtainSlots(ptk.LoggingMixin):
             message_func=self.sb.message_box,
             undo_message="Create Curtain",
         )
-
-        self.sb.connect_multi(self.ui, "s000-27", "valueChanged", self.preview.refresh)
+        # Re-drape live as any numeric field changes; Closed/Invert are pure re-drapes
+        # (see _on_param_changed for why the driver curve itself isn't resynced here).
+        self.sb.connect_multi(self.ui, "s000-27", "valueChanged", self._on_param_changed)
         self.sb.connect_multi(self.ui, "chk001,chk004", "clicked", self.preview.refresh)
 
+        # The Position fields dropped their "X "/"Y "/"Z " prefixes; color-code the
+        # values red/green/blue instead (axis convention) so the row stays compact
+        # while still reading per-axis at a glance.
+        self._color_code_position_fields()
+
+        # Footer doubles as a stats readout (the result's tri count) once a curtain is
+        # built; show a hint until then.
+        try:
+            self.ui.footer.setDefaultStatusText("Toggle Preview to drape a curtain.")
+        except Exception:
+            pass
+
+    # --------------------------------------------------------------- header
+
     def header_init(self, widget):
-        """Configure header help text."""
+        """Configure header help text (the preset combo lives in the panel)."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
         widget.set_help_text(
             fmt(
-                title="Curtain Generator",
-                body="Drape a procedural pleated, gravity-draped (catenary) curtain "
-                "from a rail — a selected curve / edit-mode edges / 2+ objects, or "
-                "a generated straight (optionally bowed) rail.",
+                title="Curtain",
+                body="Drape a pleated cloth curtain from a <b>rail</b> — a "
+                "selected curve object, edit-mode mesh edge loop, or chain of "
+                "objects, or a generated straight rail when nothing usable is "
+                "selected.",
                 steps=[
-                    "Optionally select a rail source (curve, edges, or objects).",
-                    "Toggle <b>Preview</b> — the curtain re-drapes live as you dial.",
-                    "Set pleats via <b>Hanging Points</b>; sag via <b>Gravity</b>.",
+                    "Toggle <b>Preview</b> (a rail is auto-created from "
+                    "Width/Curvature if you haven't selected your own).",
+                    "Set <b>Hanging Points</b> (the pleats/pins) and "
+                    "<b>Fullness</b>.",
+                    "Dial <b>Gravity</b> — how far the fabric falls between "
+                    "hanging points.",
                     "Press <b>Create</b> to commit.",
                 ],
                 sections=[
-                    ("Notes", [
-                        "With nothing selected, the Rail fields generate the rail.",
-                        "Same engine as the Maya panel — identical settings drape "
-                        "identically.",
+                    ("Model", [
+                        "Each <b>Hanging Point</b> is a pleat where the fabric "
+                        "pins to the rail — one clean gather at the rail — and "
+                        "bellies into a full fold between consecutive points, so "
+                        "the count maps roughly 1:1 to the folds you see. The "
+                        "spans sag down a real <b>catenary</b> (cosh).",
+                        "<b>Gravity</b> sets the sag depth (wider gaps fall "
+                        "further); <b>Catenary Tension</b> shapes that curve.",
+                        "<b>Taper</b> gathers the pleats at the top and flares "
+                        "them toward the hem.",
+                        "<b>Mid Folds</b> fork V-folds down from some hang "
+                        "points (seed varies which), breaking the plain in/out "
+                        "belly; <b>Creases</b> add diagonal V break-lines; "
+                        "<b>Sway</b> randomly leans a subset of the folds left "
+                        "or right along the rail (not just in/out); the "
+                        "<b>Ends</b> group bends each end; <b>Round</b> softens "
+                        "the hooks.",
                     ]),
+                ],
+                notes=[
+                    "The <b>preset</b> combo loads built-in looks "
+                    "(Stage Swag, Shower Curtain) and saves your own.",
+                    "<b>Select Result</b> selects the finished curtain on "
+                    "<b>Create</b> so you can see the result.",
+                    "Same engine as the Maya panel — identical settings drape "
+                    "identically.",
                 ],
             )
         )
+        # Align every spinbox's value column once the panel's fonts/styles are settled
+        # (deferred a tick so QFontMetrics sees the themed font).
+        try:
+            from qtpy import QtCore
+
+            QtCore.QTimer.singleShot(0, self._align_spinbox_prefixes)
+        except Exception as e:
+            self.logger.debug(f"Prefix alignment deferral failed: {e}")
 
     def cmb000_init(self, widget):
         """Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.
 
         A curtain preset is a UI-state snapshot of the drape fields; because the panel shares the
         Maya widget names *and* the shared ``ptk.CurtainDrape`` engine, the built-in JSONs are
-        identical across DCCs (shipped in ``edit_utils/presets/curtain``). Loading a preset re-drapes
-        the live preview."""
+        identical across DCCs (shipped in ``edit_utils/presets/curtain``). Loading a preset resyncs
+        the generated driver to the loaded fields, then refreshes the preview in one shot."""
         # Wrap construction + wiring (not just the import) so any failure degrades to "no presets,
         # panel still works" with a clean warning rather than a raw slot-init error.
         try:
@@ -396,17 +473,101 @@ class CurtainSlots(ptk.LoggingMixin):
                 preset_dir="blendertk/curtain",
                 builtin_dir=str(_PRESETS_DIR),
             )
-            self.presets.wire_combo(widget, on_loaded=lambda *_: self.preview.refresh())
+            self.presets.wire_combo(widget, on_loaded=self._on_param_changed)
         except Exception as e:  # uitk missing / older / wiring failure — non-fatal
             self.logger.warning(f"Preset combo unavailable: {e}")
 
-    # ------------------------------------------------------------------ helpers
-    def _resolve_rail(self, objects):
-        """The rail from the captured selection, else generated from the Rail fields."""
-        resolved = curtain_rail_from_selection(objects)
-        if resolved is not None:
-            points, closed = resolved
-            return points, closed or self.ui.chk001.isChecked()
+    # ------------------------------------------------- spinbox value alignment
+
+    def _color_code_position_fields(self) -> None:
+        """Tint the rail Position values red/green/blue for X/Y/Z.
+
+        Mirrors mayatk: the fields dropped their "X "/"Y "/"Z " prefixes (see curtain.ui);
+        the axis-coded value text now carries that meaning at a glance, with the tooltips
+        naming the axis as a textual fallback. Colors come from the shared
+        ``pythontk.Palette.axes()`` (RGB axis convention), applied via the uitk
+        ``DoubleSpinBox`` ``set_text_color`` helper.
+        """
+        try:
+            axes = ptk.Palette.axes()
+        except Exception as e:
+            self.logger.debug(f"Position color-coding unavailable: {e}")
+            return
+        for name, key in (("s025", "x"), ("s026", "y"), ("s027", "z")):
+            setter = getattr(getattr(self.ui, name, None), "set_text_color", None)
+            if callable(setter):
+                setter(axes[key].hex)
+
+    def _align_spinbox_prefixes(self) -> None:
+        """Pad each spinbox prefix so the values line up within each group.
+
+        The custom spin widgets add a single ``\\t`` after the prefix, which only lands
+        on one tab stop — long prefixes ("Catenary Tension:") then overflow past short
+        ones ("Seed:"), so the value columns don't align. Here we measure the widest
+        prefix per section (with the widget's own font metrics) and right-pad the rest
+        with spaces to match (font-correct to within a space width), bypassing the
+        ``\\t``. Aligning per group — keyed on each spinbox's container — keeps
+        short-labelled sections tight instead of indenting them to clear a long label
+        elsewhere.
+        """
+        try:
+            from qtpy import QtWidgets, QtGui
+        except Exception:
+            return
+
+        # Bucket the spinboxes by their titled group. Walk up to the nearest
+        # CollapsableGroup rather than using the immediate parent, since the option-box
+        # "disable" wrapping reparents each spinbox into its own container — grouping on
+        # that would defeat the per-section alignment.
+        try:
+            from uitk.widgets.collapsableGroup import CollapsableGroup
+        except Exception:
+            CollapsableGroup = ()
+
+        def _group_of(w):
+            p = w.parentWidget()
+            while p is not None:
+                if CollapsableGroup and isinstance(p, CollapsableGroup):
+                    return p
+                p = p.parentWidget()
+            return w.parentWidget()
+
+        groups = {}
+        for sb in self.ui.findChildren(QtWidgets.QAbstractSpinBox):
+            base = sb.prefix().rstrip()  # drop the trailing tab/space
+            if not base:
+                continue
+            groups.setdefault(_group_of(sb), []).append(
+                (sb, base, QtGui.QFontMetrics(sb.font()))
+            )
+
+        for entries in groups.values():
+            max_w = max(fm.horizontalAdvance(base) for _, base, fm in entries)
+            for sb, base, fm in entries:
+                space_w = fm.horizontalAdvance(" ") or 1
+                gap = max_w + 2 * space_w - fm.horizontalAdvance(base)
+                text = base + " " * max(1, round(gap / space_w))
+                # Bypass the custom setPrefix (which would re-append a tab).
+                if isinstance(sb, QtWidgets.QDoubleSpinBox):
+                    QtWidgets.QDoubleSpinBox.setPrefix(sb, text)
+                else:
+                    QtWidgets.QSpinBox.setPrefix(sb, text)
+
+    # ----------------------------------------------------------- rail / driver
+
+    def _on_param_changed(self, *_):
+        """A field changed: re-drape.
+
+        Mirrors mayatk's hook name/point, but — unlike mayatk — doesn't resync the
+        driver curve's shape here; see the class docstring and :meth:`_sync_driver` for
+        why (blendertk's Preview would immediately undo it on the next refresh). The
+        curtain mesh itself always tracks the live field values (``perform_operation``
+        re-reads them every refresh), so the drape is correct regardless.
+        """
+        self.preview.refresh()
+
+    def _field_rail(self):
+        """The generated rail from the Width / Curvature / Position / Closed fields."""
         return ptk.Polyline.make(
             width=self.ui.s001.value(),
             curvature=self.ui.s002.value(),
@@ -414,22 +575,147 @@ class CurtainSlots(ptk.LoggingMixin):
             center=(self.ui.s025.value(), self.ui.s026.value(), self.ui.s027.value()),
         )
 
-    def _finalize(self):
-        """Post-commit: optionally select the created curtain (Select Result)."""
+    def _build_driver(self, points, closed) -> str:
+        """Build a low-CV rail curve whose CVs sit at the hanging points.
+
+        Blender mirror of mayatk's ``cmds.curve`` driver build — used as the preview's
+        visible rail, resampled to ``hanging_points`` control points so it reads as the
+        line of pins the cloth gathers on. Returns the new object's name.
+        """
         import bpy
 
-        obj = self._created and bpy.data.objects.get(self._created)
-        if obj is None or not self.ui.chk005.isChecked():
-            return
+        n = max(2, int(self.ui.s003.value()))
+        ctrl = ptk.Polyline.resample(points, n)
+        curve_data = bpy.data.curves.new("curtain_rail", type="CURVE")
+        curve_data.dimensions = "3D"
+        spline = curve_data.splines.new("POLY")
+        spline.points.add(len(ctrl) - 1)
+        for i, p in enumerate(ctrl):
+            spline.points[i].co = (*p, 1.0)
+        spline.use_cyclic_u = bool(closed)
+        obj = bpy.data.objects.new("curtain_rail", curve_data)
+        bpy.context.collection.objects.link(obj)
+        return obj.name
+
+    def _sync_driver(self) -> None:
+        """(Re)build the owned driver curve from the current Rail fields and select it.
+
+        Only called on preview-enable (see :meth:`_ensure_rail`) — not on every
+        rail-field change like mayatk's version. blendertk's Preview snapshots the
+        captured selection at ``enable()`` time and restores it on *every* rollback,
+        so a mid-preview rebuild here would be overwritten by the very next refresh;
+        see the class docstring.
+        """
+        import bpy
+
+        if self._driver and self._driver in bpy.data.objects:
+            self._discard_driver()
+        points, closed = self._field_rail()
+        self._driver = self._build_driver(points, closed)
         bpy.ops.object.select_all(action="DESELECT")
+        obj = bpy.data.objects[self._driver]
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
-    # ------------------------------------------------------------------ slots
+    def _discard_driver(self) -> None:
+        """Delete the generated driver curve we own (orphan-rail cleanup), if it exists."""
+        import bpy
+
+        if self._driver and self._driver in bpy.data.objects:
+            obj = bpy.data.objects[self._driver]
+            data = obj.data
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+                if data is not None and data.users == 0:
+                    bpy.data.curves.remove(data)
+            except Exception:
+                pass
+        self._driver = None
+
+    def _user_selection(self):
+        """Current selection minus our own driver curve."""
+        return [o for o in selected_objects() if o.name != self._driver]
+
+    def _ensure_rail(self, state: bool) -> None:
+        """On preview-enable, guarantee a usable rail; a no-op on disable.
+
+        If the user has their own rail selected we hang on that (Width/Curvature are
+        ignored), discarding any generated driver we still own. Otherwise we enter
+        *generated* mode and build/select a driver curve — both to satisfy Preview's
+        selection gate and to show the rail the cloth hangs on.
+
+        Nothing is discarded here on ``state=False``: unlike mayatk's node-diff
+        Preview, blendertk's Preview restores (even recreates) whatever it captured at
+        ``enable()`` time on every rollback, so deleting our driver on a plain cancel
+        would just have Preview's own rollback bring it straight back. It is instead
+        reclaimed the next time this fires (discarded-and-rebuilt, or discarded outright
+        if a real rail is now selected) or dropped for good on commit — see
+        :meth:`_finalize`.
+        """
+        if not state:
+            return
+        if curtain_rail_from_selection(self._user_selection()) is not None:
+            self._discard_driver()
+            self._generated = False
+            return
+        self._generated = True
+        self._sync_driver()
+
+    def _resolve_rail(self, objects):
+        """Rail points for the current drape.
+
+        Generated mode reads the Width/Curvature/Closed fields live (so they take
+        effect on every refresh); selected mode resolves the user's rail.
+        """
+        if not self._generated:
+            rail = curtain_rail_from_selection(
+                [o for o in objects if getattr(o, "name", o) != self._driver]
+            )
+            if rail is not None:
+                points, closed = rail
+                return points, closed or self.ui.chk001.isChecked()
+        return self._field_rail()
+
+    # --------------------------------------------------------------- buttons
+
+    def b001(self):
+        """Reset to Defaults."""
+        self.ui.state.reset_all()
+
+    def b002(self):
+        """Set Position to the bounding-box center of the selected object(s).
+
+        Centers the generated rail on whatever is selected (its combined world
+        bounding box). Ignores the panel's own auto-rail driver and the curtain it's
+        building, so Get centers on the *external* target. The three Position fields
+        are set in one shot (signals blocked) and a single re-drape is fired, so the
+        curtain re-centers immediately.
+        """
+        ours = {self._driver, self.last_curtain}
+        sel = [o for o in selected_objects() if o.name not in ours]
+        if not sel:
+            self.sb.message_box("Select object(s) to center the rail on.")
+            return
+        boxes = [get_world_bbox(o) for o in sel]
+        mn = [min(b[0][i] for b in boxes) for i in range(3)]
+        mx = [max(b[1][i] for b in boxes) for i in range(3)]
+        for widget, value in zip(
+            (self.ui.s025, self.ui.s026, self.ui.s027),
+            ((mn[i] + mx[i]) / 2.0 for i in range(3)),
+        ):
+            widget.blockSignals(True)
+            widget.setValue(value)
+            widget.blockSignals(False)
+        self._on_param_changed()
+
+    # ------------------------------------------------------------- operation
+
     def perform_operation(self, objects):
-        rail, closed = self._resolve_rail(objects)
+        """Build the curtain from the resolved rail (Preview entry point)."""
+        points, closed = self._resolve_rail(objects)
+
         obj = create_curtain(
-            rail,
+            points,
             height=self.ui.s000.value(),
             hanging_points=int(self.ui.s003.value()),
             hang_jitter=self.ui.s023.value(),
@@ -456,27 +742,51 @@ class CurtainSlots(ptk.LoggingMixin):
             invert=self.ui.chk004.isChecked(),
             closed=closed,
         )
-        self._created = obj.name
+        self.last_curtain = obj.name
+        self._update_footer()
+        # Select Result is applied manually in _finalize (blendertk's Preview has no
+        # built-in select_result_checkbox/result_provider like mayatk's) -- see there.
 
-    def b001(self):
-        """Reset all fields to their default values."""
-        self.ui.state.reset_all()
+    def _update_footer(self):
+        """Show the result's triangle count in the footer; clears to the default hint
+        when there is no result. Updates live as the preview re-drapes."""
+        import bpy
 
-    def b002(self):
-        """Set Position (s025-27) to the selection's combined bounding-box center."""
-        meshes = [o for o in selected_objects() if o.type == "MESH"]
-        if not meshes:
-            self.sb.message_box("Select mesh object(s) to grab a center from.")
+        try:
+            footer = self.ui.footer
+        except Exception:
             return
-        boxes = [get_world_bbox(o) for o in meshes]
-        mn = [min(b[0][i] for b in boxes) for i in range(3)]
-        mx = [max(b[1][i] for b in boxes) for i in range(3)]
-        for widget, value in zip(
-            (self.ui.s025, self.ui.s026, self.ui.s027),
-            ((mn[i] + mx[i]) / 2.0 for i in range(3)),
-        ):
-            widget.setValue(value)
-        self.preview.refresh()
+        obj = self.last_curtain and bpy.data.objects.get(self.last_curtain)
+        if obj is None or obj.type != "MESH":
+            footer.setStatusText("")  # falls back to the default hint
+            return
+        obj.data.calc_loop_triangles()
+        tris = len(obj.data.loop_triangles)
+        footer.setStatusText(f"{tris:,} tris")
+
+    def _finalize(self):
+        """On commit, drop the preview's auto-rail, then apply Select Result.
+
+        The auto-rail is only a preview aid (it shows where the cloth hangs and
+        satisfies Preview's selection gate); it isn't wanted in the committed scene.
+        Safe to delete outright here (unlike a plain cancel — see the class
+        docstring): ``Preview.commit()`` drops its own captured-object bookkeeping
+        before calling this, with no rollback in between, so there's nothing left to
+        resurrect it. The next preview recomputes the rail mode from the live
+        selection, so the mode flag is cleared here too. Select Result is applied
+        *after* the discard (which can change the active selection), so the result
+        wins.
+        """
+        import bpy
+
+        self._generated = False
+        self._discard_driver()
+        obj = self.last_curtain and bpy.data.objects.get(self.last_curtain)
+        if obj is None or not self.ui.chk005.isChecked():
+            return
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
 
 
 # -----------------------------------------------------------------------------

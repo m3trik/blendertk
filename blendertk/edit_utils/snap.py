@@ -6,7 +6,8 @@ Blender port of mayatk's ``edit_utils.snap`` panel (``SnapSlots``): snap vertice
 surface, to the closest target vertex, or to the world grid. The engine lives module-level in
 :mod:`~blendertk.edit_utils._edit_utils` (``snap_to_surface`` / ``snap_closest_verts`` /
 ``snap_to_grid`` — mirror of mayatk's ``Snap`` class). Each button carries an option box (▸) built
-in ``b###_init``, matching the Maya panel's option boxes exactly.
+in ``b###_init``, matching the Maya panel's option boxes exactly (same objectNames: ``s000``/
+``s001``/``chk000`` on Surface, ``s002`` on Closest Vertex, ``s003``/``txt000`` on Grid).
 
 Selection convention mirrors Maya's "source first, target last": the **active** object is the
 target (Blender's equivalent of Maya's last-ordered selection), the rest are sources. The Slots
@@ -16,6 +17,7 @@ class is discovered and served by ``BlenderUiHandler`` (``marking_menu.show("sna
 """
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import selected_objects
 from blendertk.edit_utils._edit_utils import (
     snap_closest_verts,
     snap_to_grid,
@@ -40,7 +42,7 @@ class SnapSlots(ptk.LoggingMixin):
         selection); both restricted to meshes. Returns ([], None) when under-selected."""
         import bpy
 
-        meshes = [o for o in (bpy.context.selected_objects or []) if o and o.type == "MESH"]
+        meshes = [o for o in selected_objects() if o.type == "MESH"]
         target = bpy.context.view_layer.objects.active
         if len(meshes) < 2 or target is None or target.type != "MESH" or target not in meshes:
             return [], None
@@ -75,74 +77,105 @@ class SnapSlots(ptk.LoggingMixin):
         )
 
     def b000_init(self, widget):
-        """Snap to Surface option box."""
+        """Initialize Snap to Surface button option box."""
         widget.option_box.menu.setTitle("Snap to Surface")
         widget.option_box.menu.add(
-            "QDoubleSpinBox", setPrefix="Offset: ", setObjectName="s000",
-            set_limits=[0, 100, 0.01, 1], setValue=0.0,
+            "QDoubleSpinBox",
+            setPrefix="Offset: ",
+            setObjectName="s000",
+            set_limits=[0, 100, 0.01, 1],
+            setValue=0.0,
             setToolTip="Distance from surface to place affected vertices.",
         )
         widget.option_box.menu.add(
-            "QDoubleSpinBox", setPrefix="Threshold: ", setObjectName="s001",
-            set_limits=[0, 1000, 0.1, 1], setValue=0.0,
+            "QDoubleSpinBox",
+            setPrefix="Threshold: ",
+            setObjectName="s001",
+            set_limits=[0, 1000, 0.1, 1],
+            setValue=0.0,
             setToolTip="Only process vertices within this distance. 0 = no limit.",
         )
         widget.option_box.menu.add(
-            "QCheckBox", setText="Invert", setObjectName="chk000", setChecked=False,
+            "QCheckBox",
+            setText="Invert",
+            setObjectName="chk000",
+            setChecked=False,
             setToolTip="Invert direction (use if target normals point inward).",
         )
 
     def b000(self):
-        """Snap to Surface."""
+        """Snap to Surface button."""
         sources, target = self._source_target()
         if not target:
-            self.sb.message_box("Select source mesh(es) first, then the target mesh last (active).")
+            self.sb.message_box(
+                "Select source mesh(es) first, then the target mesh last (active)."
+            )
             return
-        m = self.ui.b000.menu
+
+        offset = self.ui.b000.menu.s000.value()
+        threshold = self.ui.b000.menu.s001.value() or None  # 0 means no limit
+        invert = self.ui.b000.menu.chk000.isChecked()
+
         count = snap_to_surface(
-            sources, target,
-            offset=m.s000.value(),
-            threshold=m.s001.value() or None,  # 0 = no limit
-            invert=m.chk000.isChecked(),
+            sources,
+            target,
+            offset=offset,
+            threshold=threshold,
+            invert=invert,
         )
         self.sb.message_box(f"<hl>Snapped {count} vertices to surface.</hl>")
 
     def b001_init(self, widget):
-        """Snap to Closest Vertex option box."""
+        """Initialize Snap to Closest Vertex button option box."""
         widget.option_box.menu.setTitle("Snap to Closest Vertex")
         widget.option_box.menu.add(
-            "QDoubleSpinBox", setPrefix="Tolerance: ", setObjectName="s002",
-            set_limits=[0, 1000, 0.1, 1], setValue=10.0,
+            "QDoubleSpinBox",
+            setPrefix="Tolerance: ",
+            setObjectName="s002",
+            set_limits=[0, 1000, 0.1, 1],
+            setValue=10.0,
             setToolTip="Maximum search distance for matching vertices.",
         )
 
     def b001(self):
-        """Snap to Closest Vertex."""
+        """Snap to Closest Vertex button."""
         sources, target = self._source_target()
         if not target or len(sources) != 1:
-            self.sb.message_box("Select exactly two meshes: source first, then target last (active).")
+            self.sb.message_box(
+                "Select exactly two meshes: source first, then target last (active)."
+            )
             return
-        count = snap_closest_verts(sources[0], target, tolerance=self.ui.b001.menu.s002.value())
+
+        tolerance = self.ui.b001.menu.s002.value()
+
+        count = snap_closest_verts(sources[0], target, tolerance=tolerance)
         self.sb.message_box(f"<hl>Snapped {count} vertices.</hl>")
 
     def b002_init(self, widget):
-        """Snap to Grid option box."""
+        """Initialize Snap to Grid button option box."""
         widget.option_box.menu.setTitle("Snap to Grid")
         widget.option_box.menu.add(
-            "QDoubleSpinBox", setPrefix="Grid Size: ", setObjectName="s003",
-            set_limits=[0.001, 1000, 0.1, 3], setValue=1.0,
+            "QDoubleSpinBox",
+            setPrefix="Grid Size: ",
+            setObjectName="s003",
+            set_limits=[0.001, 1000, 0.1, 3],
+            setValue=1.0,
             setToolTip="Grid spacing to snap to.",
         )
         widget.option_box.menu.add(
-            "QLineEdit", setPlaceholderText="Axes (xyz)...", setObjectName="txt000",
+            "QLineEdit",
+            setPlaceholderText="Axes (xyz)...",
+            setObjectName="txt000",
             setText="xyz",
             setToolTip="Which axes to snap: x, y, z, or combinations like xy.",
         )
 
     def b002(self):
-        """Snap to Grid."""
-        m = self.ui.b002.menu
-        count = snap_to_grid(grid_size=m.s003.value(), axes=m.txt000.text() or "xyz")
+        """Snap to Grid button."""
+        grid_size = self.ui.b002.menu.s003.value()
+        axes = self.ui.b002.menu.txt000.text() or "xyz"
+
+        count = snap_to_grid(grid_size=grid_size, axes=axes)
         self.sb.message_box(f"<hl>Snapped {count} items to grid.</hl>")
 
 
@@ -153,3 +186,7 @@ if __name__ == "__main__":
 
     ui = BlenderUiHandler.instance().get("snap", reload=True)
     ui.show(pos="screen", app_exec=True)
+
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------

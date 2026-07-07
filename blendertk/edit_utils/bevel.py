@@ -4,10 +4,11 @@
 
 Blender port of mayatk's ``edit_utils.bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``): a thin wrapper
 over native ``bmesh.ops.bevel`` driving the selected edges (or vertices) of the active Edit-Mode
-selection — the same edge-component bevel as Maya — plus a ``BevelSlots`` panel
-(Width / Segments / Profile / Clamp Overlap + live Preview). The Slots class is discovered and
-served by ``BlenderUiHandler`` (``marking_menu.show("bevel")``), exactly the mayatk/MayaUiHandler
-split, so the panel lives in blendertk next to its engine rather than in tentacle.
+selection — the same edge-component bevel as Maya — plus a ``BevelSlots`` panel that is a 1:1
+mirror of mayatk's (``chk000`` Preview / ``s000`` Width / ``s001`` Segments / ``b000`` Create).
+The Slots class is discovered and served by ``BlenderUiHandler`` (``marking_menu.show("bevel")``),
+exactly the mayatk/MayaUiHandler split, so the panel lives in blendertk next to its engine rather
+than in tentacle.
 
 ``bmesh.ops.bevel`` is used over the ``bpy.ops.mesh.bevel`` operator on purpose: it needs no 3D
 view / region context, so it runs identically interactively and under headless ``--background``
@@ -44,8 +45,11 @@ class Bevel:
             objects (list): Mesh objects to bevel. ``None`` → the current selection.
             width (float): Bevel offset (interpretation set by ``offset_type``).
             segments (int): Number of bevel segments.
-            profile (float): Bevel profile shape (0–1; 0.5 = round).
-            clamp_overlap (bool): Clamp the width so adjacent bevels don't overlap.
+            profile (float): Bevel profile shape (0–1; 0.5 = round). Not exposed on the panel
+                (mayatk's UI has no profile control, so this panel mirrors it 1:1) — still tunable
+                for callers that want it.
+            clamp_overlap (bool): Clamp the width so adjacent bevels don't overlap. Not exposed on
+                the panel for the same reason — still tunable for callers that want it.
             affect (str): ``"EDGES"`` or ``"VERTICES"``.
             offset_type (str): Offset interpretation — ``"OFFSET"`` / ``"WIDTH"`` / ``"DEPTH"``
                 / ``"PERCENT"`` / ``"ABSOLUTE"``.
@@ -89,7 +93,8 @@ class Bevel:
 
 
 class BevelSlots(ptk.LoggingMixin):
-    """Switchboard slot wiring for the bevel UI (live preview + width / segments / profile).
+    """Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same
+    objectNames, same layout, same widget count: Preview / Width / Segments / Create).
 
     Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on
     tentacle; the Qt-only ``uitk`` helper is deferred into ``header_init``.
@@ -115,8 +120,7 @@ class BevelSlots(ptk.LoggingMixin):
             undo_message="Bevel",
         )
 
-        self.sb.connect_multi(self.ui, "s000-2", "valueChanged", self.preview.refresh)
-        self.ui.chk001.clicked.connect(self.preview.refresh)
+        self.sb.connect_multi(self.ui, "s000-1", "valueChanged", self.preview.refresh)
 
     def header_init(self, widget):
         """Configure header help text."""
@@ -125,30 +129,27 @@ class BevelSlots(ptk.LoggingMixin):
         widget.set_help_text(
             fmt(
                 title="Bevel",
-                body="Add chamfer bevels to the selected polygon edges.",
+                body="Add chamfer bevels to selected polygon edges.",
                 steps=[
                     "In Edit Mode, select one or more edges (or vertices).",
-                    "Set <b>Width</b> and <b>Segments</b> (and <b>Profile</b> for the "
-                    "round-to-flat shape).",
-                    "Toggle <b>Preview</b> to iterate non-destructively, or press "
-                    "<b>Create</b> to commit.",
+                    "Set <b>Width</b> (offset distance) and <b>Segments</b> (1+).",
+                    "Toggle <b>Preview</b> to iterate non-destructively, "
+                    "or press <b>Create</b> to commit.",
                 ],
                 notes=[
-                    "Preview snapshots the mesh and re-bevels the same captured selection "
-                    "on each change, so values never stack.",
-                    "<b>Clamp Overlap</b> caps the width so adjacent bevels don't cross.",
+                    "Profile shape and clamp-overlap use the <i>Bevel.bevel</i> defaults "
+                    "(round profile, clamped). Edit the slot if you need finer control.",
                 ],
             )
         )
 
     def perform_operation(self, objects):
-        Bevel.bevel(
-            objects,
-            width=self.ui.s000.value(),
-            segments=self.ui.s001.value(),
-            profile=self.ui.s002.value(),
-            clamp_overlap=self.ui.chk001.isChecked(),
-        )
+        width = self.ui.s000.value()
+        segments = self.ui.s001.value()
+        # 1:1 with mayatk's panel — mayatk's Bevel UI exposes only Width/Segments, so this panel
+        # mirrors it verbatim. Bevel.bevel still accepts profile= / clamp_overlap= for callers
+        # that want them; they just aren't wired to a widget here.
+        Bevel.bevel(objects, width, segments)
 
 
 # -----------------------------------------------------------------------------

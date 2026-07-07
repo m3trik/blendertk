@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>200</width>
-    <height>192</height>
+    <height>156</height>
    </rect>
   </property>
   <property name="tabShape">
@@ -99,6 +99,81 @@
          <property name="verticalSpacing">
           <number>1</number>
          </property>
+         <item row="4" column="0" colspan="2">
+          <widget class="QSpinBox" name="s001">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="buttonSymbols">
+            <enum>QAbstractSpinBox::NoButtons</enum>
+           </property>
+           <property name="prefix">
+            <string>Segments:	</string>
+           </property>
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>200</number>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0" colspan="2">
+          <layout class="QHBoxLayout" name="horizontalLayout_2">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="b000">
+             <property name="enabled">
+              <bool>false</bool>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>19</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>19</height>
+              </size>
+             </property>
+             <property name="toolTip">
+              <string>Finish the operation.</string>
+             </property>
+             <property name="layoutDirection">
+              <enum>Qt::RightToLeft</enum>
+             </property>
+             <property name="text">
+              <string>Create</string>
+             </property>
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
+             <property name="default">
+              <bool>false</bool>
+             </property>
+             <property name="flat">
+              <bool>false</bool>
+             </property>
+             <property name="bnabled" stdset="0">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
          <item row="1" column="0" colspan="2">
           <layout class="QHBoxLayout" name="horizontalLayout">
            <property name="spacing">
@@ -119,7 +194,7 @@
               </size>
              </property>
              <property name="toolTip">
-              <string>Live-preview the bevel on the selected components; re-runs on every value change.</string>
+              <string>Start the operation using any selected mesh objects.</string>
              </property>
              <property name="text">
               <string>Preview</string>
@@ -154,9 +229,6 @@
            <property name="buttonSymbols">
             <enum>QAbstractSpinBox::NoButtons</enum>
            </property>
-           <property name="toolTip">
-            <string>Bevel width (offset distance).</string>
-           </property>
            <property name="prefix">
             <string>Width:	</string>
            </property>
@@ -173,149 +245,9 @@
             <double>0.010000000000000</double>
            </property>
            <property name="value">
-            <double>0.100000000000000</double>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="0" colspan="2">
-          <widget class="QSpinBox" name="s001">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="buttonSymbols">
-            <enum>QAbstractSpinBox::NoButtons</enum>
-           </property>
-           <property name="toolTip">
-            <string>Number of bevel segments.</string>
-           </property>
-           <property name="prefix">
-            <string>Segments:	</string>
-           </property>
-           <property name="minimum">
-            <number>1</number>
-           </property>
-           <property name="maximum">
-            <number>200</number>
-           </property>
-          </widget>
-         </item>
-         <item row="5" column="0" colspan="2">
-          <widget class="DoubleSpinBox" name="s002">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="buttonSymbols">
-            <enum>QAbstractSpinBox::NoButtons</enum>
-           </property>
-           <property name="toolTip">
-            <string>Bevel profile shape: 0 = concave, 0.5 = round, 1 = chamfer.</string>
-           </property>
-           <property name="prefix">
-            <string>Profile:	</string>
-           </property>
-           <property name="decimals">
-            <number>2</number>
-           </property>
-           <property name="minimum">
-            <double>0.000000000000000</double>
-           </property>
-           <property name="maximum">
-            <double>1.000000000000000</double>
-           </property>
-           <property name="singleStep">
             <double>0.050000000000000</double>
            </property>
-           <property name="value">
-            <double>0.500000000000000</double>
-           </property>
           </widget>
-         </item>
-         <item row="6" column="0" colspan="2">
-          <widget class="QCheckBox" name="chk001">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>19</height>
-            </size>
-           </property>
-           <property name="toolTip">
-            <string>Clamp the width so adjacent bevels don't overlap.</string>
-           </property>
-           <property name="text">
-            <string>Clamp Overlap</string>
-           </property>
-           <property name="checked">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item row="7" column="0" colspan="2">
-          <layout class="QHBoxLayout" name="horizontalLayout_2">
-           <property name="spacing">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QPushButton" name="b000">
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>19</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>19</height>
-              </size>
-             </property>
-             <property name="toolTip">
-              <string>Commit the bevel (runs on the current selection when Preview is off).</string>
-             </property>
-             <property name="layoutDirection">
-              <enum>Qt::RightToLeft</enum>
-             </property>
-             <property name="text">
-              <string>Create</string>
-             </property>
-             <property name="autoDefault">
-              <bool>false</bool>
-             </property>
-             <property name="default">
-              <bool>false</bool>
-             </property>
-             <property name="flat">
-              <bool>false</bool>
-             </property>
-             <property name="bnabled" stdset="0">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
          </item>
         </layout>
        </widget>

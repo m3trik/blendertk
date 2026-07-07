@@ -51,7 +51,7 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="Header" name="header">
+       <widget class="Header" name="header" native="true">
         <property name="minimumSize">
          <size>
           <width>0</width>
@@ -64,7 +64,7 @@
           <bold>true</bold>
          </font>
         </property>
-        <property name="text">
+        <property name="text" stdset="0">
          <string>REFERENCE MANAGER</string>
         </property>
        </widget>
@@ -105,7 +105,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Folder to scan for .blend files to link.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Specify the workspace dir.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
            <property name="placeholderText">
             <string>Root Directory:</string>
@@ -126,15 +126,20 @@
              <height>19</height>
             </size>
            </property>
+           <property name="maxVisibleItems">
+            <number>30</number>
+           </property>
            <property name="sizeAdjustPolicy">
             <enum>QComboBox::AdjustToContentsOnFirstShow</enum>
            </property>
            <property name="frame">
             <bool>false</bool>
            </property>
-           <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;How a file is brought in: &lt;b&gt;Link&lt;/b&gt; (live reference) or &lt;b&gt;Append&lt;/b&gt; (an editable copy).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
-           </property>
+           <item>
+            <property name="text">
+             <string>Workspaces:</string>
+            </property>
+           </item>
           </widget>
          </item>
          <item>
@@ -152,7 +157,7 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Filter the file list. 'text*' starts-with, '*text*' contains, '*text' ends-with. Comma/semicolon separates multiple filters.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enter text to filter the file list.&lt;/p&gt;&lt;p&gt;'text*' matches files starting with 'text', &lt;/p&gt;&lt;p&gt;'*text*' matches files containing 'text', &lt;/p&gt;&lt;p&gt;'*text' matches files ending with 'text', &lt;/p&gt;&lt;p&gt;?text' matches any file with a character followed by 'text'.&lt;br/&gt;&lt;br/&gt;Multiple filters can be specified when split by a delimeter.  ie. '*text,text*' or '*text;text*'&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
            </property>
            <property name="placeholderText">
             <string>Filter:</string>
@@ -166,9 +171,6 @@
              <width>0</width>
              <height>300</height>
             </size>
-           </property>
-           <property name="toolTip">
-            <string>.blend files found under the root directory. ⚠ marks a missing file; ● marks one already linked. Double-click a row (or use the right-click menu) to Link it.</string>
            </property>
           </widget>
          </item>
@@ -199,8 +201,8 @@
  <customwidgets>
   <customwidget>
    <class>Header</class>
-   <extends>QLabel</extends>
-   <header>uitk.widgets.header.Header.h</header>
+   <extends>QWidget</extends>
+   <header>uitk.widgets.header</header>
   </customwidget>
   <customwidget>
    <class>Footer</class>
@@ -220,9 +222,26 @@
   <customwidget>
    <class>TableWidget</class>
    <extends>QTableWidget</extends>
-   <header>uitk.widgets.tableWidget.TableWidget.h</header>
+   <header>uitk.widgets.table_widget</header>
   </customwidget>
  </customwidgets>
  <resources/>
  <connections/>
+ <designerdata>
+  <property name="gridDeltaX">
+   <number>5</number>
+  </property>
+  <property name="gridDeltaY">
+   <number>5</number>
+  </property>
+  <property name="gridSnapX">
+   <bool>true</bool>
+  </property>
+  <property name="gridSnapY">
+   <bool>true</bool>
+  </property>
+  <property name="gridVisible">
+   <bool>true</bool>
+  </property>
+ </designerdata>
 </ui>
