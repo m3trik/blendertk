@@ -83,6 +83,90 @@ def menu_exists(menu_idname):
     return hasattr(bpy.types, menu_idname)
 
 
+def dispatch_log_link(url, logger=None) -> bool:
+    """Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
+
+    Blender port of mayatk's ``UiUtils.dispatch_log_link`` — the log panel of a Switchboard tool
+    (e.g. Telescope Rig) renders object names as clickable links; clicking one dispatches here.
+
+    Supported actions:
+        ``open``   — open *path* (file or directory) in the OS shell.
+                     Accepts ``?path=`` (canonical) or ``?filepath=`` (legacy).
+        ``select`` — select *node* (an object name) in the viewport, making it active.
+        ``reveal`` — select *node* and frame it in the 3D viewport (Blender has no scripted
+                     Outliner "reveal" like Maya's ``showSelected``; framing the viewport is the
+                     closest visible feedback).
+
+    Parameters:
+        url:    A ``QUrl`` from ``QTextBrowser.anchorClicked``.
+        logger: Optional logger for debug/warning messages.
+
+    Returns:
+        True if the link was handled, False otherwise.
+    """
+    import os
+    from urllib.parse import parse_qs
+
+    if url.scheme() != "action":
+        return False
+
+    action = url.host()
+    params = parse_qs(url.query())
+
+    # Non-node actions -------------------------------------------------
+    if action == "open":
+        # Accept ``path`` (canonical) and ``filepath`` as a back-compat fallback.
+        filepath = params.get("path", [""])[0] or params.get("filepath", [""])[0]
+        if not filepath:
+            return False
+        try:
+            os.startfile(filepath)
+        except OSError as e:
+            if logger:
+                logger.warning(f"Could not open file: {e}")
+            return False
+        return True
+
+    # Node-based actions need bpy; defer the import so the ``open`` branch above stays usable
+    # in non-Blender contexts.
+    import bpy
+
+    node = params.get("node", [""])[0]
+    if not node:
+        return False
+
+    # bpy.data.objects.get(name) is ambiguous when a linked library object shares the exact same
+    # name string as a local one (object names are only unique per-library, not globally) — a
+    # "select"/"reveal" link always means the CURRENT scene's object, so prefer a local match
+    # (e.g. Hierarchy Manager's diff log links, where a linked reference object commonly shares
+    # a name with the local object it's being diffed against).
+    obj = next((o for o in bpy.data.objects if o.name == node and o.library is None), None) or bpy.data.objects.get(node)
+    if obj is None:
+        if logger:
+            logger.warning(f"Object not found: {node}")
+        return False
+
+    if action in ("select", "reveal"):
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        if action == "reveal":
+            import blendertk as btk
+
+            ctx = btk.get_view3d_context()
+            if ctx and ctx.get("region"):
+                try:
+                    with bpy.context.temp_override(**ctx):
+                        bpy.ops.view3d.view_selected()
+                except RuntimeError:
+                    pass
+        return True
+
+    if logger:
+        logger.debug(f"Unknown log link action: {action}")
+    return False
+
+
 def call_native_menu(menu_idname):
     """Pop Blender's own native menu ``menu_idname`` (e.g. ``"VIEW3D_MT_add"``) at the cursor.
 
@@ -115,3 +199,4 @@ class UiUtils:
     open_editor = staticmethod(open_editor)
     menu_exists = staticmethod(menu_exists)
     call_native_menu = staticmethod(call_native_menu)
+    dispatch_log_link = staticmethod(dispatch_log_link)

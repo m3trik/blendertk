@@ -195,6 +195,13 @@ DEFAULT_INCLUDE = {
     "env_utils.scene_exporter.task_factory": [
         "TaskFactory",
     ],
+    # Hierarchy Manager — diff/repair a scene hierarchy against a reference .blend linked as a
+    # library (mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager``; the
+    # ``HierarchyManagerSlots`` panel is discovered by BlenderUiHandler, not registered). Pull
+    # (mayatk's ``ObjectSwapper``) isn't ported — see the slots module docstring.
+    "env_utils.hierarchy_manager._hierarchy_manager": [
+        "HierarchyManager",
+    ],
     "light_utils._light_utils": [
         "LightUtils",
         "set_world_hdri",
