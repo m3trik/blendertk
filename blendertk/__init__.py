@@ -307,6 +307,14 @@ DEFAULT_INCLUDE = {
         "StaggerKeys",
         "stagger_keys",
     ],
+    # Blendshape Animator — morph-authoring engine (base+target mesh -> keyed shape key, with
+    # driver-driven corrective "tween" shapes for a custom curve), mirror of mayatk's
+    # ``anim_utils.blendshape_animator.BlendshapeAnimator``. The co-located
+    # ``BlendshapeAnimatorSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
+    # here), matching the other tool Slots.
+    "anim_utils.blendshape_animator._blendshape_animator": [
+        "BlendshapeAnimator",
+    ],
     "edit_utils._edit_utils": [
         "EditUtils",
         "decimate",

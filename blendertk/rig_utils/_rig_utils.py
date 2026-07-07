@@ -106,11 +106,13 @@ class RigUtils:
         return obj
 
     @staticmethod
-    def add_bone_chain(armature, points, prefix="bone", connect=True):
+    def add_bone_chain(armature, points, prefix="bone", connect=True, radius=None):
         """Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``
         analogue (head[i] = points[i], tail[i] = points[i+1], so N points → N-1 bones). Returns the
         ordered bone names. The points are converted into the armature's local space, so the chain
-        sits on the centerline regardless of where the armature object is."""
+        sits on the centerline regardless of where the armature object is. *radius* (optional) sets
+        each bone's ``head_radius``/``tail_radius`` — Maya's per-joint ``.radius`` (viewport display
+        size, also reused as control scale)."""
         import bpy
         from mathutils import Vector
 
@@ -124,12 +126,79 @@ class RigUtils:
                 b = ebones.new(f"{prefix}_{i:02d}")
                 b.head = pts[i]
                 b.tail = pts[i + 1]
+                if radius is not None:
+                    b.head_radius = b.tail_radius = float(radius)
                 if prev is not None:
                     b.parent = prev
                     b.use_connect = connect
                 prev = b
                 names.append(b.name)
         return names
+
+    @staticmethod
+    def get_bone_chain_from_root(armature, bone_name=None, reverse=False):
+        """Walk a single-path bone chain from a root bone — mirror of mayatk's
+        ``RigUtils.get_joint_chain_from_root``. *bone_name* defaults to the armature's active bone
+        (``data.bones.active``, set by the last bone clicked in Pose/Edit mode and persisted into
+        Object mode — so the user doesn't need to stay in Pose mode to also select the mesh),
+        falling back to the first parentless bone (a simple chain has exactly one). Descends via
+        each bone's FIRST child only, same single-path assumption Maya's version makes — a
+        branching skeleton just follows one side. Returns an ordered list of bone names."""
+        bones = armature.data.bones
+        root = bones.get(bone_name) if bone_name else bones.active
+        if root is None:
+            root = next((b for b in bones if b.parent is None), None)
+        if root is None:
+            return []
+        chain = []
+        b = root
+        while b is not None:
+            chain.append(b.name)
+            b = b.children[0] if b.children else None
+        if reverse:
+            chain.reverse()
+        return chain
+
+    @staticmethod
+    def invert_bone_chain(armature, bone_names):
+        """Rebuild *bone_names* (head->tail order) with reversed hierarchy — mirror of mayatk's
+        ``RigUtils.invert_joint_chain`` (always destructive/``keep_original=False``; the granular
+        tube-rig step-workflow's only call site never keeps the original). Reads each bone's world
+        head/tail/radius first, then replaces the whole chain end->start in one EDIT-mode pass so
+        the new first bone sits at the old chain's END. Returns the new ordered bone names."""
+        mw = armature.matrix_world
+        mw_inv = mw.inverted()
+        data_bones = armature.data.bones
+        heads_tails = [
+            (mw @ data_bones[n].head_local, mw @ data_bones[n].tail_local,
+             data_bones[n].head_radius, data_bones[n].tail_radius)
+            for n in bone_names
+        ]
+        # Old chain end's tail becomes the new chain's first head; walk the rest in reverse.
+        new_points = [heads_tails[-1][1]] + [ht[0] for ht in reversed(heads_tails)]
+        radii = [heads_tails[-1][3]] + [ht[2] for ht in reversed(heads_tails)]
+        prefix = bone_names[0].rsplit("_", 1)[0] if bone_names else "bone"
+
+        with RigUtils._active_mode(armature, "EDIT"):
+            ebones = armature.data.edit_bones
+            for n in bone_names:
+                eb = ebones.get(n)
+                if eb is not None:
+                    ebones.remove(eb)
+            prev = None
+            new_names = []
+            for i in range(len(new_points) - 1):
+                b = ebones.new(f"{prefix}_{i:02d}")
+                b.head = mw_inv @ new_points[i]
+                b.tail = mw_inv @ new_points[i + 1]
+                b.head_radius = radii[i]
+                b.tail_radius = radii[i + 1] if i + 1 < len(radii) else radii[i]
+                if prev is not None:
+                    b.parent = prev
+                    b.use_connect = True
+                prev = b
+                new_names.append(b.name)
+        return new_names
 
     @staticmethod
     def add_bone_constraint(armature, bone_name, ctype, target=None, subtarget=None, **props):
@@ -280,12 +349,21 @@ class RigUtils:
         return fc
 
     @staticmethod
-    def add_prop_var(fcurve, name, id_obj, data_path):
+    def add_prop_var(fcurve, name, id_obj, data_path, id_type=None):
         """Append a ``SINGLE_PROP`` variable to an existing driver fcurve — e.g. a control's keyable
-        custom property (``data_path='["wheelHeight"]'``) the driver expression reads live."""
+        custom property (``data_path='["wheelHeight"]'``) the driver expression reads live.
+
+        ``id_type`` defaults to ``None``, which leaves ``DriverTarget.id_type`` at its RNA
+        default (``'OBJECT'``) — the common case for every existing caller (rig controls are
+        always Objects). Pass an explicit RNA id_type enum (e.g. ``'KEY'``) when ``id_obj`` is a
+        non-Object ID datablock (a mesh's ``shape_keys``, a material node tree, …) — Blender
+        rejects the assignment otherwise (``DriverTarget.id`` type-checks against ``id_type``).
+        """
         var = fcurve.driver.variables.new()
         var.name = name
         var.type = "SINGLE_PROP"
+        if id_type is not None:
+            var.targets[0].id_type = id_type
         var.targets[0].id = id_obj
         var.targets[0].data_path = data_path
         return var

@@ -30,6 +30,7 @@ PANELS = [
     "bridge",
     "snap",
     "macro_manager",
+    "blendshape_animator",
     "dynamic_pipe",
     "image_tracer",
     "curve_to_tube",
@@ -113,6 +114,7 @@ try:
         ("color_id", "ColorIdSlots"),  # __init__ (button groups + keep_square swatches) is bpy-free
         ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
         ("macro_manager", "MacroManagerSlots"),  # __init__ + table/header/cmb _init are bpy-free
+        ("blendshape_animator", "BlendshapeAnimatorSlots"),  # __init__ + header/b000/cmb000/le001/b001/b004/b006/b008 _init are bpy-free (tree stays empty without bpy)
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
         ("hdr_manager", "HdrManagerSlots"),  # __init__ + header/cmb _init are bpy-free (os dir scan)
         ("dynamic_pipe", "DynamicPipeSlots"),  # __init__ (logging only) is bpy-free
