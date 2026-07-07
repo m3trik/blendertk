@@ -53,6 +53,20 @@ try:
     M._ensure_operator()
     check("dispatcher operator registered", hasattr(bpy.types, "BTK_OT_macro"))
 
+    # 3b. The dispatcher operator is the actual hotkey-invocation path (a keymap item's
+    #     properties.macro is what a real keypress drives) — every other step below calls
+    #     the macro function directly, so exercise bpy.ops.btk.macro() itself once to prove
+    #     the "play" side of the record/play round trip, not just the underlying macros.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    dispatch_cube = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    result = bpy.ops.btk.macro(macro="m_object_selection")
+    check("dispatcher operator runs a macro by name",
+          result == {"FINISHED"} and dispatch_cube.mode == "OBJECT", str(result))
+    bad_result = bpy.ops.btk.macro(macro="m_does_not_exist")
+    check("dispatcher operator reports + cancels on an unknown macro", bad_result == {"CANCELLED"})
+
     # 4. set_macros registers keymap items when an addon keyconfig exists (else skips cleanly).
     kc = bpy.context.window_manager.keyconfigs.addon
     ntargets = len(M._KEYMAP_TARGETS)
@@ -161,6 +175,90 @@ try:
         check("viewport macros no-op safely headless", True)
     except Exception as e:
         check("viewport macros no-op safely headless", False, repr(e))
+
+    # 11. Management API (MacroManagerSlots' single source of truth) — pure introspection,
+    # no bpy required for these, but exercised here alongside the rest of the engine.
+    available = M.list_available_macros()
+    check("list_available_macros finds every m_* macro", set(expected) <= set(available), str(sorted(available)))
+    check("macro_label humanizes + preserves acronyms",
+          M.macro_label("m_back_face_culling") == "Back Face Culling"
+          and M.macro_label("m_toggle_UV_select_type") == "Toggle UV Select Type")
+    check("macro_category derives from the defining *Macros mixin",
+          M.macro_category("m_back_face_culling") == "Display"
+          and M.macro_category("m_group") == "Edit"
+          and M.macro_category("m_object_selection") == "Selection"
+          and M.macro_category("m_set_selected_keys") == "Animation"
+          and M.macro_category("m_toggle_panels") == "UI")
+    cats = M.list_categories()
+    check("list_categories lists every mixin-derived category",
+          {"Display", "Edit", "Selection", "Animation", "UI"} <= set(cats), str(cats))
+    check("macro_help returns the macro's docstring",
+          "Toggle Back-Face Culling" in M.macro_help("m_back_face_culling"))
+
+    # Key-format round trip (pure string logic, no bpy).
+    check("qt_sequence_to_maya_key / maya_key_to_qt_sequence round trip",
+          M.qt_sequence_to_maya_key("Ctrl+Shift+I") == "ctl+sht+i"
+          and M.maya_key_to_qt_sequence("ctl+sht+i") == "Ctrl+Shift+I")
+    check("qt_sequence_to_maya_key with no non-modifier key -> empty", M.qt_sequence_to_maya_key("Ctrl") == "")
+
+    # 12. get_current_bindings / apply_bindings / clear_hotkey / find_conflicts round trip —
+    # only meaningful with an addon keyconfig (headless --background may have none; skip cleanly
+    # like section 4 does).
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is not None:
+        M.remove_macros()
+        M.set_macros("m_frame, key=f, cat=Display", "m_invert_selection, key=ctl+sht+i, cat=Edit")
+        bindings = M.get_current_bindings()
+        check("get_current_bindings reflects set_macros (key + stashed category)",
+              bindings["m_frame"] == {"key": "f", "cat": "Display"}
+              and bindings["m_invert_selection"] == {"key": "ctl+sht+i", "cat": "Edit"},
+              str({k: bindings[k] for k in ("m_frame", "m_invert_selection")}))
+        check("get_current_bindings falls back to the mixin category when unbound",
+              bindings["m_group"] == {"key": "", "cat": "Edit"}, str(bindings["m_group"]))
+
+        conflicts = M.find_conflicts({"m_frame": {"key": "f"}, "m_shading": {"key": "f"}})
+        check("find_conflicts flags two macros sharing a key",
+              conflicts.get("f") == ["m_frame", "m_shading"] or set(conflicts.get("f", [])) == {"m_frame", "m_shading"})
+
+        M.clear_hotkey("m_frame")
+        cleared = M.get_current_bindings()
+        check("clear_hotkey unbinds just that macro", cleared["m_frame"]["key"] == ""
+              and cleared["m_invert_selection"]["key"] == "ctl+sht+i")
+
+        M.apply_bindings({"m_frame": {"key": "ctl+f", "cat": "UI"}, "m_invert_selection": {"key": ""}})
+        applied = M.get_current_bindings()
+        check("apply_bindings sets a new key + unbinds a falsy-key entry",
+              applied["m_frame"] == {"key": "ctl+f", "cat": "UI"}
+              and applied["m_invert_selection"]["key"] == "",
+              str({k: applied[k] for k in ("m_frame", "m_invert_selection")}))
+
+        M.remove_macros()
+
+        # 12b. Preset persistence + apply_saved_macros (the tentacle_startup.py entry point) —
+        # writes/reads real files under the user PresetStore tier, cleaned up afterward.
+        try:
+            saved_path = M.save_preset("_test_roundtrip", {"m_frame": {"key": "ctl+alt+f", "cat": "Display"}})
+            check("save_preset writes a file", os.path.isfile(saved_path), saved_path)
+            loaded = M.load_preset("_test_roundtrip")
+            check("load_preset round-trips the saved bindings",
+                  loaded.get("m_frame") == {"key": "ctl+alt+f", "cat": "Display"}, str(loaded))
+
+            M.remove_macros()
+            M.apply_saved_macros("_test_roundtrip")
+            after_apply = M.get_current_bindings()
+            check("apply_saved_macros applies a named preset's bindings",
+                  after_apply["m_frame"] == {"key": "ctl+alt+f", "cat": "Display"},
+                  str(after_apply["m_frame"]))
+        finally:
+            M.remove_macros()
+            M.delete_preset("_test_roundtrip")
+            check("delete_preset cleans up the test preset", not M._preset_store().exists("_test_roundtrip"))
+
+        default_bindings = M.load_preset(M.DEFAULT_PRESET)
+        check("shipped 'default' preset covers every userSetup macro",
+              set(expected) <= set(default_bindings), str(sorted(default_bindings)))
+    else:
+        check("addon keyconfig unavailable (headless) -> management-API round trip skipped", True, "no kc")
 
 except Exception as e:
     traceback.print_exc()

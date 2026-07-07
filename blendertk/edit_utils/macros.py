@@ -19,10 +19,16 @@ script (``tentacle_startup.py``), exactly as Maya's ``userSetup.py`` calls the m
     from blendertk.edit_utils import macros
     macros.Macros.set_macros("m_frame, key=f, cat=Display")
 """
+import inspect
+import os
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
+
 try:
     import bpy
 except ImportError:  # surface must resolve headless (btk.Macros) — bpy used only at runtime
     bpy = None
+import pythontk as ptk
 
 from blendertk.edit_utils._edit_utils import set_subdivision, _group_under_empty
 
@@ -332,9 +338,46 @@ class AnimationMacros:
 # Macro manager — parses the Maya-format spec and registers Blender keymap items
 # ====================================================================================
 class MacroManager:
-    """Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses."""
+    """Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+
+    Also the management API behind the ``MacroManagerSlots`` panel
+    (``blendertk.edit_utils.macro_manager``) — mirror of mayatk's
+    ``MacroManager`` management surface (:meth:`list_available_macros`,
+    :meth:`macro_category`, :meth:`get_current_bindings`, preset persistence,
+    …), fully usable without the panel, same as upstream.
+
+    Divergence from mayatk (by design): Maya's ``cmds.runTimeCommand`` /
+    ``cmds.hotkey`` is a DCC-side registry that Maya itself persists across
+    sessions, so :meth:`get_current_bindings` reads it live. Blender's addon
+    keyconfig is **process-lifetime only** — it is wiped on restart and rebuilt
+    by ``tentacle_startup.py`` calling :meth:`set_macros` again (see the module
+    docstring), so here "live" bindings are read back from :attr:`_KEYMAPS`,
+    the bookkeeping list every :meth:`set_macro` call populates, rather than by
+    re-querying a DCC-side registry. Likewise a Blender keymap item has no
+    first-class ``category`` slot the way ``runTimeCommand`` does, so
+    :class:`BTK_OT_macro` carries a second ``category`` ``StringProperty`` as a
+    pure data carrier (never read by :meth:`BTK_OT_macro.execute`) — the direct
+    analogue of Maya's runtime-command category attribute.
+    """
 
     _KEYMAPS = []  # (keymap, keymap_item) pairs we added, for clean removal
+
+    MACRO_PREFIX = "m_"
+    PRESET_NAME = "macro_manager"
+    PRESET_PACKAGE = "blendertk"
+    DEFAULT_PRESET = "default"
+
+    # Source tokens that should keep a fixed casing in the humanized label
+    # (e.g. ``m_toggle_UV_select_type`` -> "Toggle UV Select Type"). Tokens
+    # already upper-case in the method name (``UV``) are preserved as-is.
+    _LABEL_ACRONYMS = {"uv": "UV", "uvs": "UVs", "id": "ID", "ui": "UI", "3d": "3D"}
+
+    # Modifier-order + Qt-modifier-name mapping are the ecosystem's shared, DCC-agnostic
+    # hotkey-token convention (mirrored by mayatk's own macros.py) -- sourced from
+    # ``ptk.HotkeyUtils`` (the SSoT) rather than duplicated here, so a fix to the
+    # conversion logic (e.g. the meta/cmd modifier mapping) can't drift between copies.
+    _MOD_ORDER = ptk.HotkeyUtils.MOD_ORDER
+    _QT_MOD_MAP = ptk.HotkeyUtils.QT_MOD_MAP
 
     # Maya key token -> Blender keymap ``type`` enum.
     _DIGITS = {
@@ -347,6 +390,10 @@ class MacroManager:
         "insert": "INSERT", "return": "RET", "enter": "RET", "space": "SPACE",
         "tab": "TAB", "delete": "DEL", "backspace": "BACK_SPACE",
     }
+    # Reverse of the above — Blender keymap ``type`` -> Maya-style key token —
+    # used to read a live keymap item back into a "ctl+sht+i"-style string.
+    _REV_DIGITS = {v: k for k, v in _DIGITS.items()}
+    _REV_SPECIAL = {v: k for k, v in _SPECIAL.items()}
     # Maya modifier token -> keymap_items.new kwarg.
     _MODIFIERS = {"ctl": "ctrl", "alt": "alt", "sht": "shift"}
 
@@ -397,17 +444,19 @@ class MacroManager:
     @classmethod
     def set_macro(cls, name, key=None, cat=None, ann=None):
         """Bind macro ``name`` to ``key`` (e.g. ``"ctl+sht+i"``) across the target keymaps so it
-        overrides the mode-specific defaults that would otherwise shadow it."""
+        overrides the mode-specific defaults that would otherwise shadow it. ``cat`` is stashed on
+        the keymap item's own ``category`` property (see the class docstring) so it round-trips
+        through :meth:`get_current_bindings` without a separate side-store.
+
+        Idempotent per-macro: any keymap item(s) already registered for ``name`` are cleared
+        first (mirrors mayatk's ``set_macro`` ``delete_existing=True`` guard), so re-binding the
+        same macro — to the same chord or a different one — can never duplicate or leave a ghost
+        keymap item behind."""
         if not key or not hasattr(Macros, name):
             return
-        mods = {"ctrl": False, "alt": False, "shift": False}
-        key_token = key
-        for part in key.split("+"):
-            mod = cls._MODIFIERS.get(part.strip().lower())
-            if mod:
-                mods[mod] = True
-            else:
-                key_token = part.strip()
+        cls.clear_hotkey(name)
+        ctl, alt, sht, key_token = cls._parse_key(key)
+        mods = {"ctrl": ctl, "alt": alt, "shift": sht}
         key_type = cls._blender_key(key_token)
 
         kc = bpy.context.window_manager.keyconfigs.addon
@@ -417,6 +466,7 @@ class MacroManager:
             km = kc.keymaps.new(name=km_name, space_type=space)
             kmi = km.keymap_items.new("btk.macro", type=key_type, value="PRESS", **mods)
             kmi.properties.macro = name
+            kmi.properties.category = cat or ""
             cls._KEYMAPS.append((km, kmi))
 
     @classmethod
@@ -428,6 +478,304 @@ class MacroManager:
             except (RuntimeError, ReferenceError):
                 pass
         cls._KEYMAPS.clear()
+
+    # ------------------------------------------------------------------
+    # Management API (UI-agnostic — fully functional without the panel)
+    # ------------------------------------------------------------------
+    # Mirror of mayatk's ``MacroManager`` management surface: the single source of
+    # truth for discovering, querying, applying, clearing, and persisting macro
+    # bindings. Both the ``MacroManagerSlots`` panel and ``tentacle_startup.py``
+    # are thin consumers; nothing here imports Qt. A *binding* is a
+    # ``{"key": <maya-style token>, "cat": <category>}`` dict; a *binding set* maps
+    # macro name -> binding and is exactly what a preset file stores.
+
+    @classmethod
+    def list_available_macros(cls) -> Dict[str, str]:
+        """Discover every ``m_*`` macro callable, mapped to its annotation.
+
+        Returns:
+            ``{macro_name: first_docstring_line}`` sorted by name. Pure class
+            introspection (no ``bpy``), so the panel can populate its table
+            without a live Blender.
+        """
+        macros = {}
+        for name in dir(cls):
+            if not name.startswith(cls.MACRO_PREFIX):
+                continue
+            try:
+                attr = inspect.getattr_static(cls, name)
+            except AttributeError:
+                continue
+            func = attr.__func__ if isinstance(attr, (staticmethod, classmethod)) else attr
+            if not callable(func):
+                continue
+            doc = (getattr(func, "__doc__", "") or "").strip()
+            macros[name] = doc.split("\n")[0].strip() if doc else ""
+        return dict(sorted(macros.items()))
+
+    @classmethod
+    def macro_label(cls, name: str) -> str:
+        """Humanize a macro name for display, e.g. ``m_back_face_culling`` ->
+        "Back Face Culling" (acronyms like ``UV`` / ``ID`` are preserved)."""
+        return ptk.HotkeyUtils.humanize_label(name, prefix=cls.MACRO_PREFIX, acronyms=cls._LABEL_ACRONYMS)
+
+    @classmethod
+    def macro_category(cls, name: str) -> str:
+        """Default category for a macro, derived from the ``*Macros`` mixin that
+        defines it (e.g. a method on :class:`DisplayMacros` -> ``"Display"``).
+
+        The defining mixin is the single source of truth for a macro's category,
+        so every discoverable macro has a sensible default with no per-macro
+        annotation to maintain. Returns ``""`` when *name* isn't defined on a
+        ``*Macros`` mixin.
+        """
+        for klass in cls.__mro__:
+            kname = klass.__name__
+            if kname.endswith("Macros") and kname != "Macros" and name in vars(klass):
+                stem = kname[: -len("Macros")]
+                return cls._LABEL_ACRONYMS.get(stem.lower(), stem)
+        return ""
+
+    @classmethod
+    def list_categories(cls) -> List[str]:
+        """Sorted distinct default categories across all discoverable macros.
+
+        Derived from the ``*Macros`` mixins (via :meth:`macro_category`) so the
+        category set never drifts from the code organization — adding a new
+        ``<Domain>Macros`` mixin contributes its category automatically.
+        """
+        cats = {cls.macro_category(name) for name in cls.list_available_macros()}
+        cats.discard("")
+        return sorted(cats)
+
+    @classmethod
+    def macro_help(cls, name: str) -> str:
+        """Return a macro's full (dedented) docstring — the single source of
+        truth for its UI tooltip. Empty string when the macro has no docstring."""
+        try:
+            attr = inspect.getattr_static(cls, name)
+        except AttributeError:
+            return ""
+        func = attr.__func__ if isinstance(attr, (staticmethod, classmethod)) else attr
+        return (inspect.getdoc(func) or "").strip()
+
+    @classmethod
+    def _live_keymap_bindings(cls) -> Dict[str, dict]:
+        """``{macro_name: {"key", "cat"}}`` read back from :attr:`_KEYMAPS` — the
+        keymap items THIS session has actually registered (see the class
+        docstring for why that, not a DCC-side registry, is "live" here)."""
+        bindings = {}
+        for km, kmi in cls._KEYMAPS:
+            try:
+                name = kmi.properties.macro
+            except ReferenceError:
+                continue
+            if not name or name in bindings:
+                continue  # a macro is bound identically into every target keymap
+            mods = []
+            if kmi.ctrl:
+                mods.append("ctl")
+            if kmi.alt:
+                mods.append("alt")
+            if kmi.shift:
+                mods.append("sht")
+            token = cls._REV_DIGITS.get(kmi.type) or cls._REV_SPECIAL.get(kmi.type)
+            if token is None:
+                token = kmi.type.lower() if len(kmi.type) == 1 else kmi.type
+            cat = getattr(kmi.properties, "category", "") or ""
+            bindings[name] = {"key": "+".join(mods + [token]), "cat": cat}
+        return bindings
+
+    @classmethod
+    def get_current_bindings(cls) -> Dict[str, dict]:
+        """Return the *live* key + category for every available macro.
+
+        Unbound macros report an empty ``key``; ``cat`` falls back to the
+        mixin-derived default (:meth:`macro_category`) so it is never empty.
+        """
+        live = cls._live_keymap_bindings()
+        bindings = {}
+        for name in cls.list_available_macros():
+            spec = live.get(name, {})
+            bindings[name] = {
+                "key": spec.get("key", ""),
+                "cat": spec.get("cat") or cls.macro_category(name),
+            }
+        return bindings
+
+    @classmethod
+    def apply_bindings(cls, bindings: Dict[str, dict]) -> None:
+        """Apply a binding set ``{name: {"key", "cat"}}``.
+
+        An entry with a falsy ``key`` clears that macro's hotkey instead of
+        setting one. :meth:`set_macro` remains the single low-level applier.
+        """
+        for name, spec in (bindings or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            key = spec.get("key")
+            cat = spec.get("cat")
+            if not key:
+                cls.clear_hotkey(name)
+                continue
+            cls.set_macro(name, key=key, cat=cat)
+
+    @classmethod
+    def clear_hotkey(cls, name: str, key: Optional[str] = None) -> None:
+        """Unbind ``name``'s hotkey across every keymap it was registered into
+        (``key`` is accepted for signature parity with mayatk but unused —
+        Blender's keymap items are found and removed by macro name, not key)."""
+        keep = []
+        for km, kmi in cls._KEYMAPS:
+            try:
+                match = kmi.properties.macro == name
+            except ReferenceError:
+                continue
+            if match:
+                try:
+                    km.keymap_items.remove(kmi)
+                except (RuntimeError, ReferenceError):
+                    pass
+            else:
+                keep.append((km, kmi))
+        cls._KEYMAPS = keep
+
+    @classmethod
+    def find_conflicts(cls, bindings: Dict[str, dict]) -> Dict[str, List[str]]:
+        """Return ``{normalized_key: [macro, ...]}`` for keys bound more than once."""
+        by_key = defaultdict(list)
+        for name, spec in (bindings or {}).items():
+            key = spec.get("key") if isinstance(spec, dict) else None
+            if key:
+                by_key[cls._normalize_key(key)].append(name)
+        return {k: v for k, v in by_key.items() if len(v) > 1}
+
+    # --- key-format helpers (pure string, bpy-free -- delegate to the shared,
+    # DCC-agnostic ptk.HotkeyUtils SSoT rather than reimplementing) -------
+
+    @staticmethod
+    def _parse_key(key: str) -> Tuple[bool, bool, bool, str]:
+        """Split a Maya-style key token into ``(ctl, alt, sht, key)``.
+
+        Modifiers (``ctl``/``alt``/``sht``) are matched case-insensitively; the
+        remaining token is the key itself (e.g. ``"i"``, ``"F3"``).
+        """
+        return ptk.HotkeyUtils.parse_key(key)
+
+    @classmethod
+    def _normalize_key(cls, key: str) -> str:
+        """Canonical form of a key token (sorted modifiers, key folded through the
+        same case-normalization :meth:`_blender_key` applies at registration).
+
+        Folding through :meth:`_blender_key` (rather than only lowercasing
+        single-character tokens) keeps this comparison in lockstep with what
+        actually collides in the Blender keymap: two tokens that differ only in
+        case — including multi-character ones like ``"f3"``/``"F3"`` or
+        ``"up"``/``"UP"`` — resolve to the identical Blender ``type`` enum at
+        registration, so they must also normalize identically here or
+        :meth:`find_conflicts` misses a real hotkey collision."""
+        ctl, alt, sht, k = cls._parse_key(key)
+        present = {"ctl": ctl, "alt": alt, "sht": sht}
+        mods = [m for m in cls._MOD_ORDER if present[m]]
+        k = cls._blender_key(k).lower() if k else k
+        return "+".join(mods + [k])
+
+    @classmethod
+    def qt_sequence_to_maya_key(cls, sequence: str) -> str:
+        """Convert a Qt key-sequence string (``"Ctrl+Shift+I"``) to the
+        Maya-style token :meth:`set_macro` accepts.
+
+        Returns ``""`` when *sequence* carries no non-modifier key.
+        """
+        return ptk.HotkeyUtils.qt_sequence_to_key(sequence)
+
+    @classmethod
+    def maya_key_to_qt_sequence(cls, key: str) -> str:
+        """Convert a Maya-style key token (``"ctl+sht+i"``) to a Qt key-sequence
+        string for display (``"Ctrl+Shift+I"``)."""
+        return ptk.HotkeyUtils.key_to_qt_sequence(key)
+
+    # --- preset persistence (PresetStore-backed, bpy-free) -------------
+
+    @classmethod
+    def _preset_store(cls) -> ptk.PresetStore:
+        """Two-tier store: shipped ``macro_manager/presets`` + a writable user tier.
+
+        Resolves to the same files the panel's ``uitk.PresetManager`` uses
+        (relative ``preset_dir="blendertk/macro_manager"``), so headless and
+        panel-driven usage share one source of truth.
+        """
+        builtin_dir = os.path.join(os.path.dirname(__file__), "macro_manager", "presets")
+        return ptk.PresetStore(cls.PRESET_NAME, package=cls.PRESET_PACKAGE, builtin_dir=builtin_dir)
+
+    @classmethod
+    def list_presets(cls) -> List[str]:
+        """Return all preset names (built-in + user, user shadows built-in)."""
+        return cls._preset_store().list()
+
+    @classmethod
+    def load_preset(cls, name: str) -> Dict[str, dict]:
+        """Return the binding set stored under *name* (``_meta`` stripped)."""
+        data = cls._preset_store().load(name)
+        return {k: v for k, v in data.items() if k != "_meta"}
+
+    @classmethod
+    def save_preset(cls, name: str, bindings: Optional[Dict[str, dict]] = None) -> str:
+        """Save *bindings* (default: the current bindings) as user preset *name*.
+
+        Sets *name* as the active preset and returns the written path (as str).
+        """
+        if bindings is None:
+            bindings = cls.get_current_bindings()
+        data = {"_meta": {"version": 1}}
+        data.update(bindings)
+        store = cls._preset_store()
+        path = store.save(name, data)
+        store.active = name
+        return str(path)
+
+    @classmethod
+    def delete_preset(cls, name: str) -> bool:
+        """Delete a *user* preset (built-ins are read-only). Returns success."""
+        return cls._preset_store().delete(name)
+
+    @classmethod
+    def get_active_preset(cls) -> Optional[str]:
+        """The last-selected/applied preset name, or ``None``."""
+        return cls._preset_store().active
+
+    @classmethod
+    def set_active_preset(cls, name: Optional[str]) -> None:
+        """Set (or clear, with ``None``) the active-preset pointer."""
+        cls._preset_store().active = name
+
+    @classmethod
+    def apply_saved_macros(cls, name: Optional[str] = None) -> None:
+        """Apply a saved preset/template's bindings on demand.
+
+        Resolution order: explicit *name* -> the persisted active preset ->
+        the shipped ``default`` template. A stale active pointer falls back to
+        ``default``. Loading an explicit *name* makes it active. This is what
+        ``tentacle_startup.py`` calls at Blender launch, exactly as mayatk's
+        ``userSetup.py`` calls the Maya macros — Blender's keymap edits don't
+        outlive the process on their own (see the class docstring), so this
+        call is what makes bindings "stick" across sessions rather than the
+        keyconfig itself.
+        """
+        store = cls._preset_store()
+        target = name or store.active or cls.DEFAULT_PRESET
+        try:
+            bindings = cls.load_preset(target)
+        except (KeyError, ValueError, OSError):
+            if target == cls.DEFAULT_PRESET:
+                return
+            try:
+                bindings = cls.load_preset(cls.DEFAULT_PRESET)
+            except (KeyError, ValueError, OSError):
+                return
+        cls.apply_bindings(bindings)
+        if name:
+            store.active = name
 
     @staticmethod
     def _ensure_operator():
@@ -442,6 +790,9 @@ class MacroManager:
             bl_label = "blendertk Macro"
             bl_options = {"REGISTER", "UNDO"}
             macro: bpy.props.StringProperty(name="Macro", default="")
+            # Data carrier only — never read by execute(); see the MacroManager
+            # class docstring (the Blender analogue of runTimeCommand's category).
+            category: bpy.props.StringProperty(name="Category", default="")
 
             def execute(self, context):
                 func = getattr(Macros, self.macro, None)

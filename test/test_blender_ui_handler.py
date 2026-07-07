@@ -29,6 +29,7 @@ PANELS = [
     "bevel",
     "bridge",
     "snap",
+    "macro_manager",
     "dynamic_pipe",
     "image_tracer",
     "curve_to_tube",
@@ -111,6 +112,7 @@ try:
         ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
         ("color_id", "ColorIdSlots"),  # __init__ (button groups + keep_square swatches) is bpy-free
         ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
+        ("macro_manager", "MacroManagerSlots"),  # __init__ + table/header/cmb _init are bpy-free
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
         ("hdr_manager", "HdrManagerSlots"),  # __init__ + header/cmb _init are bpy-free (os dir scan)
         ("dynamic_pipe", "DynamicPipeSlots"),  # __init__ (logging only) is bpy-free
@@ -163,6 +165,59 @@ try:
         and 'FBX_PATH = r"C:/t/x.fbx"' in rendered
         and "__" not in rendered,
     )
+
+    # macro_manager: table/filter/header wiring is entirely Qt-driven off the bpy-free
+    # MacroManager management API (list_available_macros/macro_category/get_current_bindings
+    # are pure introspection — see blendertk.edit_utils.macros) — so the panel should populate
+    # for real under the offscreen .venv, not just resolve to an empty stub.
+    mm_ui = sb.get_ui("macro_manager")
+    mm = getattr(mm_ui, "slots", None)
+    if mm is not None:
+        # tbl000_init (and the row_names/table it fills) is lazily triggered on first touch
+        # of ``ui.tbl000`` — touch it before reading anything table-derived, cmb000 included
+        # (tbl000_init also calls cmb000_init itself, so this alone settles both).
+        row_count = mm_ui.tbl000.rowCount()
+        macro_col_labels = {
+            mm_ui.tbl000.item(r, mm.COL_MACRO).text() for r in range(row_count)
+        }
+        row_names = set(mm._row_names)
+        check(
+            "macro_manager table populated from list_available_macros (bpy-free)",
+            "m_back_face_culling" in row_names and "m_frame" in row_names and row_count == len(row_names),
+            f"row_count={row_count} {sorted(row_names)}",
+        )
+        check(
+            "macro_manager humanizes macro names in the Macro column",
+            "Back Face Culling" in macro_col_labels,
+            f"{sorted(macro_col_labels)}",
+        )
+        cat_items = [mm_ui.cmb000.itemText(i) for i in range(mm_ui.cmb000.count())]
+        check(
+            "macro_manager category combo lists All + mixin-derived categories",
+            cat_items[:1] == ["All"] and {"Display", "Edit", "Selection"} <= set(cat_items),
+            f"{cat_items}",
+        )
+        check(
+            "macro_manager header menu wires Clear All / Reset to Default",
+            hasattr(mm_ui.header.menu, "hdr_clear_all")
+            and hasattr(mm_ui.header.menu, "hdr_reset_default"),
+        )
+        check(
+            "macro_manager installed the in-cell Category choice delegate",
+            mm._category_delegate is not None,
+        )
+        preset_combo = getattr(mm_ui.header.menu, "cmb_presets", None)
+        preset_items = (
+            [preset_combo.itemText(i) for i in range(preset_combo.count())]
+            if preset_combo else []
+        )
+        check(
+            "macro_manager preset combo lists the shipped 'default' preset",
+            "default" in preset_items,
+            f"{preset_items}",
+        )
+    else:
+        check("macro_manager exposes slots for the table check", False, "no slots")
 
     # curtain: the cmb000 preset selector is wired via uitk.PresetManager and populated from the
     # shipped built-in presets (proves the combo + builtin_dir work, not just "didn't error").
