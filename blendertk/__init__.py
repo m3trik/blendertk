@@ -166,6 +166,12 @@ DEFAULT_INCLUDE = {
     "env_utils.blender_connection": [
         "BlenderConnection",
     ],
+    # Script Output console — mirror of mayatk's ``env_utils.script_output``. Opens a native,
+    # dockable Info Log window (the anchor) and shadows it with a frameless ``uitk.ScriptOutput``
+    # skin (Route 2+); module-level ``show``/``toggle``/``hide`` drive it from the editors slot.
+    "env_utils.script_output": [
+        "ScriptConsole",
+    ],
     # Maya bridge engine — one-way send of the selection to a fresh Maya (the ``MayaBridgeSlots``
     # panel class is discovered by BlenderUiHandler, not registered). Counterpart of mayatk's
     # ``BlenderBridge``.
@@ -190,6 +196,12 @@ DEFAULT_INCLUDE = {
         "get_editor_types",
         "menu_exists",
         "call_native_menu",
+    ],
+    # Native-window geometry/owner helpers (win32) for shadowing a Qt overlay over a Blender
+    # window — backs ``env_utils.script_output``'s area-shadow skin. No bpy dependency (callers
+    # pass the region object). Exposed as a class to keep the flat ``btk.*`` namespace clean.
+    "ui_utils.blender_window": [
+        "BlenderWindow",
     ],
     "mat_utils._mat_utils": [
         "MatUtils",
