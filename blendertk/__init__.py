@@ -319,6 +319,12 @@ DEFAULT_INCLUDE = {
         "get_overlapping_faces",
         "get_overlapping_duplicates",
     ],
+    # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
+    # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"
+    # list in ``tentacle/slots/*/selection.py``.
+    "edit_utils.selection": [
+        "Selection",
+    ],
     # Array-duplication tools — one self-contained module per pattern (engine + co-located
     # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. The shared
     # object-array primitives live in ``_edit_utils``; the ``<Tool>Slots`` classes are
