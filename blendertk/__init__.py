@@ -320,6 +320,12 @@ DEFAULT_INCLUDE = {
     "anim_utils.blendshape_animator._blendshape_animator": [
         "BlendshapeAnimator",
     ],
+    # Audio Clips — scene-wide sound-strip CRUD over the Video Sequence Editor, mirror of
+    # mayatk's ``audio_utils`` (the ``AudioClipsSlots`` panel is discovered by
+    # ``BlenderUiHandler``, not registered here).
+    "audio_utils._audio_utils": [
+        "AudioUtils",
+    ],
     "edit_utils._edit_utils": [
         "EditUtils",
         "decimate",

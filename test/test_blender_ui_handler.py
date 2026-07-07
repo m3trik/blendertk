@@ -30,6 +30,7 @@ PANELS = [
     "bridge",
     "snap",
     "macro_manager",
+    "audio_clips",
     "blendshape_animator",
     "dynamic_pipe",
     "image_tracer",
@@ -114,6 +115,7 @@ try:
         ("color_id", "ColorIdSlots"),  # __init__ (button groups + keep_square swatches) is bpy-free
         ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
         ("macro_manager", "MacroManagerSlots"),  # __init__ + table/header/cmb _init are bpy-free
+        ("audio_clips", "AudioClipsSlots"),  # __init__ + cmb000/tb001/b004 _init are bpy-free (list refresh guarded)
         ("blendshape_animator", "BlendshapeAnimatorSlots"),  # __init__ + header/b000/cmb000/le001/b001/b004/b006/b008 _init are bpy-free (tree stays empty without bpy)
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
         ("hdr_manager", "HdrManagerSlots"),  # __init__ + header/cmb _init are bpy-free (os dir scan)
@@ -220,6 +222,42 @@ try:
         )
     else:
         check("macro_manager exposes slots for the table check", False, "no slots")
+
+    # audio_clips: no bpy under the offscreen .venv, so the clips combo/spinboxes degrade to
+    # empty/zero (guarded via _has_bpy()) rather than raising — verify the degrade AND that the
+    # Qt-only option-box wiring (management menu buttons, Move's select/refresh actions, Sync
+    # Scene Range's checkbox) still fully materializes.
+    ac_ui = sb.get_ui("audio_clips")
+    ac = getattr(ac_ui, "slots", None)
+    if ac is not None:
+        check(
+            "audio_clips cmb000 degrades to empty (no bpy) without raising",
+            ac_ui.cmb000.count() == 0,
+        )
+        check(
+            "audio_clips trim spinboxes degrade to 0 (no bpy)",
+            ac_ui.s000.value() == 0 and ac_ui.s001.value() == 0,
+        )
+        cmb_menu = ac_ui.cmb000.option_box.menu
+        check(
+            "audio_clips cmb000 option box wires the clip-management menu",
+            all(hasattr(cmb_menu, n) for n in (
+                "btn_rename_track", "btn_replace_track", "btn_remove_selected", "btn_remove_audio",
+            )),
+        )
+        from uitk.widgets.optionBox.options.action import ActionOption
+
+        check(
+            "audio_clips tb001 option box wires reveal (select) + sync (refresh) actions",
+            ac_ui.tb001.option_box.find_option(ActionOption) is not None,
+        )
+        check(
+            "audio_clips b004 option box wires Extend Only (default checked)",
+            hasattr(ac_ui.b004.option_box.menu, "chk_extend_only")
+            and ac_ui.b004.option_box.menu.chk_extend_only.isChecked(),
+        )
+    else:
+        check("audio_clips exposes slots for the option-box check", False, "no slots")
 
     # curtain: the cmb000 preset selector is wired via uitk.PresetManager and populated from the
     # shipped built-in presets (proves the combo + builtin_dir work, not just "didn't error").
