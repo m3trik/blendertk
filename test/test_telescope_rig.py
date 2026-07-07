@@ -141,5 +141,6 @@ except Exception:
 
 failed = sum(1 for ln in lines if ln.startswith("FAIL"))
 print("\n".join(lines))
-print(f"===RESULT=== {len(lines) - failed}/{len(lines)} passed")
+result = "PASS" if not failed and lines else "FAIL"
+print(f"===RESULT: {result}=== ({len(lines) - failed}/{len(lines)})")
 sys.exit(1 if failed else 0)

@@ -105,16 +105,31 @@ try:
     class _LE:
         def __init__(self, t): self._t = t
         def text(self): return self._t
+        def setText(self, t): self._t = t
+        def setPlaceholderText(self, t): pass
 
     class _Cmb:
         def currentIndex(self): return 1  # Move Y -> Rotate Y
+        def clear(self): pass
+        def addItems(self, items): pass
+        def setCurrentIndex(self, idx): pass
+
+    class _Chk:
+        def isChecked(self): return False
+
+    class _Btn:
+        def __init__(self): self.clicked = _Sig()
+        def setToolTip(self, t): pass
 
     class _UI:
         def __init__(self):
-            self.b000 = type("B", (), {"clicked": _Sig()})()
+            self.b000 = _Btn()
             self.s000 = _LE("2.0")
             self.cmb000 = _Cmb()
             self.txt000 = _LE("")
+            self.chk010 = _Chk()
+            self.on_close = _Sig()
+            self.destroyed = _Sig()
 
     class _SB:
         def __init__(self, ui):
@@ -129,9 +144,9 @@ try:
         o.select_set(True)
     bpy.context.view_layer.objects.active = ctrl   # control = active (last)
     sb = _SB(_UI())
-    WheelRigSlots(sb).wheel_rig()
-    check("Slots.wheel_rig: no error", not sb.messages, f"msgs={sb.messages}")
-    check("Slots.wheel_rig: wheels driven (rotation_euler[1])",
+    WheelRigSlots(sb).b000()
+    check("Slots.b000: no error", not sb.messages, f"msgs={sb.messages}")
+    check("Slots.b000: wheels driven (rotation_euler[1])",
           rot_driver(wa, 1) is not None and rot_driver(wb, 1) is not None)
 
 except Exception:
@@ -139,5 +154,6 @@ except Exception:
 
 failed = sum(1 for ln in lines if ln.startswith("FAIL"))
 print("\n".join(lines))
-print(f"===RESULT=== {len(lines) - failed}/{len(lines)} passed")
+result = "PASS" if not failed and lines else "FAIL"
+print(f"===RESULT: {result}=== ({len(lines) - failed}/{len(lines)})")
 sys.exit(1 if failed else 0)

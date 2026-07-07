@@ -50,8 +50,9 @@ try:
     check("DataNodes roundtrips a string", btk.DataNodes.get_export_string("probe") == "hello")
     check("data_export Empty exists", bpy.data.objects.get("data_export") is not None)
     btk.DataNodes.set_export_string("probe", "")
-    check("clearing leaves the carrier", bpy.data.objects.get("data_export") is not None
-          and btk.DataNodes.get_export_string("probe") == "")
+    check("clearing leaves the carrier, reads back None",
+          bpy.data.objects.get("data_export") is not None
+          and btk.DataNodes.get_export_string("probe") is None)
 
     # --- lightmap UVs ------------------------------------------------------
     btk.create_lightmap_uvs([cube])

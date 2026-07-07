@@ -2,12 +2,15 @@
 <ui version="4.0">
  <class>QtUi</class>
  <widget class="QMainWindow" name="QtUi">
+  <property name="enabled">
+   <bool>true</bool>
+  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
     <width>240</width>
-    <height>240</height>
+    <height>292</height>
    </rect>
   </property>
   <property name="tabShape">
@@ -27,6 +30,9 @@
     </size>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>2</number>
+    </property>
     <property name="leftMargin">
      <number>2</number>
     </property>
@@ -39,13 +45,25 @@
     <property name="bottomMargin">
      <number>2</number>
     </property>
-    <property name="spacing">
-     <number>2</number>
-    </property>
     <item>
      <layout class="QVBoxLayout" name="main_layout">
       <property name="spacing">
        <number>1</number>
+      </property>
+      <property name="sizeConstraint">
+       <enum>QLayout::SetFixedSize</enum>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
       </property>
       <item>
        <widget class="Header" name="header">
@@ -57,7 +75,7 @@
         </property>
         <property name="maximumSize">
          <size>
-          <width>16777215</width>
+          <width>999</width>
           <height>19</height>
          </size>
         </property>
@@ -74,6 +92,18 @@
       </item>
       <item>
        <widget class="QGroupBox" name="main_group">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>165</height>
+         </size>
+        </property>
         <property name="title">
          <string/>
         </property>
@@ -115,51 +145,6 @@
              <number>0</number>
             </property>
             <item>
-             <layout class="QHBoxLayout" name="folder_layout">
-              <property name="spacing">
-               <number>1</number>
-              </property>
-              <item>
-               <widget class="LineEdit" name="txt000">
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>19</height>
-                 </size>
-                </property>
-                <property name="toolTip">
-                 <string>Folder scanned for HDR maps (.hdr / .exr).</string>
-                </property>
-                <property name="placeholderText">
-                 <string>HDR folder…</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="b001">
-                <property name="minimumSize">
-                 <size>
-                  <width>24</width>
-                  <height>19</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>24</width>
-                  <height>19</height>
-                 </size>
-                </property>
-                <property name="toolTip">
-                 <string>Browse for the HDR folder.</string>
-                </property>
-                <property name="text">
-                 <string>…</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
              <widget class="ComboBox" name="cmb000">
               <property name="minimumSize">
                <size>
@@ -169,13 +154,88 @@
               </property>
               <property name="maximumSize">
                <size>
-                <width>16777215</width>
+                <width>999</width>
                 <height>19</height>
                </size>
               </property>
               <property name="toolTip">
-               <string>Select an HDR map from the folder above.</string>
+               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select an HDR map from the folder set via the header menu (&#9656; Set HDR Folder…).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
               </property>
+              <property name="editable">
+               <bool>false</bool>
+              </property>
+              <property name="maxVisibleItems">
+               <number>30</number>
+              </property>
+              <property name="maxCount">
+               <number>200</number>
+              </property>
+              <property name="insertPolicy">
+               <enum>QComboBox::InsertAtTop</enum>
+              </property>
+              <property name="sizeAdjustPolicy">
+               <enum>QComboBox::AdjustToContents</enum>
+              </property>
+              <property name="frame">
+               <bool>false</bool>
+              </property>
+              <item>
+               <property name="text">
+                <string>&lt;HDR Map&gt;</string>
+               </property>
+              </item>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="hdr_rotation_group">
+              <property name="title">
+               <string>HDR Rotation</string>
+              </property>
+              <layout class="QHBoxLayout" name="horizontalLayout_9">
+               <property name="spacing">
+                <number>0</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>1</number>
+               </property>
+               <item>
+                <widget class="Slider" name="slider000">
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>19</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>19</height>
+                  </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Rotate the HDR environment around Z (0–360°). Option box (▸): exact angle, plus a render-visibility toggle.</string>
+                 </property>
+                 <property name="minimum">
+                  <number>0</number>
+                 </property>
+                 <property name="maximum">
+                  <number>360</number>
+                 </property>
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </widget>
             </item>
            </layout>
@@ -183,13 +243,22 @@
          </item>
          <item>
           <widget class="QGroupBox" name="hdr_levels_group">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>74</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>74</height>
+            </size>
+           </property>
            <property name="title">
             <string>HDR Levels</string>
            </property>
            <layout class="QVBoxLayout" name="verticalLayout_3">
-            <property name="spacing">
-             <number>1</number>
-            </property>
             <property name="leftMargin">
              <number>0</number>
             </property>
@@ -203,15 +272,21 @@
              <number>0</number>
             </property>
             <item>
-             <widget class="QDoubleSpinBox" name="spn_intensity">
+             <widget class="DoubleSpinBox" name="spn_intensity">
               <property name="minimumSize">
                <size>
                 <width>0</width>
                 <height>19</height>
                </size>
               </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>19</height>
+               </size>
+              </property>
               <property name="toolTip">
-               <string>Linear multiplier on the environment's light output. 1.0 = unchanged.</string>
+               <string>Linear multiplier on the world environment's light output. 1.0 = unchanged.</string>
               </property>
               <property name="prefix">
                <string>Intensity:	</string>
@@ -234,10 +309,16 @@
              </widget>
             </item>
             <item>
-             <widget class="QDoubleSpinBox" name="spn_exposure">
+             <widget class="DoubleSpinBox" name="spn_exposure">
               <property name="minimumSize">
                <size>
                 <width>0</width>
+                <height>19</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
                 <height>19</height>
                </size>
               </property>
@@ -264,54 +345,11 @@
               </property>
              </widget>
             </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="hdr_rotation_group">
-           <property name="title">
-            <string>HDR Rotation</string>
-           </property>
-           <layout class="QHBoxLayout" name="horizontalLayout_9">
-            <property name="spacing">
-             <number>0</number>
-            </property>
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>1</number>
-            </property>
             <item>
-             <widget class="QSlider" name="slider000">
-              <property name="minimumSize">
-               <size>
-                <width>0</width>
-                <height>19</height>
-               </size>
+             <widget class="SpinBox" name="spn_resolution">
+              <property name="enabled">
+               <bool>false</bool>
               </property>
-              <property name="toolTip">
-               <string>Rotate the HDR environment around Z (0–360°).</string>
-              </property>
-              <property name="minimum">
-               <number>0</number>
-              </property>
-              <property name="maximum">
-               <number>360</number>
-              </property>
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QCheckBox" name="chk000">
               <property name="minimumSize">
                <size>
                 <width>0</width>
@@ -320,80 +358,27 @@
               </property>
               <property name="maximumSize">
                <size>
-                <width>60</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="toolTip">
-               <string>Set the HDR map visibility (off = transparent render background; the HDR still lights the scene).</string>
-              </property>
-              <property name="text">
-               <string>Visible</string>
-              </property>
-              <property name="checked">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="hdr_affects_group">
-           <property name="title">
-            <string>Affects (Cycles)</string>
-           </property>
-           <layout class="QHBoxLayout" name="horizontalLayout_affects">
-            <property name="spacing">
-             <number>0</number>
-            </property>
-            <property name="leftMargin">
-             <number>0</number>
-            </property>
-            <property name="topMargin">
-             <number>0</number>
-            </property>
-            <property name="rightMargin">
-             <number>0</number>
-            </property>
-            <property name="bottomMargin">
-             <number>0</number>
-            </property>
-            <item>
-             <widget class="QCheckBox" name="chk_diffuse">
-              <property name="minimumSize">
-               <size>
-                <width>0</width>
+                <width>16777215</width>
                 <height>19</height>
                </size>
               </property>
               <property name="toolTip">
-               <string>Whether the HDR contributes to diffuse lighting (Cycles ray visibility — Arnold's aiDiffuse). EEVEE ignores this.</string>
+               <string>Arnold-only: HDR importance-sampling resolution has no Blender analogue — Cycles importance-samples the world environment automatically (no per-light resolution knob), and EEVEE has no equivalent either. Disabled.</string>
               </property>
-              <property name="text">
-               <string>Diffuse</string>
+              <property name="prefix">
+               <string>Resolution:	</string>
               </property>
-              <property name="checked">
-               <bool>true</bool>
+              <property name="minimum">
+               <double>1.000000000000000</double>
               </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QCheckBox" name="chk_glossy">
-              <property name="minimumSize">
-               <size>
-                <width>0</width>
-                <height>19</height>
-               </size>
+              <property name="maximum">
+               <double>16384.000000000000000</double>
               </property>
-              <property name="toolTip">
-               <string>Whether the HDR contributes to glossy/specular reflections (Cycles ray visibility — Arnold's aiSpecular). EEVEE ignores this.</string>
+              <property name="singleStep">
+               <double>256.000000000000000</double>
               </property>
-              <property name="text">
-               <string>Glossy</string>
-              </property>
-              <property name="checked">
-               <bool>true</bool>
+              <property name="value">
+               <double>1000.000000000000000</double>
               </property>
              </widget>
             </item>
@@ -402,6 +387,154 @@
          </item>
         </layout>
        </widget>
+      </item>
+      <item>
+       <widget class="CollapsableGroup" name="hdr_advanced_group">
+        <property name="title">
+         <string>Advanced Options</string>
+        </property>
+        <property name="checked">
+         <bool>false</bool>
+        </property>
+        <layout class="QVBoxLayout" name="advancedLayout">
+         <property name="spacing">
+          <number>1</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="SpinBox" name="spn_samples">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Arnold-only: per-light sample count (aiSamples) has no Blender analogue — Cycles samples globally (viewport/render sample counts in Render Properties), with no per-light override. Disabled.</string>
+           </property>
+           <property name="prefix">
+            <string>Samples:	</string>
+           </property>
+           <property name="minimum">
+            <double>1.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>100.000000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="DoubleSpinBox" name="spn_diffuse">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Whether the world environment contributes to diffuse lighting (Cycles ray visibility — Arnold's continuous aiDiffuse has no Blender equivalent, so 0 disables it and any value &gt;0 enables it). EEVEE ignores this.</string>
+           </property>
+           <property name="prefix">
+            <string>Diffuse:	</string>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+           <property name="minimum">
+            <double>0.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>10.000000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>0.100000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="DoubleSpinBox" name="spn_specular">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Whether the world environment contributes to glossy/specular reflections (Cycles ray visibility — Arnold's continuous aiSpecular has no Blender equivalent, so 0 disables it and any value &gt;0 enables it). EEVEE ignores this.</string>
+           </property>
+           <property name="prefix">
+            <string>Specular:	</string>
+           </property>
+           <property name="decimals">
+            <number>3</number>
+           </property>
+           <property name="minimum">
+            <double>0.000000000000000</double>
+           </property>
+           <property name="maximum">
+            <double>10.000000000000000</double>
+           </property>
+           <property name="singleStep">
+            <double>0.100000000000000</double>
+           </property>
+           <property name="value">
+            <double>1.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <spacer name="verticalSpacer">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>0</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
       </item>
       <item>
        <widget class="Footer" name="footer" native="true">
@@ -426,14 +559,14 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>Header</class>
-   <extends>QLabel</extends>
-   <header>uitk.widgets.header.Header.h</header>
-  </customwidget>
-  <customwidget>
    <class>Footer</class>
    <extends>QWidget</extends>
    <header>uitk.widgets.footer</header>
+  </customwidget>
+  <customwidget>
+   <class>Header</class>
+   <extends>QLabel</extends>
+   <header>uitk.widgets.header.Header.h</header>
   </customwidget>
   <customwidget>
    <class>ComboBox</class>
@@ -441,11 +574,44 @@
    <header>uitk.widgets.comboBox.ComboBox.h</header>
   </customwidget>
   <customwidget>
-   <class>LineEdit</class>
-   <extends>QLineEdit</extends>
-   <header>uitk.widgets.lineEdit</header>
+   <class>DoubleSpinBox</class>
+   <extends>QDoubleSpinBox</extends>
+   <header>uitk.widgets.doubleSpinBox.DoubleSpinBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>SpinBox</class>
+   <extends>QDoubleSpinBox</extends>
+   <header>uitk.widgets.spinBox.SpinBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>Slider</class>
+   <extends>QSlider</extends>
+   <header>uitk.widgets.slider.Slider.h</header>
+  </customwidget>
+  <customwidget>
+   <class>CollapsableGroup</class>
+   <extends>QGroupBox</extends>
+   <header>uitk.widgets.collapsableGroup.CollapsableGroup.h</header>
+   <container>1</container>
   </customwidget>
  </customwidgets>
  <resources/>
  <connections/>
+ <designerdata>
+  <property name="gridDeltaX">
+   <number>5</number>
+  </property>
+  <property name="gridDeltaY">
+   <number>5</number>
+  </property>
+  <property name="gridSnapX">
+   <bool>true</bool>
+  </property>
+  <property name="gridSnapY">
+   <bool>true</bool>
+  </property>
+  <property name="gridVisible">
+   <bool>true</bool>
+  </property>
+ </designerdata>
 </ui>

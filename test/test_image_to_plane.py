@@ -21,6 +21,7 @@ def check(name, cond, detail=""):
 
 try:
     import bpy
+    import pythontk as ptk
     import blendertk as btk
     from blendertk.mat_utils.image_to_plane._image_to_plane import ImageToPlane
     from blendertk.mat_utils.image_to_plane.image_to_plane_slots import ImageToPlaneSlots
@@ -108,10 +109,12 @@ try:
     check("plane object gone", "wide" not in bpy.data.objects)
     check("orphaned material cleaned up", mat_name not in bpy.data.materials)
 
-    # ---- slot affix resolution ----------------------------------------------------------------
-    check("affix empty → _MAT suffix", ImageToPlaneSlots._resolve_affix("") == ("", "_MAT"))
-    check("affix '_MAT' → suffix", ImageToPlaneSlots._resolve_affix("_MAT") == ("", "_MAT"))
-    check("affix 'MAT_' → prefix", ImageToPlaneSlots._resolve_affix("MAT_") == ("MAT_", ""))
+    # ---- affix resolution: the slot delegates to pythontk's split_affix primitive -------------
+    # (the Qt option-box wiring itself is covered by uitk's test_affix_option; here we assert the
+    # library behaviour the slot relies on, so this stays runnable in the no-Qt Blender harness).
+    check("affix '_MAT' → suffix", ptk.StrUtils.split_affix("_MAT", mode="auto", default="suffix") == ("", "_MAT"))
+    check("affix 'MAT_' → prefix", ptk.StrUtils.split_affix("MAT_", mode="auto", default="suffix") == ("MAT_", ""))
+    check("affix empty → no split", ptk.StrUtils.split_affix("", mode="auto", default="suffix") == ("", ""))
 
     # ---- slot _create_planes over a stubbed UI (queue → engine) -------------------------------
     class _List:
@@ -127,6 +130,13 @@ try:
     class _Header:
         def __init__(self):
             self.menu = _Menu()
+    class _OptBox:
+        """Minimal option-box stub mirroring the real ``resolve_affix`` delegation."""
+        affix_mode = "auto"
+        def __init__(self, field):
+            self._field = field
+        def resolve_affix(self, *, default="prefix"):
+            return ptk.StrUtils.split_affix(self._field.text(), mode="auto", default=default)
     class _Field:
         def __init__(self, v):
             self._v = v
@@ -136,6 +146,9 @@ try:
             return self._v
         def setText(self, t):
             self._v = t
+        @property
+        def option_box(self):
+            return _OptBox(self)
 
     reset()
     ui = type("U", (), {})()

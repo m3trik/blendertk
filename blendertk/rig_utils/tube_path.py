@@ -64,6 +64,20 @@ class TubePath:
             evaluated.to_mesh_clear()
 
     @staticmethod
+    def get_selected_edges(mesh):
+        """The mesh's selected EDIT-mode edges — mirror of mayatk's optional
+        ``cmds.filterExpand(selectionMask=32)`` edge override for ``get_centerline``. Returns
+        ``None`` when *mesh* isn't in Edit Mode or has no edge selection, so callers can pass the
+        result straight through to :meth:`get_centerline`'s ``edges=`` (falsy → ignored)."""
+        if getattr(mesh, "mode", None) != "EDIT":
+            return None
+        import bmesh
+
+        bm = bmesh.from_edit_mesh(mesh.data)
+        sel = [e for e in bm.edges if e.select]
+        return sel or None
+
+    @staticmethod
     def get_centerline_using_edges(mesh, edges):
         """Centerline from an explicit edge selection — mirror of mayatk's
         ``get_centerline_using_edges``. Each edge contributes its two endpoints (world space); the

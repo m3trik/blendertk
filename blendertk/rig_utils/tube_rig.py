@@ -1,9 +1,9 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies).
+"""Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 
 Rigs a tube-shaped mesh **multiple ways** through a strategy registry, mirroring Maya's
-``TubeStrategy`` / ``RIG_MODES`` design (the structure the user asked to keep):
+``TubeStrategy`` / ``RIG_MODES`` design at the name + behavior level:
 
 - :class:`SplineIKStrategy` — *Spline (Hose/Cable)*: a bone chain fit to a driver curve via Blender's
   **Spline IK** bone constraint; a few control Empties hook the curve's points (live reshape, the
@@ -14,19 +14,29 @@ Rigs a tube-shaped mesh **multiple ways** through a strategy registry, mirroring
   **are** the controls (curve ``custom_shape``s make them grabbable; rotating one carries its
   descendants), the most Blender-idiomatic FK.
 
-**Architecture (HYBRID, confirmed with the user):** each strategy *declares its options* as plain
-Qt-free **dicts** (``AttributeSpec`` kwargs — see :data:`SplineIKStrategy.options`). The engine stays
-Qt-free (Blender ``--background`` has no Qt binding, and ``uitk.bridge.spec`` imports Qt), so the
-options data lives here while ``TubeRigSlots`` (Qt side) turns each dict into an ``AttributeSpec`` +
-``make_widget`` to rebuild the options body per selected strategy. Adding a rig type = subclass
-:class:`TubeStrategy` + :func:`register_strategy` + its option dicts — no ``.ui`` edits, the
-extensibility Maya's registry gives.
+Each strategy still *declares its options* as plain Qt-free **dicts** (``AttributeSpec``-shaped —
+see :data:`SplineIKStrategy.options`); the engine stays Qt-free (Blender ``--background`` has no Qt
+binding) and ``TubeStrategy.resolve``/``defaults`` use them to fill in a one-shot ``build()`` call's
+missing kwargs. Adding a rig type = subclass :class:`TubeStrategy` + :func:`register_strategy` — no
+``.ui`` edits needed to use it from code; ``register_strategy`` is a genuine blendertk-only
+extension point mayatk's hardcoded ``if strategy == …`` dispatch doesn't have.
+
+``tube_rig.ui`` is now a **verbatim mirror of mayatk's** (same objectNames/layout: a toolbox with
+Step 1 *Create Joints* / Step 2 *Create IK & Controls* / Step 3 *Bind Skin* / *Utility* / *One-Click
+Rig* pages), so :class:`TubeRigSlots` also exposes the **granular step-workflow** mayatk does —
+:meth:`TubeRig.create_joint_chain` (Step 1) and :meth:`TubeRig.attach_spline_rig` (Step 2, spline
+mode) operate on an EXISTING bone chain the same way the one-shot strategies' internal steps do,
+just callable standalone. ``chk_twist``/``chk_squash``/``chk_volume``/``chk_auto_bend`` and ``b004``
+(falloff-weighted end constraints) stay disabled — those need a squash/twist/volume driver system or
+a new per-vertex weight-blend algorithm that doesn't exist here yet (``# TODO(blender-parity)`` at
+each wiring point in :class:`TubeRigSlots`).
 
 Divergences vs Maya (documented for parity): Maya joints → Armature **bones** (``RigUtils`` armature
 primitives), ``ikSplineSolver`` → the **Spline IK** constraint, ``skinCluster`` → **Armature-deform +
-auto weights**, separate FK control objects → **bones-as-controls** with custom shapes. The
-centerline comes from the shared :class:`~blendertk.rig_utils.tube_path.TubePath`. ``import bpy`` is
-deferred into the call bodies.
+auto weights**, separate FK control objects → **bones-as-controls** with custom shapes, Maya's
+per-mesh ``TubeRig`` UUID cache → none yet (each call resolves fresh from the current selection,
+same end-user model, no cross-call rig registry). The centerline comes from the shared
+:class:`~blendertk.rig_utils.tube_path.TubePath`. ``import bpy`` is deferred into the call bodies.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -211,10 +221,14 @@ class TubeRig(ptk.LoggingMixin):
         return users[0] if users else bpy.context.collection
 
     # -- shared building blocks ------------------------------------------------
-    def resolve_centerline(self, num_joints):
+    def resolve_centerline(self, num_joints, precision=None, edges=None):
         """The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a
-        resolvable tube — the guard every strategy shares."""
-        pts, _ = TubePath.get_centerline(self.mesh, int(num_joints))
+        resolvable tube — the guard every strategy shares. *precision*/*edges* thread straight
+        through to :meth:`TubePath.get_centerline` (edges = an explicit edge-selection override,
+        e.g. :meth:`TubePath.get_selected_edges` — mayatk's optional ``filterExpand`` edge pick)."""
+        pts, _ = TubePath.get_centerline(
+            self.mesh, int(num_joints), precision=precision, edges=edges
+        )
         if len(pts) < 2:
             raise ValueError("TubeRig: could not extract a centerline from the mesh.")
         return pts
@@ -225,14 +239,55 @@ class TubeRig(ptk.LoggingMixin):
         )
         return self._root
 
-    def create_armature(self, centerline):
+    def create_armature(self, centerline, radius=None):
         """Armature + bone chain along *centerline*, parented under the rig root. Returns
-        ``(armature_obj, bone_names)``."""
+        ``(armature_obj, bone_names)``. *radius* (optional) sets each bone's display radius
+        (Maya's per-joint ``.radius``) — see :meth:`RigUtils.add_bone_chain`."""
         arm = RigUtils.create_armature(f"{self.rig_name}_arm", collection=self.collection)
-        bones = RigUtils.add_bone_chain(arm, centerline, prefix=f"{self.rig_name}_jnt")
+        bones = RigUtils.add_bone_chain(
+            arm, centerline, prefix=f"{self.rig_name}_jnt", radius=radius
+        )
         if self._root:
             RigUtils.parent_keep_transform(arm, self._root)
         return arm, bones
+
+    def create_joint_chain(self, centerline, radius=1.0, reverse=False):
+        """Bones-only build step — mirror of mayatk's ``generate_joint_chain`` + lazy
+        ``rig_group`` (the granular workflow's Step 1: joints with no curve/controls/bind yet).
+        Creates the rig root on first use if one doesn't already exist on this instance. Returns
+        ``(armature_obj, bone_names)`` — see :meth:`create_armature`."""
+        pts = list(reversed(centerline)) if reverse else list(centerline)
+        if self._root is None:
+            self.create_root()
+        return self.create_armature(pts, radius=radius)
+
+    def attach_spline_rig(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True):
+        """Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's
+        granular Step 2 (the 'spline' branch of ``b002``), which adds IK/controls onto joints a
+        prior step already created, instead of building the armature itself (that's
+        :meth:`create_armature`, used by the one-shot strategies). Reparents *armature* under a
+        fresh rig root if this ``TubeRig`` doesn't have one yet (e.g. *armature* came from the
+        user's own selection rather than :meth:`create_joint_chain`). Returns ``(curve, controls)``.
+        """
+        import bpy
+
+        if self._root is None:
+            self.create_root()
+            RigUtils.parent_keep_transform(armature, self._root)
+        bpy.context.view_layer.update()
+        mw = armature.matrix_world
+        data_bones = armature.data.bones
+        centerline = [mw @ data_bones[b].head_local for b in bones]
+        centerline.append(mw @ data_bones[bones[-1]].tail_local)
+
+        curve = self.build_curve(centerline, int(num_controls))
+        RigUtils.parent_keep_transform(curve, self._root)
+        RigUtils.add_spline_ik(
+            armature, bones[-1], curve, chain_count=len(bones),
+            y_scale_mode=("FIT_CURVE" if enable_stretch else "BONE_ORIGINAL"),
+        )
+        controls = self.hook_curve_controls(curve, float(radius), self._root)
+        return curve, controls
 
     def build_curve(self, points, count):
         """A low-res NURBS driver curve (``count`` control points resampled along *points*) for the

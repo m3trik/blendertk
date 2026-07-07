@@ -76,10 +76,18 @@ try:
     check("levels-only update applies", abs(state["strength"] - 3.0) < 1e-6
           and abs(state["rotation"] - 45.0) < 1e-4 and state["visible"])
 
-    # ---- levels-only with nothing assigned -> ValueError
+    # ---- clear removes the managed env / mapping / coord nodes (Clear Network)
+    check("clear removes a managed environment", btk.clear_world_hdri() is True)
+    check("get is None after clear", btk.get_world_hdri() is None)
+    check("cleared nodes are gone",
+          nt.nodes.get("btk_hdri_env") is None
+          and nt.nodes.get("btk_hdri_mapping") is None)
+    check("clear on an already-clear world returns False",
+          btk.clear_world_hdri() is False)
+
+    # ---- levels-only with nothing assigned -> ValueError (env node already cleared above)
     for img in list(bpy.data.images):
         bpy.data.images.remove(img)
-    nt.nodes.remove(nt.nodes["btk_hdri_env"])
     try:
         btk.set_world_hdri(None)
         check("levels-only without a map raises", False)

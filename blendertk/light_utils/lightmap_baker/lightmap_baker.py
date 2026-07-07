@@ -32,6 +32,16 @@ Two bake levels, both non-destructive and exposed in the panel:
 
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only
 :class:`LightmapBakerSlots` touches Qt, lazily.
+
+The ``.ui`` is a verbatim copy of mayatk's — same objectNames (``cmb_scope``, ``cmb001``,
+``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``, ``txt000``, ``b000``) — now that
+uitk host-namespaces the QSettings branch per DCC (``Switchboard.add_ui`` /
+``MainWindow._relative_state`` via ``context_tags``), identical objectNames across mayatk's
+and blendertk's copy of the same panel no longer collide in the shared "uitk"/"shared"
+registry root, so there is no need to renumber widgets to dodge it. The one structural gap —
+``cmb002``'s "Atlas by Material" item has no engine behind it yet — is disabled at the item
+level (see :meth:`LightmapBakerSlots._disable_unsupported_packing_mode`), not by hiding the
+whole combo; "Per-Object" is fully functional today.
 """
 import json
 import os
@@ -230,6 +240,13 @@ class LightmapBaker(ptk.LoggingMixin):
         Per object stamps a small JSON marker (:attr:`LIGHTMAP_INFO_PROP`), then republishes
         the scene-wide manifest onto the shared ``data_export`` carrier so it rides the FBX for
         unitytk. ``mapping`` is ``{object_name: lightmap_path}``. Returns the recorded subset.
+
+        ``scale_offsets`` is the atlas-consolidation hook (mirrors mayatk's ``pack_atlas``
+        output shape): ``{object_name: [scaleX, scaleY, offsetX, offsetY]}``. blendertk has no
+        atlas packer yet (the panel's "Atlas by Material" item is disabled — see
+        ``LightmapBakerSlots._disable_unsupported_packing_mode``), so callers only ever pass the
+        per-object identity mapping today; the parameter stays so the metadata carrier and a
+        future :meth:`pack_atlas` port need no signature change.
         """
         import bpy
 
@@ -425,9 +442,11 @@ class LightmapBaker(ptk.LoggingMixin):
 class LightmapBakerSlots(ptk.LoggingMixin):
     """Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
 
-    A thin driver over :class:`LightmapBaker` (composition; no bake logic here). **Bake
-    Lightmaps** (``b000``) runs revert -> bake -> commit for the selection; the **Mode**
-    combobox (``cmb001``) picks the level:
+    A thin driver over :class:`LightmapBaker` (composition; no bake logic here). Mirrors
+    mayatk's ``LightmapBakerSlots`` 1:1 (same method names / signal-connection order); the one
+    spot where the engines currently diverge is noted below. **Bake Lightmaps** (``b000``) runs
+    revert -> bake -> commit for the selection; the **Mode** combobox (``cmb001``) picks the
+    level:
 
     * **Lighting Only** (default) — :meth:`~LightmapBaker.bake_separated` +
       :meth:`~LightmapBaker.commit_lightmap`. Keeps the full PBR material; bakes lighting onto
@@ -439,13 +458,22 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     Either way ``b000`` first calls :meth:`~LightmapBaker.revert` to clear prior wiring so the
     bake samples the real material; the header menu's **Revert to Source** undoes it. The
     Quality combobox is populated from :meth:`~LightmapBaker.preset_store` and fills the
-    Resolution / Samples dials (the source of truth at bake time).
+    Resolution / Samples dials (the source of truth at bake time). The Packing combobox
+    (``cmb002``) picks how a Lighting-Only bake's maps are laid out — see
+    :meth:`_disable_unsupported_packing_mode` for the one item currently disabled.
 
     Tentacle-independent (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` ``fmt`` helper is
     deferred into the methods that use it (headless Blender ships no Qt binding).
     """
 
     _MODE_LABELS = ("Lighting Only (keep maps)", "Fused Unlit (single map)")
+
+    # Packing labels for the Packing combobox (cmb002). Per-Object (index 0, the default) keeps
+    # one full-resolution map per object and is fully implemented; Atlas by Material (index 1)
+    # would consolidate a material group into one shared EXR + a per-object scaleOffset rect,
+    # mirroring mayatk's ``pack_atlas`` — that engine isn't ported to blendertk yet, so the item
+    # is disabled (see :meth:`_disable_unsupported_packing_mode`). _packing() reads it back.
+    _PACKING_LABELS = ("Per-Object (one map each)", "Atlas by Material (shared map)")
 
     # Fixed lightmap sizes (square, px) for the Resolution combobox
     # (cmb_resolution). Power-of-two atlas sizes; every Quality preset lands on
@@ -457,6 +485,11 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     # _scope() / _scope_objects() resolve it to the mesh objects to bake.
     _SCOPE_LABELS = ("Selected", "Visible", "Scene")
 
+    # Footer tail for a plain (non-atlas) lighting-only commit. Shared by b000's per-object
+    # branch and its atlas-fallback branch so the two can't drift (mirrors mayatk's
+    # ``_LIGHTING_ONLY_TAIL``).
+    _LIGHTING_ONLY_TAIL = "Maps kept; lightmap + Unity metadata stamped. Export the FBX."
+
     def __init__(self, switchboard, log_level: str = "WARNING"):
         super().__init__()
         self.logger.setLevel(log_level)
@@ -464,6 +497,13 @@ class LightmapBakerSlots(ptk.LoggingMixin):
 
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.lightmap_baker
+
+        # Packing: Atlas by Material (cmb002 index 1) has no engine support yet — see
+        # _disable_unsupported_packing_mode. Do this right after the .ui is resolved (its item
+        # is populated by cmb002_init during the load above), same ordering reason mirror.py
+        # uses for its own unsupported-item disable.
+        self._disable_unsupported_packing_mode()
+
         self._last_output_dir: Optional[str] = None
         self._baker: Optional[LightmapBaker] = None
 
@@ -474,9 +514,30 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     def _initialize_ui(self) -> None:
         self._apply_preset(self.ui.cmb000.currentText())
 
+    def _disable_unsupported_packing_mode(self) -> None:
+        """Disable the "Atlas by Material" item (cmb002 index 1) — it needs mayatk's
+        ``LightmapBaker.pack_atlas`` (per-primary-material grouping into an area-weighted
+        shared EXR via ``ptk.ImgUtils.compute_atlas_layout`` / ``assemble_atlas``, plus a
+        per-object scaleOffset) ported onto Blender's per-object materials + native image I/O.
+        That is a genuinely new engine (grouping, atlas assembly, scaleOffset bookkeeping), not
+        a small addition to the existing ``_bake``, so only this one combo item is disabled —
+        "Per-Object" works normally — see the item model, not the ``.ui``, per the parity plan.
+        # TODO(blender-parity): port mayatk's pack_atlas (per-material EXR atlas assembly) and
+        # re-enable this item.
+        """
+        model = self.ui.cmb002.model()
+        item = model.item(1) if model is not None else None
+        if item is not None:
+            item.setFlags(item.flags() & ~self.sb.QtCore.Qt.ItemIsEnabled)
+            item.setToolTip(
+                "Not yet implemented in blendertk — per-material atlas consolidation needs "
+                "mayatk's pack_atlas ported (grouping + area-weighted EXR assembly)."
+            )
+
     # ------------------------------------------------------------------ header
     def header_init(self, widget) -> None:
-        """Configure the header menu + help text."""
+        """Configure the header chrome (menu / collapse / hide), menu, help text."""
+        widget.config_buttons("menu", "collapse", "hide")
         widget.menu.add(
             "QPushButton",
             setText="Revert to Source",
@@ -502,8 +563,8 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                 steps=[
                     "Choose a <b>Scope</b> — bake the <b>Selected</b> objects (default), all "
                     "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
-                    "Pick a <b>Mode</b> (see below) and a <b>Quality</b> preset (fills "
-                    "Resolution / Samples; override either to taste).",
+                    "Pick a <b>Mode</b> and <b>Packing</b> (see below) and a <b>Quality</b> "
+                    "preset (fills Resolution / Samples; override either to taste).",
                     "Press <b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
                     "Properties</b> enabled (so the hidden <i>data_export</i> Empty carries "
                     "the Unity wiring).",
@@ -516,6 +577,10 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                         "albedo × lightmap at runtime and your normal map still works. The "
                         "wiring rides the FBX on the shared data Empty (no sidecar); unitytk "
                         "sets up Unity's native lightmaps on import.",
+                        "<b>Packing</b>: <i>Per-Object</i> (the only mode available today) "
+                        "gives each object its own full-resolution lightmap. <i>Atlas by "
+                        "Material</i> is disabled — the per-material atlas consolidation "
+                        "(mayatk's <i>pack_atlas</i>) isn't ported to blendertk yet.",
                     ]),
                     ("Mode: Fused Unlit — flatten to one texture (NOT lightmapping)", [
                         "Bakes albedo × lighting into one HDR texture + an <i>unlit</i> "
@@ -561,6 +626,17 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     def _mode(self) -> str:
         text = (self.ui.cmb001.currentText() or "").lower()
         return "fused" if "fused" in text else "separated"
+
+    def cmb002_init(self, widget) -> None:
+        """Populate the Packing combobox; Per-Object is the safe (and only working) default."""
+        widget.clear()
+        widget.addItems(self._PACKING_LABELS)
+        widget.setCurrentIndex(0)  # Per-Object — one full-resolution map each
+
+    def _packing(self) -> str:
+        """``"atlas"`` or ``"per_object"`` from the Packing combobox (default per_object)."""
+        text = (self.ui.cmb002.currentText() or "").lower()
+        return "atlas" if "atlas" in text else "per_object"
 
     def cmb_scope_init(self, widget) -> None:
         """Populate the Scope combobox; Selected (current selection) is the default."""
@@ -613,6 +689,10 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         finally:
             cmb.blockSignals(False)
 
+    def txt000_init(self, widget) -> None:
+        """Add the Prefix / Suffix / Auto picker to the name-affix field."""
+        widget.option_box.set_affix(default="auto")
+
     def _apply_preset(self, name: str) -> bool:
         store = LightmapBaker.preset_store()
         if not name or not store.exists(name):
@@ -648,7 +728,9 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         self._baker.revert(objects)  # clear prior wiring so we bake the real material
 
         out_dir = self._output_dir()
-        prefix, suffix = self._resolve_affix(self.ui.txt000.text())
+        # Name the output <object><affix> per the field (e.g. "<object>_Lightmap"), following
+        # the texture-set convention; the field's affix picker forces Prefix / Suffix / Auto.
+        prefix, suffix = self.ui.txt000.option_box.resolve_affix(default="suffix")
         fused = self._mode() == "fused"
         bake = self._baker.bake_fused if fused else self._baker.bake_separated
 
@@ -673,9 +755,19 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         if fused:
             self._baker.commit_unlit(result)
             tail = "Shows an unlit baked material. Revert to Source to undo."
+        elif self._packing() == "atlas":
+            # TODO(blender-parity): unreachable from the UI today — the "Atlas by Material"
+            # item is disabled in _disable_unsupported_packing_mode until mayatk's pack_atlas
+            # is ported. Falls back to a per-object commit so a bake is never lost if this is
+            # ever reached programmatically (e.g. a direct _packing() override in a test).
+            self.logger.warning(
+                "Atlas packing isn't implemented in blendertk yet; committing per-object maps."
+            )
+            self._baker.commit_lightmap(result)
+            tail = self._LIGHTING_ONLY_TAIL
         else:
             self._baker.commit_lightmap(result)
-            tail = "Maps kept; lightmap + Unity metadata stamped. Export the FBX."
+            tail = self._LIGHTING_ONLY_TAIL
         self._last_output_dir = os.path.dirname(next(iter(result.values())))
         count = len(result)
         self.ui.footer.setText(
@@ -708,28 +800,18 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _output_dir() -> str:
-        """Where bakes go: ``//textures`` next to the .blend, else a temp dir."""
+        """Where bakes go: ``//textures`` next to the .blend, else a temp dir.
+
+        Blender has no Maya-style "sourceimages" project workspace to write into (the header
+        menu's "Open Output Folder" — mayatk's counterpart is "Open Sourceimages Folder" —
+        browses this instead); everything lands next to the .blend so it travels with the file.
+        """
         import bpy
         import tempfile
 
         blend = bpy.data.filepath
         root = os.path.dirname(blend) if blend else tempfile.gettempdir()
         return os.path.join(root, "textures")
-
-    @staticmethod
-    def _resolve_affix(text: str) -> Tuple[str, str]:
-        """Parse the affix field: leading ``_`` → suffix, trailing ``_`` → prefix, else suffix.
-
-        Default ``_Lightmap`` → ``("", "_Lightmap")`` so output is ``<object>_Lightmap``.
-        """
-        text = (text or "").strip()
-        if not text:
-            return "", ""
-        if text.startswith("_"):
-            return "", text
-        if text.endswith("_"):
-            return text, ""
-        return "", "_" + text
 
 
 # -----------------------------------------------------------------------------

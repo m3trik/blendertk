@@ -356,6 +356,40 @@ try:
     else:
         check("lightmap_baker exposes slots for the combo check", False, "no slots")
 
+    # hdr_manager: the 2026-07-03 drift port added an option-box Add-HDR flow on cmb000
+    # (add_hdr_btn + cmb_add_mode) and an inline exact-angle ValueOption on slider000 — all
+    # Qt-only (uitk option boxes, no bpy). Prove they materialized (not just that _init ran).
+    hdr_ui = sb.get_ui("hdr_manager")
+    hslots = getattr(hdr_ui, "slots", None)
+    if hslots is not None:
+        menu = hdr_ui.cmb000.option_box.menu
+        mode_items = [
+            menu.cmb_add_mode.itemText(i) for i in range(menu.cmb_add_mode.count())
+        ]
+        check(
+            "hdr_manager Add-HDR option box built add_hdr_btn + cmb_add_mode",
+            hasattr(menu, "add_hdr_btn")
+            and mode_items == [label for label, _t in hslots._ADD_MODES]
+            and hslots._add_mode() == "copy",
+            f"{mode_items} _add_mode()={hslots._add_mode()}",
+        )
+        from uitk.widgets.optionBox.options.value import ValueOption
+
+        check(
+            "hdr_manager rotation slider carries the exact-angle ValueOption",
+            hdr_ui.slider000.option_box.find_option(ValueOption) is not None,
+        )
+        # _norm_path (the combo path-match fix): an imported os.path.normpath() path still
+        # matches get_dir_contents' filepaths despite a different slash style — the miss that
+        # made the old plain findData() fail to highlight a just-added map.
+        norm_p = os.path.join("HDRs", "Env A.hdr")
+        check(
+            "hdr_manager _norm_path collapses slash style for combo matching",
+            hslots._norm_path(norm_p) == hslots._norm_path(norm_p.replace(os.sep, "/")),
+        )
+    else:
+        check("hdr_manager exposes slots for the option-box check", False, "no slots")
+
     # channels: Compact View + the wheel-scrub step ladder are Qt-only (no bpy), so exercise them
     # on the real loaded panel here. Compact collapses row height + hides the table column header;
     # the ladder scales ×10 (Ctrl) / ×100 (Ctrl+Shift) / ÷10 (Alt) per modifier (mirror of Maya).

@@ -209,6 +209,7 @@ DEFAULT_INCLUDE = {
         "LightUtils",
         "set_world_hdri",
         "get_world_hdri",
+        "clear_world_hdri",
         "set_world_ray_visibility",
         "get_world_ray_visibility",
     ],
