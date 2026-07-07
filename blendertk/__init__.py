@@ -203,6 +203,14 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_window": [
         "BlenderWindow",
     ],
+    # App-style setter — match Blender's UI chrome to another DCC's look via Blender's NATIVE
+    # interface_theme preset system (ships a canonical Maya.xml theme preset in
+    # style_setter/styles/ that shows up in Preferences > Themes > preset dropdown). Exposed as
+    # just the class (like Bevel/Bridge/Selection) — its helpers have generic names (install,
+    # is_installed, …) that don't belong in the flat btk.* namespace; use btk.StyleSetter.<fn>.
+    "ui_utils.style_setter._style_setter": [
+        "StyleSetter",
+    ],
     "mat_utils._mat_utils": [
         "MatUtils",
         "get_mats",
