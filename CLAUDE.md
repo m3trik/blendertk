@@ -4,10 +4,10 @@
 Blender slots what mayatk does for the Maya slots. **Greenfield** — built to mirror mayatk's
 public API.
 
-**Nav**: [← root](../CLAUDE.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`slots/blender`)
+**Nav**: [← root](../CLAUDE.md) · [docs](docs/README.md) · **Deps**: [pythontk](../pythontk/CLAUDE.md) · **Used by**: [tentacle](../tentacle/CLAUDE.md) (`slots/blender`)
 **Parity**: [tentacle/docs/PARITY_AUDIT.md](../tentacle/docs/PARITY_AUDIT.md) (measured gap, auto-gen) · [tentacle/docs/PARITY_PORTING_PLAN.md](../tentacle/docs/PARITY_PORTING_PLAN.md) (port-this-next recipes) — read these before adding scope.
 
-> **1:1 check — do NOT eyeball.** The whole-surface name-level gap list is [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`) — every mayatk↔blendertk panel + every `tentacle/slots/maya`↔`blender` file, plus the Maya tools/files with no Blender counterpart. For one pair while working: `compare_panel_surface.py --panel <name>`. It AST-diffs `config_buttons`, every menu/option-box/action control (by objectName+label), `set_toggle`/`pin`/`add_presets`, and widget-handler slot defs. Every delta must be either in the script's `KNOWN_MAYA_ONLY` allowlist (with a stated reason) or fixed. Manual reads repeatedly missed flat-out-missing header options; the diff does not.
+> **1:1 check — do NOT eyeball.** The per-element parity matrix is [tentacle/docs/PARITY_SURFACE.md](../tentacle/docs/PARITY_SURFACE.md) (regenerate: `python m3trik/scripts/compare_panel_surface.py --all --write`; one pair: `--panel <name>`). It unrolls loop-built controls, resolves menu aliases + f-string objectNames, skips `__main__` demo blocks, diffs twin `.ui` XML (widgets + defaults + `<customwidgets>` lint), combo item lists, and control defaults. Every delta is classified through the triage ledger [tentacle/docs/parity_map.py](../tentacle/docs/parity_map.py) — **fix it or ledger it with a reason; UNTRIAGED rows fail the sweep (exit 1)**. Manual reads repeatedly missed flat-out-missing controls; the sweep does not.
 
 ## API surface
 

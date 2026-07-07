@@ -37,6 +37,9 @@ venv/
 # Compiled Switchboard UI (regenerated from the co-located .ui by the loader; .ui is the SSoT)
 *_ui.py
 
+# Runtime API-surface dump (drift-gate build artifact — never committed)
+API_RUNTIME.json
+
 # Test artifacts (regenerated each run)
 test/temp_tests/
 test/logs/
