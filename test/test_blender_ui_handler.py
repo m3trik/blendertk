@@ -52,6 +52,7 @@ PANELS = [
     "mat_updater",
     "rizom_bridge",
     "maya_bridge",
+    "unity_bridge",
     "game_shader",
     "channels",
     "telescope_rig",
@@ -109,6 +110,7 @@ try:
         ("mat_updater", "MatUpdaterSlots"),  # engine defers bpy; cmb001_init is bpy-free
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
+        ("unity_bridge", "UnityBridgeSlots"),  # engine/slots init is bpy-free (unitytk lookup guarded)
         ("game_shader", "GameShaderSlots"),  # cmb001_init bpy-free (static OpenGL/DirectX list)
         ("channels", "ChannelsSlots"),  # __init__ + table/header init are bpy-free (guarded refresh)
         ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
@@ -168,6 +170,29 @@ try:
         "FBXImport" in rendered
         and 'FBX_PATH = r"C:/t/x.fbx"' in rendered
         and "__" not in rendered,
+    )
+
+    # unity_bridge: params_defaults() (Qt path via uitk.bridge.AttributeSpec; needs no bpy, so it
+    # belongs here rather than in the headless test_unity_bridge harness which lacks Qt) + the
+    # single-mode combo surface (parity with mayatk -- no leftover "Unity Studio" mode).
+    from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
+    from blendertk.env_utils.unity_bridge.unity_bridge_slots import UnityBridgeSlots as _UBS
+    _ub_defaults = UnityBridge().params_defaults()
+    check(
+        "unity_bridge params_defaults (Assets subdir / no-launch / scope / version)",
+        _ub_defaults.get("ASSETS_SUBDIR") == "Imported"
+        and _ub_defaults.get("LAUNCH_MODE") == ""
+        and _ub_defaults.get("INCLUDE_MATERIALS") is True
+        and _ub_defaults.get("SCOPE") == "selected"
+        and _ub_defaults.get("UNITY_VERSION") == "",
+        f"{_ub_defaults}",
+    )
+    check(
+        "unity_bridge single delivery mode ('Copy to Project', no Unity Studio)",
+        _UBS.MODE_COPY == "copy_to_assets"
+        and _UBS.MODE_LABELS == {_UBS.MODE_COPY: "Copy to Project"}
+        and not hasattr(_UBS, "MODE_STUDIO")
+        and not hasattr(_UBS, "MODE_EXISTING"),
     )
 
     # macro_manager: table/filter/header wiring is entirely Qt-driven off the bpy-free

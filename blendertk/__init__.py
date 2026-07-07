@@ -178,6 +178,11 @@ DEFAULT_INCLUDE = {
     "env_utils.maya_bridge._maya_bridge": [
         "MayaBridge",
     ],
+    # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
+    # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
+    "env_utils.unity_bridge._unity_bridge": [
+        "UnityBridge",
+    ],
     "light_utils._light_utils": [
         "LightUtils",
         "set_world_hdri",
