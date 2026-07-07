@@ -88,6 +88,101 @@ try:
           all(abs(a - b) < 1e-4 for a, b in zip(before, uv_bounds(o))),
           f"{uv_bounds(o)}")
 
+    # transform_uvs per_shell=True: each island flips about its OWN center, not one shared
+    # pivot -- two disconnected squares must each keep their own center after flip_u.
+    reset()
+
+    def two_square_islands(name):
+        bm = bmesh.new()
+        uvl = bm.loops.layers.uv.new("UVMap")
+        for n, (u0, v0, u1, v1) in enumerate(((0.0, 0.0, 0.2, 0.2), (0.6, 0.6, 0.8, 0.8))):
+            x = n * 3.0
+            verts = [bm.verts.new((x + dx, dy, 0.0)) for dx, dy in ((0, 0), (1, 0), (1, 1), (0, 1))]
+            face = bm.faces.new(verts)
+            for loop, (lu, lv) in zip(face.loops, ((u0, v0), (u1, v0), (u1, v1), (u0, v1))):
+                loop[uvl].uv = (lu, lv)
+        me = bpy.data.meshes.new(name)
+        bm.to_mesh(me); bm.free()
+        obj = bpy.data.objects.new(name, me)
+        bpy.context.collection.objects.link(obj)
+        obj.select_set(True); bpy.context.view_layer.objects.active = obj
+        return obj
+
+    def island_centers(obj):
+        from blendertk.uv_utils._uv_utils import _uv_islands, _island_bbox_center
+        bm = bmesh.new(); bm.from_mesh(obj.data); uvl = bm.loops.layers.uv.active
+        centers = sorted(
+            tuple(round(c, 4) for c in _island_bbox_center(isl, uvl))
+            for isl in _uv_islands(bm, uvl)
+        )
+        bm.free()
+        return centers
+
+    o = two_square_islands("PerShellFlip")
+    btk.transform_uvs(o, flip_u=True, per_shell=True)
+    check("transform_uvs per_shell keeps each island's own center",
+          island_centers(o) == [(0.1, 0.1), (0.7, 0.7)], f"{island_centers(o)}")
+
+    # transform_uvs per_shell=False (default) uses ONE shared pivot -- the same flip on the
+    # same layout must move at least one island's center (they swap toward the combined center).
+    o2 = two_square_islands("SharedPivotFlip")
+    btk.transform_uvs(o2, flip_u=True, per_shell=False)
+    check("transform_uvs per_shell=False moves islands off their own centers",
+          island_centers(o2) != [(0.1, 0.1), (0.7, 0.7)], f"{island_centers(o2)}")
+
+    # mirror_uvs preserve_position=True: the exact UV point set survives a mirror on an
+    # asymmetric (trapezoid) single-face island -- only the assignment permutes, not the set.
+    reset()
+
+    def uv_point_set(obj):
+        bm = bmesh.new(); bm.from_mesh(obj.data); uvl = bm.loops.layers.uv.active
+        pts = sorted(
+            (round(loop[uvl].uv.x, 4), round(loop[uvl].uv.y, 4))
+            for f in bm.faces for loop in f.loops
+        )
+        bm.free()
+        return pts
+
+    bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new("UVMap")
+    verts = [bm.verts.new((dx, dy, 0.0)) for dx, dy in ((0, 0), (1, 0), (1, 1), (0, 1))]
+    face = bm.faces.new(verts)
+    trapezoid = [(0.0, 0.0), (0.3, 0.0), (0.3, 0.2), (0.0, 0.1)]  # asymmetric quad
+    for loop, uv in zip(face.loops, trapezoid):
+        loop[uvl].uv = uv
+    me = bpy.data.meshes.new("Trapezoid")
+    bm.to_mesh(me); bm.free()
+    o = bpy.data.objects.new("Trapezoid", me)
+    bpy.context.collection.objects.link(o)
+    o.select_set(True); bpy.context.view_layer.objects.active = o
+
+    before = uv_point_set(o)
+    btk.mirror_uvs(o, axis="u", per_shell=True, preserve_position=True)
+    after = uv_point_set(o)
+    check("mirror_uvs preserve_position keeps the exact UV point set", before == after,
+          f"{before} vs {after}")
+
+    btk.mirror_uvs(o, axis="u", per_shell=True, preserve_position=False)
+    after_geo = uv_point_set(o)
+    check("mirror_uvs preserve_position=False (geometric flip) changes the point set",
+          after_geo != before, f"{after_geo}")
+
+    # mirror_uvs per_shell=False on a multi-island object: still preserves the combined
+    # footprint across islands (no crash / no dropped points when grouping spans islands).
+    reset()
+    o = two_square_islands("MirrorTwoIslands")
+    before = uv_point_set(o)
+    btk.mirror_uvs(o, axis="u", per_shell=False, preserve_position=True)
+    check("mirror_uvs per_shell=False preserves the combined footprint across islands",
+          uv_point_set(o) == before, f"{uv_point_set(o)} vs {before}")
+
+    # mirror_uvs axis="v" mirrors the other axis
+    reset()
+    o = two_square_islands("MirrorAxisV")
+    before = uv_point_set(o)
+    btk.mirror_uvs(o, axis="v", per_shell=True, preserve_position=True)
+    check("mirror_uvs axis=v preserves the footprint too", uv_point_set(o) == before)
+
     # pin_uvs: object mode pins all; unpin clears
     reset()
     bpy.ops.mesh.primitive_plane_add(); o = bpy.context.active_object

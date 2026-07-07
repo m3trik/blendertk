@@ -107,6 +107,7 @@ DEFAULT_INCLUDE = {
         "find_lightmap_uv_set",
         "create_lightmap_uvs",
         "transform_uvs",
+        "mirror_uvs",
         "pin_uvs",
         "get_texel_density",
         "set_texel_density",
@@ -115,6 +116,8 @@ DEFAULT_INCLUDE = {
         "stack_uv_shells",
         "distribute_uv_shells",
         "straighten_uvs",
+        "straighten_uv_shells",
+        "derive_auto_seams",
     ],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).

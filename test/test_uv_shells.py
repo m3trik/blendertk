@@ -140,6 +140,88 @@ try:
           btk.straighten_uvs(o, u=True, v=True, angle=30) == 0)
     bpy.ops.object.mode_set(mode="OBJECT")
 
+    # ---- stack_uv_shells(tolerance=...): only similar-sized islands group together
+    reset()
+    o = quads_object([
+        (0.0, 0.0, 0.2, 0.2),   # A: 0.2x0.2 square
+        (0.5, 0.5, 0.7, 0.7),   # B: 0.2x0.2 square -- same size as A, should stack onto it
+        (0.0, 0.5, 0.6, 1.1),   # C: 0.6x0.6 square -- different size, should stay put
+    ])
+    moved = btk.stack_uv_shells([o], tolerance=1.0)
+    centers = island_centers(o)
+    check("stack_similar moves only the matching island", moved == 1, f"moved={moved}")
+    check("stack_similar leaves the dissimilar island in place", (0.3, 0.8) in centers, f"{centers}")
+    check("stack_similar groups same-size islands together", centers.count((0.1, 0.1)) == 2, f"{centers}")
+
+    # ---- stack_uv_shells(tolerance=0): near-exact match required -- a small size gap no longer groups
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.2), (0.5, 0.5, 0.71, 0.71)])  # 0.2 vs 0.21 -- 5% off
+    moved = btk.stack_uv_shells([o], tolerance=0.0)
+    check("stack_similar tolerance=0 rejects a near-but-not-exact match", moved == 0, f"moved={moved}")
+
+    # ---- straighten_uv_shells: a sheared quad-grid rectangularizes via Follow Active Quads
+    reset()
+    bpy.ops.mesh.primitive_plane_add(size=2)
+    o = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.subdivide(number_cuts=3)  # 4x4 grid of quads, one connected island
+
+    def is_axis_aligned(bm, uvl):
+        for f in bm.faces:
+            us = {round(loop[uvl].uv.x, 4) for loop in f.loops}
+            vs = {round(loop[uvl].uv.y, 4) for loop in f.loops}
+            if len(us) != 2 or len(vs) != 2:
+                return False
+        return True
+
+    bm = bmesh.from_edit_mesh(o.data)
+    uvl = bm.loops.layers.uv.verify()
+    # shear the grid's UVs from vertex position (u = x + 0.3y, v = y) -- a genuinely
+    # unstraightened (non-axis-aligned per face) shell, continuous across the whole island.
+    for f in bm.faces:
+        for loop in f.loops:
+            x, y = loop.vert.co.x, loop.vert.co.y
+            loop[uvl].uv = (x + 0.3 * y, y)
+    bpy.ops.mesh.select_all(action="SELECT")
+    bmesh.update_edit_mesh(o.data)
+    check("sheared grid starts non-axis-aligned", not is_axis_aligned(bm, uvl))
+
+    straightened = btk.straighten_uv_shells(o)
+    bm2 = bmesh.from_edit_mesh(o.data)
+    uvl2 = bm2.loops.layers.uv.active
+    check("straighten_uv_shells processes the one island", straightened == 1, f"n={straightened}")
+    check("straighten_uv_shells rectangularizes every face", is_axis_aligned(bm2, uvl2))
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # ---- straighten_uv_shells skips objects not in Edit Mode (object-mode is a no-op)
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.2)])
+    check("straighten_uv_shells object-mode no-op", btk.straighten_uv_shells([o]) == 0)
+
+    # ---- derive_auto_seams: a temp Smart-Project pass marks real seams, leaves the UV
+    # layer count/active layer untouched
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    n_layers_before = len(o.data.uv_layers)
+    original_name = o.data.uv_layers.active.name
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bm = bmesh.from_edit_mesh(o.data)
+    seams_before = sum(1 for e in bm.edges if e.seam)
+    n = btk.derive_auto_seams([o])
+    bm2 = bmesh.from_edit_mesh(o.data)
+    seams_after = sum(1 for e in bm2.edges if e.seam)
+    check("derive_auto_seams processes one mesh", n == 1, f"n={n}")
+    check("derive_auto_seams marks new seams", seams_after > seams_before,
+          f"{seams_before}->{seams_after}")
+    check("derive_auto_seams leaves the UV-layer count unchanged",
+          len(o.data.uv_layers) == n_layers_before, f"layers={len(o.data.uv_layers)}")
+    check("derive_auto_seams restores the active layer", o.data.uv_layers.active.name == original_name,
+          f"active={o.data.uv_layers.active.name}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
     # ---- edit-mode stack targets only selection-touched islands
     reset()
     o = quads_object([(0.0, 0.0, 0.2, 0.2), (0.4, 0.4, 0.6, 0.6), (0.7, 0.7, 0.9, 0.9)])

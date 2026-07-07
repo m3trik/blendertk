@@ -11,6 +11,8 @@ mesh primitives with ``edit_utils`` (the canonical home for mesh-bmesh infra).
 """
 from collections import namedtuple
 
+import pythontk as ptk
+
 from blendertk.core_utils._core_utils import _object_mode
 from blendertk.edit_utils._edit_utils import _meshes, _bmesh_edit
 
@@ -87,33 +89,166 @@ def _uv_bounds(objects):
     return None if box[0] == float("inf") else tuple(box)
 
 
-def transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0):
-    """Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s) about
-    the combined UV bounding-box center (one shared pivot so multi-object maps stay aligned)."""
+def transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False):
+    """Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).
+
+    ``per_shell=False`` (default): one shared pivot at the combined UV bounding-box center
+    across every targeted object, so a multi-object map stays aligned (whole-map transform).
+    ``per_shell=True``: each UV island (:func:`_target_islands` — selection-touched in EDIT
+    mode, every island in object mode) transforms independently about its own bbox center.
+    """
     import math
+
+    cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+
+    def _rotate(u, v):
+        if flip_u:
+            u = -u
+        if flip_v:
+            v = -v
+        if angle:
+            u, v = u * cos_a - v * sin_a, u * sin_a + v * cos_a
+        return u, v
+
+    if per_shell:
+
+        def _apply_per_shell(bm, obj):
+            uvl = bm.loops.layers.uv.verify()
+            for island in _target_islands(obj, bm, uvl):
+                pu, pv = _island_bbox_center(island, uvl)
+                for face in island:
+                    for loop in face.loops:
+                        uv = loop[uvl].uv
+                        u, v = _rotate(uv.x - pu, uv.y - pv)
+                        uv.x, uv.y = u + pu, v + pv
+
+        for o in _meshes(objects):
+            _uv_edit(o, lambda bm, obj=o: _apply_per_shell(bm, obj))
+        return
 
     box = _uv_bounds(objects)
     if box is None:
         return
     pu, pv = (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
-    cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
 
     def _apply(bm):
         uvl = bm.loops.layers.uv.verify()
         for face in bm.faces:
             for loop in face.loops:
                 uv = loop[uvl].uv
-                u, v = uv.x - pu, uv.y - pv
-                if flip_u:
-                    u = -u
-                if flip_v:
-                    v = -v
-                if angle:
-                    u, v = u * cos_a - v * sin_a, u * sin_a + v * cos_a
+                u, v = _rotate(uv.x - pu, uv.y - pv)
                 uv.x, uv.y = u + pu, v + pv
 
     for o in _meshes(objects):
         _uv_edit(o, _apply)
+
+
+def mirror_uvs(objects, axis="u", per_shell=True, preserve_position=True):
+    """Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
+
+    ``preserve_position=True`` (default): footprint-preserving reassignment. The exact set of
+    UV points stays put; only which UV lands on which point changes, solved with a one-to-one
+    assignment (``ptk.MathUtils.linear_sum_assignment`` — same Hungarian-algorithm approach
+    mayatk uses) so the shell's silhouette in UV space is unchanged. ``preserve_position=False``
+    performs a real geometric flip via :func:`transform_uvs` instead.
+
+    ``per_shell=True`` (default): each UV island (:func:`_target_islands`) is its own group,
+    mirrored about its own bbox center. ``per_shell=False``: every island of a given object is
+    combined into ONE group about that object's own bbox center — a deliberate relaxation of
+    Maya's whole-*selection* grouping (which spans every selected object into a single point
+    set); grouping stays per-object here so multi-object edit sessions don't need cross-object
+    bmesh handles held open simultaneously.
+
+    EDIT mode targets only islands touched by the selection; object mode targets every island.
+    """
+    axis_norm = (axis or "u").lower()
+    flip_u = axis_norm in ("u", "h", "horizontal")
+    flip_v = not flip_u
+
+    if not preserve_position:
+        transform_uvs(objects, flip_u=flip_u, flip_v=flip_v, per_shell=per_shell)
+        return
+
+    meshes = _meshes(objects)
+    if not meshes:
+        return
+
+    # Phase 1 — read (never held across calls: object-mode bmeshes are freed as soon as the
+    # reading callback returns, so islands are captured as plain (face_index, loop_pos, u, v)
+    # tuples rather than BMFace/BMLoop references).
+    per_obj_islands = []  # [(obj, [island_points, ...])]
+    for o in meshes:
+        islands = []
+
+        def _read(bm, islands=islands, obj=o):
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            for island in _target_islands(obj, bm, uvl):
+                pts = [
+                    (f.index, li, loop[uvl].uv.x, loop[uvl].uv.y)
+                    for f in island
+                    for li, loop in enumerate(f.loops)
+                ]
+                if pts:
+                    islands.append(pts)
+
+        _uv_read(o, _read)
+        if islands:
+            per_obj_islands.append((o, islands))
+
+    if not per_obj_islands:
+        return
+
+    # Phase 2 — group (per_shell: one group per island; else: one group per object) and solve
+    # the assignment for each group independently.
+    if per_shell:
+        groups = [(o, isl) for o, islands in per_obj_islands for isl in islands]
+    else:
+        groups = [
+            (o, [pt for isl in islands for pt in isl]) for o, islands in per_obj_islands
+        ]
+
+    updates = {}  # obj -> {(face_index, loop_pos): (u, v)}
+    for o, pts in groups:
+        us = [p[2] for p in pts]
+        vs = [p[3] for p in pts]
+        center_u, center_v = (min(us) + max(us)) / 2.0, (min(vs) + max(vs)) / 2.0
+        targets = [
+            (2 * center_u - u, v) if flip_u else (u, 2 * center_v - v)
+            for _, _, u, v in pts
+        ]
+
+        n = len(pts)
+        cost = [[0.0] * n for _ in range(n)]
+        for i, (tu, tv) in enumerate(targets):
+            row = cost[i]
+            for j, (_, _, su, sv) in enumerate(pts):
+                du, dv = tu - su, tv - sv
+                row[j] = du * du + dv * dv
+        row_ind, col_ind = ptk.MathUtils.linear_sum_assignment(cost)
+        assignment = dict(zip(row_ind, col_ind))
+
+        obj_map = updates.setdefault(o, {})
+        for i, (face_index, loop_pos, _, _) in enumerate(pts):
+            slot = assignment.get(i)
+            if slot is None:
+                continue
+            _, _, su, sv = pts[slot]
+            obj_map[(face_index, loop_pos)] = (su, sv)
+
+    # Phase 3 — write back, one fresh bmesh handle per object.
+    for o, mapping in updates.items():
+
+        def _write(bm, mapping=mapping):
+            uvl = bm.loops.layers.uv.verify()
+            for f in bm.faces:
+                for li, loop in enumerate(f.loops):
+                    coord = mapping.get((f.index, li))
+                    if coord is not None:
+                        loop[uvl].uv = coord
+
+        _uv_edit(o, _write)
 
 
 def pin_uvs(objects, pin=True, selected_only=True):
@@ -499,6 +634,42 @@ def _target_islands(obj, bm, uv_layer):
     return islands
 
 
+def _island_signature(island, uv_layer):
+    """Cheap shape/size signature for similarity matching: (long side, short side, UV area,
+    face count) of the island's bbox — approximates Maya's ``polyUVStackSimilarShells``
+    grouping (its internal matching algorithm is undocumented/native, so there is nothing to
+    port faithfully; long/short rather than width/height so a 90-degree-rotated copy of the
+    same shell still matches)."""
+    us = [loop[uv_layer].uv.x for f in island for loop in f.loops]
+    vs = [loop[uv_layer].uv.y for f in island for loop in f.loops]
+    width, height = max(us) - min(us), max(vs) - min(vs)
+    area = 0.0
+    for f in island:
+        pts = [loop[uv_layer].uv for loop in f.loops]
+        shoelace = 0.0
+        for i in range(len(pts)):
+            j = (i + 1) % len(pts)
+            shoelace += pts[i].x * pts[j].y - pts[j].x * pts[i].y
+        area += abs(shoelace) / 2.0
+    return (max(width, height), min(width, height), area, len(island))
+
+
+def _islands_similar(sig_a, sig_b, tolerance):
+    """True when two :func:`_island_signature` results match within *tolerance* — Maya's
+    ``polyUVStackSimilarShells -tolerance`` UI range (0 = near-exact, 10 = very loose),
+    normalized here to a 0-1 fractional difference."""
+    long_a, short_a, area_a, faces_a = sig_a
+    long_b, short_b, area_b, faces_b = sig_b
+    if faces_a != faces_b:
+        return False
+    tol = max(tolerance, 0.0) / 10.0
+
+    def _close(x, y):
+        return abs(x - y) <= tol * max(abs(x), abs(y), 1e-9)
+
+    return _close(long_a, long_b) and _close(short_a, short_b) and _close(area_a, area_b)
+
+
 def get_uv_coords(objects):
     """Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in
     face/loop order) — pairs with :func:`set_uv_coords` for stack/unstack-style toggles."""
@@ -545,14 +716,21 @@ def set_uv_coords(objects, snapshot):
         _uv_edit(o, _write)
 
 
-def stack_uv_shells(objects):
-    """Stack UV islands — move each targeted island so its bbox center coincides with the
-    first island's center (in EDIT mode only islands touched by the selection move; object
-    mode stacks every island). Maya's ``texStackShells`` groups shells by similarity first —
-    here ALL targeted islands stack (documented divergence). Returns the number moved."""
-    target = []  # the first island's center, shared across all given objects
+def stack_uv_shells(objects, tolerance=None):
+    """Stack UV islands on top of each other.
 
+    ``tolerance=None`` (default): every targeted island stacks onto the first one found —
+    Maya's plain ``texStackShells`` (no similarity gate). ``tolerance`` given (0-10, Maya's
+    ``polyUVStackSimilarShells -tolerance`` range): islands only stack onto others whose
+    :func:`_island_signature` matches within that tolerance; a shape with no match anywhere
+    starts its own group and keeps its position — ``polyUVStackSimilarShells``.
+
+    In EDIT mode only islands touched by the selection move; object mode targets every
+    island. Returns the number of islands moved.
+    """
+    groups = []  # each: {"sig": signature-or-None, "center": (u, v)}
     moved = 0
+
     for o in _meshes(objects):
 
         def _stack(bm, obj=o):
@@ -561,16 +739,144 @@ def stack_uv_shells(objects):
             if uvl is None:
                 return
             for island in _target_islands(obj, bm, uvl):
-                cu, cv = _island_bbox_center(island, uvl)
-                if not target:
-                    target.extend((cu, cv))
+                center = _island_bbox_center(island, uvl)
+                sig = _island_signature(island, uvl) if tolerance is not None else None
+                if tolerance is None:
+                    group = groups[0] if groups else None
+                else:
+                    group = next(
+                        (g for g in groups if _islands_similar(sig, g["sig"], tolerance)),
+                        None,
+                    )
+                if group is None:
+                    groups.append({"sig": sig, "center": center})
                     continue
-                if abs(target[0] - cu) > 1e-9 or abs(target[1] - cv) > 1e-9:
-                    _move_island(island, uvl, target[0] - cu, target[1] - cv)
+                cu, cv = group["center"]
+                if abs(center[0] - cu) > 1e-9 or abs(center[1] - cv) > 1e-9:
+                    _move_island(island, uvl, cu - center[0], cv - center[1])
                     moved += 1
 
         _uv_edit(o, _stack)
     return moved
+
+
+def _reset_face_uv_rect(face, uv_layer):
+    """Give *face* (a quad) an axis-aligned rectangular UV footprint, sized from its own 3D
+    edge lengths — the anchor shape :func:`straighten_uv_shells` propagates across an island.
+    Follow Active Quads reuses whatever UV shape the active face already has rather than
+    rectangularizing it, so the seed face needs squaring up first. No-op on a non-quad."""
+    if len(face.loops) != 4:
+        return False
+    verts = [loop.vert for loop in face.loops]
+    width = (verts[0].co - verts[1].co).length
+    height = (verts[1].co - verts[2].co).length
+    if width <= 1e-9 or height <= 1e-9:
+        return False
+    for loop, (u, v) in zip(face.loops, ((0.0, 0.0), (width, 0.0), (width, height), (0.0, height))):
+        loop[uv_layer].uv = (u, v)
+    return True
+
+
+def straighten_uv_shells(objects, mode="LENGTH_AVERAGE"):
+    """Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via
+    Blender's native Follow Active Quads operator: each island is isolated (selection scoped to
+    just its own faces), one of its quads is squared up (:func:`_reset_face_uv_rect`) and set
+    active, then ``uv.follow_active_quads`` propagates that rectangle across the rest of the
+    island from the 3D edge lengths, straightening the whole shell into a grid.
+
+    Needs EDIT mode with a mesh selection (drives the operator against the live edit-bmesh);
+    silently skips objects not currently in Edit Mode. ``mode`` is the operator's own option
+    (``EVEN`` / ``LENGTH`` / ``LENGTH_AVERAGE``); ``LENGTH_AVERAGE`` (default) best preserves
+    relative face size across an irregular grid. Returns the number of islands straightened.
+    """
+    import bmesh
+    import bpy
+
+    straightened = 0
+    for o in _meshes(objects):
+        if o.mode != "EDIT":
+            continue
+        bm = bmesh.from_edit_mesh(o.data)
+        bm.faces.ensure_lookup_table()
+        uvl = bm.loops.layers.uv.active
+        if uvl is None:
+            continue
+        islands = _target_islands(o, bm, uvl)
+        if not islands:
+            continue
+
+        prior_active_face = bm.faces.active
+        prior_selection = {f: f.select for f in bm.faces}
+        prior_active_obj = bpy.context.view_layer.objects.active
+        bpy.context.view_layer.objects.active = o
+
+        try:
+            for island in islands:
+                if len(island) < 2:
+                    continue  # a lone face is already "rectangular" -- nothing to unfold
+                seed = next((f for f in island if len(f.loops) == 4), None)
+                if seed is None or not _reset_face_uv_rect(seed, uvl):
+                    continue  # no quad to anchor from -- can't seed a grid
+                island_set = set(island)
+                for f in bm.faces:
+                    f.select = f in island_set
+                bm.faces.active = seed
+                bmesh.update_edit_mesh(o.data)
+                try:
+                    bpy.ops.uv.follow_active_quads(mode=mode)
+                    straightened += 1
+                except RuntimeError:
+                    pass  # non-grid topology (e.g. triangles/ngons) can't follow a quad chain
+        finally:
+            for f, sel in prior_selection.items():
+                f.select = sel
+            if prior_active_face is not None:
+                bm.faces.active = prior_active_face
+            bmesh.update_edit_mesh(o.data)
+            bpy.context.view_layer.objects.active = prior_active_obj
+
+    return straightened
+
+
+def derive_auto_seams(objects, angle=66.0, margin=0.0):
+    """Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's
+    ``u3dAutoSeam`` (which likewise exposes no user-tunable angle): each mesh is decomposed
+    into islands the way Smart UV Project would, on a scratch UV layer, and those island
+    borders are marked as real mesh seams (``uv.seams_from_islands``); the scratch layer is
+    then discarded so the mesh's actual UV layers are untouched.
+
+    Needs EDIT mode with a mesh selection (drives the operators against the live edit-mesh);
+    silently skips objects not currently in Edit Mode. Returns the number of meshes processed.
+    """
+    import math
+
+    import bpy
+
+    meshes = [o for o in _meshes(objects) if o.mode == "EDIT"]
+    if not meshes:
+        return 0
+
+    prior_active_index = {}
+    for o in meshes:
+        me = o.data
+        prior_active_index[o] = me.uv_layers.active_index
+        layer = me.uv_layers.new(name="_autoseam_tmp", do_init=False)
+        me.uv_layers.active = layer
+
+    try:
+        bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=margin)
+        bpy.ops.uv.seams_from_islands(mark_seams=True, mark_sharp=False)
+    finally:
+        for o in meshes:
+            me = o.data
+            layer = me.uv_layers.get("_autoseam_tmp")
+            if layer is not None:
+                me.uv_layers.remove(layer)
+            idx = prior_active_index[o]
+            if 0 <= idx < len(me.uv_layers):
+                me.uv_layers.active_index = idx
+
+    return len(meshes)
 
 
 def distribute_uv_shells(objects, axis="u"):
@@ -666,6 +972,7 @@ class UvUtils:
     find_lightmap_uv_set = staticmethod(find_lightmap_uv_set)
     create_lightmap_uvs = staticmethod(create_lightmap_uvs)
     transform_uvs = staticmethod(transform_uvs)
+    mirror_uvs = staticmethod(mirror_uvs)
     pin_uvs = staticmethod(pin_uvs)
     get_texel_density = staticmethod(get_texel_density)
     set_texel_density = staticmethod(set_texel_density)
@@ -674,3 +981,5 @@ class UvUtils:
     stack_uv_shells = staticmethod(stack_uv_shells)
     distribute_uv_shells = staticmethod(distribute_uv_shells)
     straighten_uvs = staticmethod(straighten_uvs)
+    straighten_uv_shells = staticmethod(straighten_uv_shells)
+    derive_auto_seams = staticmethod(derive_auto_seams)
