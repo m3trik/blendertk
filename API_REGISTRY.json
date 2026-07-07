@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-01",
+  "generated_at": "2026-07-07",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -2712,15 +2712,6 @@
               "deprecated": false
             },
             {
-              "name": "maya_path",
-              "qualname": "MayaBridge.maya_path",
-              "kind": "method",
-              "signature": "(self, value: Optional[str]) -> None",
-              "summary": "",
-              "line": 105,
-              "deprecated": false
-            },
-            {
               "name": "params_defaults",
               "qualname": "MayaBridge.params_defaults",
               "kind": "method",
@@ -3250,30 +3241,12 @@
               "deprecated": false
             },
             {
-              "name": "resolution",
-              "qualname": "LightmapBaker.resolution",
-              "kind": "method",
-              "signature": "(self, value: int) -> None",
-              "summary": "",
-              "line": 92,
-              "deprecated": false
-            },
-            {
               "name": "samples",
               "qualname": "LightmapBaker.samples",
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "",
               "line": 96,
-              "deprecated": false
-            },
-            {
-              "name": "samples",
-              "qualname": "LightmapBaker.samples",
-              "kind": "method",
-              "signature": "(self, value: int) -> None",
-              "summary": "",
-              "line": 100,
               "deprecated": false
             },
             {
@@ -4554,15 +4527,6 @@
               "signature": "(self)",
               "summary": "",
               "line": 82,
-              "deprecated": false
-            },
-            {
-              "name": "single_object_mode",
-              "qualname": "Channels.single_object_mode",
-              "kind": "method",
-              "signature": "(self, value)",
-              "summary": "",
-              "line": 86,
               "deprecated": false
             },
             {
@@ -6320,15 +6284,6 @@
               "signature": "(self)",
               "summary": "Resolved RizomUV executable path (cached), or None.",
               "line": 44,
-              "deprecated": false
-            },
-            {
-              "name": "rizom_path",
-              "qualname": "RizomUVBridge.rizom_path",
-              "kind": "method",
-              "signature": "(self, value)",
-              "summary": "",
-              "line": 61,
               "deprecated": false
             },
             {

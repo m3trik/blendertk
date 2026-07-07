@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-07-01_
+_Generated: 2026-07-07_
 
 ## Index
 
@@ -541,7 +541,6 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 - [`list_template_modes() -> List[Tuple[str, str]]`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L81) — ``[(stem, mode), ...]`` for every (template, mode) pairing.
 - **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L86)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
-  - `MayaBridge.maya_path(self, value: Optional[str]) -> None`
   - `MayaBridge.params_defaults(self) -> Dict[str, Any]`
   - `MayaBridge.render_context(self, params: Dict[str, Any]) -> Dict[str, str]`
 
@@ -637,9 +636,7 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 - **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L52)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
-  - `LightmapBaker.resolution(self, value: int) -> None`
   - `LightmapBaker.samples(self) -> int` *(property)*
-  - `LightmapBaker.samples(self, value: int) -> None`
   - `LightmapBaker.preset_store() -> 'ptk.PresetStore'` *(static)* — Shared store of lightmap quality presets (built-in + user tiers).
   - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named quality preset (``resolution`` / ``samples``).
   - `LightmapBaker.bake_fused(self, objects=None, **kwargs) -> Dict[str, str]` — Bake a **fused** (albedo x lighting) HDR lightmap per object.
@@ -844,7 +841,6 @@ Channels — Blender attribute query / mutation logic.
 - **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L22)** — Blender attribute query / mutation logic.
   - `Channels.is_pinned(self)` *(property)*
   - `Channels.single_object_mode(self)` *(property)*
-  - `Channels.single_object_mode(self, value)`
   - `Channels.pin_targets(self, objects)` — Pin the manager to a fixed object list;
   - `Channels.get_selected_nodes(self)` — Return the target object list.
   - `Channels.collect_channels(cls, objects, filter_key='custom', invert=False)` *(class)* — Return the channel descriptors shared across all *objects* for the given filter.
@@ -1126,7 +1122,6 @@ RizomUV bridge engine — export the selection and open it in a fresh RizomUV se
 
 - **[`class RizomUVBridge(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L35)** — Engine: discover the RizomUV exe, export the selection, launch RizomUV with a load-script.
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
-  - `RizomUVBridge.rizom_path(self, value)`
   - `RizomUVBridge.build_send_script(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).
   - `RizomUVBridge.send(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
 

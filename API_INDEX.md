@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-07-01_
+_Generated: 2026-07-07_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `get_fcurves(objects)`
@@ -244,7 +244,7 @@ _Generated: 2026-07-01_
 - `template_modes(template_path: Path) -> Tuple[str, ...]`
 - `list_template_modes() -> List[Tuple[str, str]]`
 - `class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`
-  - methods: maya_path, maya_path, params_defaults, render_context
+  - methods: maya_path, params_defaults, render_context
 
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BridgeSlotsBase)`
@@ -275,7 +275,7 @@ _Generated: 2026-07-01_
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, resolution, samples, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, revert_lightmap, commit_unlit, revert_unlit, revert
+  - methods: resolution, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, revert_lightmap, commit_unlit, revert_unlit, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb_scope_init, cmb_resolution_init, b000, revert_to_source, open_output
 
@@ -368,7 +368,7 @@ _Generated: 2026-07-01_
 
 ### `node_utils/attributes/channels/_channels.py` — Channels — Blender attribute query / mutation logic.
 - `class Channels`
-  - methods: is_pinned, single_object_mode, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_values, paste_values, freeze_transforms, unfreeze_transforms, has_unfreeze_info
+  - methods: is_pinned, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_values, paste_values, freeze_transforms, unfreeze_transforms, has_unfreeze_info
 
 ### `node_utils/attributes/channels/channels_slots.py` — UI slots for the Channels panel (``channels.ui``).
 - `class ChannelsSlots`
@@ -477,7 +477,7 @@ _Generated: 2026-07-01_
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
 - `class RizomUVBridge(ptk.LoggingMixin)`
-  - methods: rizom_path, rizom_path, build_send_script, send
+  - methods: rizom_path, build_send_script, send
 
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Switchboard slot wiring for the RizomUV Bridge panel (``rizom_bridge.ui``).
 - `class RizomBridgeSlots(RizomUVBridge)`
