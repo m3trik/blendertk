@@ -307,6 +307,11 @@ DEFAULT_INCLUDE = {
         "StaggerKeys",
         "stagger_keys",
     ],
+    # Smart Bake — engine + session/restore store, mirror of mayatk's
+    # ``anim_utils.smart_bake`` (the ``SmartBakeSlots`` panel is discovered by
+    # ``BlenderUiHandler``, not registered here).
+    "anim_utils.smart_bake._smart_bake": "SmartBake",
+    "anim_utils.smart_bake.bake_session": "RestoreResult",
     # Blendshape Animator — morph-authoring engine (base+target mesh -> keyed shape key, with
     # driver-driven corrective "tween" shapes for a custom curve), mirror of mayatk's
     # ``anim_utils.blendshape_animator.BlendshapeAnimator``. The co-located

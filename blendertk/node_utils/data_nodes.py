@@ -18,32 +18,40 @@ class DataNodes:
     Properties* on export), which unitytk reads via ``OnPostprocessGameObjectWithUserProperties``
     — so the same "sidecar benefits, no sidecar file" bridge works unchanged on the Unity side.
 
+    ``data_internal`` is the companion carrier for tool-authored state that must persist with
+    the scene but must never ride into the FBX (e.g. ``SmartBake``'s restore manifest) — same
+    Empty-with-custom-properties mechanism, kept as a *separate* object so the export object-set
+    builders can exclude it by name alone (see ``env_utils.scene_exporter``) without having to
+    also strip individual keys out of ``data_export``.
+
     Additive per producer: each writes its own key; the carrier is created on first write and
     a key cleared (set to ``""``) rather than deleting the Empty, matching mayatk.
     """
 
+    INTERNAL = "data_internal"
     EXPORT = "data_export"
 
     @staticmethod
-    def get_export_node(create=True):
-        """The ``data_export`` Empty (created + linked to the scene when *create*)."""
+    def _get_node(name, create=True):
+        """Get-or-create the Empty named *name* (created + linked to the scene when *create*) —
+        shared mechanism behind both the internal and export carriers (see class docstring)."""
         import bpy
 
-        obj = bpy.data.objects.get(DataNodes.EXPORT)
+        obj = bpy.data.objects.get(name)
         if obj is None and create:
-            obj = bpy.data.objects.new(DataNodes.EXPORT, None)  # None data → Empty
+            obj = bpy.data.objects.new(name, None)  # None data → Empty
             bpy.context.scene.collection.objects.link(obj)
         return obj
 
     @staticmethod
-    def set_export_string(key, value):
-        """Set custom property *key* on the carrier to *value* (string).
+    def _set_string(name, key, value):
+        """Set custom property *key* on the Empty named *name* to *value* (string).
 
         An empty *value* clears the key (set to ``""``) without creating the carrier just to
-        hold an empty manifest — mirror of ``mtk.DataNodes.set_export_string``. Returns the
-        carrier object name, or ``None`` when nothing was written.
+        hold an empty manifest. Returns the carrier object name, or ``None`` when nothing was
+        written.
         """
-        obj = DataNodes.get_export_node(create=bool(value))
+        obj = DataNodes._get_node(name, create=bool(value))
         if obj is None:
             return None
         if value:
@@ -53,7 +61,50 @@ class DataNodes:
         return obj.name
 
     @staticmethod
+    def _get_string(name, key):
+        """The Empty named *name*'s *key* custom property, or ``None`` (no carrier / key /
+        cleared). A cleared key (stored as ``""``) reads back as ``None``."""
+        obj = DataNodes._get_node(name, create=False)
+        if obj is None:
+            return None
+        return obj.get(key) or None
+
+    @staticmethod
+    def get_internal_node(create=True):
+        """The ``data_internal`` Empty (created + linked to the scene when *create*)."""
+        return DataNodes._get_node(DataNodes.INTERNAL, create=create)
+
+    @staticmethod
+    def ensure_internal():
+        """Get or create the ``data_internal`` Empty. Idempotent. Returns the object."""
+        return DataNodes.get_internal_node(create=True)
+
+    @staticmethod
+    def set_internal_string(key, value):
+        """Set custom property *key* on the internal carrier to *value* (string) — see
+        ``_set_string`` for the clear/create semantics; mirror of
+        ``mtk.DataNodes.set_internal_string``."""
+        return DataNodes._set_string(DataNodes.INTERNAL, key, value)
+
+    @staticmethod
+    def get_internal_string(key):
+        """The internal carrier's *key* custom property, or ``None`` — see ``_get_string``;
+        matches mayatk's ``get_internal_string`` absent/empty semantics."""
+        return DataNodes._get_string(DataNodes.INTERNAL, key)
+
+    @staticmethod
+    def get_export_node(create=True):
+        """The ``data_export`` Empty (created + linked to the scene when *create*)."""
+        return DataNodes._get_node(DataNodes.EXPORT, create=create)
+
+    @staticmethod
+    def set_export_string(key, value):
+        """Set custom property *key* on the carrier to *value* (string) — see ``_set_string``
+        for the clear/create semantics; mirror of ``mtk.DataNodes.set_export_string``."""
+        return DataNodes._set_string(DataNodes.EXPORT, key, value)
+
+    @staticmethod
     def get_export_string(key):
-        """The carrier's *key* custom property, or ``None`` (no carrier / key)."""
-        obj = DataNodes.get_export_node(create=False)
-        return obj.get(key) if obj is not None else None
+        """The carrier's *key* custom property, or ``None`` — see ``_get_string``; matches
+        mayatk's ``get_export_string`` absent/empty semantics."""
+        return DataNodes._get_string(DataNodes.EXPORT, key)
