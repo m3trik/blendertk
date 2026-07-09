@@ -140,7 +140,7 @@ def get_env_info(key=None):
         "currentFrame": scene.frame_current,
         "frameRange": (scene.frame_start, scene.frame_end),
         "unitSystem": scene.unit_settings.system,
-        "selectionCount": len(getattr(bpy.context, "selected_objects", []) or []),
+        "selectionCount": len(selected_objects()),
         # Blender's analogue of Maya's project workspace = the saved .blend file's directory.
         "workspace": workspace,
         "workspace_dir": os.path.basename(workspace) if workspace else "",
@@ -574,17 +574,76 @@ def cleanup_scene(quiet=False):
     return removed
 
 
+def _active_view_layer():
+    """The active view layer, resolved **without** depending on a context *window*.
+
+    ``bpy.context.selected_objects`` / ``active_object`` are *screen-context* members: they are
+    populated only when ``bpy.context.window`` is non-``None``. tentacle drives the Blender slots
+    from ``QApplication.processEvents()`` pumped inside a ``bpy.app.timers`` callback (see
+    ``tcl_blender._QtHost.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
+    with ``window=None`` those members return ``[]`` / ``None`` while a cube is selected). The view
+    layer is window-independent, so reading selection through ``view_layer.objects`` is correct from
+    that context. Falls back to the scene's first view layer if even ``context.view_layer`` is unset.
+    """
+    import bpy
+
+    vl = getattr(bpy.context, "view_layer", None)
+    if vl is not None:
+        return vl
+    scene = getattr(bpy.context, "scene", None)
+    view_layers = getattr(scene, "view_layers", None) if scene else None
+    return view_layers[0] if view_layers else None
+
+
 def selected_objects():
     """The current object selection, filtered of ``None`` (mirror of Maya's
     ``cmds.ls(selection=True)`` idiom that the slots use).
+
+    Read from ``view_layer.objects.selected`` rather than ``bpy.context.selected_objects``: the
+    latter is empty whenever ``bpy.context.window`` is ``None`` — exactly the state the Qt event-pump
+    timer runs the slots in, which surfaced as "many operations report *nothing selected* although an
+    object is selected". See :func:`_active_view_layer`.
 
     Shared by the co-located tool Slots (curtain / mirror / duplicate …) so they resolve the
     selection without depending on tentacle's ``SlotsBlender`` base — keeping blendertk free of
     any back-dependency on tentacle, exactly as mayatk's co-located slots stay tentacle-free.
     """
+    vl = _active_view_layer()
+    if vl is None:
+        return []
+    return [o for o in vl.objects.selected if o]
+
+
+def active_object():
+    """The active object, resolved window-independently (``view_layer.objects.active``).
+
+    The Blender companion to :func:`selected_objects`: ``bpy.context.active_object`` is a
+    screen-context member that returns ``None`` when ``bpy.context.window`` is ``None`` (the Qt
+    event-pump timer context), so the slots read the active object through the view layer instead.
+    Returns ``None`` when nothing is active.
+    """
+    vl = _active_view_layer()
+    return vl.objects.active if vl is not None else None
+
+
+def get_areas(area_type):
+    """All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
+    window, resolved through the window manager — NOT ``bpy.context.screen``, which is a
+    screen-context member and ``None`` whenever ``bpy.context.window`` is ``None`` (the Qt
+    event-pump timer state the tentacle slots run in; same family as :func:`selected_objects`).
+    A ``context.screen.areas`` loop there crashes with ``AttributeError``; this reads every
+    window's screen instead (a superset — multi-window setups stay in lockstep, matching the
+    all-viewports convention the display toggles already document). Even ``--background`` keeps
+    one window with the default screen, so the result is normally non-empty headless too.
+    """
     import bpy
 
-    return [o for o in (getattr(bpy.context, "selected_objects", None) or []) if o]
+    return [
+        area
+        for win in bpy.context.window_manager.windows
+        for area in win.screen.areas
+        if area.type == area_type
+    ]
 
 
 def get_view3d_context():
@@ -633,5 +692,7 @@ class CoreUtils(ptk.CoreUtils):
     format_scene_info_html = staticmethod(format_scene_info_html)
     analyze_scene = staticmethod(analyze_scene)
     cleanup_scene = staticmethod(cleanup_scene)
+    get_areas = staticmethod(get_areas)
     get_view3d_context = staticmethod(get_view3d_context)
     selected_objects = staticmethod(selected_objects)
+    active_object = staticmethod(active_object)

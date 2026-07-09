@@ -71,9 +71,10 @@ class ImageToPlane(ptk.LoggingMixin):
         """Remove planes and their auto-created materials/images (orphans only) — mirror of
         mayatk's ``ImageToPlane.remove``. ``None`` → the current selection. Returns the count removed."""
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         if objects is None:
-            objects = list(bpy.context.selected_objects or [])
+            objects = list(selected_objects())
         count = 0
         for obj in list(objects):
             if obj is None or obj.name not in bpy.data.objects:

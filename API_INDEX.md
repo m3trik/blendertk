@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-07-08_
+_Generated: 2026-07-09_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `get_fcurves(objects)`
@@ -130,8 +130,32 @@ _Generated: 2026-07-08_
 - `analyze_scene(objects=None, adaptive=True, sections=None)`
 - `cleanup_scene(quiet=False)`
 - `selected_objects()`
+- `active_object()`
+- `get_areas(area_type)`
 - `get_view3d_context()`
 - `class CoreUtils(ptk.CoreUtils)`
+
+### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
+- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING') -> List[object]`
+- `class InstanceCandidate`
+  - methods: obj, exists
+- `class InstanceGroup`
+- `class AutoInstancer(ptk.LoggingMixin)`
+  - methods: tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
+
+### `core_utils/auto_instancer/assembly_reconstructor.py` — Logic for separating and reassembling mesh assemblies (bpy adapter).
+- `class AssemblyReconstructor`
+  - methods: separate_combined_meshes, cleanup_empty_sources, cleanup_empty_assembly_groups, center_transform_on_geometry, canonicalize_transform, canonicalize_leaf_meshes, reassemble_assemblies, combine_reassembled_assemblies
+
+### `core_utils/auto_instancer/geometry_matcher.py` — Geometry analysis and matching logic for AutoInstancer (bpy adapter).
+- `class GeometryMatcher`
+  - methods: clear_cache, invalidate, quantize, get_pca_basis, get_mesh_signature, get_hierarchy_signature, are_meshes_identical, are_meshes_identical_with_transform, are_hierarchies_identical
+
+### `core_utils/auto_instancer/instancing_strategy.py` — Instancing strategy logic for AutoInstancer (mirror of mayatk's).
+- `class StrategyType(Enum)`
+- `class StrategyConfig`
+- `class InstancingStrategy`
+  - methods: evaluate
 
 ### `core_utils/diagnostics/mesh_diag.py` — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
 - `find_problem_geometry(objects, *, ngons=False, nonmanifold=False, interior=False, nonplanar=False, loose=False, concave=False, quads=False, zero_area_faces=False, zero_length_edges=False, zero_uv_area=False, planar_tolerance=0.001, area_tolerance=1e-06, edge_length_tolerance=1e-06, uv_area_tolerance=1e-06, select=True)`
@@ -415,12 +439,14 @@ _Generated: 2026-07-08_
 - `get_world_hdri()`
 - `set_world_ray_visibility(diffuse=None, glossy=None)`
 - `get_world_ray_visibility()`
+- `set_world_importance_resolution(resolution)`
+- `get_world_importance_resolution()`
 - `clear_world_hdri()`
 - `class LightUtils`
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb000_init, set_hdr_folder, hdr_map, hdr_map_visibility, cmb000, slider000, spn_intensity, spn_exposure, spn_diffuse, spn_specular, add_hdr, open_sourceimages, clear_network, ctx_reveal_in_explorer
+  - methods: header_init, cmb000_init, set_hdr_folder, hdr_map, hdr_map_visibility, cmb000, slider000, spn_intensity, spn_exposure, spn_resolution, spn_diffuse, spn_specular, add_hdr, open_sourceimages, clear_network, ctx_reveal_in_explorer
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
@@ -478,7 +504,7 @@ _Generated: 2026-07-08_
 
 ### `mat_utils/game_shader.py` — Game Shader tool panel — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShaderSlots(ptk.LoggingMixin)`
-  - methods: header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, txt002_init, b000
+  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, txt002_init, b000
 
 ### `mat_utils/image_to_plane/_image_to_plane.py` — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - `class ImageToPlane(ptk.LoggingMixin)`
@@ -487,6 +513,102 @@ _Generated: 2026-07-08_
 ### `mat_utils/image_to_plane/image_to_plane_slots.py` — Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
 - `class ImageToPlaneSlots(ptk.LoggingMixin)`
   - methods: header_init, txt_suffix_init
+
+### `mat_utils/marmoset_bridge/_marmoset_bridge.py` — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
+- `build_bake_pairs_manifest(objects: Sequence, high_suffix: str, low_suffix: str) -> Dict[str, str]`
+- `class MarmosetBridge(ptk.HandoffBridge)`
+  - methods: toolbag_path, params_defaults, render_template
+
+### `mat_utils/marmoset_bridge/_marmoset_engine.py` — Drive Marmoset Toolbag from the outside -- launch + templated automation.
+- `list_templates() -> List[Path]`
+- `template_modes(template_path: Path) -> Tuple[str, ...]`
+- `list_template_modes() -> List[Tuple[str, str]]`
+- `class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`
+  - methods: toolbag_path, toolbag_log_path, preflight, deliver, send, render_template
+
+### `mat_utils/marmoset_bridge/_toolbag_helpers.py` — Shared helpers for Marmoset Toolbag template scripts.
+- `derive_per_run_log_path(manifest_path)`
+- `begin_log(reference_path)`
+- `log(msg)`
+- `find_material(name, scene_mats)`
+- `load_manifest(manifest_path)`
+- `wire_materials_from_manifest(manifest_path, verbose=True)`
+- `split_high_low(objects, high_suffix, low_suffix, pre_classified=None)`
+- `collect_mesh_objects(root)`
+- `apply_sky_preset(preset_path)`
+- `frame_in_viewport()`
+
+### `mat_utils/marmoset_bridge/marmoset_bridge_slots.py` — Slots for the Marmoset Toolbag bridge panel -- mirror of mayatk's
+- `class MarmosetBridgeSlots(BlenderBridgeSlotsBase)`
+  - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/connection.py` — JSON-RPC client bound to the marmoset_rpc Toolbag plugin.
+- `class MarmosetConnection(RpcClient)`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/installer.py` — Install the marmoset_rpc plugin into Toolbag's user plugin folder.
+- `user_plugin_dir(toolbag_exe: Optional[str] = None) -> Optional[Path]`
+- `is_installed(toolbag_exe: Optional[str] = None) -> bool`
+- `install(toolbag_exe: Optional[str] = None, force: bool = False) -> Optional[Path]`
+- `uninstall(toolbag_exe: Optional[str] = None) -> bool`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/job.py` — One-shot batch pipeline for the marmoset_rpc bridge.
+- `run_batch(calls: List[Call], host: str = '127.0.0.1', port: int = 8765, stop_on_error: bool = False) -> List[Result]`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py` — Main-thread marshalling for ops that touch Toolbag's API.
+- `run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`
+- `is_main_thread_marshalling_active()`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py` — Scene-inspection ops.
+- `summary()`
+- `list_materials()`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py` — System-level ops: heartbeat, introspection, Toolbag version.
+- `ping()`
+- `list_ops()`
+- `describe_op(op='')`
+- `version()`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py` — Op registry for the marmoset_rpc plugin.
+- `register(name)`
+- `get(name)`
+- `all_ops()`
+- `describe(name=None)`
+- `clear()`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py` — HTTP JSON-RPC server for the marmoset_rpc plugin.
+- `start_server(port=None, host='127.0.0.1')`
+- `stop_server()`
+- `is_running()`
+- `autostart()`
+
+### `mat_utils/marmoset_bridge/parameters.py` — Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
+- `referenced_keys(script_text: str) -> 'set[str]'`
+- `defaults() -> 'dict[str, Any]'`
+- `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+
+### `mat_utils/marmoset_bridge/template_params.py` — Plain default values + literal formatting for Marmoset template tokens.
+- `python_literal(value: Any) -> str`
+- `defaults() -> Dict[str, Any]`
+- `to_context(values: Dict[str, Any]) -> Dict[str, str]`
+
+### `mat_utils/marmoset_bridge/templates/bake.py` — Bake high-poly detail into a low-poly target via Marmoset Toolbag.
+- `main()`
+
+### `mat_utils/marmoset_bridge/templates/import.py` — Open the model in Toolbag and wire materials from the manifest.
+- `main()`
+
+### `mat_utils/marmoset_bridge/templates/lookdev.py` — Open the model in Toolbag, apply a Sky preset, and frame the model.
+- `main()`
+
+### `mat_utils/marmoset_bridge/toolbag_log.py` — Marmoset Toolbag log-file resolution, classification, and live tailing.
+- `resolve_toolbag_log_path(toolbag_exe: Optional[str]) -> Optional[str]`
+- `classify_log_line(line: str) -> Optional[Tuple[str, str]]`
+- `dispatch_log_lines(lines, logger) -> None`
+- `start_toolbag_log_tail(log_path: str, start_offset: int, process, logger, poll_interval: float = 0.4, file_wait_timeout: float = 60.0)`
+
+### `mat_utils/mat_manifest.py` — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
+- `class MatManifest(ptk.HelpMixin)`
+  - methods: build, restore
 
 ### `mat_utils/mat_updater.py` — Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
 - `class MatUpdaterSlots(MatUpdater)`
@@ -502,7 +624,37 @@ _Generated: 2026-07-08_
 
 ### `mat_utils/shader_templates.py` — Shader Templates tool panel — Switchboard slot wiring for the co-located
 - `class ShaderTemplatesSlots(ptk.LoggingMixin)`
-  - methods: template_name, header_init, lbl_graph_material, lbl_open_templates_dir, cmb002_init, refresh_templates, rename_template_safe, lbl000, lbl001, lbl002, b000, b001, b002
+  - methods: workspace_dir, source_images_dir, template_name, header_init, lbl_graph_material, lbl_open_templates_dir, cmb002_init, refresh_templates, rename_template_safe, lbl000, lbl001, lbl002, b000, b001, b002
+
+### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
+- `list_templates() -> List[Path]`
+- `parse_template(template_path: Path) -> Dict[str, Any]`
+- `list_template_modes() -> List[Tuple[str, str]]`
+- `resolve_painter_log_path(painter_exe: Optional[str] = None) -> Optional[str]`
+- `class SubstanceBridge(ptk.HandoffBridge)`
+  - methods: painter_path, painter_log_path, instances, find_live_managed, send
+
+### `mat_utils/substance_bridge/connection.py` — Substance 3D Painter connection module.
+- `find_painter_exe() -> Optional[str]`
+- `default_log_path() -> Optional[str]`
+- `class OutputStream`
+  - methods: push, subscribe, history, clear_history, wait_for, close, closed
+- `class SubstanceConnection(ptk.LoggingMixin)`
+  - methods: open, close, is_alive, attach
+
+### `mat_utils/substance_bridge/parameters.py` — Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
+- `referenced_keys(script_text: str) -> 'set[str]'`
+- `defaults() -> 'dict[str, Any]'`
+- `render_cli_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `render_js_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+
+### `mat_utils/substance_bridge/substance_bridge_slots.py` — Slots for the Substance Painter bridge panel -- mirror of mayatk's
+- `class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`
+  - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
+
+### `mat_utils/substance_bridge/substance_rpc/client.py` — JSON-RPC 2.0 client for a Painter-side Python plugin.
+- `class PainterRpcClient`
+  - methods: url, ping, wait_until_ready, call, eval_js
 
 ### `mat_utils/texture_baker.py` — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - `class TextureBaker(ptk.LoggingMixin)`
@@ -532,7 +684,7 @@ _Generated: 2026-07-08_
 
 ### `node_utils/data_nodes.py` — Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes`
-  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, set_export_string, get_export_string
+  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -671,6 +823,10 @@ _Generated: 2026-07-08_
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
 - `class RizomBridgeSlots(BridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, cmb000_init, refresh_templates, b000, open_uv_editor
+
+### `uv_utils/uv_transform.py` — Dedicated UV shell-transform panel (Blender).
+- `class UvTransformSlots(ptk.LoggingMixin)`
+  - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `get_world_bbox(obj)`

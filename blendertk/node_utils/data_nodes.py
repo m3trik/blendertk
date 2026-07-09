@@ -98,6 +98,16 @@ class DataNodes:
         return DataNodes._get_node(DataNodes.EXPORT, create=create)
 
     @staticmethod
+    def ensure_export():
+        """Get or create the ``data_export`` Empty. Idempotent. Returns the object.
+
+        Mirror of ``mtk.DataNodes.ensure_export`` (there a locked, hidden transform;
+        here a plain Empty — Blender's FBX exporter can only ship a selectable,
+        visible object, so the carrier is deliberately not hidden).
+        """
+        return DataNodes.get_export_node(create=True)
+
+    @staticmethod
     def set_export_string(key, value):
         """Set custom property *key* on the carrier to *value* (string) — see ``_set_string``
         for the clear/create semantics; mirror of ``mtk.DataNodes.set_export_string``."""

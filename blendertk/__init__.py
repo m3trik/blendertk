@@ -36,10 +36,16 @@ DEFAULT_INCLUDE = {
         "format_scene_info_html",
         "analyze_scene",
         "cleanup_scene",
+        "get_areas",
         "get_view3d_context",
         "selected_objects",
+        "active_object",
     ],
     "core_utils.preview": ["Preview"],
+    # Auto-instancer — mirror of mayatk's ``core_utils.auto_instancer``
+    # (``btk.auto_instance`` ↔ ``mtk.auto_instance``); matching math and
+    # assembly clustering are shared via pythontk (PointCloud/AssemblySorter).
+    "core_utils.auto_instancer._auto_instancer": ["AutoInstancer", "auto_instance"],
     # Event-subscription manager — mirror of mayatk's ``core_utils.script_job_manager`` over
     # ``bpy.app.handlers`` (``btk.ScriptJobManager`` ↔ ``mtk.ScriptJobManager``).
     "core_utils.script_job_manager": ["ScriptJobManager"],
@@ -213,6 +219,8 @@ DEFAULT_INCLUDE = {
         "clear_world_hdri",
         "set_world_ray_visibility",
         "get_world_ray_visibility",
+        "set_world_importance_resolution",
+        "get_world_importance_resolution",
     ],
     # Lightmap Baker — engine + co-located panel. The ``LightmapBakerSlots`` class is
     # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.
@@ -295,6 +303,21 @@ DEFAULT_INCLUDE = {
     # handler, not registered). Mirror of mayatk's ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity._render_opacity": [
         "RenderOpacity",
+    ],
+    # Material manifest (baked-map metadata carrier) — mirror of mayatk's
+    # ``mat_utils.mat_manifest``; shared by the Marmoset/Substance bridges.
+    "mat_utils.mat_manifest": [
+        "MatManifest",
+    ],
+    # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
+    # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
+    "mat_utils.marmoset_bridge._marmoset_bridge": [
+        "MarmosetBridge",
+    ],
+    # Substance Bridge — mirror of mayatk's ``mat_utils.substance_bridge._substance_bridge``
+    # (``SubstanceBridgeSlots`` panel discovered by the handler, not registered).
+    "mat_utils.substance_bridge._substance_bridge": [
+        "SubstanceBridge",
     ],
     "anim_utils._anim_utils": [
         "AnimUtils",

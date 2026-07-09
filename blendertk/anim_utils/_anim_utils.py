@@ -1263,10 +1263,11 @@ def bake_keys(
     restore). Returns the baked objects.
     """
     import bpy
+    from blendertk.core_utils._core_utils import selected_objects
 
     pool = [
         o for o in (ptk.make_iterable(objects) if objects is not None
-                    else bpy.context.selected_objects)
+                    else selected_objects())
     ]
     if not pool:
         return []
@@ -1277,7 +1278,7 @@ def bake_keys(
             {"POSE", "OBJECT"} if any(o.type == "ARMATURE" for o in pool) else {"OBJECT"}
         )
     view_layer = bpy.context.view_layer
-    for o in list(bpy.context.selected_objects):
+    for o in list(selected_objects()):
         o.select_set(False)
     for o in pool:
         o.select_set(True)
@@ -1308,11 +1309,12 @@ def bake_blend_shapes(objects=None, frame_range=None, step=1):
     to the scene playback range. Returns the baked mesh objects.
     """
     import bpy
+    from blendertk.core_utils._core_utils import selected_objects
 
     scene = bpy.context.scene
     start, end = frame_range if frame_range is not None else (scene.frame_start, scene.frame_end)
 
-    pool = ptk.make_iterable(objects) if objects is not None else bpy.context.selected_objects
+    pool = ptk.make_iterable(objects) if objects is not None else selected_objects()
     targets = []  # (obj, shape_keys) for meshes with driven/animated shape keys
     for o in pool:
         if getattr(o, "type", None) != "MESH":

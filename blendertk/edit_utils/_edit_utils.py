@@ -14,7 +14,7 @@ import math
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import _object_mode  # shared OBJECT-mode guard
+from blendertk.core_utils._core_utils import _object_mode, selected_objects  # shared OBJECT-mode guard + window-independent selection read
 
 
 def _meshes(objects):
@@ -860,7 +860,7 @@ def snap_to_grid(objects=None, grid_size=1.0, axes="xyz"):
             bmesh.update_edit_mesh(active.data)
         return moved
 
-    objs = [o for o in (objects if objects is not None else bpy.context.selected_objects) or [] if o]
+    objs = [o for o in (objects if objects is not None else selected_objects()) or [] if o]
     for o in objs:
         o.location = _snap(o.location)
     return len(objs)
@@ -964,16 +964,42 @@ def _group_under_empty(copies, name, center=False):
 
 
 def _join_copies(copies, name):
-    """Join ``copies`` into a single mesh named ``name`` (object-level op, headless-safe)."""
+    """Join ``copies`` into a single mesh named ``name`` (object-level op, headless-safe).
+
+    The selectability probe runs first — copies outside the active view layer are
+    skipped (``select_set`` raises on them and would abort the caller) and the
+    abort/skip paths mutate nothing. Only the objects actually about to be joined
+    are made single-user and have their children reparented (world-preserving)
+    onto the surviving object — ``bpy.ops.object.join`` deletes the non-active
+    sources and would otherwise orphan their children at their bare
+    ``matrix_basis`` placement.
+    """
     import bpy
 
-    for c in copies:  # join chokes on multi-user data — make each single-user first
+    bpy.ops.object.select_all(action="DESELECT")
+    selected = []
+    for c in copies:
+        try:
+            c.select_set(True)
+            selected.append(c)
+        except RuntimeError:  # not in the active view layer
+            continue
+    if len(selected) < 2 or copies[0] not in selected:
+        for c in selected:
+            c.select_set(False)
+        return copies[0]
+    for c in selected:  # join chokes on multi-user data — make each single-user first
         if c.data is not None and c.data.users > 1:
             c.data = c.data.copy()
     bpy.context.view_layer.update()
-    bpy.ops.object.select_all(action="DESELECT")
-    for c in copies:
-        c.select_set(True)
+    for c in selected:
+        if c is copies[0]:
+            continue
+        for child in list(c.children):
+            world = child.matrix_world.copy()
+            child.parent = copies[0]
+            child.matrix_world = world
+    bpy.context.view_layer.update()
     bpy.context.view_layer.objects.active = copies[0]
     bpy.ops.object.join()
     joined = bpy.context.view_layer.objects.active
@@ -1059,7 +1085,7 @@ def get_similar_mesh(
     """
     import bpy
 
-    refs = _meshes(objects if objects is not None else bpy.context.selected_objects)
+    refs = _meshes(objects if objects is not None else selected_objects())
     flags = {
         n for n, on in (
             ("vertex", vertex), ("edge", edge), ("face", face), ("triangle", triangle),
@@ -1099,7 +1125,7 @@ def separate_objects(objects=None, *, by_material=False, rename=False, center_pi
     """
     import bpy
 
-    objs = _meshes(objects if objects is not None else bpy.context.selected_objects)
+    objs = _meshes(objects if objects is not None else selected_objects())
     if not objs:
         return []
     sep_type = "MATERIAL" if by_material else "LOOSE"
@@ -1171,9 +1197,7 @@ def combine_objects(
     ``ptk.PointCloud.cluster_by_distance``). Returns the combined object (plain) or the list
     of combined objects (grouped). Headless-safe.
     """
-    import bpy
-
-    objs = _meshes(objects if objects is not None else bpy.context.selected_objects)
+    objs = _meshes(objects if objects is not None else selected_objects())
     if len(objs) < 2:
         return None
 
@@ -1401,7 +1425,7 @@ def loft(objects=None, *, close=False, reverse_normals=False, section_spans=1):
     """
     import bpy
 
-    pool = ptk.make_iterable(objects) if objects is not None else bpy.context.selected_objects
+    pool = ptk.make_iterable(objects) if objects is not None else selected_objects()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     profiles = []
     for o in pool:

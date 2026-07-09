@@ -120,6 +120,7 @@ class TextureBaker(ptk.LoggingMixin):
     ) -> Optional[str]:
         """Bake a single object into a fresh EXR; returns its path (cleans up temp nodes)."""
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         if uv_set is not None:  # optional UV-set targeting (e.g. a lightmap UV channel)
             name = uv_set(obj) if callable(uv_set) else uv_set
@@ -149,7 +150,7 @@ class TextureBaker(ptk.LoggingMixin):
             nt.nodes.active = node
             added.append((nt, node))
 
-        for x in bpy.context.selected_objects:
+        for x in selected_objects():
             x.select_set(False)
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
@@ -223,9 +224,10 @@ class TextureBaker(ptk.LoggingMixin):
     def resolve_meshes(objects) -> List[Any]:
         """Normalize ``objects`` (refs / names / None=selection) to mesh objects."""
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         if objects is None:
-            objects = bpy.context.selected_objects or []
+            objects = selected_objects()
         pool = []
         for o in ptk.make_iterable(objects):
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o

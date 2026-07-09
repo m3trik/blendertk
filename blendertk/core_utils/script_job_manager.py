@@ -236,7 +236,14 @@ class ScriptJobManager:
         """Install the ``@persistent`` master handler for the bpy handler list *name*."""
         if name in self._handlers:
             return
-        import bpy
+        try:
+            import bpy
+        except ImportError:
+            # No Blender runtime (e.g. the Qt-only .venv harness loading panels
+            # whose slots subscribe at init).  The subscription bookkeeping is
+            # already recorded; ``name`` stays out of ``_handlers``, so the
+            # next subscribe under a real runtime installs the master handler.
+            return
 
         events = [e for e, h in _HANDLER_EVENTS.items() if h == name]
 

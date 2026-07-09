@@ -148,9 +148,10 @@ class Selection:
             list: The matched objects (also applied to the live selection per ``mode``).
         """
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         if objects is None:
-            sel = list(bpy.context.selected_objects)
+            sel = list(selected_objects())
             objects = sel if sel else list(bpy.data.objects)
         objects = [o for o in objects if o]
         if not objects:
@@ -313,6 +314,7 @@ class Selection:
         ``bpy.ops.uv.select_overlap()`` run per-object in Edit Mode (UV-sync forced ON so the
         result reads back onto the mesh's own face-select state)."""
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         candidates = [o for o in objects if o.type == "MESH" and o.data.uv_layers]
         if not candidates:
@@ -322,7 +324,7 @@ class Selection:
         ts = bpy.context.scene.tool_settings
         prev_sync = ts.use_uv_select_sync
         prev_active = bpy.context.view_layer.objects.active
-        prev_selected = list(bpy.context.selected_objects)
+        prev_selected = list(selected_objects())
         ts.use_uv_select_sync = True
         try:
             for o in candidates:

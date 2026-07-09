@@ -84,6 +84,13 @@ class FbxUtils:
         opts = dict(_EXPORT_DEFAULTS)
         opts["use_selection"] = selection_only
         opts.update(fbx_opts)
+        # ``object_types`` is an enum-flag: bpy.ops requires a set, but JSON-backed
+        # option presets (scene_exporter's PresetStore tier) can only store a list.
+        # A bare string (hand-edited preset) wraps as one item — set("MESH") would
+        # explode into characters and produce a baffling enum error.
+        if "object_types" in opts and not isinstance(opts["object_types"], set):
+            value = opts["object_types"]
+            opts["object_types"] = {value} if isinstance(value, str) else set(value)
         try:
             bpy.ops.export_scene.fbx(filepath=filepath, **opts)
         finally:

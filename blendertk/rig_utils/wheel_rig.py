@@ -463,7 +463,10 @@ class WheelRigSlots(ptk.LoggingMixin):
 
     def update_rig_name_placeholder(self):
         """Update the rig name placeholder based on the driver (active object)."""
-        import bpy
+        try:
+            import bpy
+        except ImportError:  # Qt-only harness — no selection to reflect (bpy-free load contract)
+            return
 
         control = bpy.context.view_layer.objects.active
         if control is None:

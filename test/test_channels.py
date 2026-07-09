@@ -144,6 +144,24 @@ try:
     ui = A.id_properties_ui("newAttr").as_dict()
     check("create_attribute -> UI range applied", ui.get("min") == 0.0 and ui.get("max") == 10.0,
           f"{ui}")
+
+    # vector (Maya double3) create-type: 3-float XYZ array, default on each component, editable
+    ch.create_attribute([A], "vecAttr", "vector", min_val=-1.0, max_val=1.0, default_val=0.5)
+    check("create_attribute vector -> 3-float array, default on each component",
+          "vecAttr" in A.keys() and list(A["vecAttr"]) == [0.5, 0.5, 0.5],
+          f"{list(A.get('vecAttr', []))}")
+    vui = A.id_properties_ui("vecAttr").as_dict()
+    check("create_attribute vector -> XYZ subtype + float range",
+          vui.get("subtype") == "XYZ" and vui.get("min") == -1.0 and vui.get("max") == 1.0, f"{vui}")
+    vdesc = next(d for d in ch.collect_channels([A], "custom") if d["name"] == "vecAttr")
+    check("vector custom prop typed 'vector'", vdesc["type"] == "vector", vdesc["type"])
+    check("format_value renders a vector as (x, y, z)",
+          ch.format_value(A["vecAttr"]) == "(0.5, 0.5, 0.5)", ch.format_value(A["vecAttr"]))
+    ch.set_channel_value([A], vdesc, "(1, 0, -1)")  # edit round-trips via parse_value
+    check("set_channel_value edits a vector prop element-wise",
+          list(A["vecAttr"]) == [1.0, 0.0, -1.0], f"{list(A['vecAttr'])}")
+    ch.delete_attributes([A], [vdesc])  # clean up so downstream table-count checks are unaffected
+
     ch.rename_attribute([A], "newAttr", "renamedAttr")
     check("rename_attribute -> value preserved",
           "newAttr" not in A.keys() and A.get("renamedAttr") == 2.0)

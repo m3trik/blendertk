@@ -783,8 +783,11 @@ class ChannelsSlots:
         menu.add("QLabel", setText="Type:", row=1, col=0)
         cmb_type = menu.add(
             "QComboBox", setObjectName="cmb_attr_type",
-            addItems=["float", "int", "bool", "string"], row=1, col=1,
+            # 'vector' = Maya's double3 (a 3-float XYZ array custom prop); 'enum' is not offered
+            # (no arbitrary-object Blender analogue — see parity_map channels_slots:cmb_attr_type).
+            addItems=["float", "int", "bool", "string", "vector"], row=1, col=1,
         )
+        _ranged = ("float", "int", "vector")  # types that carry a default + min/max
 
         sep_range = menu.add("Separator", setTitle="Range", row=2)
         lbl_default = menu.add("QLabel", setText="Default:", row=3, col=0)
@@ -806,9 +809,9 @@ class ChannelsSlots:
         _numeric = [sep_range, lbl_default, spn_default, lbl_min, spn_min, lbl_max, spn_max]
 
         def _on_type_changed(text):
-            is_numeric = text in ("float", "int")
+            is_ranged = text in _ranged
             for w in _numeric:
-                w.setVisible(is_numeric)
+                w.setVisible(is_ranged)
 
         cmb_type.currentTextChanged.connect(_on_type_changed)
         _on_type_changed(cmb_type.currentText())
@@ -823,13 +826,13 @@ class ChannelsSlots:
                 self.sb.message_box("Warning: Nothing selected.")
                 return
             attr_type = cmb_type.currentText()
-            numeric = attr_type in ("float", "int")
+            ranged = attr_type in _ranged
             self.controller.create_attribute(
                 objects,
                 name,
                 attr_type,
-                min_val=spn_min.value() if numeric else None,
-                max_val=spn_max.value() if numeric else None,
+                min_val=spn_min.value() if ranged else None,
+                max_val=spn_max.value() if ranged else None,
                 default_val=spn_default.value(),
             )
             menu.hide()

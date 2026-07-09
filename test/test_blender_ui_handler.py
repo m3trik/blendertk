@@ -22,6 +22,29 @@ for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_API", "pyside6")
 
+
+def _sandbox_qsettings():
+    """Keep this run off the real QSettings store (uitk/test/conftest.py owns the shim).
+
+    Loading real panels through Switchboard otherwise reads AND writes the
+    developer's live ``uitk\\shared`` state — a prior run's toggled Compact
+    View, for example, comes back as this run's load-time default.  Import
+    the sandbox from uitk's conftest (monorepo checkout only; a pip-installed
+    uitk ships no test dir, in which case this harness shouldn't run anyway).
+    """
+    import importlib.util
+
+    conftest = os.path.join(MONO, "uitk", "test", "conftest.py")
+    if not os.path.isfile(conftest):
+        raise SystemExit(
+            "SKIP test_blender_ui_handler (no uitk/test/conftest.py — refusing "
+            "to run against the live QSettings store)"
+        )
+    spec = importlib.util.spec_from_file_location("_uitk_conftest", conftest)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # activates the QSettings sandbox at import time
+
+
 # Co-located tool panels that BlenderUiHandler must discover from the blendertk package.
 PANELS = [
     "curtain",
@@ -51,9 +74,16 @@ PANELS = [
     "shader_templates",
     "mat_updater",
     "rizom_bridge",
+    "uv_transform",
     "maya_bridge",
     "unity_bridge",
+    "marmoset_bridge",
+    "substance_bridge",
+    "arnold_bridge",
     "game_shader",
+    "hierarchy_manager",
+    "scene_exporter",
+    "smart_bake",
     "channels",
     "telescope_rig",
     "wheel_rig",
@@ -76,6 +106,10 @@ except Exception:
     print("SKIP test_blender_ui_handler (no Qt binding — run under the workspace .venv)")
     print("===RESULT: PASS=== (skipped)")
     sys.exit(0)
+
+# After the Qt guard (the conftest itself imports qtpy), before the first
+# Switchboard/QSettings construction.
+_sandbox_qsettings()
 
 try:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -109,8 +143,11 @@ try:
         ("shader_templates", "ShaderTemplatesSlots"),  # bpy-free init -> loadable under .venv
         ("mat_updater", "MatUpdaterSlots"),  # engine defers bpy; cmb001_init is bpy-free
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
+        ("uv_transform", "UvTransformSlots"),  # __init__ (logging + deferred icons/uitk) is bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
         ("unity_bridge", "UnityBridgeSlots"),  # engine/slots init is bpy-free (unitytk lookup guarded)
+        ("marmoset_bridge", "MarmosetBridgeSlots"),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
+        ("substance_bridge", "SubstanceBridgeSlots"),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
         ("game_shader", "GameShaderSlots"),  # cmb001_init bpy-free (static OpenGL/DirectX list)
         ("channels", "ChannelsSlots"),  # __init__ + table/header init are bpy-free (guarded refresh)
         ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
@@ -360,6 +397,9 @@ try:
     # (add_hdr_btn + cmb_add_mode) and an inline exact-angle ValueOption on slider000 — all
     # Qt-only (uitk option boxes, no bpy). Prove they materialized (not just that _init ran).
     hdr_ui = sb.get_ui("hdr_manager")
+    # The option-box wiring runs in a deferred singleShot(0) (_initialize_ui) —
+    # pump once so it fires; nothing else pumps under this harness.
+    app.processEvents()
     hslots = getattr(hdr_ui, "slots", None)
     if hslots is not None:
         menu = hdr_ui.cmb000.option_box.menu

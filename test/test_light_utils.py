@@ -107,6 +107,21 @@ try:
     check("partial ray-visibility update keeps glossy",
           btk.get_world_ray_visibility() == {"diffuse": True, "glossy": True})
 
+    # ---- world importance-sampling resolution (Cycles sample_map_resolution = Arnold Resolution) ----
+    bpy.context.scene.render.engine = "CYCLES"  # world.cycles is a Cycles-addon namespace
+    applied = btk.set_world_importance_resolution(2048)
+    w = bpy.context.scene.world
+    check("importance resolution switches to MANUAL and applies the map size",
+          applied == 2048 and w.cycles.sampling_method == "MANUAL"
+          and w.cycles.sample_map_resolution == 2048, f"applied={applied}")
+    check("get_world_importance_resolution round-trips in MANUAL",
+          btk.get_world_importance_resolution() == 2048)
+    # 0/None restores AUTOMATIC sampling and reports None (Cycles sizes the map itself)
+    check("importance resolution 0 restores AUTOMATIC + reports None",
+          btk.set_world_importance_resolution(0) is None
+          and w.cycles.sampling_method == "AUTOMATIC"
+          and btk.get_world_importance_resolution() is None)
+
     for p in paths:
         os.remove(p)
     os.rmdir(tmp_dir)

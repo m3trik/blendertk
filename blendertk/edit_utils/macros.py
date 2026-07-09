@@ -32,6 +32,11 @@ import pythontk as ptk
 
 from blendertk.edit_utils._edit_utils import set_subdivision, _group_under_empty
 
+# Read selection/active through the view-layer (window-independent): the macros run from the Qt
+# event-pump timer context where bpy.context.selected_objects / active_object are empty (their
+# screen-context requires bpy.context.window, which is None there). See _core_utils.selected_objects.
+from blendertk.core_utils._core_utils import active_object, selected_objects
+
 
 # ====================================================================================
 # Macro functions (Blender-idiomatic equivalents of the mayatk macros)
@@ -155,7 +160,7 @@ class DisplayMacros(_ViewportMixin):
         first object). A reversible draw cycle rather than Maya's Visible/XRay/Templated/Hidden:
         actually hiding an object would drop it from the selection and break the cycle (use H/Alt-H
         to hide). All selected objects follow the first's next state."""
-        sel = [o for o in bpy.context.selected_objects if o]
+        sel = selected_objects()
         if not sel:
             return
         cycle = cls._DISPLAY_CYCLE
@@ -167,7 +172,7 @@ class DisplayMacros(_ViewportMixin):
     @classmethod
     def m_smooth_preview(cls):
         """Toggle a live Subdivision-Surface preview on the selected meshes."""
-        objs = [o for o in bpy.context.selected_objects if o.type == "MESH"]
+        objs = [o for o in selected_objects() if o.type == "MESH"]
         if not objs:
             return
         has_subsurf = any(
@@ -186,8 +191,8 @@ class DisplayMacros(_ViewportMixin):
         ov = cls._view3d_override()
         if ov is None:
             return
-        active = bpy.context.active_object
-        framing_selection = bool(bpy.context.selected_objects) or (
+        active = active_object()
+        framing_selection = bool(selected_objects()) or (
             active is not None and active.mode == "EDIT"
         )
         with ov:
@@ -203,7 +208,7 @@ class EditMacros(_ViewportMixin):
     @staticmethod
     def m_multi_component():
         """Multi-component selection — enable vertex+edge+face select together (edit mode)."""
-        obj = bpy.context.active_object
+        obj = active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.context.tool_settings.mesh_select_mode = (True, True, True)
 
@@ -220,13 +225,13 @@ class EditMacros(_ViewportMixin):
     def m_merge_vertices(tolerance=0.0001):
         """Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
         mesh in Object Mode (mirrors Maya's component- and object-mode merge)."""
-        obj = bpy.context.active_object
+        obj = active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.ops.mesh.remove_doubles(threshold=tolerance)
             return
         import bmesh
 
-        for o in (m for m in bpy.context.selected_objects if m.type == "MESH"):
+        for o in (m for m in selected_objects() if m.type == "MESH"):
             bm = bmesh.new()
             bm.from_mesh(o.data)
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=tolerance)
@@ -238,7 +243,7 @@ class EditMacros(_ViewportMixin):
     def m_group():
         """Group the selected objects under an Empty at the selection's center, keeping their
         world transforms (Maya's group + center-pivot)."""
-        sel = [o for o in bpy.context.selected_objects if o]
+        sel = selected_objects()
         if not sel:
             return
         _group_under_empty(sel, "group", center=True)
@@ -250,12 +255,13 @@ class SelectionMacros:
     @staticmethod
     def m_object_selection():
         """Object selection mask — leave edit mode (object mode)."""
-        if bpy.context.active_object and bpy.context.active_object.mode != "OBJECT":
+        obj = active_object()
+        if obj and obj.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
     @staticmethod
     def _enter_edit_mesh_mode(select_mode):
-        obj = bpy.context.active_object
+        obj = active_object()
         if not (obj and obj.type == "MESH"):
             return False
         if obj.mode != "EDIT":
@@ -281,7 +287,7 @@ class SelectionMacros:
     @staticmethod
     def m_invert_selection():
         """Invert the current selection (component-aware)."""
-        obj = bpy.context.active_object
+        obj = active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.ops.mesh.select_all(action="INVERT")
         else:
@@ -319,14 +325,14 @@ class AnimationMacros:
     @classmethod
     def m_set_selected_keys(cls):
         """Set keys on the selected objects' transform channels at the current frame."""
-        for obj in (o for o in bpy.context.selected_objects if o):
+        for obj in selected_objects():
             for path in cls._CHANNELS:
                 obj.keyframe_insert(data_path=path)
 
     @classmethod
     def m_unset_selected_keys(cls):
         """Remove keys on the selected objects' transform channels at the current frame."""
-        for obj in (o for o in bpy.context.selected_objects if o):
+        for obj in selected_objects():
             for path in cls._CHANNELS:
                 try:
                     obj.keyframe_delete(data_path=path)

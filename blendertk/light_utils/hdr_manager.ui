@@ -347,9 +347,6 @@
             </item>
             <item>
              <widget class="SpinBox" name="spn_resolution">
-              <property name="enabled">
-               <bool>false</bool>
-              </property>
               <property name="minimumSize">
                <size>
                 <width>0</width>
@@ -363,7 +360,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>Arnold-only: HDR importance-sampling resolution has no Blender analogue — Cycles importance-samples the world environment automatically (no per-light resolution knob), and EEVEE has no equivalent either. Disabled.</string>
+               <string>HDR importance-sampling map resolution (Cycles). Sets the world's manual sampling map size (world.cycles.sampling_method='MANUAL' + sample_map_resolution) — the Blender analogue of Arnold's skydome importance-sampling Resolution. Cycles-only (EEVEE ignores it).</string>
               </property>
               <property name="prefix">
                <string>Resolution:	</string>

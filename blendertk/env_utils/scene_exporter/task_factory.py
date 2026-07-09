@@ -262,10 +262,16 @@ class TaskFactory:
             self.logger.error(message)
 
     def _get_revert_method(self, task_name: str):
-        """Get revert method for a task if it exists."""
+        """Get revert method for a task if it exists.
+
+        Only ``set_<x>`` tasks pair with a ``revert_<x>``.  Note the timing:
+        reverts run when ``run_tasks`` returns — BEFORE the actual FBX write —
+        so only mutations the export itself doesn't depend on may be reverted
+        this way (``export_data_node``'s carrier hide-clear, for example,
+        must persist through the export and is deliberately not reverted).
+        """
         if task_name.startswith("set_"):
-            revert_method_name = f"revert_{task_name[4:]}"
-            return getattr(self, revert_method_name, None)
+            return getattr(self, f"revert_{task_name[4:]}", None)
         return None
 
     def _is_success(self, result) -> bool:

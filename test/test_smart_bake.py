@@ -101,6 +101,20 @@ try:
 except Exception:  # pragma: no cover - Qt not installed / Blender's headless Python
     QtWidgets = None
 
+if QtWidgets is not None:
+    # Keep the Qt half off the real QSettings store (uitk/test/conftest.py owns
+    # the shim): loading the panel through Switchboard otherwise reads AND
+    # writes the developer's live ``uitk\shared`` state.
+    import importlib.util
+
+    _conftest = os.path.join(MONO, "uitk", "test", "conftest.py")
+    if os.path.isfile(_conftest):
+        _spec = importlib.util.spec_from_file_location("_uitk_conftest", _conftest)
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)  # activates the QSettings sandbox
+    else:  # refuse to run panel loads against the live store
+        QtWidgets = None
+
 
 @unittest.skipUnless(
     QtWidgets is not None,

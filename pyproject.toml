@@ -17,7 +17,7 @@ classifiers = [
 
 # bpy is provided by the Blender runtime, not pip-installed.
 dependencies = [
-    "pythontk>=0.8.75",
+    "pythontk>=0.8.80",
     "uitk>=1.2.91",
     "unitytk>=0.0.1",
 ]
@@ -35,4 +35,4 @@ where = ["."]
 include = ["blendertk*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.ui", "*.xml", "*.json", "*.txt", "*.md"]
+"*" = ["*.ui", "*.xml", "*.json", "*.txt", "*.md", "*.bat"]

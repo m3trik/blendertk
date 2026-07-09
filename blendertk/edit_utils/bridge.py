@@ -69,10 +69,10 @@ class Bridge:
             RuntimeError: when the selection isn't two bridgeable open loops (friendly message,
                 mirroring Maya's diagnosed failure rather than a raw traceback).
         """
-        import bpy
         import bmesh
+        from blendertk.core_utils._core_utils import selected_objects
 
-        meshes = _meshes(bpy.context.selected_objects if objects is None else objects)
+        meshes = _meshes(selected_objects() if objects is None else objects)
         if not meshes:
             raise RuntimeError("Bridge requires a mesh selection.")
 

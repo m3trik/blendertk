@@ -23,10 +23,13 @@ Knobs the panel drives (mirrors mayatk's per-knob list):
   lighting (Cycles ray visibility — the boolean analogue of Arnold's continuous
   ``aiDiffuse`` / ``aiSpecular`` scale, which has no Blender equivalent; EEVEE ignores it).
 
-Genuinely Arnold-only and dropped (no Blender analogue — Cycles handles both automatically,
-globally, with no per-light override): importance-sampling **Resolution** and light **Samples**
-(``spn_resolution`` / ``spn_samples`` — disabled in the .ui, not merely hidden, so the panel stays
-a structural mirror of mayatk's). The rotation slider's viewport-only preview toggle
+* ``resolution`` — importance-sampling map size. The Cycles analogue of Arnold's skydome
+  importance-sampling **Resolution**: ``spn_resolution`` sets ``world.cycles.sampling_method =
+  'MANUAL'`` + ``sample_map_resolution`` (Cycles-only; EEVEE ignores it).
+
+Genuinely Arnold-only and dropped (no Blender analogue — Cycles has no per-light/per-world count):
+light **Samples** (``spn_samples`` — disabled in the .ui, not merely hidden, so the panel stays a
+structural mirror of mayatk's). The rotation slider's viewport-only preview toggle
 (Arnold's ``skyRadius`` display sphere) is likewise disabled — Blender has no scene-level
 "show in viewport, not in render" flag for the world background, only a per-3D-viewport shading
 preference that isn't reliably scriptable/headless-safe. mayatk's select-skydome / -transform /
@@ -50,6 +53,8 @@ from blendertk.light_utils._light_utils import (
     clear_world_hdri,
     set_world_ray_visibility,
     get_world_ray_visibility,
+    set_world_importance_resolution,
+    get_world_importance_resolution,
 )
 
 
@@ -135,15 +140,13 @@ class HdrManagerSlots(ptk.LoggingMixin):
         ``self.ui.<widget>`` access.
         """
         # Per-field reset buttons (uitk option-box) on the Intensity / Exposure / Diffuse /
-        # Specular spin boxes: click resets a field to its default; Alt/Ctrl+click bypasses it
-        # (greyed, restorable). Resolution/Samples are excluded — they're disabled (no Blender
-        # analogue; see the .ui), so a reset button on them would be dead chrome. Done here rather
-        # than __init__ because the spin boxes aren't wired onto self.ui until register_children
-        # runs (see __init__); wrap before the _sync_ui_to_scene reads below, since wrapping
-        # reparents the widgets.
-        self.sb.add_reset_buttons(
-            self.ui, skip=(self.ui.spn_resolution, self.ui.spn_samples)
-        )
+        # Specular / Resolution spin boxes: click resets a field to its default; Alt/Ctrl+click
+        # bypasses it (greyed, restorable). Only Samples is excluded — it stays disabled (no
+        # Blender analogue; see the .ui), so a reset button on it would be dead chrome. Done here
+        # rather than __init__ because the spin boxes aren't wired onto self.ui until
+        # register_children runs (see __init__); wrap before the _sync_ui_to_scene reads below,
+        # since wrapping reparents the widgets.
+        self.sb.add_reset_buttons(self.ui, skip=(self.ui.spn_samples,))
         self._setup_rotation_slider()
 
         self._refresh_combo()
@@ -548,7 +551,14 @@ class HdrManagerSlots(ptk.LoggingMixin):
         back to neutral defaults so the controls don't display stale values from a removed
         network.
         """
-        state = get_world_hdri()
+        try:
+            state = get_world_hdri()
+        except ModuleNotFoundError:
+            # No Blender runtime (Qt-only harness): nothing to sync.  This runs
+            # from a deferred QTimer callback — letting the ImportError escape
+            # the native event dispatch hard-crashes PySide6 (access violation),
+            # so degrade instead; the panel-load contract is bpy-free.
+            return
         has_env = state is not None
         rotation = int(round(state["rotation"])) % 360 if has_env else 0
         intensity = state["intensity"] if has_env else 1.0
@@ -557,6 +567,10 @@ class HdrManagerSlots(ptk.LoggingMixin):
         rv = get_world_ray_visibility() or {}
         diffuse = 1.0 if rv.get("diffuse", True) else 0.0
         specular = 1.0 if rv.get("glossy", True) else 0.0
+        # Manual importance-sampling resolution when set, else the .ui default (automatic mode).
+        resolution = get_world_importance_resolution()
+        if resolution is None:
+            resolution = self.ui.spn_resolution.value()
 
         for widget, setter, value in (
             (self.ui.slider000, "setSliderPosition", rotation),
@@ -564,6 +578,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
             (self.ui.spn_exposure, "setValue", exposure),
             (self.ui.spn_diffuse, "setValue", diffuse),
             (self.ui.spn_specular, "setValue", specular),
+            (self.ui.spn_resolution, "setValue", resolution),
         ):
             widget.blockSignals(True)
             try:
@@ -695,6 +710,12 @@ class HdrManagerSlots(ptk.LoggingMixin):
             rotation=float(self.ui.slider000.value()),
             visible=self.hdr_map_visibility,
         )
+
+    def spn_resolution(self, value, widget) -> None:
+        """Importance-sampling map resolution — switches the world to manual Cycles sampling and
+        applies the map size (the Blender analogue of Arnold's skydome Resolution; Cycles-only,
+        no-op off-Cycles)."""
+        set_world_importance_resolution(self.ui.spn_resolution.value())
 
     def spn_diffuse(self, value, widget) -> None:
         """Diffuse contribution — any value >0 enables it, 0 disables it (Cycles ray

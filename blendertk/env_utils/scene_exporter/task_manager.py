@@ -6,9 +6,10 @@ identically-named module. :class:`TaskManager` supplies the methods
 (``getattr(self, task_name)`` reflection) -- see that module for the generic dispatch/revert
 engine (vendored verbatim, 100% DCC-agnostic).
 
-~25 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
-group now uses :mod:`blendertk.anim_utils.smart_bake`). The remaining ~3 depend on subsystems
-blendertk doesn't have yet (``hierarchy_manager``, ``data_export``/Shots) and are declared in
+~26 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
+group uses :mod:`blendertk.anim_utils.smart_bake`; ``export_data_node`` rides the ported
+:class:`blendertk.node_utils.data_nodes.DataNodes` carrier). The remaining ~2 depend on
+subsystems blendertk doesn't have yet (``hierarchy_manager``, Shots) and are declared in
 :attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
 placeholders (the widget shows in the panel, 1:1 with mayatk's label/position, greyed out with a
 tooltip explaining the gap) -- ``TODO(blender-parity)``. No method is defined for a disabled
@@ -30,8 +31,8 @@ _NEEDS_HIERARCHY_MANAGER = (
     "Not available yet: needs blendertk's hierarchy_manager port (unstarted). "
     "TODO(blender-parity)."
 )
-_NEEDS_DATA_EXPORT = (
-    "Not available yet: needs blendertk's data_export/Shots port (unstarted). "
+_NEEDS_SHOTS = (
+    "Not available yet: needs blendertk's Shots port (unstarted). "
     "TODO(blender-parity)."
 )
 
@@ -316,6 +317,96 @@ class _TaskActionsMixin(_TaskDataMixin):
         bpy.context.scene.frame_start, bpy.context.scene.frame_end = original
         self.logger.debug(f"Reverted animation range to {original}.")
 
+    def export_data_node(self):
+        """Include the shared ``data_export`` carrier in the export (default on).
+
+        ``data_export`` is the single Empty every metadata producer stamps
+        (Lightmap Baker → ``lightmap_metadata``; Shots / Audio when ported).
+        The mesh-only export object sets would otherwise omit it and the
+        metadata silently wouldn't ship.  Appends the carrier to the export
+        set so its custom properties ride into the FBX as user properties
+        (``use_custom_props`` + Empty-inclusive ``object_types`` — both on by
+        default in ``_DEFAULT_FBX_OPTIONS``).
+
+        Mirror of mayatk's ``export_data_node``, minus the producer-refresh
+        step: Blender has no before-export event, so producers publish at
+        authoring time (e.g. the lightmap baker publishes when a bake
+        completes) and the carrier is already current at export.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        carrier = DataNodes.get_export_node(create=False)
+        if carrier is None:
+            self.logger.debug("No data_export carrier in scene — nothing to include.")
+            return
+
+        # The FBX funnel exports via use_selection + select_set, which can only
+        # ship selectable, visible objects — a hidden carrier would silently
+        # drop the metadata, so clear any hide state before including it.
+        # Deliberately NOT restored afterwards: task reverts run when
+        # run_tasks returns, which is BEFORE the FBX write — re-hiding there
+        # would drop the carrier from the export again (proven by the
+        # hidden-carrier round-trip check in test_scene_exporter.py).
+        was_hidden = carrier.hide_select or carrier.hide_viewport
+        carrier.hide_select = False
+        carrier.hide_viewport = False
+        try:
+            if not carrier.visible_get():
+                was_hidden = True
+                carrier.hide_set(False)
+        except RuntimeError:  # not in the active view layer
+            pass
+        if was_hidden:
+            self.logger.info("data_export carrier was hidden — cleared for export.")
+
+        if carrier not in (self.objects or []):
+            self.objects = list(self.objects or []) + [carrier]
+            self.logger.info("data_export carrier added to the export set.")
+        self._log_data_node_summary()
+
+    def _log_data_node_summary(self):
+        """Log what metadata actually shipped on ``data_export``.
+
+        Makes a silently-empty export distinguishable from a populated one —
+        mirror of mayatk's channel-agnostic summary: every string custom
+        property on the carrier is summarized by entry count (JSON array /
+        dict-of-list / whitespace-token wire string), so new producers show up
+        with no exporter edits.  Pure logging convenience — fully best-effort
+        so it can never abort the export it describes.
+        """
+        try:
+            import json
+
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            carrier = DataNodes.get_export_node(create=False)
+            if carrier is None:
+                return
+
+            def entry_count(raw: str) -> int:
+                try:
+                    data = json.loads(raw)
+                except ValueError:
+                    return len(raw.split())  # wire strings, e.g. "frame:label …"
+                if isinstance(data, list):
+                    return len(data)
+                if isinstance(data, dict):
+                    for value in data.values():
+                        if isinstance(value, list):
+                            return len(value)
+                return 1
+
+            parts = []
+            for key in carrier.keys():
+                raw = carrier.get(key)
+                if isinstance(raw, str) and raw:
+                    n = entry_count(raw)
+                    parts.append(f"{key} ({n} entr{'y' if n == 1 else 'ies'})")
+            if parts:
+                self.logger.info("Embedded on data_export: " + ", ".join(parts) + ".")
+        except Exception:  # a summary must never break the export it describes
+            self.logger.debug("data_export summary skipped.", exc_info=True)
+
 
 class _TaskChecksMixin(_TaskDataMixin):
     """Validation checks -- each returns ``(passed: bool, messages: list[str])``."""
@@ -567,6 +658,8 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         "snap_keys_to_frame",
         "tie_all_keyframes",
         "set_bake_animation_range",
+        # Phase 5 — Metadata carrier (last, so it sees the final export set)
+        "export_data_node",
     ]
 
     _export_mode_options: Dict[str, Any] = {
@@ -722,7 +815,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "apply_declared_takes": {
                 "widget_type": "QCheckBox",
                 "setText": "Export Shots as Animation Takes",
-                "setToolTip": _NEEDS_DATA_EXPORT,
+                "setToolTip": _NEEDS_SHOTS,
                 "setChecked": False,
                 "setEnabled": False,
             },
@@ -737,9 +830,14 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "export_data_node": {
                 "widget_type": "QCheckBox",
                 "setText": "Export Scene Data Node",
-                "setToolTip": _NEEDS_DATA_EXPORT,
-                "setChecked": False,
-                "setEnabled": False,
+                "setToolTip": (
+                    "Include the shared data_export carrier in the export so its "
+                    "embedded metadata (e.g. the Lightmap Baker's "
+                    "lightmap_metadata) ships in the FBX as user properties.\n"
+                    "The mesh-only export modes would otherwise omit it.  "
+                    "No-ops when the scene has no carrier."
+                ),
+                "setChecked": True,
             },
             "sep_output": {"widget_type": "Separator", "title": "Output"},
             "version": {

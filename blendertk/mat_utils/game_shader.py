@@ -45,10 +45,6 @@ class GameShaderSlots(ptk.LoggingMixin):
         if hasattr(self.ui, "set_flags"):
             self.ui.set_flags(WindowStaysOnTopHint=False)
 
-        self.workspace_dir = btk.get_env_info("workspace")
-        self.source_images_dir = (
-            os.path.join(self.workspace_dir, "textures") if self.workspace_dir else ""
-        )
         self.image_files = None
         self.last_created_materials = []
 
@@ -59,6 +55,17 @@ class GameShaderSlots(ptk.LoggingMixin):
         # Route the shared logger into the txt001 QTextBrowser with HTML colorization.
         self.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
         self.logger.setup_logging_redirect(self.ui.txt001)
+
+    # The .blend's own folder / its "textures" subfolder (Maya `sourceimages` analogue).
+    # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
+    @property
+    def workspace_dir(self) -> str:
+        return btk.get_env_info("workspace")
+
+    @property
+    def source_images_dir(self) -> str:
+        ws = self.workspace_dir
+        return os.path.join(ws, "textures") if ws else ""
 
     def header_init(self, widget):
         """Initialize the header widget."""

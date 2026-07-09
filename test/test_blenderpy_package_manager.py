@@ -15,6 +15,13 @@ REPO = os.path.dirname(HERE)               # blendertk/
 MONO = os.path.dirname(REPO)               # _scripts/
 WRAPPER = os.path.join(REPO, "blendertk", "env_utils", "blenderpy-package-manager.bat")
 GENERIC = os.path.join(MONO, "m3trik", "package-manager.bat")
+# The shared menu is mirrored next to the wrapper (by m3trik/scripts/sync_shared_bat.py) so it
+# ships in the wheel — after a bare pip install there is no m3trik/ to fall back to.
+MIRROR = os.path.join(REPO, "blendertk", "env_utils", "package-manager.bat")
+
+
+def _norm_eol(data):
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 lines = []
 
@@ -86,6 +93,18 @@ try:
               re.search(r"python\\bin\\python\.exe", wtext, re.IGNORECASE) is not None)
         check("scans the Blender Foundation install dir",
               "blender foundation" in wtext.lower())
+
+        # The wrapper's first handoff candidate is `%~dp0package-manager.bat` (the wheel case):
+        # the shared menu must be mirrored beside the wrapper and match the m3trik SSoT verbatim.
+        mirror_ok = os.path.isfile(MIRROR)
+        check("shared menu mirrored next to wrapper (ships in wheel)", mirror_ok, MIRROR)
+        if mirror_ok and os.path.isfile(GENERIC):
+            with open(MIRROR, "rb") as f:
+                mirror_bytes = f.read()
+            with open(GENERIC, "rb") as f:
+                generic_bytes = f.read()
+            check("mirror matches the m3trik SSoT (run sync_shared_bat.py on drift)",
+                  _norm_eol(mirror_bytes) == _norm_eol(generic_bytes))
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

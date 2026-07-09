@@ -310,6 +310,11 @@ class Channels:
                 return int(float(text))
             if t == "string":
                 return text
+            if t == "vector":
+                # Round-trips format_value's "(x, y, z)" (also accepts "x, y, z" / "[x, y, z]").
+                stripped = text.strip().lstrip("([").rstrip(")]")
+                nums = [float(x) for x in stripped.split(",") if x.strip()]
+                return tuple(nums) if nums else None
             if t in ("float",):
                 val = float(text)
                 return math.radians(val) if descriptor["is_angle"] else val
@@ -734,9 +739,11 @@ class Channels:
     ):
         """Create a custom (ID) property on *objects*.
 
-        Parameters mirror the Maya tool's create-attribute form (numeric range + default). Enum /
-        compound types from Maya have no direct single-property Blender analogue and are reduced to
-        ``int`` / ``float``. Skips objects that already carry the property.
+        Parameters mirror the Maya tool's create-attribute form (numeric range + default). Maya's
+        ``double3`` compound maps to a 3-element float ARRAY property (``vector``) — the direct
+        Blender analogue (subtype ``'XYZ'``), which the table already displays/keys/edits per-index.
+        Maya's ``enum`` has no arbitrary-object Blender analogue and is not offered. Skips objects
+        that already carry the property.
         """
         for obj in objects:
             if name in obj.keys():
@@ -748,17 +755,24 @@ class Channels:
                     obj[name] = bool(default_val)
                 elif attr_type == "int":
                     obj[name] = int(default_val)
+                elif attr_type == "vector":
+                    d = float(default_val)
+                    obj[name] = (d, d, d)
                 else:  # float (and any unmapped numeric type)
                     obj[name] = float(default_val)
             except Exception:
                 continue
-            # Apply UI metadata (range + default) for numeric properties. The spinboxes hand back
-            # floats, so coerce to int for int props (id_properties_ui rejects a float range there).
-            if attr_type in ("float", "int"):
+            # Apply UI metadata (range + default) for numeric/vector properties. The spinboxes hand
+            # back floats, so coerce to int for int props (id_properties_ui rejects a float range
+            # there); vectors take a float range plus subtype='XYZ' for Blender's own X/Y/Z panel
+            # labels. Guarded — metadata failure must not undo the creation.
+            if attr_type in ("float", "int", "vector"):
                 cast = int if attr_type == "int" else float
                 try:
                     ui = obj.id_properties_ui(name)
-                    kw = {"default": obj[name]}
+                    kw = {"default": list(obj[name]) if attr_type == "vector" else obj[name]}
+                    if attr_type == "vector":
+                        kw["subtype"] = "XYZ"
                     if min_val is not None:
                         kw["min"] = cast(min_val)
                     if max_val is not None:

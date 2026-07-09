@@ -185,6 +185,43 @@ def get_world_ray_visibility():
     return {"diffuse": cv.diffuse, "glossy": cv.glossy}
 
 
+def set_world_importance_resolution(resolution):
+    """Set the world environment's importance-sampling **map resolution** — the Cycles analogue of
+    Arnold's skydome importance-sampling Resolution.
+
+    Setting a positive value switches the world to manual sampling (``world.cycles.sampling_method
+    = 'MANUAL'``) and applies ``sample_map_resolution``; a falsy value (0/None) restores automatic
+    sampling (``'AUTOMATIC'``), where Cycles sizes the map itself. Cycles-only (EEVEE has no world
+    sampling map). Returns the applied resolution (``None`` when automatic, or when there's no
+    world / ``world.cycles`` is unavailable off-Cycles).
+    """
+    import bpy
+
+    world = bpy.context.scene.world
+    cw = getattr(world, "cycles", None) if world else None
+    if cw is None:
+        return None
+    if resolution and resolution > 0:
+        cw.sampling_method = "MANUAL"
+        cw.sample_map_resolution = int(resolution)
+        return cw.sample_map_resolution
+    cw.sampling_method = "AUTOMATIC"
+    return None
+
+
+def get_world_importance_resolution():
+    """The world's importance-sampling map resolution when in **manual** mode, else ``None``
+    (automatic sampling / no world / not Cycles). Companion to
+    :func:`set_world_importance_resolution`."""
+    import bpy
+
+    world = bpy.context.scene.world
+    cw = getattr(world, "cycles", None) if world else None
+    if cw is None:
+        return None
+    return int(cw.sample_map_resolution) if cw.sampling_method == "MANUAL" else None
+
+
 def clear_world_hdri():
     """Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.
 

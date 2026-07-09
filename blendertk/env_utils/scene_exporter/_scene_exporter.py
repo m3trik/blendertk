@@ -66,12 +66,21 @@ _VERSION_SUFFIX_RE = re.compile(r"_v\d+$", re.IGNORECASE)
 # presets/default.json): embedded textures so nothing ships missing; baked animation since
 # there's no bake-pipeline task in this cut to have pre-baked it. Used whenever no preset is
 # loaded, and as the seed a fresh "Add Preset" saves from when nothing is selected.
+#
+# ``use_custom_props`` + ``object_types`` are what let the shared ``data_export`` Empty's
+# metadata channels (``lightmap_metadata``, ...) ride into the FBX as user properties --
+# Blender defaults custom-property export OFF, and the bridge-oriented ``_EXPORT_DEFAULTS``
+# in ``fbx_utils.py`` pins mesh-only ``object_types``, so both must be overridden here or
+# the ``export_data_node`` task ships an FBX with no metadata. ``object_types`` is stored
+# as a list (JSON presets can't hold a set); ``FbxUtils.export`` coerces it.
 _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "mesh_smooth_type": "FACE",
     "use_tspace": True,
     "embed_textures": True,
     "path_mode": "COPY",
     "bake_anim": True,
+    "use_custom_props": True,
+    "object_types": ["EMPTY", "ARMATURE", "MESH"],
 }
 
 

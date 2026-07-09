@@ -206,6 +206,90 @@ try:
     except RuntimeError:
         check("perform_export with an invalid preset kwarg raises", True)
 
+    # ---- data_export carrier: the metadata channels actually reach the FBX -------------------
+    # The whole Blender→Unity metadata hand-off hangs on three defaults working together:
+    # use_custom_props=True, an Empty-inclusive object_types, and the export_data_node task
+    # folding the carrier into the export set. Prove it end-to-end with a real FBX round-trip
+    # (export → wipe scene → re-import) rather than asserting on option dicts alone.
+    check(
+        "_DEFAULT_FBX_OPTIONS enable the metadata carrier (use_custom_props + EMPTY)",
+        _DEFAULT_FBX_OPTIONS.get("use_custom_props") is True
+        and "EMPTY" in _DEFAULT_FBX_OPTIONS.get("object_types", []),
+        f"{_DEFAULT_FBX_OPTIONS}",
+    )
+
+    from blendertk.node_utils.data_nodes import DataNodes
+    from blendertk.env_utils.fbx_utils import FbxUtils
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.active_object
+    cube.name = "CarrierExportCube"
+
+    payload = json.dumps({"version": 1, "objects": [{"name": "CarrierExportCube"}]})
+    DataNodes.set_export_string("lightmap_metadata", payload)
+    check(
+        "ensure_export/get_export_node agree on the carrier (mayatk API parity)",
+        DataNodes.ensure_export() is DataNodes.get_export_node(create=False),
+    )
+
+    # Hide the carrier first — export_data_node must clear hide state, or the
+    # use_selection funnel silently drops the metadata.
+    carrier = DataNodes.get_export_node(create=False)
+    carrier.hide_set(True)
+    carrier.hide_select = True
+
+    exp4 = SceneExporter()
+    result = exp4.perform_export(
+        export_dir=out_dir,
+        objects=[cube],
+        output_name="carrier_test",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    carrier_file = os.path.join(out_dir, "carrier_test.fbx")
+    check(
+        "perform_export with export_data_node writes the FBX",
+        result is True and os.path.isfile(carrier_file),
+        f"result={result} exists={os.path.isfile(carrier_file)}",
+    )
+
+    reset_scene()
+    imported = FbxUtils.import_fbx(carrier_file, use_custom_props=True)
+    imported_carrier = next(
+        (o for o in imported if o.name.startswith(DataNodes.EXPORT)), None
+    )
+    check(
+        "data_export Empty rides into the FBX (hidden carrier included)",
+        imported_carrier is not None,
+        f"imported={[o.name for o in imported]}",
+    )
+    check(
+        "lightmap_metadata survives the FBX round-trip as a user property",
+        imported_carrier is not None
+        and imported_carrier.get("lightmap_metadata") == payload,
+        f"{imported_carrier.get('lightmap_metadata') if imported_carrier else None!r}",
+    )
+
+    # No carrier in scene → the task is a clean no-op (still exports the mesh).
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    lone = bpy.context.active_object
+    lone.name = "NoCarrierCube"
+    exp5 = SceneExporter()
+    result = exp5.perform_export(
+        export_dir=out_dir,
+        objects=[lone],
+        output_name="no_carrier_test",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    check(
+        "export_data_node no-ops cleanly when the scene has no carrier",
+        result is True and os.path.isfile(os.path.join(out_dir, "no_carrier_test.fbx")),
+        f"result={result}",
+    )
+
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
 

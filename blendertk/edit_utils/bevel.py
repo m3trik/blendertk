@@ -57,10 +57,10 @@ class Bevel:
         Returns:
             int: The number of components beveled (0 when the selection was empty).
         """
-        import bpy
         import bmesh
+        from blendertk.core_utils._core_utils import selected_objects
 
-        meshes = _meshes(bpy.context.selected_objects if objects is None else objects)
+        meshes = _meshes(selected_objects() if objects is None else objects)
         if not meshes:
             raise RuntimeError("Bevel requires a mesh selection.")
 

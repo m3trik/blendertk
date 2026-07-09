@@ -50,9 +50,10 @@ def fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-5):
         matrix to an orthogonal Loc·Rot·Scale (see the module note).
     """
     import bpy
+    from blendertk.core_utils._core_utils import selected_objects
 
     if objects is None:
-        objects = list(getattr(bpy.context, "selected_objects", []) or [])
+        objects = list(selected_objects())
     pool = []
     for o in ptk.make_iterable(objects):
         obj = bpy.data.objects.get(o) if isinstance(o, str) else o
@@ -67,7 +68,7 @@ def fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-5):
     if not flagged:
         return []
 
-    prior = list(getattr(bpy.context, "selected_objects", []) or [])
+    prior = list(selected_objects())
     prior_active = bpy.context.view_layer.objects.active
     fixed = []
     try:

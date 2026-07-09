@@ -13,7 +13,7 @@ import logging
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import selected_objects, undoable
+from blendertk.core_utils._core_utils import active_object, selected_objects, undoable
 from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
 
 
@@ -172,7 +172,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
         objects = self._get_selected()
         if not objects:
             bpy.ops.mesh.primitive_cube_add()
-            cube = bpy.context.active_object
+            cube = active_object()  # window-independent (bpy.context.active_object is None from the Qt-pump context)
             cube.name = "opacity_cube"
             objects = [cube]
 

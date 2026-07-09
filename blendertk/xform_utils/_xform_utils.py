@@ -11,7 +11,7 @@ public names (``btk.freeze_transforms`` ↔ ``mtk.freeze_transforms``, etc.).
 """
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import _object_mode  # shared OBJECT-mode guard
+from blendertk.core_utils._core_utils import _object_mode, selected_objects  # shared OBJECT-mode guard + window-independent selection read
 
 
 def get_world_bbox(obj):
@@ -284,7 +284,7 @@ def transfer_pivot(
     scene = bpy.context.scene
     saved_cursor = tuple(scene.cursor.location)
     saved_active = bpy.context.view_layer.objects.active
-    saved_sel = list(bpy.context.selected_objects)
+    saved_sel = list(selected_objects())  # view-layer read: bpy.context.selected_objects is empty from the Qt-pump context
     try:
         if translate:
             scene.cursor.location = source.matrix_world.translation

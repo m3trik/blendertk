@@ -17,5 +17,6 @@ Active mayatk-parity port. The structure map (subpackage/class correspondence wi
 
 ## More
 
+- [`data_nodes.md`](data_nodes.md) — shared scene-data carriers (`data_internal` / `data_export`) and how their metadata rides into the FBX (mirror of mayatk's system)
 - [`CHANGELOG.md`](../CHANGELOG.md) — notable changes
 - [`CLAUDE.md`](../CLAUDE.md) — contributor / agent conventions, test harness, hard rules

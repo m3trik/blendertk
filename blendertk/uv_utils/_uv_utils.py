@@ -521,9 +521,10 @@ def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True
     Returns the names of the meshes processed.
     """
     import bpy
+    from blendertk.core_utils._core_utils import selected_objects
 
     prior_active = bpy.context.view_layer.objects.active
-    prior_selection = [o for o in bpy.context.selected_objects]
+    prior_selection = list(selected_objects())
     prior_mode = getattr(prior_active, "mode", "OBJECT")
     if prior_mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
@@ -541,7 +542,7 @@ def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True
                 name = me.uv_layers.new(name=uv_set).name
             me.uv_layers[name].active = True
 
-            for x in bpy.context.selected_objects:
+            for x in selected_objects():
                 x.select_set(False)
             o.select_set(True)
             bpy.context.view_layer.objects.active = o
@@ -555,7 +556,7 @@ def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True
                 bpy.ops.object.mode_set(mode="OBJECT")
             done.append(o.name)
     finally:
-        for x in bpy.context.selected_objects:
+        for x in selected_objects():
             x.select_set(False)
         for x in prior_selection:
             try:

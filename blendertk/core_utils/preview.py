@@ -90,9 +90,10 @@ class Preview:
 
     def enable(self):
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         self._ensure_object_mode()
-        objects = [o for o in (bpy.context.selected_objects or []) if o]
+        objects = selected_objects()  # view-layer read: robust from the Qt-pump timer context
         if not objects:
             self.message_func(
                 "<strong>Nothing selected.</strong><br>Select object(s) before "
@@ -139,9 +140,10 @@ class Preview:
         operation once directly on the current selection (the Maya commit-without-preview
         behavior)."""
         import bpy
+        from blendertk.core_utils._core_utils import selected_objects
 
         if not self._enabled:
-            objects = [o for o in (bpy.context.selected_objects or []) if o]
+            objects = selected_objects()  # view-layer read: robust from the Qt-pump timer context
             if not objects:
                 self.message_func("<strong>Nothing selected.</strong>")
                 return

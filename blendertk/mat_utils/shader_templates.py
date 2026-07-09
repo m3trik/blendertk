@@ -54,13 +54,6 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.shader_templates
 
-        # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — Blender's
-        # analogue of Maya's project workspace is the .blend's own folder (`workspace`), with a
-        # "textures" subfolder as the nearest match to Maya's `sourceimages` convention.
-        self.workspace_dir = btk.get_env_info("workspace")
-        self.source_images_dir = (
-            os.path.join(self.workspace_dir, "textures") if self.workspace_dir else ""
-        )
         self.image_files = None  # texture files loaded via "Load Texture Maps"
         self.last_restored_material = None  # analogue of mayatk's `last_restored_nodes`
 
@@ -76,6 +69,19 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
         except Exception:
             pass
         self.ui.txt001.setText("Pick a template, then Create Network.")
+
+    # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — Blender's
+    # analogue of Maya's project workspace is the .blend's own folder (`workspace`), with a
+    # "textures" subfolder as the nearest match to Maya's `sourceimages` convention.
+    # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
+    @property
+    def workspace_dir(self) -> str:
+        return btk.get_env_info("workspace")
+
+    @property
+    def source_images_dir(self) -> str:
+        ws = self.workspace_dir
+        return os.path.join(ws, "textures") if ws else ""
 
         # No Blender analogue of mayatk's `EnvUtils.load_plugin("shaderFXPlugin"/"mtoa")` — the
         # Principled BSDF shader is always available; there is no render-plugin load step.
@@ -263,9 +269,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------ helpers
     def _active_material(self):
         """The active object's active material (Save's capture source)."""
-        import bpy
-
-        obj = bpy.context.active_object or next(iter(self._selected_objects()), None)
+        obj = btk.active_object() or next(iter(self._selected_objects()), None)
         return getattr(obj, "active_material", None) if obj else None
 
     def _selected_objects(self):
