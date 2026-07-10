@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-07-09_
+_Generated: 2026-07-10_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `get_fcurves(objects)`
@@ -713,9 +713,9 @@ _Generated: 2026-07-09_
 
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, create
+  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, refresh_export_metadata, create
 - `class ShadowRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, b001, perform_operation
+  - methods: header_init, b001, b002, perform_operation
 
 ### `rig_utils/telescope_rig.py` — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
 - `class TelescopeRig(ptk.LoggingMixin)`
@@ -824,8 +824,8 @@ _Generated: 2026-07-09_
 - `class RizomBridgeSlots(BridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, cmb000_init, refresh_templates, b000, open_uv_editor
 
-### `uv_utils/uv_transform.py` — Dedicated UV shell-transform panel (Blender).
-- `class UvTransformSlots(ptk.LoggingMixin)`
+### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
+- `class ShellXformSlots(ptk.LoggingMixin)`
   - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,

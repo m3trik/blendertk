@@ -289,6 +289,8 @@ class ColorIdSlots(ptk.LoggingMixin):
         """Configure header help text and preset combobox."""
         from uitk.widgets.mixins.tooltip_mixin import fmt, kbd
 
+        # Gesture-scoped window: pin button + auto-hide on key_show release.
+        widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
             fmt(
                 title="Color ID",

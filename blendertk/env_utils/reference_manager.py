@@ -97,7 +97,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Header refresh button, Recursive toggle, Naming presets, bulk Operations, help text."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
-        widget.config_buttons("refresh", "menu", "collapse", "hide")
+        # Gesture-scoped window: pin button + auto-hide on key_show release.
+        widget.config_buttons("refresh", "menu", "collapse", "pin")
         widget.refresh_requested.connect(self._refresh)
         # Save / load the header menu's naming + filter settings as named presets (mirror of Maya).
         widget.menu.add_presets = True

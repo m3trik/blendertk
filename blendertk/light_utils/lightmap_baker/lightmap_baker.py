@@ -13,8 +13,9 @@ over ``bpy.ops.object.bake``:
       (no ``'COLOR'``) — the *native* white-card irradiance, no material swap.
     * **Fused** = ``type='COMBINED'`` (albedo x lighting).
 * ``scene.render.bake.margin`` -- native gutter/seam padding (no ``dilate_image`` needed).
-* ``DataNodes.set_export_string`` -- the Unity bridge (custom prop on the ``data_export``
-  Empty, rides the FBX) for unitytk to set up native lightmaps with no sidecar file.
+* ``DataNodes.set_export_string`` -- the export manifest (custom prop on the ``data_export``
+  Empty, rides the FBX; no sidecar file). Informational -- the mesh's UV2 samples the map in
+  any engine; unitytk's optional editor helper reads it to auto-bind Unity's native slots.
 
 Two bake levels, both non-destructive and exposed in the panel:
 
@@ -79,7 +80,8 @@ class LightmapBaker(ptk.LoggingMixin):
     LIGHTMAP_INFO_PROP: str = "lightmapInfo"  # lighting-only: map / uv / intensity marker
 
     # ``data_export`` channel: a scene-wide JSON manifest of every lighting-only lightmap,
-    # regenerated from the per-object markers and ridden into the FBX for unitytk.
+    # regenerated from the per-object markers and ridden into the FBX (informational;
+    # consumed by unitytk's optional Unity-native binder).
     LIGHTMAP_METADATA: str = "lightmap_metadata"
     LIGHTMAP_METADATA_VERSION: int = 1
 
@@ -234,23 +236,38 @@ class LightmapBaker(ptk.LoggingMixin):
         mapping: Dict[str, str],
         intensity: float = 1.0,
         scale_offsets: Optional[Dict[str, List[float]]] = None,
+        uv_rects: Optional[Dict[str, List[float]]] = None,
     ) -> Dict[str, str]:
         """Record a lighting-only bake for the engine (changes nothing about the material/UVs).
 
         Per object stamps a small JSON marker (:attr:`LIGHTMAP_INFO_PROP`), then republishes
-        the scene-wide manifest onto the shared ``data_export`` carrier so it rides the FBX for
-        unitytk. ``mapping`` is ``{object_name: lightmap_path}``. Returns the recorded subset.
+        the scene-wide manifest onto the shared ``data_export`` carrier so it rides the FBX
+        (informational; unitytk's optional editor helper auto-binds Unity's native lightmap
+        slots from it). ``mapping`` is ``{object_name: lightmap_path}``. Returns the recorded
+        subset.
 
-        ``scale_offsets`` is the atlas-consolidation hook (mirrors mayatk's ``pack_atlas``
-        output shape): ``{object_name: [scaleX, scaleY, offsetX, offsetY]}``. blendertk has no
-        atlas packer yet (the panel's "Atlas by Material" item is disabled — see
+        ``scale_offsets`` / ``uv_rects`` are the atlas-consolidation hooks (mirror mayatk's
+        ``commit_lightmap``): ``{object_name: [scaleX, scaleY, offsetX, offsetY]}``.
+        ``uv_rects`` records a rect mayatk's ``pack_atlas`` already repacked into the lightmap
+        UVs (marker key ``uvRect``; revert bookkeeping only — nothing engine-side);
+        ``scale_offsets`` is the legacy engine-applied rect. blendertk has no atlas packer yet
+        (the panel's "Atlas by Material" item is disabled — see
         ``LightmapBakerSlots._disable_unsupported_packing_mode``), so callers only ever pass the
-        per-object identity mapping today; the parameter stays so the metadata carrier and a
+        per-object identity mapping today; the parameters stay so the metadata carrier and a
         future :meth:`pack_atlas` port need no signature change.
         """
         import bpy
 
+        if float(intensity) != 1.0:
+            # Mirror of mayatk: Unity's native lightmaps have no per-map
+            # multiplier, so a non-1.0 intensity is applied INTO the texels
+            # here, once per unique file; the manifest field is informational
+            # after that. (Float-EXR load->scale->save round-trip verified in
+            # headless Blender 5.1, HDR >1 values included.)
+            self._apply_intensity(mapping.values(), intensity)
+
         scale_offsets = scale_offsets or {}
+        uv_rects = uv_rects or {}
         recorded: Dict[str, str] = {}
         for name, path in mapping.items():
             obj = bpy.data.objects.get(name)
@@ -265,12 +282,53 @@ class LightmapBaker(ptk.LoggingMixin):
                 "scaleOffset": [float(v) for v in so],
                 "mode": "separated",
             }
+            rect = uv_rects.get(name)
+            if rect and [float(v) for v in rect] != list(
+                self._IDENTITY_SCALE_OFFSET
+            ):
+                info["uvRect"] = [float(v) for v in rect]
             obj[self.LIGHTMAP_INFO_PROP] = json.dumps(info)
             recorded[name] = path
 
         if recorded:
             self._publish_lightmap_metadata()
         return recorded
+
+    def _apply_intensity(self, paths, intensity: float) -> None:
+        """Scale each unique lightmap file's texels by *intensity*, once.
+
+        bpy-native float-EXR rewrite (no cv2 in Blender's runtime): load the
+        image, scale RGB in the raw float pixel buffer (``pixels`` bypasses
+        color management, so linear HDR data round-trips losslessly), save it
+        back as OPEN_EXR, and drop the datablock. Files shared by several
+        objects are deduped by abspath so they scale exactly once per commit.
+        A file that can't be read is left untouched and logged -- the commit
+        itself still proceeds. Note it mutates the file: re-committing the
+        same bake with a non-1.0 intensity re-applies it (mirrors mayatk).
+        """
+        import bpy
+        import numpy as np
+
+        for path in {os.path.abspath(p) for p in paths}:
+            img = None
+            try:
+                img = bpy.data.images.load(path)
+                buf = np.empty(len(img.pixels), dtype=np.float32)
+                img.pixels.foreach_get(buf)
+                px = buf.reshape(-1, img.channels)
+                px[:, : min(3, img.channels)] *= float(intensity)
+                img.pixels.foreach_set(buf)
+                img.filepath_raw = path
+                img.file_format = "OPEN_EXR"
+                img.save()
+            except Exception as e:
+                self.logger.warning(
+                    "Intensity %.3f NOT applied to %s: %s",
+                    intensity, os.path.basename(path), e,
+                )
+            finally:
+                if img is not None:
+                    bpy.data.images.remove(img)
 
     def _publish_lightmap_metadata(self) -> Optional[str]:
         """(Re)build the lightmap manifest on the shared ``data_export`` carrier.
@@ -290,11 +348,39 @@ class LightmapBaker(ptk.LoggingMixin):
                 info = json.loads(obj[self.LIGHTMAP_INFO_PROP] or "{}")
             except ValueError:
                 continue
+            # Publish the lightmap layer's REAL channel index (mirrors mayatk):
+            # Unity's native lightmaps only sample uv2 (index 1), so anything
+            # else is warned about instead of hidden behind a hardcoded 1.
+            # (No duplicate-name check here -- unlike Maya DAG leaves, Blender
+            # object names are globally unique, so the Unity join key can't
+            # collide within one export.)
+            uv_set = info.get("uv_set")
+            uv_index = 1
+            layers = getattr(getattr(obj, "data", None), "uv_layers", None)
+            if layers is not None and uv_set:
+                found = layers.find(uv_set)
+                if found >= 0:
+                    uv_index = found
+                else:
+                    self.logger.warning(
+                        "%s: committed lightmap layer %r no longer exists; "
+                        "publishing uvIndex 1 on faith. Re-run "
+                        "create_lightmap_uvs if the layer was renamed or "
+                        "removed.",
+                        obj.name, uv_set,
+                    )
+            if uv_index != 1:
+                self.logger.warning(
+                    "%s: lightmap layer %r sits at UV index %d, but Unity "
+                    "samples uv2 (index 1). Re-run create_lightmap_uvs before "
+                    "exporting.",
+                    obj.name, uv_set, uv_index,
+                )
             objects.append(
                 {
                     "name": obj.name,  # the Unity GameObject join key
                     "map": info.get("map"),
-                    "uvIndex": 1,
+                    "uvIndex": uv_index,
                     "intensity": info.get("intensity", 1.0),
                     "scaleOffset": info.get(
                         "scaleOffset", list(self._IDENTITY_SCALE_OFFSET)
@@ -470,9 +556,10 @@ class LightmapBakerSlots(ptk.LoggingMixin):
 
     # Packing labels for the Packing combobox (cmb002). Per-Object (index 0, the default) keeps
     # one full-resolution map per object and is fully implemented; Atlas by Material (index 1)
-    # would consolidate a material group into one shared EXR + a per-object scaleOffset rect,
-    # mirroring mayatk's ``pack_atlas`` — that engine isn't ported to blendertk yet, so the item
-    # is disabled (see :meth:`_disable_unsupported_packing_mode`). _packing() reads it back.
+    # would consolidate a material group into one shared EXR and repack each object's lightmap
+    # UVs into its rect (standalone atlas, no engine binding), mirroring mayatk's ``pack_atlas``
+    # — that engine isn't ported to blendertk yet, so the item is disabled (see
+    # :meth:`_disable_unsupported_packing_mode`). _packing() reads it back.
     _PACKING_LABELS = ("Per-Object (one map each)", "Atlas by Material (shared map)")
 
     # Fixed lightmap sizes (square, px) for the Resolution combobox
@@ -517,13 +604,14 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     def _disable_unsupported_packing_mode(self) -> None:
         """Disable the "Atlas by Material" item (cmb002 index 1) — it needs mayatk's
         ``LightmapBaker.pack_atlas`` (per-primary-material grouping into an area-weighted
-        shared EXR via ``ptk.ImgUtils.compute_atlas_layout`` / ``assemble_atlas``, plus a
-        per-object scaleOffset) ported onto Blender's per-object materials + native image I/O.
-        That is a genuinely new engine (grouping, atlas assembly, scaleOffset bookkeeping), not
-        a small addition to the existing ``_bake``, so only this one combo item is disabled —
+        shared EXR via ``ptk.ImgUtils.compute_atlas_layout`` / ``assemble_atlas``, plus the
+        per-object lightmap-UV repack into each rect + its ``uvRect`` revert bookkeeping)
+        ported onto Blender's per-object materials + native image I/O + ``bmesh`` UV editing.
+        That is a genuinely new engine (grouping, atlas assembly, UV repacking), not a small
+        addition to the existing ``_bake``, so only this one combo item is disabled —
         "Per-Object" works normally — see the item model, not the ``.ui``, per the parity plan.
-        # TODO(blender-parity): port mayatk's pack_atlas (per-material EXR atlas assembly) and
-        # re-enable this item.
+        # TODO(blender-parity): port mayatk's pack_atlas (per-material EXR atlas assembly +
+        # lightmap-UV repack/restore) and re-enable this item.
         """
         model = self.ui.cmb002.model()
         item = model.item(1) if model is not None else None
@@ -574,9 +662,11 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                         "Bakes <i>lighting only</i> (Cycles diffuse, no albedo) onto a second "
                         "UV channel; your full PBR material is <b>kept untouched</b>.",
                         "The lightmap is a <b>separate EXR</b>; the engine multiplies "
-                        "albedo × lightmap at runtime and your normal map still works. The "
-                        "wiring rides the FBX on the shared data Empty (no sidecar); unitytk "
-                        "sets up Unity's native lightmaps on import.",
+                        "albedo × lightmap at runtime and your normal map still works. "
+                        "Self-contained export — UV2 samples the map directly in any "
+                        "engine; a one-file Unity editor helper (optional, unitytk's "
+                        "<i>LightmapMetadataController.cs</i>) auto-binds Unity's native "
+                        "lightmap slots from the FBX wiring on the shared data Empty.",
                         "<b>Packing</b>: <i>Per-Object</i> (the only mode available today) "
                         "gives each object its own full-resolution lightmap. <i>Atlas by "
                         "Material</i> is disabled — the per-material atlas consolidation "

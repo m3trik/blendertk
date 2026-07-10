@@ -92,6 +92,66 @@ try:
     check("manifest cleared when nothing remains",
           (btk.DataNodes.get_export_string("lightmap_metadata") or "") == "")
 
+    # --- intensity applied into the texels, once per unique file ----------
+    # (mirror of mayatk: Unity ignores the manifest intensity field, so a
+    # non-1.0 value must be baked into the map -- shared files scale ONCE.)
+    import numpy as np
+
+    ipath = os.path.join(tmp_dir, "intensity_probe.exr")
+    src = bpy.data.images.new("intSrc", width=4, height=4, alpha=True,
+                              float_buffer=True)
+    src.pixels.foreach_set(
+        np.tile(np.array([0.25, 0.25, 0.25, 1.0], np.float32), 16)
+    )
+    src.filepath_raw = ipath
+    src.file_format = "OPEN_EXR"
+    src.save()
+    bpy.data.images.remove(src)
+
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    cube_b = bpy.context.active_object
+    baker.commit_lightmap({cube.name: ipath, cube_b.name: ipath}, intensity=2.0)
+    reload = bpy.data.images.load(ipath)
+    ibuf = np.empty(len(reload.pixels), dtype=np.float32)
+    reload.pixels.foreach_get(ibuf)
+    bpy.data.images.remove(reload)
+    check("intensity x2 applied once (0.25 -> 0.5, not 1.0)",
+          abs(float(ibuf.reshape(-1, 4)[0, 0]) - 0.5) < 1e-3,
+          f"{ibuf.reshape(-1, 4)[0, :3]}")
+    raw_i = btk.DataNodes.get_export_string("lightmap_metadata")
+    recs = (json.loads(raw_i).get("objects") if raw_i else []) or []
+    check("manifest records intensity 2.0 for both objects",
+          len(recs) == 2 and all(r.get("intensity") == 2.0 for r in recs),
+          f"{[(r.get('name'), r.get('intensity')) for r in recs]}")
+    baker.revert([cube, cube_b])
+    check("intensity commit reverts clean",
+          (btk.DataNodes.get_export_string("lightmap_metadata") or "") == "")
+
+    # --- uv_rects marker mirror (mayatk pack_atlas bookkeeping) ------------
+    # (mirror of mayatk commit_lightmap: a non-identity uv_rect is recorded on
+    # the marker as ``uvRect`` -- revert bookkeeping only -- while the manifest
+    # keeps publishing an identity scaleOffset; identity rects record nothing.)
+    rect = [0.5, 0.5, 0.25, 0.25]
+    baker.commit_lightmap(
+        {cube.name: ipath, cube_b.name: ipath},
+        uv_rects={cube.name: rect, cube_b.name: [1.0, 1.0, 0.0, 0.0]},
+    )
+    info_a = json.loads(cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    info_b = json.loads(cube_b[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check("uv_rects recorded on the marker (uvRect)", info_a.get("uvRect") == rect,
+          f"{info_a}")
+    check("identity uv_rect records no uvRect key", "uvRect" not in info_b,
+          f"{info_b}")
+    raw_r = btk.DataNodes.get_export_string("lightmap_metadata")
+    recs_r = (json.loads(raw_r).get("objects") if raw_r else []) or []
+    check("manifest scaleOffset stays identity with uv_rects",
+          recs_r and all(r.get("scaleOffset") == [1.0, 1.0, 0.0, 0.0]
+                         and "uvRect" not in r for r in recs_r),
+          f"{recs_r}")
+    baker.revert([cube, cube_b])
+    check("uv_rects commit reverts clean",
+          (btk.DataNodes.get_export_string("lightmap_metadata") or "") == "")
+
     # --- fused → unlit commit/revert --------------------------------------
     fused = baker.bake_fused([cube], output_dir=tmp_dir, suffix="_LM")
     check("fused bake produced a map", cube.name in fused)

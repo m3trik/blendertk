@@ -84,7 +84,8 @@ class RizomUVBridge(ptk.LoggingMixin):
         except Exception as error:
             self.logger.warning(f"Texture collection failed: {error}")
             return ""
-        existing = [p for p in paths if p and os.path.isfile(p)]
+        # Order-preserving dedupe -- shared materials report the same file once per assignment.
+        existing = [p for p in dict.fromkeys(paths) if p and os.path.isfile(p)]
         if not existing:
             return ""
         self.logger.info(f"Binding {len(existing)} texture(s) in RizomUV.")

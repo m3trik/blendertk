@@ -132,11 +132,12 @@ class MacroManagerSlots(ptk.LoggingMixin):
                     ]),
                     ("Presets (header menu)", [
                         "Save the current bindings as a named set, or load one.",
-                        "The shipped <b>default</b> preset is the startup set "
-                        "applied by <b>apply_saved_macros()</b> (called from "
-                        "``tentacle_startup.py``, since Blender's own keymap "
-                        "edits don't outlive the process — see the engine's "
-                        "docstring).",
+                        "The shipped <b>default</b> preset is all-unbound — "
+                        "loading it clears every macro hotkey. On startup "
+                        "<b>apply_saved_macros()</b> (applied by tentacle at "
+                        "launch, since Blender's own keymap edits don't outlive "
+                        "the process) applies your "
+                        "<i>active</i> preset instead when one is set.",
                     ]),
                 ],
             )
