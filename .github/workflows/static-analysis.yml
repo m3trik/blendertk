@@ -1,0 +1,46 @@
+name: Static Analysis
+
+# blendertk's runtime tests require the Blender runtime (bpy), which isn't available in CI.
+# This workflow runs the Blender-free check: an AST parse-walk that catches syntax errors
+# without importing anything (imports are deferred into call bodies precisely so the package
+# surface resolves without a running Blender — see CLAUDE.md). Pyflakes is deliberately NOT
+# run here: the deferred `import bpy` / Qt idiom reads as "undefined name" to a static import
+# checker and would false-positive across the package.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: AST parse-walk (syntax check, no imports)
+        run: |
+          python -c "
+          import ast, os, sys
+          count, failed = 0, []
+          for root, _, files in os.walk('blendertk'):
+              for f in files:
+                  if f.endswith('.py'):
+                      path = os.path.join(root, f)
+                      try:
+                          ast.parse(open(path, encoding='utf-8').read())
+                          count += 1
+                      except SyntaxError as e:
+                          failed.append(f'{path}: {e}')
+          print(f'{count} files parsed OK')
+          if failed:
+              print('SYNTAX ERRORS:')
+              for line in failed: print(f'  {line}')
+              sys.exit(1)
+          "

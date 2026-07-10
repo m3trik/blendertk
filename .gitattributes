@@ -4,3 +4,9 @@
 # Batch scripts must materialize CRLF everywhere (incl. Linux CI wheel builds);
 # cmd.exe mis-scans goto/call labels in LF-only files.
 *.bat text eol=crlf
+
+# CI workflows + shell scripts run on Linux runners — force LF everywhere.
+# CRLF in a `run:` block's bash (or a shebang) fails on the ubuntu runner.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
