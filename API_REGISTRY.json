@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-10",
+  "generated_at": "2026-07-11",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
