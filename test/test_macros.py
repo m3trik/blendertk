@@ -234,7 +234,7 @@ try:
 
         M.remove_macros()
 
-        # 12b. Preset persistence + apply_saved_macros (the tentacle_startup.py entry point) —
+        # 12b. Preset persistence + apply_saved_macros (tentacle's TclBlender launch entry point) —
         # writes/reads real files under the user PresetStore tier, cleaned up afterward.
         try:
             saved_path = M.save_preset("_test_roundtrip", {"m_frame": {"key": "ctl+alt+f", "cat": "Display"}})
@@ -255,8 +255,20 @@ try:
             check("delete_preset cleans up the test preset", not M._preset_store().exists("_test_roundtrip"))
 
         default_bindings = M.load_preset(M.DEFAULT_PRESET)
-        check("shipped 'default' preset covers every userSetup macro",
-              set(expected) <= set(default_bindings), str(sorted(default_bindings)))
+        check("shipped 'default' preset is all-unbound (no bindings)",
+              default_bindings == {}, str(sorted(default_bindings)))
+
+        # 12c. set_macro must self-register the dispatcher operator. The preset
+        # path (apply_bindings -> set_macro) doesn't go through set_macros —
+        # the only prior _ensure_operator caller — so a fresh session applying
+        # a preset produced keymap items that did NOTHING on keypress.
+        op = getattr(bpy.types, "BTK_OT_macro", None)
+        if op is not None:
+            bpy.utils.unregister_class(op)
+        M.set_macro("m_frame", key="ctl+alt+p", cat="Display")
+        check("set_macro re-registers the btk.macro operator (preset path)",
+              hasattr(bpy.types, "BTK_OT_macro"))
+        M.remove_macros()
     else:
         check("addon keyconfig unavailable (headless) -> management-API round trip skipped", True, "no kc")
 

@@ -110,6 +110,8 @@ class MirrorSlots(ptk.LoggingMixin):
         """Configure header help text."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
+        # Gesture-scoped window: pin button + auto-hide on key_show release.
+        widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
             fmt(
                 title="Mirror",

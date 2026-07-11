@@ -74,7 +74,7 @@ PANELS = [
     "shader_templates",
     "mat_updater",
     "rizom_bridge",
-    "uv_transform",
+    "shell_xform",
     "maya_bridge",
     "unity_bridge",
     "marmoset_bridge",
@@ -143,7 +143,7 @@ try:
         ("shader_templates", "ShaderTemplatesSlots"),  # bpy-free init -> loadable under .venv
         ("mat_updater", "MatUpdaterSlots"),  # engine defers bpy; cmb001_init is bpy-free
         ("rizom_bridge", "RizomBridgeSlots"),  # engine/slots init is bpy-free
-        ("uv_transform", "UvTransformSlots"),  # __init__ (logging + deferred icons/uitk) is bpy-free
+        ("shell_xform", "ShellXformSlots"),  # __init__ (logging + deferred icons/uitk) is bpy-free
         ("maya_bridge", "MayaBridgeSlots"),  # engine/slots init is bpy-free
         ("unity_bridge", "UnityBridgeSlots"),  # engine/slots init is bpy-free (unitytk lookup guarded)
         ("marmoset_bridge", "MarmosetBridgeSlots"),  # BridgeSlotsBase init is bpy-free (engine defers bpy)
@@ -194,6 +194,28 @@ try:
                 b000 is not None and b000.isEnabled(),
                 "b000.isEnabled()",
             )
+
+    # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
+    # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
+    # default). The offscreen load skips header_init (see the channels note below), so drive it
+    # explicitly — the documented init entry point — then assert pin replaced the default hide.
+    GESTURE_SCOPED = [
+        "reference_manager", "color_id", "exploded_view", "bridge",
+        "cut_on_axis", "mirror", "shell_xform", "naming",
+    ]
+    for panel in GESTURE_SCOPED:
+        gs_ui = sb.get_ui(panel)
+        gs_slots = getattr(gs_ui, "slots", None)
+        if gs_slots is None:
+            check(f"{panel} exposes slots for the gesture-scoped check", False, "no slots")
+            continue
+        gs_slots.header_init(gs_ui.header)
+        gs_buttons = set(getattr(gs_ui.header, "buttons", {}))
+        check(
+            f"{panel} is gesture-scoped: pin button, no hide button",
+            "pin" in gs_buttons and "hide" not in gs_buttons,
+            f"{sorted(gs_buttons)}",
+        )
 
     # maya_bridge: render_template substitutes the FBX path + params (Qt path; needs no bpy, so it
     # belongs here rather than in the headless test_maya_bridge harness which lacks Qt).

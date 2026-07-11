@@ -13,8 +13,9 @@ anything inside a running Blender. ``Macros`` IS in ``DEFAULT_INCLUDE`` (so ``bt
 mirrors ``mtk.Macros``), so the ``bpy`` import is **guarded** (``bpy = None`` when absent) —
 exactly like mayatk's ``macros`` guards ``maya.cmds`` — so resolving the package surface never
 requires Blender (no module-level ``bpy`` use; the operator class is built inside
-``_ensure_operator``). ``MacroManager.set_macros`` is called explicitly by the Blender startup
-script (``tentacle_startup.py``), exactly as Maya's ``userSetup.py`` calls the mayatk macros.
+``_ensure_operator``). Bindings are applied from the active preset: ``TclBlender`` calls
+``Macros.apply_saved_macros()`` on construction (the counterpart of Maya's
+``userSetup.py`` applying the mayatk macros at startup).
 
     from blendertk.edit_utils import macros
     macros.Macros.set_macros("m_frame, key=f, cat=Display")
@@ -460,6 +461,11 @@ class MacroManager:
         keymap item behind."""
         if not key or not hasattr(Macros, name):
             return
+        # The keymap items below target the ``btk.macro`` operator — if it was
+        # never registered they exist but do NOTHING on keypress. ``set_macros``
+        # registers it, but the preset path (``apply_bindings`` → here) doesn't
+        # go through ``set_macros``, so ensure it per-call (idempotent).
+        cls._ensure_operator()
         cls.clear_hotkey(name)
         ctl, alt, sht, key_token = cls._parse_key(key)
         mods = {"ctrl": ctl, "alt": alt, "shift": sht}
@@ -490,7 +496,8 @@ class MacroManager:
     # ------------------------------------------------------------------
     # Mirror of mayatk's ``MacroManager`` management surface: the single source of
     # truth for discovering, querying, applying, clearing, and persisting macro
-    # bindings. Both the ``MacroManagerSlots`` panel and ``tentacle_startup.py``
+    # bindings. Both the ``MacroManagerSlots`` panel and tentacle's Blender
+    # launch path (``TclBlender`` applies the active preset on construction)
     # are thin consumers; nothing here imports Qt. A *binding* is a
     # ``{"key": <maya-style token>, "cat": <category>}`` dict; a *binding set* maps
     # macro name -> binding and is exactly what a preset file stores.
@@ -615,16 +622,21 @@ class MacroManager:
 
         An entry with a falsy ``key`` clears that macro's hotkey instead of
         setting one. :meth:`set_macro` remains the single low-level applier.
+        Resilient per entry (mirrors mayatk) — one bad chord logs and
+        continues rather than aborting the rest of the preset.
         """
         for name, spec in (bindings or {}).items():
             if not isinstance(spec, dict):
                 continue
             key = spec.get("key")
             cat = spec.get("cat")
-            if not key:
-                cls.clear_hotkey(name)
-                continue
-            cls.set_macro(name, key=key, cat=cat)
+            try:
+                if not key:
+                    cls.clear_hotkey(name)
+                    continue
+                cls.set_macro(name, key=key, cat=cat)
+            except Exception as error:  # one bad chord must not abort the set
+                print(f"# Error: {__file__}: apply_bindings({name}): {error} #")
 
     @classmethod
     def clear_hotkey(cls, name: str, key: Optional[str] = None) -> None:
@@ -761,12 +773,12 @@ class MacroManager:
 
         Resolution order: explicit *name* -> the persisted active preset ->
         the shipped ``default`` template. A stale active pointer falls back to
-        ``default``. Loading an explicit *name* makes it active. This is what
-        ``tentacle_startup.py`` calls at Blender launch, exactly as mayatk's
-        ``userSetup.py`` calls the Maya macros — Blender's keymap edits don't
-        outlive the process on their own (see the class docstring), so this
-        call is what makes bindings "stick" across sessions rather than the
-        keyconfig itself.
+        ``default``. Loading an explicit *name* makes it active. tentacle's
+        Blender entry point (``TclBlender``) calls this on launch, exactly as
+        the Maya side applies the active preset from ``TclMaya`` — Blender's
+        keymap edits don't outlive the process on their own (see the class
+        docstring), so this call is what makes bindings "stick" across sessions
+        rather than the keyconfig itself.
         """
         store = cls._preset_store()
         target = name or store.active or cls.DEFAULT_PRESET

@@ -2,8 +2,8 @@
 # coding=utf-8
 """Dedicated UV shell-transform panel (Blender).
 
-Mirror of ``mayatk.uv_utils.uv_transform``. Provides :class:`UvTransformSlots`
-for the ``uv_transform.ui`` panel: the four move-to-UV-space arrows (with a
+Mirror of ``mayatk.uv_utils.shell_xform``. Provides :class:`ShellXformSlots`
+for the ``shell_xform.ui`` panel: the four move-to-UV-space arrows (with a
 tile step), Flip / Rotate, and the Straighten / Mirror / Distribute tools.
 
 This is the shared cross-DCC subset — Maya's align / orient / gather / randomize /
@@ -11,7 +11,7 @@ select ops have no bpy analogue, so the Blender panel omits those groups (see
 ``tentacle/docs/parity_map.py``).
 
 Co-located with its engine (:mod:`blendertk.uv_utils`) and discovered by
-``BlenderUiHandler`` (``marking_menu.show("uv_transform")``). The Qt-only ``uitk``
+``BlenderUiHandler`` (``marking_menu.show("shell_xform")``). The Qt-only ``uitk``
 imports are deferred into the methods that use them so the module stays importable
 under headless Blender (``--background``, no Qt binding).
 """
@@ -20,8 +20,8 @@ import blendertk as btk
 from blendertk.core_utils._core_utils import selected_objects
 
 
-class UvTransformSlots(ptk.LoggingMixin):
-    """Switchboard slots for the UV Transform panel (``uv_transform.ui``).
+class ShellXformSlots(ptk.LoggingMixin):
+    """Switchboard slots for the Shell Xform panel (``shell_xform.ui``).
 
     Composition over inheritance: the slots dispatch to :mod:`blendertk.uv_utils`
     and resolve the selection via :func:`btk.selected_objects` (tentacle-independent,
@@ -42,7 +42,7 @@ class UvTransformSlots(ptk.LoggingMixin):
         self.logger.setLevel(log_level)
 
         self.sb = switchboard
-        self.ui = self.sb.loaded_ui.uv_transform
+        self.ui = self.sb.loaded_ui.shell_xform
 
         # Icons install on the next tick: the switchboard builds this slots
         # instance mid-load, so the child widgets aren't wired onto self.ui
@@ -63,7 +63,8 @@ class UvTransformSlots(ptk.LoggingMixin):
         """Header menu — Open UV Editor + panel help."""
         from uitk.widgets.mixins.tooltip_mixin import fmt
 
-        widget.config_buttons("menu", "collapse", "hide")
+        # Gesture-scoped window: pin button + auto-hide on key_show release.
+        widget.config_buttons("menu", "collapse", "pin")
         widget.menu.add(
             "QPushButton",
             setText="Open UV Editor",
@@ -73,7 +74,7 @@ class UvTransformSlots(ptk.LoggingMixin):
         widget.menu.open_uv_editor.clicked.connect(self.open_uv_editor)
         widget.set_help_text(
             fmt(
-                title="UV Transform",
+                title="Shell Xform",
                 body="Move, flip, rotate, and straighten / mirror / distribute "
                 "the selected UV shells.",
                 steps=[

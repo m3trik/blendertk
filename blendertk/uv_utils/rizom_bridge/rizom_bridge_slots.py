@@ -63,7 +63,7 @@ class RizomBridgeSlots(BridgeSlotsBase):
     # open_templates_folder / refresh_templates).
     HEADER_MENU_ITEMS = (
         (
-            "Open UV Editor", "btnopen_uv_editor",
+            "Open UV Editor", "btn_open_uv_editor",
             "Open Blender's UV Editor for inspecting the result.", "open_uv_editor",
         ),
         (
