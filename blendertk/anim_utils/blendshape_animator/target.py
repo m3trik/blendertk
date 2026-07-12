@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 
 import pythontk as ptk
 
-from blendertk.anim_utils.blendshape_animator.weights import Weights
+from pythontk import Weights
 
 #: Name of the Empty that parents every tween mesh object (Blender's analogue of Maya's
 #: ``_morphInbetweens_GRP`` — an Empty is the closest Blender equivalent of a Maya group

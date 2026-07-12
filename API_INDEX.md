@@ -68,13 +68,78 @@ _Generated: 2026-07-12_
 - `class Validator(ptk.LoggingMixin)`
   - methods: validate_meshes, validate_shape_setup
 
-### `anim_utils/blendshape_animator/weights.py` — Weight calculations for shape-key morph animation — mirror of mayatk's
-- `class Weights`
-  - methods: round_weight, frame_to_weight, generate_weights
-
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - `scale_keys(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False)`
 - `class ScaleKeys`
+
+### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
+- `iter_action_fcurves(obj)`
+- `collect_transform_segments(scene=None, gap_threshold: float = 5.0) -> List[Dict[str, Any]]`
+- `collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]`
+- `class BlenderScenePersistence`
+  - methods: remove_callbacks, save, load
+- `class BlenderShotStore(ShotStore)`
+  - methods: active, has_animation, detect_regions, assess
+
+### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
+- `class BlenderShotManifest(ShotManifest)`
+  - methods: apply_behaviors, reapply_object, from_csv
+
+### `anim_utils/shots/shot_manifest/manifest_data.py` — Constants, column layout, and pure helper functions for the Shot Manifest UI.
+- `fmt_behavior(name: str) -> str`
+- `format_behavior_html(behaviors, broken=(), status_color=None) -> str`
+- `try_load_blender_icons()`
+
+### `anim_utils/shots/shot_manifest/shot_manifest_slots.py` — Switchboard slots for the Shot Manifest UI (Blender).
+- `class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin)`
+  - methods: detect, remove_callbacks, browse_csv, build, assess
+- `class ShotManifestSlots(ptk.LoggingMixin)`
+  - methods: header_init, btn_expand_missing, btn_expand_extra, btn_settings, b002, b003
+
+### `anim_utils/shots/shot_manifest/table_presenter.py` — Tree-widget presentation mixin for the Shot Manifest controller.
+- `class ManifestTableMixin`
+  - methods: expand_missing, expand_extra
+
+### `anim_utils/shots/shot_sequencer/_shot_sequencer.py` — Blender shot sequencer engine — timeline moves over the shared shots planner.
+- `class ShotSequencer`
+  - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, define_shot, reconcile_all_shots, ripple_downstream, ripple_upstream, respace, slide_shot, move_shot, move_object_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, resize_object, set_shot_duration, resize_shot, apply_gap, move_shot_to_position, collect_object_segments, fit_shot_to_content, trim_shot_to_content
+
+### `anim_utils/shots/shot_sequencer/clip_motion.py` — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
+- `curves_for_attr(obj_name: str, attr_name: str) -> list`
+- `scale_attribute_keys(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None`
+- `class ClipMotionMixin`
+  - methods: on_clip_resized, on_clip_moved, on_clips_batch_moved, on_keys_moved, on_keys_deleted
+
+### `anim_utils/shots/shot_sequencer/gap_manager.py` — Gap and range-highlight handlers for the shot sequencer controller (Blender).
+- `class GapManagerMixin`
+  - methods: on_range_highlight_changed, on_gap_resized, on_gap_left_resized, on_gap_moved, on_gap_lock_changed, on_gap_lock_all, on_gap_unlock_all
+
+### `anim_utils/shots/shot_sequencer/marker_manager.py` — Marker persistence for the shot sequencer controller (Blender).
+- `class MarkerManagerMixin`
+  - methods: on_marker_added, on_marker_moved, on_marker_changed, on_marker_removed
+
+### `anim_utils/shots/shot_sequencer/segment_collector.py` — Segment collection and attribute extraction for the shot sequencer (Blender).
+- `attr_label(fcurve) -> str`
+- `collect_segments(sequencer, shot, visible_shots, segment_cache, shifted_out_keys, logger)`
+- `active_object_set(shot, segments_by_shot) -> set`
+- `extract_attributes(segments) -> list`
+- `build_curve_preview(fcurve, t_start, t_end)`
+
+### `anim_utils/shots/shot_sequencer/shot_nav.py` — Shot navigation and combobox synchronization (Blender).
+- `class ShotNavMixin`
+  - methods: select_shot, on_shot_block_clicked
+
+### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
+- `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin)`
+  - methods: sequencer, remove_callbacks, on_zone_context_menu, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_gap_menu, on_key_selection_changed
+- `class ShotSequencerSlots(ptk.LoggingMixin)`
+  - methods: header_init, btn_colors, spn_snap, btn_shortcuts, btn_shot_settings, cmb_shot
+
+### `anim_utils/shots/shots_slots.py` — Switchboard slots for the Shots settings UI.
+- `class ShotsController(ptk.LoggingMixin)`
+  - methods: remove_callbacks, refresh_state, on_detection_changed, on_detection_mode_changed, on_initial_length_changed, on_snap_whole_frames_changed, on_fit_mode_changed, on_gap_changed, on_shot_selected, on_shot_name_changed, on_shot_start_changed, on_shot_end_changed, on_shot_desc_changed, on_delete_shot, on_delete_all_shots, on_move_shot, on_trim_empty, on_trim_all_shots
+- `class ShotsSlots(ptk.LoggingMixin)`
+  - methods: header_init, spn_detection, cmb_detection_mode, spn_initial_length, cmb_fit_mode, chk_snap_whole_frames, cmb_shot_select, txt_shot_name, spn_shot_start, spn_shot_end, txt_shot_desc, b000, btn_delete_all_shots, btn_move_shot, btn_apply_gap, btn_trim_empty, btn_trim_all_shots
 
 ### `anim_utils/smart_bake/_smart_bake.py` — Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` at the
 - `class BakeAnalysis`
@@ -119,6 +184,7 @@ _Generated: 2026-07-12_
 - `class CamUtils`
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
+- `undo_chunk(name: str = '')`
 - `undoable(fn)`
 - `undo_checkpoint(fn)`
 - `get_env_info(key=None)`
@@ -191,6 +257,10 @@ _Generated: 2026-07-12_
 - `class ExplodedViewSlots(ptk.LoggingMixin)`
   - methods: header_init, b000, b001, b002, b003
 
+### `edit_utils/_curtain_drape.py` — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
+- `class CurtainDrape`
+  - methods: prepare, grid_points, drape
+
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `hook_bind_inverse(target, obj)`
 - `hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')`
@@ -237,7 +307,7 @@ _Generated: 2026-07-12_
 - `class BridgeSlots(ptk.LoggingMixin)`
   - methods: header_init, perform_operation
 
-### `edit_utils/curtain.py` — Curtain (draped-cloth) generation — the Blender build over the shared
+### `edit_utils/curtain.py` — Curtain (draped-cloth) generation — the Blender build over the vendored
 - `curtain_rail_from_selection(objects)`
 - `create_curtain(rail, name='curtain', **options)`
 - `class CurtainUtils`
@@ -404,10 +474,6 @@ _Generated: 2026-07-12_
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
   - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, b000, b010, b006, b003, b004, b007, b008, save_output_dir, save_output_name
-
-### `env_utils/scene_exporter/task_factory.py` — Generic task/check pipeline engine -- vendored verbatim from mayatk's identically-named
-- `class TaskFactory`
-  - methods: run_tasks, run_tasks_by_category
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
@@ -637,8 +703,6 @@ _Generated: 2026-07-12_
 ### `mat_utils/substance_bridge/connection.py` — Substance 3D Painter connection module.
 - `find_painter_exe() -> Optional[str]`
 - `default_log_path() -> Optional[str]`
-- `class OutputStream`
-  - methods: push, subscribe, history, clear_history, wait_for, close, closed
 - `class SubstanceConnection(ptk.LoggingMixin)`
   - methods: open, close, is_alive, attach
 
@@ -684,7 +748,7 @@ _Generated: 2026-07-12_
 
 ### `node_utils/data_nodes.py` — Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes`
-  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string
+  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string, dump, format_dump
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -704,7 +768,7 @@ _Generated: 2026-07-12_
 
 ### `rig_utils/_rig_utils.py` — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - `class RigUtils`
-  - methods: resolve_object, create_locator, create_group, parent_keep_transform, create_armature, add_bone_chain, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
+  - methods: resolve_object, create_locator, create_group, parent_keep_transform, create_armature, add_bone_chain, add_bone, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
 
 ### `rig_utils/controls.py` — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - `class ControlNodes`
@@ -739,9 +803,9 @@ _Generated: 2026-07-12_
 - `class FKChainStrategy(TubeStrategy)`
   - methods: build
 - `class TubeRig(ptk.LoggingMixin)`
-  - methods: collection, resolve_centerline, create_root, create_armature, create_joint_chain, attach_spline_rig, build_curve, make_control, hook_curve_controls, build
+  - methods: collection, resolve_centerline, create_root, create_armature, create_joint_chain, add_twist, attach_spline_rig, build_curve, make_control, hook_curve_controls, constrain_end_with_falloff, build
 - `class TubeRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, b000
+  - methods: header_init, b000, b001, b002, b003, b004
 
 ### `rig_utils/wheel_rig.py` — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 - `class WheelRig(ptk.LoggingMixin)`
@@ -809,6 +873,10 @@ _Generated: 2026-07-12_
 - `derive_auto_seams(objects, angle=66.0, margin=0.0)`
 - `distribute_uv_shells(objects, axis='u')`
 - `straighten_uvs(objects, u=True, v=True, angle=30.0)`
+- `align_uvs(objects, axis='u', mode='avg')`
+- `gather_uv_shells(objects)`
+- `orient_uv_shells(objects, to_edge=False)`
+- `randomize_uv_shells(objects, seed=0)`
 - `class UvUtils`
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
@@ -826,7 +894,7 @@ _Generated: 2026-07-12_
 
 ### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
 - `class ShellXformSlots(ptk.LoggingMixin)`
-  - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, open_uv_editor
+  - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `get_world_bbox(obj)`

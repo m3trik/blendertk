@@ -90,6 +90,9 @@ PANELS = [
     "shadow_rig",
     "render_opacity",
     "tube_rig",
+    "shots",
+    "shot_manifest",
+    "shot_sequencer",
 ]
 
 lines = []

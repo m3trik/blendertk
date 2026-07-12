@@ -27,6 +27,7 @@ DEFAULT_INCLUDE = {
     "core_utils._core_utils": [
         "CoreUtils",
         "undoable",
+        "undo_chunk",
         "undo_checkpoint",
         "get_env_info",
         "ensure_image_deps",
@@ -124,6 +125,10 @@ DEFAULT_INCLUDE = {
         "straighten_uvs",
         "straighten_uv_shells",
         "derive_auto_seams",
+        "align_uvs",
+        "gather_uv_shells",
+        "orient_uv_shells",
+        "randomize_uv_shells",
     ],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
@@ -201,9 +206,6 @@ DEFAULT_INCLUDE = {
     ],
     "env_utils.scene_exporter.task_manager": [
         "TaskManager",
-    ],
-    "env_utils.scene_exporter.task_factory": [
-        "TaskFactory",
     ],
     # Hierarchy Manager — diff/repair a scene hierarchy against a reference .blend linked as a
     # library (mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager``; the
@@ -362,6 +364,23 @@ DEFAULT_INCLUDE = {
         "StaggerKeys",
         "stagger_keys",
     ],
+    # Shots — Blender acquisition + persistence adapter over pythontk's shots
+    # engine (``core_utils.engines.shots``).  The shot model / planner / detection
+    # math is shared upstream; only ``BlenderShotStore`` (scene hooks) and
+    # ``BlenderScenePersistence`` (scene-property JSON) live here.  The co-located
+    # Shots panel is discovered by ``BlenderUiHandler``, not registered here.
+    "anim_utils.shots._shots": [
+        "BlenderShotStore",
+        "BlenderScenePersistence",
+    ],
+    # Shot sequencer engine — timeline-move surface over the shared planner
+    # (move/ripple/gap/reorder/trim).  The Shots panel drives it; the visual
+    # Sequencer panel is a later phase.
+    "anim_utils.shots.shot_sequencer._shot_sequencer": ["ShotSequencer"],
+    # Shot Manifest adapter — Blender scene hooks over the shared manifest engine
+    # (CSV → shots + fade/audio behaviors).  Co-located panel discovered by
+    # BlenderUiHandler, not registered here.
+    "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
     # Smart Bake — engine + session/restore store, mirror of mayatk's
     # ``anim_utils.smart_bake`` (the ``SmartBakeSlots`` panel is discovered by
     # ``BlenderUiHandler``, not registered here).

@@ -31,7 +31,7 @@ from blendertk.anim_utils.blendshape_animator.creator import Creator
 from blendertk.anim_utils.blendshape_animator.keyframes import Keyframes
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
 from blendertk.anim_utils.blendshape_animator.validator import Validator
-from blendertk.anim_utils.blendshape_animator.weights import Weights
+from pythontk import Weights
 
 _TARGET_PROP = "blendshape_animator_target"
 _KEY_PROP = "blendshape_animator_key"

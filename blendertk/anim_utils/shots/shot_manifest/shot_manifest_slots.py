@@ -1,0 +1,1992 @@
+# !/usr/bin/python
+# coding=utf-8
+"""Switchboard slots for the Shot Manifest UI (Blender).
+
+Blender mirror of mayatk's ``shot_manifest.shot_manifest_slots`` — same widget
+objectNames, same controller structure, same public slot class
+(:class:`ShotManifestSlots`) so the tentacle nav stays branch-free.  The CSV
+parsing, column mapping, behavior math, range resolution, and build planning all
+live once in the shared ``pythontk`` engine; this controller drives the
+:class:`BlenderShotManifest` adapter over it.
+
+DCC swaps versus the Maya original:
+
+- scene-change handling uses ``BlenderShotStore``'s invalidation registry, not
+  Maya scriptJobs (``ScriptJobManager``);
+- ``cmds.currentTime`` → ``scene.frame_current``; ``cmds.objExists`` →
+  ``bpy.data.objects``; ``cmds.select`` + Outliner reveal → object selection
+  (Blender's Outliner tracks the active object);
+- undo chunking uses ``btk.undo_chunk``;
+- shot detection delegates to ``store.detect_regions()`` (the store owns the
+  mode dispatch and the pure boundary math).
+
+Presentation methods live in :class:`ManifestTableMixin`; constants/pure helpers
+in :mod:`manifest_data`; range resolution in ``pythontk``'s ``resolve_ranges``.
+"""
+from typing import Dict, List, Optional, Tuple
+
+import pythontk as ptk
+
+from blendertk.core_utils._core_utils import undo_chunk
+from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils.shots.shot_manifest._shot_manifest import BlenderShotManifest
+from blendertk.anim_utils.shots.shot_manifest.table_presenter import ManifestTableMixin
+from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+    ERROR_COLOR,
+    SETTINGS_NS,
+    COL_STEP,
+    COL_DESC,
+    COL_START,
+    COL_END,
+    fmt_behavior,
+)
+from pythontk import (
+    BuilderStep,
+    BuilderObject,
+    ColumnMap,
+    parse_csv,
+    resolve_ranges,
+    StoreEvent,
+    StoreInvalidated,
+    BatchComplete,
+    SettingsChanged,
+    ShotRemoved,
+)
+
+# When free space is below this, surface the actual figure alongside the
+# read-failure causes: low disk is then a plausible culprit and the concrete
+# number helps the user spot a (nearly) full volume.  Shown as a fact, never
+# asserted as *the* cause; above this it's omitted as noise.  A healthy working
+# volume rarely sits this low, so it won't fire on a normal disk.
+_LOW_DISK_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+
+
+class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
+    """Business logic for the Shot Manifest UI."""
+
+    _COLOR_SETTINGS_NS = "ShotManifest/colors"
+
+    def __init__(self, slots_instance, log_level="WARNING"):
+        super().__init__()
+        self.set_log_level(log_level)
+        self.sb = slots_instance.sb
+        self.ui = slots_instance.ui
+        self._steps: List[BuilderStep] = []
+        self._csv_path: str = ""
+        self._store = None  # BlenderShotStore from last build
+        self._last_results: list = []  # Last assessment results
+
+        from uitk.widgets.mixins.settings_manager import SettingsManager
+
+        self._settings = SettingsManager(namespace=SETTINGS_NS)
+        # One-shot migration: fit_mode and initial_shot_length now live on
+        # the store.  Purge the old manifest-namespaced keys so they don't
+        # linger indefinitely in QSettings.
+        _qs = self._settings.settings
+        for _legacy in (
+            f"{SETTINGS_NS}/fit_mode",
+            f"{SETTINGS_NS}/initial_shot_length",
+        ):
+            if _qs.contains(_legacy):
+                _qs.remove(_legacy)
+
+        self._user_ranges: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
+
+        tree = self.ui.tbl_steps
+        tree.enable_column_config()
+
+        from qtpy.QtCore import Qt
+        from qtpy.QtWidgets import QAbstractItemView
+
+        tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        tree.setExpandsOnDoubleClick(False)
+        tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        tree.customContextMenuRequested.connect(self._show_item_menu)
+        tree.itemDoubleClicked.connect(self._on_range_double_clicked)
+        tree.itemChanged.connect(self._on_item_changed)
+
+        self._building = False
+        self._built_this_round = False
+        self._first_shown = False
+        self._store_listener_bound = False
+        self._cached_gaps: Optional[List[float]] = None
+        self._cached_gap_ends: Optional[Dict[float, float]] = None
+        self._last_resolved: List[Tuple[str, float, Optional[float], bool]] = []
+        self._bind_store_listener()
+        # Subscribe to class-level invalidation so the table refreshes when the
+        # persistence layer detects a scene change — mirrors the Maya scriptJob
+        # subscription without duplicating scene callbacks.
+        BlenderShotStore.add_invalidation_listener(self._on_store_invalidated)
+        # Tear down on panel close: the ShotStore listener needs remove_callbacks,
+        # or it keeps the dead controller alive and firing after the panel closes.
+        self.ui.destroyed.connect(lambda *_: self.remove_callbacks())
+        self._column_map = ColumnMap()
+        self._active_mapping = None  # loaded JSON dict from mapping/
+        self._mapping_dir = None  # custom directory override
+        self._setup_recent_csv()
+        self._setup_csv_path_editing()
+        self._setup_csv_toggle()
+        self._setup_header_menu()
+        self._setup_mapping_combo()
+        self._restore_color_overrides()
+        self._move_action_buttons_to_footer()
+        self.ui.on_first_show.connect(self._on_first_show)
+
+    # ---- footer-hosted action buttons ------------------------------------
+
+    def _move_action_buttons_to_footer(self) -> None:
+        """Reparent the Assess/Build buttons into the footer's right side.
+
+        The UI file still lays them out in ``action_layout`` above the
+        footer so Designer remains usable; at runtime we relocate them
+        onto the footer itself to consolidate the action row.  Sizes
+        declared in the .ui file are preserved.
+        """
+        footer = getattr(self.ui, "footer", None)
+        add_widget = getattr(footer, "add_widget", None) if footer else None
+        if not callable(add_widget):
+            return
+        for name in ("b002", "b003"):
+            btn = getattr(self.ui, name, None)
+            if btn is None:
+                continue
+            add_widget(btn, side="right", background=True)
+
+    # ---- first-show auto-populate ----------------------------------------
+
+    def _on_first_show(self) -> None:
+        """Auto-populate the table the first time the window is shown."""
+        self._first_shown = True
+        self._populate_from_source()
+
+    # ---- built state -----------------------------------------------------
+
+    @property
+    def _is_built(self) -> bool:
+        """True if any CSV step already exists as a shot in the store."""
+        try:
+            built_map = {s.name for s in BlenderShotStore.active().shots}
+        except Exception:
+            return False
+        return any(step.step_id in built_map for step in self._steps)
+
+    def _step_is_built(self, step_id: str) -> bool:
+        """True if a specific step already exists as a shot in the store."""
+        try:
+            return any(s.name == step_id for s in BlenderShotStore.active().shots)
+        except Exception:
+            return False
+
+    # ---- range column editing --------------------------------------------
+
+    @property
+    def _is_detection_mode(self) -> bool:
+        """True when steps were populated via scene detection (no CSV)."""
+        return bool(self._steps) and not self._csv_path
+
+    @property
+    def _use_selected_keys(self) -> bool:
+        """True when a selected-keys detection mode is active.
+
+        The store's detection_mode controls this regardless of whether
+        steps came from a CSV or from scene detection.  CSV defines
+        step names/objects; the detection mode defines how ranges are
+        inferred.
+        """
+        store = self._active_store()
+        return store is not None and store.detection_mode != "auto"
+
+    def _all_ranges_complete(self) -> bool:
+        """True when every step has a user-supplied (start, end) pair."""
+        return bool(self._steps) and all(
+            (r := self._user_ranges.get(s.step_id)) is not None
+            and r[0] is not None
+            and r[1] is not None
+            for s in self._steps
+        )
+
+    # ---- store access -----------------------------------------------------
+
+    def _active_store(self):
+        """Return the cached store, or try ``BlenderShotStore.active()``."""
+        if self._store is not None:
+            return self._store
+        try:
+            return BlenderShotStore.active()
+        except Exception:
+            return None
+
+    # ---- scene detection -------------------------------------------------
+
+    def _detect_regions(self) -> list:
+        """Return detected shot regions, respecting the store's detection mode.
+
+        Delegates to :meth:`BlenderShotStore.detect_regions`, which owns the
+        mode dispatch (auto → motion clustering, selected-keys → boundary math)
+        and reads its own ``detection_threshold``.  Returns an empty list when
+        a selected-keys mode is active and no keys are selected; callers handle
+        user feedback.
+        """
+        store = self._active_store()
+        if store is None:
+            return []
+        return store.detect_regions()
+
+    def detect(self, gap: Optional[float] = None) -> None:
+        """Detect animation regions in the scene and populate the table.
+
+        Replaces any loaded CSV data.  Ranges are pre-filled from
+        detection results (user-editable).  Section and Behaviors
+        columns are minimal since detection doesn't provide that
+        metadata.
+
+        Parameters:
+            gap: Accepted for signature parity with mayatk's ``detect``;
+                unused — the store's own ``detection_threshold`` drives
+                :meth:`BlenderShotStore.detect_regions`.
+        """
+        use_sel = self._use_selected_keys
+        regions = self._detect_regions()
+        if not regions:
+            if use_sel:
+                self.sb.message_box(
+                    "<b>No keys selected.</b><br>"
+                    "Select keyframes in the Graph Editor first.",
+                )
+            footer = (
+                "No selected keys found (select keys in the Graph Editor)."
+                if use_sel
+                else "No animation found in scene."
+            )
+            self._load_data([], footer=footer)
+            return
+
+        steps, ranges = BuilderStep.from_detection(regions)
+        n_obj = sum(len(s.objects) for s in steps)
+        source = "selected keys" if use_sel else "scene"
+        self._load_data(
+            steps,
+            ranges=dict(ranges),
+            footer=f"Found {len(steps)} shots, {n_obj} objects from {source}.",
+        )
+
+    def _on_range_double_clicked(self, item, column) -> None:
+        """Allow editing Step, Description, Start, and End on parent rows.
+
+        Built steps are locked; unbuilt steps remain editable even after
+        other shots have been built.  For non-editable columns, toggle
+        expand/collapse instead.
+        """
+        from qtpy.QtCore import Qt
+
+        editable_cols = [COL_STEP, COL_DESC, COL_START, COL_END]
+        is_parent = item.parent() is None
+        if is_parent and column in editable_cols:
+            step_data = item.data(0, Qt.UserRole)
+            if isinstance(step_data, BuilderStep) and self._step_is_built(
+                step_data.step_id
+            ):
+                pass  # fall through to expand/collapse
+            else:
+                tree = self.ui.tbl_steps
+                tree.editItem(item, column)
+                return
+        # Fallback: toggle expand/collapse for parent rows
+        if is_parent:
+            item.setExpanded(not item.isExpanded())
+
+    def _on_item_changed(self, item, column) -> None:
+        """Capture user edits to Step name, Description, Start, and End columns.
+
+        Validation rules (Start/End):
+        - Negative start values are rejected.
+        - End must be > start when both are given.
+        - Start must not precede the previous step's resolved end.
+
+        After a valid range edit, downstream user ranges are cleared so
+        the resolver can re-flow them from the new anchor, and the full
+        table is refreshed.
+
+        Step name edits rename the step and re-key _user_ranges.
+        Description edits update the step's content field (which maps
+        to ShotBlock.description) without triggering range resolution.
+        """
+        # Step name edit
+        if column == COL_STEP:
+            if item.parent() is not None:
+                return
+            from qtpy.QtCore import Qt
+
+            step_data = item.data(0, Qt.UserRole)
+            if not isinstance(step_data, BuilderStep):
+                return
+            new_name = item.text(COL_STEP).strip()
+            if not new_name or new_name == step_data.step_id:
+                return
+            # Reject a rename colliding with another step's id — duplicate
+            # step_ids clobber each other's ranges at build time (parse_csv
+            # guards the same way).
+            if any(
+                s.step_id == new_name for s in self._steps if s is not step_data
+            ):
+                self.logger.warning(
+                    "Duplicate step name '%s' — rename reverted.", new_name
+                )
+                tree = self.ui.tbl_steps
+                tree.blockSignals(True)
+                item.setText(COL_STEP, step_data.step_id)
+                tree.blockSignals(False)
+                return
+            old_name = step_data.step_id
+            step_data.step_id = new_name
+            # Re-key user ranges
+            if old_name in self._user_ranges:
+                self._user_ranges[new_name] = self._user_ranges.pop(old_name)
+            return
+
+        # Description column edit
+        if column == COL_DESC:
+            if item.parent() is not None:
+                return
+            from qtpy.QtCore import Qt
+
+            step_data = item.data(0, Qt.UserRole)
+            if isinstance(step_data, BuilderStep):
+                # The cell renders display_text (the description) — writing
+                # the edit to .audio would silently destroy the narration
+                # while the visible description stayed unchanged.
+                step_data.description = item.text(COL_DESC)
+            return
+
+        if column not in (COL_START, COL_END):
+            return
+        if item.parent() is not None:
+            return
+        from qtpy.QtCore import Qt
+
+        step_data = item.data(0, Qt.UserRole)
+        if not isinstance(step_data, BuilderStep):
+            return
+
+        start_raw = item.text(COL_START).strip()
+        end_raw = item.text(COL_END).strip()
+
+        # Both empty — clear user range
+        if not start_raw and not end_raw:
+            self._user_ranges.pop(step_data.step_id, None)
+            self._refresh_ranges()
+            return
+
+        # Parse values
+        start: Optional[float] = None
+        end: Optional[float] = None
+        try:
+            if start_raw:
+                start = float(start_raw)
+        except ValueError:
+            self._revert_range_cell(item, step_data.step_id)
+            return
+        try:
+            if end_raw:
+                end = float(end_raw)
+        except ValueError:
+            self._revert_range_cell(item, step_data.step_id)
+            return
+
+        if start is None:
+            # Can't store a range without a start value
+            self._revert_range_cell(item, step_data.step_id)
+            return
+
+        # Reject negative start.
+        if start < 0:
+            self._revert_range_cell(item, step_data.step_id)
+            return
+
+        # Reject end <= start when end is given.
+        if end is not None and end <= start:
+            self._revert_range_cell(item, step_data.step_id)
+            return
+
+        # Reject start before the previous step's resolved end.
+        # _last_resolved may be sparse (selected-keys mode skips
+        # unresolved steps), so look up the nearest resolved
+        # predecessor by step_id — positional indexing would compare
+        # against the wrong step's end.
+        step_idx = self._step_index(step_data.step_id)
+        if step_idx < 0:
+            return
+        if step_idx > 0 and self._last_resolved:
+            resolved_ends = {sid: e for sid, _, e, _ in self._last_resolved}
+            prev_end = next(
+                (
+                    resolved_ends[s.step_id]
+                    for s in reversed(self._steps[:step_idx])
+                    if resolved_ends.get(s.step_id) is not None
+                ),
+                None,
+            )
+            if prev_end is not None and start < prev_end:
+                self._revert_range_cell(item, step_data.step_id)
+                return
+
+        # Valid — store, clear downstream, and refresh.
+        self._user_ranges[step_data.step_id] = (start, end)
+        self._cascade_from(step_idx)
+        self._refresh_ranges(from_step_idx=step_idx)
+
+    def _step_index(self, step_id: str) -> int:
+        """Return the list index for *step_id*, or -1 if not found."""
+        return next((i for i, s in enumerate(self._steps) if s.step_id == step_id), -1)
+
+    def _refresh_ranges(self, from_step_idx: int = 0) -> list:
+        """Re-resolve, auto-fill, and validate all ranges.
+
+        This is the single entry point for updating the Range column
+        after any edit, cascade, or clear operation.
+
+        Parameters
+        ----------
+        from_step_idx
+            Passed to :meth:`_resolve_ranges` so steps before this
+            index keep their last-resolved positions.
+
+        Returns the resolved ranges list.
+        """
+        resolved = self._auto_fill_ranges(
+            resolved=self._resolve_ranges(from_step_idx=from_step_idx)
+        )
+        self._validate_range_collisions(resolved)
+        return resolved
+
+    def _cascade_from(self, step_idx: int) -> None:
+        """Clear user ranges on all steps after *step_idx* so they re-flow."""
+        for s in self._steps[step_idx + 1 :]:
+            self._user_ranges.pop(s.step_id, None)
+
+    # ---- auto-fill logic -------------------------------------------------
+
+    def _resolve_ranges(
+        self,
+        from_step_idx: int = 0,
+    ) -> List[Tuple[str, float, Optional[float], bool]]:
+        """Compute a resolved (start, end) for every step.
+
+        Detects/caches animation regions, then delegates to the
+        standalone :func:`resolve_ranges` algorithm (pythontk).
+        """
+        if not self._steps:
+            return []
+
+        store = self._active_store()
+        gap = store.gap if store else 0.0
+        use_sel = self._use_selected_keys
+
+        # Detect animation regions for auto-fill (cached per assess cycle).
+        if self._cached_gaps is not None:
+            gap_starts = self._cached_gaps
+        else:
+            regions = self._detect_regions()
+            gap_starts = [r["start"] for r in regions] if regions else []
+            self._cached_gaps = gap_starts
+            self._cached_gap_ends = (
+                {r["start"]: r["end"] for r in regions if r.get("end") is not None}
+                if regions
+                else {}
+            )
+
+        if use_sel and not gap_starts:
+            return []
+
+        # When no animation regions are detected (regardless of mode),
+        # use uniform default durations so steps get sensible placeholder
+        # ranges instead of behavior-derived micro-durations.  This also
+        # covers the case where the scene has animation but the chosen
+        # detection mode found no boundaries (e.g. skip_zero with no
+        # zero-valued keys).  The store's initial_shot_length is the
+        # user-facing policy for new-shot sizing (default 200f).
+        default_dur = (
+            self._initial_shot_length if (not gap_starts and not use_sel) else 0
+        )
+
+        resolved = resolve_ranges(
+            steps=self._steps,
+            user_ranges=self._user_ranges,
+            gap_starts=gap_starts,
+            gap_end_map=self._cached_gap_ends or {},
+            gap=gap,
+            use_selected_keys=use_sel,
+            last_resolved=self._last_resolved,
+            from_step_idx=from_step_idx,
+            default_duration=default_dur,
+        )
+        self._last_resolved = resolved
+        return resolved
+
+    # ---- store observer --------------------------------------------------
+
+    def _bind_store_listener(self) -> None:
+        """Register as a listener on the active store."""
+        if self._store_listener_bound:
+            return
+        try:
+            store = BlenderShotStore.active()
+            store.add_listener(self._on_store_event)
+            self._bound_store = store
+            self._store_listener_bound = True
+        except Exception:
+            pass
+
+    def _unbind_store_listener(self) -> None:
+        """Remove the store listener."""
+        if not self._store_listener_bound:
+            return
+        try:
+            store = getattr(self, "_bound_store", None)
+            if store is not None:
+                store.remove_listener(self._on_store_event)
+                self._bound_store = None
+        except Exception:
+            pass
+        self._store_listener_bound = False
+
+    def remove_callbacks(self) -> None:
+        """Remove store listener and invalidation subscription (call on teardown)."""
+        self._unbind_store_listener()
+        BlenderShotStore.remove_invalidation_listener(self._on_store_invalidated)
+
+    # ---- scene-change handling -------------------------------------------
+
+    def _on_store_invalidated(self, event: StoreInvalidated) -> None:
+        """Handle a Blender scene open / new-scene event.
+
+        Re-binds the store listener (the old store is stale) and
+        re-populates the table from CSV or detection, mirroring the
+        logic in ``_on_first_show``.
+        """
+        # The old store is invalidated by the persistence layer.
+        self._unbind_store_listener()
+        self._store = None
+        self._bind_store_listener()
+
+        if not self._first_shown:
+            return
+
+        self._populate_from_source()
+
+    def _populate_from_source(self) -> None:
+        """Load CSV or run detection based on the current UI state.
+
+        Shared by ``_on_first_show`` and ``_on_store_invalidated`` to keep
+        the populate-on-open logic in one place.
+        """
+        if self.ui.chk_csv.isChecked():
+            path = self.ui.txt_csv_path.text().strip()
+            if path:
+                self._load_csv(path)
+                return
+        self.detect()
+
+    def _on_store_event(self, event: StoreEvent) -> None:
+        """React to store mutations — refresh tree timing if steps are loaded."""
+
+        if self._building:
+            return
+        if isinstance(event, SettingsChanged):
+            # Detection settings changed — invalidate cache and re-detect.
+            # Guard on _first_shown to avoid triggering detection (and
+            # message boxes) before the widget is visible.
+            self._cached_gaps = None
+            self._cached_gap_ends = None
+            if self._first_shown:
+                if self._csv_path:
+                    # CSV defines steps — don't replace them with detected
+                    # steps.  Just refresh auto-filled ranges so the new
+                    # detection mode takes effect.
+                    if self._steps:
+                        self._refresh_ranges()
+                else:
+                    self.detect()
+            return
+        if not self._steps:
+            return
+        # Only invalidate cached assessment on structural changes
+        # (shot added/removed).  Cosmetic events like ActiveShotChanged
+        # or field edits (ShotUpdated) don't change object status.
+        if isinstance(event, (ShotRemoved, BatchComplete)):
+            self._last_results = []
+        store = getattr(self, "_bound_store", None)
+        # Only overwrite tree timing from the store when shots have
+        # been built for the current round.  Before build, detection
+        # ranges in _user_ranges are authoritative.
+        if store is not None and self._built_this_round:
+            self._refresh_timing(store)
+        self._update_build_button()
+
+    def _refresh_timing(self, store) -> None:
+        """Update Start/End columns in the tree from the store."""
+        from qtpy.QtCore import Qt
+
+        timing_map = {s.name: s for s in store.sorted_shots()}
+        tree = self.ui.tbl_steps
+        tree.blockSignals(True)
+        try:
+            for i in range(tree.topLevelItemCount()):
+                parent = tree.topLevelItem(i)
+                step_data = parent.data(0, Qt.UserRole)
+                if not isinstance(step_data, BuilderStep):
+                    continue
+                shot = timing_map.get(step_data.step_id)
+                if shot is None:
+                    continue
+                parent.setText(COL_START, f"{shot.start:.0f}")
+                parent.setText(COL_END, f"{shot.end:.0f}")
+                parent.setToolTip(COL_START, f"{shot.end - shot.start:.0f}f")
+                parent.setToolTip(COL_END, f"{shot.end - shot.start:.0f}f")
+        finally:
+            tree.blockSignals(False)
+
+    # ---- footer helpers --------------------------------------------------
+
+    def _set_footer(self, text: str, *, color: str = "") -> None:
+        """Set footer text with an optional foreground color."""
+        label = self.ui.footer._status_label
+        if color:
+            label.setStyleSheet(
+                f"background: transparent; border: none; color: {color};"
+            )
+        else:
+            label.setStyleSheet("background: transparent; border: none;")
+        self.ui.footer.setText(text)
+
+    # ---- context menu ----------------------------------------------------
+
+    def _show_item_menu(self, pos) -> None:
+        """Show a context menu for the clicked tree item."""
+        from qtpy.QtCore import Qt
+        from qtpy.QtWidgets import QMenu
+
+        tree = self.ui.tbl_steps
+        item = tree.itemAt(pos)
+
+        # Right-click on empty space — show excluded steps menu
+        if item is None:
+            excluded = self._column_map.exclude_steps
+            if excluded:
+                menu = QMenu(tree)
+                sub = menu.addMenu(f"Show Excluded ({len(excluded)})")
+                for sid in sorted(excluded):
+                    sub.addAction(sid, lambda n=sid: self._include_step(n))
+                menu.exec_(tree.viewport().mapToGlobal(pos))
+            return
+
+        # Resolve to parent step row
+        is_child = item.parent() is not None
+        step_item = item.parent() if is_child else item
+        step_data = step_item.data(0, Qt.UserRole)
+        if not isinstance(step_data, BuilderStep):
+            return
+
+        # Collect all selected parent step IDs for multi-selection actions
+        selected_step_ids = []
+        for sel_item in tree.selectedItems():
+            parent_item = (
+                sel_item.parent() if sel_item.parent() is not None else sel_item
+            )
+            sel_data = parent_item.data(0, Qt.UserRole)
+            if (
+                isinstance(sel_data, BuilderStep)
+                and sel_data.step_id not in selected_step_ids
+            ):
+                selected_step_ids.append(sel_data.step_id)
+
+        # Pre-compute built-step names once for all guards in this menu.
+        try:
+            built_names = {s.name for s in BlenderShotStore.active().shots}
+        except Exception:
+            built_names = set()
+        any_built = bool(built_names & {s.step_id for s in self._steps})
+
+        menu = QMenu(tree)
+        act_open = menu.addAction(f"Open '{step_data.step_id}' in Shot Sequencer")
+        act_open_shots = menu.addAction(f"Open '{step_data.step_id}' in Shots")
+        if not any_built:
+            act_open.setEnabled(False)
+            act_open.setToolTip("Build shots first")
+            act_open_shots.setEnabled(False)
+            act_open_shots.setToolTip("Build shots first")
+
+        # Exclude step action (parent rows, pre-build only)
+        act_exclude = None
+        if not any_built and selected_step_ids:
+            menu.addSeparator()
+            if len(selected_step_ids) == 1:
+                act_exclude = menu.addAction(f"Exclude '{selected_step_ids[0]}'")
+            else:
+                act_exclude = menu.addAction(f"Exclude {len(selected_step_ids)} Steps")
+
+        # Show excluded submenu when exclusions exist
+        excluded = self._column_map.exclude_steps
+        if excluded:
+            sub = menu.addMenu(f"Show Excluded ({len(excluded)})")
+            for sid in sorted(excluded):
+                sub.addAction(sid, lambda n=sid: self._include_step(n))
+
+        # Range column actions (parent rows, pre-build only)
+        act_set_frame = None
+        act_auto_fill = None
+        act_clear_range = None
+        column = tree.columnAt(pos.x())
+        step_is_built = step_data.step_id in built_names
+        if not is_child and not step_is_built and column in (COL_START, COL_END):
+            menu.addSeparator()
+            act_set_frame = menu.addAction("Set Start to Current Frame")
+            act_auto_fill = menu.addAction("Auto-fill from Gaps")
+            if step_data.step_id in self._user_ranges:
+                act_clear_range = menu.addAction("Clear Range")
+
+        # Object-level actions (child rows only)
+        act_outliner = None
+        act_copy = None
+        act_reapply = None
+        if is_child:
+            obj_data = item.data(0, Qt.UserRole)
+            obj_name = (
+                getattr(obj_data, "name", None)
+                if isinstance(obj_data, BuilderObject)
+                else None
+            )
+            if obj_name:
+                menu.addSeparator()
+                act_outliner = menu.addAction(f"Show '{obj_name}' in Outliner")
+                act_copy = menu.addAction(f"Copy '{obj_name}' to Clipboard")
+                if self._is_built and obj_data.behaviors:
+                    names = ", ".join(fmt_behavior(b) for b in obj_data.behaviors)
+                    act_reapply = menu.addAction(f"Apply [{names}]")
+
+        chosen = menu.exec_(tree.viewport().mapToGlobal(pos))
+        if chosen is act_open:
+            self._open_in_shot_sequencer(step_data.step_id)
+        elif chosen is act_open_shots:
+            self._open_in_shots(step_data.step_id)
+        elif chosen is act_exclude and act_exclude is not None:
+            self._exclude_steps(selected_step_ids)
+        elif chosen is not None and chosen is act_outliner:
+            self._show_in_outliner(obj_name)
+        elif chosen is not None and chosen is act_copy:
+            from qtpy.QtWidgets import QApplication
+
+            QApplication.clipboard().setText(obj_name)
+        elif chosen is act_reapply and act_reapply is not None:
+            self._reapply_behavior(step_data.step_id, obj_data)
+        elif chosen is act_set_frame and act_set_frame is not None:
+            self._set_range_to_current_frame(step_item, step_data.step_id)
+        elif chosen is act_auto_fill and act_auto_fill is not None:
+            step_idx = self._step_index(step_data.step_id)
+            # Clear user ranges from clicked step onward so they re-resolve
+            self._user_ranges.pop(step_data.step_id, None)
+            self._cascade_from(step_idx)
+            self._refresh_ranges(from_step_idx=step_idx)
+        elif chosen is act_clear_range and act_clear_range is not None:
+            self._user_ranges.pop(step_data.step_id, None)
+            self._refresh_ranges()
+
+    # ---- exclude / include steps -----------------------------------------
+
+    def _exclude_steps(self, step_ids) -> None:
+        """Add one or more step IDs to the exclude list."""
+        if isinstance(step_ids, str):
+            step_ids = [step_ids]
+        current = set(self._column_map.exclude_steps)
+        current.update(step_ids)
+        self._column_map.exclude_steps = tuple(sorted(current))
+        exclude_set = set(step_ids)
+        self._steps = [s for s in self._steps if s.step_id not in exclude_set]
+        for sid in step_ids:
+            self._user_ranges.pop(sid, None)
+        self._populate_table()
+        self._update_build_button()
+        n = len(self._column_map.exclude_steps)
+        names = ", ".join(step_ids)
+        self._set_footer(f"Excluded {names} ({n} total excluded).")
+
+    def _include_step(self, step_id: str) -> None:
+        """Remove *step_id* from the exclude list and re-parse the CSV."""
+        current = set(self._column_map.exclude_steps)
+        current.discard(step_id)
+        self._column_map.exclude_steps = tuple(sorted(current))
+        # Re-parse to restore the step
+        path = self._csv_path or self.ui.txt_csv_path.text().strip()
+        if path:
+            self._load_csv(path)
+        else:
+            self._set_footer(f"Restored '{step_id}'. Reload CSV to populate.")
+
+    def _set_range_to_current_frame(self, item, step_id: str) -> None:
+        """Set the range start for *step_id* to the current Blender timeline frame.
+
+        Clears user ranges on subsequent steps so they cascade from the
+        new anchor point.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return
+        frame = float(bpy.context.scene.frame_current)
+        self._user_ranges[step_id] = (frame, None)
+
+        step_idx = self._step_index(step_id)
+        self._cascade_from(step_idx)
+        self._refresh_ranges(from_step_idx=step_idx)
+
+    def _show_in_outliner(self, obj_name: str) -> None:
+        """Select *obj_name* so Blender's Outliner reveals it.
+
+        Blender's Outliner tracks the active object, so selecting it (and
+        making it active) is the reveal — the Maya ``reveal_in_outliner``
+        analogue.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            self._set_footer(f"'{obj_name}' not found in scene.", color="#D4908F")
+            return
+        for o in list(bpy.context.selected_objects):
+            o.select_set(False)
+        obj.select_set(True)
+        try:
+            bpy.context.view_layer.objects.active = obj
+        except Exception:
+            pass
+
+    def _open_in_shot_sequencer(self, step_id: str) -> None:
+        """Open the Shot Sequencer UI and navigate to the shot matching *step_id*.
+
+        The sequencer controller lazily wraps ``BlenderShotStore.active()`` via
+        its ``sequencer`` property — no manual wiring needed here.
+        """
+        store = BlenderShotStore.active()
+        if not store.shots:
+            self._set_footer("Build shots first before opening the sequencer.")
+            return
+
+        self.sb.handlers.marking_menu.show("shot_sequencer")
+
+        seq_slots = self.sb.get_slots_instance("shot_sequencer")
+        if seq_slots is None:
+            return
+
+        controller = getattr(seq_slots, "controller", None)
+        if controller is None:
+            return
+
+        # Clear stale session state so prior shifted-out keys
+        # and cached segments don't suppress the new display.
+        controller._shifted_out_keys.clear()
+        controller._segment_cache.clear()
+        controller._sync_combobox()
+
+        # Select the shot matching step_id
+        cmb = getattr(seq_slots.ui, "cmb_shot", None)
+        if cmb is not None:
+            for i in range(cmb.count()):
+                shot_id = cmb.itemData(i)
+                shot = controller.sequencer.shot_by_id(shot_id) if shot_id else None
+                if shot and shot.name == step_id:
+                    cmb.blockSignals(True)
+                    cmb.setCurrentIndex(i)
+                    cmb.blockSignals(False)
+                    controller._sync_to_widget(shot_id, frame=True)
+                    controller._update_shot_nav_state()
+                    break
+
+    def _open_in_shots(self, step_id: str) -> None:
+        """Open the Shots editor UI and navigate to the shot matching *step_id*."""
+        store = BlenderShotStore.active()
+        if not store.shots:
+            self._set_footer("Build shots first before opening the shots editor.")
+            return
+
+        shot = store.shot_by_name(step_id)
+        if shot is None:
+            self._set_footer(f"Shot '{step_id}' not found in the store.")
+            return
+
+        self.sb.handlers.marking_menu.show("shots")
+
+        # set_active_shot fires ActiveShotChanged which the ShotsController
+        # listener handles — it syncs the combobox and editor fields.
+        store.set_active_shot(shot.shot_id)
+
+    # ---- CSV loading -----------------------------------------------------
+
+    def _setup_recent_csv(self) -> None:
+        """Attach a RecentValuesOption and BrowseOption to the CSV path widget."""
+        from uitk.widgets.optionBox.options.recent_values import RecentValuesOption
+        from uitk.widgets.optionBox.options.browse import BrowseOption
+
+        txt = self.ui.txt_csv_path
+        self._recent_csv_option = RecentValuesOption(
+            wrapped_widget=txt,
+            settings_key="shot_manifest_csv_paths",
+            max_recent=10,
+        )
+        txt.option_box.add_option(self._recent_csv_option)
+        # Picking a recent path should load it (parity with Browse).  The
+        # signal fires only on an explicit user selection, never on record,
+        # so this can't loop with _load_csv's record() call.
+        self._recent_csv_option.value_selected.connect(self._on_csv_recent_selected)
+
+        self._browse_csv_option = BrowseOption(
+            wrapped_widget=txt,
+            file_types="CSV Files (*.csv);;All Files (*)",
+            title="Open Sequence CSV",
+            callback=lambda path: self._on_csv_browsed(path),
+        )
+        txt.option_box.add_option(self._browse_csv_option)
+
+    def _setup_csv_path_editing(self) -> None:
+        """Make the CSV path field typeable/pasteable with live validation.
+
+        The field ships read-only (browse-only) in the .ui.  Here we allow
+        direct entry, attach uitk's built-in ``"file"`` path validator for
+        live invalid-path feedback (red action color + tooltip), and load
+        the CSV on commit (Enter / focus-out) via :meth:`_on_csv_path_edited`.
+        """
+        txt = self.ui.txt_csv_path
+        txt.setReadOnly(False)
+        txt.set_validator(
+            "file",
+            invalid_tooltip="CSV file not found — check the path.",
+            empty_is_valid=True,
+        )
+        txt.editingFinished.connect(self._on_csv_path_edited)
+
+    def _on_csv_path_edited(self) -> None:
+        """Load the CSV when a typed/pasted path is committed (Enter / focus-out).
+
+        Skips empty input and an unchanged path (a bare re-commit on
+        focus-out).  Any other changed path is handed to _load_csv -- the
+        single authority on validity -- which strips it, reports a missing
+        file, surfaces an unreadable cloud placeholder, and keeps the field
+        editable on failure.
+        """
+        path = self.ui.txt_csv_path.text().strip()
+        if not path or path == self._csv_path:
+            return
+        self._load_csv(path)
+
+    def _on_csv_recent_selected(self, _value=None) -> None:
+        """Load the CSV when a path is chosen from the recent-values list."""
+        path = self.ui.txt_csv_path.text().strip()
+        if path:
+            self._on_csv_browsed(path)
+
+    def _setup_csv_toggle(self) -> None:
+        """Connect the CSV checkbox to enable/disable the path and browse widgets."""
+        chk = self.ui.chk_csv
+        chk.toggled.connect(self._on_csv_toggled)
+        self._sync_csv_widgets(False)
+
+    def _setup_header_menu(self) -> None:
+        """Configure the header option menu.
+
+        Generation settings (threshold, mode) now live in the shared
+        ``shots.ui`` panel, opened via the Settings button.
+        """
+        from uitk.widgets.mixins.tooltip_mixin import fmt
+
+        menu = self.ui.header.menu
+        menu.setTitle("Shot Manifest:")
+
+        chk_long = menu.add(
+            "QCheckBox",
+            setText="Long Names",
+            setChecked=bool(self._settings.value("long_names", False)),
+            setToolTip="Show full DAG paths instead of leaf node names.",
+        )
+        chk_long.toggled.connect(self._on_long_names_toggled)
+
+        menu.add("Separator", setTitle="Actions")
+        menu.add(
+            "QPushButton",
+            setText="Expand All Missing",
+            setObjectName="btn_expand_missing",
+            setToolTip="Expand every step row that has missing objects or behaviors.",
+        )
+        menu.add(
+            "QPushButton",
+            setText="Expand All Extra",
+            setObjectName="btn_expand_extra",
+            setToolTip="Expand every step row that has scene-discovered objects not in the CSV.",
+        )
+        menu.add(
+            "QPushButton",
+            setText="Colors…",
+            setObjectName="btn_manifest_colors",
+            setToolTip="Edit manifest status colors.",
+        ).released.connect(self._open_color_editor)
+        menu.add(
+            "QPushButton",
+            setText="Audio Clips…",
+            setObjectName="btn_audio_clips",
+            setToolTip="Open the Audio Clips editor to load, key, and\nmanage audio tracks used by this manifest.",
+        ).released.connect(self._open_audio_clips)
+        menu.add(
+            "QPushButton",
+            setText="Shots…",
+            setObjectName="btn_settings",
+            setToolTip="Open shared shot generation, gap, and editing settings.",
+        )
+
+        self.ui.header.set_help_text(
+            fmt(
+                title="Shot Manifest",
+                body="Build and validate shots from a CSV file or by generating from scene animation.",
+                sections=[
+                    ("Quick Start — CSV", [
+                        "Check the <b>CSV</b> checkbox and browse to a CSV file.",
+                        "Review parsed steps in the table; edit ranges or exclude steps as needed.",
+                        "Click <b>Build</b> to create shots with behaviors applied.",
+                        "Click <b>Assess</b> to verify completeness.",
+                    ]),
+                    ("Quick Start — Animation", [
+                        "Uncheck <b>CSV</b> — shots are generated from animation using the settings in Shot Settings.",
+                        "Refine ranges in the table if needed.",
+                        "Click <b>Build</b>, then <b>Assess</b>.",
+                    ]),
+                    ("Table Columns", [
+                        "<b>Step</b> — Step ID (e.g. A01).",
+                        "<b>Section</b> — Read-only grouping label from CSV.",
+                        "<b>Description</b> — Audio narration or step notes.",
+                        "<b>Behaviors</b> — Per-object actions; click the child row label to toggle.",
+                        "<b>Start / End</b> — Frame range. Solid text = user-entered; dim italic = auto-filled.",
+                    ]),
+                    ("Editing &amp; Actions", [
+                        "Double-click Start or End to type a frame. Downstream steps re-flow.",
+                        "Right-click a range cell: Set Start to Current Frame, Auto-fill from Gaps, Clear Range.",
+                        "<b>Assess</b> — Read-only comparison; red tint = missing, grey = locked, normal = valid.",
+                        "<b>Build</b> — Create or update shots from loaded steps. Locked shots are never modified.",
+                        "Right-click step row: Exclude, Open in Sequencer, Show Excluded.",
+                    ]),
+                ],
+            )
+        )
+
+    @property
+    def _initial_shot_length(self) -> float:
+        """Read the shot-construction default from the active store."""
+        store = BlenderShotStore.active()
+        if store is not None:
+            return float(store.initial_shot_length)
+        return BlenderShotStore.DEFAULT_INITIAL_SHOT_LENGTH
+
+    @property
+    def _fit_mode(self) -> str:
+        """Read the fit-mode policy from the active store."""
+        store = BlenderShotStore.active()
+        if store is not None:
+            return store.fit_mode
+        return BlenderShotStore.DEFAULT_FIT_MODE
+
+    def _on_long_names_toggled(self, checked: bool) -> None:
+        """Persist and apply the long-names display preference."""
+        self._settings.setValue("long_names", checked)
+        state = self._save_tree_state()
+        self._populate_table()
+        if self._last_results:
+            self._apply_assessment(self._last_results)
+        self._restore_tree_state(state)
+
+    def _open_audio_clips(self) -> None:
+        """Open the Audio Clips editor."""
+        self.sb.handlers.marking_menu.show("audio_clips")
+
+    def _open_color_editor(self) -> None:
+        """Launch the status-color editor dialog."""
+        from uitk.widgets.editors.color_mapping_editor import ColorMappingDialog
+        from uitk.widgets.mixins.settings_manager import SettingsManager
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            PASTEL_STATUS,
+            BEHAVIOR_STATUS_COLORS,
+        )
+
+        # Keys with actual (fg, bg) colours — skip 'valid'/'csv_object' (None, None)
+        editable_keys = [
+            k for k, v in PASTEL_STATUS.items() if v[0] is not None or v[1] is not None
+        ]
+
+        # Build defaults dict: {key: (fg_hex, bg_hex)}
+        defaults = {}
+        for k in editable_keys:
+            fg, bg = PASTEL_STATUS[k]
+            defaults[k] = (str(fg) if fg else "#808080", str(bg) if bg else "#2A2A2A")
+
+        sections = [("Status Colors", editable_keys)]
+
+        color_settings = SettingsManager(namespace=self._COLOR_SETTINGS_NS)
+        dlg = ColorMappingDialog(
+            defaults=defaults,
+            sections=sections,
+            settings=color_settings,
+            title="Manifest Colors",
+            preset_dir="blendertk/shot_manifest_colors",
+            parent=self.ui,
+        )
+
+        def _apply(cmap):
+            # Write changed colours back into the live PASTEL_STATUS palette
+            for key, val in cmap.items():
+                if key in PASTEL_STATUS:
+                    PASTEL_STATUS[key] = val
+            # Update derived constants
+            BEHAVIOR_STATUS_COLORS["missing"] = PASTEL_STATUS["missing_behavior"][0]
+            BEHAVIOR_STATUS_COLORS["error"] = PASTEL_STATUS["missing_object"][0]
+            # Refresh the table with new colours
+            state = self._save_tree_state()
+            self._populate_table()
+            if self._last_results:
+                self._apply_assessment(self._last_results)
+            self._restore_tree_state(state)
+
+        dlg.colors_changed.connect(_apply)
+        dlg.exec_()
+
+    def _restore_color_overrides(self) -> None:
+        """Apply any persisted color overrides to the live palette."""
+        from uitk.widgets.mixins.settings_manager import SettingsManager
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            PASTEL_STATUS,
+            BEHAVIOR_STATUS_COLORS,
+        )
+
+        settings = SettingsManager(namespace=self._COLOR_SETTINGS_NS)
+        changed = False
+        for key in list(PASTEL_STATUS):
+            fg_val = settings.value(f"{key}/fg")
+            bg_val = settings.value(f"{key}/bg")
+            if fg_val or bg_val:
+                orig_fg, orig_bg = PASTEL_STATUS[key]
+                PASTEL_STATUS[key] = (
+                    fg_val or (str(orig_fg) if orig_fg else None),
+                    bg_val or (str(orig_bg) if orig_bg else None),
+                )
+                changed = True
+        if changed:
+            BEHAVIOR_STATUS_COLORS["missing"] = PASTEL_STATUS["missing_behavior"][0]
+            BEHAVIOR_STATUS_COLORS["error"] = PASTEL_STATUS["missing_object"][0]
+
+    def _setup_mapping_combo(self) -> None:
+        """Add the mapping selector to the header menu as an option-box template.
+
+        A titled divider introduces the control, then a
+        :class:`~uitk.widgets.comboBox.ComboBox` whose ``option_box`` carries two
+        icon buttons to its right — *Refresh* (rescan the folder) and *Open
+        folder*.  Mapping files aren't edited in-place from the UI; the workflow
+        is to open the folder, manage the files externally, then refresh.
+        """
+        from uitk.widgets.comboBox import ComboBox
+
+        menu = self.ui.header.menu
+        menu.add("Separator", setTitle="CSV Mapping")
+        cmb = menu.add(
+            ComboBox,
+            setObjectName="cmb_csv_mapping",
+            setToolTip=(
+                "Select a CSV mapping. Built-in mappings ship with the tool;\n"
+                "your own live in the mappings folder — open it to add or edit\n"
+                "files, then click Refresh."
+            ),
+        )
+        self._cmb_mapping = cmb
+        self._refresh_mapping_list()
+        cmb.currentIndexChanged.connect(self._on_mapping_changed)
+        # Pin the combo (and thus its square icon buttons) to the header menu's
+        # row height so the template row lines up with the sibling buttons.
+        self._wire_mapping_option_box(
+            cmb, target_h=getattr(menu, "fixed_item_height", None)
+        )
+
+    def _wire_mapping_option_box(self, cmb, target_h=None) -> None:
+        """Attach the option-box toolbar to *cmb*: *Refresh* then *Open folder*.
+
+        Factored out so the construction is unit-testable on a real ComboBox.
+        A no-op when *cmb* isn't a real widget — the controller's logic tests
+        run against a mocked UI where the toolbar is irrelevant.
+
+        *target_h* pins the combo to the header row height; the option-box sizes
+        its square icon buttons to the combo's height, so both end up matching
+        the sibling buttons.  Falls back to the combo's natural height hint.
+        """
+        from qtpy import QtWidgets
+
+        if not isinstance(cmb, QtWidgets.QWidget):
+            return
+
+        cmb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        h = (
+            target_h
+            if isinstance(target_h, int) and target_h > 0
+            else cmb.sizeHint().height()
+        )
+        cmb.setFixedHeight(h)
+        # Give the combo its row height *now*, before the synchronous option-box
+        # wrap below: the option-box sizes its icon buttons from the wrapped
+        # widget's current height, which is otherwise 0 until the still-hidden
+        # header menu is first laid out.
+        cmb.resize(cmb.width() or cmb.sizeHint().width(), h)
+
+        cmb.option_box.add_action(
+            callback=self._refresh_mapping_list,
+            icon="refresh",
+            tooltip="Rescan the mappings folder for files you've added, removed, or edited.",
+        )
+        cmb.option_box.add_action(
+            callback=self._open_mappings_folder,
+            icon="folder",
+            tooltip="Open the mappings folder to add or edit files (manage them here, then Refresh).",
+        )
+
+    def _refresh_mapping_list(self, select: Optional[str] = None) -> None:
+        """Rebuild the mapping combo, tagging each item by source.
+
+        The item *text* carries a built-in/user tag for the user; the real
+        mapping name is stored as item *data* so selection stays robust.
+        Selection priority: *select* arg > last-used > ``default`` > ``(none)``.
+        """
+        from pythontk.core_utils.engines.shots.manifest.mapping import (
+            discover,
+            templates,
+        )
+
+        cmb = self._cmb_mapping
+        cmb.blockSignals(True)
+        cmb.clear()
+        cmb.addItem("(none)", None)
+        if self._mapping_dir:
+            names = list(discover(self._mapping_dir))
+            for name in names:
+                cmb.addItem(name, name)
+        else:
+            ts = templates()
+            names = ts.names()
+            for name in names:
+                tag = "user" if ts.source(name) == "user" else "built-in"
+                cmb.addItem(f"{name}  ·  {tag}", name)
+
+        target = select
+        if target is None and not self._mapping_dir:
+            target = templates().active
+        idx = self._combo_data_index(target) if target else -1
+        if idx < 0 and "default" in names:
+            idx = self._combo_data_index("default")
+        cmb.setCurrentIndex(idx if idx >= 0 else 0)
+        cmb.blockSignals(False)
+        # Programmatic refresh: apply but don't persist — rebuilding the list
+        # must not overwrite the user's last-used pointer.
+        self._apply_mapping(cmb.currentData(), persist=False)
+
+    def _combo_data_index(self, name) -> int:
+        """Index of the combo item whose data == *name*, or -1."""
+        cmb = self._cmb_mapping
+        for i in range(cmb.count()):
+            if cmb.itemData(i) == name:
+                return i
+        return -1
+
+    def _on_mapping_changed(self, arg=None) -> None:
+        """Handle a mapping selection.
+
+        Connected to ``currentIndexChanged`` (passes an int) — the real mapping
+        name is read from the current item's data. A ``str`` *arg* is also
+        accepted (legacy/tests) and used directly as the name.
+        """
+        if isinstance(arg, str):
+            name = None if (not arg or arg == "(none)") else arg
+        else:
+            name = self._cmb_mapping.currentData()
+        self._apply_mapping(name, persist=True)
+
+    def _apply_mapping(self, name, persist: bool) -> None:
+        """Load *name* into ``_active_mapping`` and re-parse the current CSV.
+
+        *persist* records the choice as last-used (skipped in directory-override
+        mode, whose pointer belongs to a different store).
+        """
+        from pythontk.core_utils.engines.shots.manifest.mapping import (
+            load_mapping,
+            templates,
+        )
+
+        if not name:
+            self._active_mapping = None
+        else:
+            try:
+                self._active_mapping = load_mapping(name, self._mapping_dir or None)
+            except Exception as exc:
+                self.logger.error("Failed to load mapping '%s': %s", name, exc)
+                self._set_footer(f"Mapping error: {exc}", color=ERROR_COLOR)
+                self._active_mapping = None
+                return
+            if persist and not self._mapping_dir:
+                try:
+                    templates().active = name  # remember last-used across sessions
+                except Exception:
+                    pass
+
+        path = self._csv_path or self.ui.txt_csv_path.text().strip()
+        if path:
+            self._load_csv(path)
+
+    def _open_mappings_folder(self) -> None:
+        """Open the writable folder where user mapping files live.
+
+        Mapping files are managed externally, not edited in-place from the UI:
+        the user opens this folder, adds/edits/removes files, then clicks
+        *Refresh*.  On first use (empty folder) it's seeded with a documented
+        example and the format reference, so there's a model to copy and a spec
+        to read.
+        """
+        from pythontk.core_utils.engines.shots.manifest.mapping import templates
+
+        ts = templates()
+        d = ts.user_dir
+        d.mkdir(parents=True, exist_ok=True)
+        self._seed_mappings_folder(ts)
+        ptk.FileUtils.open_explorer(str(d), logger=self.logger)
+
+    @staticmethod
+    def _seed_mappings_folder(ts) -> None:
+        """Seed *ts*'s empty user folder with an example mapping + format reference.
+
+        A no-op once the folder holds anything, so it never clobbers the user's
+        files or re-creates ones they deleted on purpose.  Failures are
+        swallowed — seeding is a convenience, not a precondition for opening.
+        The folder is derived from *ts* so the seeded example (written via
+        ``write_skeleton``) and the reference always land together.  The
+        reference is generated from the same ``format_markdown`` SSoT as the
+        shipped doc, so it's always current with the schema.
+        """
+        from pathlib import Path
+        from pythontk.core_utils.engines.shots.manifest.mapping import format_markdown
+
+        folder = Path(ts.user_dir)
+        try:
+            # "Empty" means no user-managed files. Ignore bookkeeping dotfiles
+            # (the PresetStore ``.active`` last-used pointer in particular) —
+            # selecting a mapping writes ``.active`` here, and without this filter
+            # the very first 'Open folder' after a selection would skip seeding.
+            if any(p for p in folder.iterdir() if not p.name.startswith(".")):
+                return
+        except OSError:
+            return
+        try:
+            ts.write_skeleton("example")
+        except Exception:
+            pass
+        try:
+            (folder / "MAPPING_FORMAT.md").write_text(
+                format_markdown(), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    # ---- mode switching (single source of truth) -------------------------
+
+    def _sync_csv_widgets(self, csv_mode: bool) -> None:
+        """Sync checkbox and CSV-related widgets to match the active mode."""
+        chk = self.ui.chk_csv
+        chk.blockSignals(True)
+        chk.setChecked(csv_mode)
+        chk.blockSignals(False)
+        txt = self.ui.txt_csv_path
+        txt.setEnabled(csv_mode)
+        txt.style().unpolish(txt)
+        txt.style().polish(txt)
+
+    def _load_data(
+        self,
+        steps: List[BuilderStep],
+        *,
+        ranges: Optional[Dict[str, Tuple[Optional[float], Optional[float]]]] = None,
+        csv_path: str = "",
+        footer: str = "",
+    ) -> None:
+        """Single source of truth for mode switching.
+
+        Every code path that changes table contents (detect, CSV load,
+        CSV toggle-off) funnels through here so that state, widgets,
+        and the table are always consistent.
+        """
+        self._steps = steps
+        self._csv_path = csv_path
+        self._user_ranges = dict(ranges) if ranges else {}
+        self._last_results = []
+        self._last_resolved = []
+        self._built_this_round = False
+        self._cached_gaps = None
+        self._cached_gap_ends = None
+
+        self._sync_csv_widgets(bool(csv_path))
+        self._populate_table()
+        self._update_build_button()
+
+        if footer:
+            self._set_footer(footer)
+
+    def _on_csv_toggled(self, enabled: bool) -> None:
+        """Handle the CSV checkbox toggle.
+
+        When checked with a remembered path, reloads CSV data.
+        When checked without a path, enables widgets for browsing.
+        When unchecked, clears data so detection can be used.
+        """
+        if enabled:
+            path = self.ui.txt_csv_path.text().strip()
+            if path:
+                self._load_csv(path)
+            else:
+                self._sync_csv_widgets(True)
+        else:
+            self._sync_csv_widgets(False)
+            self.detect()
+
+    def browse_csv(self) -> None:
+        """Open a file dialog and load the selected CSV."""
+        if hasattr(self, "_browse_csv_option"):
+            self._browse_csv_option.browse()
+            return
+
+        from qtpy.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self.ui, "Open Sequence CSV", "", "CSV Files (*.csv);;All Files (*)"
+        )
+        if not path:
+            return
+        self._on_csv_browsed(path)
+
+    def _on_csv_browsed(self, path: str) -> None:
+        """Handle a CSV path selected via browse or BrowseOption."""
+        self._sync_csv_widgets(True)
+        self.ui.txt_csv_path.setText(path)
+        self._load_csv(path)
+
+    def _load_csv(self, path: str) -> None:
+        """Parse the CSV and load it via :meth:`_load_data`.
+
+        When an active mapping is selected, delegates to the
+        :mod:`mapping` resolver.  Otherwise falls back to
+        :func:`parse_csv` with the current :attr:`_column_map`.
+        """
+        import os
+
+        # Attempting a load means CSV mode is active: enable the path
+        # widgets up front so any failure below (missing file, unreadable
+        # cloud placeholder, malformed CSV) still leaves the field
+        # inspectable and browsable.  Otherwise a failed load returns early
+        # and strands the user with a disabled control they can't use to
+        # see or correct the bad path.
+        self._sync_csv_widgets(True)
+
+        # Cancel any pending validator debounce on the path field so its live
+        # isfile check can't re-color the field after the load below sets the
+        # authoritative result (e.g. flip an unreadable cloud file back to
+        # "valid" 300ms later).  No-op when no validator is installed.
+        self.ui.txt_csv_path.validate_now()
+
+        if not os.path.isfile(path):
+            self.ui.txt_csv_path.set_action_color("invalid")
+            self._set_footer(f"File not found: {path}", color=ERROR_COLOR)
+            return
+
+        try:
+            if self._active_mapping is not None:
+                from pythontk.core_utils.engines.shots.manifest.mapping import resolve
+
+                steps = resolve(path, mapping=self._active_mapping)
+            else:
+                steps = parse_csv(path, columns=self._column_map)
+        except OSError as exc:
+            # isfile() passed but the bytes can't be read.  Don't assume a
+            # single cause -- _describe_read_failure enumerates the likely
+            # culprits (full disk / stopped sync client / locked / disconnected),
+            # always surfaces the raw error, and appends the free space if low.
+            self.logger.error("Failed to read CSV %r: %s", path, exc)
+            self.ui.txt_csv_path.set_action_color("invalid")
+            self._set_footer(self._describe_read_failure(path, exc), color=ERROR_COLOR)
+            return
+        except Exception as exc:
+            self.logger.error("Failed to parse CSV: %s", exc)
+            self.ui.txt_csv_path.set_action_color("invalid")
+            self._set_footer(f"Error: {exc}", color=ERROR_COLOR)
+            return
+
+        self.ui.txt_csv_path.reset_action_color()
+        self._recent_csv_option.record(path)
+        n_obj = sum(len(s.objects) for s in steps)
+
+        # Seed _user_ranges with existing store positions so the table
+        # immediately shows correct Start/End for built steps.
+        store_ranges = {}
+        try:
+            store = BlenderShotStore.active()
+            step_ids = {s.step_id for s in steps}
+            store_ranges = {
+                s.name: (s.start, s.end)
+                for s in store.sorted_shots()
+                if s.name in step_ids
+            }
+        except Exception:
+            pass
+
+        self._load_data(
+            steps,
+            ranges=store_ranges or None,
+            csv_path=path,
+            footer=f"{len(steps)} steps, {n_obj} objects loaded.",
+        )
+
+        # Populate _last_resolved so edit validation has correct bounds
+        # for new steps added between existing ones.
+        if store_ranges:
+            self._refresh_ranges()
+
+    @staticmethod
+    def _describe_read_failure(path: str, exc: OSError) -> str:
+        """Explain an unreadable CSV without over-committing to one cause.
+
+        ``isfile()`` passed but the bytes wouldn't read.  The tempting
+        diagnosis -- "it's a cloud file that hasn't downloaded, make it
+        available offline" -- is usually wrong: cloud placeholders hydrate on
+        demand fine, and a genuine failure is far more often a full volume or a
+        stopped sync client.
+
+        So *enumerate* the likely causes (the cloud-client clause only for
+        cloud-managed files) rather than assert one, always include the raw
+        error, and append the actual free space when it's low enough to be a
+        plausible culprit -- as a fact the user can act on, never as the single
+        asserted cause.
+        """
+        import os
+
+        causes = ["the disk may be full"]
+        if ptk.FileUtils.is_cloud_placeholder(path):
+            causes.append(
+                "your cloud sync app (Dropbox/OneDrive/...) may not be running"
+            )
+        causes.append("the file may be locked by another program")
+        causes.append("the drive may be disconnected")
+        msg = (
+            f"Can't read CSV: {exc}. The file exists but its contents can't be "
+            f"read - {', '.join(causes)}. Check, then reload."
+        )
+        free = ptk.FileUtils.free_space(path)
+        if free is not None and free < _LOW_DISK_BYTES:
+            drive = os.path.splitdrive(os.path.abspath(path))[0] or "the drive"
+            msg += f" ({drive} has only {free // (1024 * 1024)} MB free.)"
+        return msg
+
+    # ---- helpers ---------------------------------------------------------
+
+    def _ensure_steps(self) -> bool:
+        """Ensure steps are available, auto-detecting from scene if needed.
+
+        Priority order:
+        1. If steps are already loaded, return True immediately.
+        2. If CSV checkbox is on and a path exists, load the CSV.
+        3. Otherwise, run scene detection.
+
+        Returns True if steps are now available.
+        """
+        if self._steps:
+            return True
+
+        # Try CSV first when enabled
+        path = self.ui.txt_csv_path.text().strip()
+        if path and self.ui.chk_csv.isChecked():
+            self._load_csv(path)
+            if self._steps:
+                return True
+
+        # Fall back to scene detection
+        try:
+            self.detect()
+        except Exception as exc:
+            self.logger.error("Auto-detect failed: %s", exc)
+            self._set_footer(f"Detection error: {exc}", color=ERROR_COLOR)
+
+        if not self._steps:
+            self._set_footer("No animation detected in scene.")
+            return False
+        return True
+
+    # ---- button state ----------------------------------------------------
+
+    def _update_build_button(self) -> None:
+        """Enable Build only after assess has run and unbuilt steps remain.
+
+        Build always starts disabled.  The assess operation populates
+        ``_last_results`` which determines whether build is warranted.
+        If all steps are already built, or assess has not been run yet,
+        the button stays disabled.
+        """
+        btn = getattr(self.ui, "b003", None)
+        if btn is None:
+            return
+        if self._last_results:
+            needs_build = any(not r.built for r in self._last_results)
+        else:
+            needs_build = False
+        btn.setEnabled(needs_build)
+
+    # ---- build -----------------------------------------------------------
+
+    def build(self) -> None:
+        """Build or update shots in the store from loaded steps."""
+        if not self._ensure_steps():
+            return
+
+        try:
+            import bpy  # noqa: F401 — availability check
+        except ImportError:
+            self._set_footer("Blender is required to build shots.", color=ERROR_COLOR)
+            return
+
+        try:
+            store = BlenderShotStore.active()
+            builder = BlenderShotManifest(store)
+
+            # When selected-keys mode is active, verify keys exist
+            # before proceeding — even if user ranges are complete.
+            use_sel = self._use_selected_keys
+            if use_sel:
+                self._cached_gaps = None
+                regions = self._detect_regions()
+                if not regions:
+                    self.sb.message_box(
+                        "<b>No keys selected.</b><br>"
+                        "Select keyframes in the Graph Editor before building.",
+                    )
+                    self._set_footer(
+                        "No selected keys found — select keyframes first.",
+                        color=ERROR_COLOR,
+                    )
+                    return
+
+            # Resolve ranges — short-circuit when all ranges are
+            # already complete (detection mode provides full ranges).
+            # Incremental mode: when shots already exist and we're not
+            # in selected-keys mode, use the resolver's last-cascaded
+            # positions so that user edits ripple downstream.  Fall
+            # back to store positions when there is no resolved data.
+            incremental = self._is_built and not use_sel
+            if incremental:
+                # Grow-only invariant: existing shots keep their store
+                # positions (which may already have been grown to fit
+                # audio/animation members via the sequencer). Only new
+                # steps get resolver-derived positions, and user ranges
+                # always win.
+                range_map = {s.name: (s.start, s.end) for s in store.sorted_shots()}
+                if self._last_resolved:
+                    existing_ids = set(range_map)
+                    for sid, s, e, _ in self._last_resolved:
+                        if sid in existing_ids or e is None:
+                            continue
+                        range_map[sid] = (s, e)
+                range_map.update(self._user_ranges)
+                # Place new steps at their CSV-order predecessor's end
+                # so they appear between neighbors instead of at the
+                # end of the timeline.  The loop is in CSV order so
+                # all predecessors are guaranteed in range_map by the
+                # time each step is reached.
+                for i, step in enumerate(self._steps):
+                    if step.step_id not in range_map:
+                        if i > 0:
+                            prev_end = range_map[self._steps[i - 1].step_id][1]
+                        else:
+                            # New step at the very start of the CSV —
+                            # find the first existing neighbor's start.
+                            prev_end = next(
+                                (
+                                    range_map[s.step_id][0]
+                                    for s in self._steps[1:]
+                                    if s.step_id in range_map
+                                ),
+                                1,
+                            )
+                        range_map[step.step_id] = (prev_end, prev_end)
+            elif self._all_ranges_complete():
+                range_map = dict(self._user_ranges)
+            else:
+                resolved = self._resolve_ranges()
+                range_map = {
+                    sid: (s, e) for sid, s, e, _ in resolved if e is not None
+                } or None
+
+            # In selected-keys mode, restrict the step list to steps
+            # that actually received a range from the detected regions.
+            # This prevents update() from creating shots via its own
+            # sequential cursor fallback for unresolved steps.
+            build_steps = self._steps
+            if use_sel and range_map:
+                resolved_ids = set(range_map)
+                build_steps = [s for s in self._steps if s.step_id in resolved_ids]
+                if not build_steps:
+                    self.sb.message_box(
+                        "<b>No matching steps.</b><br>"
+                        "Selected keys don't map to any CSV steps.",
+                    )
+                    self._set_footer(
+                        "Selected keys don't map to any CSV steps.",
+                        color=ERROR_COLOR,
+                    )
+                    return
+
+            # Detection mode: don't remove existing shots not in steps.
+            # A restricted build (selected-keys subset) must never remove
+            # either: removal semantics are only meaningful against the
+            # full CSV step list, and store removals are not undoable.
+            remove = not self._is_detection_mode and build_steps is self._steps
+
+            self._building = True
+            try:
+                with undo_chunk("ShotManifest_build"), store.batch_update():
+                    actions, beh, assessment = builder.sync(
+                        build_steps,
+                        ranges=range_map,
+                        remove_missing=remove,
+                        zero_duration_fallback=incremental,
+                        fit_mode=self._fit_mode,
+                        initial_shot_length=self._initial_shot_length,
+                        skip_scene_discovery=use_sel,
+                    )
+                    # Record the source CSV for provenance on reopen.
+                    csv_path = self._csv_path or self.ui.txt_csv_path.text().strip()
+                    if csv_path and store.source_csv != csv_path:
+                        store.source_csv = csv_path
+                        store.mark_dirty()
+            finally:
+                self._building = False
+
+            # Store the store for later handoff to Shot Sequencer UI
+            self._store = store
+            self._built_this_round = True
+
+            n_created = sum(1 for a in actions.values() if a == "created")
+            n_patched = sum(1 for a in actions.values() if a == "patched")
+            n_skipped = sum(1 for a in actions.values() if a == "skipped")
+            n_removed = sum(1 for a in actions.values() if a == "removed")
+            n_beh_applied = len(beh.get("applied", []))
+            n_beh_skipped = len(beh.get("skipped", []))
+            n_beh_failed = len(beh.get("failed", []))
+            parts = []
+            if n_created:
+                parts.append(f"{n_created} created")
+            if n_patched:
+                parts.append(f"{n_patched} patched")
+            if n_skipped:
+                parts.append(f"{n_skipped} unchanged")
+            if n_removed:
+                parts.append(f"{n_removed} removed from CSV")
+            if n_beh_applied:
+                parts.append(f"{n_beh_applied} behaviors applied")
+            if n_beh_skipped:
+                parts.append(f"{n_beh_skipped} behaviors skipped (already keyed/placed)")
+            if n_beh_failed:
+                parts.append(f"{n_beh_failed} behaviors failed (see log)")
+            self._set_footer(
+                f"Build complete: {', '.join(parts)}.",
+                color=ERROR_COLOR if n_beh_failed else "",
+            )
+
+            # Sync store.gap from actual shot positions so the spinbox
+            # reflects the gap the manifest produced.
+            actual_gap = store.compute_gap()
+            if abs(actual_gap - store.gap) > 0.5:
+                store.gap = actual_gap
+                store.mark_dirty()
+                store.notify_settings_changed()
+
+            # Refresh tree with post-build assessment
+            self._apply_post_build(assessment, store)
+            self._update_build_button()
+        except Exception as exc:
+            self.logger.error("Build failed: %s", exc)
+            self.sb.message_box(
+                f"<b>Build failed.</b><br>{exc}",
+            )
+            self._set_footer(f"Build error: {exc}", color=ERROR_COLOR)
+
+    def _apply_post_build(self, results: list, store) -> None:
+        """Refresh tree with timing from the store and assessment results."""
+        state = self._save_tree_state()
+        self._populate_table()
+        self._refresh_timing(store)
+        self._last_results = results
+        self._apply_assessment(results)
+        self._restore_tree_state(state)
+        self._sync_detection_widgets()
+
+    def _sync_detection_widgets(self) -> None:
+        """Refresh the Shots UI widget states via its centralized method."""
+        instances = getattr(self.sb, "slot_instances", None) or {}
+        shots_slots = instances.get("shots") if isinstance(instances, dict) else None
+        if shots_slots is not None:
+            ctrl = getattr(shots_slots, "controller", None)
+            if ctrl is not None and hasattr(ctrl, "refresh_state"):
+                ctrl.refresh_state()
+                return
+        # Fallback: direct widget manipulation if controller not available
+        try:
+            shots_ui = self.sb.loaded_ui.shots
+        except Exception:
+            return
+        store = self._active_store()
+        enabled = store.is_detection_relevant if store is not None else True
+        for attr in ("cmb_detection_mode", "spn_detection"):
+            widget = getattr(shots_ui, attr, None)
+            if widget is not None:
+                widget.setEnabled(enabled)
+
+    # ---- assess ----------------------------------------------------------
+
+    def assess(self, skip_key_check: bool = False) -> None:
+        """Compare CSV steps against the live Blender shots and color the tree.
+
+        Parameters:
+            skip_key_check: When ``True``, bypass the selected-keys guard.
+                Used by internal callers (e.g. re-apply behavior) that
+                already know the scene state and just need a status refresh.
+        """
+        if not self._ensure_steps():
+            return
+
+        try:
+            import bpy  # noqa: F401 — availability check
+        except ImportError:
+            self._set_footer("Blender is required to assess shots.", color=ERROR_COLOR)
+            return
+
+        store = BlenderShotStore.active()
+        builder = BlenderShotManifest(store)
+        use_sel = self._use_selected_keys
+
+        # In selected-keys mode, verify keys exist before proceeding —
+        # but only when shots haven't been built yet (key selection is for
+        # initial range discovery, not for re-assessment of existing shots).
+        if use_sel and not skip_key_check and not self._is_built:
+            self._cached_gaps = None
+            regions = self._detect_regions()
+            if not regions:
+                self.sb.message_box(
+                    "<b>No keys selected.</b><br>"
+                    "Select keyframes in the Graph Editor before assessing.",
+                )
+                self._set_footer(
+                    "No selected keys found — select keyframes first.",
+                    color=ERROR_COLOR,
+                )
+                return
+
+        # Invalidate cached gaps so _resolve_ranges rescans the scene
+        self._cached_gaps = None
+        self._cached_gap_ends = None
+
+        results = builder.assess(self._steps, skip_scene_discovery=use_sel)
+
+        # Write per-object statuses back to shot metadata so that
+        # both the manifest and sequencer share the same classification.
+        built_map = {s.name: s for s in store.sorted_shots()}
+        status_changed = False
+        for r in results:
+            shot = built_map.get(r.step_id)
+            if shot is None:
+                continue
+            obj_status = {o.name: o.status for o in r.objects}
+            for extra in r.additional_objects:
+                obj_status.setdefault(extra, "additional")
+            if shot.metadata.get("object_status") != obj_status:
+                shot.metadata["object_status"] = obj_status
+                status_changed = True
+        if status_changed:
+            store.mark_dirty()
+
+        # Rebuild tree and enrich with timing from store + status
+        state = self._save_tree_state()
+        self._populate_table()
+        if not self._is_built:
+            self._refresh_ranges()
+        self._refresh_timing(store)
+        self._last_results = results
+        self._apply_assessment(results)
+        self._restore_tree_state(state)
+
+        # Summary counts
+        n_built = sum(1 for r in results if r.built)
+        missing_obj_names = {
+            o.name for r in results for o in r.objects if o.status == "missing_object"
+        }
+        missing_beh_names = {
+            o.name for r in results for o in r.objects if o.status == "missing_behavior"
+        }
+        n_additional = sum(len(r.additional_objects) for r in results)
+        n_shrinkable = sum(1 for r in results if r.shrinkable_frames > 0)
+        sorted_shots = store.sorted_shots()
+        total_frames = (
+            (sorted_shots[-1].end - sorted_shots[0].start) if sorted_shots else 0
+        )
+        parts = [f"{n_built}/{len(results)} steps built, {total_frames:.0f} frames"]
+        if missing_obj_names:
+            parts.append(f"{len(missing_obj_names)} missing objects")
+        if missing_beh_names:
+            parts.append(f"{len(missing_beh_names)} missing behaviors")
+        if n_additional:
+            parts.append(f"{n_additional} scene objects")
+        if n_shrinkable:
+            parts.append(f"{n_shrinkable} shrinkable")
+        self._set_footer(f"Assessment: {', '.join(parts)}")
+        self._update_build_button()
+
+
+class ShotManifestSlots(ptk.LoggingMixin):
+    """Switchboard slot class — routes UI events to the controller."""
+
+    def __init__(self, switchboard, log_level="WARNING"):
+        super().__init__()
+        self.set_log_level(log_level)
+        self.sb = switchboard
+        self.ui = self.sb.loaded_ui.shot_manifest
+
+        self.controller = ShotManifestController(self)
+
+    # ---- header ----------------------------------------------------------
+
+    def header_init(self, widget):
+        """Header menu is configured once in controller.__init__."""
+        pass
+
+    def btn_expand_missing(self):
+        """Expand all step rows that have missing objects or behaviors."""
+        self.controller.expand_missing()
+
+    def btn_expand_extra(self):
+        """Expand all step rows that have scene-discovered extra objects."""
+        self.controller.expand_extra()
+
+    def btn_settings(self):
+        """Open the shared shots settings panel."""
+        self.sb.handlers.marking_menu.show("shots")
+
+    # ---- buttons ---------------------------------------------------------
+
+    def b002(self):
+        """Assess shots against live Blender scene."""
+        self.controller.assess()
+
+    def b003(self):
+        """Build shots from loaded steps (or auto-detect from scene)."""
+        self.controller.build()

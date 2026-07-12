@@ -11,10 +11,15 @@ if (-not (Test-Path $BlenderExe)) {
 }
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Suites only: test_*.py + the smoke test. Utility scripts in this dir
-# (e.g. dump_runtime_surface.py) don't emit the ===RESULT=== sentinel.
+# Suites: test_*.py + the smoke test + the *_slot_check.py slot-wiring harnesses
+# (they emit the same ===RESULT=== sentinel). Utility scripts in this dir
+# (e.g. dump_runtime_surface.py) don't emit the sentinel and stay excluded.
 $suites = Get-ChildItem $here -Filter *.py |
-    Where-Object { $_.Name -like "test_*.py" -or $_.Name -eq "blender_smoke_test.py" } |
+    Where-Object {
+        $_.Name -like "test_*.py" -or
+        $_.Name -like "*_slot_check.py" -or
+        $_.Name -eq "blender_smoke_test.py"
+    } |
     Sort-Object Name
 $failed = @()
 

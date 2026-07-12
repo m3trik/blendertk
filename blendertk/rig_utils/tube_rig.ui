@@ -202,6 +202,116 @@
        </widget>
       </item>
       <item>
+       <widget class="QGroupBox" name="grp_steps">
+        <property name="title">
+         <string>Manual Steps (Spline)</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_steps">
+         <property name="spacing">
+          <number>2</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="chk000">
+           <property name="toolTip">
+            <string>Reverse the joint-chain direction for Step 1 (Create Joints).</string>
+           </property>
+           <property name="text">
+            <string>Reverse Direction</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="PushButton" name="b001">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Step 1 — create a joint/bone chain fit to the selected tube mesh's centerline (no controls or bind yet).</string>
+           </property>
+           <property name="text">
+            <string>Create Joints</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="PushButton" name="b002">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Step 2 — add the curve, Spline IK and hooked controls onto the selected armature's existing bone chain (uses the mode options; Spline).</string>
+           </property>
+           <property name="text">
+            <string>Create IK / Controls</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="PushButton" name="b003">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic weights).</string>
+           </property>
+           <property name="text">
+            <string>Bind Joints to Mesh</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="PushButton" name="b004">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Utility — constrain both ends of a bound rig to two anchor objects: select the armature and the two anchors; each end blends onto its nearest anchor with a distance falloff. Run Bind (Step 3) first.</string>
+           </property>
+           <property name="text">
+            <string>Add End Constraints</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
        <widget class="Footer" name="footer">
         <property name="minimumSize">
          <size>

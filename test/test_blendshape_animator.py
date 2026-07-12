@@ -33,7 +33,7 @@ try:
     from blendertk.anim_utils.blendshape_animator._blendshape_animator import BlendshapeAnimator
     from blendertk.anim_utils.blendshape_animator.applicator import ApplyStatus
     from blendertk.anim_utils.blendshape_animator.target import Target, Targets
-    from blendertk.anim_utils.blendshape_animator.weights import Weights
+    from pythontk import Weights
 
     def reset():
         if (
