@@ -1,4 +1,4 @@
-"""blendertk curtain (ptk.CurtainDrape-backed) headless test.
+"""blendertk curtain (vendored CurtainDrape-backed) headless test.
 Run: blender --background --factory-startup --python blendertk/test/test_curtain.py
 """
 import sys, os, traceback
@@ -19,6 +19,7 @@ try:
     from mathutils import Vector
     import pythontk as ptk
     import blendertk as btk
+    from blendertk.edit_utils._curtain_drape import CurtainDrape
 
     def reset():
         if (
@@ -34,7 +35,7 @@ try:
     reset()
     rail, closed = ptk.Polyline.make(width=6.0)
     obj = btk.create_curtain(rail, height=2.0, gravity=0.4, irregularity=0.0)
-    u_segs, v_segs, pts = ptk.CurtainDrape(
+    u_segs, v_segs, pts = CurtainDrape(
         rail, height=2.0, gravity=0.4, irregularity=0.0
     ).grid_points()
     check("curtain object created", obj is not None and obj.type == "MESH")

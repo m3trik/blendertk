@@ -226,6 +226,32 @@ try:
         btk.Selection.select_by_type("Rigid Constraints", objs, mode="replace") == [rb_constraint_empty],
     )
 
+    # ---- Clusters (Hook modifier) / Wires (Curve modifier) -- added 2026-07-11 ----
+    # Maya's cluster + wire deformers have no standalone Object in Blender; the direct
+    # analogues are the Hook and Curve modifiers, so the leaves select the meshes carrying
+    # one (same modifier-carrier idiom as Fluids/nCloths above). Category placement mirrors
+    # Maya: Clusters under Animation, Wires under Dynamics.
+    reset()
+    hook_obj = mesh_obj("HookObj")
+    hook_obj.modifiers.new(name="Hook", type="HOOK")
+    curve_mod_obj = mesh_obj("CurveModObj")
+    curve_mod_obj.modifiers.new(name="Curve", type="CURVE")
+    plain_mod_obj = mesh_obj("PlainMod")  # no modifier -> neither leaf should pick it
+    objs = list(bpy.data.objects)
+    res_cl = btk.Selection.select_by_type("Clusters", objs, mode="replace")
+    check("Clusters -> [HookObj] (Hook-modifier carrier)", res_cl == [hook_obj], f"{res_cl}")
+    res_wi = btk.Selection.select_by_type("Wires", objs, mode="replace")
+    check("Wires -> [CurveModObj] (Curve-modifier carrier)", res_wi == [curve_mod_obj], f"{res_wi}")
+    check(
+        "plain mesh (no modifier) selected by neither Clusters nor Wires",
+        plain_mod_obj not in res_cl and plain_mod_obj not in res_wi,
+    )
+    cats2 = btk.Selection.get_selection_categories()
+    check("Clusters leaf lives in the Animation category (matches Maya)",
+          "Clusters" in cats2.get("Animation", []), f"{cats2.get('Animation')}")
+    check("Wires leaf lives in the Dynamics category (matches Maya)",
+          "Wires" in cats2.get("Dynamics", []), f"{cats2.get('Dynamics')}")
+
     # ---- UV: Overlapping / Non-Overlapping / Texture Borders / Unmapped ----
     reset()
 

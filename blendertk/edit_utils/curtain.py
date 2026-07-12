@@ -1,10 +1,11 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Curtain (draped-cloth) generation — the Blender build over the shared
-``ptk.CurtainDrape`` engine (mirror of mayatk's ``edit_utils.curtain``: same
-parameters, same drape math — only the mesh build and post-ops differ).
+"""Curtain (draped-cloth) generation — the Blender build over the vendored
+``CurtainDrape`` engine (``_curtain_drape``, code-identical with mayatk's copy;
+mirror of mayatk's ``edit_utils.curtain``: same parameters, same drape math —
+only the mesh build and post-ops differ).
 
-``create_curtain`` builds a grid mesh from :meth:`ptk.CurtainDrape.grid_points`
+``create_curtain`` builds a grid mesh from :meth:`CurtainDrape.grid_points`
 and owns the Blender post-ops (``thickness`` → applied Solidify, ``reduce`` →
 :func:`blendertk.decimate`, ``invert`` → reversed faces, ``soften`` → smooth
 shading). ``curtain_rail_from_selection`` is the Blender counterpart of
@@ -28,11 +29,12 @@ import pythontk as ptk
 
 from blendertk.core_utils._core_utils import _object_mode, selected_objects
 from blendertk.core_utils.preview import Preview
+from blendertk.edit_utils._curtain_drape import CurtainDrape
 from blendertk.edit_utils._edit_utils import _apply_modifier, hook_bind_inverse
 from blendertk.xform_utils._xform_utils import get_world_bbox
 
 # Shipped, read-only curtain presets (UI-state snapshots). Identical to mayatk's — the panel
-# shares the Maya widget names AND the ptk.CurtainDrape engine, so a preset drapes the same.
+# shares the Maya widget names AND the vendored CurtainDrape engine, so a preset drapes the same.
 _PRESETS_DIR = Path(__file__).resolve().parent / "presets" / "curtain"
 
 
@@ -87,8 +89,8 @@ def curtain_rail_from_selection(objects):
 def create_curtain(rail, name="curtain", **options):
     """Create a pleated, gravity-draped curtain mesh from a rail polyline.
 
-    The drape math is :class:`ptk.CurtainDrape` (shared with mayatk's
-    ``CurtainMesh`` — see it for the parameter reference); this builds the grid
+    The drape math is :class:`CurtainDrape` (the vendored twin of mayatk's
+    ``CurtainMesh`` engine — see it for the parameter reference); this builds the grid
     mesh from :meth:`grid_points` with grid UVs, then applies the post-ops:
     ``thickness`` (applied Solidify shell), ``reduce`` (percent decimated),
     ``invert`` (reversed normals), ``soften`` (smooth shading).
@@ -99,7 +101,7 @@ def create_curtain(rail, name="curtain", **options):
     import bpy
     import bmesh
 
-    drape = ptk.CurtainDrape(rail, name=name, **options)
+    drape = CurtainDrape(rail, name=name, **options)
     u_segs, v_segs, pts = drape.grid_points()
     cols = u_segs + 1
 
@@ -266,7 +268,7 @@ class CurtainRig:
     def _rail_edge(curtain):
         """Ordered world positions of the rail (top) edge the controls sit on.
 
-        The shared ``ptk.CurtainDrape`` hangs the cloth in **-Y** (gravity axis; see
+        The ``CurtainDrape`` engine hangs the cloth in **-Y** (gravity axis; see
         :func:`create_curtain`), so the rail is the band of verts near the maximum Y. Ordered
         along the rail's length with the shared path sorter (handles a bowed/curved rail).
         """
@@ -316,8 +318,9 @@ class CurtainRig:
 class CurtainSlots(ptk.LoggingMixin):
     """Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).
 
-    Blender port of mayatk's ``CurtainSlots``: the drape math is the shared
-    :class:`ptk.CurtainDrape` engine, so every parameter behaves identically across
+    Blender port of mayatk's ``CurtainSlots``: the drape math is the vendored
+    :class:`CurtainDrape` engine (code-identical with mayatk's copy — drift fails
+    extapps' ``test_vendor_sync.py``), so every parameter behaves identically across
     DCCs — only the mesh build differs (``create_curtain``, bmesh). The rail resolves
     from the selection (edit-mode edges / a curve object / 2+ object positions) or,
     when nothing usable is selected, from a generated driver curve built from the
@@ -459,7 +462,7 @@ class CurtainSlots(ptk.LoggingMixin):
         """Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.
 
         A curtain preset is a UI-state snapshot of the drape fields; because the panel shares the
-        Maya widget names *and* the shared ``ptk.CurtainDrape`` engine, the built-in JSONs are
+        Maya widget names *and* the vendored ``CurtainDrape`` engine, the built-in JSONs are
         identical across DCCs (shipped in ``edit_utils/presets/curtain``). Loading a preset resyncs
         the generated driver to the loaded fields, then refreshes the preview in one shot."""
         # Wrap construction + wiring (not just the import) so any failure degrades to "no presets,

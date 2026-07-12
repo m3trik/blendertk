@@ -4,11 +4,16 @@
 
 Mirror of ``mayatk.uv_utils.shell_xform``. Provides :class:`ShellXformSlots`
 for the ``shell_xform.ui`` panel: the four move-to-UV-space arrows (with a
-tile step), Flip / Rotate, and the Straighten / Mirror / Distribute tools.
+tile step), Flip / Rotate, the Straighten / Mirror / Distribute tools, and the
+Align / Orient shell helpers.
 
-This is the shared cross-DCC subset — Maya's align / orient / gather / randomize /
-select ops have no bpy analogue, so the Blender panel omits those groups (see
-``tentacle/docs/parity_map.py``).
+Full cross-DCC parity — every Maya shell op has a Blender realization: Align
+(min/avg/max/linear) and Gather are bmesh helpers (:func:`btk.align_uvs` /
+:func:`btk.gather_uv_shells`), Orient and Randomize wrap the native
+``uv.align_rotation`` / ``uv.randomize_uv_transform`` operators
+(:func:`btk.orient_uv_shells` / :func:`btk.randomize_uv_shells`). Only the
+back-facing / overlapping / unmapped *select* filters stay Maya-only (removed
+from the panel 2026-07-08; see ``tentacle/docs/parity_map.py``).
 
 Co-located with its engine (:mod:`blendertk.uv_utils`) and discovered by
 ``BlenderUiHandler`` (``marking_menu.show("shell_xform")``). The Qt-only ``uitk``
@@ -250,6 +255,89 @@ class ShellXformSlots(ptk.LoggingMixin):
             objects, axis="u" if mirror_u else "v",
             per_shell=per_shell, preserve_position=preserve_position,
         )
+
+    # ------------------------------------------------------------------ Align
+    def _align(self, axis, mode):
+        """Shared body for the Align buttons — dispatch to :func:`btk.align_uvs` and warn when the
+        selection yields nothing to align (mirrors the Maya twin's ``performAlignUV`` group)."""
+        if not btk.align_uvs(selected_objects(), axis=axis, mode=mode):
+            self.sb.message_box(
+                "<strong>Nothing aligned.</strong><br>Select UVs (Edit Mode) — or a mesh in "
+                "Object Mode — to align."
+            )
+
+    @btk.undoable
+    def align_u_min(self):
+        """Align the selected UVs to their minimum U (left)."""
+        self._align("u", "min")
+
+    @btk.undoable
+    def align_u_avg(self):
+        """Align the selected UVs to their average U (center)."""
+        self._align("u", "avg")
+
+    @btk.undoable
+    def align_u_max(self):
+        """Align the selected UVs to their maximum U (right)."""
+        self._align("u", "max")
+
+    @btk.undoable
+    def align_v_min(self):
+        """Align the selected UVs to their minimum V (bottom)."""
+        self._align("v", "min")
+
+    @btk.undoable
+    def align_v_avg(self):
+        """Align the selected UVs to their average V (center)."""
+        self._align("v", "avg")
+
+    @btk.undoable
+    def align_v_max(self):
+        """Align the selected UVs to their maximum V (top)."""
+        self._align("v", "max")
+
+    @btk.undoable
+    def linear_align(self):
+        """Linearly align the selected UVs between their two end points."""
+        self._align("u", "linear")  # axis is ignored for linear (projects onto the endpoint line)
+
+    # ------------------------------------------------------------------ Orient
+    @btk.undoable
+    def orient_shells(self):
+        """Orient each shell to run parallel with its nearest U/V axis (Align Rotation)."""
+        if not btk.orient_uv_shells(selected_objects()):
+            self.sb.message_box(
+                "<strong>Nothing oriented.</strong><br>Enter Edit Mode and select UV shells."
+            )
+
+    @btk.undoable
+    def orient_edges(self):
+        """Orient the shell so its selected edge runs along U or V."""
+        if not btk.orient_uv_shells(selected_objects(), to_edge=True):
+            self.sb.message_box(
+                "<strong>Nothing oriented.</strong><br>Enter Edit Mode and select a UV edge to "
+                "orient the shell to."
+            )
+
+    @btk.undoable
+    def gather_shells(self):
+        """Gather the selected shells together toward the 0-1 UV space."""
+        if not btk.gather_uv_shells(selected_objects()):
+            self.sb.message_box(
+                "<strong>Nothing gathered.</strong><br>Select shells sitting outside the 0-1 tile."
+            )
+
+    @btk.undoable
+    def randomize_shells(self):
+        """Randomly offset the selected shells. Each click advances a per-instance seed so repeated
+        clicks re-shuffle (matching Maya's ``RandomizeShells``) rather than re-applying one offset;
+        the engine helper stays deterministic for a given seed (testable)."""
+        seed = getattr(self, "_randomize_seed", 0)
+        self._randomize_seed = seed + 1
+        if not btk.randomize_uv_shells(selected_objects(), seed=seed):
+            self.sb.message_box(
+                "<strong>Nothing randomized.</strong><br>Enter Edit Mode and select UV shells."
+            )
 
     # ------------------------------------------------------------------ header
     def open_uv_editor(self):

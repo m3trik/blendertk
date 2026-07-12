@@ -67,11 +67,6 @@ tentacle. Mirror the mayatk/tentacle split:
 
 ## Imports
 
-```python
-import bpy        # primary Blender API
-import bmesh      # mesh editing
-```
-
 - **Defer `import bpy` into call bodies** (not module top) so importing a module / resolving
   the package surface never needs a running Blender — matches the no-import-side-effects rule.
 - Public surface is registered via root `DEFAULT_INCLUDE` + `bootstrap_package` (mirror mayatk);

@@ -16,7 +16,7 @@ import pythontk as ptk
 
 from blendertk.anim_utils.blendshape_animator.keyframes import Keyframes
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
-from blendertk.anim_utils.blendshape_animator.weights import Weights
+from pythontk import Weights
 
 
 class Creator(ptk.LoggingMixin):

@@ -14,10 +14,13 @@ matching X" sweep (matching how the category this replaces already worked).
 
 Categories mirror mayatk's shape 1:1 (same category + leaf names) so the shared tentacle slots
 stay branch-free; only the callable BODIES differ, using Blender-native primitives instead of
-string-node lookups. Leaves with no Blender analogue at all (bone/sub-object/brush-datablock
-concepts — Clusters, IK Handles, Joints, Brushes, Dynamic Constraints, Sculpts, Wires, Templated
-Geometry, UV Front/Back-Facing) are intentionally NOT built here; they're tracked as ``na`` in
-``tentacle/docs/parity_map.py`` (``HANDLERS["selection"]``) instead of silently dropped. A few
+string-node lookups. Maya deformer leaves map to their nearest Blender modifier via the
+modifier-carrier idiom (Clusters -> Hook, Wires -> Curve — select the meshes carrying that
+modifier, exactly like nCloths -> CLOTH / Fluids -> FLUID). Leaves with no Blender analogue at
+all (bone/sub-object/brush-datablock concepts — IK Handles, Joints, Brushes, Dynamic Constraints,
+Sculpts, Templated Geometry, UV Front/Back-Facing) are intentionally NOT built here; they're
+tracked as ``na`` in ``tentacle/docs/parity_map.py`` (``HANDLERS["selection"]``) instead of
+silently dropped. A few
 Blender-only leaves with no Maya counterpart (Metaballs/Text/Volumes/Armatures/Light Probes/
 Speakers) are kept as additive bonus entries under the closest matching category — they existed
 in the flat ``_SELECT_TYPES`` dict this replaces, so keeping them avoids regressing capability.
@@ -48,6 +51,11 @@ class Selection:
     _SELECTION_CONFIG = {
         "Animation": {
             "Animated Objects": lambda objs: Selection._select_animated_objects(objs),
+            # Maya's cluster deformer has no standalone Object in Blender; the Hook modifier is
+            # its direct analogue (a control-object-driven per-vertex deformer), so the idiom
+            # translation selects the meshes carrying a Hook modifier -- same pattern as the
+            # Dynamics leaves (nCloths -> CLOTH, Fluids -> FLUID).
+            "Clusters": lambda objs: Selection._select_by_modifier(objs, "HOOK"),
             # Blender constraints live ON the object (no separate constraint node to select);
             # the idiom translation selects the objects that carry one or more constraints.
             "Constraints": lambda objs: [o for o in objs if o.constraints],
@@ -66,6 +74,9 @@ class Selection:
             ],
             # Maya paint-effects strokes -> Blender's own stroke-based object type.
             "Strokes": lambda objs: [o for o in objs if o.type == "GREASEPENCIL"],
+            # Maya's wire deformer (a curve-driven mesh deform) maps to Blender's Curve modifier
+            # (bpy.types.CurveModifier -- curve-driven mesh deformation); select the carrier meshes.
+            "Wires": lambda objs: Selection._select_by_modifier(objs, "CURVE"),
         },
         "Geometry": {
             "All Geometry": lambda objs: [

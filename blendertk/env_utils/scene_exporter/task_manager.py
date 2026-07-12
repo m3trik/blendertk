@@ -2,15 +2,16 @@
 # coding=utf-8
 """Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 identically-named module. :class:`TaskManager` supplies the methods
-:class:`blendertk.env_utils.scene_exporter.task_factory.TaskFactory` discovers by name
+:class:`pythontk.core_utils.task_factory.TaskFactory` discovers by name
 (``getattr(self, task_name)`` reflection) -- see that module for the generic dispatch/revert
-engine (vendored verbatim, 100% DCC-agnostic).
+engine (the pythontk single source of truth, 100% DCC-agnostic).
 
 ~26 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
 group uses :mod:`blendertk.anim_utils.smart_bake`; ``export_data_node`` rides the ported
 :class:`blendertk.node_utils.data_nodes.DataNodes` carrier). The remaining ~2 depend on
-subsystems blendertk doesn't have yet (``hierarchy_manager``, Shots) and are declared in
-:attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
+integrations blendertk doesn't have yet (the exporter-side ``hierarchy_manager`` wiring; the
+Shots export-view/FBX-take projection — the Shots subsystem itself is ported) and are declared
+in :attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
 placeholders (the widget shows in the panel, 1:1 with mayatk's label/position, greyed out with a
 tooltip explaining the gap) -- ``TODO(blender-parity)``. No method is defined for a disabled
 placeholder: :class:`TaskFactory` gracefully skips a missing method (logs + no-ops), and a
@@ -24,7 +25,7 @@ from typing import Dict, Any, List
 
 import pythontk as ptk
 
-from blendertk.env_utils.scene_exporter.task_factory import TaskFactory
+from pythontk import TaskFactory
 
 
 _NEEDS_HIERARCHY_MANAGER = (
@@ -32,7 +33,9 @@ _NEEDS_HIERARCHY_MANAGER = (
     "TODO(blender-parity)."
 )
 _NEEDS_SHOTS = (
-    "Not available yet: needs blendertk's Shots port (unstarted). "
+    "Not available yet: the Shots subsystem is ported, but the export-view / "
+    "FBX-animation-take projection it feeds this task from is a documented "
+    "follow-up (see anim_utils/shots — publish_export_view is a no-op). "
     "TODO(blender-parity)."
 )
 
@@ -702,6 +705,13 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         self.logger = logger
         self._objects = None
         self._cached_materials = None
+
+    def _execute_tasks_and_checks(self, tasks_only, checks_only):
+        # smart_bake's completion log mentions the follow-on optimize_keys
+        # task; the generic TaskFactory knows nothing about either, so the
+        # flag is set here, in the consumer that reads it.
+        self._optimize_keys_enabled = bool(tasks_only.get("optimize_keys", False))
+        return super()._execute_tasks_and_checks(tasks_only, checks_only)
 
     @property
     def objects(self):

@@ -118,3 +118,73 @@ class DataNodes:
         """The carrier's *key* custom property, or ``None`` — see ``_get_string``; matches
         mayatk's ``get_export_string`` absent/empty semantics."""
         return DataNodes._get_string(DataNodes.EXPORT, key)
+
+    # -- inspection (mirror of mtk.DataNodes.dump / format_dump) --------------------------
+
+    @staticmethod
+    def _decode(raw):
+        """Parse *raw* as JSON, or return it unchanged when it isn't JSON — the channels are
+        producer-owned JSON blobs but a few carry plain wire strings; best-effort keeps both
+        readable in a dump (mirror of ``mtk.DataNodes._decode``)."""
+        import json
+
+        try:
+            return json.loads(raw)
+        except (ValueError, TypeError):
+            return raw
+
+    @staticmethod
+    def _jsonable(val):
+        """Coerce a non-string Blender custom-property value to a JSON-serializable form:
+        ``IDPropertyArray`` -> list, ``IDPropertyGroup`` -> dict; scalars pass through."""
+        if hasattr(val, "to_dict"):
+            return val.to_dict()
+        if hasattr(val, "to_list"):
+            return val.to_list()
+        return val
+
+    @staticmethod
+    def dump(decode=True):
+        """Every tool-authored channel on both carriers, grouped by object — mirror of
+        ``mtk.DataNodes.dump``.
+
+        Discovers whatever a scene actually carries (each producer's custom property on the
+        ``data_internal`` / ``data_export`` Empties) rather than the well-known keys, so new
+        producers appear automatically. Returns ``{object_name: {key: value}}``; a missing
+        Empty contributes an empty dict, and ``_``-prefixed internals (e.g. ``_RNA_UI``) plus
+        empty string channels are skipped. String values that are valid JSON are decoded when
+        ``decode=True`` (default); non-string values (int/float/array/group) are coerced to a
+        JSON-serializable form and returned as-is (mirrors mayatk keeping the audio tool's
+        per-track enum channels)."""
+        result = {}
+        for name in (DataNodes.INTERNAL, DataNodes.EXPORT):
+            channels = {}
+            obj = DataNodes._get_node(name, create=False)
+            if obj is not None:
+                for key in obj.keys():
+                    if key.startswith("_"):
+                        continue
+                    val = obj.get(key)
+                    if val is None:
+                        continue
+                    if isinstance(val, str):
+                        if not val:
+                            continue  # empty / cleared channel
+                        val = DataNodes._decode(val) if decode else val
+                    else:
+                        val = DataNodes._jsonable(val)
+                    channels[key] = val
+            result[name] = channels
+        return result
+
+    @staticmethod
+    def format_dump(decode=True):
+        """Pretty-printed JSON of :meth:`dump`, or ``""`` when nothing is stored — mirror of
+        ``mtk.DataNodes.format_dump`` (the one-call text form for the console and the viewer;
+        ``default=str`` guards the rare non-JSON-native value)."""
+        import json
+
+        data = DataNodes.dump(decode=decode)
+        if not any(data.values()):
+            return ""
+        return json.dumps(data, indent=2, ensure_ascii=False, default=str)

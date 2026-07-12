@@ -10,58 +10,72 @@ the package surface) never requires a running Blender — matching the ecosystem
 no-import-side-effects rule.
 """
 import os
+from contextlib import contextmanager
 from functools import wraps
 
 import pythontk as ptk
 
 
+@contextmanager
+def undo_chunk(name: str = ""):
+    """Collapse every change made inside the block into ONE Blender undo step.
+
+    Context-manager mirror of mayatk's ``CoreUtils.undo_chunk`` (name + behavior,
+    not mechanism) so the shared tentacle slots — and controllers ported from
+    mayatk — can wrap a mutation sequence with ``with undo_chunk():`` unchanged.
+
+    Blender exposes no Python-callable "begin/end undo group" bracket (``bpy.ops.ed``
+    has ``undo``/``undo_history``/``undo_push``/``undo_redo`` only — verified live).
+    The documented technique for collapsing a mixed raw-``bpy.data`` + operator-call
+    sequence into one step is to toggle ``bpy.context.preferences.edit.use_global_undo``
+    off for the duration (which suppresses the steps nested operators would each push,
+    without disabling the operators) and push exactly one consolidated step on exit.
+    A no-op outside Blender (headless import / no ``bpy``).
+    """
+    try:
+        import bpy
+    except Exception:
+        bpy = None
+    prefs = None
+    prior_global_undo = None
+    if bpy is not None:
+        try:
+            prefs = bpy.context.preferences.edit
+            prior_global_undo = prefs.use_global_undo
+            prefs.use_global_undo = False
+        except Exception:
+            prefs = None
+    try:
+        yield
+    finally:
+        if prefs is not None:
+            try:
+                prefs.use_global_undo = prior_global_undo
+            except Exception:
+                pass
+        if bpy is not None:
+            try:
+                bpy.ops.ed.undo_push(message=name or "blendertk op")
+            except Exception:
+                pass
+
+
 def undoable(fn):
     """Wrap ``fn`` so its changes collapse into a single Blender undo step.
 
-    Blender has no explicit open/close undo chunk like Maya; an operator — or an explicit
-    ``bpy.ops.ed.undo_push`` — marks a restore point. A raw ``bpy.data``/``bmesh`` edit pushes
-    nothing on its own, but a nested ``bpy.ops`` call (e.g. ``nla.bake``, which is
-    ``bl_options={'REGISTER', 'UNDO'}``) pushes its OWN step the moment it finishes — so ``fn``
-    mixing raw edits with operator calls would otherwise leave several separate undo-stack
-    entries instead of one, and a single Ctrl+Z would only partially revert it.
-
-    Blender exposes no Python-callable "begin/end undo group" bracket (``bpy.ops.ed`` has no
-    such operator — verified live; it only has ``undo``/``undo_history``/``undo_push``/
-    ``undo_redo``) — the documented technique for collapsing a mixed raw-edit + operator-call
-    sequence into one step from plain Python is to toggle
-    ``bpy.context.preferences.edit.use_global_undo`` off for the duration of ``fn`` (which
-    suppresses every step an operator would otherwise push, without disabling the operators
-    themselves) and push exactly one consolidated step after restoring it.
+    Decorator form of :func:`undo_chunk` — an operator, or an explicit
+    ``bpy.ops.ed.undo_push``, marks a restore point; a raw ``bpy.data``/``bmesh``
+    edit pushes nothing on its own, but a nested ``bpy.ops`` call (e.g. ``nla.bake``,
+    ``bl_options={'REGISTER', 'UNDO'}``) pushes its OWN step the moment it finishes.
+    So ``fn`` mixing raw edits with operator calls would otherwise leave several
+    separate undo-stack entries instead of one.  Delegates to :func:`undo_chunk`
+    so the toggle-and-push technique has a single definition.
     """
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        try:
-            import bpy
-        except Exception:
-            bpy = None
-        prefs = None
-        prior_global_undo = None
-        if bpy is not None:
-            try:
-                prefs = bpy.context.preferences.edit
-                prior_global_undo = prefs.use_global_undo
-                prefs.use_global_undo = False
-            except Exception:
-                prefs = None
-        try:
+        with undo_chunk(getattr(fn, "__name__", "blendertk op")):
             return fn(*args, **kwargs)
-        finally:
-            if prefs is not None:
-                try:
-                    prefs.use_global_undo = prior_global_undo
-                except Exception:
-                    pass
-            if bpy is not None:
-                try:
-                    bpy.ops.ed.undo_push(message=getattr(fn, "__name__", "blendertk op"))
-                except Exception:
-                    pass
 
     return wrapper
 
@@ -266,8 +280,8 @@ def _rebind_pil_globals():
     }
     for modname in (
         "pythontk.img_utils._img_utils",
-        "pythontk.img_utils.map_factory._map_factory",
-        "pythontk.img_utils.map_factory.processor",
+        "pythontk.core_utils.engines.textures.map_factory._map_factory",
+        "pythontk.core_utils.engines.textures.map_factory.processor",
     ):
         mod = sys.modules.get(modname)
         if mod is None:
@@ -685,6 +699,7 @@ class CoreUtils(ptk.CoreUtils):
     """
 
     undoable = staticmethod(undoable)
+    undo_chunk = staticmethod(undo_chunk)
     get_env_info = staticmethod(get_env_info)
     get_recent_files = staticmethod(get_recent_files)
     get_recent_autosave = staticmethod(get_recent_autosave)

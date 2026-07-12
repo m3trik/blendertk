@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-10",
+  "generated_at": "2026-07-12",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -885,48 +885,6 @@
       ]
     },
     {
-      "relpath": "anim_utils/blendshape_animator/weights.py",
-      "summary": "Weight calculations for shape-key morph animation — mirror of mayatk's",
-      "functions": [],
-      "classes": [
-        {
-          "name": "Weights",
-          "summary": "Handles weight calculations and consistent rounding precision.",
-          "line": 13,
-          "bases": [],
-          "members": [
-            {
-              "name": "round_weight",
-              "qualname": "Weights.round_weight",
-              "kind": "classmethod",
-              "signature": "(cls, weight: float) -> float",
-              "summary": "Round a weight (shape-key value) to a consistent precision.",
-              "line": 19,
-              "deprecated": false
-            },
-            {
-              "name": "frame_to_weight",
-              "qualname": "Weights.frame_to_weight",
-              "kind": "classmethod",
-              "signature": "(cls, frame: int, start_frame: int, end_frame: int) -> float",
-              "summary": "Convert a timeline frame to the shape-key value it corresponds to, assuming the",
-              "line": 24,
-              "deprecated": false
-            },
-            {
-              "name": "generate_weights",
-              "qualname": "Weights.generate_weights",
-              "kind": "classmethod",
-              "signature": "(cls, count: int, weight_range: Tuple[float, float] = (0.0, 1.0), include_endpoints: bool = False) -> List[float]",
-              "summary": "Generate ``count`` evenly spaced weights within ``weight_range``.",
-              "line": 37,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
       "relpath": "anim_utils/scale_keys.py",
       "summary": "Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's",
       "functions": [
@@ -947,6 +905,1518 @@
           "line": 219,
           "bases": [],
           "members": []
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/_shots.py",
+      "summary": "Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.",
+      "functions": [
+        {
+          "name": "iter_action_fcurves",
+          "qualname": "iter_action_fcurves",
+          "kind": "function",
+          "signature": "(obj)",
+          "summary": "Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.",
+          "line": 87,
+          "deprecated": false
+        },
+        {
+          "name": "collect_transform_segments",
+          "qualname": "collect_transform_segments",
+          "kind": "function",
+          "signature": "(scene=None, gap_threshold: float = 5.0) -> List[Dict[str, Any]]",
+          "summary": "Gather per-object animation segments for auto shot detection.",
+          "line": 151,
+          "deprecated": false
+        },
+        {
+          "name": "collect_selected_key_entries",
+          "qualname": "collect_selected_key_entries",
+          "kind": "function",
+          "signature": "(scene=None) -> List[Tuple[float, float, str]]",
+          "summary": "Gather ``(time, value, object)`` triples from currently selected keyframes.",
+          "line": 182,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "BlenderScenePersistence",
+          "summary": "Persist the store as a JSON string on a scene custom property.",
+          "line": 208,
+          "bases": [],
+          "members": [
+            {
+              "name": "remove_callbacks",
+              "qualname": "BlenderScenePersistence.remove_callbacks",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Tear down every SJM subscription owned by this backend.",
+              "line": 254,
+              "deprecated": false
+            },
+            {
+              "name": "save",
+              "qualname": "BlenderScenePersistence.save",
+              "kind": "method",
+              "signature": "(self, data: Dict[str, Any]) -> None",
+              "summary": "",
+              "line": 286,
+              "deprecated": false
+            },
+            {
+              "name": "load",
+              "qualname": "BlenderScenePersistence.load",
+              "kind": "method",
+              "signature": "(self) -> Optional[Dict[str, Any]]",
+              "summary": "",
+              "line": 292,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "BlenderShotStore",
+          "summary": ":class:`pythontk.ShotStore` with the scene hooks bound to Blender.",
+          "line": 311,
+          "bases": [
+            "ShotStore"
+          ],
+          "members": [
+            {
+              "name": "active",
+              "qualname": "BlenderShotStore.active",
+              "kind": "classmethod",
+              "signature": "(cls) -> 'BlenderShotStore'",
+              "summary": "Return the active store, auto-installing the Blender backend once.",
+              "line": 322,
+              "deprecated": false
+            },
+            {
+              "name": "has_animation",
+              "qualname": "BlenderShotStore.has_animation",
+              "kind": "staticmethod",
+              "signature": "() -> bool",
+              "summary": "True if any scene object has a moving-or-keyed transform fcurve.",
+              "line": 348,
+              "deprecated": false
+            },
+            {
+              "name": "detect_regions",
+              "qualname": "BlenderShotStore.detect_regions",
+              "kind": "method",
+              "signature": "(self) -> List[Dict[str, Any]]",
+              "summary": "Detect shot candidates from the scene using the store's settings.",
+              "line": 369,
+              "deprecated": false
+            },
+            {
+              "name": "assess",
+              "qualname": "BlenderShotStore.assess",
+              "kind": "method",
+              "signature": "(self) -> Dict[int, str]",
+              "summary": "Flag shots whose stored objects no longer exist in the file.",
+              "line": 388,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_manifest/_shot_manifest.py",
+      "summary": "Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "BlenderShotManifest",
+          "summary": ":class:`pythontk.ShotManifest` with the scene hooks bound to Blender.",
+          "line": 50,
+          "bases": [
+            "ShotManifest"
+          ],
+          "members": [
+            {
+              "name": "apply_behaviors",
+              "qualname": "BlenderShotManifest.apply_behaviors",
+              "kind": "method",
+              "signature": "(self) -> dict",
+              "summary": "Key fade behaviors via ``RenderOpacity`` and place audio as VSE strips.",
+              "line": 199,
+              "deprecated": false
+            },
+            {
+              "name": "reapply_object",
+              "qualname": "BlenderShotManifest.reapply_object",
+              "kind": "method",
+              "signature": "(self, shot, obj) -> bool",
+              "summary": "Re-key every behavior on a single *obj* over *shot*'s range.",
+              "line": 287,
+              "deprecated": false
+            },
+            {
+              "name": "from_csv",
+              "qualname": "BlenderShotManifest.from_csv",
+              "kind": "classmethod",
+              "signature": "(cls, filepath, store=None, columns=None, post_process=None)",
+              "summary": "Parse a CSV and return a ready-to-build engine.",
+              "line": 373,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_manifest/manifest_data.py",
+      "summary": "Constants, column layout, and pure helper functions for the Shot Manifest UI.",
+      "functions": [
+        {
+          "name": "fmt_behavior",
+          "qualname": "fmt_behavior",
+          "kind": "function",
+          "signature": "(name: str) -> str",
+          "summary": "``'fade_in'`` → ``'Fade In'``.",
+          "line": 50,
+          "deprecated": false
+        },
+        {
+          "name": "format_behavior_html",
+          "qualname": "format_behavior_html",
+          "kind": "function",
+          "signature": "(behaviors, broken=(), status_color=None) -> str",
+          "summary": "Return rich-text HTML for a list of behavior names.",
+          "line": 55,
+          "deprecated": false
+        },
+        {
+          "name": "try_load_blender_icons",
+          "qualname": "try_load_blender_icons",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Return per-node-type icon provider, or ``None``.",
+          "line": 86,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "anim_utils/shots/shot_manifest/shot_manifest_slots.py",
+      "summary": "Switchboard slots for the Shot Manifest UI (Blender).",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ShotManifestController",
+          "summary": "Business logic for the Shot Manifest UI.",
+          "line": 64,
+          "bases": [
+            "ManifestTableMixin",
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "detect",
+              "qualname": "ShotManifestController.detect",
+              "kind": "method",
+              "signature": "(self, gap: Optional[float] = None) -> None",
+              "summary": "Detect animation regions in the scene and populate the table.",
+              "line": 235,
+              "deprecated": false
+            },
+            {
+              "name": "remove_callbacks",
+              "qualname": "ShotManifestController.remove_callbacks",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Remove store listener and invalidation subscription (call on teardown).",
+              "line": 553,
+              "deprecated": false
+            },
+            {
+              "name": "browse_csv",
+              "qualname": "ShotManifestController.browse_csv",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Open a file dialog and load the selected CSV.",
+              "line": 1457,
+              "deprecated": false
+            },
+            {
+              "name": "build",
+              "qualname": "ShotManifestController.build",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Build or update shots in the store from loaded steps.",
+              "line": 1648,
+              "deprecated": false
+            },
+            {
+              "name": "assess",
+              "qualname": "ShotManifestController.assess",
+              "kind": "method",
+              "signature": "(self, skip_key_check: bool = False) -> None",
+              "summary": "Compare CSV steps against the live Blender shots and color the tree.",
+              "line": 1857,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "ShotManifestSlots",
+          "summary": "Switchboard slot class — routes UI events to the controller.",
+          "line": 1955,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "header_init",
+              "qualname": "ShotManifestSlots.header_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Header menu is configured once in controller.__init__.",
+              "line": 1968,
+              "deprecated": false
+            },
+            {
+              "name": "btn_expand_missing",
+              "qualname": "ShotManifestSlots.btn_expand_missing",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Expand all step rows that have missing objects or behaviors.",
+              "line": 1972,
+              "deprecated": false
+            },
+            {
+              "name": "btn_expand_extra",
+              "qualname": "ShotManifestSlots.btn_expand_extra",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Expand all step rows that have scene-discovered extra objects.",
+              "line": 1976,
+              "deprecated": false
+            },
+            {
+              "name": "btn_settings",
+              "qualname": "ShotManifestSlots.btn_settings",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Open the shared shots settings panel.",
+              "line": 1980,
+              "deprecated": false
+            },
+            {
+              "name": "b002",
+              "qualname": "ShotManifestSlots.b002",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Assess shots against live Blender scene.",
+              "line": 1986,
+              "deprecated": false
+            },
+            {
+              "name": "b003",
+              "qualname": "ShotManifestSlots.b003",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Build shots from loaded steps (or auto-detect from scene).",
+              "line": 1990,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_manifest/table_presenter.py",
+      "summary": "Tree-widget presentation mixin for the Shot Manifest controller.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ManifestTableMixin",
+          "summary": "Presentation methods for the manifest tree widget.",
+          "line": 50,
+          "bases": [],
+          "members": [
+            {
+              "name": "expand_missing",
+              "qualname": "ManifestTableMixin.expand_missing",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Expand all step rows that have missing objects, behaviors, or additional objects.",
+              "line": 733,
+              "deprecated": false
+            },
+            {
+              "name": "expand_extra",
+              "qualname": "ManifestTableMixin.expand_extra",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Expand all step rows that have scene-discovered extra objects.",
+              "line": 777,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/_shot_sequencer.py",
+      "summary": "Blender shot sequencer engine — timeline moves over the shared shots planner.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ShotSequencer",
+          "summary": "Timeline-move engine for a :class:`~blendertk.BlenderShotStore`.",
+          "line": 51,
+          "bases": [],
+          "members": [
+            {
+              "name": "shots",
+              "qualname": "ShotSequencer.shots",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "",
+              "line": 65,
+              "deprecated": false
+            },
+            {
+              "name": "hidden_objects",
+              "qualname": "ShotSequencer.hidden_objects",
+              "kind": "property",
+              "signature": "(self) -> set",
+              "summary": "",
+              "line": 73,
+              "deprecated": false
+            },
+            {
+              "name": "markers",
+              "qualname": "ShotSequencer.markers",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "",
+              "line": 81,
+              "deprecated": false
+            },
+            {
+              "name": "is_object_hidden",
+              "qualname": "ShotSequencer.is_object_hidden",
+              "kind": "method",
+              "signature": "(self, obj_name: str) -> bool",
+              "summary": "",
+              "line": 88,
+              "deprecated": false
+            },
+            {
+              "name": "set_object_hidden",
+              "qualname": "ShotSequencer.set_object_hidden",
+              "kind": "method",
+              "signature": "(self, obj_name: str, hidden: bool = True) -> None",
+              "summary": "",
+              "line": 91,
+              "deprecated": false
+            },
+            {
+              "name": "sorted_shots",
+              "qualname": "ShotSequencer.sorted_shots",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "",
+              "line": 94,
+              "deprecated": false
+            },
+            {
+              "name": "shot_by_id",
+              "qualname": "ShotSequencer.shot_by_id",
+              "kind": "method",
+              "signature": "(self, shot_id: int)",
+              "summary": "",
+              "line": 97,
+              "deprecated": false
+            },
+            {
+              "name": "shot_by_name",
+              "qualname": "ShotSequencer.shot_by_name",
+              "kind": "method",
+              "signature": "(self, name: str)",
+              "summary": "",
+              "line": 100,
+              "deprecated": false
+            },
+            {
+              "name": "define_shot",
+              "qualname": "ShotSequencer.define_shot",
+              "kind": "method",
+              "signature": "(self, name, start, end, objects=None, metadata=None, locked=False, description='')",
+              "summary": "Define a shot;",
+              "line": 103,
+              "deprecated": false
+            },
+            {
+              "name": "reconcile_all_shots",
+              "qualname": "ShotSequencer.reconcile_all_shots",
+              "kind": "method",
+              "signature": "(self) -> bool",
+              "summary": "No-op in Blender (documented divergence).",
+              "line": 147,
+              "deprecated": false
+            },
+            {
+              "name": "ripple_downstream",
+              "qualname": "ShotSequencer.ripple_downstream",
+              "kind": "method",
+              "signature": "(self, shot_id: int, after_frame: float, delta: float) -> None",
+              "summary": "Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).",
+              "line": 210,
+              "deprecated": false
+            },
+            {
+              "name": "ripple_upstream",
+              "qualname": "ShotSequencer.ripple_upstream",
+              "kind": "method",
+              "signature": "(self, shot_id: int, before_frame: float, delta: float) -> None",
+              "summary": "Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).",
+              "line": 215,
+              "deprecated": false
+            },
+            {
+              "name": "respace",
+              "qualname": "ShotSequencer.respace",
+              "kind": "method",
+              "signature": "(self, gap: float = 0, start_frame: float = 1) -> None",
+              "summary": "Lay all shots out sequentially from *start_frame* with *gap* spacing.",
+              "line": 220,
+              "deprecated": false
+            },
+            {
+              "name": "slide_shot",
+              "qualname": "ShotSequencer.slide_shot",
+              "kind": "method",
+              "signature": "(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None",
+              "summary": "Move a shot to *new_start*, rippling neighbours to preserve spacing.",
+              "line": 247,
+              "deprecated": false
+            },
+            {
+              "name": "move_shot",
+              "qualname": "ShotSequencer.move_shot",
+              "kind": "method",
+              "signature": "(self, shot_id: int, new_start: float) -> None",
+              "summary": "Move a shot's start to *new_start*, rippling downstream shots.",
+              "line": 285,
+              "deprecated": false
+            },
+            {
+              "name": "move_object_keys",
+              "qualname": "ShotSequencer.move_object_keys",
+              "kind": "method",
+              "signature": "(self, obj: str, old_start: float, old_end: float, new_start: float) -> None",
+              "summary": "Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.",
+              "line": 291,
+              "deprecated": false
+            },
+            {
+              "name": "move_stepped_keys",
+              "qualname": "ShotSequencer.move_stepped_keys",
+              "kind": "method",
+              "signature": "(self, obj: str, old_time: float, new_time: float, attr_name: Optional[str] = None, eps: float = 0.001) -> None",
+              "summary": "Move the key(s) at *old_time* to *new_time*.",
+              "line": 301,
+              "deprecated": false
+            },
+            {
+              "name": "scale_object_keys",
+              "qualname": "ShotSequencer.scale_object_keys",
+              "kind": "method",
+              "signature": "(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
+              "summary": "Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.",
+              "line": 381,
+              "deprecated": false
+            },
+            {
+              "name": "move_object_in_shot",
+              "qualname": "ShotSequencer.move_object_in_shot",
+              "kind": "method",
+              "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, prevent_overlap: bool = False) -> None",
+              "summary": "Move one object's keys within a shot, growing the shot + rippling when it overruns.",
+              "line": 386,
+              "deprecated": false
+            },
+            {
+              "name": "resize_object",
+              "qualname": "ShotSequencer.resize_object",
+              "kind": "method",
+              "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
+              "summary": "Scale one object's keys and ripple downstream shots by the tail delta.",
+              "line": 447,
+              "deprecated": false
+            },
+            {
+              "name": "set_shot_duration",
+              "qualname": "ShotSequencer.set_shot_duration",
+              "kind": "method",
+              "signature": "(self, shot_id: int, new_duration: float) -> None",
+              "summary": "Change a shot's duration (start fixed), scaling its keys + rippling downstream.",
+              "line": 465,
+              "deprecated": false
+            },
+            {
+              "name": "resize_shot",
+              "qualname": "ShotSequencer.resize_shot",
+              "kind": "method",
+              "signature": "(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None",
+              "summary": "Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.",
+              "line": 482,
+              "deprecated": false
+            },
+            {
+              "name": "apply_gap",
+              "qualname": "ShotSequencer.apply_gap",
+              "kind": "method",
+              "signature": "(self, gap: float, scope: str = 'all', shot_id: Optional[int] = None) -> bool",
+              "summary": "Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).",
+              "line": 509,
+              "deprecated": false
+            },
+            {
+              "name": "move_shot_to_position",
+              "qualname": "ShotSequencer.move_shot_to_position",
+              "kind": "method",
+              "signature": "(self, shot_id: int, target_pos: int) -> None",
+              "summary": "Reorder *shot_id* to 1-based timeline position *target_pos*.",
+              "line": 540,
+              "deprecated": false
+            },
+            {
+              "name": "collect_object_segments",
+              "qualname": "ShotSequencer.collect_object_segments",
+              "kind": "method",
+              "signature": "(self, shot_id: int, ignore: Optional[str] = None, motion_rate: float = 0.001, ignore_holds: bool = True) -> List[dict]",
+              "summary": "Per-object keyed-span segments within a shot — the sequencer track data.",
+              "line": 551,
+              "deprecated": false
+            },
+            {
+              "name": "fit_shot_to_content",
+              "qualname": "ShotSequencer.fit_shot_to_content",
+              "kind": "method",
+              "signature": "(self, shot_id: int, mode: str = 'trim') -> Tuple[float, float]",
+              "summary": "Resize a shot to its keyed content, rippling neighbours by the deltas.",
+              "line": 657,
+              "deprecated": false
+            },
+            {
+              "name": "trim_shot_to_content",
+              "qualname": "ShotSequencer.trim_shot_to_content",
+              "kind": "method",
+              "signature": "(self, shot_id: int) -> Tuple[float, float]",
+              "summary": "Trim empty space from a shot's start and end (bounds move inward only).",
+              "line": 695,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/clip_motion.py",
+      "summary": "Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).",
+      "functions": [
+        {
+          "name": "curves_for_attr",
+          "qualname": "curves_for_attr",
+          "kind": "function",
+          "signature": "(obj_name: str, attr_name: str) -> list",
+          "summary": "Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.",
+          "line": 32,
+          "deprecated": false
+        },
+        {
+          "name": "scale_attribute_keys",
+          "qualname": "scale_attribute_keys",
+          "kind": "function",
+          "signature": "(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
+          "summary": "Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).",
+          "line": 72,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "ClipMotionMixin",
+          "summary": "Mixin supplying clip move, resize, and batch-move handlers.",
+          "line": 109,
+          "bases": [],
+          "members": [
+            {
+              "name": "on_clip_resized",
+              "qualname": "ClipMotionMixin.on_clip_resized",
+              "kind": "method",
+              "signature": "(self, clip_id: int, new_start: float, new_duration: float) -> None",
+              "summary": "Resize a clip — attribute sub-row (scale one channel) or main track (``resize_object``).",
+              "line": 119,
+              "deprecated": false
+            },
+            {
+              "name": "on_clip_moved",
+              "qualname": "ClipMotionMixin.on_clip_moved",
+              "kind": "method",
+              "signature": "(self, clip_id: int, new_start: float) -> None",
+              "summary": "Handle clip move — routes to audio (deferred) or shot-level logic.",
+              "line": 264,
+              "deprecated": false
+            },
+            {
+              "name": "on_clips_batch_moved",
+              "qualname": "ClipMotionMixin.on_clips_batch_moved",
+              "kind": "method",
+              "signature": "(self, moves) -> None",
+              "summary": "Handle a batch of clip moves (group drag), syncing once at the end.",
+              "line": 279,
+              "deprecated": false
+            },
+            {
+              "name": "on_keys_moved",
+              "qualname": "ClipMotionMixin.on_keys_moved",
+              "kind": "method",
+              "signature": "(self, clip_id: int, changes: list) -> None",
+              "summary": "Move individual keyframes on the fcurves, then refresh.",
+              "line": 301,
+              "deprecated": false
+            },
+            {
+              "name": "on_keys_deleted",
+              "qualname": "ClipMotionMixin.on_keys_deleted",
+              "kind": "method",
+              "signature": "(self, clip_id: int, times: list) -> None",
+              "summary": "Delete individual keyframes from the fcurves, then refresh.",
+              "line": 366,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/gap_manager.py",
+      "summary": "Gap and range-highlight handlers for the shot sequencer controller (Blender).",
+      "functions": [],
+      "classes": [
+        {
+          "name": "GapManagerMixin",
+          "summary": "Mixin supplying gap-overlay and range-highlight handlers.",
+          "line": 20,
+          "bases": [],
+          "members": [
+            {
+              "name": "on_range_highlight_changed",
+              "qualname": "GapManagerMixin.on_range_highlight_changed",
+              "kind": "method",
+              "signature": "(self, start: float, end: float) -> None",
+              "summary": "Update the active shot boundaries when the range highlight is dragged.",
+              "line": 31,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_resized",
+              "qualname": "GapManagerMixin.on_gap_resized",
+              "kind": "method",
+              "signature": "(self, original_next_start: float, new_next_start: float) -> None",
+              "summary": "Handle right-edge gap drag (a shot's ``.start``).",
+              "line": 125,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_left_resized",
+              "qualname": "GapManagerMixin.on_gap_left_resized",
+              "kind": "method",
+              "signature": "(self, original_prev_end: float, new_prev_end: float) -> None",
+              "summary": "Handle left-edge gap drag (a shot's ``.end``).",
+              "line": 157,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_moved",
+              "qualname": "GapManagerMixin.on_gap_moved",
+              "kind": "method",
+              "signature": "(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
+              "summary": "Handle body gap drag — slide the gap while preserving its width.",
+              "line": 190,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_lock_changed",
+              "qualname": "GapManagerMixin.on_gap_lock_changed",
+              "kind": "method",
+              "signature": "(self, gap_start: float, gap_end: float, locked: bool) -> None",
+              "summary": "Handle a single gap's lock state being toggled via context menu.",
+              "line": 236,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_lock_all",
+              "qualname": "GapManagerMixin.on_gap_lock_all",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Lock all gaps so they are preserved during respace.",
+              "line": 255,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_unlock_all",
+              "qualname": "GapManagerMixin.on_gap_unlock_all",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Unlock all gaps so they follow the global gap value.",
+              "line": 264,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/marker_manager.py",
+      "summary": "Marker persistence for the shot sequencer controller (Blender).",
+      "functions": [],
+      "classes": [
+        {
+          "name": "MarkerManagerMixin",
+          "summary": "Mixin supplying marker CRUD persistence.",
+          "line": 15,
+          "bases": [],
+          "members": [
+            {
+              "name": "on_marker_added",
+              "qualname": "MarkerManagerMixin.on_marker_added",
+              "kind": "method",
+              "signature": "(self, marker_id: int, time: float) -> None",
+              "summary": "Persist a newly added marker.",
+              "line": 22,
+              "deprecated": false
+            },
+            {
+              "name": "on_marker_moved",
+              "qualname": "MarkerManagerMixin.on_marker_moved",
+              "kind": "method",
+              "signature": "(self, marker_id: int, new_time: float) -> None",
+              "summary": "Update persisted marker time.",
+              "line": 47,
+              "deprecated": false
+            },
+            {
+              "name": "on_marker_changed",
+              "qualname": "MarkerManagerMixin.on_marker_changed",
+              "kind": "method",
+              "signature": "(self, marker_id: int) -> None",
+              "summary": "Update persisted marker note/color.",
+              "line": 51,
+              "deprecated": false
+            },
+            {
+              "name": "on_marker_removed",
+              "qualname": "MarkerManagerMixin.on_marker_removed",
+              "kind": "method",
+              "signature": "(self, marker_id: int) -> None",
+              "summary": "Remove marker from persistent store.",
+              "line": 55,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/segment_collector.py",
+      "summary": "Segment collection and attribute extraction for the shot sequencer (Blender).",
+      "functions": [
+        {
+          "name": "attr_label",
+          "qualname": "attr_label",
+          "kind": "function",
+          "signature": "(fcurve) -> str",
+          "summary": "``location[0]`` → ``translateX`` (mayatk-style channel label).",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "collect_segments",
+          "qualname": "collect_segments",
+          "kind": "function",
+          "signature": "(sequencer, shot, visible_shots, segment_cache, shifted_out_keys, logger)",
+          "summary": "Collect per-object animation segments for visible shots.",
+          "line": 63,
+          "deprecated": false
+        },
+        {
+          "name": "active_object_set",
+          "qualname": "active_object_set",
+          "kind": "function",
+          "signature": "(shot, segments_by_shot) -> set",
+          "summary": "Objects that have actual animation segments in the active shot.",
+          "line": 111,
+          "deprecated": false
+        },
+        {
+          "name": "extract_attributes",
+          "qualname": "extract_attributes",
+          "kind": "function",
+          "signature": "(segments) -> list",
+          "summary": "Transform-channel labels (``translateX``…) keyed within the segments.",
+          "line": 116,
+          "deprecated": false
+        },
+        {
+          "name": "build_curve_preview",
+          "qualname": "build_curve_preview",
+          "kind": "function",
+          "signature": "(fcurve, t_start, t_end)",
+          "summary": "Bézier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.",
+          "line": 146,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/shot_nav.py",
+      "summary": "Shot navigation and combobox synchronization (Blender).",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ShotNavMixin",
+          "summary": "Mixin supplying shot selection and navigation.",
+          "line": 16,
+          "bases": [],
+          "members": [
+            {
+              "name": "select_shot",
+              "qualname": "ShotNavMixin.select_shot",
+              "kind": "method",
+              "signature": "(self, shot_id: int) -> None",
+              "summary": "Set the view playback range to the shot and select its objects.",
+              "line": 26,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_block_clicked",
+              "qualname": "ShotNavMixin.on_shot_block_clicked",
+              "kind": "method",
+              "signature": "(self, shot_name: str) -> None",
+              "summary": "Select a shot by name when its block is clicked in the shot lane.",
+              "line": 171,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shot_sequencer/shot_sequencer_slots.py",
+      "summary": "Switchboard slots for the Shot Sequencer UI (Blender).",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ShotSequencerController",
+          "summary": "Business logic controller bridging SequencerWidget ↔ ShotSequencer.",
+          "line": 65,
+          "bases": [
+            "GapManagerMixin",
+            "ClipMotionMixin",
+            "ShotNavMixin",
+            "MarkerManagerMixin",
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "sequencer",
+              "qualname": "ShotSequencerController.sequencer",
+              "kind": "property",
+              "signature": "(self) -> Optional[ShotSequencer]",
+              "summary": "",
+              "line": 145,
+              "deprecated": false
+            },
+            {
+              "name": "remove_callbacks",
+              "qualname": "ShotSequencerController.remove_callbacks",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Detach all scene handlers + listeners (call on teardown).",
+              "line": 259,
+              "deprecated": false
+            },
+            {
+              "name": "on_zone_context_menu",
+              "qualname": "ShotSequencerController.on_zone_context_menu",
+              "kind": "method",
+              "signature": "(self, zone: str, time: float, global_pos) -> None",
+              "summary": "",
+              "line": 463,
+              "deprecated": false
+            },
+            {
+              "name": "active_shot_id",
+              "qualname": "ShotSequencerController.active_shot_id",
+              "kind": "property",
+              "signature": "(self) -> Optional[int]",
+              "summary": "",
+              "line": 582,
+              "deprecated": false
+            },
+            {
+              "name": "on_undo",
+              "qualname": "ShotSequencerController.on_undo",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Widget undo_requested — restore the shot-boundary snapshot + refresh.",
+              "line": 612,
+              "deprecated": false
+            },
+            {
+              "name": "on_redo",
+              "qualname": "ShotSequencerController.on_redo",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "",
+              "line": 629,
+              "deprecated": false
+            },
+            {
+              "name": "refresh",
+              "qualname": "ShotSequencerController.refresh",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "",
+              "line": 658,
+              "deprecated": false
+            },
+            {
+              "name": "hide_track",
+              "qualname": "ShotSequencerController.hide_track",
+              "kind": "method",
+              "signature": "(self, track_names) -> None",
+              "summary": "",
+              "line": 1045,
+              "deprecated": false
+            },
+            {
+              "name": "show_track",
+              "qualname": "ShotSequencerController.show_track",
+              "kind": "method",
+              "signature": "(self, track_name: str) -> None",
+              "summary": "",
+              "line": 1054,
+              "deprecated": false
+            },
+            {
+              "name": "delete_track",
+              "qualname": "ShotSequencerController.delete_track",
+              "kind": "method",
+              "signature": "(self, track_names) -> None",
+              "summary": "",
+              "line": 1060,
+              "deprecated": false
+            },
+            {
+              "name": "on_selection_changed",
+              "qualname": "ShotSequencerController.on_selection_changed",
+              "kind": "method",
+              "signature": "(self, clip_ids: list) -> None",
+              "summary": "",
+              "line": 1069,
+              "deprecated": false
+            },
+            {
+              "name": "on_track_selected",
+              "qualname": "ShotSequencerController.on_track_selected",
+              "kind": "method",
+              "signature": "(self, track_names: list) -> None",
+              "summary": "",
+              "line": 1097,
+              "deprecated": false
+            },
+            {
+              "name": "on_clip_locked",
+              "qualname": "ShotSequencerController.on_clip_locked",
+              "kind": "method",
+              "signature": "(self, clip_id: int, locked: bool) -> None",
+              "summary": "",
+              "line": 1102,
+              "deprecated": false
+            },
+            {
+              "name": "on_track_menu",
+              "qualname": "ShotSequencerController.on_track_menu",
+              "kind": "method",
+              "signature": "(self, menu, track_names) -> None",
+              "summary": "",
+              "line": 1122,
+              "deprecated": false
+            },
+            {
+              "name": "on_header_menu",
+              "qualname": "ShotSequencerController.on_header_menu",
+              "kind": "method",
+              "signature": "(self, menu) -> None",
+              "summary": "Header background context menu — no domain actions this phase.",
+              "line": 1130,
+              "deprecated": false
+            },
+            {
+              "name": "on_clip_renamed",
+              "qualname": "ShotSequencerController.on_clip_renamed",
+              "kind": "method",
+              "signature": "(self, clip_id: int, new_label: str) -> None",
+              "summary": "Renaming a clip is display-only in Blender (object names own identity).",
+              "line": 1133,
+              "deprecated": false
+            },
+            {
+              "name": "on_playhead_moved",
+              "qualname": "ShotSequencerController.on_playhead_moved",
+              "kind": "method",
+              "signature": "(self, frame: float) -> None",
+              "summary": "Widget playhead drag → set the scene frame.",
+              "line": 1136,
+              "deprecated": false
+            },
+            {
+              "name": "on_clip_menu",
+              "qualname": "ShotSequencerController.on_clip_menu",
+              "kind": "method",
+              "signature": "(self, menu, clip_id: int) -> None",
+              "summary": "Add Delete-key + lock actions to a clip's context menu.",
+              "line": 1147,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_menu",
+              "qualname": "ShotSequencerController.on_gap_menu",
+              "kind": "method",
+              "signature": "(self, menu, gap_start: float, gap_end: float) -> None",
+              "summary": "Gap overlay context menu — no domain actions this phase.",
+              "line": 1168,
+              "deprecated": false
+            },
+            {
+              "name": "on_key_selection_changed",
+              "qualname": "ShotSequencerController.on_key_selection_changed",
+              "kind": "method",
+              "signature": "(self, key_groups: list) -> None",
+              "summary": "Per-key selection changed — footer feedback only.",
+              "line": 1171,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "ShotSequencerSlots",
+          "summary": "Switchboard slot class — routes UI events to the controller.",
+          "line": 1278,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "header_init",
+              "qualname": "ShotSequencerSlots.header_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Build the header menu controls (mirror of mayatk's sequencer header).",
+              "line": 1502,
+              "deprecated": false
+            },
+            {
+              "name": "btn_colors",
+              "qualname": "ShotSequencerSlots.btn_colors",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Open the attribute color configuration dialog.",
+              "line": 1623,
+              "deprecated": false
+            },
+            {
+              "name": "spn_snap",
+              "qualname": "ShotSequencerSlots.spn_snap",
+              "kind": "method",
+              "signature": "(self, value)",
+              "summary": "Set the snap interval on the sequencer widget.",
+              "line": 1652,
+              "deprecated": false
+            },
+            {
+              "name": "btn_shortcuts",
+              "qualname": "ShotSequencerSlots.btn_shortcuts",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Open the sequencer shortcut editor.",
+              "line": 1658,
+              "deprecated": false
+            },
+            {
+              "name": "btn_shot_settings",
+              "qualname": "ShotSequencerSlots.btn_shot_settings",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Open the shared shots settings panel.",
+              "line": 1664,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_shot",
+              "qualname": "ShotSequencerSlots.cmb_shot",
+              "kind": "method",
+              "signature": "(self, index)",
+              "summary": "Handle direct combobox selection of a shot or marker.",
+              "line": 1668,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "anim_utils/shots/shots_slots.py",
+      "summary": "Switchboard slots for the Shots settings UI.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "ShotsController",
+          "summary": "Business logic for the Shots settings panel.",
+          "line": 30,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "remove_callbacks",
+              "qualname": "ShotsController.remove_callbacks",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Remove store listeners and invalidation subscription (call on teardown).",
+              "line": 183,
+              "deprecated": false
+            },
+            {
+              "name": "refresh_state",
+              "qualname": "ShotsController.refresh_state",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Central enable/disable refresh for all Shots UI widgets.",
+              "line": 257,
+              "deprecated": false
+            },
+            {
+              "name": "on_detection_changed",
+              "qualname": "ShotsController.on_detection_changed",
+              "kind": "method",
+              "signature": "(self, value: float) -> None",
+              "summary": "",
+              "line": 502,
+              "deprecated": false
+            },
+            {
+              "name": "on_detection_mode_changed",
+              "qualname": "ShotsController.on_detection_mode_changed",
+              "kind": "method",
+              "signature": "(self, index: int) -> None",
+              "summary": "",
+              "line": 510,
+              "deprecated": false
+            },
+            {
+              "name": "on_initial_length_changed",
+              "qualname": "ShotsController.on_initial_length_changed",
+              "kind": "method",
+              "signature": "(self, value: float) -> None",
+              "summary": "",
+              "line": 520,
+              "deprecated": false
+            },
+            {
+              "name": "on_snap_whole_frames_changed",
+              "qualname": "ShotsController.on_snap_whole_frames_changed",
+              "kind": "method",
+              "signature": "(self, checked: bool) -> None",
+              "summary": "",
+              "line": 528,
+              "deprecated": false
+            },
+            {
+              "name": "on_fit_mode_changed",
+              "qualname": "ShotsController.on_fit_mode_changed",
+              "kind": "method",
+              "signature": "(self, index: int) -> None",
+              "summary": "",
+              "line": 557,
+              "deprecated": false
+            },
+            {
+              "name": "on_gap_changed",
+              "qualname": "ShotsController.on_gap_changed",
+              "kind": "method",
+              "signature": "(self, value, scope: str = 'all') -> None",
+              "summary": "",
+              "line": 567,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_selected",
+              "qualname": "ShotsController.on_shot_selected",
+              "kind": "method",
+              "signature": "(self, index: int) -> None",
+              "summary": "User picked a different shot from the combobox.",
+              "line": 585,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_name_changed",
+              "qualname": "ShotsController.on_shot_name_changed",
+              "kind": "method",
+              "signature": "(self, text: str) -> None",
+              "summary": "",
+              "line": 604,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_start_changed",
+              "qualname": "ShotsController.on_shot_start_changed",
+              "kind": "method",
+              "signature": "(self, value: float) -> None",
+              "summary": "",
+              "line": 607,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_end_changed",
+              "qualname": "ShotsController.on_shot_end_changed",
+              "kind": "method",
+              "signature": "(self, value: float) -> None",
+              "summary": "",
+              "line": 628,
+              "deprecated": false
+            },
+            {
+              "name": "on_shot_desc_changed",
+              "qualname": "ShotsController.on_shot_desc_changed",
+              "kind": "method",
+              "signature": "(self, text: str) -> None",
+              "summary": "",
+              "line": 651,
+              "deprecated": false
+            },
+            {
+              "name": "on_delete_shot",
+              "qualname": "ShotsController.on_delete_shot",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Delete the active shot after confirmation.",
+              "line": 717,
+              "deprecated": false
+            },
+            {
+              "name": "on_delete_all_shots",
+              "qualname": "ShotsController.on_delete_all_shots",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Delete every shot after confirmation.",
+              "line": 739,
+              "deprecated": false
+            },
+            {
+              "name": "on_move_shot",
+              "qualname": "ShotsController.on_move_shot",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Move the active shot to the position specified by spn_move_to.",
+              "line": 765,
+              "deprecated": false
+            },
+            {
+              "name": "on_trim_empty",
+              "qualname": "ShotsController.on_trim_empty",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Trim empty space from the active shot's start and end.",
+              "line": 789,
+              "deprecated": false
+            },
+            {
+              "name": "on_trim_all_shots",
+              "qualname": "ShotsController.on_trim_all_shots",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Trim empty space from every shot.",
+              "line": 805,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "ShotsSlots",
+          "summary": "Switchboard slot class — routes UI events to the controller.",
+          "line": 823,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "header_init",
+              "qualname": "ShotsSlots.header_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Configure header help text.",
+              "line": 836,
+              "deprecated": false
+            },
+            {
+              "name": "spn_detection",
+              "qualname": "ShotsSlots.spn_detection",
+              "kind": "method",
+              "signature": "(self, value)",
+              "summary": "Detection threshold changed.",
+              "line": 876,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_detection_mode",
+              "qualname": "ShotsSlots.cmb_detection_mode",
+              "kind": "method",
+              "signature": "(self, index)",
+              "summary": "Detection mode combobox changed.",
+              "line": 880,
+              "deprecated": false
+            },
+            {
+              "name": "spn_initial_length",
+              "qualname": "ShotsSlots.spn_initial_length",
+              "kind": "method",
+              "signature": "(self, value)",
+              "summary": "Initial shot length changed.",
+              "line": 884,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_fit_mode",
+              "qualname": "ShotsSlots.cmb_fit_mode",
+              "kind": "method",
+              "signature": "(self, index)",
+              "summary": "Fit mode combobox changed.",
+              "line": 888,
+              "deprecated": false
+            },
+            {
+              "name": "chk_snap_whole_frames",
+              "qualname": "ShotsSlots.chk_snap_whole_frames",
+              "kind": "method",
+              "signature": "(self, checked)",
+              "summary": "Snap-to-whole-frames checkbox toggled.",
+              "line": 892,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_shot_select",
+              "qualname": "ShotsSlots.cmb_shot_select",
+              "kind": "method",
+              "signature": "(self, index)",
+              "summary": "Shot selector combobox changed.",
+              "line": 898,
+              "deprecated": false
+            },
+            {
+              "name": "txt_shot_name",
+              "qualname": "ShotsSlots.txt_shot_name",
+              "kind": "method",
+              "signature": "(self, text=None)",
+              "summary": "Shot name edited.",
+              "line": 902,
+              "deprecated": false
+            },
+            {
+              "name": "spn_shot_start",
+              "qualname": "ShotsSlots.spn_shot_start",
+              "kind": "method",
+              "signature": "(self, value)",
+              "summary": "Shot start frame changed.",
+              "line": 908,
+              "deprecated": false
+            },
+            {
+              "name": "spn_shot_end",
+              "qualname": "ShotsSlots.spn_shot_end",
+              "kind": "method",
+              "signature": "(self, value)",
+              "summary": "Shot end frame changed.",
+              "line": 912,
+              "deprecated": false
+            },
+            {
+              "name": "txt_shot_desc",
+              "qualname": "ShotsSlots.txt_shot_desc",
+              "kind": "method",
+              "signature": "(self, text=None)",
+              "summary": "Shot description edited.",
+              "line": 916,
+              "deprecated": false
+            },
+            {
+              "name": "b000",
+              "qualname": "ShotsSlots.b000",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Delete the selected shot.",
+              "line": 922,
+              "deprecated": false
+            },
+            {
+              "name": "btn_delete_all_shots",
+              "qualname": "ShotsSlots.btn_delete_all_shots",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Delete all shots.",
+              "line": 926,
+              "deprecated": false
+            },
+            {
+              "name": "btn_move_shot",
+              "qualname": "ShotsSlots.btn_move_shot",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Move shot to the position in spn_move_to.",
+              "line": 930,
+              "deprecated": false
+            },
+            {
+              "name": "btn_apply_gap",
+              "qualname": "ShotsSlots.btn_apply_gap",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Apply gap value with the scope selected in the option box.",
+              "line": 934,
+              "deprecated": false
+            },
+            {
+              "name": "btn_trim_empty",
+              "qualname": "ShotsSlots.btn_trim_empty",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Trim empty space from the selected shot.",
+              "line": 943,
+              "deprecated": false
+            },
+            {
+              "name": "btn_trim_all_shots",
+              "qualname": "ShotsSlots.btn_trim_all_shots",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Trim empty space from every shot.",
+              "line": 947,
+              "deprecated": false
+            }
+          ]
         }
       ]
     },
@@ -1621,12 +3091,21 @@
       "summary": "Core blendertk utilities — DCC-environment info + cross-cutting decorators.",
       "functions": [
         {
+          "name": "undo_chunk",
+          "qualname": "undo_chunk",
+          "kind": "function",
+          "signature": "(name: str = '')",
+          "summary": "Collapse every change made inside the block into ONE Blender undo step.",
+          "line": 20,
+          "deprecated": false
+        },
+        {
           "name": "undoable",
           "qualname": "undoable",
           "kind": "function",
           "signature": "(fn)",
           "summary": "Wrap ``fn`` so its changes collapse into a single Blender undo step.",
-          "line": 18,
+          "line": 63,
           "deprecated": false
         },
         {
@@ -1635,7 +3114,7 @@
           "kind": "function",
           "signature": "(fn)",
           "summary": "Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).",
-          "line": 69,
+          "line": 83,
           "deprecated": false
         },
         {
@@ -1644,7 +3123,7 @@
           "kind": "function",
           "signature": "(key=None)",
           "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
-          "line": 125,
+          "line": 139,
           "deprecated": false
         },
         {
@@ -1653,7 +3132,7 @@
           "kind": "function",
           "signature": "(packages=None, add_to_path=True)",
           "summary": "Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).",
-          "line": 165,
+          "line": 179,
           "deprecated": false
         },
         {
@@ -1662,7 +3141,7 @@
           "kind": "function",
           "signature": "(index=None)",
           "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-          "line": 285,
+          "line": 299,
           "deprecated": false
         },
         {
@@ -1671,7 +3150,7 @@
           "kind": "function",
           "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
           "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-          "line": 303,
+          "line": 317,
           "deprecated": false
         },
         {
@@ -1680,7 +3159,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-          "line": 334,
+          "line": 348,
           "deprecated": false
         },
         {
@@ -1689,7 +3168,7 @@
           "kind": "function",
           "signature": "(info)",
           "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-          "line": 385,
+          "line": 399,
           "deprecated": false
         },
         {
@@ -1698,7 +3177,7 @@
           "kind": "function",
           "signature": "(objects=None, adaptive=True, sections=None)",
           "summary": "Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,",
-          "line": 424,
+          "line": 438,
           "deprecated": false
         },
         {
@@ -1707,7 +3186,7 @@
           "kind": "function",
           "signature": "(quiet=False)",
           "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-          "line": 540,
+          "line": 554,
           "deprecated": false
         },
         {
@@ -1716,7 +3195,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-          "line": 598,
+          "line": 612,
           "deprecated": false
         },
         {
@@ -1725,7 +3204,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-          "line": 617,
+          "line": 631,
           "deprecated": false
         },
         {
@@ -1734,7 +3213,7 @@
           "kind": "function",
           "signature": "(area_type)",
           "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-          "line": 629,
+          "line": 643,
           "deprecated": false
         },
         {
@@ -1743,7 +3222,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-          "line": 649,
+          "line": 663,
           "deprecated": false
         }
       ],
@@ -1751,7 +3230,7 @@
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 678,
+          "line": 692,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -2664,6 +4143,48 @@
       ]
     },
     {
+      "relpath": "edit_utils/_curtain_drape.py",
+      "summary": "Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "CurtainDrape",
+          "summary": "Drape a grid into a pleated, gravity-sagged curtain — pure math.",
+          "line": 62,
+          "bases": [],
+          "members": [
+            {
+              "name": "prepare",
+              "qualname": "CurtainDrape.prepare",
+              "kind": "method",
+              "signature": "(self) -> Tuple[int, int, List[Tuple[Vec, Vec, Vec]]]",
+              "summary": "Precompute the per-build state and return ``(u_segs, v_segs, frames)``.",
+              "line": 177,
+              "deprecated": false
+            },
+            {
+              "name": "grid_points",
+              "qualname": "CurtainDrape.grid_points",
+              "kind": "method",
+              "signature": "(self) -> Tuple[int, int, List[Vec]]",
+              "summary": "The full draped grid: ``(u_segs, v_segs, points)``.",
+              "line": 207,
+              "deprecated": false
+            },
+            {
+              "name": "drape",
+              "qualname": "CurtainDrape.drape",
+              "kind": "method",
+              "signature": "(self, u, v, pos, tan, normal) -> Vec",
+              "summary": "Place one cloth vertex.",
+              "line": 252,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "relpath": "edit_utils/_edit_utils.py",
       "summary": "Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,",
       "functions": [
@@ -3063,7 +4584,7 @@
     },
     {
       "relpath": "edit_utils/curtain.py",
-      "summary": "Curtain (draped-cloth) generation — the Blender build over the shared",
+      "summary": "Curtain (draped-cloth) generation — the Blender build over the vendored",
       "functions": [
         {
           "name": "curtain_rail_from_selection",
@@ -3071,7 +4592,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Resolve a rail polyline from a Blender selection.",
-          "line": 39,
+          "line": 41,
           "deprecated": false
         },
         {
@@ -3080,7 +4601,7 @@
           "kind": "function",
           "signature": "(rail, name='curtain', **options)",
           "summary": "Create a pleated, gravity-draped curtain mesh from a rail polyline.",
-          "line": 87,
+          "line": 89,
           "deprecated": false
         }
       ],
@@ -3088,14 +4609,14 @@
         {
           "name": "CurtainUtils",
           "summary": "Namespace mirror of mayatk's curtain module (helpers also exposed module-level).",
-          "line": 150,
+          "line": 152,
           "bases": [],
           "members": []
         },
         {
           "name": "CurtainRig",
           "summary": "Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's",
-          "line": 162,
+          "line": 164,
           "bases": [],
           "members": [
             {
@@ -3104,7 +4625,7 @@
               "kind": "staticmethod",
               "signature": "(curtain, controls=5, dropoff=2.0, name=None)",
               "summary": "Rig *curtain* with control-empty handles that pull the cloth via hooks.",
-              "line": 190,
+              "line": 192,
               "deprecated": false
             }
           ]
@@ -3112,7 +4633,7 @@
         {
           "name": "CurtainSlots",
           "summary": "Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).",
-          "line": 316,
+          "line": 318,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -3123,7 +4644,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text (the preset combo lives in the panel).",
-              "line": 399,
+              "line": 402,
               "deprecated": false
             },
             {
@@ -3132,7 +4653,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.",
-              "line": 458,
+              "line": 461,
               "deprecated": false
             },
             {
@@ -3141,7 +4662,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults.",
-              "line": 681,
+              "line": 684,
               "deprecated": false
             },
             {
@@ -3150,7 +4671,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Set Position to the bounding-box center of the selected object(s).",
-              "line": 685,
+              "line": 688,
               "deprecated": false
             },
             {
@@ -3159,7 +4680,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Build the curtain from the resolved rail (Preview entry point).",
-              "line": 713,
+              "line": 716,
               "deprecated": false
             }
           ]
@@ -4228,7 +5749,7 @@
         {
           "name": "Selection",
           "summary": "Namespace mirror of mayatk's ``Selection`` (category-driven select-by-type).",
-          "line": 30,
+          "line": 33,
           "bases": [],
           "members": [
             {
@@ -4237,7 +5758,7 @@
               "kind": "staticmethod",
               "signature": "(selection_type, objects=None, mode='replace')",
               "summary": "Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).",
-              "line": 137,
+              "line": 148,
               "deprecated": false
             },
             {
@@ -4246,7 +5767,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "The immediate children of the given objects (one level below only).",
-              "line": 186,
+              "line": 197,
               "deprecated": false
             },
             {
@@ -4255,7 +5776,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All ancestor objects above the given objects (full parent chain).",
-              "line": 194,
+              "line": 205,
               "deprecated": false
             },
             {
@@ -4264,7 +5785,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All descendant objects below the given objects (full child subtree).",
-              "line": 202,
+              "line": 213,
               "deprecated": false
             },
             {
@@ -4273,7 +5794,7 @@
               "kind": "staticmethod",
               "signature": "(obj, mode, contained=False)",
               "summary": "Convert the current Edit-Mode selection to `mode` ('VERT'/'EDGE'/'FACE') — Maya",
-              "line": 427,
+              "line": 438,
               "deprecated": false
             },
             {
@@ -4282,7 +5803,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Path: the shortest face-adjacency path between exactly two selected faces —",
-              "line": 437,
+              "line": 448,
               "deprecated": false
             },
             {
@@ -4291,7 +5812,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Vertex Perimeter: the vertices of the boundary loop around the current face-region",
-              "line": 448,
+              "line": 459,
               "deprecated": false
             },
             {
@@ -4300,7 +5821,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Edge Perimeter: the boundary edge loop around the current face-region selection —",
-              "line": 457,
+              "line": 468,
               "deprecated": false
             },
             {
@@ -4309,7 +5830,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Perimeter: the ring of faces immediately surrounding the current face-region",
-              "line": 467,
+              "line": 478,
               "deprecated": false
             },
             {
@@ -4318,7 +5839,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Border Edges: the naked (open, single-face) mesh edges among the current",
-              "line": 489,
+              "line": 500,
               "deprecated": false
             },
             {
@@ -4327,7 +5848,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Shell Border: the naked/open boundary edges of the connected shell(s) touching the",
-              "line": 521,
+              "line": 532,
               "deprecated": false
             },
             {
@@ -4336,7 +5857,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Shell: every face sharing a UV island with the current selection — Maya's",
-              "line": 532,
+              "line": 543,
               "deprecated": false
             },
             {
@@ -4345,7 +5866,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "A flat, sorted list of every leaf selection-type label.",
-              "line": 541,
+              "line": 552,
               "deprecated": false
             },
             {
@@ -4354,7 +5875,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Dict of category -> leaf-label list (mirror of ``mtk.Selection.get_selection_categories``).",
-              "line": 547,
+              "line": 558,
               "deprecated": false
             }
           ]
@@ -6254,39 +7775,6 @@
       ]
     },
     {
-      "relpath": "env_utils/scene_exporter/task_factory.py",
-      "summary": "Generic task/check pipeline engine -- vendored verbatim from mayatk's identically-named",
-      "functions": [],
-      "classes": [
-        {
-          "name": "TaskFactory",
-          "summary": "A factory class for managing and executing tasks in a scene export pipeline.",
-          "line": 14,
-          "bases": [],
-          "members": [
-            {
-              "name": "run_tasks",
-              "qualname": "TaskFactory.run_tasks",
-              "kind": "method",
-              "signature": "(self, tasks: Dict[str, Any]) -> bool",
-              "summary": "Run tasks and checks, returning True if all checks pass, False if any fail.",
-              "line": 118,
-              "deprecated": false
-            },
-            {
-              "name": "run_tasks_by_category",
-              "qualname": "TaskFactory.run_tasks_by_category",
-              "kind": "method",
-              "signature": "(self, task_definitions: Dict[str, Any], check_definitions: Dict[str, Any]) -> bool",
-              "summary": "Alternative method to run tasks and checks separately with better organization.",
-              "line": 130,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
       "relpath": "env_utils/scene_exporter/task_manager.py",
       "summary": "Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's",
       "functions": [],
@@ -6294,7 +7782,7 @@
         {
           "name": "TaskManager",
           "summary": "Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's",
-          "line": 642,
+          "line": 645,
           "bases": [
             "TaskFactory",
             "_TaskActionsMixin",
@@ -6307,7 +7795,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 707,
+              "line": 717,
               "deprecated": false
             },
             {
@@ -6316,7 +7804,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the task definitions for the UI.",
-              "line": 717,
+              "line": 727,
               "deprecated": false
             },
             {
@@ -6325,7 +7813,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the check definitions for the UI.",
-              "line": 861,
+              "line": 871,
               "deprecated": false
             },
             {
@@ -6334,7 +7822,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return all definitions combined for backward compatibility.",
-              "line": 972,
+              "line": 982,
               "deprecated": false
             }
           ]
@@ -8923,7 +10411,7 @@
           "kind": "function",
           "signature": "() -> Optional[str]",
           "summary": "Single source of truth for Painter executable discovery.",
-          "line": 59,
+          "line": 55,
           "deprecated": false
         },
         {
@@ -8932,86 +10420,15 @@
           "kind": "function",
           "signature": "() -> Optional[str]",
           "summary": "Return the standard Substance Painter log path, or None if absent.",
-          "line": 73,
+          "line": 69,
           "deprecated": false
         }
       ],
       "classes": [
         {
-          "name": "OutputStream",
-          "summary": "Thread-safe, multi-consumer text stream with bounded history.",
-          "line": 89,
-          "bases": [],
-          "members": [
-            {
-              "name": "push",
-              "qualname": "OutputStream.push",
-              "kind": "method",
-              "signature": "(self, line: str, source: str = '') -> None",
-              "summary": "Append a line.",
-              "line": 112,
-              "deprecated": false
-            },
-            {
-              "name": "subscribe",
-              "qualname": "OutputStream.subscribe",
-              "kind": "method",
-              "signature": "(self, callback: Callable[[str, str], None], replay_history: bool = False) -> Callable[[], None]",
-              "summary": "Register ``callback(source, line)``.",
-              "line": 125,
-              "deprecated": false
-            },
-            {
-              "name": "history",
-              "qualname": "OutputStream.history",
-              "kind": "method",
-              "signature": "(self) -> List[Tuple[str, str]]",
-              "summary": "Snapshot the current history buffer.",
-              "line": 156,
-              "deprecated": false
-            },
-            {
-              "name": "clear_history",
-              "qualname": "OutputStream.clear_history",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Drop buffered lines.",
-              "line": 161,
-              "deprecated": false
-            },
-            {
-              "name": "wait_for",
-              "qualname": "OutputStream.wait_for",
-              "kind": "method",
-              "signature": "(self, pattern: Union[str, Pattern], timeout: Optional[float] = None, source: Optional[str] = None, include_history: bool = True) -> Optional[Tuple[str, str]]",
-              "summary": "Block until a line matches *pattern*, or *timeout* expires.",
-              "line": 182,
-              "deprecated": false
-            },
-            {
-              "name": "close",
-              "qualname": "OutputStream.close",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Mark the stream closed.",
-              "line": 235,
-              "deprecated": false
-            },
-            {
-              "name": "closed",
-              "qualname": "OutputStream.closed",
-              "kind": "property",
-              "signature": "(self) -> bool",
-              "summary": "",
-              "line": 240,
-              "deprecated": false
-            }
-          ]
-        },
-        {
           "name": "SubstanceConnection",
           "summary": "Launch Painter and expose its stdio, log, and RPC under one object.",
-          "line": 342,
+          "line": 82,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -9022,7 +10439,7 @@
               "kind": "method",
               "signature": "(self) -> 'SubstanceConnection'",
               "summary": "Launch Painter and start readers, tailer, and RPC client.",
-              "line": 400,
+              "line": 140,
               "deprecated": false
             },
             {
@@ -9031,7 +10448,7 @@
               "kind": "method",
               "signature": "(self, terminate: bool = False, timeout: float = 5.0) -> None",
               "summary": "Stop readers and tailer;",
-              "line": 450,
+              "line": 190,
               "deprecated": false
             },
             {
@@ -9040,7 +10457,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "True if Painter is reachable through this connection.",
-              "line": 463,
+              "line": 203,
               "deprecated": false
             },
             {
@@ -9049,7 +10466,7 @@
               "kind": "classmethod",
               "signature": "(cls, port: int, host: str = '127.0.0.1', log_path: Optional[str] = None, tail_log_from_start: bool = False, verify_alive: bool = True, verify_timeout: float = 2.0) -> 'SubstanceConnection'",
               "summary": "Bind to a running Painter on *port* without launching anything.",
-              "line": 479,
+              "line": 219,
               "deprecated": false
             }
           ]
@@ -10021,6 +11438,24 @@
               "summary": "The carrier's *key* custom property, or ``None`` — see ``_get_string``;",
               "line": 117,
               "deprecated": false
+            },
+            {
+              "name": "dump",
+              "qualname": "DataNodes.dump",
+              "kind": "staticmethod",
+              "signature": "(decode=True)",
+              "summary": "Every tool-authored channel on both carriers, grouped by object — mirror of",
+              "line": 147,
+              "deprecated": false
+            },
+            {
+              "name": "format_dump",
+              "qualname": "DataNodes.format_dump",
+              "kind": "staticmethod",
+              "signature": "(decode=True)",
+              "summary": "Pretty-printed JSON of :meth:`dump`, or ``\"\"`` when nothing is stored — mirror of",
+              "line": 181,
+              "deprecated": false
             }
           ]
         }
@@ -10352,12 +11787,21 @@
               "deprecated": false
             },
             {
+              "name": "add_bone",
+              "qualname": "RigUtils.add_bone",
+              "kind": "staticmethod",
+              "signature": "(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)",
+              "summary": "Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone",
+              "line": 139,
+              "deprecated": false
+            },
+            {
               "name": "get_bone_chain_from_root",
               "qualname": "RigUtils.get_bone_chain_from_root",
               "kind": "staticmethod",
               "signature": "(armature, bone_name=None, reverse=False)",
               "summary": "Walk a single-path bone chain from a root bone — mirror of mayatk's",
-              "line": 139,
+              "line": 165,
               "deprecated": false
             },
             {
@@ -10366,7 +11810,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_names)",
               "summary": "Rebuild *bone_names* (head->tail order) with reversed hierarchy — mirror of mayatk's",
-              "line": 163,
+              "line": 189,
               "deprecated": false
             },
             {
@@ -10375,7 +11819,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, ctype, target=None, subtarget=None, **props)",
               "summary": "Add a **pose-bone** constraint (``ctype`` e.g.",
-              "line": 204,
+              "line": 230,
               "deprecated": false
             },
             {
@@ -10384,7 +11828,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, curve, chain_count, name='Spline IK', **props)",
               "summary": "Add a **Spline IK** bone constraint to pose bone *bone_name* so *chain_count* bones up the",
-              "line": 220,
+              "line": 246,
               "deprecated": false
             },
             {
@@ -10393,7 +11837,16 @@
               "kind": "staticmethod",
               "signature": "(mesh, armature, auto_weights=True)",
               "summary": "Bind *mesh* to *armature* (Maya ``skinCluster`` analogue).",
-              "line": 230,
+              "line": 256,
+              "deprecated": false
+            },
+            {
+              "name": "apply_falloff_weights",
+              "qualname": "RigUtils.apply_falloff_weights",
+              "kind": "staticmethod",
+              "signature": "(mesh, group_name, center, radius, profile='linear', add_group=True)",
+              "summary": "Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's",
+              "line": 275,
               "deprecated": false
             },
             {
@@ -10402,7 +11855,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0)",
               "summary": "Maya pointConstraint → COPY_LOCATION.",
-              "line": 259,
+              "line": 336,
               "deprecated": false
             },
             {
@@ -10411,7 +11864,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0)",
               "summary": "Maya orientConstraint → COPY_ROTATION.",
-              "line": 264,
+              "line": 341,
               "deprecated": false
             },
             {
@@ -10420,7 +11873,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y')",
               "summary": "Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK.",
-              "line": 269,
+              "line": 346,
               "deprecated": false
             },
             {
@@ -10429,7 +11882,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', up_axis='UP_Z')",
               "summary": "Aim with an up-vector (full Maya aimConstraint) → TRACK_TO.",
-              "line": 274,
+              "line": 351,
               "deprecated": false
             },
             {
@@ -10438,7 +11891,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, set_inverse=True)",
               "summary": "Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose).",
-              "line": 279,
+              "line": 356,
               "deprecated": false
             },
             {
@@ -10447,7 +11900,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force-recompile every driver on ``objects`` — call ONCE after building a rig's drivers.",
-              "line": 292,
+              "line": 369,
               "deprecated": false
             },
             {
@@ -10456,7 +11909,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, a, b, expression='dist', var_name='dist')",
               "summary": "Drive ``obj.<data_path>[index]`` from the live distance between objects ``a`` and ``b``",
-              "line": 309,
+              "line": 386,
               "deprecated": false
             },
             {
@@ -10465,7 +11918,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, target, transform_type, space='WORLD_SPACE', expression=None, var_name='var')",
               "summary": "Drive ``obj.<data_path>[index]`` from a single transform channel of ``target`` (a",
-              "line": 328,
+              "line": 405,
               "deprecated": false
             },
             {
@@ -10474,7 +11927,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, id_obj, data_path, id_type=None)",
               "summary": "Append a ``SINGLE_PROP`` variable to an existing driver fcurve — e.g.",
-              "line": 352,
+              "line": 429,
               "deprecated": false
             },
             {
@@ -10483,7 +11936,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, target, transform_type, space='WORLD_SPACE')",
               "summary": "Append a ``TRANSFORMS`` variable (a single transform channel of *target*) to an existing",
-              "line": 372,
+              "line": 449,
               "deprecated": false
             },
             {
@@ -10492,7 +11945,7 @@
               "kind": "staticmethod",
               "signature": "(obj, name, value, min_value=None, max_value=None)",
               "summary": "Set a keyable custom property (Maya's ``addAttr`` analogue), creating it if absent and",
-              "line": 390,
+              "line": 467,
               "deprecated": false
             },
             {
@@ -10501,7 +11954,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index=None)",
               "summary": "Remove a driver on ``obj.<data_path>[index]`` if present (idempotent;",
-              "line": 411,
+              "line": 488,
               "deprecated": false
             },
             {
@@ -10510,7 +11963,7 @@
               "kind": "staticmethod",
               "signature": "(obj, location=None, rotation=None, scale=None)",
               "summary": "Lock the given transform channels (each a 3-tuple of bools, or ``None`` to leave as-is).",
-              "line": 423,
+              "line": 500,
               "deprecated": false
             }
           ]
@@ -10834,7 +12287,7 @@
           "kind": "function",
           "signature": "(cls)",
           "summary": "Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension point",
-          "line": 190,
+          "line": 205,
           "deprecated": false
         }
       ],
@@ -10842,14 +12295,14 @@
         {
           "name": "TubeRigBundle",
           "summary": "Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.",
-          "line": 54,
+          "line": 59,
           "bases": [],
           "members": []
         },
         {
           "name": "TubeStrategy",
           "summary": "Base tube-rig strategy.",
-          "line": 69,
+          "line": 84,
           "bases": [
             "ABC"
           ],
@@ -10860,7 +12313,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "",
-              "line": 77,
+              "line": 92,
               "deprecated": false
             },
             {
@@ -10869,7 +12322,7 @@
               "kind": "method",
               "signature": "(self, opts: Optional[dict]) -> dict",
               "summary": "Merge caller *opts* over the declared defaults (``None`` values fall back to default).",
-              "line": 80,
+              "line": 95,
               "deprecated": false
             },
             {
@@ -10878,7 +12331,7 @@
               "kind": "method",
               "signature": "(self, rig: 'TubeRig', **opts) -> TubeRigBundle",
               "summary": "",
-              "line": 88,
+              "line": 103,
               "deprecated": false
             }
           ]
@@ -10886,7 +12339,7 @@
         {
           "name": "SplineIKStrategy",
           "summary": "",
-          "line": 92,
+          "line": 107,
           "bases": [
             "TubeStrategy"
           ],
@@ -10897,7 +12350,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 106,
+              "line": 129,
               "deprecated": false
             }
           ]
@@ -10905,7 +12358,7 @@
         {
           "name": "AnchorStrategy",
           "summary": "",
-          "line": 122,
+          "line": 146,
           "bases": [
             "TubeStrategy"
           ],
@@ -10916,7 +12369,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 132,
+              "line": 156,
               "deprecated": false
             }
           ]
@@ -10924,7 +12377,7 @@
         {
           "name": "FKChainStrategy",
           "summary": "",
-          "line": 151,
+          "line": 175,
           "bases": [
             "TubeStrategy"
           ],
@@ -10935,7 +12388,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 161,
+              "line": 185,
               "deprecated": false
             }
           ]
@@ -10943,7 +12396,7 @@
         {
           "name": "TubeRig",
           "summary": "Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.",
-          "line": 202,
+          "line": 217,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -10954,7 +12407,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 217,
+              "line": 232,
               "deprecated": false
             },
             {
@@ -10963,7 +12416,7 @@
               "kind": "method",
               "signature": "(self, num_joints, precision=None, edges=None)",
               "summary": "The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a",
-              "line": 224,
+              "line": 239,
               "deprecated": false
             },
             {
@@ -10972,7 +12425,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 236,
+              "line": 251,
               "deprecated": false
             },
             {
@@ -10981,7 +12434,7 @@
               "kind": "method",
               "signature": "(self, centerline, radius=None)",
               "summary": "Armature + bone chain along *centerline*, parented under the rig root.",
-              "line": 242,
+              "line": 257,
               "deprecated": false
             },
             {
@@ -10990,16 +12443,25 @@
               "kind": "method",
               "signature": "(self, centerline, radius=1.0, reverse=False)",
               "summary": "Bones-only build step — mirror of mayatk's ``generate_joint_chain`` + lazy",
-              "line": 254,
+              "line": 269,
+              "deprecated": false
+            },
+            {
+              "name": "add_twist",
+              "qualname": "TubeRig.add_twist",
+              "kind": "method",
+              "signature": "(self, armature, bones, radius=1.0)",
+              "summary": "Progressive roll twist for a Spline-IK chain — Blender's Spline IK ignores the driver",
+              "line": 300,
               "deprecated": false
             },
             {
               "name": "attach_spline_rig",
               "qualname": "TubeRig.attach_spline_rig",
               "kind": "method",
-              "signature": "(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True)",
+              "signature": "(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True, enable_squash=False, enable_volume=False, enable_auto_bend=False, enable_twist=False)",
               "summary": "Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's",
-              "line": 264,
+              "line": 336,
               "deprecated": false
             },
             {
@@ -11008,7 +12470,7 @@
               "kind": "method",
               "signature": "(self, points, count)",
               "summary": "A low-res NURBS driver curve (``count`` control points resampled along *points*) for the",
-              "line": 292,
+              "line": 378,
               "deprecated": false
             },
             {
@@ -11017,7 +12479,7 @@
               "kind": "method",
               "signature": "(self, shape, name, size, location, root, color=(1, 1, 0), axis='x')",
               "summary": "Create a control curve at *location*, parented under *root* (keeping its world pos).",
-              "line": 312,
+              "line": 411,
               "deprecated": false
             },
             {
@@ -11026,7 +12488,16 @@
               "kind": "method",
               "signature": "(self, curve, radius, root)",
               "summary": "One control per curve control-point, each Hook-bound to its point (the live-reshape",
-              "line": 326,
+              "line": 425,
+              "deprecated": false
+            },
+            {
+              "name": "constrain_end_with_falloff",
+              "qualname": "TubeRig.constrain_end_with_falloff",
+              "kind": "method",
+              "signature": "(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)",
+              "summary": "Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff",
+              "line": 476,
               "deprecated": false
             },
             {
@@ -11035,7 +12506,7 @@
               "kind": "method",
               "signature": "(self, strategy='spline', **opts) -> TubeRigBundle",
               "summary": "Build the rig with the named *strategy* (``\"spline\"`` / ``\"anchor\"`` / ``\"fk\"`` or a",
-              "line": 346,
+              "line": 531,
               "deprecated": false
             }
           ]
@@ -11043,7 +12514,7 @@
         {
           "name": "TubeRigSlots",
           "summary": "Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.",
-          "line": 362,
+          "line": 547,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -11054,7 +12525,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 385,
+              "line": 570,
               "deprecated": false
             },
             {
@@ -11063,7 +12534,43 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build Rig — run the selected strategy on the selected tube mesh.",
-              "line": 467,
+              "line": 652,
+              "deprecated": false
+            },
+            {
+              "name": "b001",
+              "qualname": "TubeRigSlots.b001",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls",
+              "line": 694,
+              "deprecated": false
+            },
+            {
+              "name": "b002",
+              "qualname": "TubeRigSlots.b002",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING",
+              "line": 717,
+              "deprecated": false
+            },
+            {
+              "name": "b003",
+              "qualname": "TubeRigSlots.b003",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic",
+              "line": 751,
+              "deprecated": false
+            },
+            {
+              "name": "b004",
+              "qualname": "TubeRigSlots.b004",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Utility — Constrain Both Ends to Anchors: select the rig's armature and TWO anchor objects,",
+              "line": 778,
               "deprecated": false
             }
           ]
@@ -11912,13 +13419,49 @@
           "summary": "Straighten the selected UV edges — edges within ``angle`` degrees of horizontal",
           "line": 918,
           "deprecated": false
+        },
+        {
+          "name": "align_uvs",
+          "qualname": "align_uvs",
+          "kind": "function",
+          "signature": "(objects, axis='u', mode='avg')",
+          "summary": "Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and",
+          "line": 1000,
+          "deprecated": false
+        },
+        {
+          "name": "gather_uv_shells",
+          "qualname": "gather_uv_shells",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:",
+          "line": 1050,
+          "deprecated": false
+        },
+        {
+          "name": "orient_uv_shells",
+          "qualname": "orient_uv_shells",
+          "kind": "function",
+          "signature": "(objects, to_edge=False)",
+          "summary": "Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /",
+          "line": 1076,
+          "deprecated": false
+        },
+        {
+          "name": "randomize_uv_shells",
+          "qualname": "randomize_uv_shells",
+          "kind": "function",
+          "signature": "(objects, seed=0)",
+          "summary": "Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell",
+          "line": 1093,
+          "deprecated": false
         }
       ],
       "classes": [
         {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 967,
+          "line": 1110,
           "bases": [],
           "members": []
         }
@@ -12108,7 +13651,7 @@
         {
           "name": "ShellXformSlots",
           "summary": "Switchboard slots for the Shell Xform panel (``shell_xform.ui``).",
-          "line": 23,
+          "line": 28,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -12119,7 +13662,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Header menu — Open UV Editor + panel help.",
-              "line": 62,
+              "line": 67,
               "deprecated": false
             },
             {
@@ -12128,7 +13671,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Left",
-              "line": 101,
+              "line": 106,
               "deprecated": false
             },
             {
@@ -12137,7 +13680,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Down",
-              "line": 106,
+              "line": 111,
               "deprecated": false
             },
             {
@@ -12146,7 +13689,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Up",
-              "line": 111,
+              "line": 116,
               "deprecated": false
             },
             {
@@ -12155,7 +13698,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Right",
-              "line": 116,
+              "line": 121,
               "deprecated": false
             },
             {
@@ -12164,7 +13707,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Flip U: mirror the selection's UV maps horizontally about their bbox center.",
-              "line": 122,
+              "line": 127,
               "deprecated": false
             },
             {
@@ -12173,7 +13716,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Flip V: mirror the selection's UV maps vertically about their bbox center.",
-              "line": 129,
+              "line": 134,
               "deprecated": false
             },
             {
@@ -12182,7 +13725,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rotate the selection's UV maps counter-clockwise by the s041 angle.",
-              "line": 136,
+              "line": 141,
               "deprecated": false
             },
             {
@@ -12191,7 +13734,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rotate the selection's UV maps clockwise by the s041 angle.",
-              "line": 143,
+              "line": 148,
               "deprecated": false
             },
             {
@@ -12200,7 +13743,7 @@
               "kind": "method",
               "signature": "(self, value, widget)",
               "summary": "Rotate Angle — passive input; read by the Rotate buttons (b036/b037).",
-              "line": 149,
+              "line": 154,
               "deprecated": false
             },
             {
@@ -12209,7 +13752,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 153,
+              "line": 158,
               "deprecated": false
             },
             {
@@ -12218,7 +13761,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Straighten UV (selected UV edges within the angle threshold snap flat;",
-              "line": 177,
+              "line": 182,
               "deprecated": false
             },
             {
@@ -12227,7 +13770,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 195,
+              "line": 200,
               "deprecated": false
             },
             {
@@ -12236,7 +13779,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Distribute (space the targeted UV shells evenly along U or V).",
-              "line": 207,
+              "line": 212,
               "deprecated": false
             },
             {
@@ -12245,7 +13788,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 218,
+              "line": 223,
               "deprecated": false
             },
             {
@@ -12254,7 +13797,106 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Mirror UVs (footprint-preserving reassignment by default;",
-              "line": 240,
+              "line": 245,
+              "deprecated": false
+            },
+            {
+              "name": "align_u_min",
+              "qualname": "ShellXformSlots.align_u_min",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their minimum U (left).",
+              "line": 270,
+              "deprecated": false
+            },
+            {
+              "name": "align_u_avg",
+              "qualname": "ShellXformSlots.align_u_avg",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their average U (center).",
+              "line": 275,
+              "deprecated": false
+            },
+            {
+              "name": "align_u_max",
+              "qualname": "ShellXformSlots.align_u_max",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their maximum U (right).",
+              "line": 280,
+              "deprecated": false
+            },
+            {
+              "name": "align_v_min",
+              "qualname": "ShellXformSlots.align_v_min",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their minimum V (bottom).",
+              "line": 285,
+              "deprecated": false
+            },
+            {
+              "name": "align_v_avg",
+              "qualname": "ShellXformSlots.align_v_avg",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their average V (center).",
+              "line": 290,
+              "deprecated": false
+            },
+            {
+              "name": "align_v_max",
+              "qualname": "ShellXformSlots.align_v_max",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Align the selected UVs to their maximum V (top).",
+              "line": 295,
+              "deprecated": false
+            },
+            {
+              "name": "linear_align",
+              "qualname": "ShellXformSlots.linear_align",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Linearly align the selected UVs between their two end points.",
+              "line": 300,
+              "deprecated": false
+            },
+            {
+              "name": "orient_shells",
+              "qualname": "ShellXformSlots.orient_shells",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Orient each shell to run parallel with its nearest U/V axis (Align Rotation).",
+              "line": 306,
+              "deprecated": false
+            },
+            {
+              "name": "orient_edges",
+              "qualname": "ShellXformSlots.orient_edges",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Orient the shell so its selected edge runs along U or V.",
+              "line": 314,
+              "deprecated": false
+            },
+            {
+              "name": "gather_shells",
+              "qualname": "ShellXformSlots.gather_shells",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Gather the selected shells together toward the 0-1 UV space.",
+              "line": 323,
+              "deprecated": false
+            },
+            {
+              "name": "randomize_shells",
+              "qualname": "ShellXformSlots.randomize_shells",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Randomly offset the selected shells.",
+              "line": 331,
               "deprecated": false
             },
             {
@@ -12263,7 +13905,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open Blender's UV Editor.",
-              "line": 255,
+              "line": 343,
               "deprecated": false
             }
           ]

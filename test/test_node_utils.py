@@ -110,6 +110,36 @@ try:
           c1.parent is None and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1)
     check("reparent skips self-parent", btk.reparent([p], p) == [])
 
+    # --- DataNodes.dump / format_dump: read every channel a scene carries ---
+    import json as _json
+    from blendertk.node_utils.data_nodes import DataNodes
+    reset()
+    empty = DataNodes.dump()
+    check("dump empty -> empty groups",
+          empty == {DataNodes.INTERNAL: {}, DataNodes.EXPORT: {}}, f"{empty}")
+    check("format_dump empty -> ''", DataNodes.format_dump() == "")
+    DataNodes.set_internal_string("app_state", '{"open": true}')
+    DataNodes.set_export_string("wire", "abc")
+    data = DataNodes.dump()   # decode=True default
+    check("dump groups internal channel + decodes JSON",
+          data[DataNodes.INTERNAL] == {"app_state": {"open": True}}, f"{data[DataNodes.INTERNAL]}")
+    check("dump groups export channel (plain string)",
+          data[DataNodes.EXPORT] == {"wire": "abc"}, f"{data[DataNodes.EXPORT]}")
+    check("dump decode=False keeps raw JSON string",
+          DataNodes.dump(decode=False)[DataNodes.INTERNAL]["app_state"] == '{"open": true}')
+    DataNodes.set_internal_string("dead", "y")
+    DataNodes.set_internal_string("dead", "")   # clear (key stays, value empty)
+    check("dump skips cleared channel", "dead" not in DataNodes.dump()[DataNodes.INTERNAL])
+    # non-string custom props (the audio tool's per-track flags) are real stored data — kept.
+    DataNodes.get_internal_node()["audio_clip_voice"] = 1
+    check("dump includes non-string channel",
+          DataNodes.dump()[DataNodes.INTERNAL].get("audio_clip_voice") == 1)
+    parsed = _json.loads(DataNodes.format_dump())
+    check("format_dump -> valid JSON round-trip (mixed types)",
+          parsed[DataNodes.EXPORT]["wire"] == "abc"
+          and parsed[DataNodes.INTERNAL]["app_state"] == {"open": True}
+          and parsed[DataNodes.INTERNAL]["audio_clip_voice"] == 1)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -964,6 +964,149 @@ def straighten_uvs(objects, u=True, v=True, angle=30.0):
     return snapped
 
 
+def _uv_selected(loop, uv_layer, sync):
+    """A loop's UV counts as selected: in UV-sync mode it follows the vertex selection, otherwise
+    it carries its own per-loop UV selection flag."""
+    return loop.vert.select if sync else loop[uv_layer].select
+
+
+def _farthest_pair(points):
+    """Approximate a point set's two farthest-apart points (a selection's endpoints) in O(n): a
+    diameter's endpoints are extremes along some direction, so scan the four ``u+v`` / ``u-v``
+    diagonal extremes and take the farthest-apart pair among those four candidates. Exact for the
+    "straighten a roughly-linear row of UVs" case (its endpoints ARE the bbox-diagonal extremes),
+    and avoids an O(n^2) blow-up when linear-align runs over a dense object-mode UV map."""
+    lo_s = hi_s = lo_d = hi_d = points[0]
+    for p in points:
+        s, d = p.x + p.y, p.x - p.y
+        if s < lo_s.x + lo_s.y:
+            lo_s = p
+        if s > hi_s.x + hi_s.y:
+            hi_s = p
+        if d < lo_d.x - lo_d.y:
+            lo_d = p
+        if d > hi_d.x - hi_d.y:
+            hi_d = p
+    cands = (lo_s, hi_s, lo_d, hi_d)
+    a, b, best = cands[0], cands[1], -1.0
+    for i in range(len(cands)):
+        for j in range(i + 1, len(cands)):
+            dist = (cands[i] - cands[j]).length_squared
+            if dist > best:
+                best, a, b = dist, cands[i], cands[j]
+    return a, b
+
+
+def align_uvs(objects, axis="u", mode="avg"):
+    """Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and
+    ``performLinearAlignUV`` (``mode="linear"``). ``min`` / ``max`` / ``avg`` snap every selected
+    UV's U (``axis="u"``) or V (``axis="v"``) to the selection's min / max / arithmetic-mean
+    (Maya's avgU is an arithmetic mean, matched here — not the bbox center); ``linear`` projects
+    the selected UVs onto the straight line between their two endpoints (axis-agnostic). EDIT mode
+    acts on the UV selection, object mode on the whole map. Returns the number of UVs moved."""
+    import bpy
+
+    comp = 0 if str(axis).lower() == "u" else 1
+    moved = 0
+    for o in _meshes(objects):
+
+        def _align(bm, obj=o):
+            nonlocal moved
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            if obj.mode == "EDIT":
+                sync = bool(bpy.context.scene.tool_settings.use_uv_select_sync)
+                loops = [l for f in bm.faces for l in f.loops if _uv_selected(l, uvl, sync)]
+            else:
+                loops = [l for f in bm.faces for l in f.loops]
+            if len(loops) < 2:
+                return
+            if mode == "linear":
+                pts = [l[uvl].uv.copy() for l in loops]
+                a, b = _farthest_pair(pts)
+                ab = b - a
+                denom = ab.length_squared
+                for l in loops:
+                    p = l[uvl].uv
+                    t = (p - a).dot(ab) / denom if denom > 1e-12 else 0.0
+                    l[uvl].uv = a + ab * t
+                    moved += 1
+            else:
+                vals = [l[uvl].uv[comp] for l in loops]
+                target = (
+                    min(vals) if mode == "min"
+                    else max(vals) if mode == "max"
+                    else sum(vals) / len(vals)
+                )
+                for l in loops:
+                    l[uvl].uv[comp] = target
+                    moved += 1
+
+        _uv_edit(o, _align)
+    return moved
+
+
+def gather_uv_shells(objects):
+    """Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:
+    each island is shifted by the negative floor of its bbox-center, so a shell sitting in tile
+    (2,1) returns to (0,0). EDIT mode targets selection-touched islands, object mode every island.
+    Returns the number of islands moved."""
+    import math
+
+    moved = 0
+    for o in _meshes(objects):
+
+        def _gather(bm, obj=o):
+            nonlocal moved
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            for island in _target_islands(obj, bm, uvl):
+                cu, cv = _island_bbox_center(island, uvl)
+                du, dv = math.floor(cu), math.floor(cv)
+                if du or dv:
+                    _move_island(island, uvl, -du, -dv)
+                    moved += 1
+
+        _uv_edit(o, _gather)
+    return moved
+
+
+def orient_uv_shells(objects, to_edge=False):
+    """Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /
+    ``UvUtils.orient_shells`` (``to_edge=False`` -> native ``uv.align_rotation`` AUTO: square each
+    shell to its nearest axis) and ``texOrientEdge`` (``to_edge=True`` -> EDGE: orient each shell
+    so its selected edge runs along U/V). Drives the native operator against the edit-mesh, so it
+    needs EDIT mode. Returns 1 if the operator ran, else 0."""
+    import bpy
+
+    if not any(o.mode == "EDIT" for o in _meshes(objects)):
+        return 0
+    try:
+        bpy.ops.uv.align_rotation(method="EDGE" if to_edge else "AUTO")
+        return 1
+    except RuntimeError:
+        return 0  # e.g. EDGE with no edge selected
+
+
+def randomize_uv_shells(objects, seed=0):
+    """Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell
+    random translation; ``seed`` makes it deterministic). Drives ``uv.randomize_uv_transform``
+    against the edit-mesh, so it needs EDIT mode. Returns 1 if the operator ran, else 0."""
+    import bpy
+
+    if not any(o.mode == "EDIT" for o in _meshes(objects)):
+        return 0
+    try:
+        bpy.ops.uv.randomize_uv_transform(
+            random_seed=seed, use_loc=True, loc=(0.5, 0.5), use_rot=False, use_scale=False
+        )
+        return 1
+    except RuntimeError:
+        return 0
+
+
 class UvUtils:
     """Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level)."""
 
@@ -984,3 +1127,7 @@ class UvUtils:
     straighten_uvs = staticmethod(straighten_uvs)
     straighten_uv_shells = staticmethod(straighten_uv_shells)
     derive_auto_seams = staticmethod(derive_auto_seams)
+    align_uvs = staticmethod(align_uvs)
+    gather_uv_shells = staticmethod(gather_uv_shells)
+    orient_uv_shells = staticmethod(orient_uv_shells)
+    randomize_uv_shells = staticmethod(randomize_uv_shells)

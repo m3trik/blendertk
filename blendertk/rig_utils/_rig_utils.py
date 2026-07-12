@@ -136,6 +136,32 @@ class RigUtils:
         return names
 
     @staticmethod
+    def add_bone(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True):
+        """Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone
+        analogue of :meth:`add_bone_chain`, for anchor/helper bones grafted onto an already-built
+        rig. *parent* is an existing bone name to parent under (``connect`` snaps this bone's head to
+        it). ``deform`` flags it for Armature-deform (``use_deform``). Points are converted to the
+        armature's local space (like :meth:`add_bone_chain`). Returns the created bone name — Blender
+        uniquifies collisions, so use the return value (e.g. as the deform vertex-group name)."""
+        import bpy
+        from mathutils import Vector
+
+        mw_inv = armature.matrix_world.inverted()
+        with RigUtils._active_mode(armature, "EDIT"):
+            ebones = armature.data.edit_bones
+            b = ebones.new(name)
+            b.head = mw_inv @ Vector(head)
+            b.tail = mw_inv @ Vector(tail)
+            if radius is not None:
+                b.head_radius = b.tail_radius = float(radius)
+            if parent is not None:
+                b.parent = ebones.get(parent)
+                b.use_connect = connect
+            b.use_deform = deform
+            created = b.name
+        return created
+
+    @staticmethod
     def get_bone_chain_from_root(armature, bone_name=None, reverse=False):
         """Walk a single-path bone chain from a root bone — mirror of mayatk's
         ``RigUtils.get_joint_chain_from_root``. *bone_name* defaults to the armature's active bone
@@ -244,6 +270,57 @@ class RigUtils:
         mod = mesh.modifiers.new("Armature", "ARMATURE")
         mod.object = armature
         return mod
+
+    @staticmethod
+    def apply_falloff_weights(mesh, group_name, center, radius, profile="linear", add_group=True):
+        """Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's
+        ``SkinUtils.apply_falloff`` (skinCluster ``skinPercent``). Every *mesh* vertex within
+        *radius* world units of *center* gets ``group_name`` weight ``w = 1 - d/radius``
+        (``profile='linear'``) or a smoothstep (``'smooth'``), and its EXISTING group weights are
+        scaled by ``(1 - w)`` so the row stays normalized — the group claims ``w`` and the remainder
+        REDISTRIBUTES across the vertex's current influences (Maya's ``skinPercent`` semantics), not
+        stolen from one bone. Vertices at/beyond the radius are left untouched (``w -> 0`` is
+        continuous at the boundary → no crease). Deforms via the Armature modifier because the group
+        name matches the (deform) bone name. Returns the vertex group (or ``None`` if absent and
+        ``add_group=False``). *center* is any 3-sequence; *radius* is clamped away from zero.
+
+        Only groups matching a DEFORM bone of the mesh's Armature modifier(s) are rescaled —
+        Maya's ``skinPercent`` touches skinCluster influences only, and scaling every vertex
+        group would corrupt non-skin data (cloth pin groups, selection sets, shape-key masks)."""
+        from mathutils import Vector
+
+        vg = mesh.vertex_groups.get(group_name)
+        if vg is None:
+            if not add_group:
+                return None
+            vg = mesh.vertex_groups.new(name=group_name)
+        # Influence set = deform-bone groups of the mesh's armature(s) — the
+        # Blender equivalent of the skinCluster influence list.
+        deform_names = set()
+        for m in mesh.modifiers:
+            if m.type == "ARMATURE" and m.object is not None:
+                deform_names.update(b.name for b in m.object.data.bones if b.use_deform)
+        groups = mesh.vertex_groups
+        influence_indices = {
+            g.index for g in groups if g.name in deform_names and g.index != vg.index
+        }
+        center = Vector(center)
+        mw = mesh.matrix_world
+        r = max(float(radius), 1e-6)
+        smooth = profile == "smooth"
+        for v in mesh.data.vertices:
+            d = (mw @ v.co - center).length
+            if d >= r:
+                continue
+            t = d / r
+            w = 1.0 - t * t * (3.0 - 2.0 * t) if smooth else 1.0 - t
+            # snapshot the vertex's other INFLUENCES before mutating (add() invalidates v.groups)
+            others = [(g.group, g.weight) for g in v.groups if g.group in influence_indices]
+            scale = 1.0 - w
+            for gi, gw in others:
+                groups[gi].add([v.index], gw * scale, "REPLACE")
+            vg.add([v.index], w, "REPLACE")
+        return vg
 
     # ----------------------------------------------------------------- constraints
     @staticmethod
