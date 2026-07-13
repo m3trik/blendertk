@@ -376,7 +376,7 @@ _Generated: 2026-07-13_
 
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`
-  - methods: select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, get_available_selection_types, get_selection_categories
+  - methods: select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories
 
 ### `edit_utils/snap.py` — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 - `class SnapSlots(ptk.LoggingMixin)`
@@ -516,7 +516,7 @@ _Generated: 2026-07-13_
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, revert_lightmap, commit_unlit, revert_unlit, revert
+  - methods: resolution, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, pack_atlas, revert_lightmap, commit_unlit, revert_unlit, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
 
