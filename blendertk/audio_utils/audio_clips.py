@@ -381,23 +381,25 @@ class AudioClipsSlots(ptk.LoggingMixin):
 
     def b004_init(self, widget):
         widget.option_box.menu.setTitle("Sync Scene Range")
-        widget.option_box.menu.add(
-            "QCheckBox", setText="Extend Only", setObjectName="chk_extend_only",
-            setChecked=True,
+        # Extend Only vs Exact Fit is a two-valued mode, not a modifier — name both states.
+        fit = widget.option_box.menu.add(
+            "QComboBox", setObjectName="cmb_fit",
             setToolTip=(
-                "On: only grow the range to cover clips that fall outside it.\n"
-                "Off: fit the range exactly to the clips (can also shrink it)."
+                "Extend Only: only grow the range to cover clips that fall outside it.\n"
+                "Exact Fit: fit the range exactly to the clips (can also shrink it)."
             ),
         )
+        fit.addItems(["Extend Only", "Exact Fit"])
+        fit.setCurrentText("Extend Only")  # preserve prior default (checkbox on = extend only)
 
     def b004(self, widget=None):
         """Fit the scene frame range to the loaded clips."""
         extend_only = True
         if widget is not None:
             menu = getattr(widget.option_box, "menu", None)
-            chk = getattr(menu, "chk_extend_only", None) if menu else None
-            if chk is not None:
-                extend_only = chk.isChecked()
+            cmb = getattr(menu, "cmb_fit", None) if menu else None
+            if cmb is not None:
+                extend_only = cmb.currentText() == "Extend Only"
         start, end = AudioUtils.sync_scene_range(extend_only=extend_only)
         self.ui.footer.setText(f"Scene range synced to clips: {start}-{end}.")
 

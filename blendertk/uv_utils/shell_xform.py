@@ -230,16 +230,20 @@ class ShellXformSlots(ptk.LoggingMixin):
             "QRadioButton", setText="Mirror V", setObjectName="chk032",
             setToolTip="Mirror across V. Default mode preserves the UV footprint.",
         )
-        # chk033/chk034 reuse the Maya objectNames + labels (same options, cross-DCC rule).
+        # chk033 + cmb_mirror_mode reuse the Maya objectNames (same options, cross-DCC rule).
         widget.option_box.menu.add(
             "QCheckBox", setText="Per Shell", setObjectName="chk033", setChecked=True,
             setToolTip="If enabled, mirrors each UV shell independently.",
         )
-        widget.option_box.menu.add(
-            "QCheckBox", setText="Preserve Footprint", setObjectName="chk034", setChecked=True,
-            setToolTip="If enabled, preserves the exact UV point set using one-to-one "
-            "reassignment.\nIf disabled, performs a geometric mirror around the pivot.",
+        # Preserve Footprint vs Geometric Mirror are two distinct algorithms, not a
+        # modifier — a combobox names both states.
+        mode = widget.option_box.menu.add(
+            "QComboBox", setObjectName="cmb_mirror_mode",
+            setToolTip="Preserve Footprint: keeps the exact UV point set via one-to-one "
+            "reassignment.\nGeometric Mirror: reflects the UVs around the pivot.",
         )
+        mode.addItems(["Preserve Footprint", "Geometric Mirror"])
+        mode.setCurrentText("Preserve Footprint")  # preserve prior default (checkbox on)
 
     @btk.undoable
     def tb008(self, widget):
@@ -250,7 +254,7 @@ class ShellXformSlots(ptk.LoggingMixin):
         m = widget.option_box.menu
         mirror_u = m.chk031.isChecked()
         per_shell = m.chk033.isChecked()
-        preserve_position = m.chk034.isChecked()
+        preserve_position = m.cmb_mirror_mode.currentText() == "Preserve Footprint"
         btk.mirror_uvs(
             objects, axis="u" if mirror_u else "v",
             per_shell=per_shell, preserve_position=preserve_position,

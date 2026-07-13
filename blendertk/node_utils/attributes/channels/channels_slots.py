@@ -188,32 +188,58 @@ class ChannelsSlots:
 
         txt1.keyPressEvent = _key_press
 
-        # Single-object-mode toggle on the field's option box (mirror of the Maya "target" action).
-        clr = self.ACTION_COLOR_MAP
-        txt1.option_box.add_action(
+        # Single-object-mode toggle on the field's option box (mirror of the
+        # Maya "target" action).  Keep the ActionOption so _sync_target_toggles
+        # can drive its visuals from the controller.
+        self._target_action = txt1.option_box.add_action(
             icon="target",
             tooltip="Single-object mode",
-            states=[
-                {
-                    "icon": "target",
-                    "tooltip": "Multi-object mode — edits broadcast to every selected object.",
-                    "color": clr["off"],
-                    "callback": lambda: self._set_single_object(True),
-                },
-                {
-                    "icon": "target",
-                    "tooltip": "Single-object mode — only the active object is edited.",
-                    "color": clr["active"],
-                    "callback": lambda: self._set_single_object(False),
-                },
-            ],
+            states=self._target_toggle_states(),
             settings_key=False,
         )
 
+    def _target_toggle_states(self):
+        """State dicts shared by both single/multi-object toggles.
+
+        State index 0 = multi-object (off tint), 1 = single-object (active
+        tint).  Each state's callback fires *before* the cycle advances, so
+        it sets the value for the NEXT state; _set_single_object then syncs
+        every toggle widget explicitly, which supersedes the auto-advance
+        (see IconStates.activate).
+        """
+        clr = self.ACTION_COLOR_MAP
+        return [
+            {
+                "icon": "target",
+                "tooltip": "Multi-object mode — edits broadcast to every selected object.",
+                "color": clr["off"],
+                "callback": lambda: self._set_single_object(True),
+            },
+            {
+                "icon": "target",
+                "tooltip": "Single-object mode — only the active object is edited.",
+                "color": clr["active"],
+                "callback": lambda: self._set_single_object(False),
+            },
+        ]
+
     def _set_single_object(self, enabled):
+        """Toggle single-object mode and sync every toggle widget to it."""
         self.controller.single_object_mode = bool(enabled)
-        self._update_compact_btn_state()
+        self._sync_target_toggles()
         self._refresh_table(self.ui.tbl000)
+
+    def _sync_target_toggles(self):
+        """Point both single/multi toggles (txt001 option_box action and the
+        compact footer button) at the controller's current mode."""
+        idx = 1 if self.controller.single_object_mode else 0
+        action = getattr(self, "_target_action", None)
+        if action is not None:
+            action.current_state = idx
+        btn = self._footer_compact_btn
+        cycle = getattr(btn, "icon_states", None) if btn is not None else None
+        if cycle is not None:
+            cycle.current_state = idx
 
     def _update_target_display(self, objects):
         txt = self.ui.txt001
@@ -324,7 +350,7 @@ class ChannelsSlots:
         chk_compact = widget.menu.add(
             "QCheckBox",
             setText="Compact View",
-            setChecked=False,
+            setChecked=True,
             setToolTip="Reduce row height, hide the column header, and move the object name "
             "into the footer (with inline rename).",
             setObjectName="chk_compact_view",
@@ -335,13 +361,21 @@ class ChannelsSlots:
         chk_auto_fit = widget.menu.add(
             "QCheckBox",
             setText="Auto-fit Window",
-            setChecked=False,
+            setChecked=True,
             setToolTip="Resize columns to fit contents and grow/shrink the "
             "window to match on every refresh.",
             setObjectName="chk_auto_fit",
         )
         chk_auto_fit.toggled.connect(self._on_toggle_auto_fit)
         self._chk_auto_fit = chk_auto_fit
+
+        # Compact view is push-only; reconcile it with the (possibly
+        # restored) checkbox now so the checked-by-default state is
+        # actually applied on first launch — persistent-state restore
+        # only re-emits ``toggled`` when the stored value differs from
+        # the construction default. Auto-fit needs no equivalent: it is
+        # read on every refresh. Mirror of the Maya panel.
+        self._sync_compact_default()
 
         # TODO(blender-parity): mayatk's "Selection" header section (Select Shape Node /
         # Select History Node) has no Blender analogue — a Blender object owns its mesh
@@ -431,6 +465,25 @@ class ChannelsSlots:
         """Re-apply column sizing when the auto-fit toggle changes."""
         self._refresh_table(self.ui.tbl000)
 
+    def _sync_compact_default(self):
+        """Reconcile ``self._compact_view`` with the compact-view checkbox.
+
+        ``_on_toggle_compact_view`` is push-only (it fires from the
+        checkbox's ``toggled`` signal), so a checked-but-unchanged box —
+        the checked-by-default first launch, or a state restore that
+        doesn't re-emit ``toggled`` — would leave the push effects
+        unapplied. Mirror the Type-column pull model: whenever the
+        checkbox disagrees with the applied state, apply it. Idempotent
+        and cheap, so it's safe to call on every refresh. Mirror of the
+        Maya panel.
+        """
+        chk = getattr(self, "_chk_compact", None)
+        if chk is None:
+            return
+        checked = chk.isChecked()
+        if checked != self._compact_view:
+            self._on_toggle_compact_view(checked)
+
     # ------------------------------------------------------------------
     # Compact view (shorter rows + footer name display + inline rename)
     # ------------------------------------------------------------------
@@ -465,12 +518,13 @@ class ChannelsSlots:
             except Exception:
                 pass
 
-        # Leaving compact resets single-object mode so the option-box button (state-0 = multi)
-        # stays consistent with the actual mode.
-        if leaving_compact:
-            self.controller.single_object_mode = False
+        # Single-object mode is a compact-footer affordance — drop it when
+        # leaving compact so the mode matches what the normal view offers.
+        # Routed through _set_single_object so every toggle widget re-syncs
+        # (and the table refreshes to the restored mode).
+        if leaving_compact and self.controller.single_object_mode:
+            self._set_single_object(False)
 
-        self._update_compact_btn_state()
         if self._footer_controller is not None:
             try:
                 self._footer_controller.update()
@@ -693,12 +747,12 @@ class ChannelsSlots:
             pass
 
         # -- Compact single-object toggle button (visible only in compact mode) --
+        # Mirrors the txt001 option_box target action: same shared states,
+        # so it renders color-coded (and in the correct mode) from creation;
+        # _set_single_object keeps both widgets in sync thereafter.
         try:
             self._footer_compact_btn = footer.add_action_button(
-                icon_name="target",
-                tooltip="Multi-object mode — click to switch to single-object.\n"
-                "All edits are broadcast to every selected object.",
-                callback=self._on_footer_compact_btn_clicked,
+                states=self._target_toggle_states(),
             )
             self._footer_compact_btn.setVisible(False)
         except Exception:
@@ -735,33 +789,6 @@ class ChannelsSlots:
             return
         self.controller.rename_node(self._current_target, new_name)
         self._refresh_table(self.ui.tbl000)
-
-    def _on_footer_compact_btn_clicked(self):
-        """Toggle single/multi-object mode from the compact footer button."""
-        self._set_single_object(not self.controller.single_object_mode)
-
-    def _update_compact_btn_state(self):
-        """Refresh the compact footer button icon colour to reflect the current mode."""
-        btn = self._footer_compact_btn
-        if btn is None:
-            return
-        clr = self.ACTION_COLOR_MAP
-        try:
-            from uitk.widgets.mixins.icon_manager import IconManager
-
-            color = clr["active"] if self.controller.single_object_mode else clr["off"]
-            h = max(btn.height(), 14)
-            size = (int(h * 0.7), int(h * 0.7))
-            IconManager.set_icon(btn, "target", size=size, color=color)
-        except Exception:
-            pass
-        btn.setToolTip(
-            "Single-object mode — click to switch to multi-object.\n"
-            "Only the active object is edited."
-            if self.controller.single_object_mode
-            else "Multi-object mode — click to switch to single-object.\n"
-            "All edits are broadcast to every selected object."
-        )
 
     def show_create_menu(self, *args):
         """Show the *Create Attribute* popup (a custom-property form)."""
@@ -1046,6 +1073,13 @@ class ChannelsSlots:
         """Rebuild the table from the current selection + filter (defensive; no-bpy → empty)."""
         if not self._is_alive(widget):
             return
+
+        # Apply the compact-view default/restored state (pull model — see
+        # :meth:`_sync_compact_default`) before the rebuild, so row height
+        # and the header/footer swap are correct even on the first show,
+        # when header state-restore may run after this.
+        self._sync_compact_default()
+
         try:
             objects = self.controller.get_selected_nodes()
         except Exception:

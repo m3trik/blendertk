@@ -582,6 +582,154 @@ try:
     check("select_uv_shell grows to the whole UV island", n_uv_shell == len(bm.faces), f"got {n_uv_shell}/{len(bm.faces)}")
     bpy.ops.object.mode_set(mode="OBJECT")
 
+    # ======================================================================================
+    # UV-domain Convert-To (cmb003): select_uv_shell_border / select_uv_perimeter /
+    # select_uv_edge_loop -- ported 2026-07-13. A UV-island boundary = a mesh-open edge OR a UV
+    # seam (a manifold edge whose two faces assign different UVs to a shared vert). Verified on
+    # the two extremes that expose a wrong boundary test: a smart-projected cube (6 one-face
+    # islands => EVERY edge is a seam) and a seamless flat grid (one continuous island => NO
+    # internal seams). Plus list000 Back-/Front-Facing (signed UV area, object-level).
+    def select_faces(obj, idxs):
+        if bpy.context.active_object and bpy.context.active_object.mode == "EDIT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.context.view_layer.objects.active = obj
+        for o in bpy.data.objects:
+            o.select_set(o is obj)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="FACE")
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        for i in idxs:
+            bm.faces[i].select = True
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(obj.data)
+        return bm
+
+    def n_selected_edges(obj):
+        bm = bmesh.from_edit_mesh(obj.data)
+        return len([e for e in bm.edges if e.select])
+
+    # -- smart-projected cube: every face is its own UV island --
+    reset()
+    bpy.ops.mesh.primitive_cube_add(size=2.0)
+    cube = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project()
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # UV Shell Border of one cube face = its 4 edges (all seams). Contrast: 3D Shell Border of
+    # the same closed manifold cube = 0 open edges -> proves UV-domain includes seams.
+    select_faces(cube, [0])
+    n_uvsb = btk.Selection.select_uv_shell_border(cube)
+    check("UV Shell Border of a cube face (own UV island) -> its 4 edges", n_uvsb == 4, f"got {n_uvsb}")
+    select_faces(cube, [0])
+    n_3dsb = btk.Selection.select_shell_border(cube)
+    check("3D Shell Border of the closed cube -> 0 (no seam awareness)", n_3dsb == 0, f"got {n_3dsb}")
+
+    # UV Perimeter: one face -> 4; two adjacent faces (separate UV islands) -> 7 (6 region-
+    # boundary + the shared interior edge, a seam), where plain Edge Perimeter would give 6.
+    select_faces(cube, [0])
+    n_uvp1 = btk.Selection.select_uv_perimeter(cube)
+    check("UV Perimeter of one cube face -> 4", n_uvp1 == 4, f"got {n_uvp1}")
+    bm = select_faces(cube, [0])
+    f0 = bm.faces[0]
+    neighbor = next(nf.index for e in f0.edges for nf in e.link_faces if nf is not f0)
+    select_faces(cube, [0, neighbor])
+    n_uvp2 = btk.Selection.select_uv_perimeter(cube)
+    check("UV Perimeter of 2 adjacent cube faces -> 7 (incl. the interior seam)", n_uvp2 == 7, f"got {n_uvp2}")
+    select_faces(cube, [0, neighbor])
+    btk.Selection.select_edge_perimeter(cube)  # region_to_loop, no return value
+    n_ep2 = n_selected_edges(cube)
+    check("plain Edge Perimeter of the same 2 faces -> 6 (interior edge excluded)", n_ep2 == 6, f"got {n_ep2}")
+
+    def loop_count(obj, edge_idx, uv_op):
+        """Select edge `edge_idx` fresh and run either the native loop op or the UV loop
+        helper (`uv_op`), returning how many edges end up selected."""
+        bpy.ops.mesh.select_mode(type="EDGE")
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.edges.ensure_lookup_table()
+        bm.edges[edge_idx].select = True
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(obj.data)
+        if uv_op:
+            btk.Selection.select_uv_edge_loop(obj)
+        else:
+            bpy.ops.mesh.select_edge_loop_multi()
+        return n_selected_edges(obj)
+
+    # -- seamless flat grid: one continuous UV island -> UV Edge Loop equals the full native
+    #    topological loop (nothing to truncate). --
+    reset()
+    g3 = grid_obj(6)
+    edit_mesh(g3)
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project()
+    bm = bmesh.from_edit_mesh(g3.data)
+    bm.edges.ensure_lookup_table()
+    # an interior horizontal edge (constant y, spans x) -> its loop runs the full row
+    interior_edge = next(
+        e.index for e in bm.edges
+        if not e.is_boundary
+        and abs(e.verts[0].co.y - e.verts[1].co.y) < 1e-4
+        and abs(e.verts[0].co.x - e.verts[1].co.x) > 1e-4
+    )
+    native_grid_loop = loop_count(g3, interior_edge, uv_op=False)
+    n_uvloop_grid = loop_count(g3, interior_edge, uv_op=True)
+    check(
+        "UV Edge Loop on a seamless island == full native loop",
+        n_uvloop_grid == native_grid_loop and native_grid_loop > 1,
+        f"uv={n_uvloop_grid} native={native_grid_loop}",
+    )
+
+    # -- same grid, now with a real UV seam: mark the centre vertical column of edges as a seam
+    #    and re-unwrap so the UVs actually split there; the horizontal loop must now STOP at the
+    #    seam it crosses -> strictly fewer edges than the full native loop. --
+    bpy.ops.mesh.select_mode(type="EDGE")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bm = bmesh.from_edit_mesh(g3.data)
+    bm.edges.ensure_lookup_table()
+    vcols = sorted({round(e.verts[0].co.x, 5) for e in bm.edges
+                    if abs(e.verts[0].co.x - e.verts[1].co.x) < 1e-4})
+    midx = min(vcols, key=abs)  # the vertical column nearest x=0
+    for e in bm.edges:
+        if abs(e.verts[0].co.x - e.verts[1].co.x) < 1e-4 and abs(e.verts[0].co.x - midx) < 1e-4:
+            e.seam = True
+    bm.select_flush_mode()
+    bmesh.update_edit_mesh(g3.data)
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.unwrap()  # respects the seam -> two UV islands, real UV discontinuity at the column
+    n_uvloop_seam = loop_count(g3, interior_edge, uv_op=True)
+    check(
+        "UV Edge Loop stops at a perpendicular UV seam (< full native loop)",
+        1 <= n_uvloop_seam < native_grid_loop,
+        f"uv={n_uvloop_seam} native={native_grid_loop}",
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # -- list000 Back-/Front-Facing (object-level, signed UV area) --
+    def quad_with_uv(name, uv_per_loop):
+        m = bpy.data.meshes.new(name + "Mesh")
+        m.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2, 3)])
+        m.update()
+        uv = m.uv_layers.new(name="UVMap")
+        for i, co in enumerate(uv_per_loop):
+            uv.data[i].uv = co
+        o = bpy.data.objects.new(name, m)
+        bpy.context.collection.objects.link(o)
+        return o
+
+    reset()
+    front = quad_with_uv("Front", [(0, 0), (1, 0), (1, 1), (0, 1)])   # CCW -> +area
+    back = quad_with_uv("Back", [(0, 0), (0, 1), (1, 1), (1, 0)])     # CW  -> -area
+    objs = [front, back]
+    res = btk.Selection.select_by_type("Back-Facing", objs, mode="replace")
+    check("Back-Facing (negative signed UV area) -> [Back]", res == [back], f"{res}")
+    res = btk.Selection.select_by_type("Front-Facing", objs, mode="replace")
+    check("Front-Facing (positive signed UV area) -> [Front]", res == [front], f"{res}")
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -39,10 +39,9 @@ The ``.ui`` is a verbatim copy of mayatk's — same objectNames (``cmb_scope``, 
 uitk host-namespaces the QSettings branch per DCC (``Switchboard.add_ui`` /
 ``MainWindow._relative_state`` via ``context_tags``), identical objectNames across mayatk's
 and blendertk's copy of the same panel no longer collide in the shared "uitk"/"shared"
-registry root, so there is no need to renumber widgets to dodge it. The one structural gap —
-``cmb002``'s "Atlas by Material" item has no engine behind it yet — is disabled at the item
-level (see :meth:`LightmapBakerSlots._disable_unsupported_packing_mode`), not by hiding the
-whole combo; "Per-Object" is fully functional today.
+registry root, so there is no need to renumber widgets to dodge it. Both ``cmb002`` packing
+modes are live: "Per-Object" (one full-resolution map each) and "Atlas by Material" (per-material
+consolidation via :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer).
 """
 import json
 import os
@@ -248,13 +247,11 @@ class LightmapBaker(ptk.LoggingMixin):
 
         ``scale_offsets`` / ``uv_rects`` are the atlas-consolidation hooks (mirror mayatk's
         ``commit_lightmap``): ``{object_name: [scaleX, scaleY, offsetX, offsetY]}``.
-        ``uv_rects`` records a rect mayatk's ``pack_atlas`` already repacked into the lightmap
-        UVs (marker key ``uvRect``; revert bookkeeping only — nothing engine-side);
-        ``scale_offsets`` is the legacy engine-applied rect. blendertk has no atlas packer yet
-        (the panel's "Atlas by Material" item is disabled — see
-        ``LightmapBakerSlots._disable_unsupported_packing_mode``), so callers only ever pass the
-        per-object identity mapping today; the parameters stay so the metadata carrier and a
-        future :meth:`pack_atlas` port need no signature change.
+        ``uv_rects`` records a rect :meth:`pack_atlas` already repacked into the lightmap UVs
+        (marker key ``uvRect``; revert bookkeeping only — nothing engine-side); ``scale_offsets``
+        is the legacy engine-applied rect. The "Atlas by Material" packing mode passes ``uv_rects``
+        (the applied rects) with identity ``scale_offsets`` — the mesh samples the atlas directly
+        through UV2, so nothing is bound engine-side; per-object bakes pass neither (identity).
         """
         import bpy
 
@@ -293,6 +290,298 @@ class LightmapBaker(ptk.LoggingMixin):
         if recorded:
             self._publish_lightmap_metadata()
         return recorded
+
+    # ------------------------------------------------------------------
+    # Atlas consolidation ("Atlas by Material" packing — cmb002 index 1)
+    # ------------------------------------------------------------------
+    # Blender port of mayatk's ``pack_atlas``: group the per-object lightmaps by primary
+    # material, give each object an area-weighted rect, assemble ONE shared EXR per group, and
+    # repack each object's lightmap UVs into its rect so the exported mesh samples the atlas
+    # directly through UV2 (no engine scaleOffset binding). The DCC-agnostic layout math is
+    # REUSED from pythontk (``ptk.ImgUtils.compute_atlas_layout`` / ``inset_atlas_rects`` /
+    # ``atlas_pixel_rects`` — all pure-Python, no cv2, the same helpers mayatk uses); only the
+    # EXR assembly + UV repack are Blender-native (bpy image I/O + a numpy paste/dilate, since
+    # Blender's runtime ships no cv2). The applied rect is recorded as the marker's ``uvRect``
+    # (revert bookkeeping) and undone by :meth:`revert_lightmap`.
+
+    def pack_atlas(
+        self,
+        mapping: Dict[str, str],
+        output_dir: Optional[str] = None,
+        prefix: str = "",
+        suffix: str = "_Lightmap",
+    ) -> Dict[str, Tuple[str, List[float]]]:
+        """Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
+
+        Post-process for the lighting-only path: takes the result of :meth:`bake_separated` and
+        packs each material group into one shared, area-weighted atlas (bigger objects get more
+        texels). Each object's lightmap UVs are repacked into its rect, so the mesh samples the
+        atlas directly through UV2 — plug-and-play in any engine with no scaleOffset binding.
+        A single-object group is left as its own map with an identity rect. Objects that share a
+        mesh (linked duplicates) share one lightmap UV set, so only the first owns a rect. A
+        group whose assembly fails keeps its per-object maps (identity rect) — never lose a bake.
+
+        Returns ``{object_name: (atlas_path, [scaleX, scaleY, offsetX, offsetY])}`` — the rect is
+        the remap already APPLIED to the object's lightmap UVs (identity for solo/fallback), i.e.
+        bookkeeping for the ``uvRect`` marker, not an engine binding.
+        """
+        import bpy
+
+        if not mapping:
+            return {}
+        output_dir = output_dir or os.path.dirname(next(iter(mapping.values())))
+
+        # Linked duplicates share one mesh (one lightmap UV set), so only the first can own a
+        # rect — remapping the shared set once per instance would compound the transform.
+        by_mesh: Dict[str, str] = {}
+        objects: List[str] = []
+        for name in sorted(mapping):  # deterministic winner + rect order
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                continue
+            key = obj.data.name if getattr(obj, "data", None) is not None else None
+            if key and key in by_mesh:
+                self.logger.warning(
+                    "Atlas: %s shares a mesh with %s; instances share one lightmap rect.",
+                    name, by_mesh[key],
+                )
+                continue
+            if key:
+                by_mesh[key] = name
+            objects.append(name)
+
+        groups: Dict[str, List[str]] = {}
+        for name in objects:
+            key = self._primary_material(bpy.data.objects.get(name)) or "__no_material__"
+            groups.setdefault(key, []).append(name)
+
+        all_sources = {os.path.abspath(p) for p in mapping.values()}
+        out: Dict[str, Tuple[str, List[float]]] = {}
+        used: set = set()
+        for key, names in groups.items():
+            try:
+                self._pack_group(
+                    key, names, mapping, all_sources, output_dir, prefix, suffix, out, used
+                )
+            except Exception as e:  # never lose a bake — fall the group back to per-object maps
+                self.logger.warning(
+                    "Atlas: packing group %r failed (%s); keeping per-object maps.", key, e
+                )
+                for n in names:
+                    if n not in out and os.path.exists(mapping[n]):
+                        out[n] = (mapping[n], list(self._IDENTITY_SCALE_OFFSET))
+        return out
+
+    def _pack_group(
+        self, key, names, mapping, all_sources, output_dir, prefix, suffix, out, used
+    ) -> None:
+        """Pack one material group's maps into its atlas (see :meth:`pack_atlas`)."""
+        import bpy
+
+        if len(names) == 1:  # a solo group is already its own atlas (identity rect) — no atlas name
+            out[names[0]] = (mapping[names[0]], list(self._IDENTITY_SCALE_OFFSET))
+            return
+
+        foreign = all_sources - {os.path.abspath(mapping[n]) for n in names}
+        base = self._atlas_base(key, names)
+        name = ptk.StrUtils.apply_affix(base, prefix, suffix)
+        atlas_path = self._unique_atlas_path(output_dir, name, used, foreign)
+
+        objs = [bpy.data.objects.get(n) for n in names]
+        weights = [self._surface_area(o) for o in objs]
+        rects = ptk.ImgUtils.compute_atlas_layout(weights)
+        # Inset each rect by a resolution-scaled gutter and later dilate content into the freed
+        # border, so mip levels / bilinear taps can't bleed across neighbours. The INSET rect is
+        # the applied UV rect, so sampling stays exact.
+        gutter = max(2, self.resolution // 256)
+        rects = ptk.ImgUtils.inset_atlas_rects(rects, self.resolution, gutter)
+
+        placements: List[Tuple[str, List[float], str]] = []
+        for n, rect in zip(names, rects):
+            if not os.path.exists(mapping[n]):
+                self.logger.warning("Atlas: missing map for %s; skipping.", n)
+                continue
+            placements.append((mapping[n], [float(v) for v in rect], n))
+        if not placements:
+            return
+
+        self._assemble_atlas_exr(atlas_path, [(p, so) for p, so, _ in placements], gutter)
+
+        for src, so, n in placements:
+            obj = bpy.data.objects.get(n)
+            lm = find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+            try:
+                self._transform_lightmap_uvs(obj, lm, so)
+            except Exception as e:  # keep this object's own map — degraded but engine-correct
+                self.logger.warning(
+                    "Atlas: lightmap UVs for %s not repacked (%s); keeping its per-object map.",
+                    n, e,
+                )
+                out[n] = (mapping[n], list(self._IDENTITY_SCALE_OFFSET))
+                continue
+            out[n] = (atlas_path, so)
+            try:  # drop the now-consolidated per-object map
+                if os.path.abspath(src) != os.path.abspath(atlas_path):
+                    os.remove(src)
+            except OSError:
+                pass
+
+    def _assemble_atlas_exr(self, atlas_path, placements, gutter) -> None:
+        """Composite each ``(source_exr, inset_rect)`` into one shared EXR at ``self.resolution``
+        via bpy image I/O (no cv2): load + native-scale each source into its pixel rect, paste
+        into a float atlas buffer, dilate content into the freed gutter, and save as OPEN_EXR.
+        The pixel-rect mapping (incl. the UV bottom-up vs image top-down flip) comes from
+        ``ptk.ImgUtils.atlas_pixel_rects`` — the same SSoT mayatk's cv2 assembler uses, so UV
+        placement matches Unity's ``lightmapScaleOffset``."""
+        import bpy
+        import numpy as np
+
+        res = self.resolution
+        pix_rects = ptk.ImgUtils.atlas_pixel_rects([so for _, so in placements], res)
+        atlas = np.zeros((res, res, 4), dtype=np.float32)
+        atlas[..., 3] = 1.0
+        mask = np.zeros((res, res), dtype=bool)
+
+        for (src, _so), (row0, row1, col0, col1) in zip(placements, pix_rects):
+            w = max(1, col1 - col0)
+            h = max(1, row1 - row0)
+            img = None
+            try:
+                img = bpy.data.images.load(src)
+                if tuple(img.size) != (w, h):
+                    img.scale(w, h)
+                buf = np.empty(len(img.pixels), dtype=np.float32)
+                img.pixels.foreach_get(buf)
+                tile = buf.reshape(img.size[1], img.size[0], img.channels)
+                tile = np.flipud(tile)  # bpy pixels are bottom-up; atlas rows are top-down
+                rgb = tile[..., :3]
+            finally:
+                if img is not None:
+                    bpy.data.images.remove(img)
+            r0, r1 = max(row0, 0), min(row1, res)
+            c0, c1 = max(col0, 0), min(col1, res)
+            atlas[r0:r1, c0:c1, :3] = rgb[: r1 - r0, : c1 - c0, :]
+            atlas[r0:r1, c0:c1, 3] = 1.0
+            mask[r0:r1, c0:c1] = True
+
+        atlas = self._dilate_gutter(atlas, mask, gutter + 1)
+
+        out = bpy.data.images.new(
+            os.path.basename(atlas_path), width=res, height=res, float_buffer=True, alpha=True
+        )
+        try:
+            flat = np.ascontiguousarray(np.flipud(atlas)).reshape(-1)  # top-down -> bottom-up
+            out.pixels.foreach_set(flat)
+            out.filepath_raw = atlas_path
+            out.file_format = "OPEN_EXR"
+            out.save()
+        finally:
+            bpy.data.images.remove(out)
+
+    @staticmethod
+    def _dilate_gutter(atlas, mask, iterations):
+        """Grow placed content outward into the empty gutter by ``iterations`` px (numpy
+        edge-copy dilation), so taps near a rect edge sample real content instead of the black
+        border — mayatk's cv2 dilate step, done with numpy."""
+        import numpy as np
+
+        filled = atlas.copy()
+        m = mask.copy()
+        for _ in range(max(0, int(iterations))):
+            added = np.zeros_like(m)
+            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                shifted_m = np.roll(m, (dy, dx), axis=(0, 1))
+                shifted_v = np.roll(filled, (dy, dx), axis=(0, 1))
+                take = (~m) & (~added) & shifted_m
+                filled[take] = shifted_v[take]
+                added |= take
+            if not added.any():
+                break
+            m = m | added
+        return filled
+
+    @staticmethod
+    def _primary_material(obj) -> Optional[str]:
+        """Name of the material covering the most faces of *obj* (its group key); ``None`` if
+        nothing is assigned. A single-material object wins outright."""
+        slots = getattr(obj, "material_slots", None)
+        if not slots:
+            return None
+        mats = [s.material for s in slots]
+        named = [m for m in mats if m is not None]
+        if not named:
+            return None
+        if len(mats) == 1:
+            return mats[0].name
+        counts: Dict[str, int] = {}
+        for p in obj.data.polygons:
+            mi = p.material_index
+            if 0 <= mi < len(mats) and mats[mi] is not None:
+                counts[mats[mi].name] = counts.get(mats[mi].name, 0) + 1
+        return max(counts, key=counts.get) if counts else named[0].name
+
+    @staticmethod
+    def _surface_area(obj) -> float:
+        """World-space surface area of *obj* (atlas texel weight); 1.0 on failure."""
+        import bmesh
+
+        me = getattr(obj, "data", None)
+        if me is None or not hasattr(me, "polygons"):
+            return 1.0
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(me)
+            bm.transform(obj.matrix_world)
+            area = sum(f.calc_area() for f in bm.faces)
+        finally:
+            bm.free()
+        return area if area > 0 else 1.0
+
+    @staticmethod
+    def _atlas_base(key, names) -> str:
+        """A filesystem-safe name base for a group's atlas — its material name (fallback: the
+        first object's name)."""
+        import re
+
+        base = key if key and key != "__no_material__" else names[0]
+        return re.sub(r"[^\w.\-]", "_", str(base)) or "atlas"
+
+    @staticmethod
+    def _unique_atlas_path(output_dir, name, used, avoid=frozenset()) -> str:
+        """Atlas path for *name*, unique within one pack (``used``) and clear of any other
+        group's not-yet-consumed source maps (*avoid*, a set of abspaths). Overwriting the
+        atlas's OWN prior file is allowed (that's the point of consolidation)."""
+        candidate = os.path.join(output_dir, f"{name}.exr")
+        k = 1
+        while candidate in used or os.path.abspath(candidate) in avoid:
+            candidate = os.path.join(output_dir, f"{name}_{k}.exr")
+            k += 1
+        used.add(candidate)
+        return candidate
+
+    @staticmethod
+    def _transform_lightmap_uvs(obj, uv_set, rect, invert=False) -> None:
+        """Affine-transform *obj*'s *uv_set* by a ``[sx, sy, ox, oy]`` rect. Forward maps the
+        unit square into the rect (``uv' = uv*s + o`` — the atlas placement); ``invert=True``
+        applies the exact inverse, restoring the original 0-1 layout (used by revert)."""
+        import numpy as np
+
+        sx, sy, ox, oy = (float(v) for v in rect)
+        layer = obj.data.uv_layers.get(uv_set)
+        if layer is None:
+            raise RuntimeError(f"no lightmap UV set '{uv_set}'")
+        data = layer.data
+        buf = np.empty(len(data) * 2, dtype=np.float32)
+        data.foreach_get("uv", buf)
+        uv = buf.reshape(-1, 2)
+        if invert:
+            uv[:, 0] = (uv[:, 0] - ox) / sx
+            uv[:, 1] = (uv[:, 1] - oy) / sy
+        else:
+            uv[:, 0] = uv[:, 0] * sx + ox
+            uv[:, 1] = uv[:, 1] * sy + oy
+        data.foreach_set("uv", buf.reshape(-1))
+        obj.data.update()
 
     def _apply_intensity(self, paths, intensity: float) -> None:
         """Scale each unique lightmap file's texels by *intensity*, once.
@@ -397,14 +686,30 @@ class LightmapBaker(ptk.LoggingMixin):
         return DataNodes.set_export_string(self.LIGHTMAP_METADATA, manifest)
 
     def revert_lightmap(self, objects=None) -> List[str]:
-        """Undo :meth:`commit_lightmap` -- drop the markers + republish.
+        """Undo :meth:`commit_lightmap` -- restore any atlas UV remap, drop the markers, republish.
 
-        Non-destructive by nature (material / UVs were never changed); the baked texture and
-        its UV layer are left in place (harmless, reused by the next bake). ``objects=None``
-        clears every marked object. Returns the names cleared.
+        The per-object path changes nothing about the material/UVs, so reverting it just drops the
+        marker. An **atlas** commit repacked the object's lightmap UVs into its rect (recorded as
+        the marker's ``uvRect``); that IS a UV change, so it is inverted here first — restoring the
+        original 0-1 layout so a re-bake (which calls :meth:`revert` before baking) starts clean.
+        The baked texture and UV layer are otherwise left in place. ``objects=None`` clears every
+        marked object. Returns the names cleared.
         """
         cleared = []
         for obj in self._marked_objects(self.LIGHTMAP_INFO_PROP, objects):
+            try:
+                info = json.loads(obj[self.LIGHTMAP_INFO_PROP] or "{}")
+            except (ValueError, TypeError):
+                info = {}
+            rect = info.get("uvRect")
+            if rect and [float(v) for v in rect] != list(self._IDENTITY_SCALE_OFFSET):
+                uv_set = info.get("uv_set") or find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+                try:
+                    self._transform_lightmap_uvs(obj, uv_set, rect, invert=True)
+                except Exception as e:
+                    self.logger.warning(
+                        "Could not restore atlased lightmap UVs on %s: %s", obj.name, e
+                    )
             del obj[self.LIGHTMAP_INFO_PROP]
             cleared.append(obj.name)
         if cleared:
@@ -545,8 +850,8 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     bake samples the real material; the header menu's **Revert to Source** undoes it. The
     Quality combobox is populated from :meth:`~LightmapBaker.preset_store` and fills the
     Resolution / Samples dials (the source of truth at bake time). The Packing combobox
-    (``cmb002``) picks how a Lighting-Only bake's maps are laid out — see
-    :meth:`_disable_unsupported_packing_mode` for the one item currently disabled.
+    (``cmb002``) picks how a Lighting-Only bake's maps are laid out — Per-Object or Atlas by
+    Material (:meth:`~LightmapBaker.pack_atlas`); both are live.
 
     Tentacle-independent (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` ``fmt`` helper is
     deferred into the methods that use it (headless Blender ships no Qt binding).
@@ -555,11 +860,9 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     _MODE_LABELS = ("Lighting Only (keep maps)", "Fused Unlit (single map)")
 
     # Packing labels for the Packing combobox (cmb002). Per-Object (index 0, the default) keeps
-    # one full-resolution map per object and is fully implemented; Atlas by Material (index 1)
-    # would consolidate a material group into one shared EXR and repack each object's lightmap
-    # UVs into its rect (standalone atlas, no engine binding), mirroring mayatk's ``pack_atlas``
-    # — that engine isn't ported to blendertk yet, so the item is disabled (see
-    # :meth:`_disable_unsupported_packing_mode`). _packing() reads it back.
+    # one full-resolution map per object; Atlas by Material (index 1) consolidates a material
+    # group into one shared EXR and repacks each object's lightmap UVs into its rect (standalone
+    # atlas, no engine binding) via :meth:`LightmapBaker.pack_atlas`. _packing() reads it back.
     _PACKING_LABELS = ("Per-Object (one map each)", "Atlas by Material (shared map)")
 
     # Fixed lightmap sizes (square, px) for the Resolution combobox
@@ -585,12 +888,6 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.lightmap_baker
 
-        # Packing: Atlas by Material (cmb002 index 1) has no engine support yet — see
-        # _disable_unsupported_packing_mode. Do this right after the .ui is resolved (its item
-        # is populated by cmb002_init during the load above), same ordering reason mirror.py
-        # uses for its own unsupported-item disable.
-        self._disable_unsupported_packing_mode()
-
         self._last_output_dir: Optional[str] = None
         self._baker: Optional[LightmapBaker] = None
 
@@ -600,27 +897,6 @@ class LightmapBakerSlots(ptk.LoggingMixin):
 
     def _initialize_ui(self) -> None:
         self._apply_preset(self.ui.cmb000.currentText())
-
-    def _disable_unsupported_packing_mode(self) -> None:
-        """Disable the "Atlas by Material" item (cmb002 index 1) — it needs mayatk's
-        ``LightmapBaker.pack_atlas`` (per-primary-material grouping into an area-weighted
-        shared EXR via ``ptk.ImgUtils.compute_atlas_layout`` / ``assemble_atlas``, plus the
-        per-object lightmap-UV repack into each rect + its ``uvRect`` revert bookkeeping)
-        ported onto Blender's per-object materials + native image I/O + ``bmesh`` UV editing.
-        That is a genuinely new engine (grouping, atlas assembly, UV repacking), not a small
-        addition to the existing ``_bake``, so only this one combo item is disabled —
-        "Per-Object" works normally — see the item model, not the ``.ui``, per the parity plan.
-        # TODO(blender-parity): port mayatk's pack_atlas (per-material EXR atlas assembly +
-        # lightmap-UV repack/restore) and re-enable this item.
-        """
-        model = self.ui.cmb002.model()
-        item = model.item(1) if model is not None else None
-        if item is not None:
-            item.setFlags(item.flags() & ~self.sb.QtCore.Qt.ItemIsEnabled)
-            item.setToolTip(
-                "Not yet implemented in blendertk — per-material atlas consolidation needs "
-                "mayatk's pack_atlas ported (grouping + area-weighted EXR assembly)."
-            )
 
     # ------------------------------------------------------------------ header
     def header_init(self, widget) -> None:
@@ -667,10 +943,11 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                         "engine; a one-file Unity editor helper (optional, unitytk's "
                         "<i>LightmapMetadataController.cs</i>) auto-binds Unity's native "
                         "lightmap slots from the FBX wiring on the shared data Empty.",
-                        "<b>Packing</b>: <i>Per-Object</i> (the only mode available today) "
-                        "gives each object its own full-resolution lightmap. <i>Atlas by "
-                        "Material</i> is disabled — the per-material atlas consolidation "
-                        "(mayatk's <i>pack_atlas</i>) isn't ported to blendertk yet.",
+                        "<b>Packing</b>: <i>Per-Object</i> gives each object its own full-"
+                        "resolution lightmap. <i>Atlas by Material</i> consolidates every object "
+                        "sharing a material into one shared, area-weighted EXR and repacks their "
+                        "lightmap UVs into it — one texture set per material, sampled directly "
+                        "through UV2 (no engine binding).",
                     ]),
                     ("Mode: Fused Unlit — flatten to one texture (NOT lightmapping)", [
                         "Bakes albedo × lighting into one HDR texture + an <i>unlit</i> "
@@ -718,7 +995,7 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         return "fused" if "fused" in text else "separated"
 
     def cmb002_init(self, widget) -> None:
-        """Populate the Packing combobox; Per-Object is the safe (and only working) default."""
+        """Populate the Packing combobox; Per-Object is the default (Atlas by Material also live)."""
         widget.clear()
         widget.addItems(self._PACKING_LABELS)
         widget.setCurrentIndex(0)  # Per-Object — one full-resolution map each
@@ -846,15 +1123,25 @@ class LightmapBakerSlots(ptk.LoggingMixin):
             self._baker.commit_unlit(result)
             tail = "Shows an unlit baked material. Revert to Source to undo."
         elif self._packing() == "atlas":
-            # TODO(blender-parity): unreachable from the UI today — the "Atlas by Material"
-            # item is disabled in _disable_unsupported_packing_mode until mayatk's pack_atlas
-            # is ported. Falls back to a per-object commit so a bake is never lost if this is
-            # ever reached programmatically (e.g. a direct _packing() override in a test).
-            self.logger.warning(
-                "Atlas packing isn't implemented in blendertk yet; committing per-object maps."
+            # Consolidate the per-object maps into one shared EXR per primary material and repack
+            # each object's lightmap UVs into its rect. commit records the applied rect as the
+            # marker's uvRect (revert bookkeeping); the engine scaleOffset stays identity because
+            # the UVs are already baked into the atlas layout (the mesh samples it via UV2).
+            packed = self._baker.pack_atlas(
+                result, output_dir=out_dir, prefix=prefix, suffix=suffix
             )
-            self._baker.commit_lightmap(result)
-            tail = self._LIGHTING_ONLY_TAIL
+            if packed:
+                result = {name: path for name, (path, _so) in packed.items()}
+                uv_rects = {name: so for name, (_path, so) in packed.items()}
+                self._baker.commit_lightmap(result, uv_rects=uv_rects)
+                atlases = len(set(result.values()))
+                tail = (
+                    f"Consolidated into {atlases} atlas{'es' if atlases != 1 else ''} by "
+                    f"material. {self._LIGHTING_ONLY_TAIL}"
+                )
+            else:  # nothing packed — keep the per-object maps rather than lose the bake
+                self._baker.commit_lightmap(result)
+                tail = self._LIGHTING_ONLY_TAIL
         else:
             self._baker.commit_lightmap(result)
             tail = self._LIGHTING_ONLY_TAIL
