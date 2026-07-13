@@ -293,22 +293,23 @@ class WheelRigSlots(ptk.LoggingMixin):
         from uitk.widgets.mixins.tooltip_mixin import fmt, kbd
 
         widget.menu.add("Separator", setTitle="Mode")
-        chk_ws = widget.menu.add(
-            "QCheckBox",
-            setText="World Space (driver Transform Space)",
-            setObjectName="chk_world_space",
+        # Local vs World Space is a two-valued mode, not a modifier — a combobox
+        # names both states; extend with a third space here without a relayout.
+        cmb_space = widget.menu.add(
+            "QComboBox",
+            setObjectName="cmb_space",
             setToolTip=(
-                "When checked, wheel rotation reads the driver's WORLD-space position\n"
-                "(the driver variable's Transform Space is set to World Space). This\n"
-                "captures movement from parent transforms, not just the driver's own\n"
-                "translate channel.\n\n"
-                "When unchecked (default), the driver reads the driver's own translate\n"
-                "channel directly (Transform Space) — simpler and sufficient when\n"
-                "the driver itself is being animated."
+                "Local (default) — the driver reads its own translate channel\n"
+                "directly (Transform Space). Simpler and sufficient when the\n"
+                "driver itself is being animated.\n\n"
+                "World Space — wheel rotation reads the driver's WORLD-space\n"
+                "position (the driver variable's Transform Space is set to World\n"
+                "Space), capturing movement from parent transforms."
             ),
-            setChecked=False,
         )
-        chk_ws.toggled.connect(self._on_world_space_toggled)
+        cmb_space.addItems(["Local", "World Space"])
+        cmb_space.setCurrentText("Local")  # preserve prior default (checkbox off = local)
+        cmb_space.currentTextChanged.connect(self._on_space_changed)
 
         widget.set_help_text(
             fmt(
@@ -352,8 +353,8 @@ class WheelRigSlots(ptk.LoggingMixin):
             )
         )
 
-    def _on_world_space_toggled(self, checked: bool):
-        self._use_world_space = checked
+    def _on_space_changed(self, text: str):
+        self._use_world_space = text == "World Space"
 
     @property
     def rig_name(self) -> str:

@@ -338,10 +338,12 @@ try:
             "audio_clips tb001 option box wires reveal (select) + sync (refresh) actions",
             ac_ui.tb001.option_box.find_option(ActionOption) is not None,
         )
+        # The fit mode is a two-valued combo since 2026-07-12 (was a
+        # chk_extend_only checkbox); "Extend Only" preserves the old default.
+        _fit = getattr(ac_ui.b004.option_box.menu, "cmb_fit", None)
         check(
-            "audio_clips b004 option box wires Extend Only (default checked)",
-            hasattr(ac_ui.b004.option_box.menu, "chk_extend_only")
-            and ac_ui.b004.option_box.menu.chk_extend_only.isChecked(),
+            "audio_clips b004 option box wires the fit-mode combo (default Extend Only)",
+            _fit is not None and _fit.currentText() == "Extend Only",
         )
     else:
         check("audio_clips exposes slots for the option-box check", False, "no slots")
@@ -463,6 +465,9 @@ try:
     ctbl = getattr(channels_ui, "tbl000", None)
     if cslots is not None and ctbl is not None:
         vh = ctbl.verticalHeader()
+        # Compact view defaults ON since 2026-07-12 — establish the known
+        # non-compact baseline first so base_h is the expanded height.
+        cslots._on_toggle_compact_view(False)
         base_h = vh.defaultSectionSize()
         cslots._on_toggle_compact_view(True)
         compact_h = vh.defaultSectionSize()

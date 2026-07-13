@@ -152,6 +152,82 @@ try:
     check("uv_rects commit reverts clean",
           (btk.DataNodes.get_export_string("lightmap_metadata") or "") == "")
 
+    # --- atlas by material: 2 objects sharing a material -> one shared EXR + repacked UVs ---
+    for nm in ("AtlasA", "AtlasB"):
+        old = bpy.data.objects.get(nm)
+        if old is not None:
+            bpy.data.objects.remove(old, do_unlink=True)
+    bpy.ops.mesh.primitive_cube_add(location=(0, 5, 0))
+    a = bpy.context.active_object
+    a.name = "AtlasA"
+    bpy.ops.mesh.primitive_cube_add(location=(2, 5, 0))
+    b = bpy.context.active_object
+    b.name = "AtlasB"
+    shared_mat = btk.create_mat("standard", name="atlas_shared_mat")
+    btk.assign_mat(a, shared_mat)
+    btk.assign_mat(b, shared_mat)
+    btk.create_lightmap_uvs([a, b])
+
+    def uv_bbox(obj):
+        lm = btk.find_lightmap_uv_set(obj)
+        d = obj.data.uv_layers[lm].data
+        buf = np.empty(len(d) * 2, np.float32)
+        d.foreach_get("uv", buf)
+        uv = buf.reshape(-1, 2)
+        return (float(uv[:, 0].min()), float(uv[:, 0].max()),
+                float(uv[:, 1].min()), float(uv[:, 1].max()))
+
+    atlas_baker = LightmapBaker(resolution=64, samples=1)
+    maps = atlas_baker.bake_separated([a, b], output_dir=tmp_dir, suffix="_Lightmap")
+    check("atlas: both objects baked", set(maps) == {a.name, b.name}, f"{maps}")
+    src_a, src_b = maps.get(a.name), maps.get(b.name)
+    before_a = uv_bbox(a)  # 0-1 island layout, captured before pack_atlas mutates it
+
+    packed = atlas_baker.pack_atlas(maps, output_dir=tmp_dir, suffix="_Lightmap")
+    check("atlas: both objects in the packed result", set(packed) == {a.name, b.name}, f"{packed}")
+    atlas_paths = {p for p, _so in packed.values()}
+    check("atlas: one shared atlas for the shared material", len(atlas_paths) == 1, f"{atlas_paths}")
+    atlas_path = next(iter(atlas_paths))
+    check("atlas: shared EXR written to disk",
+          os.path.isfile(atlas_path) and os.path.getsize(atlas_path) > 0, atlas_path)
+    check("atlas: per-object source maps consolidated (removed)",
+          not os.path.exists(src_a) and not os.path.exists(src_b), f"{src_a} | {src_b}")
+
+    def rect_ok(so):
+        sx, sy, ox, oy = so
+        return sx < 1.0 and sy < 1.0 and ox >= -1e-6 and oy >= -1e-6 \
+            and ox + sx <= 1.0001 and oy + sy <= 1.0001
+
+    check("atlas: rects are non-identity and inside the unit square",
+          all(rect_ok(so) for _, so in packed.values()),
+          f"{[so for _, so in packed.values()]}")
+
+    def uv_in_rect(obj, so):
+        umin, umax, vmin, vmax = uv_bbox(obj)
+        sx, sy, ox, oy = so
+        eps = 2e-3
+        return (umin >= ox - eps and umax <= ox + sx + eps
+                and vmin >= oy - eps and vmax <= oy + sy + eps)
+
+    check("atlas: object A's lightmap UVs repacked into its rect",
+          uv_in_rect(a, packed[a.name][1]), f"{uv_bbox(a)} vs {packed[a.name][1]}")
+    check("atlas: object B's lightmap UVs repacked into its rect",
+          uv_in_rect(b, packed[b.name][1]), f"{uv_bbox(b)} vs {packed[b.name][1]}")
+
+    atlas_baker.commit_lightmap(
+        {n: p for n, (p, _so) in packed.items()},
+        uv_rects={n: so for n, (_p, so) in packed.items()},
+    )
+    info_a = json.loads(a[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check("atlas: commit records the applied rect as uvRect",
+          info_a.get("uvRect") == [float(v) for v in packed[a.name][1]], f"{info_a}")
+
+    atlas_baker.revert([a, b])
+    after_a = uv_bbox(a)
+    check("atlas: revert exactly restores object A's lightmap UVs (unit-square layout)",
+          all(abs(x - y) < 1e-3 for x, y in zip(before_a, after_a)),
+          f"before={before_a} after={after_a}")
+
     # --- fused → unlit commit/revert --------------------------------------
     fused = baker.bake_fused([cube], output_dir=tmp_dir, suffix="_LM")
     check("fused bake produced a map", cube.name in fused)

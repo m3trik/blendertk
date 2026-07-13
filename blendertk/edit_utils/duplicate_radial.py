@@ -159,6 +159,12 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[duplicate_radial] ")
 
+        # Output mode: independent copies vs shared-data instances (was the
+        # "Instance" checkbox). Copy is the default, matching the prior unchecked state.
+        self.ui.cmb_inst.clear()
+        self.ui.cmb_inst.add([("Copy", "copy"), ("Instance", "instance")])
+        self.ui.cmb_inst.setAsCurrent("copy")
+
         # Per-field reset buttons must precede connect_multi/Preview.
         self.sb.add_reset_buttons(self.ui)
 
@@ -170,7 +176,9 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
             undo_message="Duplicate Radial",
         )
         self.sb.connect_multi(self.ui, "s000-16", "valueChanged", self.preview.refresh)
-        self.sb.connect_multi(self.ui, "chk002-8", "toggled", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "chk002-4", "toggled", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "chk006-8", "toggled", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "cmb_inst", "currentIndexChanged", self.preview.refresh)
         self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
 
     def header_init(self, widget):
@@ -235,7 +243,7 @@ class DuplicateRadialSlots(ptk.LoggingMixin):
             scale=(self.ui.s006.value(), self.ui.s007.value(), self.ui.s008.value()),
             pivot=self._resolve_pivot(self.ui.cmb000.currentIndex()),
             keep_original=self.ui.chk006.isChecked(),
-            instance=self.ui.chk005.isChecked(),
+            instance=self.ui.cmb_inst.currentData() == "instance",
             combine=self.ui.chk007.isChecked(),
             suffix=self.ui.chk008.isChecked(),
         )

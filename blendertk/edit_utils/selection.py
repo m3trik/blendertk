@@ -130,6 +130,17 @@ class Selection:
             "Speakers": lambda objs: [o for o in objs if o.type == "SPEAKER"],
         },
         "UV": {
+            # Signed-UV-area winding (shoelace over face.loops[].uv): a face flipped/mirrored in
+            # UV space has negative area. Mirror of Maya's selectUVFaceOrientationComponents
+            # Back-/Front-Facing, at blendertk's object-level granularity (like the sibling
+            # Texture Borders / Unmapped leaves): selects objects that CONTAIN any flipped /
+            # any front-facing UV face. Camera backface culling is the separate chk004 toggle.
+            "Back-Facing": lambda objs: Selection._select_uv_face_orientation(
+                objs, want_flipped=True
+            ),
+            "Front-Facing": lambda objs: Selection._select_uv_face_orientation(
+                objs, want_flipped=False
+            ),
             "Overlapping": lambda objs: Selection._select_uv_overlap(objs, want_overlap=True),
             "Non-Overlapping": lambda objs: Selection._select_uv_overlap(
                 objs, want_overlap=False
@@ -372,6 +383,47 @@ class Selection:
         return result
 
     @staticmethod
+    def _signed_uv_area(face, uv_layer):
+        """Shoelace signed area of a face's UVs in loop order. Positive = normal winding,
+        negative = flipped/mirrored in UV space (matches Maya's face-orientation convention)."""
+        uvs = [loop[uv_layer].uv for loop in face.loops]  # materialize once (O(1) indexing)
+        n = len(uvs)
+        area = 0.0
+        for i in range(n):
+            u1, v1 = uvs[i]
+            u2, v2 = uvs[(i + 1) % n]
+            area += u1 * v2 - u2 * v1
+        return 0.5 * area
+
+    @staticmethod
+    def _select_uv_face_orientation(objects, want_flipped):
+        """Objects containing at least one flipped (``want_flipped=True``, negative signed UV
+        area) / front-facing (``want_flipped=False``, positive) UV face — object-level analogue
+        of Maya's ``selectUVFaceOrientationComponents`` Back-/Front-Facing. Reads the mesh copy
+        (no Edit Mode needed), so it composes with ``select_by_type``'s object selection like the
+        other UV leaves."""
+        import bmesh
+
+        result = []
+        for o in objects:
+            if o.type != "MESH" or not o.data.uv_layers:
+                continue
+            bm = bmesh.new()
+            try:
+                bm.from_mesh(o.data)
+                uv_layer = bm.loops.layers.uv.active
+                if uv_layer is None:
+                    continue
+                for f in bm.faces:
+                    area = Selection._signed_uv_area(f, uv_layer)
+                    if abs(area) > 1e-12 and (area < 0.0) == want_flipped:
+                        result.append(o)
+                        break
+            finally:
+                bm.free()
+        return result
+
+    @staticmethod
     def _apply_selection_mode(objects, mode):
         """Apply the selection mode to the given objects (mirror of ``mtk``'s helper, via
         ``Object.select_set`` instead of ``cmds.select``).
@@ -547,6 +599,142 @@ class Selection:
         import bpy
 
         bpy.ops.mesh.select_linked(delimit={"UV"})
+
+    # -- UV-domain component conversions (cmb003 UV Shell Border / UV Perimeter / UV Edge Loop).
+    # All three key off a single UV-boundary test: an edge bounds a UV island if it is a mesh-open
+    # edge (naked, <2 faces) OR a UV discontinuity — its two faces assign different UVs to a shared
+    # vertex, i.e. a seam that splits an otherwise-manifold surface in UV space. The UV-coord check
+    # is ground truth (works with or without explicit seam marks); a mesh-continuous edge keeps
+    # matching UVs at both endpoints by construction, so there are no false positives.
+    @staticmethod
+    def _edge_is_uv_boundary(edge, uv_layer):
+        """True if `edge` lies on a UV-island boundary (mesh-open edge or UV seam)."""
+        lf = edge.link_faces
+        if len(lf) != 2:
+            return True
+        for v in edge.verts:
+            uvs = []
+            for f in lf:
+                for loop in f.loops:
+                    if loop.vert is v:
+                        uvs.append(loop[uv_layer].uv)
+                        break
+            if len(uvs) == 2 and (uvs[0] - uvs[1]).length > 1e-6:
+                return True
+        return False
+
+    @staticmethod
+    def select_uv_shell_border(obj):
+        """UV Shell Border: the UV-island boundary edges of the UV shell(s) touching the current
+        selection — Maya's ``polySelectBorderShell 1``. Grows to the full UV island first
+        (``select_linked`` with the UV delimiter, so a seam stops the grow), then keeps that
+        island's UV-boundary edges. Differs from Shell Border (3D-topology open edges): a seam
+        splitting a manifold surface in UV space is a boundary here but not there."""
+        import bpy
+
+        bpy.ops.mesh.select_linked(delimit={"UV"})
+        bm = Selection._edit_bmesh(obj)
+        uv_layer = bm.loops.layers.uv.active
+        if uv_layer is None:
+            return 0
+        # The UV island is the currently-selected face set; take its edges directly (don't rely
+        # on a FACE->EDGE mode flush, which doesn't reliably carry the selection here).
+        island_edges = {e for f in bm.faces if f.select for e in f.edges}
+        border_idx = {
+            e.index for e in island_edges if Selection._edge_is_uv_boundary(e, uv_layer)
+        }
+        bpy.ops.mesh.select_mode(type="EDGE")
+        bm = Selection._edit_bmesh(obj)
+        for e in bm.edges:
+            e.select = e.index in border_idx
+        Selection._flush(obj, bm)
+        return len(border_idx)
+
+    @staticmethod
+    def select_uv_perimeter(obj):
+        """UV Perimeter: the boundary of the current selection's UV footprint — Maya's
+        ``ConvertSelectionToUVPerimeter``. Like Edge Perimeter (the ring around the selected
+        region) but measured in UV space: an edge is on the perimeter if exactly one of its faces
+        is selected (region boundary) OR both are selected but it is a UV seam interior to the
+        selection (a UV-space boundary even though the region is topologically continuous there)."""
+        import bpy
+
+        bm = Selection._edit_bmesh(obj)
+        uv_layer = bm.loops.layers.uv.active
+        if uv_layer is None:
+            return 0
+        sel_face_idx = {f.index for f in bm.faces if f.select}
+        if not sel_face_idx:
+            return 0
+        bpy.ops.mesh.select_mode(type="EDGE")
+        bm = Selection._edit_bmesh(obj)
+        uv_layer = bm.loops.layers.uv.active
+        selected = {bm.faces[i] for i in sel_face_idx}
+        perimeter = set()
+        for e in bm.edges:
+            n_sel = sum(1 for f in e.link_faces if f in selected)
+            if n_sel == 0:
+                continue
+            if n_sel == 1 or Selection._edge_is_uv_boundary(e, uv_layer):
+                perimeter.add(e)
+        for e in bm.edges:
+            e.select = e in perimeter
+        Selection._flush(obj, bm)
+        return len(perimeter)
+
+    @staticmethod
+    def select_uv_edge_loop(obj):
+        """UV Edge Loop: the topological edge loop through the selection, truncated at UV seams —
+        Maya's ``polySelectEdges "edgeUVLoopOrBorder"``. Runs Blender's native loop select, then
+        keeps only the run of loop edges reachable from the original selection without crossing a
+        UV break: a UV-boundary edge is dropped, and a vertex touching any UV-boundary edge stops
+        the walk (the UV is discontinuous there). If the selection was entirely on a seam (no
+        walkable start), the original edges are returned unchanged."""
+        import bpy
+
+        bpy.ops.mesh.select_mode(type="EDGE")
+        bm = Selection._edit_bmesh(obj)
+        uv_layer = bm.loops.layers.uv.active
+        if uv_layer is None:
+            return 0
+        orig_idx = {e.index for e in bm.edges if e.select}
+        if not orig_idx:
+            return 0
+
+        # The current selection is already exactly ``orig_idx``; loop-select extends it in place.
+        bpy.ops.mesh.select_edge_loop_multi()
+
+        bm = Selection._edit_bmesh(obj)
+        uv_layer = bm.loops.layers.uv.active
+        loop_edges = {e for e in bm.edges if e.select}
+        walkable = {e for e in loop_edges if not Selection._edge_is_uv_boundary(e, uv_layer)}
+        # break vertices: a loop vertex the walk must stop at because one of its incident edges is
+        # a UV boundary (seam/open). Only loop vertices are ever visited, so restrict the (costly)
+        # boundary test to them rather than scanning every edge in the mesh.
+        loop_verts = {v for e in loop_edges for v in e.verts}
+        break_verts = {
+            v
+            for v in loop_verts
+            if any(Selection._edge_is_uv_boundary(inc, uv_layer) for inc in v.link_edges)
+        }
+        start = {e for e in walkable if e.index in orig_idx}
+        result = set(start)
+        frontier = list(start)
+        while frontier:  # BFS through shared verts, never crossing a break vertex
+            e = frontier.pop()
+            for v in e.verts:
+                if v in break_verts:
+                    continue
+                for ne in v.link_edges:
+                    if ne in walkable and ne not in result:
+                        result.add(ne)
+                        frontier.append(ne)
+        if not result:  # selection sat entirely on a seam — keep it as-is
+            result = {bm.edges[i] for i in orig_idx}
+        for e in bm.edges:
+            e.select = e in result
+        Selection._flush(obj, bm)
+        return len(result)
 
     @staticmethod
     def get_available_selection_types():
