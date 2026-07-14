@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-14",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -3055,7 +3055,7 @@
               "kind": "method",
               "signature": "(self, widget=None)",
               "summary": "Fit the scene frame range to the loaded clips.",
-              "line": 393,
+              "line": 395,
               "deprecated": false
             }
           ]
@@ -4819,7 +4819,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 215,
+              "line": 218,
               "deprecated": false
             },
             {
@@ -4828,7 +4828,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Disable weight UI components if the current calculation mode doesn't use them.",
-              "line": 244,
+              "line": 247,
               "deprecated": false
             },
             {
@@ -4837,7 +4837,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults: Resets all UI widgets to their default values.",
-              "line": 270,
+              "line": 273,
               "deprecated": false
             },
             {
@@ -4846,7 +4846,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Perform the linear duplication operation.",
-              "line": 274,
+              "line": 277,
               "deprecated": false
             }
           ]
@@ -4889,7 +4889,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 176,
+              "line": 184,
               "deprecated": false
             },
             {
@@ -4898,7 +4898,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults: Resets all UI widgets to their default values.",
-              "line": 212,
+              "line": 220,
               "deprecated": false
             },
             {
@@ -4907,7 +4907,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "",
-              "line": 216,
+              "line": 224,
               "deprecated": false
             }
           ]
@@ -5698,7 +5698,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Suffix By Location",
-              "line": 338,
+              "line": 340,
               "deprecated": false
             },
             {
@@ -5707,7 +5707,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Strip Chars",
-              "line": 364,
+              "line": 368,
               "deprecated": false
             },
             {
@@ -5716,7 +5716,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Strip Chars: remove a number of leading/trailing characters from the selected names.",
-              "line": 382,
+              "line": 386,
               "deprecated": false
             },
             {
@@ -5725,7 +5725,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Suffix By Type",
-              "line": 396,
+              "line": 400,
               "deprecated": false
             },
             {
@@ -5734,7 +5734,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Suffix By Type",
-              "line": 487,
+              "line": 491,
               "deprecated": false
             }
           ]
@@ -5758,7 +5758,7 @@
               "kind": "staticmethod",
               "signature": "(selection_type, objects=None, mode='replace')",
               "summary": "Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).",
-              "line": 148,
+              "line": 159,
               "deprecated": false
             },
             {
@@ -5767,7 +5767,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "The immediate children of the given objects (one level below only).",
-              "line": 197,
+              "line": 208,
               "deprecated": false
             },
             {
@@ -5776,7 +5776,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All ancestor objects above the given objects (full parent chain).",
-              "line": 205,
+              "line": 216,
               "deprecated": false
             },
             {
@@ -5785,7 +5785,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All descendant objects below the given objects (full child subtree).",
-              "line": 213,
+              "line": 224,
               "deprecated": false
             },
             {
@@ -5794,7 +5794,7 @@
               "kind": "staticmethod",
               "signature": "(obj, mode, contained=False)",
               "summary": "Convert the current Edit-Mode selection to `mode` ('VERT'/'EDGE'/'FACE') — Maya",
-              "line": 438,
+              "line": 490,
               "deprecated": false
             },
             {
@@ -5803,7 +5803,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Path: the shortest face-adjacency path between exactly two selected faces —",
-              "line": 448,
+              "line": 500,
               "deprecated": false
             },
             {
@@ -5812,7 +5812,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Vertex Perimeter: the vertices of the boundary loop around the current face-region",
-              "line": 459,
+              "line": 511,
               "deprecated": false
             },
             {
@@ -5821,7 +5821,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Edge Perimeter: the boundary edge loop around the current face-region selection —",
-              "line": 468,
+              "line": 520,
               "deprecated": false
             },
             {
@@ -5830,7 +5830,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Perimeter: the ring of faces immediately surrounding the current face-region",
-              "line": 478,
+              "line": 530,
               "deprecated": false
             },
             {
@@ -5839,7 +5839,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Border Edges: the naked (open, single-face) mesh edges among the current",
-              "line": 500,
+              "line": 552,
               "deprecated": false
             },
             {
@@ -5848,7 +5848,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Shell Border: the naked/open boundary edges of the connected shell(s) touching the",
-              "line": 532,
+              "line": 584,
               "deprecated": false
             },
             {
@@ -5857,7 +5857,34 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Shell: every face sharing a UV island with the current selection — Maya's",
-              "line": 543,
+              "line": 595,
+              "deprecated": false
+            },
+            {
+              "name": "select_uv_shell_border",
+              "qualname": "Selection.select_uv_shell_border",
+              "kind": "staticmethod",
+              "signature": "(obj)",
+              "summary": "UV Shell Border: the UV-island boundary edges of the UV shell(s) touching the current",
+              "line": 627,
+              "deprecated": false
+            },
+            {
+              "name": "select_uv_perimeter",
+              "qualname": "Selection.select_uv_perimeter",
+              "kind": "staticmethod",
+              "signature": "(obj)",
+              "summary": "UV Perimeter: the boundary of the current selection's UV footprint — Maya's",
+              "line": 654,
+              "deprecated": false
+            },
+            {
+              "name": "select_uv_edge_loop",
+              "qualname": "Selection.select_uv_edge_loop",
+              "kind": "staticmethod",
+              "signature": "(obj)",
+              "summary": "UV Edge Loop: the topological edge loop through the selection, truncated at UV seams —",
+              "line": 686,
               "deprecated": false
             },
             {
@@ -5866,7 +5893,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "A flat, sorted list of every leaf selection-type label.",
-              "line": 552,
+              "line": 740,
               "deprecated": false
             },
             {
@@ -5875,7 +5902,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Dict of category -> leaf-label list (mirror of ``mtk.Selection.get_selection_categories``).",
-              "line": 558,
+              "line": 746,
               "deprecated": false
             }
           ]
@@ -8297,7 +8324,7 @@
         {
           "name": "LightmapBaker",
           "summary": "Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.",
-          "line": 63,
+          "line": 62,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -8308,7 +8335,7 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "",
-              "line": 100,
+              "line": 99,
               "deprecated": false
             },
             {
@@ -8317,7 +8344,7 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "",
-              "line": 108,
+              "line": 107,
               "deprecated": false
             },
             {
@@ -8326,7 +8353,7 @@
               "kind": "staticmethod",
               "signature": "() -> 'ptk.PresetStore'",
               "summary": "Shared store of lightmap quality presets (built-in + user tiers).",
-              "line": 120,
+              "line": 119,
               "deprecated": false
             },
             {
@@ -8335,7 +8362,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, **overrides) -> 'LightmapBaker'",
               "summary": "Construct a baker from a named quality preset (``resolution`` / ``samples``).",
-              "line": 131,
+              "line": 130,
               "deprecated": false
             },
             {
@@ -8344,7 +8371,7 @@
               "kind": "method",
               "signature": "(self, objects=None, **kwargs) -> Dict[str, str]",
               "summary": "Bake a **fused** (albedo x lighting) HDR lightmap per object.",
-              "line": 150,
+              "line": 149,
               "deprecated": false
             },
             {
@@ -8353,7 +8380,7 @@
               "kind": "method",
               "signature": "(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]",
               "summary": "Bake a **lighting-only** irradiance lightmap per object (the default path).",
-              "line": 158,
+              "line": 157,
               "deprecated": false
             },
             {
@@ -8362,7 +8389,16 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]",
               "summary": "Record a lighting-only bake for the engine (changes nothing about the material/UVs).",
-              "line": 234,
+              "line": 233,
+              "deprecated": false
+            },
+            {
+              "name": "pack_atlas",
+              "qualname": "LightmapBaker.pack_atlas",
+              "kind": "method",
+              "signature": "(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap') -> Dict[str, Tuple[str, List[float]]]",
+              "summary": "Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.",
+              "line": 307,
               "deprecated": false
             },
             {
@@ -8370,8 +8406,8 @@
               "qualname": "LightmapBaker.revert_lightmap",
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
-              "summary": "Undo :meth:`commit_lightmap` -- drop the markers + republish.",
-              "line": 399,
+              "summary": "Undo :meth:`commit_lightmap` -- restore any atlas UV remap, drop the markers, republish.",
+              "line": 688,
               "deprecated": false
             },
             {
@@ -8380,7 +8416,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str]) -> Dict[str, str]",
               "summary": "Make the fused bake each object's live appearance (non-destructive).",
-              "line": 418,
+              "line": 723,
               "deprecated": false
             },
             {
@@ -8389,7 +8425,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Undo :meth:`commit_unlit` -- restore the source material slots + drop the marker.",
-              "line": 472,
+              "line": 777,
               "deprecated": false
             },
             {
@@ -8398,7 +8434,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Undo any lightmap wiring -- fused commit and/or lighting-only marker.",
-              "line": 501,
+              "line": 806,
               "deprecated": false
             }
           ]
@@ -8406,7 +8442,7 @@
         {
           "name": "LightmapBakerSlots",
           "summary": "Switchboard slots for the co-located ``lightmap_baker.ui`` panel.",
-          "line": 528,
+          "line": 833,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -8417,7 +8453,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Configure the header chrome (menu / collapse / hide), menu, help text.",
-              "line": 626,
+              "line": 902,
               "deprecated": false
             },
             {
@@ -8426,7 +8462,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Quality combobox from the shared preset store.",
-              "line": 696,
+              "line": 973,
               "deprecated": false
             },
             {
@@ -8435,7 +8471,7 @@
               "kind": "method",
               "signature": "(self, index, widget) -> None",
               "summary": "Apply the selected preset's dials to Resolution / Samples.",
-              "line": 705,
+              "line": 982,
               "deprecated": false
             },
             {
@@ -8444,7 +8480,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the bake-level (Mode) combobox;",
-              "line": 710,
+              "line": 987,
               "deprecated": false
             },
             {
@@ -8453,7 +8489,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Packing combobox;",
-              "line": 720,
+              "line": 997,
               "deprecated": false
             },
             {
@@ -8462,7 +8498,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Scope combobox;",
-              "line": 731,
+              "line": 1008,
               "deprecated": false
             },
             {
@@ -8471,7 +8507,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Resolution combobox (value carried as item data);",
-              "line": 760,
+              "line": 1037,
               "deprecated": false
             },
             {
@@ -8480,7 +8516,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Add the Prefix / Suffix / Auto picker to the name-affix field.",
-              "line": 782,
+              "line": 1059,
               "deprecated": false
             },
             {
@@ -8489,7 +8525,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).",
-              "line": 803,
+              "line": 1080,
               "deprecated": false
             },
             {
@@ -8498,7 +8534,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Undo the bake wiring on the selected objects (or all baked ones).",
-              "line": 869,
+              "line": 1156,
               "deprecated": false
             },
             {
@@ -8507,7 +8543,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open the most recent output folder in the file browser.",
-              "line": 882,
+              "line": 1169,
               "deprecated": false
             }
           ]
@@ -11313,7 +11349,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the filter combobox + wire its invert action (bpy-free).",
-              "line": 255,
+              "line": 281,
               "deprecated": false
             },
             {
@@ -11322,7 +11358,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Filter changed — refresh table.",
-              "line": 279,
+              "line": 305,
               "deprecated": false
             },
             {
@@ -11331,7 +11367,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the header menu (Qt-only;",
-              "line": 301,
+              "line": 327,
               "deprecated": false
             },
             {
@@ -11340,7 +11376,7 @@
               "kind": "method",
               "signature": "(self, *args)",
               "summary": "Show the *Create Attribute* popup (a custom-property form).",
-              "line": 766,
+              "line": 793,
               "deprecated": false
             },
             {
@@ -11349,7 +11385,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "One-time table setup (action columns + context menu + signals), then a guarded refresh.",
-              "line": 848,
+              "line": 875,
               "deprecated": false
             }
           ]
@@ -11561,7 +11597,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 235,
+              "line": 239,
               "deprecated": false
             },
             {
@@ -11570,7 +11606,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults.",
-              "line": 276,
+              "line": 280,
               "deprecated": false
             },
             {
@@ -11579,7 +11615,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Build the tube(s) from the selected curves (Preview entry point).",
-              "line": 280,
+              "line": 284,
               "deprecated": false
             }
           ]
@@ -12651,7 +12687,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Get the rig name from the text box.",
-              "line": 359,
+              "line": 360,
               "deprecated": false
             },
             {
@@ -12660,7 +12696,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Get the control travel channel from the axis combo box.",
-              "line": 368,
+              "line": 369,
               "deprecated": false
             },
             {
@@ -12669,7 +12705,7 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "Get the wheel ``rotation_euler`` index that corresponds to the selected movement axis.",
-              "line": 374,
+              "line": 375,
               "deprecated": false
             },
             {
@@ -12678,7 +12714,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Resolve the current selection into control (driver) and wheels.",
-              "line": 383,
+              "line": 384,
               "deprecated": false
             },
             {
@@ -12687,7 +12723,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Get the wheel height from the selected object's bounding box.",
-              "line": 411,
+              "line": 412,
               "deprecated": false
             },
             {
@@ -12696,7 +12732,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the wheel height field's option-box menu.",
-              "line": 447,
+              "line": 448,
               "deprecated": false
             },
             {
@@ -12705,7 +12741,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Update the rig name placeholder based on the driver (active object).",
-              "line": 464,
+              "line": 465,
               "deprecated": false
             },
             {
@@ -12714,7 +12750,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Unsubscribe from the centralized ScriptJobManager.",
-              "line": 478,
+              "line": 479,
               "deprecated": false
             },
             {
@@ -12723,7 +12759,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "Get or create the wheel rig attached to the selected control.",
-              "line": 483,
+              "line": 484,
               "deprecated": false
             },
             {
@@ -12732,7 +12768,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Create or update Wheel Rig.",
-              "line": 524,
+              "line": 525,
               "deprecated": false
             }
           ]
@@ -13797,7 +13833,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Mirror UVs (footprint-preserving reassignment by default;",
-              "line": 245,
+              "line": 249,
               "deprecated": false
             },
             {
@@ -13806,7 +13842,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their minimum U (left).",
-              "line": 270,
+              "line": 274,
               "deprecated": false
             },
             {
@@ -13815,7 +13851,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their average U (center).",
-              "line": 275,
+              "line": 279,
               "deprecated": false
             },
             {
@@ -13824,7 +13860,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their maximum U (right).",
-              "line": 280,
+              "line": 284,
               "deprecated": false
             },
             {
@@ -13833,7 +13869,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their minimum V (bottom).",
-              "line": 285,
+              "line": 289,
               "deprecated": false
             },
             {
@@ -13842,7 +13878,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their average V (center).",
-              "line": 290,
+              "line": 294,
               "deprecated": false
             },
             {
@@ -13851,7 +13887,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their maximum V (top).",
-              "line": 295,
+              "line": 299,
               "deprecated": false
             },
             {
@@ -13860,7 +13896,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Linearly align the selected UVs between their two end points.",
-              "line": 300,
+              "line": 304,
               "deprecated": false
             },
             {
@@ -13869,7 +13905,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Orient each shell to run parallel with its nearest U/V axis (Align Rotation).",
-              "line": 306,
+              "line": 310,
               "deprecated": false
             },
             {
@@ -13878,7 +13914,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Orient the shell so its selected edge runs along U or V.",
-              "line": 314,
+              "line": 318,
               "deprecated": false
             },
             {
@@ -13887,7 +13923,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Gather the selected shells together toward the 0-1 UV space.",
-              "line": 323,
+              "line": 327,
               "deprecated": false
             },
             {
@@ -13896,7 +13932,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Randomly offset the selected shells.",
-              "line": 331,
+              "line": 335,
               "deprecated": false
             },
             {
@@ -13905,7 +13941,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open Blender's UV Editor.",
-              "line": 343,
+              "line": 347,
               "deprecated": false
             }
           ]
