@@ -689,6 +689,35 @@ def get_view3d_context():
     return None
 
 
+@contextmanager
+def window_context_override():
+    """Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
+
+    The window-only companion to :func:`get_view3d_context` (which targets a VIEW_3D *region*).
+    Some ``bpy.ops`` don't need a viewport but still read *screen-context* members: e.g. Blender's
+    ``io_scene_fbx`` exporter accesses ``context.selected_objects`` (raises ``AttributeError`` when
+    ``context.window`` is ``None``). tentacle drives the slots from the Qt event-pump timer where
+    ``context.window`` is ``None`` (see :func:`selected_objects`), so those ops fault. Wrapping them
+    in ``with window_context_override():`` supplies the first open window so the operator's
+    screen-context reads resolve.
+
+    A no-op (plain ``yield``) when a window is already active — so it's harmless to wrap
+    unconditionally — or when no window exists at all (leaves the caller to fail as it would have).
+    """
+    import bpy
+
+    if getattr(bpy.context, "window", None) is not None:
+        yield
+        return
+    wm = getattr(bpy.context, "window_manager", None)
+    windows = getattr(wm, "windows", None) or []
+    if not windows:
+        yield
+        return
+    with bpy.context.temp_override(window=windows[0]):
+        yield
+
+
 class CoreUtils(ptk.CoreUtils):
     """Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
     ``mayatk.CoreUtils(ptk.CoreUtils, ...)``), inheriting the shared helpers and adding the
@@ -709,5 +738,6 @@ class CoreUtils(ptk.CoreUtils):
     cleanup_scene = staticmethod(cleanup_scene)
     get_areas = staticmethod(get_areas)
     get_view3d_context = staticmethod(get_view3d_context)
+    window_context_override = staticmethod(window_context_override)
     selected_objects = staticmethod(selected_objects)
     active_object = staticmethod(active_object)

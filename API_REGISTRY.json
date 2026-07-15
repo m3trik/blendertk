@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-14",
+  "generated_at": "2026-07-15",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -3224,13 +3224,22 @@
           "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
           "line": 663,
           "deprecated": false
+        },
+        {
+          "name": "window_context_override",
+          "qualname": "window_context_override",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
+          "line": 693,
+          "deprecated": false
         }
       ],
       "classes": [
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 692,
+          "line": 721,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -6209,7 +6218,7 @@
           "kind": "function",
           "signature": "(filepath=None, objects=None, **fbx_opts)",
           "summary": "Export the selection (or ``objects``) to an FBX file for an external-app hand-off.",
-          "line": 128,
+          "line": 171,
           "deprecated": false
         },
         {
@@ -6218,7 +6227,7 @@
           "kind": "function",
           "signature": "(filepath, **fbx_opts)",
           "summary": "Import an FBX file;",
-          "line": 138,
+          "line": 181,
           "deprecated": false
         }
       ],
@@ -6226,7 +6235,7 @@
         {
           "name": "FbxUtils",
           "summary": "FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).",
-          "line": 40,
+          "line": 72,
           "bases": [],
           "members": [
             {
@@ -6235,7 +6244,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, objects=None, selection_only=True, **fbx_opts)",
               "summary": "Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.",
-              "line": 44,
+              "line": 76,
               "deprecated": false
             },
             {
@@ -6244,7 +6253,7 @@
               "kind": "staticmethod",
               "signature": "(filepath, **fbx_opts)",
               "summary": "Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).",
-              "line": 107,
+              "line": 150,
               "deprecated": false
             }
           ]
@@ -9455,7 +9464,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 75,
+              "line": 80,
               "deprecated": false
             },
             {
@@ -9464,7 +9473,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 79,
+              "line": 84,
               "deprecated": false
             },
             {
@@ -9473,7 +9482,7 @@
               "kind": "method",
               "signature": "(self) -> MarmosetBridge",
               "summary": "",
-              "line": 82,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -9482,7 +9491,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 85,
+              "line": 90,
               "deprecated": false
             },
             {
@@ -9491,7 +9500,7 @@
               "kind": "method",
               "signature": "(self, pairs)",
               "summary": "Prefer 'bake (roundtrip)' then 'bake (send_to)', else first entry.",
-              "line": 88,
+              "line": 93,
               "deprecated": false
             },
             {
@@ -9500,7 +9509,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Process selected objects with the chosen template + mode.",
-              "line": 99,
+              "line": 104,
               "deprecated": false
             }
           ]
@@ -10571,7 +10580,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 104,
+              "line": 108,
               "deprecated": false
             },
             {
@@ -10580,7 +10589,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 108,
+              "line": 112,
               "deprecated": false
             },
             {
@@ -10589,7 +10598,7 @@
               "kind": "method",
               "signature": "(self) -> SubstanceBridge",
               "summary": "",
-              "line": 111,
+              "line": 115,
               "deprecated": false
             },
             {
@@ -10598,7 +10607,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 114,
+              "line": 118,
               "deprecated": false
             },
             {
@@ -10607,7 +10616,7 @@
               "kind": "method",
               "signature": "(self, pairs)",
               "summary": "Default the panel to ``import (send_to)`` when it's available.",
-              "line": 117,
+              "line": 121,
               "deprecated": false
             },
             {
@@ -10616,7 +10625,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Process the selected objects with the chosen template + mode.",
-              "line": 126,
+              "line": 130,
               "deprecated": false
             }
           ]
@@ -13505,13 +13514,13 @@
     },
     {
       "relpath": "uv_utils/rizom_bridge/_rizom_bridge.py",
-      "summary": "RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.",
+      "summary": "RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.",
       "functions": [],
       "classes": [
         {
           "name": "RizomUVBridge",
-          "summary": "Engine: discover the RizomUV exe, export the selection, launch RizomUV with a load-script.",
-          "line": 46,
+          "summary": "Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).",
+          "line": 93,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -13522,7 +13531,34 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "Resolved RizomUV executable path (cached), or None.",
-              "line": 55,
+              "line": 125,
+              "deprecated": false
+            },
+            {
+              "name": "rizom_version",
+              "qualname": "RizomUVBridge.rizom_version",
+              "kind": "property",
+              "signature": "(self) -> 'tuple[int, ...]'",
+              "summary": "The installed Rizom version, parsed from the install-dir name (mirror of mayatk).",
+              "line": 146,
+              "deprecated": false
+            },
+            {
+              "name": "export_path",
+              "qualname": "RizomUVBridge.export_path",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "Lazy temp FBX path for the round-trip (POSIX string).",
+              "line": 164,
+              "deprecated": false
+            },
+            {
+              "name": "script_path",
+              "qualname": "RizomUVBridge.script_path",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "The prepared Lua script file path as a POSIX string.",
+              "line": 178,
               "deprecated": false
             },
             {
@@ -13531,7 +13567,7 @@
               "kind": "method",
               "signature": "(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)",
               "summary": "Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).",
-              "line": 99,
+              "line": 220,
               "deprecated": false
             },
             {
@@ -13540,7 +13576,16 @@
               "kind": "method",
               "signature": "(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)",
               "summary": "Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).",
-              "line": 118,
+              "line": 239,
+              "deprecated": false
+            },
+            {
+              "name": "process_with_rizomuv",
+              "qualname": "RizomUVBridge.process_with_rizomuv",
+              "kind": "method",
+              "signature": "(self, objects, uv_script=None, preset=None, params=None)",
+              "summary": "Run the full export -> RizomUV -> re-import -> transfer-UVs-back workflow.",
+              "line": 274,
               "deprecated": false
             }
           ]
@@ -13557,7 +13602,7 @@
           "kind": "function",
           "signature": "(script_text: str) -> 'set[str]'",
           "summary": "Registered keys present in *script_text* (delegates to uitk.bridge).",
-          "line": 86,
+          "line": 327,
           "deprecated": false
         },
         {
@@ -13566,7 +13611,7 @@
           "kind": "function",
           "signature": "() -> 'dict[str, Any]'",
           "summary": "Return ``{key: default}`` for every registered parameter.",
-          "line": 91,
+          "line": 332,
           "deprecated": false
         },
         {
@@ -13575,7 +13620,16 @@
           "kind": "function",
           "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
           "summary": "Format *values* for placeholder substitution using Lua literals.",
-          "line": 96,
+          "line": 337,
+          "deprecated": false
+        },
+        {
+          "name": "strip_unsupported",
+          "qualname": "strip_unsupported",
+          "kind": "function",
+          "signature": "(script_text: str, version: 'tuple[int, ...]') -> str",
+          "summary": "Drop every line that references a placeholder requiring a newer Rizom.",
+          "line": 382,
           "deprecated": false
         }
       ],
@@ -13589,7 +13643,7 @@
         {
           "name": "RizomBridgeSlots",
           "summary": "Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.",
-          "line": 37,
+          "line": 57,
           "bases": [
             "BridgeSlotsBase"
           ],
@@ -13600,7 +13654,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 122,
+              "line": 141,
               "deprecated": false
             },
             {
@@ -13609,7 +13663,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 126,
+              "line": 145,
               "deprecated": false
             },
             {
@@ -13618,7 +13672,7 @@
               "kind": "method",
               "signature": "(self) -> RizomUVBridge",
               "summary": "",
-              "line": 129,
+              "line": 148,
               "deprecated": false
             },
             {
@@ -13626,35 +13680,8 @@
               "qualname": "RizomBridgeSlots.list_template_modes",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Return ``[(stem, \"\"), ...]`` for every mayatk RizomUV preset.",
-              "line": 140,
-              "deprecated": false
-            },
-            {
-              "name": "select_initial_template_index",
-              "qualname": "RizomBridgeSlots.select_initial_template_index",
-              "kind": "method",
-              "signature": "(self, pairs)",
-              "summary": "Bias the initial selection toward ``send`` -- the only preset this port can run.",
-              "line": 151,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000_init",
-              "qualname": "RizomBridgeSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget) -> None",
-              "summary": "Populate + wire the preset combo (base), then disable the round-trip presets.",
-              "line": 162,
-              "deprecated": false
-            },
-            {
-              "name": "refresh_templates",
-              "qualname": "RizomBridgeSlots.refresh_templates",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Re-scan + rebuild the combo (base), re-applying the round-trip disable.",
-              "line": 167,
+              "summary": "Return ``[(stem, \"\"), ...]`` for every bundled ``.lua`` script.",
+              "line": 154,
               "deprecated": false
             },
             {
@@ -13662,8 +13689,8 @@
               "qualname": "RizomBridgeSlots.b000",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Run the chosen preset.",
-              "line": 201,
+              "summary": "Run the chosen preset: round-trip, or one-way send when ``send`` is picked.",
+              "line": 165,
               "deprecated": false
             },
             {
@@ -13672,7 +13699,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open Blender's UV Editor in a new window.",
-              "line": 262,
+              "line": 218,
               "deprecated": false
             }
           ]

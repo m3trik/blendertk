@@ -25,6 +25,11 @@ import os
 
 import pythontk as ptk
 
+# Window-independent selection reader + window-supplying override for the Qt event-pump timer
+# context (``bpy.context.window`` is ``None`` there — see ``_core_utils.selected_objects``). Both
+# import Qt-free / bpy-deferred, so importing this module never needs a running Blender.
+from blendertk.core_utils._core_utils import selected_objects, window_context_override
+
 # Bridge/export defaults: mesh-only, modifiers applied, selection-only — the safe hand-off set
 # (the same defaults the bridges relied on when this lived in ``core_utils``).
 _EXPORT_DEFAULTS = {
@@ -35,6 +40,33 @@ _EXPORT_DEFAULTS = {
     "bake_anim": False,
     "path_mode": "AUTO",
 }
+
+
+def _translate_fbx_options(options):
+    """Translate Maya MEL FBX option names (``FBXExport*``) in *options* to ``export_scene.fbx``
+    kwargs, returning a new dict.
+
+    The Substance/Marmoset bridge templates are vendored verbatim from mayatk, where ``FBX_OPTIONS``
+    drives ``mel.eval`` ``FBXExport*`` commands (``FbxUtils.set_fbx_options``). Those names are
+    meaningless to Blender's ``bpy.ops.export_scene.fbx`` — passing one raises
+    ``keyword "FBXExport…" unrecognized``. This is the Blender side of the "engine does the
+    idiomatic-per-DCC translation" contract the bridges' ``_DEFAULT_FBX_OPTIONS`` documents.
+
+    Known Maya names map to their Blender equivalent; an unmapped ``FBXExport*`` name is a Maya-only
+    concept and is dropped. Every non-Maya key passes through unchanged, so Blender still validates
+    real ``export_scene.fbx`` kwargs (a typo'd Blender kwarg still errors loudly). Maya translations
+    are applied last so their intent wins over the Blender-native defaults regardless of dict order.
+    """
+    passthrough, maya = {}, {}
+    for key, value in options.items():
+        (maya if key.startswith("FBXExport") else passthrough)[key] = value
+    for key, value in maya.items():
+        if key == "FBXExportEmbeddedTextures":
+            passthrough["embed_textures"] = bool(value)
+            if value:  # Blender only embeds textures when the paths are copied in
+                passthrough["path_mode"] = "COPY"
+        # else: Maya MEL option with no Blender analogue — intentionally dropped.
+    return passthrough
 
 
 class FbxUtils:
@@ -69,18 +101,6 @@ class FbxUtils:
             filepath += ".fbx"
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
 
-        prior = None
-        if objects is not None:
-            prior = list(getattr(bpy.context, "selected_objects", []) or [])
-            bpy.ops.object.select_all(action="DESELECT")
-            for o in ptk.make_iterable(objects):
-                obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-                if obj is not None:
-                    obj.select_set(True)
-
-        if selection_only and not (getattr(bpy.context, "selected_objects", None) or []):
-            raise RuntimeError("Nothing selected to export.")
-
         opts = dict(_EXPORT_DEFAULTS)
         opts["use_selection"] = selection_only
         opts.update(fbx_opts)
@@ -91,16 +111,39 @@ class FbxUtils:
         if "object_types" in opts and not isinstance(opts["object_types"], set):
             value = opts["object_types"]
             opts["object_types"] = {value} if isinstance(value, str) else set(value)
-        try:
-            bpy.ops.export_scene.fbx(filepath=filepath, **opts)
-        finally:
-            if prior is not None:  # restore the user's selection
+        # Templates vendored from mayatk carry Maya MEL FBX names (e.g. FBXExportEmbeddedTextures);
+        # translate them to export_scene.fbx kwargs so they don't fault the Blender exporter.
+        opts = _translate_fbx_options(opts)
+
+        # Selection is read via the window-independent ``selected_objects`` (view layer), never
+        # ``bpy.context.selected_objects`` — the latter raises AttributeError from tentacle's Qt
+        # event-pump timer (``bpy.context.window is None``). The operators run under
+        # ``window_context_override`` because ``export_scene.fbx``'s io_scene_fbx handler *itself*
+        # reads ``context.selected_objects`` internally, so a window must be in context for it.
+        prior = list(selected_objects()) if objects is not None else None
+        with window_context_override():
+            if objects is not None:
                 bpy.ops.object.select_all(action="DESELECT")
-                for o in prior:
-                    try:
-                        o.select_set(True)
-                    except ReferenceError:
-                        pass
+                for o in ptk.make_iterable(objects):
+                    obj = bpy.data.objects.get(o) if isinstance(o, str) else o
+                    if obj is not None:
+                        obj.select_set(True)
+
+            # Guard is inside the try so the finally restores the caller's selection even when it
+            # raises (e.g. ``objects`` given but all names resolved to nothing — the DESELECT above
+            # already cleared the real selection).
+            try:
+                if selection_only and not selected_objects():
+                    raise RuntimeError("Nothing selected to export.")
+                bpy.ops.export_scene.fbx(filepath=filepath, **opts)
+            finally:
+                if prior is not None:  # restore the user's selection
+                    bpy.ops.object.select_all(action="DESELECT")
+                    for o in prior:
+                        try:
+                            o.select_set(True)
+                        except ReferenceError:
+                            pass
         return filepath
 
     @staticmethod

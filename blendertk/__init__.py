@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.9"
+__version__ = "0.5.12"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -39,6 +39,7 @@ DEFAULT_INCLUDE = {
         "cleanup_scene",
         "get_areas",
         "get_view3d_context",
+        "window_context_override",
         "selected_objects",
         "active_object",
     ],

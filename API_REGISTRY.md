@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-07-14_
+_Generated: 2026-07-15_
 
 ## Index
 
@@ -145,7 +145,7 @@ _Generated: 2026-07-14_
 - [`ui_utils/calculator.py`](#ui_utils--calculator) — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
 - [`ui_utils/style_setter/_style_setter.py`](#ui_utils--style_setter--_style_setter) — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
-- [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
+- [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
 - [`uv_utils/shell_xform.py`](#uv_utils--shell_xform) — Dedicated UV shell-transform panel (Blender).
@@ -667,7 +667,8 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - [`active_object()`](blendertk/blendertk/core_utils/_core_utils.py#L631) — The active object, resolved window-independently (``view_layer.objects.active``).
 - [`get_areas(area_type)`](blendertk/blendertk/core_utils/_core_utils.py#L643) — All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
 - [`get_view3d_context()`](blendertk/blendertk/core_utils/_core_utils.py#L663) — Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no
-- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L692)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- [`window_context_override()`](blendertk/blendertk/core_utils/_core_utils.py#L693) — Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
+- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L721)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
 
 <a id="core_utils--auto_instancer--_auto_instancer"></a>
 ### `core_utils/auto_instancer/_auto_instancer.py`
@@ -1160,9 +1161,9 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L128) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
-- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L138) — Import an FBX file;
-- **[`class FbxUtils`](blendertk/blendertk/env_utils/fbx_utils.py#L40)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L171) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
+- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L181) — Import an FBX file;
+- **[`class FbxUtils`](blendertk/blendertk/env_utils/fbx_utils.py#L72)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
   - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
 
@@ -2375,36 +2376,38 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 <a id="uv_utils--rizom_bridge--_rizom_bridge"></a>
 ### `uv_utils/rizom_bridge/_rizom_bridge.py`
 
-RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
+RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
-- **[`class RizomUVBridge(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L46)** — Engine: discover the RizomUV exe, export the selection, launch RizomUV with a load-script.
+- **[`class RizomUVBridge(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L93)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
+  - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
+  - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
+  - `RizomUVBridge.script_path(self)` *(property)* — The prepared Lua script file path as a POSIX string.
   - `RizomUVBridge.build_send_script(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).
   - `RizomUVBridge.send(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
+  - `RizomUVBridge.process_with_rizomuv(self, objects, uv_script=None, preset=None, params=None)` — Run the full export -> RizomUV -> re-import -> transfer-UVs-back workflow.
 
 <a id="uv_utils--rizom_bridge--parameters"></a>
 ### `uv_utils/rizom_bridge/parameters.py`
 
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
-- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L86) — Registered keys present in *script_text* (delegates to uitk.bridge).
-- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L91) — Return ``{key: default}`` for every registered parameter.
-- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L96) — Format *values* for placeholder substitution using Lua literals.
+- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L327) — Registered keys present in *script_text* (delegates to uitk.bridge).
+- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L332) — Return ``{key: default}`` for every registered parameter.
+- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L337) — Format *values* for placeholder substitution using Lua literals.
+- [`strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L382) — Drop every line that references a placeholder requiring a newer Rizom.
 
 <a id="uv_utils--rizom_bridge--rizom_bridge_slots"></a>
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py`
 
 Slots for the RizomUV bridge panel.
 
-- **[`class RizomBridgeSlots(BridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L37)** — Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.
+- **[`class RizomBridgeSlots(BridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L57)** — Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.
   - `RizomBridgeSlots.params_module(self)` *(property)*
   - `RizomBridgeSlots.template_dir(self) -> Path` *(property)*
   - `RizomBridgeSlots.make_bridge(self) -> RizomUVBridge`
-  - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every mayatk RizomUV preset.
-  - `RizomBridgeSlots.select_initial_template_index(self, pairs)` — Bias the initial selection toward ``send`` -- the only preset this port can run.
-  - `RizomBridgeSlots.cmb000_init(self, widget) -> None` — Populate + wire the preset combo (base), then disable the round-trip presets.
-  - `RizomBridgeSlots.refresh_templates(self) -> None` — Re-scan + rebuild the combo (base), re-applying the round-trip disable.
-  - `RizomBridgeSlots.b000(self)` — Run the chosen preset.
+  - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every bundled ``.lua`` script.
+  - `RizomBridgeSlots.b000(self)` — Run the chosen preset: round-trip, or one-way send when ``send`` is picked.
   - `RizomBridgeSlots.open_uv_editor(self)` — Open Blender's UV Editor in a new window.
 
 <a id="uv_utils--shell_xform"></a>
