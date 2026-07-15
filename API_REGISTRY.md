@@ -145,7 +145,7 @@ _Generated: 2026-07-15_
 - [`ui_utils/calculator.py`](#ui_utils--calculator) — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
 - [`ui_utils/style_setter/_style_setter.py`](#ui_utils--style_setter--_style_setter) — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
-- [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
+- [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
 - [`uv_utils/shell_xform.py`](#uv_utils--shell_xform) — Dedicated UV shell-transform panel (Blender).
@@ -2376,36 +2376,38 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 <a id="uv_utils--rizom_bridge--_rizom_bridge"></a>
 ### `uv_utils/rizom_bridge/_rizom_bridge.py`
 
-RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
+RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
-- **[`class RizomUVBridge(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L46)** — Engine: discover the RizomUV exe, export the selection, launch RizomUV with a load-script.
+- **[`class RizomUVBridge(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L93)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
+  - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
+  - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
+  - `RizomUVBridge.script_path(self)` *(property)* — The prepared Lua script file path as a POSIX string.
   - `RizomUVBridge.build_send_script(self, fbx_path, objects=None, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Render the RizomUV Lua load-script (``ZomLoad`` + optional ``ZomLoadTexture`` block).
   - `RizomUVBridge.send(self, objects, load_uvs=True, import_groups=True, load_uvw_props=True, load_textures=True)` — Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
+  - `RizomUVBridge.process_with_rizomuv(self, objects, uv_script=None, preset=None, params=None)` — Run the full export -> RizomUV -> re-import -> transfer-UVs-back workflow.
 
 <a id="uv_utils--rizom_bridge--parameters"></a>
 ### `uv_utils/rizom_bridge/parameters.py`
 
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
-- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L86) — Registered keys present in *script_text* (delegates to uitk.bridge).
-- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L91) — Return ``{key: default}`` for every registered parameter.
-- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L96) — Format *values* for placeholder substitution using Lua literals.
+- [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L327) — Registered keys present in *script_text* (delegates to uitk.bridge).
+- [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L332) — Return ``{key: default}`` for every registered parameter.
+- [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L337) — Format *values* for placeholder substitution using Lua literals.
+- [`strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L382) — Drop every line that references a placeholder requiring a newer Rizom.
 
 <a id="uv_utils--rizom_bridge--rizom_bridge_slots"></a>
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py`
 
 Slots for the RizomUV bridge panel.
 
-- **[`class RizomBridgeSlots(BridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L37)** — Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.
+- **[`class RizomBridgeSlots(BridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L57)** — Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.
   - `RizomBridgeSlots.params_module(self)` *(property)*
   - `RizomBridgeSlots.template_dir(self) -> Path` *(property)*
   - `RizomBridgeSlots.make_bridge(self) -> RizomUVBridge`
-  - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every mayatk RizomUV preset.
-  - `RizomBridgeSlots.select_initial_template_index(self, pairs)` — Bias the initial selection toward ``send`` -- the only preset this port can run.
-  - `RizomBridgeSlots.cmb000_init(self, widget) -> None` — Populate + wire the preset combo (base), then disable the round-trip presets.
-  - `RizomBridgeSlots.refresh_templates(self) -> None` — Re-scan + rebuild the combo (base), re-applying the round-trip disable.
-  - `RizomBridgeSlots.b000(self)` — Run the chosen preset.
+  - `RizomBridgeSlots.list_template_modes(self)` — Return ``[(stem, ""), ...]`` for every bundled ``.lua`` script.
+  - `RizomBridgeSlots.b000(self)` — Run the chosen preset: round-trip, or one-way send when ``send`` is picked.
   - `RizomBridgeSlots.open_uv_editor(self)` — Open Blender's UV Editor in a new window.
 
 <a id="uv_utils--shell_xform"></a>

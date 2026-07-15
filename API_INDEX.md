@@ -880,18 +880,19 @@ _Generated: 2026-07-15_
 - `randomize_uv_shells(objects, seed=0)`
 - `class UvUtils`
 
-### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — export the selection and open it in a fresh RizomUV session.
+### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin)`
-  - methods: rizom_path, build_send_script, send
+  - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send, process_with_rizomuv
 
 ### `uv_utils/rizom_bridge/parameters.py` — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - `referenced_keys(script_text: str) -> 'set[str]'`
 - `defaults() -> 'dict[str, Any]'`
 - `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str`
 
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
 - `class RizomBridgeSlots(BridgeSlotsBase)`
-  - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, cmb000_init, refresh_templates, b000, open_uv_editor
+  - methods: params_module, template_dir, make_bridge, list_template_modes, b000, open_uv_editor
 
 ### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
 - `class ShellXformSlots(ptk.LoggingMixin)`
