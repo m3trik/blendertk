@@ -3224,13 +3224,22 @@
           "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
           "line": 663,
           "deprecated": false
+        },
+        {
+          "name": "window_context_override",
+          "qualname": "window_context_override",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
+          "line": 693,
+          "deprecated": false
         }
       ],
       "classes": [
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 692,
+          "line": 721,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -6209,7 +6218,7 @@
           "kind": "function",
           "signature": "(filepath=None, objects=None, **fbx_opts)",
           "summary": "Export the selection (or ``objects``) to an FBX file for an external-app hand-off.",
-          "line": 128,
+          "line": 171,
           "deprecated": false
         },
         {
@@ -6218,7 +6227,7 @@
           "kind": "function",
           "signature": "(filepath, **fbx_opts)",
           "summary": "Import an FBX file;",
-          "line": 138,
+          "line": 181,
           "deprecated": false
         }
       ],
@@ -6226,7 +6235,7 @@
         {
           "name": "FbxUtils",
           "summary": "FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).",
-          "line": 40,
+          "line": 72,
           "bases": [],
           "members": [
             {
@@ -6235,7 +6244,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, objects=None, selection_only=True, **fbx_opts)",
               "summary": "Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.",
-              "line": 44,
+              "line": 76,
               "deprecated": false
             },
             {
@@ -6244,7 +6253,7 @@
               "kind": "staticmethod",
               "signature": "(filepath, **fbx_opts)",
               "summary": "Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).",
-              "line": 107,
+              "line": 150,
               "deprecated": false
             }
           ]
@@ -9455,7 +9464,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 75,
+              "line": 80,
               "deprecated": false
             },
             {
@@ -9464,7 +9473,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 79,
+              "line": 84,
               "deprecated": false
             },
             {
@@ -9473,7 +9482,7 @@
               "kind": "method",
               "signature": "(self) -> MarmosetBridge",
               "summary": "",
-              "line": 82,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -9482,7 +9491,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 85,
+              "line": 90,
               "deprecated": false
             },
             {
@@ -9491,7 +9500,7 @@
               "kind": "method",
               "signature": "(self, pairs)",
               "summary": "Prefer 'bake (roundtrip)' then 'bake (send_to)', else first entry.",
-              "line": 88,
+              "line": 93,
               "deprecated": false
             },
             {
@@ -9500,7 +9509,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Process selected objects with the chosen template + mode.",
-              "line": 99,
+              "line": 104,
               "deprecated": false
             }
           ]
@@ -10571,7 +10580,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 104,
+              "line": 108,
               "deprecated": false
             },
             {
@@ -10580,7 +10589,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 108,
+              "line": 112,
               "deprecated": false
             },
             {
@@ -10589,7 +10598,7 @@
               "kind": "method",
               "signature": "(self) -> SubstanceBridge",
               "summary": "",
-              "line": 111,
+              "line": 115,
               "deprecated": false
             },
             {
@@ -10598,7 +10607,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 114,
+              "line": 118,
               "deprecated": false
             },
             {
@@ -10607,7 +10616,7 @@
               "kind": "method",
               "signature": "(self, pairs)",
               "summary": "Default the panel to ``import (send_to)`` when it's available.",
-              "line": 117,
+              "line": 121,
               "deprecated": false
             },
             {
@@ -10616,7 +10625,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Process the selected objects with the chosen template + mode.",
-              "line": 126,
+              "line": 130,
               "deprecated": false
             }
           ]

@@ -39,6 +39,7 @@ DEFAULT_INCLUDE = {
         "cleanup_scene",
         "get_areas",
         "get_view3d_context",
+        "window_context_override",
         "selected_objects",
         "active_object",
     ],

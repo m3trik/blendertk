@@ -42,6 +42,10 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     UI_NAME = "substance_bridge"
     PRESETS_ROOT = _PRESETS_ROOT
     LOG_TAG = "substance_bridge"
+    # Fall back to a self-cleaning temp folder when no .blend/workspace dir resolves
+    # (unsaved file) — the FBX + staged maps are transient hand-off artifacts Painter
+    # reads once, so the user shouldn't be forced to pick a path.
+    TEMP_OUTPUT_FALLBACK = True
 
     HELP_SPEC = {
         "title": "Substance Bridge",
@@ -52,7 +56,7 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
         "line and optional RPC step.",
         "steps": [
             "Set the <b>Output Dir</b> (or leave blank to use the "
-            ".blend file's directory).",
+            ".blend file's directory; an unsaved file falls back to a temp folder).",
             "Select one or more mesh objects.",
             "Pick a <b>Template + Mode</b> from the dropdown.",
             "Tweak the template's exposed parameters.",

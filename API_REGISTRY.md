@@ -667,7 +667,8 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - [`active_object()`](blendertk/blendertk/core_utils/_core_utils.py#L631) — The active object, resolved window-independently (``view_layer.objects.active``).
 - [`get_areas(area_type)`](blendertk/blendertk/core_utils/_core_utils.py#L643) — All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
 - [`get_view3d_context()`](blendertk/blendertk/core_utils/_core_utils.py#L663) — Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no
-- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L692)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- [`window_context_override()`](blendertk/blendertk/core_utils/_core_utils.py#L693) — Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
+- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L721)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
 
 <a id="core_utils--auto_instancer--_auto_instancer"></a>
 ### `core_utils/auto_instancer/_auto_instancer.py`
@@ -1160,9 +1161,9 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L128) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
-- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L138) — Import an FBX file;
-- **[`class FbxUtils`](blendertk/blendertk/env_utils/fbx_utils.py#L40)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L171) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
+- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L181) — Import an FBX file;
+- **[`class FbxUtils`](blendertk/blendertk/env_utils/fbx_utils.py#L72)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
   - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
 

@@ -199,6 +199,7 @@ _Generated: 2026-07-15_
 - `active_object()`
 - `get_areas(area_type)`
 - `get_view3d_context()`
+- `window_context_override()`
 - `class CoreUtils(ptk.CoreUtils)`
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.

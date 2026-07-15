@@ -66,6 +66,92 @@ try:
           default_path.endswith("_bridge.fbx") and os.path.isfile(default_path))
     os.remove(default_path)
 
+    # ---- windowless (Qt event-pump timer) context ----------------------------
+    # tentacle drives the bridge slots from a bpy.app.timers callback where
+    # bpy.context.window is None: bpy.context.selected_objects raises AttributeError
+    # (and io_scene_fbx's exporter reads it internally). Before the fix, the export
+    # aborted with "Nothing selected to export." even with a valid selection + output
+    # dir -- the reported Substance/Marmoset bug. FbxUtils.export now reads selection
+    # window-independently and runs the operators under window_context_override().
+    bpy.ops.object.select_all(action="DESELECT")
+    cube.select_set(True)  # prior selection = {cube}
+    win_out = os.path.join(tmp, "windowless.fbx")
+    with bpy.context.temp_override(window=None):
+        win_written = btk.export_selection_fbx(filepath=win_out, objects=[cube])
+    check("export_selection_fbx works with context.window=None (Qt-timer state)",
+          win_written == win_out and os.path.isfile(win_out) and os.path.getsize(win_out) > 0)
+    check("export_selection_fbx restores selection from the windowless state",
+          cube.select_get() and not other.select_get())
+
+    # objects given but all unresolvable -> guard raises, but the prior selection is restored
+    # (the guard lives inside the try/finally, so DESELECT doesn't strand the caller's selection).
+    bpy.ops.object.select_all(action="DESELECT")
+    cube.select_set(True)
+    try:
+        btk.export_selection_fbx(filepath=os.path.join(tmp, "unresolved.fbx"), objects=["__nope__"])
+        check("export_selection_fbx unresolved objects -> RuntimeError", False)
+    except RuntimeError:
+        check("export_selection_fbx unresolved objects -> RuntimeError", True)
+    check("export_selection_fbx restores selection after a guard raise",
+          cube.select_get() and not other.select_get())
+
+    # ---- Maya MEL FBX option names (vendored templates) ----------------------
+    # The Substance/Marmoset templates are vendored verbatim from mayatk and carry Maya MEL FBX
+    # names (FBXExportEmbeddedTextures) that mean nothing to Blender's export_scene.fbx. FbxUtils
+    # must translate them, else the export faults with 'keyword "FBXExport..." unrecognized'.
+    from blendertk.env_utils.fbx_utils import _translate_fbx_options
+
+    t = _translate_fbx_options({"FBXExportEmbeddedTextures": True, "use_tspace": True})
+    check("_translate_fbx_options maps FBXExportEmbeddedTextures -> Blender kwargs",
+          t == {"use_tspace": True, "embed_textures": True, "path_mode": "COPY"}, str(t))
+    t2 = _translate_fbx_options({"FBXExportEmbeddedTextures": False})
+    check("_translate_fbx_options False embed -> embed_textures False, no COPY",
+          t2 == {"embed_textures": False}, str(t2))
+    t3 = _translate_fbx_options({"FBXExportSomethingMayaOnly": True, "embed_textures": True})
+    check("_translate_fbx_options drops unmapped FBXExport* Maya-only names",
+          t3 == {"embed_textures": True}, str(t3))
+
+    bpy.ops.object.select_all(action="DESELECT")
+    cube.select_set(True)
+    maya_out = btk.export_selection_fbx(
+        filepath=os.path.join(tmp, "maya_opt.fbx"), objects=[cube],
+        FBXExportEmbeddedTextures=True,  # the exact key from templates/import.py
+    )
+    check("export_selection_fbx accepts a Maya MEL FBX name (no 'unrecognized keyword')",
+          os.path.isfile(maya_out) and os.path.getsize(maya_out) > 0)
+
+    # A typo'd *Blender* kwarg must still error loudly (translation only touches FBXExport* keys).
+    try:
+        btk.export_selection_fbx(
+            filepath=os.path.join(tmp, "typo.fbx"), objects=[cube], not_a_real_kwarg=True
+        )
+        check("real Blender-kwarg typo still errors (not silently dropped)", False)
+    except (TypeError, RuntimeError):
+        check("real Blender-kwarg typo still errors (not silently dropped)", True)
+
+    # The *real* merged payload each bridge sends: engine _DEFAULT_FBX_OPTIONS (Blender-native) +
+    # the template's embed option. Both bugs (windowless selection, Maya FBX name) blocked every
+    # prior export, so this default set had never actually reached export_scene.fbx -- lock in that
+    # every key is a valid kwarg.
+    from blendertk.mat_utils.substance_bridge._substance_bridge import _DEFAULT_FBX_OPTIONS as _SUB_FBX
+    from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import _DEFAULT_FBX_OPTIONS as _MAR_FBX
+
+    for _name, _defaults, _extra in (
+        ("substance", _SUB_FBX, {"FBXExportEmbeddedTextures": True}),  # templates/import.py
+        ("marmoset", _MAR_FBX, {}),
+    ):
+        bpy.ops.object.select_all(action="DESELECT")
+        cube.select_set(True)
+        _merged = dict(_defaults)
+        _merged.update(_extra)
+        _p = os.path.join(tmp, f"{_name}_payload.fbx")
+        try:
+            btk.export_selection_fbx(filepath=_p, objects=[cube], **_merged)
+            check(f"{_name} _DEFAULT_FBX_OPTIONS payload exports",
+                  os.path.isfile(_p) and os.path.getsize(_p) > 0)
+        except Exception as e:
+            check(f"{_name} _DEFAULT_FBX_OPTIONS payload exports", False, repr(e))
+
     # ---- RizomUVBridge.build_send_script --------------------------------------
     rb = RizomUVBridge()
     script = rb.build_send_script(

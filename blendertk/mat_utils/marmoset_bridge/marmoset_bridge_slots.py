@@ -38,6 +38,10 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
     UI_NAME = "marmoset_bridge"
     PRESETS_ROOT = _PRESETS_ROOT
     LOG_TAG = "marmoset_bridge"
+    # Fall back to a self-cleaning temp folder when no .blend/workspace dir resolves
+    # (unsaved file) — the FBX + baked maps are transient hand-off artifacts Toolbag
+    # reads once, so the user shouldn't be forced to pick a path.
+    TEMP_OUTPUT_FALLBACK = True
 
     HELP_SPEC = {
         "title": "Marmoset Bridge",
@@ -45,7 +49,8 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
         "selection as FBX with a <i>MatManifest</i> JSON sidecar; Toolbag runs "
         "the rendered template with your parameter values substituted in.",
         "steps": [
-            "Set the <b>Output Dir</b> (required).",
+            "Set the <b>Output Dir</b> (or leave blank to use the .blend "
+            "file's directory; an unsaved file falls back to a temp folder).",
             "Select one or more mesh objects.",
             "Pick a <b>Template + Mode</b> from the dropdown.",
             "Tweak the template's exposed parameters.",
