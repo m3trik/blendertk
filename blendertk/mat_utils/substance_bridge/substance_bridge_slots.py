@@ -3,7 +3,7 @@
 """Slots for the Substance Painter bridge panel -- mirror of mayatk's
 ``mat_utils.substance_bridge.substance_bridge_slots``.
 
-Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots.BlenderBridgeSlotsBase`
+Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots_base.BlenderBridgeSlotsBase`
 (itself a :class:`uitk.bridge.BridgeSlotsBase`). The panel machinery lives upstream.
 Substance-specific extras live below: the ``b000`` send action (FBX export + Painter handoff
 with optional RPC dispatch).
@@ -17,7 +17,7 @@ import traceback
 from pathlib import Path
 
 from uitk.bridge.spec import connect_changed, read_value
-from blendertk.ui_utils.blender_bridge_slots import BlenderBridgeSlotsBase
+from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.substance_bridge._substance_bridge import (
     SubstanceBridge,

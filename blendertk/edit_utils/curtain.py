@@ -468,7 +468,7 @@ class CurtainSlots(ptk.LoggingMixin):
         # Wrap construction + wiring (not just the import) so any failure degrades to "no presets,
         # panel still works" with a clean warning rather than a raw slot-init error.
         try:
-            from uitk.widgets.mixins.preset_manager import PresetManager
+            from uitk.managers.preset_manager import PresetManager
 
             self.presets = PresetManager(
                 parent=self.ui,

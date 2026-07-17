@@ -58,7 +58,7 @@ from blendertk.env_utils.scene_exporter.task_manager import TaskManager
 
 
 # Blender-native re-implementation of mayatk's ``HierarchySidecar.VERSION_SUFFIX_RE`` (that class
-# lives in the unported ``hierarchy_manager`` subsystem) -- used only for the version-format
+# lives in the unported ``hierarchy_sync`` subsystem) -- used only for the version-format
 # validation warning in :meth:`SceneExporter._apply_versioning`.
 _VERSION_SUFFIX_RE = re.compile(r"_v\d+$", re.IGNORECASE)
 

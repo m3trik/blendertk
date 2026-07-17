@@ -3,7 +3,7 @@
 """Slots for the Marmoset Toolbag bridge panel -- mirror of mayatk's
 ``mat_utils.marmoset_bridge.marmoset_bridge_slots``.
 
-Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots.BlenderBridgeSlotsBase` (which
+Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots_base.BlenderBridgeSlotsBase` (which
 itself subclasses uitk's :class:`BridgeSlotsBase`) -- the panel machinery (widget construction,
 presets, log routing, Output Dir row with .blend-dir fallback, startup info, template
 description) lives upstream. This file owns only Marmoset-specific bits, mirroring mayatk's
@@ -12,7 +12,7 @@ description) lives upstream. This file owns only Marmoset-specific bits, mirrori
 import traceback
 from pathlib import Path
 
-from blendertk.ui_utils.blender_bridge_slots import BlenderBridgeSlotsBase
+from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
     MarmosetBridge,

@@ -8,11 +8,11 @@ the one piece every Blender bridge needs: a sensible Output Dir fallback
 sourced from the saved ``.blend`` file's directory (Blender's analogue of
 a Maya scene/workspace dir) when the user leaves the field blank.
 
-Mirror of mayatk's :class:`mayatk.ui_utils.maya_bridge_slots.MayaBridgeSlotsBase` --
-Marmoset and Substance slots subclass this instead of inheriting from
-``BridgeSlotsBase`` directly, so the fallback lives in one place. (Unlike
-``MayaBridgeSlotsBase``, Unity's slots don't use this fallback either --
-mirroring mayatk, a Maya scene/``.blend`` dir isn't a Unity project.)
+Mirror of mayatk's :class:`mayatk.ui_utils.maya_bridge_slots_base.MayaBridgeSlotsBase` --
+the Marmoset, Substance, and Unity bridge slots subclass this instead of
+inheriting from ``BridgeSlotsBase`` directly, so the fallback lives in one
+place (Unity opts back out by overriding ``default_output_dir`` to return
+``""`` -- mirroring mayatk, a ``.blend`` dir isn't a Unity project).
 """
 from __future__ import annotations
 

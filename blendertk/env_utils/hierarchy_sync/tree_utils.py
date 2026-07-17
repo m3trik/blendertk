@@ -1,9 +1,9 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's
-``env_utils.hierarchy_manager.tree_utils``.
+"""Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
+``env_utils.hierarchy_sync.tree_utils``.
 
-Separated from ``hierarchy_manager_slots.py`` to keep the Qt-widget mechanics isolated. Unlike
+Separated from ``hierarchy_sync_slots.py`` to keep the Qt-widget mechanics isolated. Unlike
 mayatk (which needs a raw-vs-cleaned path split because a Maya DAG path may carry a namespace
 prefix that must be stripped for comparison), Blender tree item text is already the clean
 comparison key — there is no namespace to strip — so this drops the raw/cleaned index duality
@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple
 
 import pythontk as ptk
 
-from blendertk.env_utils.hierarchy_manager._hierarchy_manager import build_path
+from blendertk.env_utils.hierarchy_sync._hierarchy_sync import build_path
 
 
 class TreePathMatcher(ptk.LoggingMixin):
@@ -128,14 +128,42 @@ def get_selected_tree_items(tree_widget) -> list:
     return selected_items
 
 
+#: UserRole payloads that are UI placeholders, not scene objects.
+_PLACEHOLDER_USER_DATA = {"browse_placeholder", "open_scene_placeholder"}
+
+
 def _extract_object_name_from_item(item) -> str:
-    """Extract the hierarchy path (or leaf name) from a tree widget item."""
+    """Extract the hierarchy path from a tree widget item.
+
+    Prefers the stored UserRole object's canonical hierarchy path (``build_path``): the
+    display-text chain can drift from the live object's real name, and a bare leaf name is
+    ambiguous when duplicate names exist under different parents. Placeholder rows (the
+    'Browse…' / 'Open scene…' prompts) resolve to no object.
+    """
+    from qtpy import QtCore
+
+    try:
+        data = item.data(0, QtCore.Qt.UserRole)
+    except Exception:
+        data = None
+
+    if isinstance(data, str):
+        if data in _PLACEHOLDER_USER_DATA:
+            return ""
+    elif data is not None:
+        try:
+            return build_path(data)  # a live bpy object payload
+        except (ReferenceError, AttributeError):
+            pass
+
+    raw_name = getattr(item, "_raw_name", None)
     parts = []
     current = item
     while current:
         parts.insert(0, current.text(0))
         current = current.parent()
-    return "|".join(parts) if len(parts) > 1 else parts[0] if parts else ""
+    full = "|".join(parts) if len(parts) > 1 else parts[0] if parts else ""
+    return full or raw_name or ""
 
 
 def find_tree_item_by_name(tree_widget, object_name: str):

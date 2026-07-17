@@ -33,6 +33,21 @@ from blendertk.node_utils._node_utils import get_children, get_parent
 class Selection:
     """Namespace mirror of mayatk's ``Selection`` (category-driven select-by-type)."""
 
+    @staticmethod
+    def loop_multi_select(ring=False):
+        """Extend the current edge selection to full loops (rings with ``ring``) — version-portable.
+
+        Blender 5.0 split ``mesh.loop_multi_select(ring=…)`` into ``select_edge_loop_multi`` /
+        ``select_edge_ring_multi``; 4.x ships only the combined op. Callers must be in mesh Edit
+        Mode with an edge selection (same contract as the ops themselves)."""
+        import bpy
+
+        name = "select_edge_ring_multi" if ring else "select_edge_loop_multi"
+        try:
+            getattr(bpy.ops.mesh, name)()
+        except AttributeError:  # pre-5.0: the split ops don't exist
+            bpy.ops.mesh.loop_multi_select(ring=ring)
+
     # Geometry-bearing object types -- excludes Empty/Armature/Light/Camera/Speaker/LightProbe,
     # which are helper/scene objects with no render geometry of their own.
     _GEOMETRY_TYPES = {
@@ -702,7 +717,7 @@ class Selection:
             return 0
 
         # The current selection is already exactly ``orig_idx``; loop-select extends it in place.
-        bpy.ops.mesh.select_edge_loop_multi()
+        Selection.loop_multi_select()
 
         bm = Selection._edit_bmesh(obj)
         uv_layer = bm.loops.layers.uv.active

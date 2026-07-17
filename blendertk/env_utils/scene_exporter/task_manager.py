@@ -9,7 +9,7 @@ engine (the pythontk single source of truth, 100% DCC-agnostic).
 ~26 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
 group uses :mod:`blendertk.anim_utils.smart_bake`; ``export_data_node`` rides the ported
 :class:`blendertk.node_utils.data_nodes.DataNodes` carrier). The remaining ~2 depend on
-integrations blendertk doesn't have yet (the exporter-side ``hierarchy_manager`` wiring; the
+integrations blendertk doesn't have yet (the exporter-side ``hierarchy_sync`` wiring; the
 Shots export-view/FBX-take projection — the Shots subsystem itself is ported) and are declared
 in :attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
 placeholders (the widget shows in the panel, 1:1 with mayatk's label/position, greyed out with a
@@ -27,9 +27,11 @@ import pythontk as ptk
 
 from pythontk import TaskFactory
 
+from blendertk.core_utils._core_utils import strip_dup_suffix
+
 
 _NEEDS_HIERARCHY_MANAGER = (
-    "Not available yet: needs blendertk's hierarchy_manager port (unstarted). "
+    "Not available yet: needs blendertk's hierarchy_sync port (unstarted). "
     "TODO(blender-parity)."
 )
 _NEEDS_SHOTS = (
@@ -40,7 +42,6 @@ _NEEDS_SHOTS = (
 )
 
 _LOD_SUFFIX_RE = re.compile(r"_lod\d*$", re.IGNORECASE)
-_BLENDER_DUP_SUFFIX_RE = re.compile(r"\.\d{3}$")
 
 # Blender has no named-unit enum like Maya's currentUnit(linear=...) -- unit_settings is a
 # (system, scale_length) pair. Values chosen so 1 scene unit == 1 of the named unit.
@@ -461,7 +462,7 @@ class _TaskChecksMixin(_TaskDataMixin):
         groups = defaultdict(list)
         for o in self.objects:
             if o.type == "EMPTY":
-                groups[_BLENDER_DUP_SUFFIX_RE.sub("", o.name)].append(o.name)
+                groups[strip_dup_suffix(o.name)].append(o.name)
         dupes = {k: v for k, v in groups.items() if len(v) > 1}
         if dupes:
             messages = [f"'{base}': {', '.join(names)}" for base, names in dupes.items()]

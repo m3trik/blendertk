@@ -524,7 +524,7 @@ def dispatch_log_link(url, logger=None) -> bool:
     # bpy.data.objects.get(name) is ambiguous when a linked library object shares the exact same
     # name string as a local one (object names are only unique per-library, not globally) — a
     # "select"/"reveal" link always means the CURRENT scene's object, so prefer a local match
-    # (e.g. Hierarchy Manager's diff log links, where a linked reference object commonly shares
+    # (e.g. Hierarchy Sync's diff log links, where a linked reference object commonly shares
     # a name with the local object it's being diffed against).
     obj = next((o for o in bpy.data.objects if o.name == node and o.library is None), None) or bpy.data.objects.get(node)
     if obj is None:

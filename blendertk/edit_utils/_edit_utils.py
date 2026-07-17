@@ -238,14 +238,65 @@ def set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=Tr
     return changed
 
 
+@_object_mode
+def apply_subdivision(objects):
+    """Bake the live Subsurf modifier into real geometry — the destructive counterpart of
+    :func:`set_subdivision` and the Blender analogue of Maya's *smooth preview → polygons*
+    (``performSmoothMeshPreviewToPolygon``). Returns the objects whose modifier was applied.
+    """
+    applied = []
+    for o in _meshes(objects):
+        # show_viewport gate: a disabled Subsurf isn't a visible preview — and modifier_apply
+        # raises on disabled modifiers, which would abort the batch mid-way.
+        mod = next(
+            (m for m in o.modifiers if m.type == "SUBSURF" and m.show_viewport), None
+        )
+        if mod is not None:
+            _apply_modifier(o, mod.name)
+            applied.append(o)
+    return applied
+
+
 # ---------------------------------------------------------------- normals / shading
 @_object_mode
-def set_shading(objects, smooth=True):
-    """Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the
-    Blender analogue of Maya soften/harden-all and set-normals-to-face (bmesh, headless)."""
+def set_shading(objects, smooth=True, selected_only=False):
+    """Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender
+    analogue of Maya soften/harden-all and set-normals-to-face (bmesh, headless).
+
+    ``selected_only`` mirrors Maya's component scope (soften/harden acts on the *selected*
+    components). Face selections take precedence: the selected faces get their shading set,
+    plus the edges fully *contained* in the selection (both link faces selected — Maya's
+    polySoftEdge-on-faces contained-edge semantics; boundary edges to unselected neighbors are
+    left alone). Face precedence matters because ``bmesh.from_mesh`` flushes a face selection
+    down to its boundary edges, so a pure edge read would spill onto neighboring faces. A pure
+    edge selection sets the edges' smooth flag; softening also smooth-shades the bordering
+    faces, since per-edge smoothing is invisible on flat-shaded faces. The ``_object_mode``
+    round-trip has already flushed the caller's Edit-Mode selection to the mesh data this
+    reads. Falls back to whole-object when nothing is component-selected (Maya: acts on the
+    whole selection).
+    """
+
     def _f(bm):
-        for face in bm.faces:
-            face.smooth = smooth
+        sel_faces = [f for f in bm.faces if f.select] if selected_only else []
+        sel_edges = [e for e in bm.edges if e.select] if selected_only else []
+        if sel_faces:
+            selset = set(sel_faces)
+            for f in sel_faces:
+                f.smooth = smooth
+            for e in bm.edges:
+                lf = e.link_faces
+                if lf and all(f in selset for f in lf):
+                    e.smooth = smooth
+        elif sel_edges:
+            for e in sel_edges:
+                e.smooth = smooth
+            if smooth:
+                for e in sel_edges:
+                    for f in e.link_faces:
+                        f.smooth = True
+        else:
+            for face in bm.faces:
+                face.smooth = smooth
 
     _bmesh_each(objects, _f)
 
@@ -266,6 +317,7 @@ def _edge_is_uv_seam(edge, uv_layer):
     return False
 
 
+@_object_mode  # bmesh on obj.data reads/writes STALE data while the object is in Edit Mode
 def average_normals(objects, by_uv_shell=False):
     """Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``
     (Maya's ``polySoftEdge a=180``). Softens all faces/edges (smooth shading — normals are averaged
@@ -360,31 +412,71 @@ def set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)
 
 
 @_object_mode
+def _set_custom_split_normals(objects, add):
+    """Add/clear custom split normals on the given mesh object(s); returns the number of meshes
+    actually changed. Meshes already in the target state are skipped: the operator merely returns
+    ``{'CANCELLED'}`` for them (it does NOT raise), so counting the loop would report every mesh
+    as changed."""
+    import bpy
+
+    op = (
+        bpy.ops.mesh.customdata_custom_splitnormals_add
+        if add
+        else bpy.ops.mesh.customdata_custom_splitnormals_clear
+    )
+    changed = 0
+    for o in _meshes(objects):
+        if o.data.has_custom_normals == add:
+            continue
+        bpy.context.view_layer.objects.active = o
+        try:
+            op()
+            changed += 1
+        except RuntimeError:
+            pass  # poll refusal (library-linked / non-editable mesh) — skip it, keep the batch going
+    return changed
+
+
 def clear_custom_split_normals(objects):
     """Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's
     "unlock normals". Imported assets (FBX / Marmoset) carry custom split normals that override
     smooth/flat shading and silently block a re-smoothing pass, so this is run first by the
     set-normals-by-angle path. Returns the number of meshes cleared.
     """
-    import bpy
+    return _set_custom_split_normals(objects, add=False)
 
-    cleared = 0
-    for o in _meshes(objects):
-        bpy.context.view_layer.objects.active = o
-        try:
-            bpy.ops.mesh.customdata_custom_splitnormals_clear()
-            cleared += 1
-        except RuntimeError:
-            pass  # no custom normals to clear
-    return cleared
+
+def add_custom_split_normals(objects):
+    """Bake the current normals of the given mesh object(s) as custom split normals — the Blender
+    analogue of Maya's "lock normals" (the shading is pinned as-is, so later smooth/flat/angle
+    passes no longer move it). Returns the number of meshes locked.
+    """
+    return _set_custom_split_normals(objects, add=True)
 
 
 @_object_mode
-def flip_normals(objects):
-    """Reverse face winding / normals (bmesh ``reverse_faces``, headless)."""
+def has_custom_split_normals(objects):
+    """True when EVERY mesh in ``objects`` carries custom split normals (i.e. its normals are
+    "locked"), mirroring the all-or-nothing state read of Maya's lock/unlock toggle — a mixed
+    selection reads as unlocked, so a toggle locks it whole. False for an empty/mesh-less
+    selection. Guarded into OBJECT mode so the read sees flushed mesh data, not a live bmesh.
+    """
+    meshes = _meshes(objects)
+    return bool(meshes) and all(o.data.has_custom_normals for o in meshes)
+
+
+@_object_mode
+def flip_normals(objects, selected_only=False):
+    """Reverse face winding / normals (bmesh ``reverse_faces``, headless). ``selected_only``
+    restricts to the selected faces (Maya parity: Reverse acts on the face selection when one
+    exists — falls back to all faces when nothing is component-selected)."""
     import bmesh
 
-    _bmesh_each(objects, lambda bm: bmesh.ops.reverse_faces(bm, faces=bm.faces[:]))
+    def _f(bm):
+        faces = [f for f in bm.faces if f.select] if selected_only else []
+        bmesh.ops.reverse_faces(bm, faces=faces or bm.faces[:])
+
+    _bmesh_each(objects, _f)
 
 
 @_object_mode
@@ -1117,11 +1209,14 @@ def get_similar_mesh(
     return result
 
 
+@_object_mode
 def separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True):
     """Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
     mirror of mayatk's ``EditUtils.separate_objects`` (``mesh.separate`` LOOSE/MATERIAL). Optionally
     renames the results (``<base>``, ``<base>_part01`` …) and centers their origins on geometry.
     Returns the newly-created objects (the originals are not included). Headless-testable.
+    ``@_object_mode``: the ``select_all``/``mode_set`` dance below poll-fails when called from
+    Edit Mode (its siblings ``combine_objects``/``boolean_op`` were guarded; this one wasn't).
     """
     import bpy
 
@@ -1489,11 +1584,14 @@ class EditUtils:
     tris_to_quads = staticmethod(tris_to_quads)
     subdivide_mesh = staticmethod(subdivide_mesh)
     set_subdivision = staticmethod(set_subdivision)
+    apply_subdivision = staticmethod(apply_subdivision)
     set_shading = staticmethod(set_shading)
     average_normals = staticmethod(average_normals)
     set_edge_hardness = staticmethod(set_edge_hardness)
     select_edges_by_angle = staticmethod(select_edges_by_angle)
     clear_custom_split_normals = staticmethod(clear_custom_split_normals)
+    add_custom_split_normals = staticmethod(add_custom_split_normals)
+    has_custom_split_normals = staticmethod(has_custom_split_normals)
     flip_normals = staticmethod(flip_normals)
     recalculate_normals = staticmethod(recalculate_normals)
     crease_edges = staticmethod(crease_edges)

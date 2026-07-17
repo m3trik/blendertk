@@ -184,6 +184,7 @@ _Generated: 2026-07-17_
 - `class CamUtils`
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
+- `strip_dup_suffix(name: str) -> str`
 - `undo_chunk(name: str = '')`
 - `undoable(fn)`
 - `undo_checkpoint(fn)`
@@ -272,12 +273,15 @@ _Generated: 2026-07-17_
 - `subdivide_mesh(objects, cuts=1)`
 - `boolean_op(objects, operation='DIFFERENCE', apply=True)`
 - `set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)`
-- `set_shading(objects, smooth=True)`
+- `apply_subdivision(objects)`
+- `set_shading(objects, smooth=True, selected_only=False)`
 - `average_normals(objects, by_uv_shell=False)`
 - `select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0)`
 - `set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)`
 - `clear_custom_split_normals(objects)`
-- `flip_normals(objects)`
+- `add_custom_split_normals(objects)`
+- `has_custom_split_normals(objects)`
+- `flip_normals(objects, selected_only=False)`
 - `recalculate_normals(objects, inside=False)`
 - `clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`
 - `crease_edges(objects, amount=10.0, angle=None)`
@@ -373,7 +377,7 @@ _Generated: 2026-07-17_
 
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`
-  - methods: select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories
+  - methods: loop_multi_select, select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories
 
 ### `edit_utils/snap.py` — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 - `class SnapSlots(ptk.LoggingMixin)`
@@ -393,7 +397,7 @@ _Generated: 2026-07-17_
 - `list_libraries()`
 - `linked_blend_paths()`
 - `is_blend_linked(path)`
-- `link_blend_file(path, link=True, instance=True)`
+- `link_blend_file(path, link=True, instance=True, target_collection=None)`
 - `reload_library(library)`
 - `remove_library(library)`
 - `make_library_local(library)`
@@ -420,29 +424,36 @@ _Generated: 2026-07-17_
 ### `env_utils/handoff_export.py` — Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
 
-### `env_utils/hierarchy_manager/_hierarchy_manager.py` — Hierarchy Manager core engine — mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager…
+### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
+- `main() -> int`
+
+### `env_utils/hierarchy_sync/_hierarchy_sync.py` — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
+- `stage_reference_blend(reference_path: str, logger=None)`
 - `build_path(obj) -> str`
+- `delete_objects(objects) -> List[str]`
 - `should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool`
 - `class HierarchyMapBuilder`
   - methods: build_path_map
-- `class HierarchyManager(ptk.LoggingMixin)`
+- `class HierarchySync(ptk.LoggingMixin)`
   - methods: analyze_hierarchies, create_stubs, quarantine_extras, fix_fuzzy_renames, fix_reparented
+- `class ObjectSwapper(ptk.LoggingMixin)`
+  - methods: pull_objects_from_reference
 
-### `env_utils/hierarchy_manager/hierarchy_manager_slots.py` — Slots for the Hierarchy Manager panel -- Blender port of mayatk's ``env_utils.hierarchy_manager``.
-- `class HierarchyManagerController(ptk.LoggingMixin)`
-  - methods: workspace, reference_path, analyze_hierarchies, repair_hierarchies, select_objects, populate_reference_tree, refresh_trees, is_path_ignored, clear_ignored_paths, log_diff_results, get_recent_reference_scenes, save_recent_reference_scene
-- `class HierarchyManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, tree000_init, tree001_init, cmb_diff_options_init, cmb_pull_options_init, tb002_init, tb003_init, tb001, tb002, tb003, b003, b005, b006, b007, b008, b009, b011, b012, b013, b014, b015, b016, b018, b017, count_tree_items
-
-### `env_utils/hierarchy_manager/hierarchy_sidecar.py` — Hierarchy sidecar manifest management — mirror of mayatk's
+### `env_utils/hierarchy_sync/hierarchy_sidecar.py` — Hierarchy sidecar manifest management — mirror of mayatk's
 - `class HierarchySidecar`
   - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, count_descendants, write_diff_report, clean_stale_diff, build_full_path_set, compare
 
-### `env_utils/hierarchy_manager/tree_renderer.py` — Tree rendering, formatting, and selection management for the hierarchy manager UI — mirror of
+### `env_utils/hierarchy_sync/hierarchy_sync_slots.py` — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
+- `class HierarchySyncController(ptk.LoggingMixin)`
+  - methods: workspace, reference_path, analyze_hierarchies, repair_hierarchies, pull_objects, select_objects, populate_reference_tree, refresh_trees, is_path_ignored, clear_ignored_paths, log_diff_results, get_recent_reference_scenes, save_recent_reference_scene
+- `class HierarchySyncSlots(ptk.LoggingMixin)`
+  - methods: header_init, tree000_init, tree001_init, cmb_diff_options_init, cmb_pull_options_init, tb002_init, tb003_init, tb001, tb002, tb003, b003, b005, b006, b007, b008, b009, b011, b012, b013, b014, b015, b016, b018, b017, count_tree_items
+
+### `env_utils/hierarchy_sync/tree_renderer.py` — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 - `class HierarchyTreeRenderer(ptk.LoggingMixin)`
   - methods: populate_current_scene_tree, populate_reference_tree, show_reference_placeholder, show_reference_error, populate_tree_with_hierarchy, apply_difference_formatting, clear_tree_colors, format_tree_differences, apply_ignore_styling, build_item_path, find_tree_item_by_name, get_selected_tree_items, get_selected_object_names
 
-### `env_utils/hierarchy_manager/tree_utils.py` — Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's
+### `env_utils/hierarchy_sync/tree_utils.py` — Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 - `get_selected_object_names(tree_widget) -> List[str]`
 - `get_selected_tree_items(tree_widget) -> list`
 - `find_tree_item_by_name(tree_widget, object_name: str)`
@@ -475,6 +486,11 @@ _Generated: 2026-07-17_
 ### `env_utils/maya_bridge/templates/_import_scene.py` — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - `fbx_safe_materials(cmds)`
 - `write_texture_manifest(entries, path)`
+- `main()`
+
+### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
+- `usd_safe_materials(cmds)`
+- `export_usd(cmds)`
 - `main()`
 
 ### `env_utils/maya_bridge/templates/import.py` — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
@@ -518,6 +534,12 @@ _Generated: 2026-07-17_
 ### `env_utils/unity_bridge/unity_bridge_slots.py` — Slots for the Unity bridge panel -- mirror of mayatk's
 - `class UnityBridgeSlots(BlenderBridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, default_output_dir, b000
+
+### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
+- `export_selection_usd(filepath=None, objects=None, **usd_opts)`
+- `import_usd(filepath, **usd_opts)`
+- `class UsdUtils`
+  - methods: is_usd_file, export, import_usd
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)`
@@ -849,7 +871,7 @@ _Generated: 2026-07-17_
 - `popup_message(text, title='Info', icon='INFO')`
 - `class UiUtils`
 
-### `ui_utils/blender_bridge_slots.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
+### `ui_utils/blender_bridge_slots_base.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
   - methods: default_output_dir
 

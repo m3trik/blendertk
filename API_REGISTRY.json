@@ -3091,12 +3091,21 @@
       "summary": "Core blendertk utilities — DCC-environment info + cross-cutting decorators.",
       "functions": [
         {
+          "name": "strip_dup_suffix",
+          "qualname": "strip_dup_suffix",
+          "kind": "function",
+          "signature": "(name: str) -> str",
+          "summary": "Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).",
+          "line": 22,
+          "deprecated": false
+        },
+        {
           "name": "undo_chunk",
           "qualname": "undo_chunk",
           "kind": "function",
           "signature": "(name: str = '')",
           "summary": "Collapse every change made inside the block into ONE Blender undo step.",
-          "line": 20,
+          "line": 33,
           "deprecated": false
         },
         {
@@ -3105,7 +3114,7 @@
           "kind": "function",
           "signature": "(fn)",
           "summary": "Wrap ``fn`` so its changes collapse into a single Blender undo step.",
-          "line": 63,
+          "line": 76,
           "deprecated": false
         },
         {
@@ -3114,7 +3123,7 @@
           "kind": "function",
           "signature": "(fn)",
           "summary": "Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).",
-          "line": 83,
+          "line": 96,
           "deprecated": false
         },
         {
@@ -3123,7 +3132,7 @@
           "kind": "function",
           "signature": "(key=None)",
           "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
-          "line": 139,
+          "line": 160,
           "deprecated": false
         },
         {
@@ -3132,7 +3141,7 @@
           "kind": "function",
           "signature": "(packages=None, add_to_path=True)",
           "summary": "Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).",
-          "line": 179,
+          "line": 200,
           "deprecated": false
         },
         {
@@ -3141,7 +3150,7 @@
           "kind": "function",
           "signature": "(index=None)",
           "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-          "line": 299,
+          "line": 320,
           "deprecated": false
         },
         {
@@ -3150,7 +3159,7 @@
           "kind": "function",
           "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
           "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-          "line": 317,
+          "line": 338,
           "deprecated": false
         },
         {
@@ -3159,7 +3168,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-          "line": 348,
+          "line": 369,
           "deprecated": false
         },
         {
@@ -3168,7 +3177,7 @@
           "kind": "function",
           "signature": "(info)",
           "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-          "line": 399,
+          "line": 420,
           "deprecated": false
         },
         {
@@ -3177,7 +3186,7 @@
           "kind": "function",
           "signature": "(objects=None, adaptive=True, sections=None)",
           "summary": "Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,",
-          "line": 438,
+          "line": 459,
           "deprecated": false
         },
         {
@@ -3186,7 +3195,7 @@
           "kind": "function",
           "signature": "(quiet=False)",
           "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-          "line": 554,
+          "line": 575,
           "deprecated": false
         },
         {
@@ -3195,7 +3204,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-          "line": 612,
+          "line": 633,
           "deprecated": false
         },
         {
@@ -3204,7 +3213,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-          "line": 631,
+          "line": 652,
           "deprecated": false
         },
         {
@@ -3213,7 +3222,7 @@
           "kind": "function",
           "signature": "(area_type)",
           "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-          "line": 643,
+          "line": 664,
           "deprecated": false
         },
         {
@@ -3222,7 +3231,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-          "line": 663,
+          "line": 684,
           "deprecated": false
         },
         {
@@ -3231,7 +3240,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-          "line": 693,
+          "line": 714,
           "deprecated": false
         }
       ],
@@ -3239,7 +3248,7 @@
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 721,
+          "line": 742,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -4279,12 +4288,21 @@
           "deprecated": false
         },
         {
+          "name": "apply_subdivision",
+          "qualname": "apply_subdivision",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Bake the live Subsurf modifier into real geometry — the destructive counterpart of",
+          "line": 242,
+          "deprecated": false
+        },
+        {
           "name": "set_shading",
           "qualname": "set_shading",
           "kind": "function",
-          "signature": "(objects, smooth=True)",
-          "summary": "Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the",
-          "line": 243,
+          "signature": "(objects, smooth=True, selected_only=False)",
+          "summary": "Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender",
+          "line": 262,
           "deprecated": false
         },
         {
@@ -4293,7 +4311,7 @@
           "kind": "function",
           "signature": "(objects, by_uv_shell=False)",
           "summary": "Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``",
-          "line": 269,
+          "line": 321,
           "deprecated": false
         },
         {
@@ -4302,7 +4320,7 @@
           "kind": "function",
           "signature": "(objects, low_angle=0.0, high_angle=180.0)",
           "summary": "Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``",
-          "line": 298,
+          "line": 350,
           "deprecated": false
         },
         {
@@ -4311,7 +4329,7 @@
           "kind": "function",
           "signature": "(objects, angle=30.0, upper_hardness=0, lower_hardness=180)",
           "summary": "Smooth-shade, then mark interior edges hard/soft by their dihedral angle relative to",
-          "line": 329,
+          "line": 381,
           "deprecated": false
         },
         {
@@ -4320,16 +4338,34 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's",
-          "line": 363,
+          "line": 440,
+          "deprecated": false
+        },
+        {
+          "name": "add_custom_split_normals",
+          "qualname": "add_custom_split_normals",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "Bake the current normals of the given mesh object(s) as custom split normals — the Blender",
+          "line": 449,
+          "deprecated": false
+        },
+        {
+          "name": "has_custom_split_normals",
+          "qualname": "has_custom_split_normals",
+          "kind": "function",
+          "signature": "(objects)",
+          "summary": "True when EVERY mesh in ``objects`` carries custom split normals (i.e.",
+          "line": 458,
           "deprecated": false
         },
         {
           "name": "flip_normals",
           "qualname": "flip_normals",
           "kind": "function",
-          "signature": "(objects)",
+          "signature": "(objects, selected_only=False)",
           "summary": "Reverse face winding / normals (bmesh ``reverse_faces``, headless).",
-          "line": 383,
+          "line": 469,
           "deprecated": false
         },
         {
@@ -4338,7 +4374,7 @@
           "kind": "function",
           "signature": "(objects, inside=False)",
           "summary": "Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).",
-          "line": 391,
+          "line": 483,
           "deprecated": false
         },
         {
@@ -4347,7 +4383,7 @@
           "kind": "function",
           "signature": "(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)",
           "summary": "Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose",
-          "line": 405,
+          "line": 497,
           "deprecated": false
         },
         {
@@ -4356,7 +4392,7 @@
           "kind": "function",
           "signature": "(objects, amount=10.0, angle=None)",
           "summary": "Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's",
-          "line": 454,
+          "line": 546,
           "deprecated": false
         },
         {
@@ -4365,7 +4401,7 @@
           "kind": "function",
           "signature": "(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, uninstance=False, merge_threshold=0.001)",
           "summary": "Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.",
-          "line": 596,
+          "line": 688,
           "deprecated": false
         },
         {
@@ -4374,7 +4410,7 @@
           "kind": "function",
           "signature": "(objects, axis='x', pivot='center', amount=1, offset=0.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001)",
           "summary": "Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.",
-          "line": 658,
+          "line": 750,
           "deprecated": false
         },
         {
@@ -4383,7 +4419,7 @@
           "kind": "function",
           "signature": "(objects, angle=90.0, divisions=4)",
           "summary": "Wedge the selected faces about a selected hinge edge — mirror of Maya's",
-          "line": 735,
+          "line": 827,
           "deprecated": false
         },
         {
@@ -4392,7 +4428,7 @@
           "kind": "function",
           "signature": "(obj_a, obj_b, tolerance=10.0)",
           "summary": "Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within",
-          "line": 802,
+          "line": 894,
           "deprecated": false
         },
         {
@@ -4401,7 +4437,7 @@
           "kind": "function",
           "signature": "(objects=None, grid_size=1.0, axes='xyz')",
           "summary": "Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.",
-          "line": 831,
+          "line": 923,
           "deprecated": false
         },
         {
@@ -4410,7 +4446,7 @@
           "kind": "function",
           "signature": "(source_meshes, target, offset=0.0, threshold=None, invert=False)",
           "summary": "Project the source meshes' vertices onto the closest point of ``target``'s surface —",
-          "line": 869,
+          "line": 961,
           "deprecated": false
         },
         {
@@ -4419,7 +4455,7 @@
           "kind": "function",
           "signature": "(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)",
           "summary": "Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —",
-          "line": 1073,
+          "line": 1165,
           "deprecated": false
         },
         {
@@ -4428,7 +4464,7 @@
           "kind": "function",
           "signature": "(objects=None, *, by_material=False, rename=False, center_pivots=True)",
           "summary": "Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender",
-          "line": 1120,
+          "line": 1213,
           "deprecated": false
         },
         {
@@ -4437,7 +4473,7 @@
           "kind": "function",
           "signature": "(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0)",
           "summary": "Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``",
-          "line": 1189,
+          "line": 1284,
           "deprecated": false
         },
         {
@@ -4446,7 +4482,7 @@
           "kind": "function",
           "signature": "(*, duplicate=False, separate=True, separate_each=False)",
           "summary": "Detach the active mesh's selected faces — Blender mirror of mayatk's",
-          "line": 1230,
+          "line": 1325,
           "deprecated": false
         },
         {
@@ -4455,7 +4491,7 @@
           "kind": "function",
           "signature": "(objects, delete=False, select=True, round_ndigits=5)",
           "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-          "line": 1284,
+          "line": 1379,
           "deprecated": false
         },
         {
@@ -4464,7 +4500,7 @@
           "kind": "function",
           "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
           "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-          "line": 1326,
+          "line": 1421,
           "deprecated": false
         },
         {
@@ -4473,7 +4509,7 @@
           "kind": "function",
           "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
           "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-          "line": 1414,
+          "line": 1509,
           "deprecated": false
         }
       ],
@@ -4481,7 +4517,7 @@
         {
           "name": "EditUtils",
           "summary": "Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).",
-          "line": 1477,
+          "line": 1572,
           "bases": [],
           "members": []
         }
@@ -5772,12 +5808,21 @@
           "bases": [],
           "members": [
             {
+              "name": "loop_multi_select",
+              "qualname": "Selection.loop_multi_select",
+              "kind": "staticmethod",
+              "signature": "(ring=False)",
+              "summary": "Extend the current edge selection to full loops (rings with ``ring``) — version-portable.",
+              "line": 37,
+              "deprecated": false
+            },
+            {
               "name": "select_by_type",
               "qualname": "Selection.select_by_type",
               "kind": "staticmethod",
               "signature": "(selection_type, objects=None, mode='replace')",
               "summary": "Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).",
-              "line": 159,
+              "line": 174,
               "deprecated": false
             },
             {
@@ -5786,7 +5831,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "The immediate children of the given objects (one level below only).",
-              "line": 208,
+              "line": 223,
               "deprecated": false
             },
             {
@@ -5795,7 +5840,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All ancestor objects above the given objects (full parent chain).",
-              "line": 216,
+              "line": 231,
               "deprecated": false
             },
             {
@@ -5804,7 +5849,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "All descendant objects below the given objects (full child subtree).",
-              "line": 224,
+              "line": 239,
               "deprecated": false
             },
             {
@@ -5813,7 +5858,7 @@
               "kind": "staticmethod",
               "signature": "(obj, mode, contained=False)",
               "summary": "Convert the current Edit-Mode selection to `mode` ('VERT'/'EDGE'/'FACE') — Maya",
-              "line": 490,
+              "line": 505,
               "deprecated": false
             },
             {
@@ -5822,7 +5867,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Path: the shortest face-adjacency path between exactly two selected faces —",
-              "line": 500,
+              "line": 515,
               "deprecated": false
             },
             {
@@ -5831,7 +5876,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Vertex Perimeter: the vertices of the boundary loop around the current face-region",
-              "line": 511,
+              "line": 526,
               "deprecated": false
             },
             {
@@ -5840,7 +5885,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Edge Perimeter: the boundary edge loop around the current face-region selection —",
-              "line": 520,
+              "line": 535,
               "deprecated": false
             },
             {
@@ -5849,7 +5894,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Face Perimeter: the ring of faces immediately surrounding the current face-region",
-              "line": 530,
+              "line": 545,
               "deprecated": false
             },
             {
@@ -5858,7 +5903,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Border Edges: the naked (open, single-face) mesh edges among the current",
-              "line": 552,
+              "line": 567,
               "deprecated": false
             },
             {
@@ -5867,7 +5912,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Shell Border: the naked/open boundary edges of the connected shell(s) touching the",
-              "line": 584,
+              "line": 599,
               "deprecated": false
             },
             {
@@ -5876,7 +5921,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Shell: every face sharing a UV island with the current selection — Maya's",
-              "line": 595,
+              "line": 610,
               "deprecated": false
             },
             {
@@ -5885,7 +5930,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Shell Border: the UV-island boundary edges of the UV shell(s) touching the current",
-              "line": 627,
+              "line": 642,
               "deprecated": false
             },
             {
@@ -5894,7 +5939,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Perimeter: the boundary of the current selection's UV footprint — Maya's",
-              "line": 654,
+              "line": 669,
               "deprecated": false
             },
             {
@@ -5903,7 +5948,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "UV Edge Loop: the topological edge loop through the selection, truncated at UV seams —",
-              "line": 686,
+              "line": 701,
               "deprecated": false
             },
             {
@@ -5912,7 +5957,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "A flat, sorted list of every leaf selection-type label.",
-              "line": 740,
+              "line": 755,
               "deprecated": false
             },
             {
@@ -5921,7 +5966,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Dict of category -> leaf-label list (mirror of ``mtk.Selection.get_selection_categories``).",
-              "line": 746,
+              "line": 761,
               "deprecated": false
             }
           ]
@@ -6121,7 +6166,7 @@
           "name": "link_blend_file",
           "qualname": "link_blend_file",
           "kind": "function",
-          "signature": "(path, link=True, instance=True)",
+          "signature": "(path, link=True, instance=True, target_collection=None)",
           "summary": "Link (or append, ``link=False``) every collection from ``path`` and instance them into the",
           "line": 93,
           "deprecated": false
@@ -6132,7 +6177,7 @@
           "kind": "function",
           "signature": "(library)",
           "summary": "Reload a library from disk (``library`` is a datablock or its name).",
-          "line": 128,
+          "line": 132,
           "deprecated": false
         },
         {
@@ -6141,7 +6186,7 @@
           "kind": "function",
           "signature": "(library)",
           "summary": "Remove a library and everything linked from it (datablock or name).",
-          "line": 142,
+          "line": 146,
           "deprecated": false
         },
         {
@@ -6150,7 +6195,7 @@
           "kind": "function",
           "signature": "(library)",
           "summary": "Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the",
-          "line": 156,
+          "line": 160,
           "deprecated": false
         },
         {
@@ -6159,7 +6204,7 @@
           "kind": "function",
           "signature": "(root_dir, recursive=False)",
           "summary": "Project folders under ``root_dir`` — the root itself when it directly holds .blend files,",
-          "line": 198,
+          "line": 202,
           "deprecated": false
         },
         {
@@ -6168,7 +6213,7 @@
           "kind": "function",
           "signature": "(path)",
           "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-          "line": 243,
+          "line": 247,
           "deprecated": false
         },
         {
@@ -6177,7 +6222,7 @@
           "kind": "function",
           "signature": "(name, case=None, suffix='')",
           "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-          "line": 256,
+          "line": 260,
           "deprecated": false
         },
         {
@@ -6186,7 +6231,7 @@
           "kind": "function",
           "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
           "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-          "line": 274,
+          "line": 278,
           "deprecated": false
         },
         {
@@ -6195,7 +6240,7 @@
           "kind": "function",
           "signature": "(path, new_base)",
           "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-          "line": 313,
+          "line": 317,
           "deprecated": false
         },
         {
@@ -6204,7 +6249,7 @@
           "kind": "function",
           "signature": "(path)",
           "summary": "Delete a .blend (and its ``.blend1`` backup) — mirror of mayatk's ``delete_scene``.",
-          "line": 338,
+          "line": 342,
           "deprecated": false
         },
         {
@@ -6213,7 +6258,7 @@
           "kind": "function",
           "signature": "(library, mode)",
           "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-          "line": 380,
+          "line": 384,
           "deprecated": false
         },
         {
@@ -6222,7 +6267,7 @@
           "kind": "function",
           "signature": "(library)",
           "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-          "line": 403,
+          "line": 407,
           "deprecated": false
         }
       ],
@@ -6230,7 +6275,7 @@
         {
           "name": "EnvUtils",
           "summary": "Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).",
-          "line": 422,
+          "line": 426,
           "bases": [],
           "members": []
         }
@@ -6354,16 +6399,50 @@
       ]
     },
     {
-      "relpath": "env_utils/hierarchy_manager/_hierarchy_manager.py",
-      "summary": "Hierarchy Manager core engine — mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager…",
+      "relpath": "env_utils/hierarchy_sync/_fbx_stage_worker.py",
+      "summary": "Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.",
       "functions": [
+        {
+          "name": "main",
+          "qualname": "main",
+          "kind": "function",
+          "signature": "() -> int",
+          "summary": "Stage the FBX named on the command line;",
+          "line": 30,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "env_utils/hierarchy_sync/_hierarchy_sync.py",
+      "summary": "Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.",
+      "functions": [
+        {
+          "name": "stage_reference_blend",
+          "qualname": "stage_reference_blend",
+          "kind": "function",
+          "signature": "(reference_path: str, logger=None)",
+          "summary": "Return a ``.blend`` path to link as the reference, converting other scene formats.",
+          "line": 47,
+          "deprecated": false
+        },
         {
           "name": "build_path",
           "qualname": "build_path",
           "kind": "function",
           "signature": "(obj) -> str",
           "summary": "Pipe-joined hierarchy path from the root down to ``obj`` (e.g.",
-          "line": 40,
+          "line": 119,
+          "deprecated": false
+        },
+        {
+          "name": "delete_objects",
+          "qualname": "delete_objects",
+          "kind": "function",
+          "signature": "(objects) -> List[str]",
+          "summary": "Delete *objects* AND all their descendants from the blend data;",
+          "line": 134,
           "deprecated": false
         },
         {
@@ -6372,7 +6451,7 @@
           "kind": "function",
           "signature": "(obj, node_types: List[str], exclude: bool = True) -> bool",
           "summary": "Filter by Blender object type — mirror of mayatk's shape-type filter.",
-          "line": 55,
+          "line": 154,
           "deprecated": false
         }
       ],
@@ -6380,7 +6459,7 @@
         {
           "name": "HierarchyMapBuilder",
           "summary": "Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).",
-          "line": 61,
+          "line": 160,
           "bases": [],
           "members": [
             {
@@ -6389,422 +6468,81 @@
               "kind": "staticmethod",
               "signature": "(objects) -> Dict[str, Any]",
               "summary": "Map every object in ``objects`` to its hierarchy path (see :func:`build_path`).",
-              "line": 71,
+              "line": 170,
               "deprecated": false
             }
           ]
         },
         {
-          "name": "HierarchyManager",
-          "summary": "Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchyManager``).",
-          "line": 76,
+          "name": "HierarchySync",
+          "summary": "Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).",
+          "line": 175,
           "bases": [
             "ptk.LoggingMixin"
           ],
           "members": [
             {
               "name": "analyze_hierarchies",
-              "qualname": "HierarchyManager.analyze_hierarchies",
+              "qualname": "HierarchySync.analyze_hierarchies",
               "kind": "method",
               "signature": "(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]",
               "summary": "Analyze differences between the current scene and a reference object set.",
-              "line": 103,
+              "line": 202,
               "deprecated": false
             },
             {
               "name": "create_stubs",
-              "qualname": "HierarchyManager.create_stubs",
+              "qualname": "HierarchySync.create_stubs",
               "kind": "method",
               "signature": "(self, paths: Optional[List[str]] = None) -> List[str]",
               "summary": "Create empty placeholder Empties for missing hierarchy paths.",
-              "line": 437,
+              "line": 536,
               "deprecated": false
             },
             {
               "name": "quarantine_extras",
-              "qualname": "HierarchyManager.quarantine_extras",
+              "qualname": "HierarchySync.quarantine_extras",
               "kind": "method",
               "signature": "(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]",
               "summary": "Move extra (scene-only) items to a root-level quarantine Empty.",
-              "line": 520,
+              "line": 700,
               "deprecated": false
             },
             {
               "name": "fix_fuzzy_renames",
-              "qualname": "HierarchyManager.fix_fuzzy_renames",
+              "qualname": "HierarchySync.fix_fuzzy_renames",
               "kind": "method",
               "signature": "(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]",
               "summary": "Rename nodes identified as fuzzy matches to their reference names.",
-              "line": 638,
+              "line": 818,
               "deprecated": false
             },
             {
               "name": "fix_reparented",
-              "qualname": "HierarchyManager.fix_reparented",
+              "qualname": "HierarchySync.fix_reparented",
               "kind": "method",
-              "signature": "(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]",
+              "signature": "(self, items: Optional[List[Dict[str, str]]] = None, skip_animated: bool = True) -> List[str]",
               "summary": "Move reparented nodes to match their reference hierarchy position.",
-              "line": 687,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "relpath": "env_utils/hierarchy_manager/hierarchy_manager_slots.py",
-      "summary": "Slots for the Hierarchy Manager panel -- Blender port of mayatk's ``env_utils.hierarchy_manager``.",
-      "functions": [],
-      "classes": [
-        {
-          "name": "HierarchyManagerController",
-          "summary": "Controller for hierarchy management operations.",
-          "line": 68,
-          "bases": [
-            "ptk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "workspace",
-              "qualname": "HierarchyManagerController.workspace",
-              "kind": "property",
-              "signature": "(self)",
-              "summary": "",
-              "line": 111,
-              "deprecated": false
-            },
-            {
-              "name": "reference_path",
-              "qualname": "HierarchyManagerController.reference_path",
-              "kind": "property",
-              "signature": "(self) -> str",
-              "summary": "The current reference scene path.",
-              "line": 120,
-              "deprecated": false
-            },
-            {
-              "name": "analyze_hierarchies",
-              "qualname": "HierarchyManagerController.analyze_hierarchies",
-              "kind": "method",
-              "signature": "(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False) -> bool",
-              "summary": "Link the reference file (or reuse the cached link) and diff it against the scene.",
-              "line": 158,
-              "deprecated": false
-            },
-            {
-              "name": "repair_hierarchies",
-              "qualname": "HierarchyManagerController.repair_hierarchies",
-              "kind": "method",
-              "signature": "(self, create_stubs: bool = True, quarantine_extras: bool = True, quarantine_group: str = '_QUARANTINE', skip_animated: bool = True, fix_reparented: bool = True, fix_fuzzy_renames: bool = True, dry_run: bool = True) -> bool",
-              "summary": "Run repair operations on the current scene to match the reference hierarchy.",
-              "line": 300,
-              "deprecated": false
-            },
-            {
-              "name": "select_objects",
-              "qualname": "HierarchyManagerController.select_objects",
-              "kind": "staticmethod",
-              "signature": "(object_names: List[str]) -> int",
-              "summary": "Select objects in the Blender scene by name.",
-              "line": 386,
-              "deprecated": false
-            },
-            {
-              "name": "populate_reference_tree",
-              "qualname": "HierarchyManagerController.populate_reference_tree",
-              "kind": "method",
-              "signature": "(self, tree_widget, reference_path: str = None)",
-              "summary": "Populate the reference tree — handles cache, library link, and rendering.",
-              "line": 407,
-              "deprecated": false
-            },
-            {
-              "name": "refresh_trees",
-              "qualname": "HierarchyManagerController.refresh_trees",
-              "kind": "method",
-              "signature": "(self, restore_selection: bool = True)",
-              "summary": "Refresh both tree widgets with current hierarchy data.",
-              "line": 439,
-              "deprecated": false
-            },
-            {
-              "name": "is_path_ignored",
-              "qualname": "HierarchyManagerController.is_path_ignored",
-              "kind": "method",
-              "signature": "(self, tree_widget, path)",
-              "summary": "",
-              "line": 486,
-              "deprecated": false
-            },
-            {
-              "name": "clear_ignored_paths",
-              "qualname": "HierarchyManagerController.clear_ignored_paths",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "",
-              "line": 492,
-              "deprecated": false
-            },
-            {
-              "name": "log_diff_results",
-              "qualname": "HierarchyManagerController.log_diff_results",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Log detailed hierarchy difference analysis results using rich formatting.",
-              "line": 520,
-              "deprecated": false
-            },
-            {
-              "name": "get_recent_reference_scenes",
-              "qualname": "HierarchyManagerController.get_recent_reference_scenes",
-              "kind": "method",
-              "signature": "(self) -> List[str]",
-              "summary": "Get recent reference scenes from settings.",
-              "line": 637,
-              "deprecated": false
-            },
-            {
-              "name": "save_recent_reference_scene",
-              "qualname": "HierarchyManagerController.save_recent_reference_scene",
-              "kind": "method",
-              "signature": "(self, scene_path: str)",
-              "summary": "Save reference scene to recent list.",
-              "line": 642,
+              "line": 867,
               "deprecated": false
             }
           ]
         },
         {
-          "name": "HierarchyManagerSlots",
-          "summary": "Slots class for hierarchy management UI operations.",
-          "line": 711,
+          "name": "ObjectSwapper",
+          "summary": "Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).",
+          "line": 975,
           "bases": [
             "ptk.LoggingMixin"
           ],
           "members": [
             {
-              "name": "header_init",
-              "qualname": "HierarchyManagerSlots.header_init",
+              "name": "pull_objects_from_reference",
+              "qualname": "ObjectSwapper.pull_objects_from_reference",
               "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the header widget.",
-              "line": 799,
-              "deprecated": false
-            },
-            {
-              "name": "tree000_init",
-              "qualname": "HierarchyManagerSlots.tree000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the reference/linked hierarchy tree widget.",
-              "line": 846,
-              "deprecated": false
-            },
-            {
-              "name": "tree001_init",
-              "qualname": "HierarchyManagerSlots.tree001_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the current scene hierarchy tree widget.",
-              "line": 997,
-              "deprecated": false
-            },
-            {
-              "name": "cmb_diff_options_init",
-              "qualname": "HierarchyManagerSlots.cmb_diff_options_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the diff-options WidgetComboBox below the Diff button.",
-              "line": 1055,
-              "deprecated": false
-            },
-            {
-              "name": "cmb_pull_options_init",
-              "qualname": "HierarchyManagerSlots.cmb_pull_options_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Pull options — disabled (Pull isn't ported yet;",
-              "line": 1116,
-              "deprecated": false
-            },
-            {
-              "name": "tb002_init",
-              "qualname": "HierarchyManagerSlots.tb002_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Pull button — disabled (see module docstring).",
-              "line": 1122,
-              "deprecated": false
-            },
-            {
-              "name": "tb003_init",
-              "qualname": "HierarchyManagerSlots.tb003_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Initialize the fix/repair toggle button with options menu.",
-              "line": 1127,
-              "deprecated": false
-            },
-            {
-              "name": "tb001",
-              "qualname": "HierarchyManagerSlots.tb001",
-              "kind": "method",
-              "signature": "(self, state=None)",
-              "summary": "Run the diff analysis using settings from cmb_diff_options.",
-              "line": 1156,
-              "deprecated": false
-            },
-            {
-              "name": "tb002",
-              "qualname": "HierarchyManagerSlots.tb002",
-              "kind": "method",
-              "signature": "(self, state=None)",
-              "summary": "Pull — not yet ported (see module docstring).",
-              "line": 1245,
-              "deprecated": false
-            },
-            {
-              "name": "tb003",
-              "qualname": "HierarchyManagerSlots.tb003",
-              "kind": "method",
-              "signature": "(self, state=None)",
-              "summary": "Toggle button for fix/repair operations.",
-              "line": 1249,
-              "deprecated": false
-            },
-            {
-              "name": "b003",
-              "qualname": "HierarchyManagerSlots.b003",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Browse for reference scene file.",
-              "line": 1303,
-              "deprecated": false
-            },
-            {
-              "name": "b005",
-              "qualname": "HierarchyManagerSlots.b005",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Refresh current scene hierarchy tree.",
-              "line": 1336,
-              "deprecated": false
-            },
-            {
-              "name": "b006",
-              "qualname": "HierarchyManagerSlots.b006",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Select checked objects in the scene.",
-              "line": 1340,
-              "deprecated": false
-            },
-            {
-              "name": "b007",
-              "qualname": "HierarchyManagerSlots.b007",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Expand all items in current scene tree.",
-              "line": 1349,
-              "deprecated": false
-            },
-            {
-              "name": "b008",
-              "qualname": "HierarchyManagerSlots.b008",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Collapse all items in current scene tree.",
-              "line": 1353,
-              "deprecated": false
-            },
-            {
-              "name": "b009",
-              "qualname": "HierarchyManagerSlots.b009",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Refresh reference hierarchy tree.",
-              "line": 1357,
-              "deprecated": false
-            },
-            {
-              "name": "b011",
-              "qualname": "HierarchyManagerSlots.b011",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Show differences between hierarchies.",
-              "line": 1365,
-              "deprecated": false
-            },
-            {
-              "name": "b012",
-              "qualname": "HierarchyManagerSlots.b012",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Analyze hierarchies and perform comparison (no auto-select/expand — see tb001).",
-              "line": 1375,
-              "deprecated": false
-            },
-            {
-              "name": "b013",
-              "qualname": "HierarchyManagerSlots.b013",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Ignore selected items in the reference tree.",
-              "line": 1392,
-              "deprecated": false
-            },
-            {
-              "name": "b014",
-              "qualname": "HierarchyManagerSlots.b014",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Unignore selected items in the reference tree.",
-              "line": 1396,
-              "deprecated": false
-            },
-            {
-              "name": "b015",
-              "qualname": "HierarchyManagerSlots.b015",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Ignore selected items in the current scene tree.",
-              "line": 1400,
-              "deprecated": false
-            },
-            {
-              "name": "b016",
-              "qualname": "HierarchyManagerSlots.b016",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Unignore selected items in the current scene tree.",
-              "line": 1404,
-              "deprecated": false
-            },
-            {
-              "name": "b018",
-              "qualname": "HierarchyManagerSlots.b018",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Delete selected objects from the Blender scene and refresh the tree.",
-              "line": 1408,
-              "deprecated": false
-            },
-            {
-              "name": "b017",
-              "qualname": "HierarchyManagerSlots.b017",
-              "kind": "method",
-              "signature": "(self)",
-              "summary": "Rename current-scene items to match reference names.",
-              "line": 1444,
-              "deprecated": false
-            },
-            {
-              "name": "count_tree_items",
-              "qualname": "HierarchyManagerSlots.count_tree_items",
-              "kind": "method",
-              "signature": "(self, tree_widget)",
-              "summary": "Count total items in a tree widget.",
-              "line": 1728,
+              "signature": "(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool",
+              "summary": "Append the reference objects at *target_paths* into the current scene.",
+              "line": 1006,
               "deprecated": false
             }
           ]
@@ -6812,7 +6550,7 @@
       ]
     },
     {
-      "relpath": "env_utils/hierarchy_manager/hierarchy_sidecar.py",
+      "relpath": "env_utils/hierarchy_sync/hierarchy_sidecar.py",
       "summary": "Hierarchy sidecar manifest management — mirror of mayatk's",
       "functions": [],
       "classes": [
@@ -6882,7 +6620,7 @@
               "kind": "staticmethod",
               "signature": "(paths) -> set",
               "summary": "Dedup a set of hierarchy path strings.",
-              "line": 157,
+              "line": 171,
               "deprecated": false
             },
             {
@@ -6891,7 +6629,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> list",
               "summary": "Return hierarchy paths for *objects* plus all their descendants.",
-              "line": 167,
+              "line": 181,
               "deprecated": false
             },
             {
@@ -6900,7 +6638,7 @@
               "kind": "staticmethod",
               "signature": "(paths) -> list",
               "summary": "Return only paths whose ancestor is *not* also in the set.",
-              "line": 184,
+              "line": 198,
               "deprecated": false
             },
             {
@@ -6909,7 +6647,7 @@
               "kind": "staticmethod",
               "signature": "(missing: list, extra: list) -> list",
               "summary": "Detect nodes that were reparented rather than added/removed.",
-              "line": 196,
+              "line": 210,
               "deprecated": false
             },
             {
@@ -6918,7 +6656,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, paths, *, base_stem: bool = False) -> Optional[str]",
               "summary": "Write *paths* to the sidecar manifest for *export_path*.",
-              "line": 235,
+              "line": 249,
               "deprecated": false
             },
             {
@@ -6927,7 +6665,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]",
               "summary": "Read the manifest for *export_path*.",
-              "line": 270,
+              "line": 308,
               "deprecated": false
             },
             {
@@ -6936,7 +6674,7 @@
               "kind": "staticmethod",
               "signature": "(top_path: str, all_paths) -> int",
               "summary": "Count *top_path* plus its descendants in *all_paths*.",
-              "line": 292,
+              "line": 325,
               "deprecated": false
             },
             {
@@ -6945,7 +6683,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]",
               "summary": "Write a human-readable diff report to the sidecar text file.",
-              "line": 313,
+              "line": 346,
               "deprecated": false
             },
             {
@@ -6954,7 +6692,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> None",
               "summary": "Remove a stale diff report left over from a previous failure.",
-              "line": 377,
+              "line": 410,
               "deprecated": false
             },
             {
@@ -6963,7 +6701,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects) -> set",
               "summary": "Expand *objects* to descendants, then dedup.",
-              "line": 391,
+              "line": 424,
               "deprecated": false
             },
             {
@@ -6972,7 +6710,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]",
               "summary": "Compare *current_paths* against the stored manifest.",
-              "line": 396,
+              "line": 429,
               "deprecated": false
             }
           ]
@@ -6980,8 +6718,377 @@
       ]
     },
     {
-      "relpath": "env_utils/hierarchy_manager/tree_renderer.py",
-      "summary": "Tree rendering, formatting, and selection management for the hierarchy manager UI — mirror of",
+      "relpath": "env_utils/hierarchy_sync/hierarchy_sync_slots.py",
+      "summary": "Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "HierarchySyncController",
+          "summary": "Controller for hierarchy management operations.",
+          "line": 75,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "workspace",
+              "qualname": "HierarchySyncController.workspace",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "",
+              "line": 124,
+              "deprecated": false
+            },
+            {
+              "name": "reference_path",
+              "qualname": "HierarchySyncController.reference_path",
+              "kind": "property",
+              "signature": "(self) -> str",
+              "summary": "The current reference scene path.",
+              "line": 133,
+              "deprecated": false
+            },
+            {
+              "name": "analyze_hierarchies",
+              "qualname": "HierarchySyncController.analyze_hierarchies",
+              "kind": "method",
+              "signature": "(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False, filter_cameras: bool = False, filter_lights: bool = False) -> bool",
+              "summary": "Link the reference file (or reuse the cached link) and diff it against the scene.",
+              "line": 171,
+              "deprecated": false
+            },
+            {
+              "name": "repair_hierarchies",
+              "qualname": "HierarchySyncController.repair_hierarchies",
+              "kind": "method",
+              "signature": "(self, create_stubs: bool = True, quarantine_extras: bool = True, quarantine_group: str = '_QUARANTINE', skip_animated: bool = True, fix_reparented: bool = True, fix_fuzzy_renames: bool = True, dry_run: bool = True) -> bool",
+              "summary": "Run repair operations on the current scene to match the reference hierarchy.",
+              "line": 400,
+              "deprecated": false
+            },
+            {
+              "name": "pull_objects",
+              "qualname": "HierarchySyncController.pull_objects",
+              "kind": "method",
+              "signature": "(self, target_paths: List[str], reference_path: str, dry_run: bool = True, pull_children: bool = False, pull_mode: str = 'Add to Scene') -> bool",
+              "summary": "Pull selected reference objects into the current scene.",
+              "line": 489,
+              "deprecated": false
+            },
+            {
+              "name": "select_objects",
+              "qualname": "HierarchySyncController.select_objects",
+              "kind": "staticmethod",
+              "signature": "(object_names: List[str]) -> int",
+              "summary": "Select objects in the Blender scene by name.",
+              "line": 551,
+              "deprecated": false
+            },
+            {
+              "name": "populate_reference_tree",
+              "qualname": "HierarchySyncController.populate_reference_tree",
+              "kind": "method",
+              "signature": "(self, tree_widget, reference_path: str = None)",
+              "summary": "Populate the reference tree — handles cache, library link, and rendering.",
+              "line": 572,
+              "deprecated": false
+            },
+            {
+              "name": "refresh_trees",
+              "qualname": "HierarchySyncController.refresh_trees",
+              "kind": "method",
+              "signature": "(self, restore_selection: bool = True)",
+              "summary": "Refresh both tree widgets with current hierarchy data.",
+              "line": 604,
+              "deprecated": false
+            },
+            {
+              "name": "is_path_ignored",
+              "qualname": "HierarchySyncController.is_path_ignored",
+              "kind": "method",
+              "signature": "(self, tree_widget, path)",
+              "summary": "",
+              "line": 651,
+              "deprecated": false
+            },
+            {
+              "name": "clear_ignored_paths",
+              "qualname": "HierarchySyncController.clear_ignored_paths",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "",
+              "line": 657,
+              "deprecated": false
+            },
+            {
+              "name": "log_diff_results",
+              "qualname": "HierarchySyncController.log_diff_results",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Log detailed hierarchy difference analysis results using rich formatting.",
+              "line": 685,
+              "deprecated": false
+            },
+            {
+              "name": "get_recent_reference_scenes",
+              "qualname": "HierarchySyncController.get_recent_reference_scenes",
+              "kind": "method",
+              "signature": "(self) -> List[str]",
+              "summary": "Get recent reference scenes from settings.",
+              "line": 811,
+              "deprecated": false
+            },
+            {
+              "name": "save_recent_reference_scene",
+              "qualname": "HierarchySyncController.save_recent_reference_scene",
+              "kind": "method",
+              "signature": "(self, scene_path: str)",
+              "summary": "Save reference scene to recent list.",
+              "line": 818,
+              "deprecated": false
+            }
+          ]
+        },
+        {
+          "name": "HierarchySyncSlots",
+          "summary": "Slots class for hierarchy management UI operations.",
+          "line": 889,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "header_init",
+              "qualname": "HierarchySyncSlots.header_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Initialize the header widget.",
+              "line": 977,
+              "deprecated": false
+            },
+            {
+              "name": "tree000_init",
+              "qualname": "HierarchySyncSlots.tree000_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Initialize the reference/linked hierarchy tree widget.",
+              "line": 1040,
+              "deprecated": false
+            },
+            {
+              "name": "tree001_init",
+              "qualname": "HierarchySyncSlots.tree001_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Initialize the current scene hierarchy tree widget.",
+              "line": 1198,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_diff_options_init",
+              "qualname": "HierarchySyncSlots.cmb_diff_options_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Populate the diff-options WidgetComboBox below the Diff button.",
+              "line": 1256,
+              "deprecated": false
+            },
+            {
+              "name": "cmb_pull_options_init",
+              "qualname": "HierarchySyncSlots.cmb_pull_options_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Populate the pull-options WidgetComboBox below the Pull button.",
+              "line": 1331,
+              "deprecated": false
+            },
+            {
+              "name": "tb002_init",
+              "qualname": "HierarchySyncSlots.tb002_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Initialize the Pull toggle button.",
+              "line": 1359,
+              "deprecated": false
+            },
+            {
+              "name": "tb003_init",
+              "qualname": "HierarchySyncSlots.tb003_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Initialize the fix/repair toggle button with options menu.",
+              "line": 1366,
+              "deprecated": false
+            },
+            {
+              "name": "tb001",
+              "qualname": "HierarchySyncSlots.tb001",
+              "kind": "method",
+              "signature": "(self, state=None)",
+              "summary": "Run the diff analysis using settings from cmb_diff_options.",
+              "line": 1397,
+              "deprecated": false
+            },
+            {
+              "name": "tb002",
+              "qualname": "HierarchySyncSlots.tb002",
+              "kind": "method",
+              "signature": "(self, state=None)",
+              "summary": "Pull the reference-tree selection into the current scene.",
+              "line": 1499,
+              "deprecated": false
+            },
+            {
+              "name": "tb003",
+              "qualname": "HierarchySyncSlots.tb003",
+              "kind": "method",
+              "signature": "(self, state=None)",
+              "summary": "Toggle button for fix/repair operations.",
+              "line": 1544,
+              "deprecated": false
+            },
+            {
+              "name": "b003",
+              "qualname": "HierarchySyncSlots.b003",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Browse for reference scene file.",
+              "line": 1598,
+              "deprecated": false
+            },
+            {
+              "name": "b005",
+              "qualname": "HierarchySyncSlots.b005",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Refresh current scene hierarchy tree.",
+              "line": 1631,
+              "deprecated": false
+            },
+            {
+              "name": "b006",
+              "qualname": "HierarchySyncSlots.b006",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Select checked objects in the scene.",
+              "line": 1635,
+              "deprecated": false
+            },
+            {
+              "name": "b007",
+              "qualname": "HierarchySyncSlots.b007",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Expand all items in current scene tree.",
+              "line": 1644,
+              "deprecated": false
+            },
+            {
+              "name": "b008",
+              "qualname": "HierarchySyncSlots.b008",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Collapse all items in current scene tree.",
+              "line": 1648,
+              "deprecated": false
+            },
+            {
+              "name": "b009",
+              "qualname": "HierarchySyncSlots.b009",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Refresh reference hierarchy tree.",
+              "line": 1652,
+              "deprecated": false
+            },
+            {
+              "name": "b011",
+              "qualname": "HierarchySyncSlots.b011",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Show differences between hierarchies.",
+              "line": 1660,
+              "deprecated": false
+            },
+            {
+              "name": "b012",
+              "qualname": "HierarchySyncSlots.b012",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Analyze hierarchies and perform comparison (no auto-select/expand — see tb001).",
+              "line": 1670,
+              "deprecated": false
+            },
+            {
+              "name": "b013",
+              "qualname": "HierarchySyncSlots.b013",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Ignore selected items in the reference tree.",
+              "line": 1696,
+              "deprecated": false
+            },
+            {
+              "name": "b014",
+              "qualname": "HierarchySyncSlots.b014",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Unignore selected items in the reference tree.",
+              "line": 1700,
+              "deprecated": false
+            },
+            {
+              "name": "b015",
+              "qualname": "HierarchySyncSlots.b015",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Ignore selected items in the current scene tree.",
+              "line": 1704,
+              "deprecated": false
+            },
+            {
+              "name": "b016",
+              "qualname": "HierarchySyncSlots.b016",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Unignore selected items in the current scene tree.",
+              "line": 1708,
+              "deprecated": false
+            },
+            {
+              "name": "b018",
+              "qualname": "HierarchySyncSlots.b018",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Delete selected objects from the Blender scene and refresh the tree.",
+              "line": 1712,
+              "deprecated": false
+            },
+            {
+              "name": "b017",
+              "qualname": "HierarchySyncSlots.b017",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Rename current-scene items to match reference names.",
+              "line": 1761,
+              "deprecated": false
+            },
+            {
+              "name": "count_tree_items",
+              "qualname": "HierarchySyncSlots.count_tree_items",
+              "kind": "method",
+              "signature": "(self, tree_widget)",
+              "summary": "Count total items in a tree widget.",
+              "line": 2045,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "env_utils/hierarchy_sync/tree_renderer.py",
+      "summary": "Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of",
       "functions": [],
       "classes": [
         {
@@ -7069,7 +7176,7 @@
               "qualname": "HierarchyTreeRenderer.apply_ignore_styling",
               "kind": "method",
               "signature": "(self, tree_widget)",
-              "summary": "Apply or remove strikethrough + dim styling for ignored items.",
+              "summary": "Apply strikethrough/dim styling for ignored items — and, when the 'Hide Ignored'",
               "line": 362,
               "deprecated": false
             },
@@ -7079,7 +7186,7 @@
               "kind": "staticmethod",
               "signature": "(item)",
               "summary": "Build a pipe-separated hierarchy path from a QTreeWidgetItem.",
-              "line": 419,
+              "line": 410,
               "deprecated": false
             },
             {
@@ -7088,7 +7195,7 @@
               "kind": "method",
               "signature": "(self, tree_widget, object_name)",
               "summary": "Find a tree item by object name (first column).",
-              "line": 428,
+              "line": 419,
               "deprecated": false
             },
             {
@@ -7097,7 +7204,7 @@
               "kind": "method",
               "signature": "(self, tree_widget)",
               "summary": "Get selected items from a tree widget.",
-              "line": 443,
+              "line": 434,
               "deprecated": false
             },
             {
@@ -7106,7 +7213,7 @@
               "kind": "method",
               "signature": "(self, tree_widget)",
               "summary": "Extract object names from selected tree widget items.",
-              "line": 451,
+              "line": 442,
               "deprecated": false
             }
           ]
@@ -7114,8 +7221,8 @@
       ]
     },
     {
-      "relpath": "env_utils/hierarchy_manager/tree_utils.py",
-      "summary": "Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's",
+      "relpath": "env_utils/hierarchy_sync/tree_utils.py",
+      "summary": "Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's",
       "functions": [
         {
           "name": "get_selected_object_names",
@@ -7141,7 +7248,7 @@
           "kind": "function",
           "signature": "(tree_widget, object_name: str)",
           "summary": "Find tree widget item by object name (or hierarchy path).",
-          "line": 141,
+          "line": 169,
           "deprecated": false
         },
         {
@@ -7150,7 +7257,7 @@
           "kind": "function",
           "signature": "(objects: list) -> Tuple[Dict[str, Dict], List[str]]",
           "summary": "Build hierarchical structure from Blender objects.",
-          "line": 154,
+          "line": 182,
           "deprecated": false
         }
       ],
@@ -7286,7 +7393,7 @@
           "kind": "function",
           "signature": "(maya_exe: str) -> Optional[str]",
           "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-          "line": 52,
+          "line": 63,
           "deprecated": false
         },
         {
@@ -7295,7 +7402,7 @@
           "kind": "function",
           "signature": "(src_path: str, **kwargs: Any) -> List[Any]",
           "summary": "Import a Maya scene (.ma/.mb) into the current Blender scene.",
-          "line": 393,
+          "line": 464,
           "deprecated": false
         }
       ],
@@ -7303,7 +7410,7 @@
         {
           "name": "MayaSceneImport",
           "summary": "Engine: convert a Maya scene to FBX via headless Maya, then import it.",
-          "line": 64,
+          "line": 75,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -7314,7 +7421,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).",
-              "line": 77,
+              "line": 88,
               "deprecated": false
             },
             {
@@ -7323,7 +7430,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The headless ``mayapy`` interpreter derived from :attr:`maya_path`.",
-              "line": 88,
+              "line": 99,
               "deprecated": false
             },
             {
@@ -7332,34 +7439,34 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`mayapy_path` or raise an error naming what's missing.",
-              "line": 93,
+              "line": 104,
               "deprecated": false
             },
             {
               "name": "render_script",
               "qualname": "MayaSceneImport.render_script",
               "kind": "method",
-              "signature": "(self, src_path: str, out_fbx: str, *, embed_textures: bool = False, include_animation: bool = True) -> str",
+              "signature": "(self, src_path: str, out_path: str, *, via: str = 'fbx', embed_textures: bool = False, include_animation: bool = True) -> str",
               "summary": "Render the Maya-side conversion script (exposed for tests/preview).",
-              "line": 104,
+              "line": 125,
               "deprecated": false
             },
             {
               "name": "convert",
               "qualname": "MayaSceneImport.convert",
               "kind": "method",
-              "signature": "(self, src_path: str, out_fbx: str, *, timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'",
-              "summary": "Convert *src_path* to *out_fbx* in a fresh ``mayapy`` (blocking).",
-              "line": 117,
+              "signature": "(self, src_path: str, out_path: str, *, via: str = 'fbx', timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'",
+              "summary": "Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).",
+              "line": 146,
               "deprecated": false
             },
             {
               "name": "import_scene",
               "qualname": "MayaSceneImport.import_scene",
               "kind": "method",
-              "signature": "(self, src_path: str, *, cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]",
+              "signature": "(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]",
               "summary": "Import the Maya scene at *src_path*;",
-              "line": 167,
+              "line": 198,
               "deprecated": false
             }
           ]
@@ -7491,6 +7598,40 @@
           "signature": "()",
           "summary": "",
           "line": 323,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "env_utils/maya_bridge/templates/_import_scene_usd.py",
+      "summary": "Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.",
+      "functions": [
+        {
+          "name": "usd_safe_materials",
+          "qualname": "usd_safe_materials",
+          "kind": "function",
+          "signature": "(cmds)",
+          "summary": "Swap ShaderFX game shaders for standardSurface on their shading groups.",
+          "line": 143,
+          "deprecated": false
+        },
+        {
+          "name": "export_usd",
+          "qualname": "export_usd",
+          "kind": "function",
+          "signature": "(cmds)",
+          "summary": "Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.",
+          "line": 177,
+          "deprecated": false
+        },
+        {
+          "name": "main",
+          "qualname": "main",
+          "kind": "function",
+          "signature": "()",
+          "summary": "",
+          "line": 220,
           "deprecated": false
         }
       ],
@@ -8021,7 +8162,7 @@
         {
           "name": "TaskManager",
           "summary": "Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's",
-          "line": 645,
+          "line": 646,
           "bases": [
             "TaskFactory",
             "_TaskActionsMixin",
@@ -8034,7 +8175,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 717,
+              "line": 718,
               "deprecated": false
             },
             {
@@ -8043,7 +8184,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the task definitions for the UI.",
-              "line": 727,
+              "line": 728,
               "deprecated": false
             },
             {
@@ -8052,7 +8193,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the check definitions for the UI.",
-              "line": 871,
+              "line": 872,
               "deprecated": false
             },
             {
@@ -8061,7 +8202,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return all definitions combined for backward compatibility.",
-              "line": 982,
+              "line": 983,
               "deprecated": false
             }
           ]
@@ -8346,6 +8487,67 @@
               "signature": "(self)",
               "summary": "Export per the chosen Scope and copy the FBX into the Unity project.",
               "line": 244,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "env_utils/usd.py",
+      "summary": "USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``",
+      "functions": [
+        {
+          "name": "export_selection_usd",
+          "qualname": "export_selection_usd",
+          "kind": "function",
+          "signature": "(filepath=None, objects=None, **usd_opts)",
+          "summary": "Export the selection (or ``objects``) to a USD file for an external-app hand-off.",
+          "line": 170,
+          "deprecated": false
+        },
+        {
+          "name": "import_usd",
+          "qualname": "import_usd",
+          "kind": "function",
+          "signature": "(filepath, **usd_opts)",
+          "summary": "Import a USD file;",
+          "line": 179,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "UsdUtils",
+          "summary": "USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``).",
+          "line": 75,
+          "bases": [],
+          "members": [
+            {
+              "name": "is_usd_file",
+              "qualname": "UsdUtils.is_usd_file",
+              "kind": "staticmethod",
+              "signature": "(filepath) -> bool",
+              "summary": "True when *filepath* is a USD layer/package (delegates to pythontk).",
+              "line": 81,
+              "deprecated": false
+            },
+            {
+              "name": "export",
+              "qualname": "UsdUtils.export",
+              "kind": "staticmethod",
+              "signature": "(filepath=None, objects=None, selection_only=True, **usd_opts)",
+              "summary": "Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.",
+              "line": 86,
+              "deprecated": false
+            },
+            {
+              "name": "import_usd",
+              "qualname": "UsdUtils.import_usd",
+              "kind": "staticmethod",
+              "signature": "(filepath, **usd_opts)",
+              "summary": "Import a USD file (wrapper over ``bpy.ops.wm.usd_import``).",
+              "line": 145,
               "deprecated": false
             }
           ]
@@ -8880,7 +9082,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).",
-          "line": 94,
+          "line": 102,
           "deprecated": false
         },
         {
@@ -8889,7 +9091,7 @@
           "kind": "function",
           "signature": "(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)",
           "summary": "Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.",
-          "line": 112,
+          "line": 120,
           "deprecated": false
         },
         {
@@ -8898,7 +9100,7 @@
           "kind": "function",
           "signature": "(mat)",
           "summary": "True iff ``mat`` is assigned to at least one object (mirror of ``mtk.is_mat_assigned`` —",
-          "line": 132,
+          "line": 140,
           "deprecated": false
         },
         {
@@ -8907,7 +9109,7 @@
           "kind": "function",
           "signature": "(mat, size=(20, 20), fallback_to_blank=True)",
           "summary": "A ``QIcon`` filled with ``mat``'s viewport display color — mirror of",
-          "line": 139,
+          "line": 147,
           "deprecated": false
         },
         {
@@ -8916,7 +9118,7 @@
           "kind": "function",
           "signature": "(objects=None, materials=None, absolute=True)",
           "summary": "Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.",
-          "line": 214,
+          "line": 222,
           "deprecated": false
         },
         {
@@ -8925,7 +9127,7 @@
           "kind": "function",
           "signature": "(objects=None, materials=None)",
           "summary": "Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.",
-          "line": 230,
+          "line": 238,
           "deprecated": false
         },
         {
@@ -8934,7 +9136,7 @@
           "kind": "function",
           "signature": "(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)",
           "summary": "Aggregate per-material info (name, type, textures + image metadata) — mirror of",
-          "line": 263,
+          "line": 271,
           "deprecated": false
         },
         {
@@ -8943,7 +9145,7 @@
           "kind": "function",
           "signature": "(records)",
           "summary": "Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-          "line": 312,
+          "line": 320,
           "deprecated": false
         },
         {
@@ -8952,7 +9154,7 @@
           "kind": "function",
           "signature": "(info_list)",
           "summary": "Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-          "line": 317,
+          "line": 325,
           "deprecated": false
         },
         {
@@ -8961,7 +9163,7 @@
           "kind": "function",
           "signature": "(materials=None)",
           "summary": "Groups of materials that reference the *same* set of texture files — mirror of",
-          "line": 323,
+          "line": 331,
           "deprecated": false
         },
         {
@@ -8970,7 +9172,7 @@
           "kind": "function",
           "signature": "(duplicate_groups, delete=True)",
           "summary": "Reassign every object using a duplicate to the group's first (canonical) material, then",
-          "line": 337,
+          "line": 345,
           "deprecated": false
         },
         {
@@ -8979,7 +9181,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.",
-          "line": 362,
+          "line": 370,
           "deprecated": false
         },
         {
@@ -8988,7 +9190,7 @@
           "kind": "function",
           "signature": "(materials, mode=None)",
           "summary": "Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's",
-          "line": 381,
+          "line": 389,
           "deprecated": false
         },
         {
@@ -8997,7 +9199,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Every FILE-backed image datablock as a record for the Texture Path Editor:",
-          "line": 410,
+          "line": 418,
           "deprecated": false
         },
         {
@@ -9006,7 +9208,7 @@
           "kind": "function",
           "signature": "(image, new_path, reload=True)",
           "summary": "Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture",
-          "line": 434,
+          "line": 442,
           "deprecated": false
         },
         {
@@ -9015,7 +9217,7 @@
           "kind": "function",
           "signature": "(abspath, blenddir=None)",
           "summary": "Convert an absolute path to a Blender ``//``-relative path when it falls under the saved",
-          "line": 451,
+          "line": 459,
           "deprecated": false
         },
         {
@@ -9024,7 +9226,7 @@
           "kind": "function",
           "signature": "(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)",
           "summary": "Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture",
-          "line": 519,
+          "line": 527,
           "deprecated": false
         },
         {
@@ -9033,7 +9235,7 @@
           "kind": "function",
           "signature": "(mode='relative', project_dir=None, images=None)",
           "summary": "Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.",
-          "line": 593,
+          "line": 601,
           "deprecated": false
         },
         {
@@ -9042,7 +9244,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "``{image-name: [material names]}`` for every FILE image referenced by a material's shader",
-          "line": 655,
+          "line": 663,
           "deprecated": false
         },
         {
@@ -9051,7 +9253,7 @@
           "kind": "function",
           "signature": "(paths)",
           "summary": "Scene materials whose shader graph references an image at one of ``paths`` (matched by",
-          "line": 672,
+          "line": 680,
           "deprecated": false
         },
         {
@@ -9060,7 +9262,7 @@
           "kind": "function",
           "signature": "(images=None, force_update=False, dry_run=False)",
           "summary": "Assign each texture image its correct color space by map type — the Blender counterpart of",
-          "line": 712,
+          "line": 720,
           "deprecated": false
         },
         {
@@ -9069,7 +9271,7 @@
           "kind": "function",
           "signature": "(images=None, target_dir=None, mode='rewrite')",
           "summary": "Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture",
-          "line": 805,
+          "line": 813,
           "deprecated": false
         },
         {
@@ -9078,7 +9280,7 @@
           "kind": "function",
           "signature": "(images=None, search_dir=None, dest_dir=None, mode='copy')",
           "summary": "Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),",
-          "line": 835,
+          "line": 843,
           "deprecated": false
         },
         {
@@ -9087,7 +9289,7 @@
           "kind": "function",
           "signature": "(records=None)",
           "summary": "Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).",
-          "line": 872,
+          "line": 880,
           "deprecated": false
         },
         {
@@ -9096,7 +9298,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The available Principled-BSDF template names (mirror of Maya's Shader Templates list).",
-          "line": 919,
+          "line": 927,
           "deprecated": false
         },
         {
@@ -9105,7 +9307,7 @@
           "kind": "function",
           "signature": "(material, template)",
           "summary": "Apply a Principled-BSDF template preset to ``material``'s shader.",
-          "line": 949,
+          "line": 957,
           "deprecated": false
         },
         {
@@ -9114,7 +9316,7 @@
           "kind": "function",
           "signature": "(template, name=None)",
           "summary": "Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of",
-          "line": 964,
+          "line": 972,
           "deprecated": false
         },
         {
@@ -9123,7 +9325,7 @@
           "kind": "function",
           "signature": "(material)",
           "summary": "Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of",
-          "line": 993,
+          "line": 1001,
           "deprecated": false
         },
         {
@@ -9132,7 +9334,7 @@
           "kind": "function",
           "signature": "(data, name=None, textures=None)",
           "summary": "Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's",
-          "line": 1043,
+          "line": 1051,
           "deprecated": false
         },
         {
@@ -9141,7 +9343,7 @@
           "kind": "function",
           "signature": "(textures, name=None, normal_direction='OpenGL')",
           "summary": "Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's",
-          "line": 1144,
+          "line": 1152,
           "deprecated": false
         },
         {
@@ -9150,7 +9352,7 @@
           "kind": "function",
           "signature": "(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')",
           "summary": "Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.",
-          "line": 1375,
+          "line": 1383,
           "deprecated": false
         },
         {
@@ -9159,7 +9361,7 @@
           "kind": "function",
           "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
           "summary": "Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).",
-          "line": 1603,
+          "line": 1611,
           "deprecated": false
         }
       ],
@@ -9167,7 +9369,7 @@
         {
           "name": "MatUpdater",
           "summary": "Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.",
-          "line": 1416,
+          "line": 1424,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -9178,7 +9380,7 @@
               "kind": "classmethod",
               "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Reprocess the textures of ``materials`` and repath their image nodes to the results.",
-              "line": 1434,
+              "line": 1442,
               "deprecated": false
             }
           ]
@@ -9186,7 +9388,7 @@
         {
           "name": "MatUtils",
           "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
-          "line": 1610,
+          "line": 1618,
           "bases": [],
           "members": []
         }
@@ -13192,7 +13394,7 @@
       ]
     },
     {
-      "relpath": "ui_utils/blender_bridge_slots.py",
+      "relpath": "ui_utils/blender_bridge_slots_base.py",
       "summary": "Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.",
       "functions": [],
       "classes": [
@@ -14563,7 +14765,7 @@
           "kind": "function",
           "signature": "(objects, translate=True, rotate=False, scale=False, world_space=True, select_targets_after_transfer=False)",
           "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-          "line": 260,
+          "line": 262,
           "deprecated": false
         },
         {
@@ -14572,7 +14774,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-          "line": 312,
+          "line": 314,
           "deprecated": false
         },
         {
@@ -14581,7 +14783,7 @@
           "kind": "function",
           "signature": "(source, target, average=True)",
           "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-          "line": 317,
+          "line": 319,
           "deprecated": false
         },
         {
@@ -14590,7 +14792,7 @@
           "kind": "function",
           "signature": "(source, target, pivot='center')",
           "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-          "line": 334,
+          "line": 336,
           "deprecated": false
         },
         {
@@ -14599,7 +14801,7 @@
           "kind": "function",
           "signature": "(objects, value='', world_space=True)",
           "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-          "line": 348,
+          "line": 350,
           "deprecated": false
         },
         {
@@ -14608,7 +14810,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-          "line": 376,
+          "line": 378,
           "deprecated": false
         },
         {
@@ -14617,7 +14819,7 @@
           "kind": "function",
           "signature": "(obj, pivot)",
           "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-          "line": 382,
+          "line": 384,
           "deprecated": false
         },
         {
@@ -14626,7 +14828,7 @@
           "kind": "function",
           "signature": "(a, b)",
           "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-          "line": 441,
+          "line": 443,
           "deprecated": false
         },
         {
@@ -14635,7 +14837,7 @@
           "kind": "function",
           "signature": "(objects, reference_point=None, reverse=False)",
           "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-          "line": 447,
+          "line": 449,
           "deprecated": false
         },
         {
@@ -14644,7 +14846,7 @@
           "kind": "function",
           "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
           "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-          "line": 466,
+          "line": 468,
           "deprecated": false
         }
       ],
@@ -14652,7 +14854,7 @@
         {
           "name": "XformUtils",
           "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
-          "line": 487,
+          "line": 489,
           "bases": [],
           "members": [
             {
@@ -14661,7 +14863,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).",
-              "line": 508,
+              "line": 510,
               "deprecated": false
             }
           ]

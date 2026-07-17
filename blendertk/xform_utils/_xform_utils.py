@@ -227,6 +227,8 @@ def center_pivot(objects, mode="object"):
 
     ``mode``: ``"object"`` bounding-box center, ``"median"`` / ``"component"`` geometry
     median, ``"world"`` the world origin (0,0,0). Headless-testable (object operator).
+    ``@_object_mode``: ``select_all``/``origin_set`` need OBJECT mode and a window in
+    context — its sibling ``transfer_pivot`` was guarded; this one wasn't.
     """
     import bpy
 
