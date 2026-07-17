@@ -350,20 +350,47 @@ try:
     check("dissolve_coplanar preserve_borders keeps more boundary verts",
           keep_count > drop_count, f"keep={keep_count} drop={drop_count}")
 
-    # clear_custom_split_normals: a cube with custom split normals -> cleared (no crash, returns count)
+    # custom split normals = Blender's normal lock. add/clear/has back the Un/Lock Normals toggle,
+    # so the COUNTS must be honest: the add/clear operators return {'CANCELLED'} (they do NOT raise)
+    # for a mesh already in the target state, so a mesh-count loop reports untouched meshes as changed.
     reset()
-    bpy.ops.mesh.primitive_cube_add(); o = bpy.context.active_object
-    o.select_set(True); bpy.context.view_layer.objects.active = o
-    # stamp custom split normals via the operator so there's something to clear
-    bpy.ops.object.mode_set(mode="EDIT"); bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.primitive_cube_add(); a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(); b = bpy.context.active_object
+
+    check("has_custom_split_normals: no meshes -> False", btk.has_custom_split_normals([]) is False)
+    check("has_custom_split_normals: fresh meshes -> False", btk.has_custom_split_normals([a, b]) is False)
+
+    check("add_custom_split_normals locks both", btk.add_custom_split_normals([a, b]) == 2)
+    check("add_custom_split_normals -> custom_split data", a.data.has_custom_normals and b.data.has_custom_normals)
+    check("has_custom_split_normals: both locked -> True", btk.has_custom_split_normals([a, b]) is True)
+    check("add_custom_split_normals: already locked -> 0", btk.add_custom_split_normals([a, b]) == 0)
+
+    check("clear_custom_split_normals unlocks both", btk.clear_custom_split_normals([a, b]) == 2)
+    check("clear_custom_split_normals -> no custom_split data",
+          not a.data.has_custom_normals and not b.data.has_custom_normals)
+    check("clear_custom_split_normals: nothing locked -> 0", btk.clear_custom_split_normals([a, b]) == 0)
+
+    # Mixed selection reads unlocked (Maya's all() lock-state semantics), so a toggle locks it whole.
+    btk.add_custom_split_normals([a])
+    check("has_custom_split_normals: mixed -> False", btk.has_custom_split_normals([a, b]) is False)
+    check("add_custom_split_normals: mixed -> only the unlocked one counts",
+          btk.add_custom_split_normals([a, b]) == 1)
+
+    # The lock state is read/written from Edit Mode too (the toggle's _object_mode guard). The
+    # helpers re-activate each mesh they touch, so pin the active object first: _object_mode
+    # restores the mode of the object that was active on entry, not of whichever it processed last.
+    bpy.context.view_layer.objects.active = a
+    bpy.ops.object.mode_set(mode="EDIT")
+    check("has_custom_split_normals from Edit Mode", btk.has_custom_split_normals([a, b]) is True)
+    check("clear_custom_split_normals from Edit Mode", btk.clear_custom_split_normals([a, b]) == 2)
+    check("Edit Mode restored for the caller", a.mode == "EDIT", a.mode)
     bpy.ops.object.mode_set(mode="OBJECT")
-    try:
-        bpy.ops.mesh.customdata_custom_splitnormals_add()
-    except Exception:
-        pass
-    n = btk.clear_custom_split_normals(o)
-    check("clear_custom_split_normals runs + returns count", isinstance(n, int) and n >= 0, f"n={n}")
-    check("clear_custom_split_normals -> no custom_split data", not o.data.has_custom_normals)
+
+    # Non-mesh objects are skipped, not crashed on.
+    reset()
+    bpy.ops.object.empty_add(); e = bpy.context.active_object
+    check("has_custom_split_normals: non-mesh -> False", btk.has_custom_split_normals([e]) is False)
+    check("add_custom_split_normals: non-mesh -> 0", btk.add_custom_split_normals([e]) == 0)
 
     # find_problem_geometry: clean cube reports no problems for any criterion
     reset()

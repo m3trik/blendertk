@@ -29,6 +29,7 @@ DEFAULT_INCLUDE = {
         "undoable",
         "undo_chunk",
         "undo_checkpoint",
+        "strip_dup_suffix",
         "get_env_info",
         "ensure_image_deps",
         "get_recent_files",
@@ -177,6 +178,14 @@ DEFAULT_INCLUDE = {
         "export_selection_fbx",
         "import_fbx",
     ],
+    # USD import/export over Blender's native USD runtime — mirror of mayatk's
+    # ``env_utils.usd.UsdUtils`` (``btk.UsdUtils`` ↔ ``mtk.UsdUtils``). The zero-dep
+    # sniffing/packaging floor is shared upstream in ``pythontk.file_utils.usd``.
+    "env_utils.usd": [
+        "UsdUtils",
+        "export_selection_usd",
+        "import_usd",
+    ],
     # Headless test/launch harness — mirror of mayatk's ``env_utils.maya_connection.MayaConnection``.
     # Launches a FRESH ``blender --background`` per run (session-safe by construction); no bpy.
     "env_utils.blender_connection": [
@@ -217,12 +226,12 @@ DEFAULT_INCLUDE = {
     "env_utils.scene_exporter.task_manager": [
         "TaskManager",
     ],
-    # Hierarchy Manager — diff/repair a scene hierarchy against a reference .blend linked as a
-    # library (mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager``; the
-    # ``HierarchyManagerSlots`` panel is discovered by BlenderUiHandler, not registered). Pull
+    # Hierarchy Sync — diff/repair a scene hierarchy against a reference .blend linked as a
+    # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; the
+    # ``HierarchySyncSlots`` panel is discovered by BlenderUiHandler, not registered). Pull
     # (mayatk's ``ObjectSwapper``) isn't ported — see the slots module docstring.
-    "env_utils.hierarchy_manager._hierarchy_manager": [
-        "HierarchyManager",
+    "env_utils.hierarchy_sync._hierarchy_sync": [
+        "HierarchySync",
     ],
     "light_utils._light_utils": [
         "LightUtils",
@@ -435,11 +444,14 @@ DEFAULT_INCLUDE = {
         "tris_to_quads",
         "subdivide_mesh",
         "set_subdivision",
+        "apply_subdivision",
         "set_shading",
         "average_normals",
         "set_edge_hardness",
         "select_edges_by_angle",
         "clear_custom_split_normals",
+        "add_custom_split_normals",
+        "has_custom_split_normals",
         "flip_normals",
         "recalculate_normals",
         "crease_edges",

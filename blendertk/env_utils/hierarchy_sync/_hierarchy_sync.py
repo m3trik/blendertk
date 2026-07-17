@@ -1,15 +1,17 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Hierarchy Manager core engine — mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager``.
+"""Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
 
 Diffs the current scene's object hierarchy against a reference object set (in practice, a
 ``.blend`` linked in as a library — Blender's closest analogue of Maya's namespace-sandboxed
-reference import; see ``hierarchy_manager_slots.HierarchyManagerController`` for how the library
-is staged/torn down), then repairs drift: create stub Empties for missing nodes, quarantine
-extras, fix reparented / fuzzy-renamed nodes.
+reference import; an ``.fbx`` reference is first converted to a throwaway ``.blend`` by
+:func:`stage_reference_blend` so the pipeline stays format-agnostic; see
+``hierarchy_sync_slots.HierarchySyncController`` for how the library is staged/torn down),
+then repairs drift: create stub Empties for missing nodes, quarantine extras, fix reparented /
+fuzzy-renamed nodes.
 
 Divergence from mayatk (by design, not a gap to fill in later — see the port's scoping notes in
-``hierarchy_manager_slots.py``):
+``hierarchy_sync_slots.py``):
     * No namespace stripping. Blender has no namespaces; a linked library's objects keep their
       source-file names untouched (that IS the "clean" name), so paths need no cleaning pass —
       unlike Maya's DAG, where two same-named nodes under different parents are common and only
@@ -20,16 +22,93 @@ Divergence from mayatk (by design, not a gap to fill in later — see the port's
     * No ``lockNode`` stub protection. Blender has no lock-from-delete primitive to mirror; stubs
       are tagged with a custom property + viewport Object Color only (informational, not
       enforced).
-    * No anim-layer-aware curve transfer. That machinery lives entirely in Pull (mayatk's
-      ``ObjectSwapper``), which is not yet ported — see the module docstring in
-      ``hierarchy_manager_slots.py`` for why and what a future port would need.
+    * No anim-layer-aware curve transfer. Pull (``ObjectSwapper``, below) APPENDS matched objects
+      fresh from the reference ``.blend``, and native Append copies each object's Action wholesale
+      — there is no per-curve transfer step for anim layers to complicate.
 """
+import os
+import tempfile
+import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import strip_dup_suffix
 from blendertk.display_utils.color_id import ColorId
 from blendertk.node_utils._node_utils import reparent as _reparent
+
+#: Worker run in a fresh headless Blender to convert an FBX reference into a standalone ``.blend``
+#: (see :func:`stage_reference_blend`). Committed beside this module and run **by path** as a
+#: subprocess — not imported here (but it is import-safe; slot discovery walks the package).
+_FBX_STAGE_WORKER = os.path.join(os.path.dirname(__file__), "_fbx_stage_worker.py")
+
+
+def stage_reference_blend(reference_path: str, logger=None):
+    """Return a ``.blend`` path to link as the reference, converting other scene formats.
+
+    A ``.blend`` reference is staged directly. Any other supported scene format (currently
+    ``.fbx``) is converted to a throwaway temp ``.blend`` **in a fresh headless Blender**
+    (:data:`_FBX_STAGE_WORKER` via :class:`~blendertk.env_utils.blender_connection.BlenderConnection`)
+    so the whole linked-library Diff/Pull pipeline stays format-agnostic (an FBX reference becomes
+    indistinguishable from a ``.blend`` one). mayatk imports FBX straight into an isolating Maya
+    namespace; Blender object names are global to a ``.blend``, so importing the FBX into the
+    user's live scene would suffix every colliding object ``.001`` (the normal case for a Hierarchy
+    Sync reference, which shares names with the current scene) and bake that suffix into the staged
+    file — breaking the diff. Converting in a brand-new empty Blender guarantees clean names and
+    never mutates the user's scene.
+
+    Args:
+        reference_path: the reference ``.blend`` or ``.fbx``.
+        logger: optional ``ptk`` logger for progress/error reporting.
+
+    Returns:
+        ``(blend_path, temp_blend_or_None)`` — the temp file (if any) is the caller's to delete on
+        teardown. ``(None, None)`` on failure or an unsupported format.
+    """
+    def _log(level, msg):
+        if logger is not None:
+            getattr(logger, level)(msg)
+
+    ext = os.path.splitext(reference_path)[1].lower()
+    if ext == ".blend":
+        return reference_path, None
+    if ext != ".fbx":
+        _log("error", f"Unsupported reference format '{ext}'. Use a .blend or .fbx file.")
+        return None, None
+
+    import bpy
+    from blendertk.env_utils.blender_connection import BlenderConnection
+
+    _log("progress", f"Converting reference {ext} for staging: {os.path.basename(reference_path)}")
+
+    fd, temp_blend = tempfile.mkstemp(prefix="hier_ref_", suffix=".blend")
+    os.close(fd)
+
+    def _fail(msg):
+        _log("error", msg)
+        try:
+            os.remove(temp_blend)
+        except OSError:
+            pass
+        return None, None
+
+    try:
+        result = BlenderConnection(blender_exe=bpy.app.binary_path).run_script(
+            _FBX_STAGE_WORKER,
+            script_args=[os.path.abspath(reference_path), temp_blend],
+            timeout=300,
+        )
+    except Exception as e:  # noqa: BLE001 — launch/timeout failures reported cleanly, never raised
+        return _fail(f"Failed to stage reference FBX (could not launch Blender): {e}")
+
+    if result.returncode != 0 or not (os.path.isfile(temp_blend) and os.path.getsize(temp_blend)):
+        tail = (result.stdout or "").strip().splitlines()[-3:]
+        return _fail(
+            f"Reference FBX staging failed (rc={result.returncode}). " + " | ".join(tail)
+        )
+
+    return temp_blend, temp_blend
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +129,26 @@ def build_path(obj) -> str:
         parts.append(parent.name)
         parent = parent.parent
     return "|".join(reversed(parts))
+
+
+def delete_objects(objects) -> List[str]:
+    """Delete *objects* AND all their descendants from the blend data; return the deleted names.
+
+    Maya parity: ``cmds.delete`` removes the whole subtree, but a bare
+    ``bpy.data.objects.remove()`` re-roots the children instead — they stay in the scene and
+    their world transform shifts once the parent's transform vanishes. Descendants are expanded
+    up front (dedup by pointer, so an overlapping selection never double-deletes).
+    """
+    import bpy
+
+    doomed = {}
+    for obj in objects:
+        for cand in (obj, *obj.children_recursive):
+            doomed[cand.as_pointer()] = cand
+    names = [o.name for o in doomed.values()]
+    for o in doomed.values():
+        bpy.data.objects.remove(o, do_unlink=True)
+    return names
 
 
 def should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool:
@@ -73,13 +172,13 @@ class HierarchyMapBuilder:
         return {build_path(obj): obj for obj in objects}
 
 
-class HierarchyManager(ptk.LoggingMixin):
-    """Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchyManager``)."""
+class HierarchySync(ptk.LoggingMixin):
+    """Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``)."""
 
     #: Custom property flagging a stub Empty (informational discovery only — no enforcement).
-    STUB_ATTR = "hierarchy_manager_stub"
+    STUB_ATTR = "hierarchy_sync_stub"
     STUB_NOTE = (
-        "Placeholder created by Hierarchy Manager. This empty object preserves the "
+        "Placeholder created by Hierarchy Sync. This empty object preserves the "
         "reference hierarchy structure."
     )
     #: Viewport Object Color for stub Empties (muted teal — matches mayatk's outliner color).
@@ -430,7 +529,7 @@ class HierarchyManager(ptk.LoggingMixin):
                 bpy.context.scene.collection.objects.link(new_grp)
                 if current_parent is not None:
                     new_grp.parent = current_parent
-                HierarchyManager._finalize_stub_node(new_grp)
+                HierarchySync._finalize_stub_node(new_grp)
                 current_parent = new_grp
         return current_parent
 
@@ -491,9 +590,9 @@ class HierarchyManager(ptk.LoggingMixin):
         primitive to enforce protection.
         """
         try:
-            obj[HierarchyManager.STUB_ATTR] = True
-            obj["notes"] = HierarchyManager.STUB_NOTE
-            ColorId.set_object_color(obj, HierarchyManager.STUB_COLOR)
+            obj[HierarchySync.STUB_ATTR] = True
+            obj["notes"] = HierarchySync.STUB_NOTE
+            ColorId.set_object_color(obj, HierarchySync.STUB_COLOR)
         except Exception:
             pass
 
@@ -516,6 +615,87 @@ class HierarchyManager(ptk.LoggingMixin):
         if check_descendants:
             return any(_check(d) for d in getattr(obj, "children_recursive", []))
         return False
+
+    @staticmethod
+    def _has_animated_ancestor(obj) -> bool:
+        """Return True if any ancestor of *obj* carries animation data.
+
+        Mirror of mayatk's ``_has_animated_ancestor`` (used by ``quarantine_extras``): an extra
+        parented under an animated object is likely intentionally attached — reparenting it out
+        detaches it from that motion (``keep_transform`` only pins the *current* frame).
+        """
+        parent = getattr(obj, "parent", None)
+        while parent is not None:
+            if HierarchySync._has_animation_data(parent):
+                return True
+            parent = parent.parent
+        return False
+
+    #: Object-transform channels authored in LOCAL (parent-relative) space — animation on any of
+    #: these evaluates differently once the object's parent changes.
+    _TRANSFORM_DATA_PATHS = frozenset(
+        {
+            "location",
+            "rotation_euler",
+            "rotation_quaternion",
+            "rotation_axis_angle",
+            "scale",
+            "delta_location",
+            "delta_rotation_euler",
+            "delta_rotation_quaternion",
+            "delta_scale",
+        }
+    )
+
+    @staticmethod
+    def _reparent_would_shift_animation(obj) -> bool:
+        """True when re-parenting *obj* changes how its animation evaluates.
+
+        Mirror of mayatk's guard. Keyframed or driven transform channels (location / rotation /
+        scale, incl. their delta_* variants and NLA-stripped actions) are authored in the
+        object's LOCAL space, so under a different parent the same values produce different
+        world-space motion — ``keep_transform`` only preserves the current frame. Constraints
+        are excluded: like Maya, they target other objects in world space and are unaffected by
+        the constrained object's own parent.
+        """
+        ad = getattr(obj, "animation_data", None)
+        if ad is None:
+            return False
+
+        # Reuse anim_utils' slot-aware fcurve reader — Blender 5.1 dropped the flat
+        # ``Action.fcurves`` list (keys now live in per-slot channelbags).
+        from blendertk.anim_utils._anim_utils import get_fcurves, _slot_fcurves
+
+        paths = HierarchySync._TRANSFORM_DATA_PATHS
+
+        def _hits(fcurves) -> bool:
+            return any(getattr(fc, "data_path", None) in paths for fc in fcurves)
+
+        if _hits(get_fcurves([obj])):  # keyframed transform channels (active action)
+            return True
+        if getattr(ad, "drivers", None) and _hits(ad.drivers):  # driven transforms (flat list)
+            return True
+        for track in getattr(ad, "nla_tracks", []):  # NLA-stacked actions
+            for strip in track.strips:
+                action = getattr(strip, "action", None)
+                if action and _hits(_slot_fcurves(action, getattr(strip, "action_slot", None))):
+                    return True
+        return False
+
+    def _animation_skip(self, node) -> bool:
+        """True if quarantining *node* would detach or shift animated motion.
+
+        Mirror of mayatk's quarantine ``_animation_skip``: skip when the node itself (or a
+        descendant) is animated, OR when it hangs under an animated ancestor it would be
+        detached from. ``None`` (a node that no longer resolves) never skips.
+        """
+        return bool(
+            node
+            and (
+                self._has_animation_data(node, check_descendants=True)
+                or self._has_animated_ancestor(node)
+            )
+        )
 
     def quarantine_extras(
         self,
@@ -589,7 +769,7 @@ class HierarchyManager(ptk.LoggingMixin):
         if self.dry_run:
             for p in needs_move:
                 node = self._resolve_node(p, source="current")
-                if skip_animated and node and self._has_animation_data(node, check_descendants=True):
+                if skip_animated and self._animation_skip(node):
                     self.logger.info(f"[DRY-RUN] Would skip (animated): {p}")
                     continue
                 self.logger.info(f"[DRY-RUN] Would quarantine: {p}")
@@ -608,7 +788,7 @@ class HierarchyManager(ptk.LoggingMixin):
             if node is None:
                 self.logger.debug(f"Quarantine skipped (node not found): {path}")
                 continue
-            if skip_animated and self._has_animation_data(node, check_descendants=True):
+            if skip_animated and self._animation_skip(node):
                 skipped_animated.append(path)
                 continue
             try:
@@ -684,11 +864,23 @@ class HierarchyManager(ptk.LoggingMixin):
         self.logger.result(f"Renamed {len(renamed)} fuzzy-matched item(s).")
         return renamed
 
-    def fix_reparented(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]:
+    def fix_reparented(
+        self,
+        items: Optional[List[Dict[str, str]]] = None,
+        skip_animated: bool = True,
+    ) -> List[str]:
         """Move reparented nodes to match their reference hierarchy position.
 
         Each item is a dict with ``current_path`` and ``reference_path`` keys, as produced by
         :meth:`analyze_hierarchies`.
+
+        Args:
+            items: List of reparented-item dicts. Defaults to ``self.differences["reparented"]``.
+            skip_animated: When True (default), nodes whose animation would evaluate differently
+                under a new parent (keyframed or driven local transform channels — see
+                :meth:`_reparent_would_shift_animation`) are left in place and reported. Nodes
+                animated only by constraints still move; like Maya, constrained world behavior is
+                unaffected by the object's parent.
         """
         targets = items if items is not None else self.differences.get("reparented", [])
         if not targets:
@@ -696,10 +888,17 @@ class HierarchyManager(ptk.LoggingMixin):
             return []
 
         fixed: List[str] = []
+        skipped_animated: List[str] = []
         for entry in targets:
             current_path = entry.get("current_path", "")
             reference_path = entry.get("reference_path", "")
             if not current_path or not reference_path:
+                continue
+
+            node = self._resolve_node(current_path, source="current")
+
+            if skip_animated and node and self._reparent_would_shift_animation(node):
+                skipped_animated.append(current_path)
                 continue
 
             if self.dry_run:
@@ -709,7 +908,6 @@ class HierarchyManager(ptk.LoggingMixin):
                 fixed.append(current_path.rsplit("|", 1)[-1])
                 continue
 
-            node = self._resolve_node(current_path, source="current")
             if node is None:
                 self.logger.debug(f"Reparent skipped (node not found): {current_path}")
                 continue
@@ -720,34 +918,248 @@ class HierarchyManager(ptk.LoggingMixin):
                 _reparent([node], target_parent, keep_transform=True)
                 fixed.append(node.name)
                 self.logger.debug(f"Reparented: {node.name} -> {build_path(node)}")
-
-                # Clean up a now-empty source parent Empty (avoids leftover shells) — only ever
-                # an auto-created stub/quarantine Empty, never user content: that's exactly the
-                # shape create_stubs/quarantine_extras produce (a childless, data-less Empty).
-                # library is None: never attempt to remove a linked reference object, even if a
-                # local child was (unusually) parented under one.
-                if (
-                    old_parent is not None
-                    and old_parent.library is None
-                    and old_parent.type == "EMPTY"
-                    and not old_parent.children
-                    and not self._has_animation_data(old_parent)
-                ):
-                    old_name = old_parent.name
-                    import bpy
-
-                    bpy.data.objects.remove(old_parent, do_unlink=True)
-                    self.logger.debug(f"Deleted empty source parent: {old_name}")
             except Exception as e:
                 self.logger.warning(f"Failed to reparent {current_path}: {e}")
+                continue
+
+            # Clean up the now-empty source parent (avoids leftover shells). Isolated from the
+            # reparent itself so a cleanup failure isn't mislogged as a failed reparent.
+            try:
+                self._cleanup_empty_source_parent(old_parent)
+            except Exception as cleanup_err:
+                self.logger.debug(
+                    f"Empty-parent cleanup skipped for {current_path}: {cleanup_err}"
+                )
+
+        if skipped_animated:
+            for path in skipped_animated:
+                self.logger.debug(f"Reparent skipped (animated): {path}")
+            self.logger.info(
+                f"{len(skipped_animated)} reparent(s) skipped — moving these animated nodes "
+                f"would change their motion. Disable 'Skip Animated' to move them anyway."
+            )
 
         self.logger.result(f"Fixed {len(fixed)} reparented item(s).")
         return fixed
 
+    def _cleanup_empty_source_parent(self, old_parent) -> None:
+        """Delete *old_parent* if it is an empty, unanimated leftover stub shell.
+
+        Only ever removes an auto-created stub/quarantine Empty, never user content: that's
+        exactly the shape ``create_stubs`` / ``quarantine_extras`` produce (a childless,
+        data-less local Empty). Preserved when it still has children, carries animation, exists
+        in the reference hierarchy (deleting it would re-introduce a "missing" diff), or is a
+        linked reference object.
+        """
+        if (
+            old_parent is None
+            or old_parent.library is not None
+            or old_parent.type != "EMPTY"
+            or old_parent.children
+            or self._has_animation_data(old_parent)
+        ):
+            return
+        if build_path(old_parent) in self.reference_scene_path_map:
+            self.logger.debug(
+                f"Preserved empty parent '{old_parent.name}' (exists in reference)"
+            )
+            return
+
+        import bpy
+
+        old_name = old_parent.name
+        bpy.data.objects.remove(old_parent, do_unlink=True)
+        self.logger.debug(f"Deleted empty source parent: {old_name}")
+
+
+class ObjectSwapper(ptk.LoggingMixin):
+    """Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
+
+    Where mayatk imports the reference into a temporary namespace and strips it, this APPENDS the
+    matched objects fresh from the source ``.blend`` (``bpy.data.libraries.load(link=False)``).
+    Blender's native Append yields a fully-local copy of each object plus its mesh data,
+    materials, and animation Action in one call, so none of mayatk's namespace-strip or
+    anim-curve-transfer machinery is needed. Each pulled object is grafted onto its reference
+    hierarchy position — an existing stub or a freshly-rebuilt parent chain — preserving the
+    reference world transform; the ancestor dupes Append drags in as dependencies are removed.
+
+    Modes (mirror mayatk):
+        * ``pull_mode="Add to Scene"`` — keep Blender's auto ``.001`` suffix on a name collision.
+        * ``pull_mode="Merge Hierarchies"`` — replace any existing local object at the target
+          path (typically a stub) so the pulled object takes its exact name and slot.
+        * ``pull_children`` — append the target's whole subtree, not just the single object.
+    """
+
+    def __init__(
+        self,
+        fuzzy_matching: bool = True,
+        dry_run: bool = True,
+        pull_mode: str = "Add to Scene",
+        pull_children: bool = False,
+    ):
+        super().__init__()
+        self.dry_run = dry_run
+        self.fuzzy_matching = fuzzy_matching
+        self.pull_mode = pull_mode
+        self.pull_children = pull_children
+
+    def pull_objects_from_reference(
+        self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]
+    ) -> bool:
+        """Append the reference objects at *target_paths* into the current scene.
+
+        Args:
+            target_paths: reference hierarchy paths (``build_path`` keys) to pull.
+            source_file: path to the reference ``.blend`` to append from.
+            reference_path_map: ``{build_path: linked reference object}`` — resolves each path to
+                its linked object (for its source name, subtree, and world matrix).
+
+        Returns:
+            True if at least one object was pulled (or, in dry-run, would be).
+        """
+        source_file = Path(source_file)
+        if not target_paths:
+            self.logger.error("No target objects specified for pull.")
+            return False
+        if not source_file.exists():
+            self.logger.error(f"Source file not found: {source_file}")
+            return False
+
+        targets = []
+        for path in target_paths:
+            ref_obj = reference_path_map.get(path)
+            if ref_obj is None:
+                self.logger.debug(f"Pull: no reference object for '{path}'")
+                continue
+            try:
+                ref_obj.name  # touch to detect a removed/invalidated reference
+            except ReferenceError:
+                continue
+            targets.append((path, ref_obj))
+
+        if not targets:
+            self.logger.warning("No matching objects found in the reference.")
+            return False
+
+        # With pull_children, drop targets nested under another target (already pulled with it).
+        if self.pull_children:
+            paths_set = {p for p, _ in targets}
+            targets = [
+                (p, o)
+                for p, o in targets
+                if not any(p != q and p.startswith(q + "|") for q in paths_set)
+            ]
+
+        if self.dry_run:
+            for path, _ in targets:
+                self.logger.info(f"[DRY-RUN] Would pull: {path}")
+            self.logger.result(f"[DRY-RUN] Would pull {len(targets)} object(s).")
+            return True
+
+        merge = self.pull_mode == "Merge Hierarchies"
+        pulled = 0
+        for path, ref_obj in targets:
+            try:
+                if self._pull_one(path, ref_obj, source_file, merge=merge):
+                    pulled += 1
+            except Exception as e:
+                self.logger.error(f"Failed to pull '{path}': {e}")
+                self.logger.debug(f"Full traceback: {traceback.format_exc()}")
+
+        self.logger.result(f"Pulled {pulled} object(s) into the scene.")
+        return pulled > 0
+
+    def _pull_one(self, ref_path: str, ref_obj, source_file: Path, *, merge: bool) -> bool:
+        """Append one reference object (and, if ``pull_children``, its subtree) into the scene."""
+        import bpy
+
+        bpy.context.view_layer.update()
+        captured_world = ref_obj.matrix_world.copy()
+
+        want_names = [ref_obj.name]
+        if self.pull_children:
+            want_names += [d.name for d in ref_obj.children_recursive]
+
+        clean_leaf = ref_path.rsplit("|", 1)[-1]
+
+        # Merge: replace the existing local object at the target path (typically a stub) so the
+        # pulled object takes its place and the append can reuse the exact name. Mirror mayatk's
+        # _safe_merge_delete conservatism — never silently destroy real content: an existing that
+        # carries animation (own or descendant) or has children is PRESERVED and the pull skipped.
+        if merge:
+            existing = self._find_local_at_path(ref_path)
+            if existing is not None:
+                if existing.children or HierarchySync._has_animation_data(existing, check_descendants=True):
+                    self.logger.info(
+                        f"Preserved '{existing.name}' (has children or animation) — merge skipped "
+                        f"for '{ref_path}'. Clear or move it first, or use Add to Scene."
+                    )
+                    return False
+                bpy.data.objects.remove(existing, do_unlink=True)
+
+        before = set(bpy.data.objects)
+        with bpy.data.libraries.load(str(source_file), link=False) as (data_from, data_to):
+            present = [n for n in want_names if n in data_from.objects]
+            data_to.objects = present
+        wanted = [o for o in data_to.objects if o is not None]
+        if not wanted:
+            self.logger.warning(f"Pull: append produced no object for '{ref_path}'.")
+            return False
+        newly = [o for o in bpy.data.objects if o not in before]
+        # Append drags in the target's ancestor chain as dependencies; those aren't in
+        # data_to.objects, so they're the extras to clean up.
+        extras = [o for o in newly if o not in set(wanted)]
+
+        # Link the pulled objects into the active scene.
+        scene_coll = bpy.context.scene.collection
+        for o in wanted:
+            if not o.users_collection:
+                scene_coll.objects.link(o)
+
+        pulled_root = next(
+            (o for o in wanted if strip_dup_suffix(o.name) == ref_obj.name), wanted[0]
+        )
+
+        # Detach from the append-dragged ancestor (world preserved), then delete the dupes so
+        # they don't collide with the rebuilt parent chain.
+        _reparent([pulled_root], None, keep_transform=True)
+        for extra in extras:
+            try:
+                bpy.data.objects.remove(extra, do_unlink=True)
+            except Exception:
+                pass
+
+        # Graft onto the reference hierarchy position, preserving the reference world transform.
+        target_parent = HierarchySync._ensure_parent_chain(ref_path)
+        pulled_root.matrix_world = captured_world
+        _reparent([pulled_root], target_parent, keep_transform=True)
+
+        # Merge: take the exact clean name (append may have suffixed if a dupe lingered).
+        if merge and pulled_root.name != clean_leaf:
+            try:
+                pulled_root.name = clean_leaf
+            except Exception:
+                pass
+
+        self.logger.debug(f"Pulled '{ref_path}' -> {build_path(pulled_root)}")
+        return True
+
+    @staticmethod
+    def _find_local_at_path(ref_path: str):
+        """Return the LOCAL scene object whose hierarchy path equals *ref_path*, or None."""
+        import bpy
+
+        for o in bpy.context.scene.objects:
+            if o.library is None and build_path(o) == ref_path:
+                return o
+        return None
+
 
 __all__ = [
-    "HierarchyManager",
+    "HierarchySync",
     "HierarchyMapBuilder",
+    "ObjectSwapper",
     "build_path",
     "should_keep_node_by_type",
+    "stage_reference_blend",
 ]

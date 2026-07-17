@@ -77,17 +77,25 @@ def find_by_mat_id(material, objects=None):
 
 
 def select_by_material(material, add=False):
-    """Select every scene object using ``material`` (optionally adding to the selection)."""
+    """Select every scene object using ``material`` (optionally adding to the selection).
+
+    Selection state is a *view-layer* concept: ``select_set`` raises on objects outside the
+    active view layer (other scenes, excluded collections), so the deselect pass iterates
+    ``view_layer.objects`` — not ``bpy.data.objects`` — and users outside the view layer are
+    reported but left unselected rather than crashing the loop mid-way.
+    """
     import bpy
 
+    view_layer = bpy.context.view_layer
     if not add:
-        for o in bpy.data.objects:
+        for o in view_layer.objects:
             o.select_set(False)
     users = find_by_mat_id(material)
-    for o in users:
+    selectable = [o for o in users if o.name in view_layer.objects]
+    for o in selectable:
         o.select_set(True)
-    if users:
-        bpy.context.view_layer.objects.active = users[0]
+    if selectable:
+        view_layer.objects.active = selectable[0]
     return users
 
 

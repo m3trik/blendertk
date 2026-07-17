@@ -842,7 +842,7 @@ class ShotSequencerController(
             from uitk.widgets.sequencer._sequencer import (
                 AttributeColorDialog, _DEFAULT_ATTRIBUTE_COLORS,
             )
-            from uitk.widgets.mixins.settings_manager import SettingsManager
+            from uitk.managers.settings_manager import SettingsManager
 
             color_settings = SettingsManager(namespace=AttributeColorDialog._SETTINGS_NS)
             color_map = dict(_DEFAULT_ATTRIBUTE_COLORS)
@@ -900,7 +900,7 @@ class ShotSequencerController(
             in_active = obj_name in active_objects
             icon = None
             if not exists:
-                from uitk.widgets.mixins.icon_manager import IconManager
+                from uitk.managers.icon_manager import IconManager
 
                 icon = IconManager.get("close", size=(16, 16), color=_NOT_FOUND_COLOR)
             color_kw: dict = {}
@@ -1622,7 +1622,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
 
     def btn_colors(self):
         """Open the attribute color configuration dialog."""
-        from uitk.widgets.mixins.settings_manager import SettingsManager
+        from uitk.managers.settings_manager import SettingsManager
         from uitk.widgets.sequencer._sequencer import (
             AttributeColorDialog, _COMMON_ATTRIBUTES, _DEFAULT_ATTRIBUTE_COLORS,
         )

@@ -4,7 +4,7 @@
 ``anim_utils.smart_bake.smart_bake_slots`` (same widget objectNames where the concept
 translates directly; see ``_smart_bake.py``'s module docstring for what diverges and why).
 
-Composition, not inheritance (mirrors ``HierarchyManagerSlots``/``RenderOpacitySlots``):
+Composition, not inheritance (mirrors ``HierarchySyncSlots``/``RenderOpacitySlots``):
 :class:`SmartBake` is instantiated fresh per bake from the panel's current option state, not
 held as a persistent collaborator. Self-contained (``ptk.LoggingMixin`` only) so blendertk
 carries no back-dependency on tentacle; discovered by ``BlenderUiHandler``

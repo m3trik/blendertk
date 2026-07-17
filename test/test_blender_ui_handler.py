@@ -80,7 +80,7 @@ PANELS = [
     "substance_bridge",
     "arnold_bridge",
     "game_shader",
-    "hierarchy_manager",
+    "hierarchy_sync",
     "scene_exporter",
     "smart_bake",
     "channels",

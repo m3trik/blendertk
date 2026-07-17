@@ -90,10 +90,14 @@ def is_blend_linked(path):
     return _abspath(path).lower() in linked_blend_paths()
 
 
-def link_blend_file(path, link=True, instance=True):
+def link_blend_file(path, link=True, instance=True, target_collection=None):
     """Link (or append, ``link=False``) every collection from ``path`` and instance them into the
     active scene — the closest Blender analogue of adding a Maya file reference. Falls back to
     objects when the file has no collections. Returns the number of datablocks brought in.
+
+    ``target_collection`` links into that collection instead of the active scene's master
+    collection — used by Hierarchy Sync to sandbox the reference in a hidden, view-layer-excluded
+    collection so it never clutters the outliner/viewport.
     """
     import bpy
 
@@ -104,7 +108,7 @@ def link_blend_file(path, link=True, instance=True):
         if not data_from.collections:
             data_to.objects = list(data_from.objects)
 
-    scene_coll = bpy.context.scene.collection
+    dest_coll = target_collection or bpy.context.scene.collection
     count = 0
     for coll in getattr(data_to, "collections", []) or []:
         if coll is None:
@@ -113,14 +117,14 @@ def link_blend_file(path, link=True, instance=True):
             inst = bpy.data.objects.new(coll.name, None)
             inst.instance_type = "COLLECTION"
             inst.instance_collection = coll
-            scene_coll.objects.link(inst)
+            dest_coll.objects.link(inst)
         else:
-            scene_coll.children.link(coll)
+            dest_coll.children.link(coll)
         count += 1
     if not count:  # object fallback
         for obj in getattr(data_to, "objects", []) or []:
             if obj is not None:
-                scene_coll.objects.link(obj)
+                dest_coll.objects.link(obj)
                 count += 1
     return count
 

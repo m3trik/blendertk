@@ -68,16 +68,18 @@ _Generated: 2026-07-17_
 - [`env_utils/blender_connection.py`](#env_utils--blender_connection) — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - [`env_utils/fbx_utils.py`](#env_utils--fbx_utils) — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 - [`env_utils/handoff_export.py`](#env_utils--handoff_export) — Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
-- [`env_utils/hierarchy_manager/_hierarchy_manager.py`](#env_utils--hierarchy_manager--_hierarchy_manager) — Hierarchy Manager core engine — mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager…
-- [`env_utils/hierarchy_manager/hierarchy_manager_slots.py`](#env_utils--hierarchy_manager--hierarchy_manager_slots) — Slots for the Hierarchy Manager panel -- Blender port of mayatk's ``env_utils.hierarchy_manager``.
-- [`env_utils/hierarchy_manager/hierarchy_sidecar.py`](#env_utils--hierarchy_manager--hierarchy_sidecar) — Hierarchy sidecar manifest management — mirror of mayatk's
-- [`env_utils/hierarchy_manager/tree_renderer.py`](#env_utils--hierarchy_manager--tree_renderer) — Tree rendering, formatting, and selection management for the hierarchy manager UI — mirror of
-- [`env_utils/hierarchy_manager/tree_utils.py`](#env_utils--hierarchy_manager--tree_utils) — Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's
+- [`env_utils/hierarchy_sync/_fbx_stage_worker.py`](#env_utils--hierarchy_sync--_fbx_stage_worker) — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
+- [`env_utils/hierarchy_sync/_hierarchy_sync.py`](#env_utils--hierarchy_sync--_hierarchy_sync) — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
+- [`env_utils/hierarchy_sync/hierarchy_sidecar.py`](#env_utils--hierarchy_sync--hierarchy_sidecar) — Hierarchy sidecar manifest management — mirror of mayatk's
+- [`env_utils/hierarchy_sync/hierarchy_sync_slots.py`](#env_utils--hierarchy_sync--hierarchy_sync_slots) — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
+- [`env_utils/hierarchy_sync/tree_renderer.py`](#env_utils--hierarchy_sync--tree_renderer) — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
+- [`env_utils/hierarchy_sync/tree_utils.py`](#env_utils--hierarchy_sync--tree_utils) — Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 - [`env_utils/maya_bridge/_maya_bridge.py`](#env_utils--maya_bridge--_maya_bridge) — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 - [`env_utils/maya_bridge/_scene_import.py`](#env_utils--maya_bridge--_scene_import) — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
 - [`env_utils/maya_bridge/maya_bridge_slots.py`](#env_utils--maya_bridge--maya_bridge_slots) — Slots for the Maya bridge panel.
 - [`env_utils/maya_bridge/parameters.py`](#env_utils--maya_bridge--parameters) — Registry of user-tunable Maya-bridge parameters exposed to the panel.
 - [`env_utils/maya_bridge/templates/_import_scene.py`](#env_utils--maya_bridge--templates--_import_scene) — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
+- [`env_utils/maya_bridge/templates/_import_scene_usd.py`](#env_utils--maya_bridge--templates--_import_scene_usd) — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - [`env_utils/maya_bridge/templates/import.py`](#env_utils--maya_bridge--templates--import) — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 - [`env_utils/reference_manager.py`](#env_utils--reference_manager) — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - [`env_utils/scene_exporter/_scene_exporter.py`](#env_utils--scene_exporter--_scene_exporter) — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
@@ -87,6 +89,7 @@ _Generated: 2026-07-17_
 - [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 - [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 - [`env_utils/unity_bridge/unity_bridge_slots.py`](#env_utils--unity_bridge--unity_bridge_slots) — Slots for the Unity bridge panel -- mirror of mayatk's
+- [`env_utils/usd.py`](#env_utils--usd) — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — Blender world-HDRI environment manager.
 - [`light_utils/lightmap_baker/lightmap_baker.py`](#light_utils--lightmap_baker--lightmap_baker) — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
@@ -140,7 +143,7 @@ _Generated: 2026-07-17_
 - [`rig_utils/tube_rig.py`](#rig_utils--tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 - [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
-- [`ui_utils/blender_bridge_slots.py`](#ui_utils--blender_bridge_slots) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
+- [`ui_utils/blender_bridge_slots_base.py`](#ui_utils--blender_bridge_slots_base) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - [`ui_utils/blender_native_menus.py`](#ui_utils--blender_native_menus) — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - [`ui_utils/blender_ui_handler.py`](#ui_utils--blender_ui_handler)
 - [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
@@ -656,23 +659,24 @@ Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- [`undo_chunk(name: str = '')`](blendertk/blendertk/core_utils/_core_utils.py#L20) — Collapse every change made inside the block into ONE Blender undo step.
-- [`undoable(fn)`](blendertk/blendertk/core_utils/_core_utils.py#L63) — Wrap ``fn`` so its changes collapse into a single Blender undo step.
-- [`undo_checkpoint(fn)`](blendertk/blendertk/core_utils/_core_utils.py#L83) — Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
-- [`get_env_info(key=None)`](blendertk/blendertk/core_utils/_core_utils.py#L139) — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
-- [`ensure_image_deps(packages=None, add_to_path=True)`](blendertk/blendertk/core_utils/_core_utils.py#L179) — Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
-- [`get_recent_files(index=None)`](blendertk/blendertk/core_utils/_core_utils.py#L299) — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
-- [`get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`](blendertk/blendertk/core_utils/_core_utils.py#L317) — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
-- [`get_scene_info(objects=None)`](blendertk/blendertk/core_utils/_core_utils.py#L348) — Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused
-- [`format_scene_info_html(info)`](blendertk/blendertk/core_utils/_core_utils.py#L399) — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
-- [`analyze_scene(objects=None, adaptive=True, sections=None)`](blendertk/blendertk/core_utils/_core_utils.py#L438) — Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,
-- [`cleanup_scene(quiet=False)`](blendertk/blendertk/core_utils/_core_utils.py#L554) — Purge orphan datablocks (0 users, no fake user) across the main collections — the
-- [`selected_objects()`](blendertk/blendertk/core_utils/_core_utils.py#L612) — The current object selection, filtered of ``None`` (mirror of Maya's
-- [`active_object()`](blendertk/blendertk/core_utils/_core_utils.py#L631) — The active object, resolved window-independently (``view_layer.objects.active``).
-- [`get_areas(area_type)`](blendertk/blendertk/core_utils/_core_utils.py#L643) — All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
-- [`get_view3d_context()`](blendertk/blendertk/core_utils/_core_utils.py#L663) — Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no
-- [`window_context_override()`](blendertk/blendertk/core_utils/_core_utils.py#L693) — Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
-- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L721)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- [`strip_dup_suffix(name: str) -> str`](blendertk/blendertk/core_utils/_core_utils.py#L22) — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
+- [`undo_chunk(name: str = '')`](blendertk/blendertk/core_utils/_core_utils.py#L33) — Collapse every change made inside the block into ONE Blender undo step.
+- [`undoable(fn)`](blendertk/blendertk/core_utils/_core_utils.py#L76) — Wrap ``fn`` so its changes collapse into a single Blender undo step.
+- [`undo_checkpoint(fn)`](blendertk/blendertk/core_utils/_core_utils.py#L96) — Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
+- [`get_env_info(key=None)`](blendertk/blendertk/core_utils/_core_utils.py#L160) — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
+- [`ensure_image_deps(packages=None, add_to_path=True)`](blendertk/blendertk/core_utils/_core_utils.py#L200) — Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
+- [`get_recent_files(index=None)`](blendertk/blendertk/core_utils/_core_utils.py#L320) — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
+- [`get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`](blendertk/blendertk/core_utils/_core_utils.py#L338) — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
+- [`get_scene_info(objects=None)`](blendertk/blendertk/core_utils/_core_utils.py#L369) — Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused
+- [`format_scene_info_html(info)`](blendertk/blendertk/core_utils/_core_utils.py#L420) — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
+- [`analyze_scene(objects=None, adaptive=True, sections=None)`](blendertk/blendertk/core_utils/_core_utils.py#L459) — Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,
+- [`cleanup_scene(quiet=False)`](blendertk/blendertk/core_utils/_core_utils.py#L575) — Purge orphan datablocks (0 users, no fake user) across the main collections — the
+- [`selected_objects()`](blendertk/blendertk/core_utils/_core_utils.py#L633) — The current object selection, filtered of ``None`` (mirror of Maya's
+- [`active_object()`](blendertk/blendertk/core_utils/_core_utils.py#L652) — The active object, resolved window-independently (``view_layer.objects.active``).
+- [`get_areas(area_type)`](blendertk/blendertk/core_utils/_core_utils.py#L664) — All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
+- [`get_view3d_context()`](blendertk/blendertk/core_utils/_core_utils.py#L684) — Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no
+- [`window_context_override()`](blendertk/blendertk/core_utils/_core_utils.py#L714) — Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
+- **[`class CoreUtils(ptk.CoreUtils)`](blendertk/blendertk/core_utils/_core_utils.py#L742)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
 
 <a id="core_utils--auto_instancer--_auto_instancer"></a>
 ### `core_utils/auto_instancer/_auto_instancer.py`
@@ -857,29 +861,32 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
 - [`subdivide_mesh(objects, cuts=1)`](blendertk/blendertk/edit_utils/_edit_utils.py#L191) — Subdivide every edge ``cuts`` times, grid-filling faces (bmesh, headless) — "Add Divisions".
 - [`boolean_op(objects, operation='DIFFERENCE', apply=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L202) — Boolean the first mesh by the remaining ones via Boolean modifiers (the §5 map for
 - [`set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L219) — Set Subdivision-Surface levels on the given mesh object(s), kept **live** (non-destructive
-- [`set_shading(objects, smooth=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L243) — Set smooth (averaged vertex normals) or flat (face normals) shading on all faces — the
-- [`average_normals(objects, by_uv_shell=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L269) — Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``
-- [`select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L298) — Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
-- [`set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)`](blendertk/blendertk/edit_utils/_edit_utils.py#L329) — Smooth-shade, then mark interior edges hard/soft by their dihedral angle relative to
-- [`clear_custom_split_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L363) — Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's
-- [`flip_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L383) — Reverse face winding / normals (bmesh ``reverse_faces``, headless).
-- [`recalculate_normals(objects, inside=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L391) — Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).
-- [`clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L405) — Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
-- [`crease_edges(objects, amount=10.0, angle=None)`](blendertk/blendertk/edit_utils/_edit_utils.py#L454) — Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
-- [`mirror(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, uninstance=False, merge_threshold=0.001)`](blendertk/blendertk/edit_utils/_edit_utils.py#L596) — Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
-- [`cut_along_axis(objects, axis='x', pivot='center', amount=1, offset=0.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001)`](blendertk/blendertk/edit_utils/_edit_utils.py#L658) — Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
-- [`wedge(objects, angle=90.0, divisions=4)`](blendertk/blendertk/edit_utils/_edit_utils.py#L735) — Wedge the selected faces about a selected hinge edge — mirror of Maya's
-- [`snap_closest_verts(obj_a, obj_b, tolerance=10.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L802) — Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within
-- [`snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`](blendertk/blendertk/edit_utils/_edit_utils.py#L831) — Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.
-- [`snap_to_surface(source_meshes, target, offset=0.0, threshold=None, invert=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L869) — Project the source meshes' vertices onto the closest point of ``target``'s surface —
-- [`get_similar_mesh(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1073) — Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —
-- [`separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1120) — Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
-- [`combine_objects(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1189) — Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``
-- [`detach_components(*, duplicate=False, separate=True, separate_each=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1230) — Detach the active mesh's selected faces — Blender mirror of mayatk's
-- [`get_overlapping_faces(objects, delete=False, select=True, round_ndigits=5)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1284) — Find faces geometrically coincident with another face — doubled geometry on *distinct*
-- [`get_overlapping_duplicates(objects=None, retain=None, select=False, delete=False, round_ndigits=5)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1326) — Find duplicate mesh objects overlapping in world space — mirror of
-- [`loft(objects=None, *, close=False, reverse_normals=False, section_spans=1)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1414) — Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh
-- **[`class EditUtils`](blendertk/blendertk/edit_utils/_edit_utils.py#L1477)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- [`apply_subdivision(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L242) — Bake the live Subsurf modifier into real geometry — the destructive counterpart of
+- [`set_shading(objects, smooth=True, selected_only=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L262) — Set smooth (averaged vertex normals) or flat (face normals) shading — the Blender
+- [`average_normals(objects, by_uv_shell=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L321) — Average vertex normals by softening edges — Blender mirror of ``mtk.Components.average_normals``
+- [`select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L350) — Select interior edges whose dihedral (face) angle is within ``[low_angle, high_angle]``
+- [`set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)`](blendertk/blendertk/edit_utils/_edit_utils.py#L381) — Smooth-shade, then mark interior edges hard/soft by their dihedral angle relative to
+- [`clear_custom_split_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L440) — Clear custom split normals on the given mesh object(s) — the Blender analogue of Maya's
+- [`add_custom_split_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L449) — Bake the current normals of the given mesh object(s) as custom split normals — the Blender
+- [`has_custom_split_normals(objects)`](blendertk/blendertk/edit_utils/_edit_utils.py#L458) — True when EVERY mesh in ``objects`` carries custom split normals (i.e.
+- [`flip_normals(objects, selected_only=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L469) — Reverse face winding / normals (bmesh ``reverse_faces``, headless).
+- [`recalculate_normals(objects, inside=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L483) — Recalculate consistent face normals, outward by default / inward if ``inside`` (bmesh).
+- [`clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L497) — Clean mesh geometry — merge doubles, dissolve degenerate (zero-area) faces, remove loose
+- [`crease_edges(objects, amount=10.0, angle=None)`](blendertk/blendertk/edit_utils/_edit_utils.py#L546) — Set Subdivision-Surface edge crease on the given mesh object(s) — mirror of Maya's
+- [`mirror(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, uninstance=False, merge_threshold=0.001)`](blendertk/blendertk/edit_utils/_edit_utils.py#L688) — Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
+- [`cut_along_axis(objects, axis='x', pivot='center', amount=1, offset=0.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001)`](blendertk/blendertk/edit_utils/_edit_utils.py#L750) — Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
+- [`wedge(objects, angle=90.0, divisions=4)`](blendertk/blendertk/edit_utils/_edit_utils.py#L827) — Wedge the selected faces about a selected hinge edge — mirror of Maya's
+- [`snap_closest_verts(obj_a, obj_b, tolerance=10.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L894) — Snap each vertex of ``obj_a`` onto the closest vertex of ``obj_b`` within
+- [`snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`](blendertk/blendertk/edit_utils/_edit_utils.py#L923) — Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.
+- [`snap_to_surface(source_meshes, target, offset=0.0, threshold=None, invert=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L961) — Project the source meshes' vertices onto the closest point of ``target``'s surface —
+- [`get_similar_mesh(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1165) — Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —
+- [`separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1213) — Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
+- [`combine_objects(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1284) — Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``
+- [`detach_components(*, duplicate=False, separate=True, separate_each=False)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1325) — Detach the active mesh's selected faces — Blender mirror of mayatk's
+- [`get_overlapping_faces(objects, delete=False, select=True, round_ndigits=5)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1379) — Find faces geometrically coincident with another face — doubled geometry on *distinct*
+- [`get_overlapping_duplicates(objects=None, retain=None, select=False, delete=False, round_ndigits=5)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1421) — Find duplicate mesh objects overlapping in world space — mirror of
+- [`loft(objects=None, *, close=False, reverse_normals=False, section_spans=1)`](blendertk/blendertk/edit_utils/_edit_utils.py#L1509) — Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh
+- **[`class EditUtils`](blendertk/blendertk/edit_utils/_edit_utils.py#L1572)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
 
 <a id="edit_utils--bevel"></a>
 ### `edit_utils/bevel.py`
@@ -1090,6 +1097,7 @@ Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlot
 Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 
 - **[`class Selection`](blendertk/blendertk/edit_utils/selection.py#L33)** — Namespace mirror of mayatk's ``Selection`` (category-driven select-by-type).
+  - `Selection.loop_multi_select(ring=False)` *(static)* — Extend the current edge selection to full loops (rings with ``ring``) — version-portable.
   - `Selection.select_by_type(selection_type, objects=None, mode='replace')` *(static)* — Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).
   - `Selection.select_children(objects)` *(static)* — The immediate children of the given objects (one level below only).
   - `Selection.select_hierarchy_above(objects)` *(static)* — All ancestor objects above the given objects (full parent chain).
@@ -1144,19 +1152,19 @@ blendertk environment / scene-library utilities — the engine behind the Refere
 - [`list_libraries()`](blendertk/blendertk/env_utils/_env_utils.py#L65) — Every linked library as a record: ``{name, library, filepath, abspath, exists}``.
 - [`linked_blend_paths()`](blendertk/blendertk/env_utils/_env_utils.py#L83) — Set of normalized absolute paths of the ``.blend`` files currently linked as libraries.
 - [`is_blend_linked(path)`](blendertk/blendertk/env_utils/_env_utils.py#L88) — True iff ``path`` is already linked as a library.
-- [`link_blend_file(path, link=True, instance=True)`](blendertk/blendertk/env_utils/_env_utils.py#L93) — Link (or append, ``link=False``) every collection from ``path`` and instance them into the
-- [`reload_library(library)`](blendertk/blendertk/env_utils/_env_utils.py#L128) — Reload a library from disk (``library`` is a datablock or its name).
-- [`remove_library(library)`](blendertk/blendertk/env_utils/_env_utils.py#L142) — Remove a library and everything linked from it (datablock or name).
-- [`make_library_local(library)`](blendertk/blendertk/env_utils/_env_utils.py#L156) — Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the
-- [`find_workspaces(root_dir, recursive=False)`](blendertk/blendertk/env_utils/_env_utils.py#L198) — Project folders under ``root_dir`` — the root itself when it directly holds .blend files,
-- [`open_scene(path)`](blendertk/blendertk/env_utils/_env_utils.py#L243) — Open a .blend file (replaces the current file — Maya's ``file -open``).
-- [`format_scene_name(name, case=None, suffix='')`](blendertk/blendertk/env_utils/_env_utils.py#L256) — Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`
-- [`save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)`](blendertk/blendertk/env_utils/_env_utils.py#L274) — Save the current scene as a .blend under ``directory`` with naming conventions applied —
-- [`rename_scene_file(path, new_base)`](blendertk/blendertk/env_utils/_env_utils.py#L313) — Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
-- [`delete_scene_file(path)`](blendertk/blendertk/env_utils/_env_utils.py#L338) — Delete a .blend (and its ``.blend1`` backup) — mirror of mayatk's ``delete_scene``.
-- [`set_reference_display_mode(library, mode)`](blendertk/blendertk/env_utils/_env_utils.py#L380) — Set the display override for a linked library's objects — mirror of mayatk's
-- [`get_reference_display_mode(library)`](blendertk/blendertk/env_utils/_env_utils.py#L403) — Return the active display mode (``"off"`` / ``"reference"`` / ``"template"``) for a linked
-- **[`class EnvUtils`](blendertk/blendertk/env_utils/_env_utils.py#L422)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
+- [`link_blend_file(path, link=True, instance=True, target_collection=None)`](blendertk/blendertk/env_utils/_env_utils.py#L93) — Link (or append, ``link=False``) every collection from ``path`` and instance them into the
+- [`reload_library(library)`](blendertk/blendertk/env_utils/_env_utils.py#L132) — Reload a library from disk (``library`` is a datablock or its name).
+- [`remove_library(library)`](blendertk/blendertk/env_utils/_env_utils.py#L146) — Remove a library and everything linked from it (datablock or name).
+- [`make_library_local(library)`](blendertk/blendertk/env_utils/_env_utils.py#L160) — Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the
+- [`find_workspaces(root_dir, recursive=False)`](blendertk/blendertk/env_utils/_env_utils.py#L202) — Project folders under ``root_dir`` — the root itself when it directly holds .blend files,
+- [`open_scene(path)`](blendertk/blendertk/env_utils/_env_utils.py#L247) — Open a .blend file (replaces the current file — Maya's ``file -open``).
+- [`format_scene_name(name, case=None, suffix='')`](blendertk/blendertk/env_utils/_env_utils.py#L260) — Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`
+- [`save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)`](blendertk/blendertk/env_utils/_env_utils.py#L278) — Save the current scene as a .blend under ``directory`` with naming conventions applied —
+- [`rename_scene_file(path, new_base)`](blendertk/blendertk/env_utils/_env_utils.py#L317) — Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
+- [`delete_scene_file(path)`](blendertk/blendertk/env_utils/_env_utils.py#L342) — Delete a .blend (and its ``.blend1`` backup) — mirror of mayatk's ``delete_scene``.
+- [`set_reference_display_mode(library, mode)`](blendertk/blendertk/env_utils/_env_utils.py#L384) — Set the display override for a linked library's objects — mirror of mayatk's
+- [`get_reference_display_mode(library)`](blendertk/blendertk/env_utils/_env_utils.py#L407) — Return the active display mode (``"off"`` / ``"reference"`` / ``"template"``) for a linked
+- **[`class EnvUtils`](blendertk/blendertk/env_utils/_env_utils.py#L426)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
 
 <a id="env_utils--blender_connection"></a>
 ### `env_utils/blender_connection.py`
@@ -1187,73 +1195,39 @@ Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
 
 - **[`class BlenderExportMixin`](blendertk/blendertk/env_utils/handoff_export.py#L23)** — The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
 
-<a id="env_utils--hierarchy_manager--_hierarchy_manager"></a>
-### `env_utils/hierarchy_manager/_hierarchy_manager.py`
+<a id="env_utils--hierarchy_sync--_fbx_stage_worker"></a>
+### `env_utils/hierarchy_sync/_fbx_stage_worker.py`
 
-Hierarchy Manager core engine — mirror of mayatk's ``env_utils.hierarchy_manager._hierarchy_manager…
+Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 
-- [`build_path(obj) -> str`](blendertk/blendertk/env_utils/hierarchy_manager/_hierarchy_manager.py#L40) — Pipe-joined hierarchy path from the root down to ``obj`` (e.g.
-- [`should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool`](blendertk/blendertk/env_utils/hierarchy_manager/_hierarchy_manager.py#L55) — Filter by Blender object type — mirror of mayatk's shape-type filter.
-- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_manager/_hierarchy_manager.py#L61)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
+- [`main() -> int`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L30) — Stage the FBX named on the command line;
+
+<a id="env_utils--hierarchy_sync--_hierarchy_sync"></a>
+### `env_utils/hierarchy_sync/_hierarchy_sync.py`
+
+Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
+
+- [`stage_reference_blend(reference_path: str, logger=None)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L47) — Return a ``.blend`` path to link as the reference, converting other scene formats.
+- [`build_path(obj) -> str`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L119) — Pipe-joined hierarchy path from the root down to ``obj`` (e.g.
+- [`delete_objects(objects) -> List[str]`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L134) — Delete *objects* AND all their descendants from the blend data;
+- [`should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L154) — Filter by Blender object type — mirror of mayatk's shape-type filter.
+- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L160)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
   - `HierarchyMapBuilder.build_path_map(objects) -> Dict[str, Any]` *(static)* — Map every object in ``objects`` to its hierarchy path (see :func:`build_path`).
-- **[`class HierarchyManager(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_manager/_hierarchy_manager.py#L76)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchyManager``).
-  - `HierarchyManager.analyze_hierarchies(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]` — Analyze differences between the current scene and a reference object set.
-  - `HierarchyManager.create_stubs(self, paths: Optional[List[str]] = None) -> List[str]` — Create empty placeholder Empties for missing hierarchy paths.
-  - `HierarchyManager.quarantine_extras(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]` — Move extra (scene-only) items to a root-level quarantine Empty.
-  - `HierarchyManager.fix_fuzzy_renames(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]` — Rename nodes identified as fuzzy matches to their reference names.
-  - `HierarchyManager.fix_reparented(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]` — Move reparented nodes to match their reference hierarchy position.
+- **[`class HierarchySync(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L175)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
+  - `HierarchySync.analyze_hierarchies(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]` — Analyze differences between the current scene and a reference object set.
+  - `HierarchySync.create_stubs(self, paths: Optional[List[str]] = None) -> List[str]` — Create empty placeholder Empties for missing hierarchy paths.
+  - `HierarchySync.quarantine_extras(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]` — Move extra (scene-only) items to a root-level quarantine Empty.
+  - `HierarchySync.fix_fuzzy_renames(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]` — Rename nodes identified as fuzzy matches to their reference names.
+  - `HierarchySync.fix_reparented(self, items: Optional[List[Dict[str, str]]] = None, skip_animated: bool = True) -> List[str]` — Move reparented nodes to match their reference hierarchy position.
+- **[`class ObjectSwapper(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L975)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
+  - `ObjectSwapper.pull_objects_from_reference(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool` — Append the reference objects at *target_paths* into the current scene.
 
-<a id="env_utils--hierarchy_manager--hierarchy_manager_slots"></a>
-### `env_utils/hierarchy_manager/hierarchy_manager_slots.py`
-
-Slots for the Hierarchy Manager panel -- Blender port of mayatk's ``env_utils.hierarchy_manager``.
-
-- **[`class HierarchyManagerController(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_manager/hierarchy_manager_slots.py#L68)** — Controller for hierarchy management operations.
-  - `HierarchyManagerController.workspace(self)` *(property)*
-  - `HierarchyManagerController.reference_path(self) -> str` *(property)* — The current reference scene path.
-  - `HierarchyManagerController.analyze_hierarchies(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False) -> bool` — Link the reference file (or reuse the cached link) and diff it against the scene.
-  - `HierarchyManagerController.repair_hierarchies(self, create_stubs: bool = True, quarantine_extras: bool = True, quarantine_group: str = '_QUARANTINE', skip_animated: bool = True, fix_reparented: bool = True, fix_fuzzy_renames: bool = True, dry_run: bool = True) -> bool` — Run repair operations on the current scene to match the reference hierarchy.
-  - `HierarchyManagerController.select_objects(object_names: List[str]) -> int` *(static)* — Select objects in the Blender scene by name.
-  - `HierarchyManagerController.populate_reference_tree(self, tree_widget, reference_path: str = None)` — Populate the reference tree — handles cache, library link, and rendering.
-  - `HierarchyManagerController.refresh_trees(self, restore_selection: bool = True)` — Refresh both tree widgets with current hierarchy data.
-  - `HierarchyManagerController.is_path_ignored(self, tree_widget, path)`
-  - `HierarchyManagerController.clear_ignored_paths(self)`
-  - `HierarchyManagerController.log_diff_results(self)` — Log detailed hierarchy difference analysis results using rich formatting.
-  - `HierarchyManagerController.get_recent_reference_scenes(self) -> List[str]` — Get recent reference scenes from settings.
-  - `HierarchyManagerController.save_recent_reference_scene(self, scene_path: str)` — Save reference scene to recent list.
-- **[`class HierarchyManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_manager/hierarchy_manager_slots.py#L711)** — Slots class for hierarchy management UI operations.
-  - `HierarchyManagerSlots.header_init(self, widget)` — Initialize the header widget.
-  - `HierarchyManagerSlots.tree000_init(self, widget)` — Initialize the reference/linked hierarchy tree widget.
-  - `HierarchyManagerSlots.tree001_init(self, widget)` — Initialize the current scene hierarchy tree widget.
-  - `HierarchyManagerSlots.cmb_diff_options_init(self, widget)` — Populate the diff-options WidgetComboBox below the Diff button.
-  - `HierarchyManagerSlots.cmb_pull_options_init(self, widget)` — Pull options — disabled (Pull isn't ported yet;
-  - `HierarchyManagerSlots.tb002_init(self, widget)` — Pull button — disabled (see module docstring).
-  - `HierarchyManagerSlots.tb003_init(self, widget)` — Initialize the fix/repair toggle button with options menu.
-  - `HierarchyManagerSlots.tb001(self, state=None)` — Run the diff analysis using settings from cmb_diff_options.
-  - `HierarchyManagerSlots.tb002(self, state=None)` — Pull — not yet ported (see module docstring).
-  - `HierarchyManagerSlots.tb003(self, state=None)` — Toggle button for fix/repair operations.
-  - `HierarchyManagerSlots.b003(self)` — Browse for reference scene file.
-  - `HierarchyManagerSlots.b005(self)` — Refresh current scene hierarchy tree.
-  - `HierarchyManagerSlots.b006(self)` — Select checked objects in the scene.
-  - `HierarchyManagerSlots.b007(self)` — Expand all items in current scene tree.
-  - `HierarchyManagerSlots.b008(self)` — Collapse all items in current scene tree.
-  - `HierarchyManagerSlots.b009(self)` — Refresh reference hierarchy tree.
-  - `HierarchyManagerSlots.b011(self)` — Show differences between hierarchies.
-  - `HierarchyManagerSlots.b012(self)` — Analyze hierarchies and perform comparison (no auto-select/expand — see tb001).
-  - `HierarchyManagerSlots.b013(self)` — Ignore selected items in the reference tree.
-  - `HierarchyManagerSlots.b014(self)` — Unignore selected items in the reference tree.
-  - `HierarchyManagerSlots.b015(self)` — Ignore selected items in the current scene tree.
-  - `HierarchyManagerSlots.b016(self)` — Unignore selected items in the current scene tree.
-  - `HierarchyManagerSlots.b018(self)` — Delete selected objects from the Blender scene and refresh the tree.
-  - `HierarchyManagerSlots.b017(self)` — Rename current-scene items to match reference names.
-  - `HierarchyManagerSlots.count_tree_items(self, tree_widget)` — Count total items in a tree widget.
-
-<a id="env_utils--hierarchy_manager--hierarchy_sidecar"></a>
-### `env_utils/hierarchy_manager/hierarchy_sidecar.py`
+<a id="env_utils--hierarchy_sync--hierarchy_sidecar"></a>
+### `env_utils/hierarchy_sync/hierarchy_sidecar.py`
 
 Hierarchy sidecar manifest management — mirror of mayatk's
 
-- **[`class HierarchySidecar`](blendertk/blendertk/env_utils/hierarchy_manager/hierarchy_sidecar.py#L24)** — Manages hierarchy sidecar files stored alongside export files.
+- **[`class HierarchySidecar`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sidecar.py#L24)** — Manages hierarchy sidecar files stored alongside export files.
   - `HierarchySidecar.base_stem(cls, export_path: str) -> str` *(class)* — Return the export stem with any trailing ``_vNN`` suffix stripped.
   - `HierarchySidecar.manifest_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar manifest path for an export file.
   - `HierarchySidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar diff report path for an export file.
@@ -1272,12 +1246,58 @@ Hierarchy sidecar manifest management — mirror of mayatk's
   - `HierarchySidecar.build_full_path_set(cls, objects) -> set` *(class)* — Expand *objects* to descendants, then dedup.
   - `HierarchySidecar.compare(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]` *(class)* — Compare *current_paths* against the stored manifest.
 
-<a id="env_utils--hierarchy_manager--tree_renderer"></a>
-### `env_utils/hierarchy_manager/tree_renderer.py`
+<a id="env_utils--hierarchy_sync--hierarchy_sync_slots"></a>
+### `env_utils/hierarchy_sync/hierarchy_sync_slots.py`
 
-Tree rendering, formatting, and selection management for the hierarchy manager UI — mirror of
+Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 
-- **[`class HierarchyTreeRenderer(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_manager/tree_renderer.py#L22)** — Owns all QTreeWidget population, diff-colour formatting, ignore styling, selection
+- **[`class HierarchySyncController(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L75)** — Controller for hierarchy management operations.
+  - `HierarchySyncController.workspace(self)` *(property)*
+  - `HierarchySyncController.reference_path(self) -> str` *(property)* — The current reference scene path.
+  - `HierarchySyncController.analyze_hierarchies(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False, filter_cameras: bool = False, filter_lights: bool = False) -> bool` — Link the reference file (or reuse the cached link) and diff it against the scene.
+  - `HierarchySyncController.repair_hierarchies(self, create_stubs: bool = True, quarantine_extras: bool = True, quarantine_group: str = '_QUARANTINE', skip_animated: bool = True, fix_reparented: bool = True, fix_fuzzy_renames: bool = True, dry_run: bool = True) -> bool` — Run repair operations on the current scene to match the reference hierarchy.
+  - `HierarchySyncController.pull_objects(self, target_paths: List[str], reference_path: str, dry_run: bool = True, pull_children: bool = False, pull_mode: str = 'Add to Scene') -> bool` — Pull selected reference objects into the current scene.
+  - `HierarchySyncController.select_objects(object_names: List[str]) -> int` *(static)* — Select objects in the Blender scene by name.
+  - `HierarchySyncController.populate_reference_tree(self, tree_widget, reference_path: str = None)` — Populate the reference tree — handles cache, library link, and rendering.
+  - `HierarchySyncController.refresh_trees(self, restore_selection: bool = True)` — Refresh both tree widgets with current hierarchy data.
+  - `HierarchySyncController.is_path_ignored(self, tree_widget, path)`
+  - `HierarchySyncController.clear_ignored_paths(self)`
+  - `HierarchySyncController.log_diff_results(self)` — Log detailed hierarchy difference analysis results using rich formatting.
+  - `HierarchySyncController.get_recent_reference_scenes(self) -> List[str]` — Get recent reference scenes from settings.
+  - `HierarchySyncController.save_recent_reference_scene(self, scene_path: str)` — Save reference scene to recent list.
+- **[`class HierarchySyncSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L889)** — Slots class for hierarchy management UI operations.
+  - `HierarchySyncSlots.header_init(self, widget)` — Initialize the header widget.
+  - `HierarchySyncSlots.tree000_init(self, widget)` — Initialize the reference/linked hierarchy tree widget.
+  - `HierarchySyncSlots.tree001_init(self, widget)` — Initialize the current scene hierarchy tree widget.
+  - `HierarchySyncSlots.cmb_diff_options_init(self, widget)` — Populate the diff-options WidgetComboBox below the Diff button.
+  - `HierarchySyncSlots.cmb_pull_options_init(self, widget)` — Populate the pull-options WidgetComboBox below the Pull button.
+  - `HierarchySyncSlots.tb002_init(self, widget)` — Initialize the Pull toggle button.
+  - `HierarchySyncSlots.tb003_init(self, widget)` — Initialize the fix/repair toggle button with options menu.
+  - `HierarchySyncSlots.tb001(self, state=None)` — Run the diff analysis using settings from cmb_diff_options.
+  - `HierarchySyncSlots.tb002(self, state=None)` — Pull the reference-tree selection into the current scene.
+  - `HierarchySyncSlots.tb003(self, state=None)` — Toggle button for fix/repair operations.
+  - `HierarchySyncSlots.b003(self)` — Browse for reference scene file.
+  - `HierarchySyncSlots.b005(self)` — Refresh current scene hierarchy tree.
+  - `HierarchySyncSlots.b006(self)` — Select checked objects in the scene.
+  - `HierarchySyncSlots.b007(self)` — Expand all items in current scene tree.
+  - `HierarchySyncSlots.b008(self)` — Collapse all items in current scene tree.
+  - `HierarchySyncSlots.b009(self)` — Refresh reference hierarchy tree.
+  - `HierarchySyncSlots.b011(self)` — Show differences between hierarchies.
+  - `HierarchySyncSlots.b012(self)` — Analyze hierarchies and perform comparison (no auto-select/expand — see tb001).
+  - `HierarchySyncSlots.b013(self)` — Ignore selected items in the reference tree.
+  - `HierarchySyncSlots.b014(self)` — Unignore selected items in the reference tree.
+  - `HierarchySyncSlots.b015(self)` — Ignore selected items in the current scene tree.
+  - `HierarchySyncSlots.b016(self)` — Unignore selected items in the current scene tree.
+  - `HierarchySyncSlots.b018(self)` — Delete selected objects from the Blender scene and refresh the tree.
+  - `HierarchySyncSlots.b017(self)` — Rename current-scene items to match reference names.
+  - `HierarchySyncSlots.count_tree_items(self, tree_widget)` — Count total items in a tree widget.
+
+<a id="env_utils--hierarchy_sync--tree_renderer"></a>
+### `env_utils/hierarchy_sync/tree_renderer.py`
+
+Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
+
+- **[`class HierarchyTreeRenderer(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_renderer.py#L22)** — Owns all QTreeWidget population, diff-colour formatting, ignore styling, selection
   - `HierarchyTreeRenderer.populate_current_scene_tree(self, tree_widget)` — Populate the current scene hierarchy tree (objects not linked from the reference
   - `HierarchyTreeRenderer.populate_reference_tree(self, tree_widget, objects, reference_name='Reference Scene')` — Populate the reference hierarchy tree with pre-fetched objects.
   - `HierarchyTreeRenderer.show_reference_placeholder(self, tree_widget, reference_name='Reference Scene')` — Show a 'Browse for Reference Scene' placeholder in an empty tree.
@@ -1286,22 +1306,22 @@ Tree rendering, formatting, and selection management for the hierarchy manager U
   - `HierarchyTreeRenderer.apply_difference_formatting(self, tree001, tree000)` — Apply color formatting to tree widgets based on hierarchy differences.
   - `HierarchyTreeRenderer.clear_tree_colors(self, tree_widget)` — Remove foreground/background colors from every item in a tree widget.
   - `HierarchyTreeRenderer.format_tree_differences(self, tree_widget, tree_type, tree_matcher, by_full, by_last)` — Format a specific tree widget based on differences.
-  - `HierarchyTreeRenderer.apply_ignore_styling(self, tree_widget)` — Apply or remove strikethrough + dim styling for ignored items.
+  - `HierarchyTreeRenderer.apply_ignore_styling(self, tree_widget)` — Apply strikethrough/dim styling for ignored items — and, when the 'Hide Ignored'
   - `HierarchyTreeRenderer.build_item_path(item)` *(static)* — Build a pipe-separated hierarchy path from a QTreeWidgetItem.
   - `HierarchyTreeRenderer.find_tree_item_by_name(self, tree_widget, object_name)` — Find a tree item by object name (first column).
   - `HierarchyTreeRenderer.get_selected_tree_items(self, tree_widget)` — Get selected items from a tree widget.
   - `HierarchyTreeRenderer.get_selected_object_names(self, tree_widget)` — Extract object names from selected tree widget items.
 
-<a id="env_utils--hierarchy_manager--tree_utils"></a>
-### `env_utils/hierarchy_manager/tree_utils.py`
+<a id="env_utils--hierarchy_sync--tree_utils"></a>
+### `env_utils/hierarchy_sync/tree_utils.py`
 
-Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's
+Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 
-- [`get_selected_object_names(tree_widget) -> List[str]`](blendertk/blendertk/env_utils/hierarchy_manager/tree_utils.py#L108) — Extract object names from selected tree widget items.
-- [`get_selected_tree_items(tree_widget) -> list`](blendertk/blendertk/env_utils/hierarchy_manager/tree_utils.py#L117) — Get all selected items from tree widget.
-- [`find_tree_item_by_name(tree_widget, object_name: str)`](blendertk/blendertk/env_utils/hierarchy_manager/tree_utils.py#L141) — Find tree widget item by object name (or hierarchy path).
-- [`build_hierarchy_structure(objects: list) -> Tuple[Dict[str, Dict], List[str]]`](blendertk/blendertk/env_utils/hierarchy_manager/tree_utils.py#L154) — Build hierarchical structure from Blender objects.
-- **[`class TreePathMatcher(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_manager/tree_utils.py#L21)** — Tree path matching functionality for UI tree widgets.
+- [`get_selected_object_names(tree_widget) -> List[str]`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L108) — Extract object names from selected tree widget items.
+- [`get_selected_tree_items(tree_widget) -> list`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L117) — Get all selected items from tree widget.
+- [`find_tree_item_by_name(tree_widget, object_name: str)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L169) — Find tree widget item by object name (or hierarchy path).
+- [`build_hierarchy_structure(objects: list) -> Tuple[Dict[str, Dict], List[str]]`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L182) — Build hierarchical structure from Blender objects.
+- **[`class TreePathMatcher(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L21)** — Tree path matching functionality for UI tree widgets.
   - `TreePathMatcher.build_tree_index(self, widget)` — Build tree indices for fast item lookup: full hierarchy path, and last component.
   - `TreePathMatcher.find_path_matches(self, target_path: str, by_full: dict, by_last: dict, strict: bool = False)` — Find tree items matching a target path — exact full-path match, falling back to
   - `TreePathMatcher.log_matching_debug(self, path, candidates, strategy, prefix='')` — Log debug information about path matching.
@@ -1325,15 +1345,15 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
 
-- [`mayapy_from_maya_exe(maya_exe: str) -> Optional[str]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L52) — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
-- [`import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L393) — Import a Maya scene (.ma/.mb) into the current Blender scene.
-- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L64)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+- [`mayapy_from_maya_exe(maya_exe: str) -> Optional[str]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L63) — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
+- [`import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L464) — Import a Maya scene (.ma/.mb) into the current Blender scene.
+- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L75)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
   - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
-  - `MayaSceneImport.render_script(self, src_path: str, out_fbx: str, *, embed_textures: bool = False, include_animation: bool = True) -> str` — Render the Maya-side conversion script (exposed for tests/preview).
-  - `MayaSceneImport.convert(self, src_path: str, out_fbx: str, *, timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'` — Convert *src_path* to *out_fbx* in a fresh ``mayapy`` (blocking).
-  - `MayaSceneImport.import_scene(self, src_path: str, *, cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]` — Import the Maya scene at *src_path*;
+  - `MayaSceneImport.render_script(self, src_path: str, out_path: str, *, via: str = 'fbx', embed_textures: bool = False, include_animation: bool = True) -> str` — Render the Maya-side conversion script (exposed for tests/preview).
+  - `MayaSceneImport.convert(self, src_path: str, out_path: str, *, via: str = 'fbx', timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'` — Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).
+  - `MayaSceneImport.import_scene(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]` — Import the Maya scene at *src_path*;
 
 <a id="env_utils--maya_bridge--maya_bridge_slots"></a>
 ### `env_utils/maya_bridge/maya_bridge_slots.py`
@@ -1364,6 +1384,15 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L248) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
 - [`write_texture_manifest(entries, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L310) — Sidecar for the textures FBX cannot carry, consumed by MayaSceneImport.
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L323)
+
+<a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
+### `env_utils/maya_bridge/templates/_import_scene_usd.py`
+
+Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
+
+- [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L143) — Swap ShaderFX game shaders for standardSurface on their shading groups.
+- [`export_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L177) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L220)
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
@@ -1448,7 +1477,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L645)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L646)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1505,6 +1534,18 @@ Slots for the Unity bridge panel -- mirror of mayatk's
   - `UnityBridgeSlots.list_template_modes(self)`
   - `UnityBridgeSlots.default_output_dir(self) -> str`
   - `UnityBridgeSlots.b000(self)` — Export per the chosen Scope and copy the FBX into the Unity project.
+
+<a id="env_utils--usd"></a>
+### `env_utils/usd.py`
+
+USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
+
+- [`export_selection_usd(filepath=None, objects=None, **usd_opts)`](blendertk/blendertk/env_utils/usd.py#L170) — Export the selection (or ``objects``) to a USD file for an external-app hand-off.
+- [`import_usd(filepath, **usd_opts)`](blendertk/blendertk/env_utils/usd.py#L179) — Import a USD file;
+- **[`class UsdUtils`](blendertk/blendertk/env_utils/usd.py#L75)** — USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``).
+  - `UsdUtils.is_usd_file(filepath) -> bool` *(static)* — True when *filepath* is a USD layer/package (delegates to pythontk).
+  - `UsdUtils.export(filepath=None, objects=None, selection_only=True, **usd_opts)` *(static)* — Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.
+  - `UsdUtils.import_usd(filepath, **usd_opts)` *(static)* — Import a USD file (wrapper over ``bpy.ops.wm.usd_import``).
 
 <a id="light_utils--_light_utils"></a>
 ### `light_utils/_light_utils.py`
@@ -1584,41 +1625,41 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
 - [`assign_mat(objects, material)`](blendertk/blendertk/mat_utils/_mat_utils.py#L50) — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
 - [`find_by_mat_id(material, objects=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L64) — Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).
 - [`select_by_material(material, add=False)`](blendertk/blendertk/mat_utils/_mat_utils.py#L79) — Select every scene object using ``material`` (optionally adding to the selection).
-- [`reload_textures()`](blendertk/blendertk/mat_utils/_mat_utils.py#L94) — Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).
-- [`get_scene_mats(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)`](blendertk/blendertk/mat_utils/_mat_utils.py#L112) — Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.
-- [`is_mat_assigned(mat)`](blendertk/blendertk/mat_utils/_mat_utils.py#L132) — True iff ``mat`` is assigned to at least one object (mirror of ``mtk.is_mat_assigned`` —
-- [`get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L139) — A ``QIcon`` filled with ``mat``'s viewport display color — mirror of
-- [`get_texture_paths(objects=None, materials=None, absolute=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L214) — Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
-- [`get_texture_info(objects=None, materials=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L230) — Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
-- [`get_mat_info(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)`](blendertk/blendertk/mat_utils/_mat_utils.py#L263) — Aggregate per-material info (name, type, textures + image metadata) — mirror of
-- [`format_mat_info_html(records)`](blendertk/blendertk/mat_utils/_mat_utils.py#L312) — Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).
-- [`format_texture_info_html(info_list)`](blendertk/blendertk/mat_utils/_mat_utils.py#L317) — Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).
-- [`find_materials_with_duplicate_textures(materials=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L323) — Groups of materials that reference the *same* set of texture files — mirror of
-- [`reassign_duplicate_materials(duplicate_groups, delete=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L337) — Reassign every object using a duplicate to the group's first (canonical) material, then
-- [`delete_unused_materials()`](blendertk/blendertk/mat_utils/_mat_utils.py#L362) — Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.
-- [`graph_materials(materials, mode=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L381) — Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's
-- [`get_image_records()`](blendertk/blendertk/mat_utils/_mat_utils.py#L410) — Every FILE-backed image datablock as a record for the Texture Path Editor:
-- [`repath_image(image, new_path, reload=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L434) — Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture
-- [`to_project_relative(abspath, blenddir=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L451) — Convert an absolute path to a Blender ``//``-relative path when it falls under the saved
-- [`resolve_missing_textures(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L519) — Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture
-- [`normalize_texture_paths(mode='relative', project_dir=None, images=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L593) — Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.
-- [`get_image_material_map()`](blendertk/blendertk/mat_utils/_mat_utils.py#L655) — ``{image-name: [material names]}`` for every FILE image referenced by a material's shader
-- [`materials_for_textures(paths)`](blendertk/blendertk/mat_utils/_mat_utils.py#L672) — Scene materials whose shader graph references an image at one of ``paths`` (matched by
-- [`fix_color_spaces(images=None, force_update=False, dry_run=False)`](blendertk/blendertk/mat_utils/_mat_utils.py#L712) — Assign each texture image its correct color space by map type — the Blender counterpart of
-- [`set_texture_directory(images=None, target_dir=None, mode='rewrite')`](blendertk/blendertk/mat_utils/_mat_utils.py#L805) — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
-- [`find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy')`](blendertk/blendertk/mat_utils/_mat_utils.py#L835) — Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),
-- [`format_texture_paths_html(records=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L872) — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
-- [`get_shader_templates()`](blendertk/blendertk/mat_utils/_mat_utils.py#L919) — The available Principled-BSDF template names (mirror of Maya's Shader Templates list).
-- [`apply_shader_template(material, template)`](blendertk/blendertk/mat_utils/_mat_utils.py#L949) — Apply a Principled-BSDF template preset to ``material``'s shader.
-- [`create_shader_template(template, name=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L964) — Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of
-- [`serialize_material(material)`](blendertk/blendertk/mat_utils/_mat_utils.py#L993) — Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of
-- [`restore_material(data, name=None, textures=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1043) — Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's
-- [`create_pbr_material(textures, name=None, normal_direction='OpenGL')`](blendertk/blendertk/mat_utils/_mat_utils.py#L1144) — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
-- [`create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')`](blendertk/blendertk/mat_utils/_mat_utils.py#L1375) — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
-- [`update_materials(materials=None, config=None, verbose=False, progress_callback=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1603) — Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).
-- **[`class MatUpdater(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1416)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`reload_textures()`](blendertk/blendertk/mat_utils/_mat_utils.py#L102) — Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).
+- [`get_scene_mats(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)`](blendertk/blendertk/mat_utils/_mat_utils.py#L120) — Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.
+- [`is_mat_assigned(mat)`](blendertk/blendertk/mat_utils/_mat_utils.py#L140) — True iff ``mat`` is assigned to at least one object (mirror of ``mtk.is_mat_assigned`` —
+- [`get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L147) — A ``QIcon`` filled with ``mat``'s viewport display color — mirror of
+- [`get_texture_paths(objects=None, materials=None, absolute=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L222) — Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.
+- [`get_texture_info(objects=None, materials=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L238) — Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.
+- [`get_mat_info(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)`](blendertk/blendertk/mat_utils/_mat_utils.py#L271) — Aggregate per-material info (name, type, textures + image metadata) — mirror of
+- [`format_mat_info_html(records)`](blendertk/blendertk/mat_utils/_mat_utils.py#L320) — Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).
+- [`format_texture_info_html(info_list)`](blendertk/blendertk/mat_utils/_mat_utils.py#L325) — Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).
+- [`find_materials_with_duplicate_textures(materials=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L331) — Groups of materials that reference the *same* set of texture files — mirror of
+- [`reassign_duplicate_materials(duplicate_groups, delete=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L345) — Reassign every object using a duplicate to the group's first (canonical) material, then
+- [`delete_unused_materials()`](blendertk/blendertk/mat_utils/_mat_utils.py#L370) — Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.
+- [`graph_materials(materials, mode=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L389) — Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's
+- [`get_image_records()`](blendertk/blendertk/mat_utils/_mat_utils.py#L418) — Every FILE-backed image datablock as a record for the Texture Path Editor:
+- [`repath_image(image, new_path, reload=True)`](blendertk/blendertk/mat_utils/_mat_utils.py#L442) — Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture
+- [`to_project_relative(abspath, blenddir=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L459) — Convert an absolute path to a Blender ``//``-relative path when it falls under the saved
+- [`resolve_missing_textures(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L527) — Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture
+- [`normalize_texture_paths(mode='relative', project_dir=None, images=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L601) — Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.
+- [`get_image_material_map()`](blendertk/blendertk/mat_utils/_mat_utils.py#L663) — ``{image-name: [material names]}`` for every FILE image referenced by a material's shader
+- [`materials_for_textures(paths)`](blendertk/blendertk/mat_utils/_mat_utils.py#L680) — Scene materials whose shader graph references an image at one of ``paths`` (matched by
+- [`fix_color_spaces(images=None, force_update=False, dry_run=False)`](blendertk/blendertk/mat_utils/_mat_utils.py#L720) — Assign each texture image its correct color space by map type — the Blender counterpart of
+- [`set_texture_directory(images=None, target_dir=None, mode='rewrite')`](blendertk/blendertk/mat_utils/_mat_utils.py#L813) — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
+- [`find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy')`](blendertk/blendertk/mat_utils/_mat_utils.py#L843) — Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),
+- [`format_texture_paths_html(records=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L880) — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
+- [`get_shader_templates()`](blendertk/blendertk/mat_utils/_mat_utils.py#L927) — The available Principled-BSDF template names (mirror of Maya's Shader Templates list).
+- [`apply_shader_template(material, template)`](blendertk/blendertk/mat_utils/_mat_utils.py#L957) — Apply a Principled-BSDF template preset to ``material``'s shader.
+- [`create_shader_template(template, name=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L972) — Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of
+- [`serialize_material(material)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1001) — Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of
+- [`restore_material(data, name=None, textures=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1051) — Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's
+- [`create_pbr_material(textures, name=None, normal_direction='OpenGL')`](blendertk/blendertk/mat_utils/_mat_utils.py#L1152) — Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
+- [`create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')`](blendertk/blendertk/mat_utils/_mat_utils.py#L1383) — Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
+- [`update_materials(materials=None, config=None, verbose=False, progress_callback=None)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1611) — Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).
+- **[`class MatUpdater(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1424)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils`](blendertk/blendertk/mat_utils/_mat_utils.py#L1610)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils`](blendertk/blendertk/mat_utils/_mat_utils.py#L1618)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
 
 <a id="mat_utils--arnold_bridge"></a>
 ### `mat_utils/arnold_bridge.py`
@@ -2317,12 +2358,12 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
 - [`popup_message(text, title='Info', icon='INFO')`](blendertk/blendertk/ui_utils/_ui_utils.py#L582) — Show a small native Blender info popup at the cursor (multi-line ``text`` supported).
 - **[`class UiUtils`](blendertk/blendertk/ui_utils/_ui_utils.py#L612)** — Namespace mirror (helpers also exposed module-level).
 
-<a id="ui_utils--blender_bridge_slots"></a>
-### `ui_utils/blender_bridge_slots.py`
+<a id="ui_utils--blender_bridge_slots_base"></a>
+### `ui_utils/blender_bridge_slots_base.py`
 
 Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 
-- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots.py#L24)** — Adds a Blender-flavored ``default_output_dir`` to :class:`BridgeSlotsBase`.
+- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L24)** — Adds a Blender-flavored ``default_output_dir`` to :class:`BridgeSlotsBase`.
   - `BlenderBridgeSlotsBase.default_output_dir(self) -> str` — The saved ``.blend`` file's directory, or ``""`` if unsaved.
 
 <a id="ui_utils--blender_native_menus"></a>
@@ -2539,17 +2580,17 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
 - [`scale_connected_edges(objects, scale_factor=1.1)`](blendertk/blendertk/xform_utils/_xform_utils.py#L160) — Scale each CONNECTED set of selected edges about that set's own centroid — mirror
 - [`drop_to_grid(objects, align='Min', origin=False, center_pivot=False)`](blendertk/blendertk/xform_utils/_xform_utils.py#L197) — Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).
 - [`center_pivot(objects, mode='object')`](blendertk/blendertk/xform_utils/_xform_utils.py#L225) — Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
-- [`transfer_pivot(objects, translate=True, rotate=False, scale=False, world_space=True, select_targets_after_transfer=False)`](blendertk/blendertk/xform_utils/_xform_utils.py#L260) — Transfer the object **origin** from the first object to the rest — mirror of Maya's
-- [`get_pivot_modes()`](blendertk/blendertk/xform_utils/_xform_utils.py#L312) — Center-pivot mode keys understood by :func:`center_pivot`.
-- [`match_scale(source, target, average=True)`](blendertk/blendertk/xform_utils/_xform_utils.py#L317) — Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
-- [`move_to(source, target, pivot='center')`](blendertk/blendertk/xform_utils/_xform_utils.py#L334) — Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.
-- [`get_bounding_box(objects, value='', world_space=True)`](blendertk/blendertk/xform_utils/_xform_utils.py#L348) — Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).
-- [`get_center_point(objects)`](blendertk/blendertk/xform_utils/_xform_utils.py#L376) — Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of
-- [`get_operation_axis_matrix(obj, pivot)`](blendertk/blendertk/xform_utils/_xform_utils.py#L382) — World pivot frame (orientation + position, scale stripped) for a per-object linear/
-- [`get_distance(a, b)`](blendertk/blendertk/xform_utils/_xform_utils.py#L441) — Distance between two points — each an object (world origin), ``Vector``, or 3-sequence
-- [`order_by_distance(objects, reference_point=None, reverse=False)`](blendertk/blendertk/xform_utils/_xform_utils.py#L447) — Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;
-- [`aim_object_at_point(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))`](blendertk/blendertk/xform_utils/_xform_utils.py#L466) — Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses
-- **[`class XformUtils`](blendertk/blendertk/xform_utils/_xform_utils.py#L487)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
+- [`transfer_pivot(objects, translate=True, rotate=False, scale=False, world_space=True, select_targets_after_transfer=False)`](blendertk/blendertk/xform_utils/_xform_utils.py#L262) — Transfer the object **origin** from the first object to the rest — mirror of Maya's
+- [`get_pivot_modes()`](blendertk/blendertk/xform_utils/_xform_utils.py#L314) — Center-pivot mode keys understood by :func:`center_pivot`.
+- [`match_scale(source, target, average=True)`](blendertk/blendertk/xform_utils/_xform_utils.py#L319) — Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.
+- [`move_to(source, target, pivot='center')`](blendertk/blendertk/xform_utils/_xform_utils.py#L336) — Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.
+- [`get_bounding_box(objects, value='', world_space=True)`](blendertk/blendertk/xform_utils/_xform_utils.py#L350) — Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).
+- [`get_center_point(objects)`](blendertk/blendertk/xform_utils/_xform_utils.py#L378) — Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of
+- [`get_operation_axis_matrix(obj, pivot)`](blendertk/blendertk/xform_utils/_xform_utils.py#L384) — World pivot frame (orientation + position, scale stripped) for a per-object linear/
+- [`get_distance(a, b)`](blendertk/blendertk/xform_utils/_xform_utils.py#L443) — Distance between two points — each an object (world origin), ``Vector``, or 3-sequence
+- [`order_by_distance(objects, reference_point=None, reverse=False)`](blendertk/blendertk/xform_utils/_xform_utils.py#L449) — Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;
+- [`aim_object_at_point(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))`](blendertk/blendertk/xform_utils/_xform_utils.py#L468) — Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses
+- **[`class XformUtils`](blendertk/blendertk/xform_utils/_xform_utils.py#L489)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
   - `XformUtils.get_pivot_options()` *(static)* — Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).
 
 <a id="xform_utils--matrices"></a>

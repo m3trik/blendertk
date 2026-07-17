@@ -3,7 +3,7 @@
 """Slots for the Unity bridge panel -- mirror of mayatk's
 ``env_utils.unity_bridge.unity_bridge_slots``.
 
-Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots.BlenderBridgeSlotsBase` (which
+Thin subclass of :class:`blendertk.ui_utils.blender_bridge_slots_base.BlenderBridgeSlotsBase` (which
 subclasses uitk's :class:`BridgeSlotsBase`). The panel machinery (parameter widgets, user
 presets, log routing) lives upstream; this file owns the Unity-specific bits: the bridge
 factory, the single copy-to-Assets delivery, the relabeled 'Unity Project' row, the header menu,
@@ -23,7 +23,7 @@ import os
 import traceback
 from pathlib import Path
 
-from blendertk.ui_utils.blender_bridge_slots import BlenderBridgeSlotsBase
+from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 from blendertk.env_utils.unity_bridge import parameters as _params

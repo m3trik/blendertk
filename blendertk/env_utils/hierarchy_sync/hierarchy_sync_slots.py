@@ -1,22 +1,25 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Slots for the Hierarchy Manager panel -- Blender port of mayatk's ``env_utils.hierarchy_manager``.
+"""Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 
 Diffs the current scene against a reference ``.blend`` and repairs drift (stub missing objects,
 quarantine extras, fix reparented / fuzzy-renamed objects). Co-located with its engine
-(``_hierarchy_manager.HierarchyManager``), sidecar (``hierarchy_sidecar.HierarchySidecar``), and
-panel (``hierarchy_manager.ui``, copied verbatim from mayatk). Discovered by ``BlenderUiHandler``
-(``marking_menu.show("hierarchy_manager")``).
+(``_hierarchy_sync.HierarchySync``), sidecar (``hierarchy_sidecar.HierarchySidecar``), and
+panel (``hierarchy_sync.ui``, copied verbatim from mayatk). Discovered by ``BlenderUiHandler``
+(``marking_menu.show("hierarchy_sync")``).
 
-Scope of this port (see the AskUserQuestion decision this was built against):
+Scope of this port:
     * **Diff** and **Fix** are fully live: hierarchy comparison (missing / extra / reparented /
       fuzzy-renamed detection) and repair (create stub Empties, quarantine extras, fix reparented,
       fix fuzzy renames) all work against a real reference file.
-    * **Pull** (mayatk's cross-scene object import via ``ObjectSwapper`` — fuzzy name matching
-      plus namespace-stripping across the pulled subtree *and* its connected materials/shading
-      engines) is the single most Maya-idiom-heavy piece of this tool and is NOT ported. Its
-      button/options are disabled with an explanatory tooltip, matching the 1:1-visible
-      placeholder pattern used elsewhere in this port (e.g. ``arnold_bridge``).
+    * **Pull** is live (``ObjectSwapper``). Where mayatk imports the reference into a temporary
+      namespace and strips it across the pulled subtree + its connected materials/shading engines,
+      the Blender port APPENDS the matched objects fresh from the reference ``.blend``
+      (``bpy.data.libraries.load(link=False)``) — native Append already delivers a fully-local
+      object + mesh data + materials + animation Action in one call, so all of mayatk's
+      namespace-strip / anim-curve-transfer machinery collapses to nothing. Each pulled object is
+      grafted onto its reference hierarchy position (an existing stub or a rebuilt parent chain)
+      preserving the reference world transform; the ancestor dupes Append drags in are cleaned up.
     * The reference "sandbox": Maya imports the reference file into a temporary namespace so its
       objects can be diffed/pulled without colliding with the current scene. Blender has no
       namespaces; the equivalent here is linking the reference ``.blend`` as a **library**
@@ -24,10 +27,14 @@ Scope of this port (see the AskUserQuestion decision this was built against):
       behind the Reference Manager panel) into its own nested collection, then removing the
       library when the reference path changes or the window is hidden. A linked object's
       ``.library`` attribute is the direct analogue of Maya's namespace prefix — no cleaning pass
-      needed (see ``_hierarchy_manager.py``'s module docstring).
-    * Locator-group atomic moves, anim-layer-aware curve transfer, and ``lockNode`` stub
-      protection are treated as architecturally absent (no Blender counterpart), not deferred
-      placeholders — see ``_hierarchy_manager.py``.
+      needed (see ``_hierarchy_sync.py``'s module docstring). Reference formats other than
+      ``.blend`` (``.fbx`` — mayatk's first-class reference format) are converted to a throwaway
+      temp ``.blend`` by ``_hierarchy_sync.stage_reference_blend`` first, then linked the same
+      way; the temp file is cached alongside the library and deleted on teardown.
+    * Locator-group atomic moves and ``lockNode`` stub protection are treated as architecturally
+      absent (no Blender counterpart), not deferred placeholders — see ``_hierarchy_sync.py``.
+      Anim-layer-aware curve transfer is likewise unneeded: Append copies each pulled object's
+      Action wholesale, so there is no per-curve transfer to make layer-aware.
     * ``_apply_diff_options`` (auto-select + expand after Diff) is deliberately simplified
       relative to mayatk's ~600-line version, which accumulated debug-driven fallback passes (a
       "fuzzy child resolution" pass, a second variant pass stripping trailing digits off
@@ -52,21 +59,26 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 import pythontk as ptk
 
-from blendertk.env_utils.hierarchy_manager._hierarchy_manager import HierarchyManager
-from blendertk.env_utils.hierarchy_manager.hierarchy_sidecar import HierarchySidecar
-from blendertk.env_utils.hierarchy_manager.tree_renderer import HierarchyTreeRenderer
-import blendertk.env_utils.hierarchy_manager.tree_utils as tree_utils
+from blendertk.env_utils.hierarchy_sync._hierarchy_sync import (
+    HierarchySync,
+    ObjectSwapper,
+    build_path,
+    delete_objects,
+    stage_reference_blend,
+)
+from blendertk.env_utils.hierarchy_sync.hierarchy_sidecar import HierarchySidecar
+from blendertk.env_utils.hierarchy_sync.tree_renderer import HierarchyTreeRenderer
+import blendertk.env_utils.hierarchy_sync.tree_utils as tree_utils
 from blendertk.node_utils._node_utils import reparent as _reparent
 
-_NO_PULL = (
-    "Pull isn't ported yet on Blender. Mayatk's Pull (cross-scene object import via fuzzy name "
-    "matching + namespace-stripping across materials/shading engines) is the most Maya-idiom-"
-    "heavy piece of this tool; use Fix to create stub placeholders for missing objects instead."
-)
 
-
-class HierarchyManagerController(ptk.LoggingMixin):
+class HierarchySyncController(ptk.LoggingMixin):
     """Controller for hierarchy management operations."""
+
+    #: Local collection that sandboxes the linked reference objects. Excluded from the view layer
+    #: so the reference never clutters the outliner/viewport — the Blender analogue of Maya's
+    #: reference namespace, which the user likewise doesn't want mixed into the working scene.
+    REFERENCE_SANDBOX_COLLECTION = "__hierarchy_sync_reference__"
 
     def __init__(self, slots_instance, log_level="WARNING"):
         super().__init__()
@@ -76,12 +88,13 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
         self._redirect_logger(self.logger)
 
-        self.hierarchy_manager = None
+        self.hierarchy_sync = None
         self._current_diff_result = None
         self._reference_path = ""
 
         self._ignored_ref_paths = set()  # ignored paths in reference tree (tree000)
         self._ignored_cur_paths = set()  # ignored paths in current tree (tree001)
+        self._hide_ignored = False  # 'Hide Ignored' toggle: hide vs dim ignored items
 
         # Cached reference library — avoids re-linking the same file for tree display + diff
         # analysis within a single session. Structure: {"path", "mtime", "library"} or None.
@@ -93,7 +106,7 @@ class HierarchyManagerController(ptk.LoggingMixin):
         if hasattr(self.ui.txt003, "anchorClicked"):
             self.ui.txt003.anchorClicked.connect(self._on_log_link_clicked)
 
-        self.logger.debug("HierarchyManagerController initialized.")
+        self.logger.debug("HierarchySyncController initialized.")
 
     def _on_log_link_clicked(self, url) -> None:
         """Dispatch clickable ``action://`` links from the log panel."""
@@ -156,9 +169,19 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ diff
     def analyze_hierarchies(
-        self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False
+        self,
+        reference_path: str,
+        fuzzy_matching: bool = True,
+        dry_run: bool = True,
+        filter_meshes: bool = False,
+        filter_cameras: bool = False,
+        filter_lights: bool = False,
     ) -> bool:
-        """Link the reference file (or reuse the cached link) and diff it against the scene."""
+        """Link the reference file (or reuse the cached link) and diff it against the scene.
+
+        ``filter_cameras`` / ``filter_lights`` exclude all CAMERA / LIGHT objects from the
+        comparison (mirrors ``filter_meshes``).
+        """
         if not reference_path:
             self.logger.error("Please specify a reference scene path.")
             return False
@@ -180,11 +203,15 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
             current_objects = [o for o in bpy.context.scene.objects if o.library is None]
 
-            self.hierarchy_manager = HierarchyManager(fuzzy_matching=fuzzy_matching, dry_run=dry_run)
-            self._redirect_logger(self.hierarchy_manager.logger)
+            self.hierarchy_sync = HierarchySync(fuzzy_matching=fuzzy_matching, dry_run=dry_run)
+            self._redirect_logger(self.hierarchy_sync.logger)
 
-            self._current_diff_result = self.hierarchy_manager.analyze_hierarchies(
-                current_objects, reference_objects, filter_meshes=filter_meshes
+            self._current_diff_result = self.hierarchy_sync.analyze_hierarchies(
+                current_objects,
+                reference_objects,
+                filter_meshes=filter_meshes,
+                filter_cameras=filter_cameras,
+                filter_lights=filter_lights,
             )
 
             if not self._current_diff_result:
@@ -200,14 +227,14 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
     def _clear_analysis_cache(self):
         """Clear the analysis cache to force re-analysis on next diff operation."""
-        self.hierarchy_manager = None
+        self.hierarchy_sync = None
         self._current_diff_result = None
         self.clear_ignored_paths()
         self._cleanup_cached_reference_import()
         self.logger.debug("Analysis cache cleared (ignore paths also reset)")
 
     def _on_window_hidden(self):
-        """Unlink the reference library when the hierarchy manager is hidden."""
+        """Unlink the reference library when the hierarchy sync is hidden."""
         self._cleanup_cached_reference_import()
         if hasattr(self, "ui") and hasattr(self.ui, "tree000"):
             self.ui.tree000.clear()
@@ -224,7 +251,63 @@ class HierarchyManagerController(ptk.LoggingMixin):
                     btk.remove_library(lib)
                 except Exception as e:
                     self.logger.debug(f"Cached reference cleanup failed: {e}")
+            # Delete the throwaway .blend a non-.blend reference (FBX) was staged into.
+            temp_blend = self._cached_reference_import.get("temp_blend")
+            if temp_blend and os.path.exists(temp_blend):
+                try:
+                    os.remove(temp_blend)
+                except OSError as e:
+                    self.logger.debug(f"Temp reference .blend cleanup failed: {e}")
             self._cached_reference_import = None
+        # Drop the (now-empty) sandbox collection regardless of cache state, so a stale one from a
+        # prior session is never left behind.
+        self._remove_reference_sandbox_collection()
+
+    def _ensure_reference_sandbox_collection(self):
+        """Create (or reuse) the hidden collection that sandboxes the linked reference objects.
+
+        Linked into the scene so its objects have a real user (surviving orphan cleanup), but
+        excluded from the active view layer so they never show in the outliner/viewport.
+        """
+        import bpy
+
+        scene_coll = bpy.context.scene.collection
+        wrapper = bpy.data.collections.get(self.REFERENCE_SANDBOX_COLLECTION)
+        if wrapper is None:
+            wrapper = bpy.data.collections.new(self.REFERENCE_SANDBOX_COLLECTION)
+        if scene_coll.children.get(wrapper.name) is None:
+            scene_coll.children.link(wrapper)
+        self._exclude_layer_collection(wrapper)
+        return wrapper
+
+    def _remove_reference_sandbox_collection(self):
+        """Delete the sandbox collection (its linked objects are already gone with the library)."""
+        import bpy
+
+        wrapper = bpy.data.collections.get(self.REFERENCE_SANDBOX_COLLECTION)
+        if wrapper is not None:
+            try:
+                bpy.data.collections.remove(wrapper)
+            except Exception as e:
+                self.logger.debug(f"Reference sandbox collection cleanup failed: {e}")
+
+    @staticmethod
+    def _exclude_layer_collection(collection) -> None:
+        """Set the view-layer ``exclude`` flag on *collection* so it disappears from the outliner."""
+        import bpy
+
+        def _find(layer_coll):
+            if layer_coll.collection == collection:
+                return layer_coll
+            for child in layer_coll.children:
+                found = _find(child)
+                if found is not None:
+                    return found
+            return None
+
+        lc = _find(bpy.context.view_layer.layer_collection)
+        if lc is not None:
+            lc.exclude = True
 
     def _import_reference_cached(self, reference_path: str):
         """Link a reference file, reusing a cached link when the path matches.
@@ -260,32 +343,49 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
         import blendertk as btk
 
-        count = btk.link_blend_file(resolved, link=True, instance=False)
-        if not count:
-            self.logger.error("Failed to link reference file or no collections found")
+        # A .blend is linked directly; an FBX (or other) is first converted to a throwaway .blend
+        # so the rest of the pipeline is format-agnostic. temp_blend must be cleaned up on teardown.
+        blend_path, temp_blend = stage_reference_blend(resolved, self.logger)
+        if not blend_path:
             return None
+
+        def _abort(msg):
+            self.logger.error(msg)
+            if temp_blend and os.path.exists(temp_blend):
+                try:
+                    os.remove(temp_blend)
+                except OSError:
+                    pass
+            return None
+
+        wrapper = self._ensure_reference_sandbox_collection()
+        count = btk.link_blend_file(blend_path, link=True, instance=False, target_collection=wrapper)
+        # Linking can register a fresh (included) layer-collection for the wrapper — re-assert the
+        # exclusion so the freshly-linked reference objects stay out of the outliner.
+        self._exclude_layer_collection(wrapper)
+        if not count:
+            return _abort("Failed to link reference file or no objects found")
 
         lib = next(
             (
                 r["library"]
                 for r in btk.list_libraries()
-                if r["abspath"] and os.path.normpath(r["abspath"]).lower() == os.path.normpath(resolved).lower()
+                if r["abspath"] and os.path.normpath(r["abspath"]).lower() == os.path.normpath(blend_path).lower()
             ),
             None,
         )
         if lib is None:
-            self.logger.error("Linked the reference file but could not locate its library record")
-            return None
+            return _abort("Linked the reference file but could not locate its library record")
 
         objects = self._reference_objects_for(lib)
         if not objects:
-            self.logger.error("Reference file contains no objects")
-            return None
+            return _abort("Reference file contains no objects")
 
         self._cached_reference_import = {
             "path": resolved,
             "mtime": os.path.getmtime(resolved),
             "library": lib,
+            "temp_blend": temp_blend,
         }
         self.logger.result(f"Linked {len(objects)} object(s) from reference")
         return objects
@@ -311,14 +411,14 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
         Requires a prior successful diff analysis. Ignored paths are automatically excluded.
         """
-        if not self.hierarchy_manager or not self._current_diff_result:
+        if not self.hierarchy_sync or not self._current_diff_result:
             self.logger.error("Please run a diff analysis first.")
             return False
 
         effective = self._filter_ignored_from_diff()
 
-        prev_dry_run = self.hierarchy_manager.dry_run
-        self.hierarchy_manager.dry_run = dry_run
+        prev_dry_run = self.hierarchy_sync.dry_run
+        self.hierarchy_sync.dry_run = dry_run
 
         results = {}
         try:
@@ -326,7 +426,7 @@ class HierarchyManagerController(ptk.LoggingMixin):
             # stub creation from claiming the target name and causing an unwanted .001 suffix.
             if fix_fuzzy_renames and effective.get("fuzzy_matches"):
                 self.logger.progress(f"Renaming {len(effective['fuzzy_matches'])} fuzzy-matched items...")
-                results["renamed"] = self.hierarchy_manager.fix_fuzzy_renames(effective["fuzzy_matches"])
+                results["renamed"] = self.hierarchy_sync.fix_fuzzy_renames(effective["fuzzy_matches"])
 
                 if results["renamed"]:
                     fuzzy_cur_prefixes = [
@@ -348,19 +448,23 @@ class HierarchyManagerController(ptk.LoggingMixin):
 
             if create_stubs and effective["missing"]:
                 self.logger.progress(f"Creating stubs for {len(effective['missing'])} missing items...")
-                results["stubs"] = self.hierarchy_manager.create_stubs(effective["missing"])
+                results["stubs"] = self.hierarchy_sync.create_stubs(effective["missing"])
+
+            # Reparent BEFORE quarantine: quarantining an extra parent first would strand any
+            # reparented children that still need to move relative to it.
+            if fix_reparented and effective["reparented"]:
+                self.logger.progress(f"Fixing {len(effective['reparented'])} reparented items...")
+                results["reparented"] = self.hierarchy_sync.fix_reparented(
+                    effective["reparented"], skip_animated=skip_animated
+                )
 
             if quarantine_extras and effective["extra"]:
                 self.logger.progress(f"Quarantining {len(effective['extra'])} extra items...")
-                results["quarantined"] = self.hierarchy_manager.quarantine_extras(
+                results["quarantined"] = self.hierarchy_sync.quarantine_extras(
                     group=quarantine_group, paths=effective["extra"], skip_animated=skip_animated
                 )
-
-            if fix_reparented and effective["reparented"]:
-                self.logger.progress(f"Fixing {len(effective['reparented'])} reparented items...")
-                results["reparented"] = self.hierarchy_manager.fix_reparented(effective["reparented"])
         finally:
-            self.hierarchy_manager.dry_run = prev_dry_run
+            self.hierarchy_sync.dry_run = prev_dry_run
 
         total = sum(len(v) for v in results.values())
         if total == 0:
@@ -375,12 +479,73 @@ class HierarchyManagerController(ptk.LoggingMixin):
             import bpy
 
             try:
-                bpy.ops.ed.undo_push(message="Hierarchy Manager: Repair Hierarchies")
+                bpy.ops.ed.undo_push(message="Hierarchy Sync: Repair Hierarchies")
             except RuntimeError:
                 pass
             self._clear_analysis_cache()
 
         return True
+
+    def pull_objects(
+        self,
+        target_paths: List[str],
+        reference_path: str,
+        dry_run: bool = True,
+        pull_children: bool = False,
+        pull_mode: str = "Add to Scene",
+    ) -> bool:
+        """Pull selected reference objects into the current scene.
+
+        Blender port of mayatk's ``pull_objects``: appends each matched reference object fresh
+        from the staged reference ``.blend`` (native local copy + materials + Action) and grafts
+        it onto its reference hierarchy position. See ``ObjectSwapper`` for the mechanism.
+
+        Args:
+            target_paths: reference hierarchy paths (``build_path`` keys) to pull.
+            reference_path: path to the reference ``.blend`` or ``.fbx``.
+            dry_run: report only, don't modify the scene.
+            pull_children: pull the whole subtree, not just the selected object.
+            pull_mode: "Add to Scene" (auto-suffix on collision) or "Merge Hierarchies" (replace
+                the existing object at the target path).
+        """
+        if not target_paths:
+            self.logger.error("No objects specified for pulling.")
+            return False
+        if not reference_path or not os.path.exists(reference_path):
+            self.logger.error("Please specify a valid reference scene path.")
+            return False
+
+        # Ensure the reference is staged + linked, then build a full path map of its objects
+        # (independent of any diff-time type filtering).
+        reference_objects = self._import_reference_cached(reference_path)
+        if not reference_objects:
+            self.logger.error("Failed to link reference file or no objects found.")
+            return False
+        reference_path_map = {build_path(o): o for o in reference_objects}
+
+        # Append from the STAGED .blend — for an FBX reference that's the throwaway temp .blend the
+        # objects were converted into, never the raw .fbx (which libraries.load can't open).
+        cached = self._cached_reference_import or {}
+        source_blend = cached.get("temp_blend") or reference_path
+
+        swapper = ObjectSwapper(dry_run=dry_run, pull_mode=pull_mode, pull_children=pull_children)
+        self._redirect_logger(swapper.logger)
+
+        success = swapper.pull_objects_from_reference(
+            target_paths, source_blend, reference_path_map
+        )
+
+        if success and not dry_run:
+            import bpy
+
+            try:
+                bpy.ops.ed.undo_push(message="Hierarchy Sync: Pull Objects")
+            except RuntimeError:
+                pass
+            self._clear_analysis_cache()
+            self.refresh_trees()
+
+        return success
 
     @staticmethod
     def select_objects(object_names: List[str]) -> int:
@@ -634,9 +799,20 @@ class HierarchyManagerController(ptk.LoggingMixin):
         except OSError:
             return None
 
+    @staticmethod
+    def _coerce_str_list(value) -> List[str]:
+        """QSettings round-trips a one-item list as a bare string — coerce back to a list."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return list(value)
+
     def get_recent_reference_scenes(self) -> List[str]:
         """Get recent reference scenes from settings."""
-        recent_scenes = self.ui.settings.value("recent_reference_scenes", [])
+        recent_scenes = self._coerce_str_list(
+            self.ui.settings.value("recent_reference_scenes", [])
+        )
         return [scene for scene in recent_scenes if os.path.exists(scene)][-10:]
 
     def save_recent_reference_scene(self, scene_path: str):
@@ -644,7 +820,9 @@ class HierarchyManagerController(ptk.LoggingMixin):
         if not scene_path:
             return
         scene_path = str(Path(scene_path).resolve())
-        recent_scenes = self.ui.settings.value("recent_reference_scenes", [])
+        recent_scenes = self._coerce_str_list(
+            self.ui.settings.value("recent_reference_scenes", [])
+        )
         if scene_path in recent_scenes:
             recent_scenes.remove(scene_path)
         recent_scenes.append(scene_path)
@@ -708,10 +886,10 @@ class _MiddleButtonDragFilter(QtCore.QObject):
         return super().eventFilter(obj, event)
 
 
-class HierarchyManagerSlots(ptk.LoggingMixin):
+class HierarchySyncSlots(ptk.LoggingMixin):
     """Slots class for hierarchy management UI operations.
 
-    Maintains no business logic — routes UI events to :class:`HierarchyManagerController`.
+    Maintains no business logic — routes UI events to :class:`HierarchySyncController`.
     """
 
     _log_level_options: Dict[str, Any] = {
@@ -726,11 +904,11 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         self.set_log_level(log_level)
 
         self.sb = switchboard
-        self.ui = self.sb.loaded_ui.hierarchy_manager
+        self.ui = self.sb.loaded_ui.hierarchy_sync
 
         self.ui.txt003.setText("")  # Log Output
 
-        self.controller = HierarchyManagerController(self)
+        self.controller = HierarchySyncController(self)
 
         self._tree001_drag_filter = _MiddleButtonDragFilter(self.ui, reparent_callback=self._on_tree001_drop_reparent)
 
@@ -782,7 +960,7 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
 
         lines = [
             '<span style="color:#aaa; font-size:11px;">'
-            "<b>Hierarchy Manager</b><br>"
+            "<b>Hierarchy Sync</b><br>"
             f"Scene: {scene_name}<br>"
             f"Workspace: {workspace}<br><br>"
             "<b>Workflow:</b><br>"
@@ -814,10 +992,18 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
             setCurrentIndex=1,  # Default to INFO
             setToolTip="Set the log level.",
         )
+        widget.menu.add(
+            "QCheckBox",
+            setText="Hide Ignored",
+            setObjectName="chk_hide_ignored",
+            setChecked=False,
+            setToolTip="Hide ignored items from the trees instead of dimming them.",
+        )
+        widget.menu.chk_hide_ignored.toggled.connect(self._on_hide_ignored_toggled)
 
         widget.set_help_text(
             fmt(
-                title="Hierarchy Manager",
+                title="Hierarchy Sync",
                 body="Compare, diff, and synchronise the scene hierarchy against a reference "
                 ".blend file.",
                 steps=[
@@ -832,16 +1018,24 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
                     ("Header menu", [
                         "<b>Dry Run</b> — preview changes without modifying the scene.",
                         "<b>Log Level</b> — control verbosity of the output panel.",
+                        "<b>Hide Ignored</b> — hide ignored items from the trees instead of "
+                        "dimming them.",
                     ]),
                 ],
                 notes=[
                     "<b>Right-click</b> either tree for additional actions: refresh, show "
                     "differences, select objects.",
-                    "<b>Pull</b> is disabled — not yet ported (see the panel's disabled button "
-                    "tooltip).",
+                    "<b>Pull</b> — select objects in the reference tree, then Pull to append them "
+                    "into the scene at their reference hierarchy position.",
                 ],
             )
         )
+
+    def _on_hide_ignored_toggled(self, state):
+        """Toggle whether ignored items are hidden from the trees or merely dimmed."""
+        self.controller._hide_ignored = bool(state)
+        self.controller.tree.apply_ignore_styling(self.ui.tree000)
+        self.controller.tree.apply_ignore_styling(self.ui.tree001)
 
     def tree000_init(self, widget):
         """Initialize the reference/linked hierarchy tree widget."""
@@ -978,6 +1172,13 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         except ReferenceError:
             return
 
+        # A manual drag is a deliberate act, so warn (don't skip) — unlike the batched Fix path,
+        # which honours the 'Skip Animated' toggle.
+        if HierarchySync._reparent_would_shift_animation(obj):
+            self.controller.logger.warning(
+                f"'{obj.name}' has animation — its motion may change under the new parent."
+            )
+
         try:
             if new_parent_item is not None:
                 parent_obj = new_parent_item.data(0, self.sb.QtCore.Qt.UserRole)
@@ -1100,6 +1301,20 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         )
         items.append((chk_filter_meshes, "Filter Mesh Objects"))
 
+        chk_filter_cameras = self.sb.registered_widgets.CheckBox()
+        chk_filter_cameras.setText("Filter Cameras")
+        chk_filter_cameras.setObjectName("chk_filter_cameras")
+        chk_filter_cameras.setChecked(False)
+        chk_filter_cameras.setToolTip("Exclude all camera objects from the comparison.")
+        items.append((chk_filter_cameras, "Filter Cameras"))
+
+        chk_filter_lights = self.sb.registered_widgets.CheckBox()
+        chk_filter_lights.setText("Filter Lights")
+        chk_filter_lights.setObjectName("chk_filter_lights")
+        chk_filter_lights.setChecked(False)
+        chk_filter_lights.setToolTip("Exclude all light objects from the comparison.")
+        items.append((chk_filter_lights, "Filter Lights"))
+
         chk_ignore_quarantine = self.sb.registered_widgets.CheckBox()
         chk_ignore_quarantine.setText("Ignore Quarantine Group")
         chk_ignore_quarantine.setObjectName("chk_ignore_quarantine")
@@ -1114,15 +1329,39 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         widget.add_defaults_button = True
 
     def cmb_pull_options_init(self, widget):
-        """Pull options — disabled (Pull isn't ported yet; see module docstring)."""
-        widget.add([("(Pull not yet available)", None)], header="Pull Options", clear=True)
-        widget.setEnabled(False)
-        widget.setToolTip(_NO_PULL)
+        """Populate the pull-options WidgetComboBox below the Pull button."""
+        items = []
+
+        cmb_pull_mode = self.sb.registered_widgets.ComboBox()
+        cmb_pull_mode.setObjectName("cmb_pull_mode")
+        cmb_pull_mode.setToolTip("Select how objects should be pulled into the scene.")
+        cmb_pull_mode.add(
+            {
+                "Mode: Add to Scene": "Add to Scene",
+                "Mode: Merge Hierarchies": "Merge Hierarchies",
+            }
+        )
+        items.append((cmb_pull_mode, "Pull Mode"))
+
+        chk_pull_children = self.sb.registered_widgets.CheckBox()
+        chk_pull_children.setText("Pull Children")
+        chk_pull_children.setObjectName("chk_pull_children")
+        chk_pull_children.setChecked(True)
+        chk_pull_children.setToolTip(
+            "Include all children when pulling. When enabled, complete subtrees are pulled; "
+            "when disabled, only the selected objects are pulled."
+        )
+        items.append((chk_pull_children, "Pull Children"))
+
+        widget.add(items, header="Pull Options", header_alignment="center", clear=True)
+        widget.add_defaults_button = True
 
     def tb002_init(self, widget):
-        """Pull button — disabled (see module docstring)."""
-        widget.setEnabled(False)
-        widget.setToolTip(_NO_PULL)
+        """Initialize the Pull toggle button."""
+        widget.setToolTip(
+            "Pull the objects selected in the reference tree into the current scene, placing each "
+            "at its reference hierarchy position (native append — brings materials + animation)."
+        )
 
     def tb003_init(self, widget):
         """Initialize the fix/repair toggle button with options menu."""
@@ -1141,8 +1380,10 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         )
         widget.option_box.menu.add(
             "QCheckBox", setText="Skip Animated", setObjectName="chk_skip_animated", setChecked=True,
-            setToolTip="Skip quarantining extras that have an action, drivers, or constraints "
-            "(they may be intentionally animated/attached).",
+            setToolTip="Leave animated objects in place during Fix. Skips quarantining extras "
+            "that carry (or hang under) an action, drivers, or constraints, and skips reparenting "
+            "nodes whose keyed/driven local transforms would evaluate differently under a new "
+            "parent. Uncheck to move them anyway.",
         )
         widget.option_box.menu.add(
             "QCheckBox", setText="Fix Reparented", setObjectName="chk_fix_reparented", setChecked=True,
@@ -1171,6 +1412,8 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         force_reanalysis = False
         fuzzy_matching = True
         filter_meshes = False
+        filter_cameras = False
+        filter_lights = False
 
         if hasattr(self.ui, "cmb_selection_mode"):
             selection_mode = self.ui.cmb_selection_mode.currentData() or selection_mode
@@ -1182,6 +1425,10 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
             fuzzy_matching = self.ui.chk_fuzzy_matching.isChecked()
         if hasattr(self.ui, "chk_filter_meshes"):
             filter_meshes = self.ui.chk_filter_meshes.isChecked()
+        if hasattr(self.ui, "chk_filter_cameras"):
+            filter_cameras = self.ui.chk_filter_cameras.isChecked()
+        if hasattr(self.ui, "chk_filter_lights"):
+            filter_lights = self.ui.chk_filter_lights.isChecked()
 
         auto_select = selection_mode != "none"
         select_root_only = selection_mode == "root_only"
@@ -1194,7 +1441,14 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         self.logger.log_divider()
         self.logger.progress("Running diff analysis")
 
-        success = self.controller.analyze_hierarchies(reference_path, fuzzy_matching, dry_run, filter_meshes=filter_meshes)
+        success = self.controller.analyze_hierarchies(
+            reference_path,
+            fuzzy_matching,
+            dry_run,
+            filter_meshes=filter_meshes,
+            filter_cameras=filter_cameras,
+            filter_lights=filter_lights,
+        )
         if not success:
             return
 
@@ -1243,8 +1497,49 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
                     self.ui.footer.setText(f"Diff: {', '.join(parts)}.")
 
     def tb002(self, state=None):
-        """Pull — not yet ported (see module docstring)."""
-        self.sb.message_box(_NO_PULL)
+        """Pull the reference-tree selection into the current scene."""
+        self.ui.txt003.clear()
+
+        # Gather selected reference-tree objects, skipping ignored paths. The ignore check
+        # compares TREE paths (build_item_path — what the ignored set stores); the pulled target
+        # is the object's build_path (what reference_path_map is keyed by). These coincide in the
+        # common case but are resolved distinctly, exactly as mayatk does.
+        tree = self.ui.tree000
+        target_paths = []
+        for item in tree_utils.get_selected_tree_items(tree):
+            if self.controller.is_path_ignored(tree, self.controller.tree.build_item_path(item)):
+                continue
+            target_path = tree_utils._extract_object_name_from_item(item)
+            if target_path:
+                target_paths.append(target_path)
+        if not target_paths:
+            self.logger.error("Please select objects in the reference hierarchy tree.")
+            return
+
+        reference_path = self.controller.reference_path
+        if not reference_path:
+            self.logger.error("Please specify a reference scene path.")
+            return
+
+        dry_run = self.ui.chk002.isChecked()
+        pull_mode = "Add to Scene"
+        pull_children = True
+        if hasattr(self.ui, "cmb_pull_mode"):
+            pull_mode = self.ui.cmb_pull_mode.currentData() or pull_mode
+        if hasattr(self.ui, "chk_pull_children"):
+            pull_children = self.ui.chk_pull_children.isChecked()
+
+        children_msg = "with children" if pull_children else "individual only"
+        self.logger.log_divider()
+        self.logger.notice(f"Pull: '{pull_mode}' mode, {children_msg}")
+
+        self.controller.pull_objects(
+            target_paths,
+            reference_path,
+            dry_run=dry_run,
+            pull_children=pull_children,
+            pull_mode=pull_mode,
+        )
 
     def tb003(self, state=None):
         """Toggle button for fix/repair operations."""
@@ -1379,12 +1674,21 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
         reference_path = self.controller.reference_path
         fuzzy_matching = self.ui.chk_fuzzy_matching.isChecked() if hasattr(self.ui, "chk_fuzzy_matching") else True
         filter_meshes = self.ui.chk_filter_meshes.isChecked() if hasattr(self.ui, "chk_filter_meshes") else False
+        filter_cameras = self.ui.chk_filter_cameras.isChecked() if hasattr(self.ui, "chk_filter_cameras") else False
+        filter_lights = self.ui.chk_filter_lights.isChecked() if hasattr(self.ui, "chk_filter_lights") else False
         dry_run = self.ui.chk002.isChecked()
         log_level = self.ui.cmb001.currentData()
         if log_level:
             self.logger.setLevel(log_level)
 
-        success = self.controller.analyze_hierarchies(reference_path, fuzzy_matching, dry_run, filter_meshes=filter_meshes)
+        success = self.controller.analyze_hierarchies(
+            reference_path,
+            fuzzy_matching,
+            dry_run,
+            filter_meshes=filter_meshes,
+            filter_cameras=filter_cameras,
+            filter_lights=filter_lights,
+        )
         if success:
             self.controller.refresh_trees()
             self.controller.save_recent_reference_scene(reference_path)
@@ -1429,15 +1733,28 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
             self.logger.warning("No valid scene objects found in selection.")
             return
 
-        names = [o.name for o in objects]
+        selected_names = [o.name for o in objects]
         try:
-            for o in objects:
-                bpy.data.objects.remove(o, do_unlink=True)
-            bpy.ops.ed.undo_push(message="Hierarchy Manager: Delete Selected Objects")
-            self.logger.info(f"Deleted {len(names)} object(s): {', '.join(names)}")
+            # Cascades to descendants — Maya parity: cmds.delete removes the whole subtree,
+            # while a bare remove() would re-root the children.
+            names = delete_objects(objects)
         except Exception as e:
             self.logger.error(f"Delete failed: {e}")
             return
+
+        # Total counts the cascade; list only the selected roots (a big subtree would
+        # otherwise dump hundreds of names into one log line).
+        self.logger.info(
+            f"Deleted {len(names)} object(s) (selected: {', '.join(selected_names)})"
+        )
+        # Undo integration is best-effort and must NOT gate the tree refresh: bpy.ops.ed.undo_push
+        # needs a window context the tentacle Qt event-pump may lack (raises RuntimeError). Keeping
+        # it inside the delete try previously swallowed that error and returned before refreshing,
+        # so the object vanished from the scene but its row stayed in the table.
+        try:
+            bpy.ops.ed.undo_push(message="Hierarchy Sync: Delete Selected Objects")
+        except RuntimeError:
+            pass
 
         self.controller.refresh_trees()
 
@@ -1735,5 +2052,5 @@ class HierarchyManagerSlots(ptk.LoggingMixin):
 if __name__ == "__main__":
     from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
 
-    ui = BlenderUiHandler.instance().get("hierarchy_manager", reload=True)
+    ui = BlenderUiHandler.instance().get("hierarchy_sync", reload=True)
     ui.show(pos="screen", app_exec=True)

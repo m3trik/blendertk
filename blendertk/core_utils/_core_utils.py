@@ -10,10 +10,23 @@ the package surface) never requires a running Blender — matching the ecosystem
 no-import-side-effects rule.
 """
 import os
+import re
 from contextlib import contextmanager
 from functools import wraps
 
 import pythontk as ptk
+
+_DUP_SUFFIX_RE = re.compile(r"\.\d{3}$")
+
+
+def strip_dup_suffix(name: str) -> str:
+    """Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
+
+    Blender appends ``.001``/``.002``/… when a new datablock's name collides with an existing
+    one; this returns the base name. The single SSoT for that convention across blendertk (used
+    by the scene exporter's duplicate-name guard and the hierarchy sync's pull matching).
+    """
+    return _DUP_SUFFIX_RE.sub("", name)
 
 
 @contextmanager
@@ -109,29 +122,37 @@ def _object_mode(fn):
     Blender's object operators (``transform_apply``, ``origin_set``, ``modifier_apply``) require
     OBJECT mode and raise from a component/edit context. This guard makes the helpers that wrap
     them safe to call from anywhere. Shared by ``xform_utils`` and ``edit_utils``.
+
+    The whole body runs under :func:`window_context_override`: the guarded helpers (and the
+    ``mode_set`` calls here) invoke operators whose poll/exec read *screen-context* members
+    (``edit_object``, ``selected_editable_objects``), which are dead when tentacle drives a slot
+    from its Qt event-pump timer (``bpy.context.window`` is ``None``) — the mode switch itself
+    poll-failed from Edit Mode in exactly that state. The override is a no-op when a window is
+    already active, so decorated helpers stay headless-safe.
     """
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
         import bpy
 
-        view_layer = bpy.context.view_layer
-        active = view_layer.objects.active
-        prior = getattr(active, "mode", "OBJECT")
-        if prior != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            if prior != "OBJECT" and active is not None:
-                # fn may have re-activated one of its targets (the helpers select what they
-                # operate on); mode_set acts on the ACTIVE object, so restore the caller's
-                # active first or the wrong object ends up in edit mode.
-                try:
-                    view_layer.objects.active = active
-                    bpy.ops.object.mode_set(mode=prior)
-                except (RuntimeError, ReferenceError):
-                    pass  # active was deleted by fn, or the mode no longer applies
+        with window_context_override():
+            view_layer = bpy.context.view_layer
+            active = view_layer.objects.active
+            prior = getattr(active, "mode", "OBJECT")
+            if prior != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                if prior != "OBJECT" and active is not None:
+                    # fn may have re-activated one of its targets (the helpers select what they
+                    # operate on); mode_set acts on the ACTIVE object, so restore the caller's
+                    # active first or the wrong object ends up in edit mode.
+                    try:
+                        view_layer.objects.active = active
+                        bpy.ops.object.mode_set(mode=prior)
+                    except (RuntimeError, ReferenceError):
+                        pass  # active was deleted by fn, or the mode no longer applies
 
     return wrapper
 

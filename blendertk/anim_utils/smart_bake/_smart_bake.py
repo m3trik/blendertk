@@ -30,7 +30,7 @@ Divergence from mayatk (by design, not a gap to fill in later):
       hack because it does not evaluate inherited DAG visibility; Blender's
       ``hide_viewport``/``hide_render`` are not inherited/multiplied down a parent chain the way
       Maya's is, and ``AnimUtils.set_visibility_keys`` already covers direct visibility keying.
-      This is a permanent scope cut, matching the precedent set porting ``hierarchy_manager``.
+      This is a permanent scope cut, matching the precedent set porting ``hierarchy_sync``.
     * Name-based references, not UUIDs. See ``bake_session.py``'s module docstring — object
       names are force-unique within ``bpy.data.objects`` and survive save/reopen, unlike
       Blender's process-local ``session_uid``.

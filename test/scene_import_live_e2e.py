@@ -305,6 +305,32 @@ try:
           len(imported2) == len(imported) and second_duration < first_duration * 0.5,
           f"{first_duration:.1f}s -> {second_duration:.1f}s")
 
+    # ---- via="usd" route: the SAME trap scene through the USD intermediate --
+    # A/B against the FBX legs above: materials must arrive NATIVELY (registry
+    # UsdPreviewSurface -> Principled), with no manifest rebuild involved.
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    imported_usd = btk.import_maya_scene(src, via="usd", use_cache=False, timeout=600)
+    objs_u = {o.name: o for o in imported_usd if o.type == "MESH"}
+    check("USD route: all five meshes imported", len(objs_u) == 5,
+          f"{sorted(objs_u)}")
+    cube_u = next((o for n, o in objs_u.items() if "cube" in n), None)
+    check("USD route: live construction history evaluated (12+4 verts)",
+          cube_u is not None and len(cube_u.data.vertices) == 16,
+          f"{len(cube_u.data.vertices) if cube_u else 0}")
+    for tag, why in (
+        ("e2e_cube", "phong exports via the registry"),
+        ("e2e_sphere", "standardSurface exports NATIVELY (no translation)"),
+        ("e2e_cone", "project-relative path (workspace + absolute asset refs)"),
+        ("e2e_stingray", "ShaderFX translated to standardSurface"),
+    ):
+        obj = next((o for n, o in objs_u.items() if tag in n), None)
+        check(f"USD route: {tag} texture arrived — {why}",
+              obj is not None and textured(obj))
+    sting_u = next((o for n, o in objs_u.items() if "e2e_stingray" in n), None)
+    check("USD route: stingray packed metallic wired NATIVELY (no manifest)",
+          sting_u is not None and metallic_linked(sting_u))
+
     # Cached payloads persist BY DESIGN (detached policy, stale-swept);
     # anything else with the scratch prefix is a leak.
     leftovers = [

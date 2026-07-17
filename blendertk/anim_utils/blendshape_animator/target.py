@@ -20,7 +20,7 @@ from pythontk import Weights
 
 #: Name of the Empty that parents every tween mesh object (Blender's analogue of Maya's
 #: ``_morphInbetweens_GRP`` — an Empty is the closest Blender equivalent of a Maya group
-#: transform node, matching the pattern already used by ``env_utils.hierarchy_manager``'s
+#: transform node, matching the pattern already used by ``env_utils.hierarchy_sync``'s
 #: quarantine group).
 TWEEN_GROUP_NAME = "_morphInbetweens"
 
