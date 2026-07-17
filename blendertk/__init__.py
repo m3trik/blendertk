@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.12"
+__version__ = "0.5.15"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -182,9 +182,11 @@ DEFAULT_INCLUDE = {
     "env_utils.blender_connection": [
         "BlenderConnection",
     ],
-    # Script Output console — mirror of mayatk's ``env_utils.script_output``. Opens a native,
-    # dockable Info Log window (the anchor) and shadows it with a frameless ``uitk.ScriptOutput``
-    # skin (Route 2+); module-level ``show``/``toggle``/``hide`` drive it from the editors slot.
+    # Script Output console — mirror of mayatk's ``env_utils.script_output``. Docks a native
+    # Info Log area into the main window (the anchor) and shadows it with a frameless
+    # ``uitk.ScriptOutput`` skin (Route 2+); capture (stdout/stderr/logging) runs from startup
+    # and the shown/hidden state persists across sessions. Module-level ``show``/``toggle``/
+    # ``hide`` drive it from the editors slot; ``begin_capture``/``restore`` from the host.
     "env_utils.script_output": [
         "ScriptConsole",
     ],
@@ -193,6 +195,13 @@ DEFAULT_INCLUDE = {
     # ``BlenderBridge``.
     "env_utils.maya_bridge._maya_bridge": [
         "MayaBridge",
+    ],
+    # Pull direction — import a Maya scene (.ma/.mb) via a headless-Maya FBX
+    # round-trip. btk-only by design (Maya opens its own scenes natively);
+    # ledgered in tentacle/docs/parity_map.py.
+    "env_utils.maya_bridge._scene_import": [
+        "MayaSceneImport",
+        "import_maya_scene",
     ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
@@ -233,15 +242,31 @@ DEFAULT_INCLUDE = {
     "ui_utils._ui_utils": [
         "UiUtils",
         "open_editor",
+        "find_editor",
+        "close_area",
+        "close_editor",
+        "dock_editor",
+        "toggle_editor",
+        "toggle_fullscreen_area",
+        "toggle_window_bars",
+        "main_window",
         "get_editor_types",
         "menu_exists",
         "call_native_menu",
+        "popup_message",
     ],
-    # Native-window geometry/owner helpers (win32) for shadowing a Qt overlay over a Blender
-    # window — backs ``env_utils.script_output``'s area-shadow skin. No bpy dependency (callers
-    # pass the region object). Exposed as a class to keep the flat ``btk.*`` namespace clean.
+    # Native-window helpers (win32) for hosting Qt widgets around a Blender window: the
+    # child-embed primitives behind ``QtDock`` and the owned-top-level ``set_owner`` mode.
+    # No bpy dependency (callers pass the region object). Exposed as a class to keep the
+    # flat ``btk.*`` namespace clean.
     "ui_utils.blender_window": [
         "BlenderWindow",
+    ],
+    # The native dock container: hosts ANY Qt widget as the body of a true docked Blender
+    # area (a WS_CHILD of the GHOST window glued to the area's content region — no overlay,
+    # no polling). Backs ``env_utils.script_output``; reusable for any docked Qt panel.
+    "ui_utils.qt_dock": [
+        "QtDock",
     ],
     # App-style setter — match Blender's UI chrome to another DCC's look via Blender's NATIVE
     # interface_theme preset system (ships a canonical Maya.xml theme preset in
@@ -472,6 +497,14 @@ DEFAULT_INCLUDE = {
     # The co-located ``BridgeSlots`` panel is discovered by ``BlenderUiHandler`` (not registered here).
     "edit_utils.bridge": [
         "Bridge",
+    ],
+    # Target Weld — interactive drag-a-vertex-onto-another merge tool, the Blender build of
+    # Maya's native ``targetWeldCtx`` / ``MergeVertexTool`` (which mayatk drives directly, so
+    # there is no ``mtk`` counterpart module — the mirror is name + behavior of the Maya tool
+    # itself). Backs tentacle's ``polygons.b043`` / ``b008`` (mergeToCenter) on Blender.
+    "edit_utils.target_weld": [
+        "TargetWeld",
+        "target_weld",
     ],
     # Snap tool — co-located ``SnapSlots`` panel (discovered by the handler, not registered); the
     # snap engine (``snap_closest_verts`` / ``snap_to_grid`` / ``snap_to_surface``) lives in

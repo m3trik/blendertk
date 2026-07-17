@@ -1,9 +1,10 @@
 """blendertk ui_utils headless test — the native-menu/editor surface that doesn't need a window.
 Run: blender --background --factory-startup --python blendertk/test/test_ui_utils.py
 
-``open_editor`` / ``call_native_menu`` open / pop real Blender UI (GUI-only); here we cover the
-parts that ARE headless-decidable — ``menu_exists``, the two early-return guards in
-``call_native_menu`` (unknown menu, no 3D viewport), the editor-name map, and surface resolution.
+``open_editor`` / ``call_native_menu`` / ``toggle_fullscreen_area`` open / pop / restack real
+Blender UI (GUI-only; the last is proven live in ``fullscreen_area_gui_check.py``); here we cover
+the parts that ARE headless-decidable — ``menu_exists``, the early-return guards (unknown menu,
+no 3D viewport, ``--background``), the editor-name map, and surface resolution.
 """
 import sys, os, traceback
 
@@ -44,6 +45,20 @@ try:
     check("call_native_menu(real) headless-safe -> None", btk.call_native_menu("VIEW3D_MT_add") is None)
     check("call_native_menu(bogus) -> None", btk.call_native_menu("VIEW3D_MT_not_a_real_menu") is None)
 
+    # ---- toggle_fullscreen_area / toggle_window_bars are headless-safe: no window chrome
+    # exists under --background, so the guards return without touching any screen op (the
+    # real toggles are GUI-proven in fullscreen_area_gui_check.py).
+    check("toggle_fullscreen_area headless-safe -> False", btk.toggle_fullscreen_area() is False)
+    check("toggle_window_bars headless-safe -> None", btk.toggle_window_bars() is None)
+
+    # ---- open_editor is headless-safe: ``wm.window_new`` polls false under --background, and
+    # the contract is "returns the window, or None when it could not be opened" — never a raised
+    # RuntimeError. Same guard that carries the GUI fix for a NULL context.window (tentacle's Qt
+    # event-pump timer state, where a live click raised "poll() failed, context is incorrect");
+    # the opens-for-real half is GUI-only -> open_editor_gui_check.py.
+    check("open_editor headless-safe -> None", btk.open_editor("UV Editor") is None)
+    check("open_editor(unknown) -> None", btk.open_editor("No Such Editor") is None)
+
     # ---- editor-name map intact (open_editor's contract)
     editors = btk.get_editor_types()
     check("get_editor_types is a dict", isinstance(editors, dict) and len(editors) > 0)
@@ -51,7 +66,7 @@ try:
         check(f"editor map has {name!r}", name in editors)
 
     # ---- surface resolves both module-level and on UiUtils
-    for fn in ("menu_exists", "call_native_menu", "open_editor", "get_editor_types"):
+    for fn in ("menu_exists", "call_native_menu", "open_editor", "get_editor_types", "toggle_fullscreen_area", "toggle_window_bars"):
         check(f"btk.{fn} is callable", callable(getattr(btk, fn, None)))
         check(f"UiUtils.{fn} is callable", callable(getattr(UiUtils, fn, None)))
 

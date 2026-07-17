@@ -52,7 +52,6 @@ PANELS = [
     "bevel",
     "bridge",
     "snap",
-    "macro_manager",
     "audio_clips",
     "blendshape_animator",
     "dynamic_pipe",
@@ -156,7 +155,6 @@ try:
         ("exploded_view", "ExplodedViewSlots"),  # __init__ (logging only) is bpy-free
         ("color_id", "ColorIdSlots"),  # __init__ (button groups + keep_square swatches) is bpy-free
         ("snap", "SnapSlots"),  # __init__ + option-box b###_init are bpy-free
-        ("macro_manager", "MacroManagerSlots"),  # __init__ + table/header/cmb _init are bpy-free
         ("audio_clips", "AudioClipsSlots"),  # __init__ + cmb000/tb001/b004 _init are bpy-free (list refresh guarded)
         ("blendshape_animator", "BlendshapeAnimatorSlots"),  # __init__ + header/b000/cmb000/le001/b001/b004/b006/b008 _init are bpy-free (tree stays empty without bpy)
         ("reference_manager", "ReferenceManagerSlots"),  # *_init bpy-guarded → table degrades w/o bpy
@@ -257,58 +255,43 @@ try:
         and not hasattr(_UBS, "MODE_EXISTING"),
     )
 
-    # macro_manager: table/filter/header wiring is entirely Qt-driven off the bpy-free
-    # MacroManager management API (list_available_macros/macro_category/get_current_bindings
-    # are pure introspection — see blendertk.edit_utils.macros) — so the panel should populate
-    # for real under the offscreen .venv, not just resolve to an empty stub.
-    mm_ui = sb.get_ui("macro_manager")
-    mm = getattr(mm_ui, "slots", None)
-    if mm is not None:
-        # tbl000_init (and the row_names/table it fills) is lazily triggered on first touch
-        # of ``ui.tbl000`` — touch it before reading anything table-derived, cmb000 included
-        # (tbl000_init also calls cmb000_init itself, so this alone settles both).
-        row_count = mm_ui.tbl000.rowCount()
-        macro_col_labels = {
-            mm_ui.tbl000.item(r, mm.COL_MACRO).text() for r in range(row_count)
-        }
-        row_names = set(mm._row_names)
+    # Macro Manager: the bespoke panel was retired — the UI is now the unified uitk
+    # ShortcutEditor over the bpy-free Macros controller (btk.Macros.show_editor, the
+    # mirror of mtk.Macros.show_editor). Building it is Qt-only: list_available_macros /
+    # macro_category are pure introspection and the live keymap bookkeeping is empty
+    # without bpy — so the editor populates for real under the offscreen .venv.
+    from blendertk.edit_utils.macros import Macros
+
+    med = Macros.show_editor(parent=None)
+    try:
+        med._set_show_hidden(False)
+        med._set_show_all(True)
+        med_rows = [
+            med.table.item(r, 0).text()
+            for r in range(med.table.rowCount())
+            if med.table.item(r, 0) and med.table.columnSpan(r, 0) == 1
+        ]
         check(
-            "macro_manager table populated from list_available_macros (bpy-free)",
-            "m_back_face_culling" in row_names and "m_frame" in row_names and row_count == len(row_names),
-            f"row_count={row_count} {sorted(row_names)}",
-        )
-        check(
-            "macro_manager humanizes macro names in the Macro column",
-            "Back Face Culling" in macro_col_labels,
-            f"{sorted(macro_col_labels)}",
-        )
-        cat_items = [mm_ui.cmb000.itemText(i) for i in range(mm_ui.cmb000.count())]
-        check(
-            "macro_manager category combo lists All + mixin-derived categories",
-            cat_items[:1] == ["All"] and {"Display", "Edit", "Selection"} <= set(cat_items),
-            f"{cat_items}",
+            "macro editor lists every discoverable macro (bpy-free)",
+            len(med_rows) == len(Macros.list_available_macros())
+            and "Back Face Culling" in med_rows,
+            f"{sorted(med_rows)}",
         )
         check(
-            "macro_manager header menu wires Clear All / Reset to Default",
-            hasattr(mm_ui.header.menu, "hdr_clear_all")
-            and hasattr(mm_ui.header.menu, "hdr_reset_default"),
+            "macro editor branded + grouped by category (scope column dropped)",
+            med.windowTitle() == "Macro Manager"
+            and med.table.horizontalHeaderItem(med.COL_UI).text() == "Category"
+            and med.table.isColumnHidden(med.COL_SCOPE)
+            and [med.cmb_ui.itemText(i) for i in range(med.cmb_ui.count())]
+            == Macros.editor_categories(),
         )
         check(
-            "macro_manager installed the in-cell Category choice delegate",
-            mm._category_delegate is not None,
+            "macro editor preset row fronts the blendertk macro store ('default' listed)",
+            med._preset_mgr is not None and "default" in med._list_presets(),
         )
-        preset_combo = getattr(mm_ui.header.menu, "cmb_presets", None)
-        preset_items = (
-            [preset_combo.itemText(i) for i in range(preset_combo.count())]
-            if preset_combo else []
-        )
-        check(
-            "macro_manager preset combo lists the shipped 'default' preset",
-            "default" in preset_items,
-            f"{preset_items}",
-        )
-    else:
-        check("macro_manager exposes slots for the table check", False, "no slots")
+    finally:
+        med.close()
+        Macros._editor = None
 
     # audio_clips: no bpy under the offscreen .venv, so the clips combo/spinboxes degrade to
     # empty/zero (guarded via _has_bpy()) rather than raising — verify the degrade AND that the
