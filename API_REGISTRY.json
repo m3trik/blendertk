@@ -4968,59 +4968,6 @@
       ]
     },
     {
-      "relpath": "edit_utils/macro_manager/macro_manager_slots.py",
-      "summary": "UI slots for the Macro Manager panel — Blender port of mayatk's",
-      "functions": [],
-      "classes": [
-        {
-          "name": "MacroManagerSlots",
-          "summary": "Switchboard slots for the Macro Manager UI.",
-          "line": 46,
-          "bases": [
-            "ptk.LoggingMixin"
-          ],
-          "members": [
-            {
-              "name": "header_init",
-              "qualname": "MacroManagerSlots.header_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the header menu (global actions + preset selector).",
-              "line": 95,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000_init",
-              "qualname": "MacroManagerSlots.cmb000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "Populate the category filter combobox.",
-              "line": 224,
-              "deprecated": false
-            },
-            {
-              "name": "cmb000",
-              "qualname": "MacroManagerSlots.cmb000",
-              "kind": "method",
-              "signature": "(self, index)",
-              "summary": "Category filter changed — refresh the table.",
-              "line": 235,
-              "deprecated": false
-            },
-            {
-              "name": "tbl000_init",
-              "qualname": "MacroManagerSlots.tbl000_init",
-              "kind": "method",
-              "signature": "(self, widget)",
-              "summary": "One-time table setup, then (re)populate.",
-              "line": 243,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
       "relpath": "edit_utils/macros.py",
       "summary": "Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.",
       "functions": [],
@@ -5028,7 +4975,7 @@
         {
           "name": "DisplayMacros",
           "summary": "",
-          "line": 81,
+          "line": 85,
           "bases": [
             "_ViewportMixin"
           ],
@@ -5039,7 +4986,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Toggle Back-Face Culling in the viewport.",
-              "line": 85,
+              "line": 89,
               "deprecated": false
             },
             {
@@ -5048,7 +4995,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Isolate the current selection (toggle Local View).",
-              "line": 92,
+              "line": 96,
               "deprecated": false
             },
             {
@@ -5057,7 +5004,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Cycle the wireframe-on-shaded overlay: Off -> Full -> Reduced (mirrors Maya's",
-              "line": 101,
+              "line": 105,
               "deprecated": false
             },
             {
@@ -5066,7 +5013,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Cycle viewport shading: Wireframe -> Solid -> Material Preview.",
-              "line": 118,
+              "line": 122,
               "deprecated": false
             },
             {
@@ -5075,7 +5022,16 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Cycle Solid-mode viewport lighting Studio -> MatCap -> Flat (Maya's displayLights",
-              "line": 128,
+              "line": 132,
+              "deprecated": false
+            },
+            {
+              "name": "m_grid",
+              "qualname": "DisplayMacros.m_grid",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "Toggle the floor grid (with its X/Y axis lines — together they ARE Blender's",
+              "line": 147,
               "deprecated": false
             },
             {
@@ -5083,8 +5039,8 @@
               "qualname": "DisplayMacros.m_grid_and_image_planes",
               "kind": "classmethod",
               "signature": "(cls)",
-              "summary": "Toggle the floor grid and reference image-empties together.",
-              "line": 143,
+              "summary": "Toggle the floor grid and reference image-empties together (the grid leads).",
+              "line": 166,
               "deprecated": false
             },
             {
@@ -5093,7 +5049,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Cycle the selected objects' draw type: Textured -> Wireframe -> Bounds (driven by the",
-              "line": 159,
+              "line": 178,
               "deprecated": false
             },
             {
@@ -5102,7 +5058,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Toggle a live Subdivision-Surface preview on the selected meshes.",
-              "line": 174,
+              "line": 193,
               "deprecated": false
             },
             {
@@ -5111,7 +5067,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Frame the selection (or the whole scene when nothing is selected).",
-              "line": 190,
+              "line": 209,
               "deprecated": false
             }
           ]
@@ -5119,7 +5075,7 @@
         {
           "name": "EditMacros",
           "summary": "",
-          "line": 206,
+          "line": 225,
           "bases": [
             "_ViewportMixin"
           ],
@@ -5130,7 +5086,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Multi-component selection — enable vertex+edge+face select together (edit mode).",
-              "line": 210,
+              "line": 229,
               "deprecated": false
             },
             {
@@ -5139,7 +5095,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).",
-              "line": 217,
+              "line": 236,
               "deprecated": false
             },
             {
@@ -5148,7 +5104,7 @@
               "kind": "staticmethod",
               "signature": "(tolerance=0.0001)",
               "summary": "Merge vertices by distance — on the active mesh in Edit Mode, or across every selected",
-              "line": 226,
+              "line": 245,
               "deprecated": false
             },
             {
@@ -5157,7 +5113,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Group the selected objects under an Empty at the selection's center, keeping their",
-              "line": 244,
+              "line": 263,
               "deprecated": false
             }
           ]
@@ -5165,7 +5121,7 @@
         {
           "name": "SelectionMacros",
           "summary": "",
-          "line": 253,
+          "line": 272,
           "bases": [],
           "members": [
             {
@@ -5174,7 +5130,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Object selection mask — leave edit mode (object mode).",
-              "line": 257,
+              "line": 276,
               "deprecated": false
             },
             {
@@ -5183,7 +5139,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Vertex selection mask (edit mode).",
-              "line": 274,
+              "line": 293,
               "deprecated": false
             },
             {
@@ -5192,7 +5148,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Edge selection mask (edit mode).",
-              "line": 279,
+              "line": 298,
               "deprecated": false
             },
             {
@@ -5201,7 +5157,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Face selection mask (edit mode).",
-              "line": 284,
+              "line": 303,
               "deprecated": false
             },
             {
@@ -5210,7 +5166,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Invert the current selection (component-aware).",
-              "line": 289,
+              "line": 308,
               "deprecated": false
             },
             {
@@ -5219,7 +5175,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is",
-              "line": 298,
+              "line": 317,
               "deprecated": false
             }
           ]
@@ -5227,7 +5183,7 @@
         {
           "name": "UiMacros",
           "summary": "",
-          "line": 306,
+          "line": 325,
           "bases": [
             "_ViewportMixin"
           ],
@@ -5236,9 +5192,9 @@
               "name": "m_toggle_panels",
               "qualname": "UiMacros.m_toggle_panels",
               "kind": "classmethod",
-              "signature": "(cls)",
-              "summary": "Toggle the 3D viewport's header, tool, and side (N) regions together.",
-              "line": 310,
+              "signature": "(cls, toggle_menu: bool = True, toggle_panels: bool = True)",
+              "summary": "Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,",
+              "line": 329,
               "deprecated": false
             }
           ]
@@ -5246,7 +5202,7 @@
         {
           "name": "AnimationMacros",
           "summary": "",
-          "line": 321,
+          "line": 368,
           "bases": [],
           "members": [
             {
@@ -5255,7 +5211,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Set keys on the selected objects' transform channels at the current frame.",
-              "line": 327,
+              "line": 374,
               "deprecated": false
             },
             {
@@ -5264,7 +5220,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Remove keys on the selected objects' transform channels at the current frame.",
-              "line": 334,
+              "line": 381,
               "deprecated": false
             }
           ]
@@ -5272,7 +5228,7 @@
         {
           "name": "MacroManager",
           "summary": "Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.",
-          "line": 347,
+          "line": 394,
           "bases": [],
           "members": [
             {
@@ -5281,7 +5237,7 @@
               "kind": "classmethod",
               "signature": "(cls, *args)",
               "summary": "Register a macro per spec string (``\"m_name, key=1, cat=Display\"``).",
-              "line": 420,
+              "line": 468,
               "deprecated": false
             },
             {
@@ -5290,7 +5246,7 @@
               "kind": "staticmethod",
               "signature": "(func, input_string)",
               "summary": "Parse ``\"arg, key=val, ...\"`` into positional/keyword args and call ``func``.",
-              "line": 429,
+              "line": 477,
               "deprecated": false
             },
             {
@@ -5299,7 +5255,7 @@
               "kind": "classmethod",
               "signature": "(cls, name, key=None, cat=None, ann=None)",
               "summary": "Bind macro ``name`` to ``key`` (e.g.",
-              "line": 452,
+              "line": 500,
               "deprecated": false
             },
             {
@@ -5308,7 +5264,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Remove every keymap item this manager added (clean teardown / reload).",
-              "line": 485,
+              "line": 533,
               "deprecated": false
             },
             {
@@ -5317,7 +5273,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Dict[str, str]",
               "summary": "Discover every ``m_*`` macro callable, mapped to its annotation.",
-              "line": 506,
+              "line": 554,
               "deprecated": false
             },
             {
@@ -5326,7 +5282,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> str",
               "summary": "Humanize a macro name for display, e.g.",
-              "line": 530,
+              "line": 578,
               "deprecated": false
             },
             {
@@ -5335,7 +5291,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> str",
               "summary": "Default category for a macro, derived from the ``*Macros`` mixin that",
-              "line": 536,
+              "line": 584,
               "deprecated": false
             },
             {
@@ -5344,7 +5300,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "Sorted distinct default categories across all discoverable macros.",
-              "line": 553,
+              "line": 601,
               "deprecated": false
             },
             {
@@ -5353,7 +5309,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> str",
               "summary": "Return a macro's full (dedented) docstring — the single source of",
-              "line": 565,
+              "line": 613,
               "deprecated": false
             },
             {
@@ -5362,7 +5318,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Dict[str, dict]",
               "summary": "Return the *live* key + category for every available macro.",
-              "line": 603,
+              "line": 651,
               "deprecated": false
             },
             {
@@ -5371,7 +5327,7 @@
               "kind": "classmethod",
               "signature": "(cls, bindings: Dict[str, dict]) -> None",
               "summary": "Apply a binding set ``{name: {\"key\", \"cat\"}}``.",
-              "line": 620,
+              "line": 668,
               "deprecated": false
             },
             {
@@ -5380,7 +5336,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, key: Optional[str] = None) -> None",
               "summary": "Unbind ``name``'s hotkey across every keymap it was registered into",
-              "line": 642,
+              "line": 690,
               "deprecated": false
             },
             {
@@ -5389,7 +5345,7 @@
               "kind": "classmethod",
               "signature": "(cls, bindings: Dict[str, dict]) -> Dict[str, List[str]]",
               "summary": "Return ``{normalized_key: [macro, ...]}`` for keys bound more than once.",
-              "line": 662,
+              "line": 710,
               "deprecated": false
             },
             {
@@ -5398,7 +5354,7 @@
               "kind": "classmethod",
               "signature": "(cls, sequence: str) -> str",
               "summary": "Convert a Qt key-sequence string (``\"Ctrl+Shift+I\"``) to the",
-              "line": 702,
+              "line": 750,
               "deprecated": false
             },
             {
@@ -5407,7 +5363,7 @@
               "kind": "classmethod",
               "signature": "(cls, key: str) -> str",
               "summary": "Convert a Maya-style key token (``\"ctl+sht+i\"``) to a Qt key-sequence",
-              "line": 711,
+              "line": 759,
               "deprecated": false
             },
             {
@@ -5416,7 +5372,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "Return all preset names (built-in + user, user shadows built-in).",
-              "line": 730,
+              "line": 784,
               "deprecated": false
             },
             {
@@ -5425,7 +5381,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Dict[str, dict]",
               "summary": "Return the binding set stored under *name* (``_meta`` stripped).",
-              "line": 735,
+              "line": 789,
               "deprecated": false
             },
             {
@@ -5434,7 +5390,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, bindings: Optional[Dict[str, dict]] = None) -> str",
               "summary": "Save *bindings* (default: the current bindings) as user preset *name*.",
-              "line": 741,
+              "line": 795,
               "deprecated": false
             },
             {
@@ -5443,7 +5399,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete a *user* preset (built-ins are read-only).",
-              "line": 756,
+              "line": 810,
               "deprecated": false
             },
             {
@@ -5452,7 +5408,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Optional[str]",
               "summary": "The last-selected/applied preset name, or ``None``.",
-              "line": 761,
+              "line": 815,
               "deprecated": false
             },
             {
@@ -5461,7 +5417,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: Optional[str]) -> None",
               "summary": "Set (or clear, with ``None``) the active-preset pointer.",
-              "line": 766,
+              "line": 820,
               "deprecated": false
             },
             {
@@ -5470,7 +5426,61 @@
               "kind": "classmethod",
               "signature": "(cls, name: Optional[str] = None) -> None",
               "summary": "Apply a saved preset/template's bindings on demand.",
-              "line": 771,
+              "line": 825,
+              "deprecated": false
+            },
+            {
+              "name": "editor_categories",
+              "qualname": "MacroManager.editor_categories",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[str]",
+              "summary": "Mixin-derived categories plus any custom category carried by the",
+              "line": 880,
+              "deprecated": false
+            },
+            {
+              "name": "get_editor_registry",
+              "qualname": "MacroManager.get_editor_registry",
+              "kind": "classmethod",
+              "signature": "(cls, category: str) -> List[dict]",
+              "summary": "Editor-shaped entries for every macro in *category*.",
+              "line": 890,
+              "deprecated": false
+            },
+            {
+              "name": "apply_editor_binding",
+              "qualname": "MacroManager.apply_editor_binding",
+              "kind": "classmethod",
+              "signature": "(cls, name: str, sequence: str) -> None",
+              "summary": "Apply a Qt key sequence captured in the editor (``\"\"`` clears).",
+              "line": 926,
+              "deprecated": false
+            },
+            {
+              "name": "export_bindings",
+              "qualname": "MacroManager.export_bindings",
+              "kind": "classmethod",
+              "signature": "(cls) -> Dict[str, dict]",
+              "summary": "The persist-worthy subset of the live bindings — every macro with a",
+              "line": 940,
+              "deprecated": false
+            },
+            {
+              "name": "import_bindings",
+              "qualname": "MacroManager.import_bindings",
+              "kind": "classmethod",
+              "signature": "(cls, data: Optional[Dict[str, dict]]) -> int",
+              "summary": "Apply a loaded binding set (the preset ``value_applier``): release",
+              "line": 955,
+              "deprecated": false
+            },
+            {
+              "name": "show_editor",
+              "qualname": "MacroManager.show_editor",
+              "kind": "classmethod",
+              "signature": "(cls, parent=None)",
+              "summary": "Open the Macro Manager — the unified uitk ``ShortcutEditor`` over",
+              "line": 966,
               "deprecated": false
             }
           ]
@@ -5478,7 +5488,7 @@
         {
           "name": "Macros",
           "summary": "Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).",
-          "line": 831,
+          "line": 1052,
           "bases": [
             "MacroManager",
             "DisplayMacros",
@@ -5999,6 +6009,75 @@
       ]
     },
     {
+      "relpath": "edit_utils/target_weld.py",
+      "summary": "Target Weld — interactive drag-a-vertex-onto-another merge tool.",
+      "functions": [
+        {
+          "name": "project_points",
+          "qualname": "project_points",
+          "kind": "function",
+          "signature": "(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]",
+          "summary": "Project ``coords`` (N,3) through the 4x4 ``mvp`` into pixel space.",
+          "line": 81,
+          "deprecated": false
+        },
+        {
+          "name": "pick_screen_point",
+          "qualname": "pick_screen_point",
+          "kind": "function",
+          "signature": "(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]",
+          "summary": "Index of the best pick candidate within ``radius`` px of ``mouse_xy``, or ``None``.",
+          "line": 107,
+          "deprecated": false
+        },
+        {
+          "name": "weld_position",
+          "qualname": "weld_position",
+          "kind": "function",
+          "signature": "(src_co, tgt_co, merge_to_center: bool = False)",
+          "summary": "The merged vertex's final position: the target (Maya Target Weld) or the midpoint",
+          "line": 134,
+          "deprecated": false
+        },
+        {
+          "name": "dash_segments",
+          "qualname": "dash_segments",
+          "kind": "function",
+          "signature": "(p0, p1, dash: float = DASH_LEN, gap: float = GAP_LEN)",
+          "summary": "2D dashed-line vertex pairs from ``p0`` to ``p1`` (flat list of (x, y) endpoints,",
+          "line": 142,
+          "deprecated": false
+        },
+        {
+          "name": "weld_pair",
+          "qualname": "weld_pair",
+          "kind": "function",
+          "signature": "(bm, v_src, v_tgt, merge_to_center: bool = False) -> None",
+          "summary": "Merge ``v_src`` into ``v_tgt`` on ``bm`` (both verts of the same BMesh;",
+          "line": 164,
+          "deprecated": false
+        },
+        {
+          "name": "target_weld",
+          "qualname": "target_weld",
+          "kind": "function",
+          "signature": "(merge_to_center: bool = False) -> bool",
+          "summary": "Activate the interactive Target Weld tool (mirror of Maya's ``MergeVertexTool``).",
+          "line": 570,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "TargetWeld",
+          "summary": "Namespace class (mirror of the co-located-tool convention;",
+          "line": 619,
+          "bases": [],
+          "members": []
+        }
+      ]
+    },
+    {
       "relpath": "env_utils/_env_utils.py",
       "summary": "blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.",
       "functions": [
@@ -6218,7 +6297,7 @@
           "kind": "function",
           "signature": "(filepath=None, objects=None, **fbx_opts)",
           "summary": "Export the selection (or ``objects``) to an FBX file for an external-app hand-off.",
-          "line": 171,
+          "line": 176,
           "deprecated": false
         },
         {
@@ -6227,7 +6306,7 @@
           "kind": "function",
           "signature": "(filepath, **fbx_opts)",
           "summary": "Import an FBX file;",
-          "line": 181,
+          "line": 186,
           "deprecated": false
         }
       ],
@@ -7198,6 +7277,96 @@
       ]
     },
     {
+      "relpath": "env_utils/maya_bridge/_scene_import.py",
+      "summary": "Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.",
+      "functions": [
+        {
+          "name": "mayapy_from_maya_exe",
+          "qualname": "mayapy_from_maya_exe",
+          "kind": "function",
+          "signature": "(maya_exe: str) -> Optional[str]",
+          "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "import_maya_scene",
+          "qualname": "import_maya_scene",
+          "kind": "function",
+          "signature": "(src_path: str, **kwargs: Any) -> List[Any]",
+          "summary": "Import a Maya scene (.ma/.mb) into the current Blender scene.",
+          "line": 393,
+          "deprecated": false
+        }
+      ],
+      "classes": [
+        {
+          "name": "MayaSceneImport",
+          "summary": "Engine: convert a Maya scene to FBX via headless Maya, then import it.",
+          "line": 64,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "maya_path",
+              "qualname": "MayaSceneImport.maya_path",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).",
+              "line": 77,
+              "deprecated": false
+            },
+            {
+              "name": "mayapy_path",
+              "qualname": "MayaSceneImport.mayapy_path",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "The headless ``mayapy`` interpreter derived from :attr:`maya_path`.",
+              "line": 88,
+              "deprecated": false
+            },
+            {
+              "name": "require_mayapy",
+              "qualname": "MayaSceneImport.require_mayapy",
+              "kind": "method",
+              "signature": "(self) -> str",
+              "summary": "Return :attr:`mayapy_path` or raise an error naming what's missing.",
+              "line": 93,
+              "deprecated": false
+            },
+            {
+              "name": "render_script",
+              "qualname": "MayaSceneImport.render_script",
+              "kind": "method",
+              "signature": "(self, src_path: str, out_fbx: str, *, embed_textures: bool = False, include_animation: bool = True) -> str",
+              "summary": "Render the Maya-side conversion script (exposed for tests/preview).",
+              "line": 104,
+              "deprecated": false
+            },
+            {
+              "name": "convert",
+              "qualname": "MayaSceneImport.convert",
+              "kind": "method",
+              "signature": "(self, src_path: str, out_fbx: str, *, timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'",
+              "summary": "Convert *src_path* to *out_fbx* in a fresh ``mayapy`` (blocking).",
+              "line": 117,
+              "deprecated": false
+            },
+            {
+              "name": "import_scene",
+              "qualname": "MayaSceneImport.import_scene",
+              "kind": "method",
+              "signature": "(self, src_path: str, *, cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]",
+              "summary": "Import the Maya scene at *src_path*;",
+              "line": 167,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "relpath": "env_utils/maya_bridge/maya_bridge_slots.py",
       "summary": "Slots for the Maya bridge panel.",
       "functions": [],
@@ -7288,6 +7457,40 @@
           "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
           "summary": "Format *values* for ``StrUtils.replace_delimited`` using Python literals.",
           "line": 116,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "env_utils/maya_bridge/templates/_import_scene.py",
+      "summary": "Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.",
+      "functions": [
+        {
+          "name": "fbx_safe_materials",
+          "qualname": "fbx_safe_materials",
+          "kind": "function",
+          "signature": "(cmds)",
+          "summary": "Swap every FBX-hostile shader for an equivalent phong on its shading group.",
+          "line": 248,
+          "deprecated": false
+        },
+        {
+          "name": "write_texture_manifest",
+          "qualname": "write_texture_manifest",
+          "kind": "function",
+          "signature": "(entries, path)",
+          "summary": "Sidecar for the textures FBX cannot carry, consumed by MayaSceneImport.",
+          "line": 310,
+          "deprecated": false
+        },
+        {
+          "name": "main",
+          "qualname": "main",
+          "kind": "function",
+          "signature": "()",
+          "summary": "",
+          "line": 323,
           "deprecated": false
         }
       ],
@@ -7874,8 +8077,8 @@
           "qualname": "show",
           "kind": "function",
           "signature": "(*args, **kwargs) -> ScriptConsole",
-          "summary": "Open the Script Output console (idempotent — re-opens a torn-down instance).",
-          "line": 312,
+          "summary": "Dock + show the Script Output console (reuses the persistent instance/widget if one",
+          "line": 516,
           "deprecated": false
         },
         {
@@ -7883,8 +8086,8 @@
           "qualname": "hide",
           "kind": "function",
           "signature": "(*args, **kwargs) -> None",
-          "summary": "Close the Script Output console if open.",
-          "line": 322,
+          "summary": "Undock + hide the Script Output console (capture keeps running in the background).",
+          "line": 522,
           "deprecated": false
         },
         {
@@ -7892,34 +8095,88 @@
           "qualname": "toggle",
           "kind": "function",
           "signature": "(*args, **kwargs)",
-          "summary": "Toggle the Script Output console open/closed.",
-          "line": 329,
+          "summary": "Toggle the Script Output console shown/hidden.",
+          "line": 527,
+          "deprecated": false
+        },
+        {
+          "name": "begin_capture",
+          "qualname": "begin_capture",
+          "kind": "function",
+          "signature": "() -> ScriptConsole",
+          "summary": "Start the stdout/stderr/logging capture now (idempotent; UI-free).",
+          "line": 536,
+          "deprecated": false
+        },
+        {
+          "name": "restore",
+          "qualname": "restore",
+          "kind": "function",
+          "signature": "() -> ScriptConsole",
+          "summary": "Start capture and re-open the console if it was open when the previous session",
+          "line": 542,
           "deprecated": false
         }
       ],
       "classes": [
         {
           "name": "ScriptConsole",
-          "summary": "Singleton host: a native Info-Log anchor window skinned with ``uitk.ScriptOutput``.",
-          "line": 32,
+          "summary": "Singleton orchestrator: capture + native-docked ``uitk.ScriptOutput``, with the",
+          "line": 222,
           "bases": [],
           "members": [
             {
-              "name": "open",
-              "qualname": "ScriptConsole.open",
-              "kind": "method",
-              "signature": "(self) -> 'ScriptConsole'",
-              "summary": "Open the console: native anchor + (where supported) the Qt skin + redirect.",
-              "line": 263,
+              "name": "instance",
+              "qualname": "ScriptConsole.instance",
+              "kind": "classmethod",
+              "signature": "(cls) -> 'ScriptConsole'",
+              "summary": "",
+              "line": 247,
               "deprecated": false
             },
             {
-              "name": "close",
-              "qualname": "ScriptConsole.close",
+              "name": "widget",
+              "qualname": "ScriptConsole.widget",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "The live ``uitk.ScriptOutput`` (or None) — for tests/diagnostics.",
+              "line": 292,
+              "deprecated": false
+            },
+            {
+              "name": "begin_capture",
+              "qualname": "ScriptConsole.begin_capture",
+              "kind": "method",
+              "signature": "(self) -> 'ScriptConsole'",
+              "summary": "Start recording stdout/stderr/logging into the transcript buffer NOW (idempotent).",
+              "line": 349,
+              "deprecated": false
+            },
+            {
+              "name": "restore",
+              "qualname": "ScriptConsole.restore",
+              "kind": "method",
+              "signature": "(self) -> 'ScriptConsole'",
+              "summary": "Reinstate the previous session's console — the Blender analogue of Maya's",
+              "line": 359,
+              "deprecated": false
+            },
+            {
+              "name": "show",
+              "qualname": "ScriptConsole.show",
+              "kind": "method",
+              "signature": "(self) -> 'ScriptConsole'",
+              "summary": "Dock the console into the main window and persist visible=True.",
+              "line": 370,
+              "deprecated": false
+            },
+            {
+              "name": "hide",
+              "qualname": "ScriptConsole.hide",
               "kind": "method",
               "signature": "(self) -> None",
-              "summary": "Fully tear down: skin, redirect, timer, and the anchor window.",
-              "line": 276,
+              "summary": "Undock (persisting the user's strip height) and persist visible=False.",
+              "line": 423,
               "deprecated": false
             },
             {
@@ -7928,7 +8185,16 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "",
-              "line": 280,
+              "line": 433,
+              "deprecated": false
+            },
+            {
+              "name": "teardown",
+              "qualname": "ScriptConsole.teardown",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Full un-install for a HOST RELOAD (``tb.reload()``): undock the area, drop the",
+              "line": 436,
               "deprecated": false
             }
           ]
@@ -12794,7 +13060,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.",
-          "line": 40,
+          "line": 41,
           "deprecated": false
         },
         {
@@ -12803,7 +13069,79 @@
           "kind": "function",
           "signature": "(editor, properties_context=None)",
           "summary": "Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)",
-          "line": 45,
+          "line": 66,
+          "deprecated": false
+        },
+        {
+          "name": "main_window",
+          "qualname": "main_window",
+          "kind": "function",
+          "signature": "()",
+          "summary": "The main Blender window (the first;",
+          "line": 125,
+          "deprecated": false
+        },
+        {
+          "name": "find_editor",
+          "qualname": "find_editor",
+          "kind": "function",
+          "signature": "(editor, window=None)",
+          "summary": "Open areas showing ``editor`` (friendly name or raw ``ui_type``) as ``(window, area)`` pairs.",
+          "line": 138,
+          "deprecated": false
+        },
+        {
+          "name": "close_area",
+          "qualname": "close_area",
+          "kind": "function",
+          "signature": "(window, area)",
+          "summary": "Close exactly ``area`` in ``window`` via ``screen.area_close``;",
+          "line": 153,
+          "deprecated": false
+        },
+        {
+          "name": "close_editor",
+          "qualname": "close_editor",
+          "kind": "function",
+          "signature": "(editor, window=None)",
+          "summary": "Close every open area showing ``editor`` in the (main) window;",
+          "line": 178,
+          "deprecated": false
+        },
+        {
+          "name": "dock_editor",
+          "qualname": "dock_editor",
+          "kind": "function",
+          "signature": "(editor, edge_size=70, window=None)",
+          "summary": "Dock ``editor`` as a strip along the bottom of the main 3D viewport — the Blender analogue",
+          "line": 198,
+          "deprecated": false
+        },
+        {
+          "name": "toggle_editor",
+          "qualname": "toggle_editor",
+          "kind": "function",
+          "signature": "(editor, edge_size=70, window=None)",
+          "summary": "Maya-style *docked* toggle for ``editor`` (backs the editors-menu Time & Range button).",
+          "line": 242,
+          "deprecated": false
+        },
+        {
+          "name": "toggle_fullscreen_area",
+          "qualname": "toggle_fullscreen_area",
+          "kind": "function",
+          "signature": "(editor=None, hide_panels=True, window=None)",
+          "summary": "Toggle fullscreen-area mode — one editor fills the window (Ctrl+Alt+Space).",
+          "line": 343,
+          "deprecated": false
+        },
+        {
+          "name": "toggle_window_bars",
+          "qualname": "toggle_window_bars",
+          "kind": "function",
+          "signature": "(visible=None, window=None)",
+          "summary": "Show/hide the main window's topbar (File/Edit/Render… menus + workspace tabs) and",
+          "line": 393,
           "deprecated": false
         },
         {
@@ -12812,7 +13150,7 @@
           "kind": "function",
           "signature": "(menu_idname)",
           "summary": "True if ``menu_idname`` (e.g.",
-          "line": 75,
+          "line": 461,
           "deprecated": false
         },
         {
@@ -12821,7 +13159,7 @@
           "kind": "function",
           "signature": "(url, logger=None) -> bool",
           "summary": "Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.",
-          "line": 86,
+          "line": 472,
           "deprecated": false
         },
         {
@@ -12830,7 +13168,16 @@
           "kind": "function",
           "signature": "(menu_idname)",
           "summary": "Pop Blender's own native menu ``menu_idname`` (e.g.",
-          "line": 170,
+          "line": 556,
+          "deprecated": false
+        },
+        {
+          "name": "popup_message",
+          "qualname": "popup_message",
+          "kind": "function",
+          "signature": "(text, title='Info', icon='INFO')",
+          "summary": "Show a small native Blender info popup at the cursor (multi-line ``text`` supported).",
+          "line": 582,
           "deprecated": false
         }
       ],
@@ -12838,7 +13185,7 @@
         {
           "name": "UiUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 195,
+          "line": 612,
           "bases": [],
           "members": []
         }
@@ -12872,22 +13219,24 @@
     },
     {
       "relpath": "ui_utils/blender_native_menus.py",
-      "summary": "Symbolic-name -> Blender native-menu resolution for the both-button chord menu.",
+      "summary": "Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.",
       "functions": [],
       "classes": [
         {
           "name": "BlenderNativeMenus",
           "summary": "Resolve the chord menu's symbolic node names to Blender ``*_MT_*`` menu idnames.",
-          "line": 19,
-          "bases": [],
+          "line": 21,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
           "members": [
             {
               "name": "names",
               "qualname": "BlenderNativeMenus.names",
               "kind": "classmethod",
               "signature": "(cls)",
-              "summary": "Every symbolic node name this handler resolves (mapping keys + Select).",
-              "line": 81,
+              "summary": "Every symbolic node name this handler resolves (mapping + mode-adaptive keys).",
+              "line": 117,
               "deprecated": false
             },
             {
@@ -12895,8 +13244,17 @@
               "qualname": "BlenderNativeMenus.resolve",
               "kind": "classmethod",
               "signature": "(cls, name)",
-              "summary": "The Blender menu idname for symbolic ``name`` (mode-aware for Select), or ``None``.",
-              "line": 86,
+              "summary": "The Blender menu idname for symbolic ``name`` (mode-aware for Select / Rig), or",
+              "line": 122,
+              "deprecated": false
+            },
+            {
+              "name": "get_menu",
+              "qualname": "BlenderNativeMenus.get_menu",
+              "kind": "method",
+              "signature": "(self, name)",
+              "summary": "Build (or refresh) the Qt clone of native menu ``name``;",
+              "line": 137,
               "deprecated": false
             }
           ]
@@ -12922,7 +13280,7 @@
               "kind": "classmethod",
               "signature": "(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'",
               "summary": "Return the BlenderUiHandler singleton, bootstrapping if needed.",
-              "line": 70,
+              "line": 72,
               "deprecated": false
             },
             {
@@ -12931,7 +13289,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> bool",
               "summary": "Recognise the native Blender menus this handler wraps on demand.",
-              "line": 92,
+              "line": 94,
               "deprecated": false
             },
             {
@@ -12939,8 +13297,8 @@
               "qualname": "BlenderUiHandler.show",
               "kind": "method",
               "signature": "(self, ui, pos=None, force: bool = False, **kwargs)",
-              "summary": "Pop the wrapped Blender menu when ``ui`` resolves to a native-menu proxy;",
-              "line": 135,
+              "summary": "Swap a native-menu proxy for its wrapped, freshly-harvested menu window;",
+              "line": 139,
               "deprecated": false
             },
             {
@@ -12949,7 +13307,7 @@
               "kind": "method",
               "signature": "(self, ui, style=None)",
               "summary": "Give blendertk-sourced tool panels a hide button instead of a pin.",
-              "line": 179,
+              "line": 234,
               "deprecated": false
             }
           ]
@@ -12958,13 +13316,13 @@
     },
     {
       "relpath": "ui_utils/blender_window.py",
-      "summary": "Native-window geometry helpers for hosting a Qt overlay over a Blender window.",
+      "summary": "Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.",
       "functions": [],
       "classes": [
         {
           "name": "BlenderWindow",
-          "summary": "Static win32 helpers for GHOST-window enumeration, geometry and ownership.",
-          "line": 31,
+          "summary": "Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.",
+          "line": 33,
           "bases": [],
           "members": [
             {
@@ -12973,16 +13331,16 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "List of visible GHOST-window HWNDs owned by THIS process (``[]`` off-Windows).",
-              "line": 54,
+              "line": 60,
               "deprecated": false
             },
             {
-              "name": "new_ghost_hwnd",
-              "qualname": "BlenderWindow.new_ghost_hwnd",
+              "name": "window_hwnd",
+              "qualname": "BlenderWindow.window_hwnd",
               "kind": "classmethod",
-              "signature": "(cls, before)",
-              "summary": "The single GHOST HWND present now but not in ``before`` (a set/list), else None.",
-              "line": 83,
+              "signature": "(cls, bpy_window)",
+              "summary": "The GHOST hwnd of a SPECIFIC already-open ``bpy.types.Window``, or None.",
+              "line": 89,
               "deprecated": false
             },
             {
@@ -12991,16 +13349,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd) -> bool",
               "summary": "",
-              "line": 95,
-              "deprecated": false
-            },
-            {
-              "name": "is_iconic",
-              "qualname": "BlenderWindow.is_iconic",
-              "kind": "classmethod",
-              "signature": "(cls, hwnd) -> bool",
-              "summary": "True if ``hwnd`` is minimized (skin should hide to follow it).",
-              "line": 101,
+              "line": 109,
               "deprecated": false
             },
             {
@@ -13009,7 +13358,7 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd)",
               "summary": "Screen (x, y) of the window's client-area top-left, or None.",
-              "line": 108,
+              "line": 115,
               "deprecated": false
             },
             {
@@ -13018,16 +13367,61 @@
               "kind": "classmethod",
               "signature": "(cls, hwnd)",
               "summary": "(width, height) of the window's client area in physical pixels, or None.",
-              "line": 120,
+              "line": 127,
               "deprecated": false
             },
             {
-              "name": "region_screen_rect",
-              "qualname": "BlenderWindow.region_screen_rect",
+              "name": "region_client_rect",
+              "qualname": "BlenderWindow.region_client_rect",
               "kind": "classmethod",
-              "signature": "(cls, hwnd, region, dpr: float = 1.0)",
-              "summary": "Map a bpy ``region`` inside GHOST window ``hwnd`` to a Qt-logical screen rect.",
-              "line": 133,
+              "signature": "(cls, hwnd, region)",
+              "summary": "Map a bpy ``region`` inside GHOST window ``hwnd`` to a parent-CLIENT rect.",
+              "line": 140,
+              "deprecated": false
+            },
+            {
+              "name": "set_clip_children",
+              "qualname": "BlenderWindow.set_clip_children",
+              "kind": "classmethod",
+              "signature": "(cls, hwnd) -> bool",
+              "summary": "Set ``WS_CLIPCHILDREN`` on ``hwnd`` (idempotent);",
+              "line": 163,
+              "deprecated": false
+            },
+            {
+              "name": "move_child",
+              "qualname": "BlenderWindow.move_child",
+              "kind": "classmethod",
+              "signature": "(cls, hwnd, rect) -> bool",
+              "summary": "Place child window ``hwnd`` at ``rect`` = (x, y, w, h) in its parent's client",
+              "line": 191,
+              "deprecated": false
+            },
+            {
+              "name": "keyboard_focus",
+              "qualname": "BlenderWindow.keyboard_focus",
+              "kind": "classmethod",
+              "signature": "(cls)",
+              "summary": "``GetFocus()`` — the hwnd receiving this thread's keystrokes, or 0/None.",
+              "line": 211,
+              "deprecated": false
+            },
+            {
+              "name": "cursor_over",
+              "qualname": "BlenderWindow.cursor_over",
+              "kind": "classmethod",
+              "signature": "(cls, hwnd) -> bool",
+              "summary": "True when the pointer is over ``hwnd`` (or one of its child windows).",
+              "line": 223,
+              "deprecated": false
+            },
+            {
+              "name": "set_keyboard_focus",
+              "qualname": "BlenderWindow.set_keyboard_focus",
+              "kind": "classmethod",
+              "signature": "(cls, hwnd) -> bool",
+              "summary": "``SetFocus(hwnd)`` — route this thread's keystrokes to ``hwnd``;",
+              "line": 256,
               "deprecated": false
             },
             {
@@ -13036,7 +13430,7 @@
               "kind": "classmethod",
               "signature": "(cls, widget, owner_hwnd)",
               "summary": "Make Qt ``widget`` an *owned* window of ``owner_hwnd`` (``GWLP_HWNDPARENT``).",
-              "line": 160,
+              "line": 285,
               "deprecated": false
             }
           ]
@@ -13206,6 +13600,127 @@
               "signature": "(self)",
               "summary": "",
               "line": 239,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "ui_utils/menu_harvest.py",
+      "summary": "Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.",
+      "functions": [
+        {
+          "name": "harvest_menu",
+          "qualname": "harvest_menu",
+          "kind": "function",
+          "signature": "(idname)",
+          "summary": "Execute ``idname``'s ``draw`` against a recorder;",
+          "line": 173,
+          "deprecated": false
+        },
+        {
+          "name": "invoke_operator",
+          "qualname": "invoke_operator",
+          "kind": "function",
+          "signature": "(op_idname, props=None)",
+          "summary": "Run an operator one timer tick later, ``INVOKE_DEFAULT``, under a VIEW_3D override.",
+          "line": 214,
+          "deprecated": false
+        },
+        {
+          "name": "refill_qmenu",
+          "qualname": "refill_qmenu",
+          "kind": "function",
+          "signature": "(qmenu, idname)",
+          "summary": "Rebuild ``qmenu``'s actions from a fresh harvest of ``idname``;",
+          "line": 257,
+          "deprecated": false
+        }
+      ],
+      "classes": []
+    },
+    {
+      "relpath": "ui_utils/qt_dock.py",
+      "summary": "Dock any Qt widget into a native Blender area — a true child window, not an overlay.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "QtDock",
+          "summary": "Host a Qt widget as the body of a true docked Blender area.",
+          "line": 56,
+          "bases": [],
+          "members": [
+            {
+              "name": "supported",
+              "qualname": "QtDock.supported",
+              "kind": "classmethod",
+              "signature": "(cls) -> bool",
+              "summary": "True when embedding can work here: Windows + a live QApplication.",
+              "line": 116,
+              "deprecated": false
+            },
+            {
+              "name": "docked",
+              "qualname": "QtDock.docked",
+              "kind": "property",
+              "signature": "(self) -> bool",
+              "summary": "True while the widget is embedded over a LIVE docked area — a user closing/",
+              "line": 122,
+              "deprecated": false
+            },
+            {
+              "name": "widget",
+              "qualname": "QtDock.widget",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "The hosted widget (or None) — for callers/tests.",
+              "line": 129,
+              "deprecated": false
+            },
+            {
+              "name": "area",
+              "qualname": "QtDock.area",
+              "kind": "property",
+              "signature": "(self)",
+              "summary": "Our docked ``bpy.types.Area`` (or None).",
+              "line": 134,
+              "deprecated": false
+            },
+            {
+              "name": "content_region",
+              "qualname": "QtDock.content_region",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "The WINDOW (content) region of our area, or None when the area is gone —",
+              "line": 138,
+              "deprecated": false
+            },
+            {
+              "name": "dock",
+              "qualname": "QtDock.dock",
+              "kind": "method",
+              "signature": "(self, widget, height: Optional[int] = None) -> bool",
+              "summary": "Dock ``widget``: create/dock the placeholder area, embed the widget as a",
+              "line": 151,
+              "deprecated": false
+            },
+            {
+              "name": "undock",
+              "qualname": "QtDock.undock",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Release the widget (un-parent to a hidden top-level, ready to re-dock) and",
+              "line": 204,
+              "deprecated": false
+            },
+            {
+              "name": "teardown",
+              "qualname": "QtDock.teardown",
+              "kind": "method",
+              "signature": "(self) -> None",
+              "summary": "Full uninstall for a host reload: :meth:`undock` + drop the widget reference.",
+              "line": 219,
               "deprecated": false
             }
           ]

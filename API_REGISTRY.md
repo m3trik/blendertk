@@ -57,13 +57,13 @@ _Generated: 2026-07-17_
 - [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
-- [`edit_utils/macro_manager/macro_manager_slots.py`](#edit_utils--macro_manager--macro_manager_slots) — UI slots for the Macro Manager panel — Blender port of mayatk's
 - [`edit_utils/macros.py`](#edit_utils--macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - [`edit_utils/mirror.py`](#edit_utils--mirror) — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - [`edit_utils/naming/naming_slots.py`](#edit_utils--naming--naming_slots) — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - [`edit_utils/selection.py`](#edit_utils--selection) — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - [`edit_utils/snap.py`](#edit_utils--snap) — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
+- [`edit_utils/target_weld.py`](#edit_utils--target_weld) — Target Weld — interactive drag-a-vertex-onto-another merge tool.
 - [`env_utils/_env_utils.py`](#env_utils--_env_utils) — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - [`env_utils/blender_connection.py`](#env_utils--blender_connection) — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - [`env_utils/fbx_utils.py`](#env_utils--fbx_utils) — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
@@ -74,8 +74,10 @@ _Generated: 2026-07-17_
 - [`env_utils/hierarchy_manager/tree_renderer.py`](#env_utils--hierarchy_manager--tree_renderer) — Tree rendering, formatting, and selection management for the hierarchy manager UI — mirror of
 - [`env_utils/hierarchy_manager/tree_utils.py`](#env_utils--hierarchy_manager--tree_utils) — Tree widget utilities for hierarchy manager UI operations — mirror of mayatk's
 - [`env_utils/maya_bridge/_maya_bridge.py`](#env_utils--maya_bridge--_maya_bridge) — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
+- [`env_utils/maya_bridge/_scene_import.py`](#env_utils--maya_bridge--_scene_import) — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
 - [`env_utils/maya_bridge/maya_bridge_slots.py`](#env_utils--maya_bridge--maya_bridge_slots) — Slots for the Maya bridge panel.
 - [`env_utils/maya_bridge/parameters.py`](#env_utils--maya_bridge--parameters) — Registry of user-tunable Maya-bridge parameters exposed to the panel.
+- [`env_utils/maya_bridge/templates/_import_scene.py`](#env_utils--maya_bridge--templates--_import_scene) — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`env_utils/maya_bridge/templates/import.py`](#env_utils--maya_bridge--templates--import) — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 - [`env_utils/reference_manager.py`](#env_utils--reference_manager) — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - [`env_utils/scene_exporter/_scene_exporter.py`](#env_utils--scene_exporter--_scene_exporter) — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
@@ -139,10 +141,12 @@ _Generated: 2026-07-17_
 - [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - [`ui_utils/blender_bridge_slots.py`](#ui_utils--blender_bridge_slots) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
-- [`ui_utils/blender_native_menus.py`](#ui_utils--blender_native_menus) — Symbolic-name -> Blender native-menu resolution for the both-button chord menu.
+- [`ui_utils/blender_native_menus.py`](#ui_utils--blender_native_menus) — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - [`ui_utils/blender_ui_handler.py`](#ui_utils--blender_ui_handler)
-- [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window geometry helpers for hosting a Qt overlay over a Blender window.
+- [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - [`ui_utils/calculator.py`](#ui_utils--calculator) — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
+- [`ui_utils/menu_harvest.py`](#ui_utils--menu_harvest) — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
+- [`ui_utils/qt_dock.py`](#ui_utils--qt_dock) — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - [`ui_utils/style_setter/_style_setter.py`](#ui_utils--style_setter--_style_setter) — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - [`uv_utils/_uv_utils.py`](#uv_utils--_uv_utils) — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - [`uv_utils/rizom_bridge/_rizom_bridge.py`](#uv_utils--rizom_bridge--_rizom_bridge) — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
@@ -972,50 +976,40 @@ Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
   - `DynamicPipeSlots.header_init(self, widget)` — Configure header help text.
   - `DynamicPipeSlots.b000(self)` — Initialize Pipe — build pipe from the current selection (name-ordered).
 
-<a id="edit_utils--macro_manager--macro_manager_slots"></a>
-### `edit_utils/macro_manager/macro_manager_slots.py`
-
-UI slots for the Macro Manager panel — Blender port of mayatk's
-
-- **[`class MacroManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/macro_manager/macro_manager_slots.py#L46)** — Switchboard slots for the Macro Manager UI.
-  - `MacroManagerSlots.header_init(self, widget)` — Populate the header menu (global actions + preset selector).
-  - `MacroManagerSlots.cmb000_init(self, widget)` — Populate the category filter combobox.
-  - `MacroManagerSlots.cmb000(self, index)` — Category filter changed — refresh the table.
-  - `MacroManagerSlots.tbl000_init(self, widget)` — One-time table setup, then (re)populate.
-
 <a id="edit_utils--macros"></a>
 ### `edit_utils/macros.py`
 
 Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 
-- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L81)**
+- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L85)**
   - `DisplayMacros.m_back_face_culling(cls)` *(class)* — Toggle Back-Face Culling in the viewport.
   - `DisplayMacros.m_isolate_selected(cls)` *(class)* — Isolate the current selection (toggle Local View).
   - `DisplayMacros.m_wireframe(cls)` *(class)* — Cycle the wireframe-on-shaded overlay: Off -> Full -> Reduced (mirrors Maya's
   - `DisplayMacros.m_shading(cls)` *(class)* — Cycle viewport shading: Wireframe -> Solid -> Material Preview.
   - `DisplayMacros.m_lighting(cls)` *(class)* — Cycle Solid-mode viewport lighting Studio -> MatCap -> Flat (Maya's displayLights
-  - `DisplayMacros.m_grid_and_image_planes(cls)` *(class)* — Toggle the floor grid and reference image-empties together.
+  - `DisplayMacros.m_grid(cls)` *(class)* — Toggle the floor grid (with its X/Y axis lines — together they ARE Blender's
+  - `DisplayMacros.m_grid_and_image_planes(cls)` *(class)* — Toggle the floor grid and reference image-empties together (the grid leads).
   - `DisplayMacros.m_cycle_display_state(cls)` *(class)* — Cycle the selected objects' draw type: Textured -> Wireframe -> Bounds (driven by the
   - `DisplayMacros.m_smooth_preview(cls)` *(class)* — Toggle a live Subdivision-Surface preview on the selected meshes.
   - `DisplayMacros.m_frame(cls)` *(class)* — Frame the selection (or the whole scene when nothing is selected).
-- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L206)**
+- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L225)**
   - `EditMacros.m_multi_component()` *(static)* — Multi-component selection — enable vertex+edge+face select together (edit mode).
   - `EditMacros.m_paste_and_rename(cls)` *(class)* — Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L253)**
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L272)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L306)**
-  - `UiMacros.m_toggle_panels(cls)` *(class)* — Toggle the 3D viewport's header, tool, and side (N) regions together.
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L321)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L325)**
+  - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L368)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L347)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L394)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1038,7 +1032,13 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.get_active_preset(cls) -> Optional[str]` *(class)* — The last-selected/applied preset name, or ``None``.
   - `MacroManager.set_active_preset(cls, name: Optional[str]) -> None` *(class)* — Set (or clear, with ``None``) the active-preset pointer.
   - `MacroManager.apply_saved_macros(cls, name: Optional[str] = None) -> None` *(class)* — Apply a saved preset/template's bindings on demand.
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L831)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+  - `MacroManager.editor_categories(cls) -> List[str]` *(class)* — Mixin-derived categories plus any custom category carried by the
+  - `MacroManager.get_editor_registry(cls, category: str) -> List[dict]` *(class)* — Editor-shaped entries for every macro in *category*.
+  - `MacroManager.apply_editor_binding(cls, name: str, sequence: str) -> None` *(class)* — Apply a Qt key sequence captured in the editor (``""`` clears).
+  - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
+  - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
+  - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1052)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--mirror"></a>
 ### `edit_utils/mirror.py`
@@ -1122,6 +1122,19 @@ Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
   - `SnapSlots.b002_init(self, widget)` — Initialize Snap to Grid button option box.
   - `SnapSlots.b002(self)` — Snap to Grid button.
 
+<a id="edit_utils--target_weld"></a>
+### `edit_utils/target_weld.py`
+
+Target Weld — interactive drag-a-vertex-onto-another merge tool.
+
+- [`project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]`](blendertk/blendertk/edit_utils/target_weld.py#L81) — Project ``coords`` (N,3) through the 4x4 ``mvp`` into pixel space.
+- [`pick_screen_point(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]`](blendertk/blendertk/edit_utils/target_weld.py#L107) — Index of the best pick candidate within ``radius`` px of ``mouse_xy``, or ``None``.
+- [`weld_position(src_co, tgt_co, merge_to_center: bool = False)`](blendertk/blendertk/edit_utils/target_weld.py#L134) — The merged vertex's final position: the target (Maya Target Weld) or the midpoint
+- [`dash_segments(p0, p1, dash: float = DASH_LEN, gap: float = GAP_LEN)`](blendertk/blendertk/edit_utils/target_weld.py#L142) — 2D dashed-line vertex pairs from ``p0`` to ``p1`` (flat list of (x, y) endpoints,
+- [`weld_pair(bm, v_src, v_tgt, merge_to_center: bool = False) -> None`](blendertk/blendertk/edit_utils/target_weld.py#L164) — Merge ``v_src`` into ``v_tgt`` on ``bm`` (both verts of the same BMesh;
+- [`target_weld(merge_to_center: bool = False) -> bool`](blendertk/blendertk/edit_utils/target_weld.py#L570) — Activate the interactive Target Weld tool (mirror of Maya's ``MergeVertexTool``).
+- **[`class TargetWeld`](blendertk/blendertk/edit_utils/target_weld.py#L619)** — Namespace class (mirror of the co-located-tool convention;
+
 <a id="env_utils--_env_utils"></a>
 ### `env_utils/_env_utils.py`
 
@@ -1161,8 +1174,8 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L171) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
-- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L181) — Import an FBX file;
+- [`export_selection_fbx(filepath=None, objects=None, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L176) — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
+- [`import_fbx(filepath, **fbx_opts)`](blendertk/blendertk/env_utils/fbx_utils.py#L186) — Import an FBX file;
 - **[`class FbxUtils`](blendertk/blendertk/env_utils/fbx_utils.py#L72)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
   - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
@@ -1307,6 +1320,21 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
   - `MayaBridge.params_defaults(self) -> Dict[str, Any]`
   - `MayaBridge.render_context(self, params: Dict[str, Any]) -> Dict[str, str]`
 
+<a id="env_utils--maya_bridge--_scene_import"></a>
+### `env_utils/maya_bridge/_scene_import.py`
+
+Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
+
+- [`mayapy_from_maya_exe(maya_exe: str) -> Optional[str]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L52) — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
+- [`import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L393) — Import a Maya scene (.ma/.mb) into the current Blender scene.
+- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L64)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+  - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
+  - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
+  - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
+  - `MayaSceneImport.render_script(self, src_path: str, out_fbx: str, *, embed_textures: bool = False, include_animation: bool = True) -> str` — Render the Maya-side conversion script (exposed for tests/preview).
+  - `MayaSceneImport.convert(self, src_path: str, out_fbx: str, *, timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'` — Convert *src_path* to *out_fbx* in a fresh ``mayapy`` (blocking).
+  - `MayaSceneImport.import_scene(self, src_path: str, *, cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, **script_opts: Any) -> List[Any]` — Import the Maya scene at *src_path*;
+
 <a id="env_utils--maya_bridge--maya_bridge_slots"></a>
 ### `env_utils/maya_bridge/maya_bridge_slots.py`
 
@@ -1327,6 +1355,15 @@ Registry of user-tunable Maya-bridge parameters exposed to the panel.
 - [`referenced_keys(script_text: str) -> 'set[str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L106) — Registered keys present in *script_text* (delegates to uitk.bridge).
 - [`defaults() -> 'dict[str, Any]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L111) — Return ``{key: default}`` for every registered parameter.
 - [`render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L116) — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
+
+<a id="env_utils--maya_bridge--templates--_import_scene"></a>
+### `env_utils/maya_bridge/templates/_import_scene.py`
+
+Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
+
+- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L248) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
+- [`write_texture_manifest(entries, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L310) — Sidecar for the textures FBX cannot carry, consumed by MayaSceneImport.
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L323)
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
@@ -1422,13 +1459,20 @@ Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of
 
 Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 
-- [`show(*args, **kwargs) -> ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L312) — Open the Script Output console (idempotent — re-opens a torn-down instance).
-- [`hide(*args, **kwargs) -> None`](blendertk/blendertk/env_utils/script_output.py#L322) — Close the Script Output console if open.
-- [`toggle(*args, **kwargs)`](blendertk/blendertk/env_utils/script_output.py#L329) — Toggle the Script Output console open/closed.
-- **[`class ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L32)** — Singleton host: a native Info-Log anchor window skinned with ``uitk.ScriptOutput``.
-  - `ScriptConsole.open(self) -> 'ScriptConsole'` — Open the console: native anchor + (where supported) the Qt skin + redirect.
-  - `ScriptConsole.close(self) -> None` — Fully tear down: skin, redirect, timer, and the anchor window.
+- [`show(*args, **kwargs) -> ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L516) — Dock + show the Script Output console (reuses the persistent instance/widget if one
+- [`hide(*args, **kwargs) -> None`](blendertk/blendertk/env_utils/script_output.py#L522) — Undock + hide the Script Output console (capture keeps running in the background).
+- [`toggle(*args, **kwargs)`](blendertk/blendertk/env_utils/script_output.py#L527) — Toggle the Script Output console shown/hidden.
+- [`begin_capture() -> ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L536) — Start the stdout/stderr/logging capture now (idempotent; UI-free).
+- [`restore() -> ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L542) — Start capture and re-open the console if it was open when the previous session
+- **[`class ScriptConsole`](blendertk/blendertk/env_utils/script_output.py#L222)** — Singleton orchestrator: capture + native-docked ``uitk.ScriptOutput``, with the
+  - `ScriptConsole.instance(cls) -> 'ScriptConsole'` *(class)*
+  - `ScriptConsole.widget(self)` *(property)* — The live ``uitk.ScriptOutput`` (or None) — for tests/diagnostics.
+  - `ScriptConsole.begin_capture(self) -> 'ScriptConsole'` — Start recording stdout/stderr/logging into the transcript buffer NOW (idempotent).
+  - `ScriptConsole.restore(self) -> 'ScriptConsole'` — Reinstate the previous session's console — the Blender analogue of Maya's
+  - `ScriptConsole.show(self) -> 'ScriptConsole'` — Dock the console into the main window and persist visible=True.
+  - `ScriptConsole.hide(self) -> None` — Undock (persisting the user's strip height) and persist visible=False.
   - `ScriptConsole.is_open(self) -> bool`
+  - `ScriptConsole.teardown(self) -> None` — Full un-install for a HOST RELOAD (``tb.reload()``): undock the area, drop the
 
 <a id="env_utils--unity_bridge--_unity_bridge"></a>
 ### `env_utils/unity_bridge/_unity_bridge.py`
@@ -2257,12 +2301,21 @@ Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui
 
 UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 
-- [`get_editor_types()`](blendertk/blendertk/ui_utils/_ui_utils.py#L40) — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
-- [`open_editor(editor, properties_context=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L45) — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
-- [`menu_exists(menu_idname)`](blendertk/blendertk/ui_utils/_ui_utils.py#L75) — True if ``menu_idname`` (e.g.
-- [`dispatch_log_link(url, logger=None) -> bool`](blendertk/blendertk/ui_utils/_ui_utils.py#L86) — Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
-- [`call_native_menu(menu_idname)`](blendertk/blendertk/ui_utils/_ui_utils.py#L170) — Pop Blender's own native menu ``menu_idname`` (e.g.
-- **[`class UiUtils`](blendertk/blendertk/ui_utils/_ui_utils.py#L195)** — Namespace mirror (helpers also exposed module-level).
+- [`get_editor_types()`](blendertk/blendertk/ui_utils/_ui_utils.py#L41) — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
+- [`open_editor(editor, properties_context=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L66) — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
+- [`main_window()`](blendertk/blendertk/ui_utils/_ui_utils.py#L125) — The main Blender window (the first;
+- [`find_editor(editor, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L138) — Open areas showing ``editor`` (friendly name or raw ``ui_type``) as ``(window, area)`` pairs.
+- [`close_area(window, area)`](blendertk/blendertk/ui_utils/_ui_utils.py#L153) — Close exactly ``area`` in ``window`` via ``screen.area_close``;
+- [`close_editor(editor, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L178) — Close every open area showing ``editor`` in the (main) window;
+- [`dock_editor(editor, edge_size=70, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L198) — Dock ``editor`` as a strip along the bottom of the main 3D viewport — the Blender analogue
+- [`toggle_editor(editor, edge_size=70, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L242) — Maya-style *docked* toggle for ``editor`` (backs the editors-menu Time & Range button).
+- [`toggle_fullscreen_area(editor=None, hide_panels=True, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L343) — Toggle fullscreen-area mode — one editor fills the window (Ctrl+Alt+Space).
+- [`toggle_window_bars(visible=None, window=None)`](blendertk/blendertk/ui_utils/_ui_utils.py#L393) — Show/hide the main window's topbar (File/Edit/Render… menus + workspace tabs) and
+- [`menu_exists(menu_idname)`](blendertk/blendertk/ui_utils/_ui_utils.py#L461) — True if ``menu_idname`` (e.g.
+- [`dispatch_log_link(url, logger=None) -> bool`](blendertk/blendertk/ui_utils/_ui_utils.py#L472) — Handle ``action://`` links emitted by ``logger.log_link()`` in a QTextBrowser.
+- [`call_native_menu(menu_idname)`](blendertk/blendertk/ui_utils/_ui_utils.py#L556) — Pop Blender's own native menu ``menu_idname`` (e.g.
+- [`popup_message(text, title='Info', icon='INFO')`](blendertk/blendertk/ui_utils/_ui_utils.py#L582) — Show a small native Blender info popup at the cursor (multi-line ``text`` supported).
+- **[`class UiUtils`](blendertk/blendertk/ui_utils/_ui_utils.py#L612)** — Namespace mirror (helpers also exposed module-level).
 
 <a id="ui_utils--blender_bridge_slots"></a>
 ### `ui_utils/blender_bridge_slots.py`
@@ -2275,11 +2328,12 @@ Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 <a id="ui_utils--blender_native_menus"></a>
 ### `ui_utils/blender_native_menus.py`
 
-Symbolic-name -> Blender native-menu resolution for the both-button chord menu.
+Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 
-- **[`class BlenderNativeMenus`](blendertk/blendertk/ui_utils/blender_native_menus.py#L19)** — Resolve the chord menu's symbolic node names to Blender ``*_MT_*`` menu idnames.
-  - `BlenderNativeMenus.names(cls)` *(class)* — Every symbolic node name this handler resolves (mapping keys + Select).
-  - `BlenderNativeMenus.resolve(cls, name)` *(class)* — The Blender menu idname for symbolic ``name`` (mode-aware for Select), or ``None``.
+- **[`class BlenderNativeMenus(ptk.LoggingMixin)`](blendertk/blendertk/ui_utils/blender_native_menus.py#L21)** — Resolve the chord menu's symbolic node names to Blender ``*_MT_*`` menu idnames.
+  - `BlenderNativeMenus.names(cls)` *(class)* — Every symbolic node name this handler resolves (mapping + mode-adaptive keys).
+  - `BlenderNativeMenus.resolve(cls, name)` *(class)* — The Blender menu idname for symbolic ``name`` (mode-aware for Select / Rig), or
+  - `BlenderNativeMenus.get_menu(self, name)` — Build (or refresh) the Qt clone of native menu ``name``;
 
 <a id="ui_utils--blender_ui_handler"></a>
 ### `ui_utils/blender_ui_handler.py`
@@ -2287,22 +2341,26 @@ Symbolic-name -> Blender native-menu resolution for the both-button chord menu.
 - **[`class BlenderUiHandler(UiHandler)`](blendertk/blendertk/ui_utils/blender_ui_handler.py#L10)** — UI Handler for Blender applications.
   - `BlenderUiHandler.instance(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'` *(class)* — Return the BlenderUiHandler singleton, bootstrapping if needed.
   - `BlenderUiHandler.can_resolve(self, name: str) -> bool` — Recognise the native Blender menus this handler wraps on demand.
-  - `BlenderUiHandler.show(self, ui, pos=None, force: bool = False, **kwargs)` — Pop the wrapped Blender menu when ``ui`` resolves to a native-menu proxy;
+  - `BlenderUiHandler.show(self, ui, pos=None, force: bool = False, **kwargs)` — Swap a native-menu proxy for its wrapped, freshly-harvested menu window;
   - `BlenderUiHandler.apply_styles(self, ui, style=None)` — Give blendertk-sourced tool panels a hide button instead of a pin.
 
 <a id="ui_utils--blender_window"></a>
 ### `ui_utils/blender_window.py`
 
-Native-window geometry helpers for hosting a Qt overlay over a Blender window.
+Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 
-- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L31)** — Static win32 helpers for GHOST-window enumeration, geometry and ownership.
+- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L33)** — Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.
   - `BlenderWindow.process_ghost_hwnds(cls)` *(class)* — List of visible GHOST-window HWNDs owned by THIS process (``[]`` off-Windows).
-  - `BlenderWindow.new_ghost_hwnd(cls, before)` *(class)* — The single GHOST HWND present now but not in ``before`` (a set/list), else None.
+  - `BlenderWindow.window_hwnd(cls, bpy_window)` *(class)* — The GHOST hwnd of a SPECIFIC already-open ``bpy.types.Window``, or None.
   - `BlenderWindow.is_window(cls, hwnd) -> bool` *(class)*
-  - `BlenderWindow.is_iconic(cls, hwnd) -> bool` *(class)* — True if ``hwnd`` is minimized (skin should hide to follow it).
   - `BlenderWindow.client_origin(cls, hwnd)` *(class)* — Screen (x, y) of the window's client-area top-left, or None.
   - `BlenderWindow.client_size(cls, hwnd)` *(class)* — (width, height) of the window's client area in physical pixels, or None.
-  - `BlenderWindow.region_screen_rect(cls, hwnd, region, dpr: float = 1.0)` *(class)* — Map a bpy ``region`` inside GHOST window ``hwnd`` to a Qt-logical screen rect.
+  - `BlenderWindow.region_client_rect(cls, hwnd, region)` *(class)* — Map a bpy ``region`` inside GHOST window ``hwnd`` to a parent-CLIENT rect.
+  - `BlenderWindow.set_clip_children(cls, hwnd) -> bool` *(class)* — Set ``WS_CLIPCHILDREN`` on ``hwnd`` (idempotent);
+  - `BlenderWindow.move_child(cls, hwnd, rect) -> bool` *(class)* — Place child window ``hwnd`` at ``rect`` = (x, y, w, h) in its parent's client
+  - `BlenderWindow.keyboard_focus(cls)` *(class)* — ``GetFocus()`` — the hwnd receiving this thread's keystrokes, or 0/None.
+  - `BlenderWindow.cursor_over(cls, hwnd) -> bool` *(class)* — True when the pointer is over ``hwnd`` (or one of its child windows).
+  - `BlenderWindow.set_keyboard_focus(cls, hwnd) -> bool` *(class)* — ``SetFocus(hwnd)`` — route this thread's keystrokes to ``hwnd``;
   - `BlenderWindow.set_owner(cls, widget, owner_hwnd)` *(class)* — Make Qt ``widget`` an *owned* window of ``owner_hwnd`` (``GWLP_HWNDPARENT``).
 
 <a id="ui_utils--calculator"></a>
@@ -2328,6 +2386,30 @@ Calculator tool panel — Switchboard slot wiring for the co-located ``calculato
   - `CalculatorSlots.get_current_time(self)`
   - `CalculatorSlots.frames_to_sec(self)`
   - `CalculatorSlots.sec_to_frames(self)`
+
+<a id="ui_utils--menu_harvest"></a>
+### `ui_utils/menu_harvest.py`
+
+Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
+
+- [`harvest_menu(idname)`](blendertk/blendertk/ui_utils/menu_harvest.py#L173) — Execute ``idname``'s ``draw`` against a recorder;
+- [`invoke_operator(op_idname, props=None)`](blendertk/blendertk/ui_utils/menu_harvest.py#L214) — Run an operator one timer tick later, ``INVOKE_DEFAULT``, under a VIEW_3D override.
+- [`refill_qmenu(qmenu, idname)`](blendertk/blendertk/ui_utils/menu_harvest.py#L257) — Rebuild ``qmenu``'s actions from a fresh harvest of ``idname``;
+
+<a id="ui_utils--qt_dock"></a>
+### `ui_utils/qt_dock.py`
+
+Dock any Qt widget into a native Blender area — a true child window, not an overlay.
+
+- **[`class QtDock`](blendertk/blendertk/ui_utils/qt_dock.py#L56)** — Host a Qt widget as the body of a true docked Blender area.
+  - `QtDock.supported(cls) -> bool` *(class)* — True when embedding can work here: Windows + a live QApplication.
+  - `QtDock.docked(self) -> bool` *(property)* — True while the widget is embedded over a LIVE docked area — a user closing/
+  - `QtDock.widget(self)` *(property)* — The hosted widget (or None) — for callers/tests.
+  - `QtDock.area(self)` *(property)* — Our docked ``bpy.types.Area`` (or None).
+  - `QtDock.content_region(self)` — The WINDOW (content) region of our area, or None when the area is gone —
+  - `QtDock.dock(self, widget, height: Optional[int] = None) -> bool` — Dock ``widget``: create/dock the placeholder area, embed the widget as a
+  - `QtDock.undock(self) -> None` — Release the widget (un-parent to a hidden top-level, ready to re-dock) and
+  - `QtDock.teardown(self) -> None` — Full uninstall for a host reload: :meth:`undock` + drop the widget reference.
 
 <a id="ui_utils--style_setter--_style_setter"></a>
 ### `ui_utils/style_setter/_style_setter.py`

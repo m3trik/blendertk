@@ -6,7 +6,7 @@ subsurf) are verified on real geometry. Key-spec parsing is pure logic.
 
 Run: blender --background --factory-startup --python blendertk/test/test_macros.py
 """
-import sys, os, traceback
+import sys, os, shutil, tempfile, traceback, inspect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -14,6 +14,17 @@ MONO = os.path.dirname(REPO)
 for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+# Isolate PresetStore's user tier in a scratch dir for this run — never touch the real
+# %LOCALAPPDATA%/uitk store (pythontk.core_utils.user_config.user_config_root honors this).
+# The 12b round-trip below calls save_preset/delete_preset, which MOVE the `.active`
+# pointer as a side effect (save sets it; delete clears the now-dangling name). Against
+# the live tier that silently wipes the artist's active macro preset, and the next launch
+# resolves `active or DEFAULT_PRESET` to the shipped all-unbound 'default' — every macro
+# hotkey dead, with nothing logged. Mirrors mayatk's `_TempPresetRoot` mixin and
+# test_scene_exporter.py's sandbox.
+_PRESETS_ROOT = tempfile.mkdtemp(prefix="btk_macro_presets_")
+os.environ["UITK_PRESETS_ROOT"] = _PRESETS_ROOT
 
 lines = []
 def check(name, cond, detail=""):
@@ -34,13 +45,20 @@ try:
     # 1. Every macro named in the Maya userSetup spec exists on the Blender Macros class.
     expected = [
         "m_back_face_culling", "m_isolate_selected", "m_wireframe", "m_shading", "m_lighting",
-        "m_grid_and_image_planes", "m_cycle_display_state", "m_smooth_preview", "m_multi_component",
+        "m_grid", "m_grid_and_image_planes", "m_cycle_display_state", "m_smooth_preview", "m_multi_component",
         "m_frame", "m_object_selection", "m_vertex_selection", "m_edge_selection", "m_face_selection",
         "m_invert_selection", "m_paste_and_rename", "m_toggle_panels", "m_toggle_UV_select_type",
         "m_merge_vertices", "m_group", "m_set_selected_keys", "m_unset_selected_keys",
     ]
     missing = [m for m in expected if not callable(getattr(M, m, None))]
     check("all userSetup macros present", not missing, str(missing))
+
+    # 1b. The preset sandbox is actually in effect. Guards the whole file: the 12b
+    #     round-trip moves the `.active` pointer, so if this store ever resolves to the
+    #     live user tier again, running the suite silently unbinds the artist's macros.
+    _user_dir = str(M._preset_store().user_dir)
+    check("preset store user tier is sandboxed (not the live %LOCALAPPDATA%/uitk store)",
+          _user_dir.startswith(_PRESETS_ROOT), _user_dir)
 
     # 2. Key-spec translation (pure logic).
     check("digit key -> ONE", M._blender_key("1") == "ONE")
@@ -169,15 +187,101 @@ try:
     bpy.ops.mesh.primitive_cube_add(); bpy.context.active_object.select_set(True)
     try:
         for fn in (M.m_back_face_culling, M.m_wireframe, M.m_shading, M.m_lighting,
-                   M.m_grid_and_image_planes, M.m_isolate_selected, M.m_frame,
+                   M.m_grid, M.m_grid_and_image_planes, M.m_isolate_selected, M.m_frame,
                    M.m_toggle_panels, M.m_toggle_UV_select_type, M.m_paste_and_rename):
             fn()
         check("viewport macros no-op safely headless", True)
     except Exception as e:
         check("viewport macros no-op safely headless", False, repr(e))
 
-    # 11. Management API (MacroManagerSlots' single source of truth) — pure introspection,
-    # no bpy required for these, but exercised here alongside the rest of the engine.
+    # 10d. m_grid toggles the floor grid (+ its axis lines) and RETURNS the applied state;
+    # m_grid_and_image_planes drives that SAME toggle — the grid leads and the image-empties
+    # follow it. mayatk's counterpart used to let the image planes lead, with cmds.grid called
+    # from inside the image-plane loop, so a scene with none left the grid untouched entirely.
+    reset_scene()
+    _area, space = M._view3d()
+    if space:
+        space.overlay.show_floor = True
+        state = M.m_grid()
+        check("m_grid toggles the floor grid + axes off, returning the applied state",
+              state is False and space.overlay.show_floor is False
+              and space.overlay.show_axis_x is False and space.overlay.show_axis_y is False,
+              f"returned {state!r}")
+        state = M.m_grid()
+        check("m_grid toggles the grid back on",
+              state is True and space.overlay.show_floor is True)
+
+        img = bpy.data.objects.new("ref_img", None)
+        img.empty_display_type = "IMAGE"
+        bpy.context.scene.collection.objects.link(img)
+
+        space.overlay.show_floor = True
+        M.m_grid_and_image_planes()
+        check("grid leads: image-empties follow it OFF",
+              space.overlay.show_floor is False and img.hide_viewport is True)
+        M.m_grid_and_image_planes()
+        check("grid leads: image-empties follow it ON",
+              space.overlay.show_floor is True and img.hide_viewport is False)
+
+        # The no-image-plane case is the regression itself: the grid must still toggle.
+        reset_scene()
+        space.overlay.show_floor = True
+        M.m_grid_and_image_planes()
+        check("grid toggles with NO image planes in the scene",
+              space.overlay.show_floor is False)
+        space.overlay.show_floor = True
+    else:
+        check("m_grid toggles the floor grid + axes off, returning the applied state", False, "no VIEW_3D")
+
+    # 10b. m_toggle_panels' menu-bar half (btk.toggle_window_bars) is GUI-only — the topbar is a
+    # global area that --background has no window for. Headless the bars sit out and the viewport
+    # regions must still lead themselves (their pre-bars behavior), so the macro stays useful in
+    # every context. The bars<->regions sync itself is GUI-proven in fullscreen_area_gui_check.py.
+    _area, space = M._view3d()
+    if space:
+        space.show_region_header = True
+        M.m_toggle_panels()
+        check("m_toggle_panels: regions lead when the bars sit out (headless)",
+              space.show_region_header is False
+              and space.show_region_toolbar is False
+              and space.show_region_ui is False)
+        M.m_toggle_panels()
+        check("m_toggle_panels: regions toggle back", space.show_region_header is True)
+        # toggle_panels=False -> regions untouched (the bars-only half; no-op headless)
+        M.m_toggle_panels(toggle_panels=False)
+        check("m_toggle_panels(toggle_panels=False) leaves the regions alone",
+              space.show_region_header is True)
+        # toggle_menu=False -> the pre-bars behavior, regions only
+        M.m_toggle_panels(toggle_menu=False)
+        check("m_toggle_panels(toggle_menu=False) still toggles the regions",
+              space.show_region_header is False)
+        space.show_region_header = True
+    else:
+        check("m_toggle_panels: regions lead when the bars sit out (headless)", False, "no VIEW_3D")
+
+    # 10c. m_toggle_panels sits out with no context window rather than crashing: assigning
+    # show_region_* bare fires ED_area_init, which dereferences it (a hard crash = the user's
+    # unsaved scene). Forced via temp_override(window=None), the same way test_bridges.py
+    # reproduces the windowless Qt-timer context.
+    if space:
+        space.show_region_header = True
+        try:
+            with bpy.context.temp_override(window=None):
+                M.m_toggle_panels()
+            check("m_toggle_panels no-ops (no crash) with no context window",
+                  space.show_region_header is True)
+        except Exception as e:
+            check("m_toggle_panels no-ops (no crash) with no context window", False, repr(e))
+
+    # Signature parity with mayatk's m_toggle_panels(toggle_menu=True, toggle_panels=True).
+    _sig = inspect.signature(M.m_toggle_panels).parameters
+    check("m_toggle_panels mirrors mayatk's toggle_menu/toggle_panels defaults",
+          _sig["toggle_menu"].default is True and _sig["toggle_panels"].default is True,
+          str(dict(_sig)))
+
+    # 11. Management API (the single source of truth behind the Macro Manager
+    # editor, ``Macros.show_editor``) — pure introspection, no bpy required for
+    # these, but exercised here alongside the rest of the engine.
     available = M.list_available_macros()
     check("list_available_macros finds every m_* macro", set(expected) <= set(available), str(sorted(available)))
     check("macro_label humanizes + preserves acronyms",
@@ -275,6 +379,8 @@ try:
 except Exception as e:
     traceback.print_exc()
     check("macros test raised", False, repr(e))
+
+shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
 
 passed = sum(1 for line in lines if line.startswith("OK"))
 for line in lines:

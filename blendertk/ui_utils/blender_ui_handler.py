@@ -19,14 +19,16 @@ class BlenderUiHandler(UiHandler):
     tentacle, mirroring the mayatk/tentacle split.
 
     Like ``MayaUiHandler``, it also **wraps the DCC's own native menus** for the both-button
-    chord menu (``ui/blender_menus`` — the mirror of ``ui/maya_menus``). Maya harvests the live
-    ``QAction`` rows into a floating Qt window; Blender draws its UI in OpenGL (no ``QAction``s to
-    harvest), so the faithful wrap is to invoke Blender's real menu via ``btk.call_native_menu``.
-    The mechanism is otherwise identical to Maya's: a bare ``MenuButton`` target (``"mesh"``,
-    ``"select"``, …) resolves through :meth:`can_resolve` (membership in
-    :class:`BlenderNativeMenus`), and :meth:`show` pops the native menu instead of a Qt window.
-    See :meth:`_register_native_menu_proxies` for how the resolution is wired through the shared
-    switchboard's ``get_ui`` (which resolves names via ``loaded_ui``, never the handler directly).
+    chord menu (``ui/blender_menus`` — the mirror of ``ui/maya_menus``). Maya lifts the live
+    ``QAction`` rows off its menu bar; Blender draws its menus in OpenGL, so
+    :class:`BlenderNativeMenus` *harvests* the menu's Python ``draw`` into an equivalent
+    ``QMenu`` (:mod:`blendertk.ui_utils.menu_harvest`). Hosting is then identical to Maya's:
+    a bare ``MenuButton`` target (``"mesh"``, ``"select"``, …) resolves through
+    :meth:`can_resolve`, and :meth:`show` presents the wrapped menu in a Switchboard
+    ``MainWindow`` — pin header, hides on ``key_show`` release, exactly like the other
+    marking-menu windows. See :meth:`_register_native_menu_proxies` for how the resolution is
+    wired through the shared switchboard's ``get_ui`` (which resolves names via ``loaded_ui``,
+    never the handler directly).
     """
 
     def __init__(
@@ -111,8 +113,10 @@ class BlenderUiHandler(UiHandler):
         ``_cached_ui`` -> ``sb.get_ui``) to return it. Each proxy is an empty, never-shown
         ``MainWindow`` tagged ``{"blender", "menu"}`` (so the marking menu treats it as a
         standalone target, not a stacked submenu) carrying the symbolic name on
-        :attr:`_NATIVE_MENU_ATTR`; :meth:`show` reads that and pops the real Blender menu instead
-        of showing the empty window. Cheap (no content), and skipped if a name is already loaded.
+        :attr:`_NATIVE_MENU_ATTR`; :meth:`show` reads that and presents the wrapped, harvested
+        menu (:meth:`_wrap_native_menu`), which populates the blank proxy in place on first use
+        — the window's identity never changes. Cheap (no content), and skipped if a name is
+        already loaded.
 
         The proxies are pinned in ``self._native_menu_proxies`` because ``loaded_ui`` holds only
         *weak* references — the same reason ``MayaNativeMenus`` keeps its wrappers in ``.menus``.
@@ -133,13 +137,14 @@ class BlenderUiHandler(UiHandler):
             self._native_menu_proxies[name] = proxy
 
     def show(self, ui, pos=None, force: bool = False, **kwargs):
-        """Pop the wrapped Blender menu when ``ui`` resolves to a native-menu proxy; else default show.
+        """Swap a native-menu proxy for its wrapped, freshly-harvested menu window; else default show.
 
         The both-button menu's release dispatch calls ``ui_handler.show(proxy)`` (via
-        ``MarkingMenu._show_window``). For a native-menu proxy this must NOT show the empty Qt
-        window — it pops Blender's own menu (``wm.call_menu``) and returns. Any other UI (a
-        blendertk tool panel) goes through the normal :class:`UiHandler` show. A name string is
-        resolved first, so a direct ``show("mesh")`` pops the menu too (not the empty proxy).
+        ``MarkingMenu._show_window``). For a native-menu proxy the shown window is the wrapped
+        Qt clone of Blender's menu — built on first use, content re-harvested every show so it
+        tracks the live mode — presented through the normal :class:`UiHandler` show like any
+        other marking-menu window (pin header, hides on ``key_show`` release; Maya parity).
+        A name string is resolved first, so a direct ``show("mesh")`` works too.
         """
         if isinstance(ui, str):
             ui = self.get(ui, **kwargs)
@@ -147,34 +152,84 @@ class BlenderUiHandler(UiHandler):
             return None
         name = getattr(ui, self._NATIVE_MENU_ATTR, None)
         if name is not None:
-            self._pop_native_menu(name)
-            return ui
+            ui = self._wrap_native_menu(name)
+            if ui is None:
+                return None
         return super().show(ui, pos=pos, force=force, **kwargs)
 
-    @staticmethod
-    def _pop_native_menu(name: str) -> None:
-        """Pop the native Blender menu for symbolic ``name``, one timer tick later.
+    def _wrap_native_menu(self, name: str):
+        """The Switchboard window hosting the Qt clone of native menu ``name``, content fresh.
 
-        Deferred a tick (as the old slot path was) so the Qt overlay has hidden and OS focus has
-        returned to Blender before ``wm.call_menu`` — otherwise the popup lands behind the
-        always-on-top overlay. ``bpy`` is imported here (show time only), so construction /
-        resolution stay Blender-free.
+        The Blender mirror of ``MayaUiHandler._load_maya_ui``, with one deliberate twist:
+        the window IS the pre-registered proxy, populated in place on first use
+        (``MainWindow.setCentralWidget`` is designed for set-or-change). The window's
+        identity must never change — the marking menu's ``_show_window`` holds the object it
+        resolved from ``loaded_ui`` and raises/activates *it* on a deferred timer after this
+        returns; swapping in a different window would leave that timer targeting a dead blank
+        proxy. When the menu can't be built right now (a mode-dependent draw outside its
+        mode), falls back to the hand-authored ``<name>#submenu`` overlay — Maya's exact
+        fallback — or ``None`` when no overlay is registered.
         """
-        import bpy
-        import blendertk as btk
+        if not hasattr(self, "_blender_native_menus"):
+            self._blender_native_menus = BlenderNativeMenus()
 
-        idname = BlenderNativeMenus.resolve(name)
-        if not idname:
-            return
-
-        def _deferred():
+        widget = self._blender_native_menus.get_menu(name)
+        if widget is None:
+            overlay = f"{name}#submenu"
             try:
-                btk.call_native_menu(idname)
-            except Exception:
-                pass
-            return None  # one-shot
+                if self.sb.is_registered_ui(overlay):
+                    fallback = self.sb.get_ui(overlay)
+                    if fallback is not None:
+                        self.logger.debug(
+                            f"[{name}] Native menu unavailable; "
+                            f"falling back to '{overlay}' overlay."
+                        )
+                        return fallback
+            except Exception as e:  # noqa: BLE001 - fallback must never raise
+                self.logger.debug(f"[{name}] Overlay fallback failed: {e}")
+            return None
 
-        bpy.app.timers.register(_deferred, first_interval=0.05)
+        window = self._native_menu_proxies.get(name)
+        if window is None:
+            # Defensive: names() and the proxy registration cover the same set, so this
+            # only runs if a caller invented a name — register it the same way.
+            window = self.sb.add_ui(
+                name=name,
+                tags={"blender", "menu"},
+                add_footer=False,
+                restore_window_size=False,
+            )
+            setattr(window, self._NATIVE_MENU_ATTR, name)
+            self._native_menu_proxies[name] = window
+
+        if window.centralWidget() is not widget:
+            # First use: give the blank proxy its content + Maya's header/styles pipeline.
+            # A raise mid-setup must not leave a half-dressed window that every later show
+            # returns — strip the content again and fail soft (next show retries).
+            try:
+                window.setCentralWidget(widget)
+                window.set_flags(Window=True)
+                window.header = self.sb.registered_widgets.Header()
+                window.header.setTitle(name.upper())
+                window.header.attach_to(window.centralWidget())
+                window.style.set(window.header, "dark", "Header")
+                window.edit_tags(add="blender_menu")
+                self.apply_styles(window)
+            except Exception as e:
+                self.logger.error(
+                    f"[{name}] Wrapper setup failed; stripping the half-built content: "
+                    f"{type(e).__name__}: {e}"
+                )
+                try:
+                    window.takeCentralWidget()
+                except Exception:  # noqa: BLE001 - unwind is best-effort
+                    pass
+                self._blender_native_menus.menus.pop(name, None)
+                widget.deleteLater()
+                return None
+
+        widget.fit_to_window()
+        return window
 
     def apply_styles(self, ui, style=None):
         """Give blendertk-sourced tool panels a hide button instead of a pin.

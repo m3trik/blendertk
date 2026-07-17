@@ -344,13 +344,9 @@ _Generated: 2026-07-17_
 - `class DynamicPipeSlots(ptk.LoggingMixin)`
   - methods: header_init, b000
 
-### `edit_utils/macro_manager/macro_manager_slots.py` — UI slots for the Macro Manager panel — Blender port of mayatk's
-- `class MacroManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, tbl000_init
-
 ### `edit_utils/macros.py` — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - `class DisplayMacros(_ViewportMixin)`
-  - methods: m_back_face_culling, m_isolate_selected, m_wireframe, m_shading, m_lighting, m_grid_and_image_planes, m_cycle_display_state, m_smooth_preview, m_frame
+  - methods: m_back_face_culling, m_isolate_selected, m_wireframe, m_shading, m_lighting, m_grid, m_grid_and_image_planes, m_cycle_display_state, m_smooth_preview, m_frame
 - `class EditMacros(_ViewportMixin)`
   - methods: m_multi_component, m_paste_and_rename, m_merge_vertices, m_group
 - `class SelectionMacros`
@@ -360,7 +356,7 @@ _Generated: 2026-07-17_
 - `class AnimationMacros`
   - methods: m_set_selected_keys, m_unset_selected_keys
 - `class MacroManager`
-  - methods: set_macros, call_with_input, set_macro, remove_macros, list_available_macros, macro_label, macro_category, list_categories, macro_help, get_current_bindings, apply_bindings, clear_hotkey, find_conflicts, qt_sequence_to_maya_key, maya_key_to_qt_sequence, list_presets, load_preset, save_preset, delete_preset, get_active_preset, set_active_preset, apply_saved_macros
+  - methods: set_macros, call_with_input, set_macro, remove_macros, list_available_macros, macro_label, macro_category, list_categories, macro_help, get_current_bindings, apply_bindings, clear_hotkey, find_conflicts, qt_sequence_to_maya_key, maya_key_to_qt_sequence, list_presets, load_preset, save_preset, delete_preset, get_active_preset, set_active_preset, apply_saved_macros, editor_categories, get_editor_registry, apply_editor_binding, export_bindings, import_bindings, show_editor
 - `class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`
 
 ### `edit_utils/mirror.py` — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
@@ -382,6 +378,15 @@ _Generated: 2026-07-17_
 ### `edit_utils/snap.py` — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 - `class SnapSlots(ptk.LoggingMixin)`
   - methods: header_init, b000_init, b000, b001_init, b001, b002_init, b002
+
+### `edit_utils/target_weld.py` — Target Weld — interactive drag-a-vertex-onto-another merge tool.
+- `project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]`
+- `pick_screen_point(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]`
+- `weld_position(src_co, tgt_co, merge_to_center: bool = False)`
+- `dash_segments(p0, p1, dash: float = DASH_LEN, gap: float = GAP_LEN)`
+- `weld_pair(bm, v_src, v_tgt, merge_to_center: bool = False) -> None`
+- `target_weld(merge_to_center: bool = False) -> bool`
+- `class TargetWeld`
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `find_blend_files(root_dir, recursive=True, filter_text='')`
@@ -452,6 +457,12 @@ _Generated: 2026-07-17_
 - `class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`
   - methods: maya_path, params_defaults, render_context
 
+### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
+- `mayapy_from_maya_exe(maya_exe: str) -> Optional[str]`
+- `import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`
+- `class MayaSceneImport(ptk.LoggingMixin)`
+  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene
+
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, b000
@@ -460,6 +471,11 @@ _Generated: 2026-07-17_
 - `referenced_keys(script_text: str) -> 'set[str]'`
 - `defaults() -> 'dict[str, Any]'`
 - `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+
+### `env_utils/maya_bridge/templates/_import_scene.py` — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
+- `fbx_safe_materials(cmds)`
+- `write_texture_manifest(entries, path)`
+- `main()`
 
 ### `env_utils/maya_bridge/templates/import.py` — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 - `main()`
@@ -484,8 +500,10 @@ _Generated: 2026-07-17_
 - `show(*args, **kwargs) -> ScriptConsole`
 - `hide(*args, **kwargs) -> None`
 - `toggle(*args, **kwargs)`
+- `begin_capture() -> ScriptConsole`
+- `restore() -> ScriptConsole`
 - `class ScriptConsole`
-  - methods: open, close, is_open
+  - methods: instance, widget, begin_capture, restore, show, hide, is_open, teardown
 
 ### `env_utils/unity_bridge/_unity_bridge.py` — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 - `list_delivery_modes() -> List[Tuple[str, str]]`
@@ -817,32 +835,50 @@ _Generated: 2026-07-17_
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - `get_editor_types()`
 - `open_editor(editor, properties_context=None)`
+- `main_window()`
+- `find_editor(editor, window=None)`
+- `close_area(window, area)`
+- `close_editor(editor, window=None)`
+- `dock_editor(editor, edge_size=70, window=None)`
+- `toggle_editor(editor, edge_size=70, window=None)`
+- `toggle_fullscreen_area(editor=None, hide_panels=True, window=None)`
+- `toggle_window_bars(visible=None, window=None)`
 - `menu_exists(menu_idname)`
 - `dispatch_log_link(url, logger=None) -> bool`
 - `call_native_menu(menu_idname)`
+- `popup_message(text, title='Info', icon='INFO')`
 - `class UiUtils`
 
 ### `ui_utils/blender_bridge_slots.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
   - methods: default_output_dir
 
-### `ui_utils/blender_native_menus.py` — Symbolic-name -> Blender native-menu resolution for the both-button chord menu.
-- `class BlenderNativeMenus`
-  - methods: names, resolve
+### `ui_utils/blender_native_menus.py` — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
+- `class BlenderNativeMenus(ptk.LoggingMixin)`
+  - methods: names, resolve, get_menu
 
 ### `ui_utils/blender_ui_handler.py`
 - `class BlenderUiHandler(UiHandler)`
   - methods: instance, can_resolve, show, apply_styles
 
-### `ui_utils/blender_window.py` — Native-window geometry helpers for hosting a Qt overlay over a Blender window.
+### `ui_utils/blender_window.py` — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - `class BlenderWindow`
-  - methods: process_ghost_hwnds, new_ghost_hwnd, is_window, is_iconic, client_origin, client_size, region_screen_rect, set_owner
+  - methods: process_ghost_hwnds, window_hwnd, is_window, client_origin, client_size, region_client_rect, set_clip_children, move_child, keyboard_focus, cursor_over, set_keyboard_focus, set_owner
 
 ### `ui_utils/calculator.py` — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
 - `class CalculatorController`
   - methods: calculate, convert_unit, get_fps_value, get_current_time, frames_to_sec, sec_to_frames
 - `class CalculatorSlots(ptk.LoggingMixin)`
   - methods: header_init, on_input, on_clear, on_backspace, on_equal, on_convert_units, get_fps, get_current_time, frames_to_sec, sec_to_frames
+
+### `ui_utils/menu_harvest.py` — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
+- `harvest_menu(idname)`
+- `invoke_operator(op_idname, props=None)`
+- `refill_qmenu(qmenu, idname)`
+
+### `ui_utils/qt_dock.py` — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
+- `class QtDock`
+  - methods: supported, docked, widget, area, content_region, dock, undock, teardown
 
 ### `ui_utils/style_setter/_style_setter.py` — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - `list_styles()`

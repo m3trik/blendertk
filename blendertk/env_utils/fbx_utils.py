@@ -164,7 +164,12 @@ class FbxUtils:
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"FBX not found: {filepath}")
         before = set(bpy.data.objects)
-        bpy.ops.import_scene.fbx(filepath=filepath, **fbx_opts)
+        # Same contract as export above: io_scene_fbx reads context internally
+        # (it selects the imported objects), so a window must be in context —
+        # driven bare from tentacle's Qt event-pump timer, context.window is
+        # None and the op raises.
+        with window_context_override():
+            bpy.ops.import_scene.fbx(filepath=filepath, **fbx_opts)
         return [o for o in bpy.data.objects if o not in before]
 
 

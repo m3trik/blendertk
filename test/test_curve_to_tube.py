@@ -157,7 +157,8 @@ try:
     ui = type("U", (), {})()
     ui.cmb000 = _W("polygon")
     ui.s000, ui.s001, ui.s002, ui.s003 = _W(0.5), _W(8), _W(1), _W(3)
-    ui.chk001, ui.chk002, ui.chk003, ui.chk004 = _W(False), _W(True), _W(False), _W(True)
+    ui.chk001, ui.chk003, ui.chk004 = _W(False), _W(False), _W(True)
+    ui.cmb_topology = _W("quads")  # Quads/Triangles combo (replaced the chk002 'Quads' checkbox)
     slots = CurveToTubeSlots.__new__(CurveToTubeSlots)  # bypass Qt-heavy __init__
     slots.sb = _SB(ui)
     slots.ui = ui

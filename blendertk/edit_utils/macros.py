@@ -38,6 +38,10 @@ from blendertk.edit_utils._edit_utils import set_subdivision, _group_under_empty
 # screen-context requires bpy.context.window, which is None there). See _core_utils.selected_objects.
 from blendertk.core_utils._core_utils import active_object, selected_objects
 
+# The topbar/statusbar driver behind m_toggle_panels' menu-bar half (Qt-free + bpy-deferred,
+# so this stays a safe module-level import — ui_utils only reaches back into btk lazily).
+from blendertk.ui_utils._ui_utils import toggle_window_bars
+
 
 # ====================================================================================
 # Macro functions (Blender-idiomatic equivalents of the mayatk macros)
@@ -140,15 +144,30 @@ class DisplayMacros(_ViewportMixin):
         space.shading.light = order[(order.index(current) + 1) % len(order)] if current in order else "STUDIO"
 
     @classmethod
-    def m_grid_and_image_planes(cls):
-        """Toggle the floor grid and reference image-empties together."""
+    def m_grid(cls):
+        """Toggle the floor grid (with its X/Y axis lines — together they ARE Blender's
+        equivalent of Maya's single grid).
+
+        Returns:
+            The applied visibility, or None when there is no 3D viewport — this is what
+            lets :meth:`m_grid_and_image_planes` follow the grid instead of re-deriving
+            the state (and drifting from it).
+        """
         _area, space = cls._view3d()
         if not space:
-            return
+            return None
         new_state = not space.overlay.show_floor
         space.overlay.show_floor = new_state
         space.overlay.show_axis_x = new_state
         space.overlay.show_axis_y = new_state
+        return new_state
+
+    @classmethod
+    def m_grid_and_image_planes(cls):
+        """Toggle the floor grid and reference image-empties together (the grid leads)."""
+        new_state = cls.m_grid()
+        if new_state is None:  # no 3D viewport — nothing to follow
+            return
         for obj in bpy.data.objects:
             if obj.type == "EMPTY" and obj.empty_display_type == "IMAGE":
                 obj.hide_viewport = not new_state
@@ -307,12 +326,40 @@ class UiMacros(_ViewportMixin):
     """ """
 
     @classmethod
-    def m_toggle_panels(cls):
-        """Toggle the 3D viewport's header, tool, and side (N) regions together."""
+    def m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True):
+        """Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
+        tool, and side (N) regions together — the Blender mirror of mayatk's "toolbars and
+        menu bar in sync".
+
+        Maya's counterpart both toggles its main **menu bar** and reads it as the shared state;
+        Blender's topbar is that bar's analogue, so it leads here too (via
+        :func:`~blendertk.ui_utils._ui_utils.toggle_window_bars`, whose return value IS the
+        applied state) and the viewport regions follow it. Bars hidden independently of the
+        macro are therefore absorbed on the next press rather than fought.
+
+        The topbar is a *global area* with no RNA presence, drivable only where a window and a
+        tiled layout exist — headless and in fullscreen-area mode (which owns the bars itself)
+        it sits out and the regions lead themselves, as they did before the bars were wired in.
+        ``toggle_menu`` covers the bars, ``toggle_panels`` the viewport regions.
+        """
+        new_state = toggle_window_bars() if toggle_menu else None
+        if not toggle_panels:
+            return
+        # Resolve the viewport AFTER the bars: their round-trip rebuilds the screen, which
+        # leaves an earlier ``space`` reference stale — writes through it silently go nowhere.
         _area, space = cls._view3d()
         if not space:
             return
-        new_state = not space.show_region_header
+        if new_state is None:  # bars not drivable — regions fall back to leading
+            new_state = not space.show_region_header
+        # Assigned bare, NOT under cls._view3d_override(): the show_region_* setters silently
+        # no-op inside a temp_override on 5.1 (measured — the value reads back unchanged from
+        # within the override), so wrapping them would quietly stop the macro working. Bare,
+        # they fire ED_area_init, which dereferences the context window — with none that is a
+        # hard crash (QtDock._apply_area_header documents it), and a crash costs the user their
+        # unsaved scene, so sit out instead. A keymap-invoked macro always has one.
+        if bpy.context.window is None:
+            return
         space.show_region_header = new_state
         space.show_region_toolbar = new_state
         space.show_region_ui = new_state
@@ -347,11 +394,12 @@ class AnimationMacros:
 class MacroManager:
     """Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
 
-    Also the management API behind the ``MacroManagerSlots`` panel
-    (``blendertk.edit_utils.macro_manager``) — mirror of mayatk's
-    ``MacroManager`` management surface (:meth:`list_available_macros`,
-    :meth:`macro_category`, :meth:`get_current_bindings`, preset persistence,
-    …), fully usable without the panel, same as upstream.
+    Also the management API behind the unified shortcut editor
+    (:meth:`Macros.show_editor`; the bespoke ``macro_manager`` panel was
+    retired) — mirror of mayatk's ``MacroManager`` management surface
+    (:meth:`list_available_macros`, :meth:`macro_category`,
+    :meth:`get_current_bindings`, preset persistence, …), fully usable
+    without any UI, same as upstream.
 
     Divergence from mayatk (by design): Maya's ``cmds.runTimeCommand`` /
     ``cmds.hotkey`` is a DCC-side registry that Maya itself persists across
@@ -496,9 +544,9 @@ class MacroManager:
     # ------------------------------------------------------------------
     # Mirror of mayatk's ``MacroManager`` management surface: the single source of
     # truth for discovering, querying, applying, clearing, and persisting macro
-    # bindings. Both the ``MacroManagerSlots`` panel and tentacle's Blender
-    # launch path (``TclBlender`` applies the active preset on construction)
-    # are thin consumers; nothing here imports Qt. A *binding* is a
+    # bindings. Both the unified shortcut editor (``Macros.show_editor``) and
+    # tentacle's Blender launch path (``TclBlender`` applies the active preset
+    # on construction) are thin consumers; nothing here imports Qt. A *binding* is a
     # ``{"key": <maya-style token>, "cat": <category>}`` dict; a *binding set* maps
     # macro name -> binding and is exactly what a preset file stores.
 
@@ -716,15 +764,21 @@ class MacroManager:
     # --- preset persistence (PresetStore-backed, bpy-free) -------------
 
     @classmethod
+    def _builtin_presets_dir(cls) -> str:
+        """The shipped read-only preset tier — single source for both the
+        headless :meth:`_preset_store` and the editor's preset row."""
+        return os.path.join(os.path.dirname(__file__), "macro_manager", "presets")
+
+    @classmethod
     def _preset_store(cls) -> ptk.PresetStore:
         """Two-tier store: shipped ``macro_manager/presets`` + a writable user tier.
 
-        Resolves to the same files the panel's ``uitk.PresetManager`` uses
-        (relative ``preset_dir="blendertk/macro_manager"``), so headless and
-        panel-driven usage share one source of truth.
+        Resolves to the same files the Macro Manager editor's
+        ``uitk.PresetManager`` uses (relative
+        ``preset_dir="blendertk/macro_manager"``), so headless and
+        editor-driven usage share one source of truth.
         """
-        builtin_dir = os.path.join(os.path.dirname(__file__), "macro_manager", "presets")
-        return ptk.PresetStore(cls.PRESET_NAME, package=cls.PRESET_PACKAGE, builtin_dir=builtin_dir)
+        return ptk.PresetStore(cls.PRESET_NAME, package=cls.PRESET_PACKAGE, builtin_dir=cls._builtin_presets_dir())
 
     @classmethod
     def list_presets(cls) -> List[str]:
@@ -794,6 +848,173 @@ class MacroManager:
         cls.apply_bindings(bindings)
         if name:
             store.active = name
+
+    # ------------------------------------------------------------------
+    # Shortcut-editor glue (the unified uitk ShortcutEditor)
+    # ------------------------------------------------------------------
+    # Mirror of mayatk's editor glue: the Macro Manager UI is the shared uitk
+    # ``ShortcutEditor`` launched over this controller through a
+    # ``RegistrySwitchboardFacade`` — categories render as the editor's group
+    # combobox and its header-menu preset row fronts the same ``PresetStore``
+    # that ``apply_saved_macros`` applies at startup. The methods below are the
+    # facade's provider callables (plain data, no Qt); only :meth:`show_editor`
+    # imports uitk (lazily), so the module surface stays Qt-free. Replaces the
+    # retired bespoke ``macro_manager`` panel; categories are code-defined
+    # (the ``*Macros`` mixin is their SSoT), no longer editable per-row.
+
+    _editor = None  # cached ShortcutEditor window (rebuilt if Qt-destroyed)
+    _default_bindings_cache = None  # shipped 'default' preset (static/session)
+
+    @classmethod
+    def _default_bindings(cls) -> Dict[str, dict]:
+        """The shipped ``default`` preset's binding set (cached — the built-in
+        tier is static for the session). Empty when the preset is absent."""
+        if cls._default_bindings_cache is None:
+            try:
+                cls._default_bindings_cache = cls.load_preset(cls.DEFAULT_PRESET)
+            except (KeyError, ValueError, OSError):
+                cls._default_bindings_cache = {}
+        return cls._default_bindings_cache
+
+    @classmethod
+    def editor_categories(cls) -> List[str]:
+        """Mixin-derived categories plus any custom category carried by the
+        live bindings — the editor's group list (its "UI" dimension)."""
+        cats = set(cls.list_categories())
+        for spec in cls.get_current_bindings().values():
+            if spec.get("cat"):
+                cats.add(spec["cat"])
+        return sorted(cats)
+
+    @classmethod
+    def get_editor_registry(cls, category: str) -> List[dict]:
+        """Editor-shaped entries for every macro in *category*.
+
+        The dict shape of ``Switchboard.get_shortcut_registry`` (what
+        ``ShortcutEditor._build_row`` consumes), with keys converted to Qt
+        sequences. Native keymap items fire DCC-wide, so every entry reports a
+        fixed ``application`` scope — which also makes the editor's built-in
+        collision checker treat same-key macros in *different* categories as
+        the genuine conflicts they are. ``default`` comes from the shipped
+        ``default`` preset (usually unbound), so the editor's modified
+        colouring and per-row reset reproduce the old panel's
+        reset-to-default behaviour.
+        """
+        bindings = cls.get_current_bindings()
+        defaults = cls._default_bindings()
+        entries = []
+        for name, summary in cls.list_available_macros().items():
+            spec = bindings.get(name, {})
+            if (spec.get("cat") or cls.macro_category(name)) != category:
+                continue
+            default_key = (defaults.get(name) or {}).get("key", "")
+            entries.append(
+                {
+                    "method": name,
+                    "name": cls.macro_label(name),
+                    "doc": summary,
+                    "current": cls.maya_key_to_qt_sequence(spec.get("key", "")),
+                    "default": cls.maya_key_to_qt_sequence(default_key),
+                    "current_scope": "application",
+                    "default_scope": "application",
+                    "scope_editable": False,
+                }
+            )
+        return sorted(entries, key=lambda e: e["name"].lower())
+
+    @classmethod
+    def apply_editor_binding(cls, name: str, sequence: str) -> None:
+        """Apply a Qt key sequence captured in the editor (``""`` clears).
+
+        ``set_macro`` is idempotent per macro here (it removes the macro's own
+        keymap items before re-adding — see its docstring), so a rebind needs
+        no separate release step; the macro keeps its current category."""
+        new_key = cls.qt_sequence_to_maya_key(sequence)
+        if new_key:
+            current = cls.get_current_bindings().get(name, {})
+            cls.set_macro(name, key=new_key, cat=current.get("cat") or None)
+        else:
+            cls.clear_hotkey(name)
+
+    @classmethod
+    def export_bindings(cls) -> Dict[str, dict]:
+        """The persist-worthy subset of the live bindings — every macro with a
+        hotkey, plus any whose category differs from its mixin-derived default
+        (so a re-categorisation survives save/load even while unbound). The
+        preset ``value_provider``; exactly the shape a preset file stores.
+        """
+        out: Dict[str, dict] = {}
+        for name, spec in cls.get_current_bindings().items():
+            key = spec.get("key", "")
+            cat = spec.get("cat", "")
+            if key or (cat and cat != cls.macro_category(name)):
+                out[name] = {"key": key, "cat": cat}
+        return out
+
+    @classmethod
+    def import_bindings(cls, data: Optional[Dict[str, dict]]) -> int:
+        """Apply a loaded binding set (the preset ``value_applier``): release
+        any live key the set doesn't cover, then apply the rest."""
+        data = data or {}
+        for name, spec in cls.get_current_bindings().items():
+            if spec.get("key") and name not in data:
+                cls.clear_hotkey(name)
+        cls.apply_bindings(data)
+        return len(data)
+
+    @classmethod
+    def show_editor(cls, parent=None):
+        """Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
+        this controller (mirror of ``mtk.Macros.show_editor``).
+
+        Opens on the flat all-categories view (the category combobox filters);
+        double-click a Shortcut cell to capture a chord. The header-menu
+        preset row reads/writes the same store ``apply_saved_macros`` applies
+        at startup (essential on Blender — the addon keyconfig doesn't outlive
+        the process). Qt/uitk are imported here, on demand, so the module
+        stays Qt-free for headless Blender.
+        """
+        from uitk.widgets.editors.shortcut_editor import (
+            RegistrySwitchboardFacade,
+            ShortcutEditor,
+        )
+
+        if cls._editor is not None:
+            try:
+                cls._editor.show()
+                cls._editor.raise_()
+                return cls._editor
+            except RuntimeError:
+                pass  # underlying C++ editor was destroyed — rebuild below
+
+        facade = RegistrySwitchboardFacade(
+            groups=cls.editor_categories,
+            get_entries=cls.get_editor_registry,
+            apply_binding=lambda _group, method, sequence, _scope=None: (
+                cls.apply_editor_binding(method, sequence)
+            ),
+            settings_namespace="macro_editor_blender",
+            logger_name="blendertk.macro_editor",
+            editor_title="Macro Manager",
+            editor_status_text="Assign hotkeys to blendertk macros.",
+            ui_column_label="Category",
+            ui_combo_prefix="Category:  ",
+            default_show_all=True,
+            preset_config={
+                "dir_name": cls.PRESET_NAME,
+                "package": cls.PRESET_PACKAGE,
+                "builtin_dir": cls._builtin_presets_dir(),
+                "value_provider": cls.export_bindings,
+                "value_applier": cls.import_bindings,
+            },
+        )
+        editor = ShortcutEditor(facade, parent=parent)
+        # Native macro keymap items are DCC-global — a per-row scope toggle
+        # would render as all-inert badges, so drop the column outright.
+        editor.set_columns_hidden(editor.COL_SCOPE)
+        cls._editor = editor
+        editor.show()
+        return editor
 
     @staticmethod
     def _ensure_operator():
