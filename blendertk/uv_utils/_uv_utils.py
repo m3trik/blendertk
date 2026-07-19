@@ -539,7 +539,13 @@ def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True
                     # A lightmap is the *second* channel — keep an empty base (texture) layer
                     # so the lightmap lands on index 1 (Unity uv2), matching the manifest.
                     me.uv_layers.new(name="UVMap")
-                name = me.uv_layers.new(name=uv_set).name
+                layer = me.uv_layers.new(name=uv_set)
+                if layer is None:
+                    raise RuntimeError(
+                        f"{o.name!r} already has the maximum 8 UV layers; "
+                        "cannot add a lightmap layer"
+                    )
+                name = layer.name
             me.uv_layers[name].active = True
 
             for x in selected_objects():

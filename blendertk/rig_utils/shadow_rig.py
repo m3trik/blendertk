@@ -551,11 +551,24 @@ class ShadowRig(ptk.LoggingMixin):
                 o = RigUtils.resolve_object(o)
                 if o is None:
                     continue
-                pool.append(o)
-                pool.extend(o.children_recursive)
+                try:
+                    pool.append(o)
+                    pool.extend(o.children_recursive)
+                except ReferenceError:
+                    continue  # stale ref (already deleted) — mirror Maya's no-op
         else:
             pool = list(bpy.data.objects)
-        return [o for o in pool if o.get("basePlaneSize") is not None]
+        # Dedup: an overlapping selection (group + its plane child) lists the
+        # plane twice — delete_rigs would then hit a removed object (mirror of
+        # mayatk's dict.fromkeys).
+        out = []
+        for o in dict.fromkeys(pool):
+            try:
+                if o.get("basePlaneSize") is not None:
+                    out.append(o)
+            except ReferenceError:
+                continue
+        return out
 
     @classmethod
     def bake_planes(cls, planes=None, start=None, end=None):
@@ -583,6 +596,88 @@ class ShadowRig(ptk.LoggingMixin):
         if baked:
             cls.refresh_export_metadata()
         return baked
+
+    # ------------------------------------------------------------------ delete
+    def delete(self, delete_textures=False):
+        """Delete this rig completely. See :meth:`delete_rigs`."""
+        return self.delete_rigs(
+            [self.shadow_plane], delete_textures=delete_textures
+        )
+
+    @classmethod
+    def delete_rigs(cls, planes=None, delete_textures=False):
+        """Tear down shadow rig(s) completely — live or baked (mirror of
+        mayatk's ``delete_rigs``).
+
+        Removes, per plane: the plane and its enclosing ``*_shadow_grp``
+        empty (when it holds nothing else), the contact empty (via the
+        ``shadowContact`` ID-pointer prop stamped at create, with a
+        name-based fallback for rigs built before it), and the material +
+        silhouette image datablocks once nothing else uses them — drivers
+        die with their datablocks. The targets and the shared shadow-source
+        empty are left untouched; the ``shadow_metadata`` channel is
+        republished afterwards.
+
+        Args:
+            planes: Shadow plane object(s)/name(s); None deletes every
+                shadow rig in the file.
+            delete_textures: Also remove the silhouette PNG from disk.
+
+        Returns:
+            The list of deleted planes' names.
+        """
+        import bpy
+
+        planes = cls.find_shadow_planes(planes)
+        deleted = []
+        for p in planes:
+            name = p.name
+            # dict.fromkeys de-dups: the same material in two mesh slots would
+            # otherwise appear twice, and the second pass through the removal
+            # loop below would dereference a freed datablock (ReferenceError).
+            mats = list(dict.fromkeys(m for m in p.data.materials if m))
+            tex_path = cls._plane_texture_path(p) if delete_textures else None
+            contact = p.get("shadowContact")
+            if contact is None and name.endswith("_shadow"):
+                # Pre-pointer rigs: the create-time naming convention.
+                contact = bpy.data.objects.get(f"{name[: -len('_shadow')]}_contact")
+            group = p.parent
+            if group is not None and not (
+                group.type == "EMPTY"
+                and group.name.endswith("_shadow_grp")
+                and len(group.children) == 1
+            ):
+                group = None  # never a user's own parent
+
+            mesh = p.data
+            bpy.data.objects.remove(p, do_unlink=True)
+            if mesh is not None and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            if group is not None:
+                bpy.data.objects.remove(group, do_unlink=True)
+            try:
+                if isinstance(contact, bpy.types.Object):
+                    bpy.data.objects.remove(contact, do_unlink=True)
+            except (ReferenceError, RuntimeError):
+                pass  # already gone (dead pointer)
+            for mat in mats:
+                node = (
+                    mat.node_tree.nodes.get("shadow_tex") if mat.node_tree else None
+                )
+                img = getattr(node, "image", None) if node is not None else None
+                if mat.users == 0:
+                    bpy.data.materials.remove(mat)
+                if img is not None and img.users == 0:
+                    bpy.data.images.remove(img)
+            if tex_path and os.path.exists(tex_path):
+                try:
+                    os.remove(tex_path)
+                except OSError:
+                    pass  # locked/read-only — datablock teardown already done
+            deleted.append(name)
+        if deleted:
+            cls.refresh_export_metadata()
+        return deleted
 
     @staticmethod
     def _bake_plane(plane, start=None, end=None):
@@ -688,6 +783,9 @@ class ShadowRig(ptk.LoggingMixin):
         rig.get_or_create_shadow_source(position=light_pos, source_name=source_name)
         rig.create_contact_locator()
         rig.create_shadow_plane()
+        # ID-pointer prop: delete_rigs' rename-proof handle on the contact
+        # empty (the Blender analogue of mayatk's message-attr manifest).
+        rig.shadow_plane["shadowContact"] = rig.contact
         rig.create_silhouette_texture(size=texture_res, axis=axis, recursive=recursive)
         rig.create_material()
         rig.setup_drivers()

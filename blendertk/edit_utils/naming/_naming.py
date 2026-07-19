@@ -64,6 +64,8 @@ class Naming(ptk.HelpMixin):
         if "_" not in old_name:
             return new_name
         old_suffix_base = old_name[old_name.rfind("_"):].rstrip("0123456789")
+        if old_suffix_base == "_":  # trailing token was purely digits, not a type suffix
+            return new_name
         if valid_suffixes is not None and old_suffix_base not in valid_suffixes:
             old_suffix_base = ""
         if old_suffix_base and not new_name.endswith(old_suffix_base):

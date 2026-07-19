@@ -98,15 +98,6 @@ class CurveToTube(ptk.LoggingMixin):
         return result
 
     @staticmethod
-    def _duplicate(source):
-        """A linked-collection duplicate of ``source`` with its own copied curve data."""
-        dup = source.copy()
-        dup.data = source.data.copy()
-        for c in (source.users_collection or []):
-            c.objects.link(dup)
-        return dup
-
-    @staticmethod
     def _profile_circle(radius, sections, name):
         """A faceted (POLY) circle of exactly ``sections`` points → the polygon tube's exact sides."""
         n = max(3, int(sections))
@@ -131,8 +122,7 @@ class CurveToTube(ptk.LoggingMixin):
             if live:
                 target = source
             else:
-                target = cls._duplicate(source)
-                target.name = name
+                target = NurbsUtils.duplicate_curve(source, name=name, link=True)
             target.data.bevel_mode = "ROUND"
             target.data.bevel_depth = float(radius)
             # Degree maps to the round-bevel resolution (1 ≈ faceted, 3 ≈ smooth); Sections scales it.
@@ -142,7 +132,7 @@ class CurveToTube(ptk.LoggingMixin):
         # Polygon → a MESH. A bevel_object circle of `sections` points gives exactly `sections`
         # sides; resolution_u the rings; use_fill_caps the caps. The source curve is always
         # preserved (work on a copy); `live` keeps the source as the editable driver vs consumes it.
-        work = cls._duplicate(source)
+        work = NurbsUtils.duplicate_curve(source, link=True)
         profile = cls._profile_circle(radius, sections, name)
         work.data.bevel_mode = "OBJECT"
         work.data.bevel_object = profile

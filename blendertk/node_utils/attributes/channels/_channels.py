@@ -101,7 +101,16 @@ class Channels:
 
         if self._pinned_targets is not None:
             names = {o.name for o in bpy.data.objects}
-            objs = [o for o in self._pinned_targets if getattr(o, "name", None) in names]
+            # Tolerate a deleted pinned object per element: reading ``.name`` on a dead
+            # StructRNA raises ReferenceError (getattr's default only catches AttributeError),
+            # so skip the removed reference instead of aborting the whole resolution.
+            objs = []
+            for o in self._pinned_targets:
+                try:
+                    if o.name in names:
+                        objs.append(o)
+                except (ReferenceError, AttributeError):
+                    continue
         else:
             objs = [o for o in (getattr(bpy.context, "selected_objects", None) or []) if o]
         if self._single_object_mode and len(objs) > 1:
@@ -850,8 +859,12 @@ class Channels:
             for name, (descriptor, value) in self._clipboard.items():
                 if value is None:
                     continue
-                # Re-format the (already display-space) value back through parse for angles.
-                self.set_channel_value([obj], descriptor, str(value))
+                # Re-serialize the (already display-space) value for parse_value. str() renders
+                # scalars faithfully, but yields an unparseable repr for an array (vector) prop;
+                # format_value emits the "(x, y, z)" form parse_value's vector branch round-trips.
+                is_array = hasattr(value, "__len__") and not isinstance(value, str)
+                text = self.format_value(value) if is_array else str(value)
+                self.set_channel_value([obj], descriptor, text)
 
     # ------------------------------------------------------------------
     # Transform freeze (Maya's Freeze Transforms → Blender Apply Transform)

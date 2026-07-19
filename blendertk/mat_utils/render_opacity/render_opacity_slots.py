@@ -284,26 +284,22 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             start, end = current, current + frames
 
         # Suppress the SelectionChanged callback while we modify the scene (props/drivers/keys)
-        # to prevent reentrant depsgraph evaluation — mirror of mayatk's ScriptJobManager.suppress.
+        # to prevent reentrant depsgraph evaluation — mirror of mayatk's suppressed() idiom
+        # (None token handled by the context manager).
         from blendertk.core_utils.script_job_manager import ScriptJobManager
 
-        mgr = ScriptJobManager.instance()
-        if self._sel_token is not None:
-            mgr.suppress(self._sel_token)
         try:
-            keyed = RenderOpacity.key_fade(
-                objects,
-                start=start,
-                end=end,
-                direction=direction_mode,
-                auto_create=auto_create,
-            )
+            with ScriptJobManager.instance().suppressed(self._sel_token):
+                keyed = RenderOpacity.key_fade(
+                    objects,
+                    start=start,
+                    end=end,
+                    direction=direction_mode,
+                    auto_create=auto_create,
+                )
         except Exception as e:
             self.sb.message_box(f"Error: {e}")
             return
-        finally:
-            if self._sel_token is not None:
-                mgr.resume(self._sel_token)
 
         if keyed:
             dirs = {"Fade In" if d == "in" else "Fade Out" for _, d in keyed}

@@ -54,6 +54,47 @@ try:
     mgr.resume(t_scene); mgr._dispatch("SceneOpened")
     check("resume restores the listener", calls == ["scene"], f"{calls}")
 
+    # 4b. suppressed() context manager: silences inside the block, restores after,
+    #     preserves prior suppression, and skips None tokens
+    calls.clear()
+    with mgr.suppressed(None, t_scene):
+        mgr._dispatch("SceneOpened")
+    check("suppressed() silences inside the block", calls == [], f"{calls}")
+    mgr._dispatch("SceneOpened")
+    check("suppressed() restores on exit", calls == ["scene"], f"{calls}")
+    mgr.suppress(t_scene)
+    with mgr.suppressed(t_scene):
+        pass
+    check("suppressed() preserves prior suppression", t_scene in mgr._suppressed)
+    mgr.resume(t_scene)
+
+    # 4b'. counted suppression: nested blocks compose; fully resumed at exit
+    with mgr.suppressed(t_scene):
+        with mgr.suppressed(t_scene):
+            pass
+        calls.clear(); mgr._dispatch("SceneOpened")
+        check("inner suppressed() exit keeps outer block silenced", calls == [], f"{calls}")
+    check("nested suppressed() fully resumes at outer exit", t_scene not in mgr._suppressed)
+
+    # 4c. connect_cleanup: two owners sharing one widget each get their own cleanup
+    class _FakeSignal:
+        def __init__(self): self.slots = []
+        def connect(self, fn): self.slots.append(fn)
+    class _FakeWidget:
+        def __init__(self): self.destroyed = _FakeSignal()
+    w = _FakeWidget()
+    t_x = mgr.subscribe("SceneSaved", lambda: None, owner="X")
+    t_y = mgr.subscribe("SceneSaved", lambda: None, owner="Y")
+    mgr.connect_cleanup(w, owner="X")
+    mgr.connect_cleanup(w, owner="X")  # same pair → idempotent
+    mgr.connect_cleanup(w, owner="Y")  # second owner, same widget → own cleanup
+    check("connect_cleanup idempotent per pair, distinct per owner", len(w.destroyed.slots) == 2,
+          f"n={len(w.destroyed.slots)}")
+    for fn in list(w.destroyed.slots):
+        fn()
+    check("widget destroy cleans up BOTH owners",
+          t_x not in tokens(mgr) and t_y not in tokens(mgr))
+
     # 5. ephemeral pruned the next time a scene-change event fires; its handler is then removed
     eph = []
     t_eph = mgr.subscribe("SelectionChanged", lambda: eph.append(1), owner="A", ephemeral=True)

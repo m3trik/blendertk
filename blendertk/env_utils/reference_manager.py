@@ -164,6 +164,16 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             setToolTip="Save the current scene into the workspace using the naming conventions above.",
         ).clicked.connect(self.save_scene)
         widget.menu.add(
+            "QPushButton", setText="New Workspace…", setObjectName="btn_new_workspace",
+            setToolTip="Create a project workspace under the root — writes a workspace.mel\n"
+            "(shared Maya/Blender project) plus the standard subfolders.",
+        ).clicked.connect(self.new_workspace)
+        widget.menu.add(
+            "QPushButton", setText="Mark As Workspace", setObjectName="btn_mark_workspace",
+            setToolTip="Write a workspace.mel describing the current workspace folder's existing\n"
+            "layout, making it a shared Maya/Blender project (no files are moved).",
+        ).clicked.connect(self.mark_workspace)
+        widget.menu.add(
             "QPushButton", setText="Reload All", setObjectName="btn_reload_all",
             setToolTip="Reload every linked library from disk (Maya's Update References).",
         ).clicked.connect(self.reload_all)
@@ -199,7 +209,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                         "drives <b>Save Scene</b>.",
                         "<b>Filter by Suffix / Folder Structure</b> narrow the list; <b>Hide Suffix / "
                         "Extension</b> shorten the displayed name; <b>Show Notes Column</b> reveals Notes.",
-                        "<b>Operations</b>: Save Scene, Reload All, Make Local All, Remove All.",
+                        "<b>Operations</b>: Save Scene; New Workspace / Mark As Workspace (write "
+                        "a shared Maya/Blender workspace.mel project); Reload All, Make Local "
+                        "All, Remove All.",
                     ]),
                     ("Filter field (▸ option box)", [
                         "Toggle the filter on/off; <b>Ignore Case</b>; choose what it matches — "
@@ -252,14 +264,16 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.sb.message_box(str(e))
 
     def _set_root_to_current(self):
-        """Set the root to the folder of the currently-open .blend (Maya's 'Set To Current Workspace')."""
+        """Set the root to the current workspace — the marked (workspace.mel) project root when
+        the open .blend belongs to one, else the .blend's own folder (Maya's 'Set To Current
+        Workspace')."""
         import bpy
 
         fp = bpy.data.filepath
         if not fp:
             self.sb.message_box("Save the current file first — it has no folder yet.")
             return
-        self.ui.txt000.setText(os.path.dirname(os.path.abspath(fp)))
+        self.ui.txt000.setText(btk.workspace_root(fp) or os.path.dirname(os.path.abspath(fp)))
 
     def cmb000_init(self, widget):
         """Workspace combo — project folders under the root (replaces Maya's workspace combo)."""
@@ -505,6 +519,56 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return combo.currentData()
         return self._root_dir()
 
+    def new_workspace(self):
+        """Create a marked workspace under the root (rules from the active template — see
+        the Workspace Editor) — the counterpart of Maya's File ▸ Project Window ▸ New."""
+        root = self._root_dir()
+        if not (root and os.path.isdir(root)):
+            self.sb.message_box("Set a valid root directory first.")
+            return
+        name = self.sb.input_dialog("New Workspace", "Workspace folder name:", "")
+        name = (name or "").strip()
+        if not name:
+            return
+        try:
+            ws = btk.create_workspace(os.path.join(root, name))
+        except OSError as e:
+            self.sb.message_box(str(e))
+            return
+        self._populate_workspaces()
+        if ws:
+            self._select_workspace(ws.root)
+
+    def mark_workspace(self):
+        """Promote the current workspace folder to a shared Maya/Blender project — writes a
+        workspace.mel describing its existing layout (no files are moved)."""
+        ws_dir = self._workspace_dir()
+        if not (ws_dir and os.path.isdir(ws_dir)):
+            self.sb.message_box("Pick a workspace (or set a root directory) first.")
+            return
+        try:
+            ws = btk.promote_workspace(ws_dir)
+        except OSError as e:
+            self.sb.message_box(str(e))
+            return
+        if ws is None:
+            self.sb.message_box("Could not mark the workspace.")
+            return
+        self._populate_workspaces()
+        self._select_workspace(ws.root)
+
+    def _select_workspace(self, path):
+        """Select the workspace combo entry whose data is ``path`` (after a repopulate)."""
+        combo = getattr(self.ui, "cmb000", None)
+        if combo is None:
+            return
+        target = os.path.normcase(os.path.normpath(path))
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+            if data and os.path.normcase(os.path.normpath(data)) == target:
+                combo.setCurrentIndex(i)
+                break
+
     def _refresh(self):
         table = getattr(self.ui, "tbl000", None)
         if table:
@@ -521,6 +585,17 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         # Text filtering is applied below (not via find_blend_files) so it can honor the
         # ignore-case toggle and match against Notes as well as file names.
         files = btk.find_blend_files(workspace, recursive=self._recursive)
+        if workspace and not self._recursive:
+            # A marked (workspace.mel) project keeps scenes in its scene-rule folder — include
+            # it so shared Maya/Blender projects list out of the box (mirror of mayatk, which
+            # always scans a workspace's scenes/ regardless of the discovery toggle).
+            scene_dir = btk.workspace_scenes_dir(workspace)
+            if scene_dir:
+                seen = {os.path.normcase(p) for p in files}
+                files += [
+                    p for p in btk.find_blend_files(scene_dir, recursive=True)
+                    if os.path.normcase(p) not in seen
+                ]
         files = self._apply_file_filters(files, workspace, opt)
         # Live reference state needs bpy; degrade gracefully under the .venv (no live status).
         # One list_libraries() pass — `linked` is derived from it so the two can't disagree.

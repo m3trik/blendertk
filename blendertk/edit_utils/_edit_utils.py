@@ -953,8 +953,64 @@ def snap_to_grid(objects=None, grid_size=1.0, axes="xyz"):
         return moved
 
     objs = [o for o in (objects if objects is not None else selected_objects()) or [] if o]
+
+    def _ancestor_depth(o):
+        depth, p = 0, o.parent
+        while p is not None:
+            depth += 1
+            p = p.parent
+        return depth
+
+    # Process ancestors before descendants: a simple parent's ``location`` snap
+    # (below) re-anchors its children, so a child snapped first would be shoved
+    # back off-grid with no re-snap. The per-object depsgraph flush already
+    # relies on this order ("a snapped ancestor re-anchors children processed
+    # later"); enforce it here so caller/selection order can't break it.
+    objs.sort(key=_ancestor_depth)
+
+    def _has_delta(o):
+        # Delta transforms shift the world origin away from ``location`` even
+        # without a parent; these RNA props are always current (no depsgraph).
+        return (
+            any(v != 0.0 for v in o.delta_location)
+            or any(v != 0.0 for v in o.delta_rotation_euler)
+            or tuple(o.delta_rotation_quaternion) != (1.0, 0.0, 0.0, 0.0)
+            or tuple(o.delta_scale) != (1.0, 1.0, 1.0)
+        )
+
+    # ``matrix_world`` is lazily evaluated, so it can read stale (identity) right
+    # after a ``location``/transform change — reading it then would snap a (0,0,0)
+    # origin and zero the object. Flush the depsgraph before relying on it, but
+    # only when some object needs the world-matrix path (simple unparented
+    # objects use their always-current local ``location``).
+    needs_matrix = {o.name for o in objs if o.parent is not None or _has_delta(o)}
+    if needs_matrix:
+        bpy.context.view_layer.update()
+    dirty = False
     for o in objs:
-        o.location = _snap(o.location)
+        if o.name not in needs_matrix:
+            # World origin == local ``location`` for an unparented, delta-free
+            # object; use it directly (always current, no depsgraph dependency).
+            o.location = _snap(o.location)
+            dirty = True  # a snapped ancestor re-anchors children processed later
+        else:
+            # Snap the world origin so the object lands on the world grid
+            # (matches ``mtk.Snap.snap_to_grid``, which snaps the world pivot).
+            # Reassign the whole matrix — Blender back-solves ``matrix_basis``
+            # through the parent (an in-place translation write may not propagate).
+            #
+            # Flush per object once anything was written this loop: both the
+            # ``matrix_world`` read and the setter's back-solve (through the
+            # parent's cached object_to_world) otherwise see a snapped
+            # ancestor's PRE-snap matrix, leaving the child off-grid by
+            # exactly the ancestor's snap delta.
+            if dirty:
+                bpy.context.view_layer.update()
+                dirty = False
+            mw = o.matrix_world.copy()
+            mw.translation = _snap(mw.translation)
+            o.matrix_world = mw
+            dirty = True
     return len(objs)
 
 
@@ -1477,7 +1533,10 @@ def get_overlapping_duplicates(objects=None, retain=None, select=False, delete=F
     if select:
         bpy.ops.object.select_all(action="DESELECT")
         for o in duplicates:
-            o.select_set(True)
+            try:
+                o.select_set(True)
+            except RuntimeError:  # not in the active view layer
+                pass
     if delete:
         for o in duplicates:
             bpy.data.objects.remove(o, do_unlink=True)

@@ -60,6 +60,22 @@ try:
     check("axes='xy' leaves z untouched",
           tuple(round(c, 4) for c in o.location) == (1.0, 3.0, -0.4), str(tuple(o.location)))
 
+    # ---- parent-first ordering: a child passed BEFORE its simple parent must still
+    #      land on grid (the parent's origin snap re-anchors the child) -----------------------
+    reset()
+    parent = plane(name="Par")
+    parent.location = (0.3, 0.0, 0.0)   # simple (unparented, delta-free), off-grid
+    child = plane(name="Chi")
+    child.parent = parent
+    child.matrix_parent_inverse.identity()
+    child.location = (5.1, 0.0, 0.0)    # world x = 5.4
+    bpy.context.view_layer.update()
+    btk.snap_to_grid([child, parent], grid_size=1.0)  # child listed FIRST
+    bpy.context.view_layer.update()
+    cx = round(child.matrix_world.translation.x, 4)
+    check("child ordered before its simple parent still lands on the world grid",
+          abs(cx - round(cx)) < 1e-4, f"child world x={cx}")
+
     # ---- snap_to_grid (edit mode): snaps selected verts in world space ----------------------
     reset()
     o = plane(name="P", size=2.0)  # verts at (±1, ±1, 0)

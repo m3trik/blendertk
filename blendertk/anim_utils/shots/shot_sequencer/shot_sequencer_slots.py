@@ -1170,7 +1170,7 @@ class ShotSequencerController(
 
     def on_key_selection_changed(self, key_groups: list) -> None:
         """Per-key selection changed — footer feedback only."""
-        n = sum(len(g[1]) for g in key_groups) if key_groups else 0
+        n = sum(len(g["times"]) for g in key_groups) if key_groups else 0
         if n:
             self._set_footer(f"{n} key{'s' if n != 1 else ''} selected")
 

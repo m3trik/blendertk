@@ -117,6 +117,9 @@ def duplicate_radial(
             copies.append(dup)
 
         name = src.name
+        if not copies:  # num_copies <= 0: no-op, don't destroy the source
+            out[name] = []
+            continue
         if not keep_original:
             data = src.data
             bpy.data.objects.remove(src, do_unlink=True)

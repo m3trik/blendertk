@@ -260,7 +260,7 @@ class SceneExporter(ptk.LoggingMixin):
 
             deliverable_path = self.export_path
             if glb_only:
-                glb_path = self.task_manager.create_glb(
+                glb_path = self._create_glb(
                     fbx_path=fbx_write_path, announce=False
                 )
                 if not (glb_path and os.path.exists(glb_path)):
@@ -295,7 +295,7 @@ class SceneExporter(ptk.LoggingMixin):
             )
 
             if create_glb_enabled and not glb_only:
-                self.task_manager.create_glb()
+                self._create_glb()
         except Exception as e:
             self.logger.error(f"Failed to export objects: {e}")
             raise RuntimeError(f"Failed to export objects: {e}")
@@ -309,6 +309,43 @@ class SceneExporter(ptk.LoggingMixin):
             return False
 
         return True
+
+    def _create_glb(
+        self, fbx_path: Optional[str] = None, announce: bool = True
+    ) -> Optional[str]:
+        """Convert an exported FBX to a GLB sidecar via pythontk's ``MeshConvert``.
+
+        Runs after the FBX has been written; :meth:`perform_export` invokes this
+        explicitly rather than as part of the pre-export task pipeline. Mirror of
+        mayatk's ``TaskManager.create_glb``, kept on the engine here because
+        blendertk's ``TaskManager`` carries no ``export_path`` of its own — the
+        FBX path is resolved from this engine's :attr:`export_path` instead.
+
+        Parameters:
+            fbx_path: FBX to convert. Defaults to :attr:`export_path` (the
+                FBX-alongside case). The GLB-only path passes the temp FBX so the
+                ``.glb`` lands beside it (then gets moved into the output dir).
+            announce: When True, log the resulting path. The GLB-only path sets
+                this False and logs the final (moved) path itself.
+
+        Returns:
+            The created ``.glb`` path, or ``None`` if conversion failed.
+        """
+        self.logger.info("Converting FBX to GLB...")
+        try:
+            glb_path = ptk.MeshConvert.fbx_to_glb(
+                fbx_path or self.export_path,
+                overwrite=True,
+                auto_install=True,
+                prompt=False,
+            )
+        except (FileNotFoundError, RuntimeError) as e:
+            self.logger.error(f"GLB conversion failed: {e}")
+            return None
+
+        if announce:
+            self.logger.success(f"GLB created: {glb_path}")
+        return glb_path
 
     def generate_export_path(self, version_format: str = "") -> str:
         """Generate the full export file path.

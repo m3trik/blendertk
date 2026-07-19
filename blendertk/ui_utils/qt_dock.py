@@ -19,7 +19,19 @@ parenting) glued to a docked area's content region:
 * the child's **top edge is inset by Blender's area-edge grab tolerance** when the region
   is flush with the area top, so the whole band where the OS cursor reads "resize" stays
   Blender-owned — hover and click agree, and dragging the strip border never starts a text
-  selection in the embedded widget instead (see :meth:`QtDock._expose_resize_edge`).
+  selection in the embedded widget instead (see :meth:`QtDock._expose_resize_edge`);
+* the child **stays embedded through native size/move loops** (window drag / frame
+  resize / Win11 snap) — measured safe across edge drags, rapid resize storms, and
+  snap releases (``tentacle/test/blender/console_frame_resize_check.py``). Do NOT
+  "protect" it by un-/re-embedding around the loop: a reverted 2026-07 modal guard did
+  exactly that from a bpy timer, hid the console for every drag's duration, and its
+  unbalanced-suspend path stranded the widget hidden over a bare Info Log area — a
+  "blank console" whenever a freeze or a probe flicker skipped its resume. The window
+  drag/snap FREEZES that motivated it were the host pump's ``processEvents``
+  dispatching Blender's own native messages from nested contexts — fixed for real in
+  ``tcl_blender._QtHost.start_pump`` (posted-events-only pumping); the guard's
+  protective rationale (keeping the child's DPI traffic out of the storm) was
+  disproven — the freeze needs no embedded child at all.
 
 :class:`QtDock` packages that: it docks a placeholder area (:func:`btk.dock_editor` — the
 same primitive the editors-menu toggles use), embeds the caller's widget over the area's

@@ -194,54 +194,198 @@ def make_library_local(library):
 
 
 # ----------------------------------------------------------------- workspace / scene files
-# The Blender analogue of Maya's WorkspaceManager scene-file browser: a "workspace" is a project
-# folder (a directory holding .blend files). These back the Reference Manager's workspace combo +
-# scene table + open/save/rename/delete operations (no bpy except open/save → testable on disk).
+# The Blender analogue of Maya's project workspace, built on ``pythontk.Workspace``. A workspace
+# is a project folder, either *marked* (a ``workspace.mel`` at its root — a shared Maya/Blender
+# project whose file rules say where scenes/textures live) or *unmarked* (a directory directly
+# holding .blend files — zero-ceremony Blender-alone projects, promotable via
+# ``promote_workspace``). These back the Reference Manager's workspace combo + scene table +
+# open/save/rename/delete operations and the package-wide current-workspace resolver (no bpy
+# except open/save and the current-file lookup → testable on disk).
+
+_current_workspace_root = None  # session pin (Blender has no native `workspace -o`)
+
+
+def set_current_workspace(root=None):
+    """Pin (or clear, with None) the session's current workspace — the Blender analogue of
+    Maya's ``workspace -o``. Returns the pinned root (or None when cleared)."""
+    global _current_workspace_root
+    _current_workspace_root = os.path.normpath(root) if root else None
+    return _current_workspace_root
+
+
+def current_workspace(path=None):
+    """The active ``pythontk.Workspace``, or None.
+
+    Ambient resolution (``path=None``): the session pin (:func:`set_current_workspace`)
+    → the nearest marked (``workspace.mel``) root containing the saved .blend → the
+    .blend's own folder as an unmarked workspace → None (nothing saved, nothing pinned).
+
+    An explicit *path* resolves THAT path (marked ancestor → its own folder) and never
+    answers with the unrelated session pin — the pin is global state, like Maya's
+    ``workspace -o``, and only governs the ambient chain."""
+    if path is None:
+        if _current_workspace_root and os.path.isdir(_current_workspace_root):
+            return ptk.Workspace.load(_current_workspace_root)
+        try:
+            import bpy
+
+            path = bpy.data.filepath
+        except ImportError:  # headless .venv — no bpy, no open file
+            path = ""
+    if not path:
+        return None
+    ws = ptk.Workspace.find_containing(path)
+    if ws is not None:
+        return ws
+    d = path if os.path.isdir(path) else os.path.dirname(os.path.abspath(path))
+    return ptk.Workspace.load(d) if os.path.isdir(d) else None
+
+
+def workspace_root(path=None):
+    """Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
+    reports."""
+    ws = current_workspace(path)
+    return ws.root if ws else ""
+
+
+def source_images_dir(path=None):
+    """The current workspace's texture folder — its ``sourceImages`` rule → an existing
+    ``sourceimages``/``textures`` folder → ``textures`` (the legacy Blender-alone default).
+    '' when there is no current workspace."""
+    ws = current_workspace(path)
+    if ws is None:
+        return ""
+    return ws.resolve_dir(("sourceImages",), ("sourceimages", "textures"), default="textures")
+
+
+def scenes_dir(path=None):
+    """The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),
+    or ''."""
+    ws = current_workspace(path)
+    return ws.scene_dir if ws else ""
+
+
+def workspace_scenes_dir(root):
+    """The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when
+    ``root`` is unmarked / the rule resolves to the root itself — lets callers extend a flat
+    folder scan into a shared project's ``scenes/`` without double-listing anything."""
+    if not (root and os.path.isdir(root)):
+        return ""
+    ws = ptk.Workspace.load(root)
+    if not ws.is_marked:
+        return ""
+    sd = ws.scene_dir
+    return "" if os.path.normcase(sd) == os.path.normcase(ws.root) else sd
+
+
+# --- workspace templates (named file-rule sets for building NEW workspaces) -----------------
+# ptk.PresetStore-backed, saved from the Workspace Editor. The ACTIVE template is what
+# `create_workspace` seeds from when no rules are given — saved templates literally define how
+# each subsequent new workspace is built (Maya's Project Window analogue, made persistent).
+_TEMPLATE_STORE = None
+
+
+def _workspace_template_store():
+    global _TEMPLATE_STORE
+    if _TEMPLATE_STORE is None:
+        _TEMPLATE_STORE = ptk.PresetStore("workspace_templates", package="blendertk")
+    return _TEMPLATE_STORE
+
+
+def list_workspace_templates():
+    """Saved workspace-template names (the Workspace Editor's Save Template entries)."""
+    return _workspace_template_store().list()
+
+
+def workspace_template_rules(name=None):
+    """File rules for building a NEW workspace: the *name*d (default: active / last-saved)
+    template, falling back to the standard ``ptk.DEFAULT_FILE_RULES``. Seeds
+    :func:`create_workspace` and the Workspace Editor's fresh-path definition."""
+    store = _workspace_template_store()
+    name = name or store.active
+    if name:
+        try:
+            rules = store.load(name)
+        except (KeyError, ValueError):
+            rules = None
+        if isinstance(rules, dict):
+            # Templates saved from the Workspace Editor's preset combo (uitk
+            # PresetManager) carry a "_meta" version block — not a rule.
+            rules = {str(k): str(v) for k, v in rules.items() if k != "_meta"}
+            if rules:
+                return rules
+    return dict(ptk.DEFAULT_FILE_RULES)
+
+
+def save_workspace_template(name, rules):
+    """Save *rules* as workspace template *name* and make it the active default for new
+    workspaces. Returns the saved name."""
+    store = _workspace_template_store()
+    store.save(name, dict(rules))
+    store.active = name
+    return name
+
+
+def delete_workspace_template(name):
+    """Delete the user template *name* (the store keeps the active pointer consistent).
+    True when a file was removed."""
+    return _workspace_template_store().delete(name)
+
+
+def create_workspace(root, rules=None, create_dirs=True):
+    """Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸
+    Project Window ▸ New. ``rules=None`` seeds from :func:`workspace_template_rules` (the
+    active saved template, else the Maya-standard defaults) and creates the rule subfolders.
+    Idempotent on an existing project (its rules win). Returns the ``pythontk.Workspace``."""
+    if not root:
+        return None
+    if rules is None:
+        rules = workspace_template_rules()
+    return ptk.Workspace.create(root, rules=rules, create_dirs=create_dirs)
+
+
+def promote_workspace(root=None):
+    """Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project
+    by writing a ``workspace.mel`` that describes the layout it ALREADY has — scene rule ``.``
+    when .blend files sit at the root, ``sourceImages`` → ``textures`` when that's the existing
+    texture folder. Creates no subfolders and never clobbers an existing marker's rules."""
+    if root is None:
+        ws = current_workspace()
+        root = ws.root if ws else ""
+    if not (root and os.path.isdir(root)):
+        return None
+    rules = dict(ptk.DEFAULT_FILE_RULES)
+
+    def _has(sub):
+        return os.path.isdir(os.path.join(root, sub))
+
+    try:
+        flat = any(f.lower().endswith(".blend") for f in os.listdir(root))
+    except OSError:
+        flat = False
+    if flat and not _has("scenes"):
+        rules["scene"] = rules["mayaAscii"] = rules["mayaBinary"] = "."
+    if _has("textures") and not _has("sourceimages"):
+        rules["sourceImages"] = "textures"
+    return ptk.Workspace.create(root, rules=rules, create_dirs=False)
 
 
 def find_workspaces(root_dir, recursive=False):
-    """Project folders under ``root_dir`` — the root itself when it directly holds .blend files,
-    plus every subdirectory that does. Mirror of mayatk's ``find_available_workspaces`` /
-    ``EnvUtils.find_workspaces`` (Maya project dirs → Blender project folders).
+    """Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their
+    root: shared Maya/Blender projects) plus unmarked ones (a directory directly holding .blend
+    files). An unmarked candidate nested inside a marked project (e.g. its ``scenes/`` folder)
+    belongs to that project and is not listed. Mirror of mayatk's
+    ``find_available_workspaces`` / ``EnvUtils.find_workspaces``.
 
-    ``recursive=False`` (default) only looks at immediate children of ``root_dir`` — mirrors
-    mayatk's workspace-*discovery* toggle (a workspace never nests another workspace's scan, only
-    the search for *more* workspace folders goes deeper). Returns absolute dir paths, root first,
-    then the rest alphabetically.
+    ``recursive=False`` (default) only looks at ``root_dir`` and its immediate children —
+    mirrors mayatk's workspace-*discovery* toggle (a workspace never nests another workspace's
+    scan, only the search for *more* workspace folders goes deeper). Returns absolute dir
+    paths, root first, then the rest alphabetically.
     """
-    if not (root_dir and os.path.isdir(root_dir)):
-        return []
-
-    def _has_blend(d):
-        try:
-            return any(
-                f.lower().endswith(".blend") and os.path.isfile(os.path.join(d, f))
-                for f in os.listdir(d)
-            )
-        except OSError:
-            return False
-
-    if recursive:
-        root_norm = os.path.normpath(root_dir)
-        found = [
-            os.path.normpath(dirpath)
-            for dirpath, _dirnames, _files in os.walk(root_dir)
-            if _has_blend(dirpath)
-        ]
-        found.sort(key=lambda p: (p != root_norm, p.lower()))
-        return found
-
-    result = []
-    if _has_blend(root_dir):
-        result.append(os.path.normpath(root_dir))
-    try:
-        for name in sorted(os.listdir(root_dir)):
-            sub = os.path.join(root_dir, name)
-            if os.path.isdir(sub) and _has_blend(sub):
-                result.append(os.path.normpath(sub))
-    except OSError:
-        pass
-    return result
+    return [
+        w.root
+        for w in ptk.Workspace.find(root_dir, recursive=recursive, scene_exts=(".blend",))
+    ]
 
 
 def open_scene(path):
@@ -279,9 +423,9 @@ def save_scene_as(directory, name, case=None, suffix="", subfolder="", overwrite
     """Save the current scene as a .blend under ``directory`` with naming conventions applied —
     mirror of mayatk's ``save_scene``. ``case``/``suffix`` format the name; ``subfolder`` is an
     optional path pattern with ``{name}`` / ``{workspace}`` / ``{suffix}`` / ``{scenes}``
-    placeholders (``{scenes}`` has no Blender project-rule equivalent to mayatk's
-    ``workspace -q -fre "scene"``, so it always resolves to the literal ``"scenes"`` — the same
-    fallback mayatk itself uses when that query fails). Returns the saved path (or ``None`` if it
+    placeholders (``{scenes}`` resolves through the workspace's ``scene`` file rule when
+    ``directory`` is a marked workspace — the same ``workspace -q -fre "scene"`` lookup mayatk
+    does — falling back to the literal ``"scenes"``). Returns the saved path (or ``None`` if it
     exists and ``overwrite`` is False, or on failure).
     """
     import bpy
@@ -292,12 +436,13 @@ def save_scene_as(directory, name, case=None, suffix="", subfolder="", overwrite
     base = format_scene_name(name, case, suffix)
     target_dir = directory
     if subfolder:
+        scene_rule = ptk.Workspace.load(directory).rules.get("scene")
         resolved = ptk.StrUtils.replace_placeholders(
             subfolder,
             name=format_scene_name(name, case, ""),
             workspace=os.path.basename(os.path.normpath(directory)),
             suffix=suffix,
-            scenes="scenes",
+            scenes=scene_rule if scene_rule and not os.path.isabs(scene_rule) else "scenes",
         )
         target_dir = os.path.join(directory, resolved)
     try:

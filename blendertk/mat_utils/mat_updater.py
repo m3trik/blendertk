@@ -15,8 +15,9 @@ tags at their wiring point): the ``cmb_transfer_mode`` File Management combo (th
 always writes processed textures straight to the Output Folder — there is no separate
 copy/move-the-original-source-file step to select a mode for), and the clickable ``action://`` log
 links (mayatk's engine emits ``cls.logger.log_link(...)`` for "select material in viewport"; the
-Blender engine doesn't emit those yet and blendertk has no ``UiUtils.dispatch_log_link`` counterpart
-— that's cross-tool ui_utils infrastructure, out of scope for a single-tool port). Everything else —
+Blender engine doesn't emit those yet — the ``UiUtils.dispatch_log_link`` counterpart already
+exists, so once the engine emits the links, wire them here like the other blendertk tools do).
+Everything else —
 including "Discover Maps" sibling discovery — is fully wired: Blender's project-folder analogue is
 the .blend's own directory (``workspace``), the same concept the engine already uses to resolve a
 relative Output Folder.
@@ -50,8 +51,9 @@ class MatUpdaterSlots(MatUpdater):
             pass
         # TODO(blender-parity): mayatk wires txt001.anchorClicked -> UiUtils.dispatch_log_link for
         # clickable "select material" log links (via cls.logger.log_link(...) in the engine).
-        # blendertk's MatUpdater engine doesn't emit action:// links yet, and blendertk has no
-        # dispatch_log_link counterpart (that belongs in ui_utils, cross-tool scope) — deferred.
+        # blendertk's UiUtils.dispatch_log_link counterpart now exists (used by Telescope Rig /
+        # hierarchy_sync / scene_exporter); the only remaining gap is the MatUpdater engine
+        # emitting the action:// links — once it does, wire txt001.anchorClicked here like those.
 
         # Mirror the Maya panel: show where textures resolve from. Maya's "sourceimages" project
         # folder has no Blender equivalent; the nearest analogue is the .blend's own folder
@@ -60,7 +62,7 @@ class MatUpdaterSlots(MatUpdater):
             workspace = btk.get_env_info("workspace")
             info = ptk.truncate(
                 f"<br><font color='#888'>Workspace: {workspace}</font><br>",
-                "middle",
+                mode="middle",
             )
             self.ui.txt001.setText(self.msg_intro + info)
         except Exception:

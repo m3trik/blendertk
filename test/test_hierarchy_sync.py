@@ -83,6 +83,33 @@ try:
     check("should_keep_node_by_type excludes matched type", should_keep_node_by_type(m, ["MESH"], exclude=True) is False)
     check("should_keep_node_by_type keeps unmatched type", should_keep_node_by_type(g, ["MESH"], exclude=True) is True)
 
+    # ------------------------------------------------------------------ camera/light type filters
+    # Locks the engine params behind the panel's 'Filter Cameras' / 'Filter Lights'
+    # diff options (mirror of mayatk's test_filter_cameras_and_lights).
+    reset()
+    keep = empty("KeepGrp")
+    cam_o = bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam"))
+    SCOLL().objects.link(cam_o)
+    light_o = bpy.data.objects.new("Lamp", bpy.data.lights.new("Lamp", "POINT"))
+    SCOLL().objects.link(light_o)
+    ref_o = empty("RefOnly")
+    check("should_keep_node_by_type excludes CAMERA", should_keep_node_by_type(cam_o, ["CAMERA"], exclude=True) is False)
+    check("should_keep_node_by_type excludes LIGHT", should_keep_node_by_type(light_o, ["LIGHT"], exclude=True) is False)
+
+    hm = HierarchySync(fuzzy_matching=False, dry_run=True)
+    d_on = hm.analyze_hierarchies(
+        [keep, cam_o, light_o], [ref_o], filter_meshes=False, filter_cameras=True, filter_lights=True
+    )
+    check("filter_cameras/lights drop cameras+lights from extras",
+          "Cam" not in d_on["extra"] and "Lamp" not in d_on["extra"] and "KeepGrp" in d_on["extra"],
+          str(d_on.get("extra")))
+    d_off = hm.analyze_hierarchies(
+        [keep, cam_o, light_o], [ref_o], filter_meshes=False, filter_cameras=False, filter_lights=False
+    )
+    check("filters off keep cameras+lights in extras",
+          "Cam" in d_off["extra"] and "Lamp" in d_off["extra"],
+          str(d_off.get("extra")))
+
     # ------------------------------------------------------------------ pure detection passes
     hm = HierarchySync(dry_run=True)
     rep, rem_m, rem_e = hm._detect_reparented(["Grp|Leaf"], ["Other|Leaf"])

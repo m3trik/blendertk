@@ -71,7 +71,13 @@ def explode_view(objects, step=1.2, margin=0.05, max_iterations=50):
             d = (o_mn + o_mx) / 2.0 - center
             if d.length < 1e-6:  # exactly centered geometry — nudge deterministically
                 d = Vector((1e-2 * (n + 1), 0.0, 0.0))
-            o.location += d * (step - 1.0)
+            # `d` is a world-space separation; write it in world space so parented
+            # children move along world axes. Reassigning the whole matrix lets Blender
+            # back-solve matrix_basis through the parent (an in-place
+            # ``matrix_world.translation +=`` is not guaranteed to propagate).
+            mw = o.matrix_world.copy()
+            mw.translation += d * (step - 1.0)
+            o.matrix_world = mw
     bpy.context.view_layer.update()
     return targets
 
