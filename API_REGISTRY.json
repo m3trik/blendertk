@@ -13,7 +13,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "All fcurves across the given objects' actions (slot-aware;",
-          "line": 55,
+          "line": 64,
           "deprecated": false
         },
         {
@@ -22,7 +22,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "True if the blend file contains any action carrying fcurves (keyed motion).",
-          "line": 63,
+          "line": 72,
           "deprecated": false
         },
         {
@@ -31,7 +31,7 @@
           "kind": "function",
           "signature": "(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)",
           "summary": "Set the scene's current frame, with optional relative offset and clean-number snapping —",
-          "line": 80,
+          "line": 89,
           "deprecated": false
         },
         {
@@ -40,7 +40,7 @@
           "kind": "function",
           "signature": "(objects, offset)",
           "summary": "Shift every key of the given objects by ``offset`` frames.",
-          "line": 145,
+          "line": 154,
           "deprecated": false
         },
         {
@@ -49,7 +49,7 @@
           "kind": "function",
           "signature": "(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')",
           "summary": "Move the objects' keys so they align to ``frame`` (default: the current frame).",
-          "line": 150,
+          "line": 159,
           "deprecated": false
         },
         {
@@ -58,7 +58,7 @@
           "kind": "function",
           "signature": "(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False)",
           "summary": "Add (+) or remove (−) ``spacing`` frames of space at ``frame`` (default: the current",
-          "line": 216,
+          "line": 225,
           "deprecated": false
         },
         {
@@ -67,7 +67,7 @@
           "kind": "function",
           "signature": "(objects, target_frame=None, use_earliest=True)",
           "summary": "Move the SELECTED keyframes (``select_control_point``, e.g.",
-          "line": 307,
+          "line": 316,
           "deprecated": false
         },
         {
@@ -76,7 +76,7 @@
           "kind": "function",
           "signature": "(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False)",
           "summary": "Key viewport + render visibility (``hide_viewport``/``hide_render``) — mirror of",
-          "line": 372,
+          "line": 381,
           "deprecated": false
         },
         {
@@ -85,7 +85,7 @@
           "kind": "function",
           "signature": "(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)",
           "summary": "Insert sampled keys every ``step`` frames between each fcurve's first and last key",
-          "line": 424,
+          "line": 433,
           "deprecated": false
         },
         {
@@ -94,7 +94,7 @@
           "kind": "function",
           "signature": "(objects, time_range=None, ignore_visibility=False)",
           "summary": "Remove every key strictly between each fcurve's first and last (keeps only the",
-          "line": 486,
+          "line": 495,
           "deprecated": false
         },
         {
@@ -103,7 +103,7 @@
           "kind": "function",
           "signature": "(objects, time=None, add_to_selection=False)",
           "summary": "Select keyframe points (``select_control_point`` — visible in the Dope Sheet /",
-          "line": 511,
+          "line": 520,
           "deprecated": false
         },
         {
@@ -112,7 +112,7 @@
           "kind": "function",
           "signature": "(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False)",
           "summary": "Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both",
-          "line": 546,
+          "line": 555,
           "deprecated": false
         },
         {
@@ -121,7 +121,7 @@
           "kind": "function",
           "signature": "(objects, selected_only=False, time_range=None, method='nearest')",
           "summary": "Snap keys to whole frames (or \"clean\" numbers) — mirror of ``mtk.snap_keys_to_frames``.",
-          "line": 643,
+          "line": 680,
           "deprecated": false
         },
         {
@@ -130,7 +130,7 @@
           "kind": "function",
           "signature": "(objects, interpolation='CONSTANT', handle=None)",
           "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-          "line": 675,
+          "line": 712,
           "deprecated": false
         },
         {
@@ -139,7 +139,7 @@
           "kind": "function",
           "signature": "(objects, stepped=True)",
           "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-          "line": 692,
+          "line": 729,
           "deprecated": false
         },
         {
@@ -148,7 +148,7 @@
           "kind": "function",
           "signature": "(objects, time=None)",
           "summary": "Remove animation from the given objects — mirror of ``mtk.delete_keys``.",
-          "line": 706,
+          "line": 743,
           "deprecated": false
         },
         {
@@ -157,7 +157,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-          "line": 748,
+          "line": 785,
           "deprecated": false
         },
         {
@@ -166,7 +166,7 @@
           "kind": "function",
           "signature": "(source, mode='action')",
           "summary": "Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same",
-          "line": 765,
+          "line": 802,
           "deprecated": false
         },
         {
@@ -175,7 +175,7 @@
           "kind": "function",
           "signature": "(objects, buffer, target_time=None)",
           "summary": "Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of",
-          "line": 802,
+          "line": 839,
           "deprecated": false
         },
         {
@@ -184,7 +184,7 @@
           "kind": "function",
           "signature": "(objects, relative=False, optimize=False)",
           "summary": "Transfer keyframes from the first object (source) onto the rest (targets) — mirror of",
-          "line": 887,
+          "line": 924,
           "deprecated": false
         },
         {
@@ -193,7 +193,7 @@
           "kind": "function",
           "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)",
           "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-          "line": 1070,
+          "line": 1107,
           "deprecated": false
         },
         {
@@ -202,7 +202,7 @@
           "kind": "function",
           "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)",
           "summary": "Detect and repair corrupted animation fcurves — mirror of",
-          "line": 1120,
+          "line": 1157,
           "deprecated": false
         },
         {
@@ -211,7 +211,7 @@
           "kind": "function",
           "signature": "(objects=None, untie=False, frame_range=None, absolute=False)",
           "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-          "line": 1189,
+          "line": 1226,
           "deprecated": false
         },
         {
@@ -220,7 +220,7 @@
           "kind": "function",
           "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)",
           "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-          "line": 1242,
+          "line": 1279,
           "deprecated": false
         },
         {
@@ -229,7 +229,7 @@
           "kind": "function",
           "signature": "(objects=None, frame_range=None, step=1)",
           "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-          "line": 1300,
+          "line": 1337,
           "deprecated": false
         },
         {
@@ -238,7 +238,7 @@
           "kind": "function",
           "signature": "(objects=None, by_time=False, ignore_holds=False)",
           "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-          "line": 1383,
+          "line": 1420,
           "deprecated": false
         },
         {
@@ -247,7 +247,7 @@
           "kind": "function",
           "signature": "(records)",
           "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-          "line": 1423,
+          "line": 1460,
           "deprecated": false
         },
         {
@@ -256,7 +256,7 @@
           "kind": "function",
           "signature": "(records)",
           "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-          "line": 1449,
+          "line": 1486,
           "deprecated": false
         },
         {
@@ -265,7 +265,7 @@
           "kind": "function",
           "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
           "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-          "line": 1486,
+          "line": 1523,
           "deprecated": false
         }
       ],
@@ -273,7 +273,7 @@
         {
           "name": "AnimUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 1523,
+          "line": 1560,
           "bases": [],
           "members": []
         }
@@ -1135,21 +1135,12 @@
               "deprecated": false
             },
             {
-              "name": "browse_csv",
-              "qualname": "ShotManifestController.browse_csv",
-              "kind": "method",
-              "signature": "(self) -> None",
-              "summary": "Open a file dialog and load the selected CSV.",
-              "line": 1457,
-              "deprecated": false
-            },
-            {
               "name": "build",
               "qualname": "ShotManifestController.build",
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Build or update shots in the store from loaded steps.",
-              "line": 1648,
+              "line": 1643,
               "deprecated": false
             },
             {
@@ -1158,7 +1149,7 @@
               "kind": "method",
               "signature": "(self, skip_key_check: bool = False) -> None",
               "summary": "Compare CSV steps against the live Blender shots and color the tree.",
-              "line": 1857,
+              "line": 1852,
               "deprecated": false
             }
           ]
@@ -1166,7 +1157,7 @@
         {
           "name": "ShotManifestSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 1955,
+          "line": 1950,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -1177,7 +1168,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Header menu is configured once in controller.__init__.",
-              "line": 1968,
+              "line": 1963,
               "deprecated": false
             },
             {
@@ -1186,7 +1177,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Expand all step rows that have missing objects or behaviors.",
-              "line": 1972,
+              "line": 1967,
               "deprecated": false
             },
             {
@@ -1195,7 +1186,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Expand all step rows that have scene-discovered extra objects.",
-              "line": 1976,
+              "line": 1971,
               "deprecated": false
             },
             {
@@ -1204,7 +1195,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 1980,
+              "line": 1975,
               "deprecated": false
             },
             {
@@ -1213,7 +1204,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Assess shots against live Blender scene.",
-              "line": 1986,
+              "line": 1981,
               "deprecated": false
             },
             {
@@ -1222,7 +1213,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build shots from loaded steps (or auto-detect from scene).",
-              "line": 1990,
+              "line": 1985,
               "deprecated": false
             }
           ]
@@ -1439,7 +1430,7 @@
               "name": "move_object_in_shot",
               "qualname": "ShotSequencer.move_object_in_shot",
               "kind": "method",
-              "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, prevent_overlap: bool = False) -> None",
+              "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float) -> None",
               "summary": "Move one object's keys within a shot, growing the shot + rippling when it overruns.",
               "line": 386,
               "deprecated": false
@@ -1450,7 +1441,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
               "summary": "Scale one object's keys and ripple downstream shots by the tail delta.",
-              "line": 447,
+              "line": 421,
               "deprecated": false
             },
             {
@@ -1459,7 +1450,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_duration: float) -> None",
               "summary": "Change a shot's duration (start fixed), scaling its keys + rippling downstream.",
-              "line": 465,
+              "line": 439,
               "deprecated": false
             },
             {
@@ -1468,7 +1459,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None",
               "summary": "Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.",
-              "line": 482,
+              "line": 456,
               "deprecated": false
             },
             {
@@ -1477,7 +1468,7 @@
               "kind": "method",
               "signature": "(self, gap: float, scope: str = 'all', shot_id: Optional[int] = None) -> bool",
               "summary": "Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).",
-              "line": 509,
+              "line": 483,
               "deprecated": false
             },
             {
@@ -1486,7 +1477,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, target_pos: int) -> None",
               "summary": "Reorder *shot_id* to 1-based timeline position *target_pos*.",
-              "line": 540,
+              "line": 514,
               "deprecated": false
             },
             {
@@ -1495,7 +1486,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, ignore: Optional[str] = None, motion_rate: float = 0.001, ignore_holds: bool = True) -> List[dict]",
               "summary": "Per-object keyed-span segments within a shot — the sequencer track data.",
-              "line": 551,
+              "line": 525,
               "deprecated": false
             },
             {
@@ -1504,7 +1495,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, mode: str = 'trim') -> Tuple[float, float]",
               "summary": "Resize a shot to its keyed content, rippling neighbours by the deltas.",
-              "line": 657,
+              "line": 631,
               "deprecated": false
             },
             {
@@ -1513,7 +1504,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int) -> Tuple[float, float]",
               "summary": "Trim empty space from a shot's start and end (bounds move inward only).",
-              "line": 695,
+              "line": 669,
               "deprecated": false
             }
           ]
@@ -3064,7 +3055,7 @@
     },
     {
       "relpath": "cam_utils/_cam_utils.py",
-      "summary": "Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).",
+      "summary": "Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive",
       "functions": [
         {
           "name": "adjust_camera_clipping",
@@ -3072,7 +3063,16 @@
           "kind": "function",
           "signature": "(camera=None, near_clip=None, far_clip=None)",
           "summary": "Adjust near/far clip planes of camera object(s) — mirror of ``mtk.adjust_camera_clipping``.",
-          "line": 63,
+          "line": 66,
+          "deprecated": false
+        },
+        {
+          "name": "navigate_view",
+          "qualname": "navigate_view",
+          "kind": "function",
+          "signature": "(mode='ORBIT')",
+          "summary": "Arm an interactive Maya-style viewport-navigation tool: **LMB-drag** to Orbit/Dolly/Track/",
+          "line": 252,
           "deprecated": false
         }
       ],
@@ -3080,7 +3080,7 @@
         {
           "name": "CamUtils",
           "summary": "Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).",
-          "line": 91,
+          "line": 292,
           "bases": [],
           "members": []
         }
@@ -3141,7 +3141,7 @@
           "kind": "function",
           "signature": "(packages=None, add_to_path=True)",
           "summary": "Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).",
-          "line": 200,
+          "line": 204,
           "deprecated": false
         },
         {
@@ -3150,7 +3150,7 @@
           "kind": "function",
           "signature": "(index=None)",
           "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-          "line": 320,
+          "line": 324,
           "deprecated": false
         },
         {
@@ -3159,7 +3159,7 @@
           "kind": "function",
           "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
           "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-          "line": 338,
+          "line": 342,
           "deprecated": false
         },
         {
@@ -3168,7 +3168,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-          "line": 369,
+          "line": 373,
           "deprecated": false
         },
         {
@@ -3177,7 +3177,7 @@
           "kind": "function",
           "signature": "(info)",
           "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-          "line": 420,
+          "line": 424,
           "deprecated": false
         },
         {
@@ -3186,7 +3186,7 @@
           "kind": "function",
           "signature": "(objects=None, adaptive=True, sections=None)",
           "summary": "Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,",
-          "line": 459,
+          "line": 463,
           "deprecated": false
         },
         {
@@ -3195,7 +3195,7 @@
           "kind": "function",
           "signature": "(quiet=False)",
           "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-          "line": 575,
+          "line": 579,
           "deprecated": false
         },
         {
@@ -3204,7 +3204,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-          "line": 633,
+          "line": 637,
           "deprecated": false
         },
         {
@@ -3213,7 +3213,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-          "line": 652,
+          "line": 656,
           "deprecated": false
         },
         {
@@ -3222,7 +3222,7 @@
           "kind": "function",
           "signature": "(area_type)",
           "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-          "line": 664,
+          "line": 668,
           "deprecated": false
         },
         {
@@ -3231,7 +3231,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-          "line": 684,
+          "line": 688,
           "deprecated": false
         },
         {
@@ -3240,7 +3240,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-          "line": 714,
+          "line": 718,
           "deprecated": false
         }
       ],
@@ -3248,7 +3248,7 @@
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 742,
+          "line": 746,
           "bases": [
             "ptk.CoreUtils"
           ],
@@ -3264,9 +3264,9 @@
           "name": "auto_instance",
           "qualname": "auto_instance",
           "kind": "function",
-          "signature": "(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING') -> List[object]",
+          "signature": "(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
           "summary": "Find geometrically identical meshes and convert them to instances.",
-          "line": 1069,
+          "line": 1187,
           "deprecated": false
         }
       ],
@@ -3313,12 +3313,30 @@
           ],
           "members": [
             {
+              "name": "default_summary",
+              "qualname": "AutoInstancer.default_summary",
+              "kind": "staticmethod",
+              "signature": "() -> Dict[str, object]",
+              "summary": "A zeroed run-summary — the shape of :attr:`last_run_summary`.",
+              "line": 251,
+              "deprecated": false
+            },
+            {
+              "name": "format_summary",
+              "qualname": "AutoInstancer.format_summary",
+              "kind": "staticmethod",
+              "signature": "(summary: Dict[str, object], output_count: int) -> str",
+              "summary": "Human-readable, DCC-agnostic description of a run *summary*.",
+              "line": 280,
+              "deprecated": false
+            },
+            {
               "name": "tolerance",
               "qualname": "AutoInstancer.tolerance",
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 246,
+              "line": 337,
               "deprecated": false
             },
             {
@@ -3327,7 +3345,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 256,
+              "line": 347,
               "deprecated": false
             },
             {
@@ -3336,7 +3354,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 266,
+              "line": 357,
               "deprecated": false
             },
             {
@@ -3345,7 +3363,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 276,
+              "line": 367,
               "deprecated": false
             },
             {
@@ -3354,7 +3372,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 286,
+              "line": 377,
               "deprecated": false
             },
             {
@@ -3363,7 +3381,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 296,
+              "line": 387,
               "deprecated": false
             },
             {
@@ -3372,7 +3390,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 306,
+              "line": 397,
               "deprecated": false
             },
             {
@@ -3381,7 +3399,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[Sequence[object]] = None) -> List[object]",
               "summary": "Discover and instance matching meshes.",
-              "line": 340,
+              "line": 431,
               "deprecated": false
             },
             {
@@ -3390,7 +3408,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[Sequence[object]] = None, check_hierarchy: Optional[bool] = None) -> List[InstanceGroup]",
               "summary": "Find groups of identical objects.",
-              "line": 575,
+              "line": 667,
               "deprecated": false
             }
           ]
@@ -3736,7 +3754,7 @@
         {
           "name": "ScriptJobManager",
           "summary": "Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).",
-          "line": 79,
+          "line": 83,
           "bases": [],
           "members": [
             {
@@ -3745,7 +3763,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> 'ScriptJobManager'",
               "summary": "Return the module-wide singleton, creating it on first access.",
-              "line": 90,
+              "line": 94,
               "deprecated": false
             },
             {
@@ -3754,7 +3772,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> None",
               "summary": "Tear down the singleton and allow a fresh one to be created (tests / reload).",
-              "line": 97,
+              "line": 101,
               "deprecated": false
             },
             {
@@ -3763,7 +3781,7 @@
               "kind": "method",
               "signature": "(self, event: str, callback: Callable, *, owner: Any = None, ephemeral: bool = False) -> int",
               "summary": "Register *callback* (called with no args) for a Maya-named *event*.",
-              "line": 114,
+              "line": 122,
               "deprecated": false
             },
             {
@@ -3772,7 +3790,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Remove a single subscription by *token*.",
-              "line": 156,
+              "line": 164,
               "deprecated": false
             },
             {
@@ -3781,7 +3799,7 @@
               "kind": "method",
               "signature": "(self, owner: Any) -> None",
               "summary": "Remove every subscription registered under *owner*.",
-              "line": 172,
+              "line": 180,
               "deprecated": false
             },
             {
@@ -3790,7 +3808,7 @@
               "kind": "method",
               "signature": "(self, widget, owner: Any) -> None",
               "summary": "Connect *widget*.destroyed → :meth:`unsubscribe_all` for *owner* (Qt).",
-              "line": 177,
+              "line": 185,
               "deprecated": false
             },
             {
@@ -3799,7 +3817,7 @@
               "kind": "method",
               "signature": "(self, token: int) -> None",
               "summary": "Temporarily silence a subscription without removing it.",
-              "line": 189,
+              "line": 198,
               "deprecated": false
             },
             {
@@ -3807,8 +3825,17 @@
               "qualname": "ScriptJobManager.resume",
               "kind": "method",
               "signature": "(self, token: int) -> None",
-              "summary": "Re-enable a previously suppressed subscription.",
-              "line": 194,
+              "summary": "Undo one :meth:`suppress`;",
+              "line": 207,
+              "deprecated": false
+            },
+            {
+              "name": "suppressed",
+              "qualname": "ScriptJobManager.suppressed",
+              "kind": "method",
+              "signature": "(self, *tokens: Optional[int]) -> Iterator[None]",
+              "summary": "Silence *tokens* for the duration of a ``with`` block (mirror of mayatk).",
+              "line": 216,
               "deprecated": false
             },
             {
@@ -3817,7 +3844,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "Snapshot of installed handlers and current subscriptions.",
-              "line": 198,
+              "line": 238,
               "deprecated": false
             },
             {
@@ -3826,7 +3853,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Pretty-print :meth:`status` for interactive debugging.",
-              "line": 214,
+              "line": 254,
               "deprecated": false
             },
             {
@@ -3835,7 +3862,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove every installed master handler and drop all subscriptions.",
-              "line": 225,
+              "line": 265,
               "deprecated": false
             }
           ]
@@ -3870,7 +3897,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Restore the exact pre-explode locations stamped by :func:`explode_view`.",
-          "line": 79,
+          "line": 85,
           "deprecated": false
         },
         {
@@ -3879,7 +3906,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Restore every exploded object in the scene, regardless of selection (mirror of mayatk's",
-          "line": 96,
+          "line": 102,
           "deprecated": false
         },
         {
@@ -3888,7 +3915,7 @@
           "kind": "function",
           "signature": "(objects=None)",
           "summary": "Mesh objects visible in the current view layer — mirror of mayatk's",
-          "line": 104,
+          "line": 110,
           "deprecated": false
         }
       ],
@@ -3896,7 +3923,7 @@
         {
           "name": "DisplayUtils",
           "summary": "Namespace mirror of mayatk's ``DisplayUtils`` (helpers also exposed module-level).",
-          "line": 119,
+          "line": 125,
           "bases": [],
           "members": []
         }
@@ -4446,7 +4473,7 @@
           "kind": "function",
           "signature": "(source_meshes, target, offset=0.0, threshold=None, invert=False)",
           "summary": "Project the source meshes' vertices onto the closest point of ``target``'s surface —",
-          "line": 961,
+          "line": 1017,
           "deprecated": false
         },
         {
@@ -4455,7 +4482,7 @@
           "kind": "function",
           "signature": "(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)",
           "summary": "Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —",
-          "line": 1165,
+          "line": 1221,
           "deprecated": false
         },
         {
@@ -4464,7 +4491,7 @@
           "kind": "function",
           "signature": "(objects=None, *, by_material=False, rename=False, center_pivots=True)",
           "summary": "Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender",
-          "line": 1213,
+          "line": 1269,
           "deprecated": false
         },
         {
@@ -4473,7 +4500,7 @@
           "kind": "function",
           "signature": "(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0)",
           "summary": "Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``",
-          "line": 1284,
+          "line": 1340,
           "deprecated": false
         },
         {
@@ -4482,7 +4509,7 @@
           "kind": "function",
           "signature": "(*, duplicate=False, separate=True, separate_each=False)",
           "summary": "Detach the active mesh's selected faces — Blender mirror of mayatk's",
-          "line": 1325,
+          "line": 1381,
           "deprecated": false
         },
         {
@@ -4491,7 +4518,7 @@
           "kind": "function",
           "signature": "(objects, delete=False, select=True, round_ndigits=5)",
           "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-          "line": 1379,
+          "line": 1435,
           "deprecated": false
         },
         {
@@ -4500,7 +4527,7 @@
           "kind": "function",
           "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
           "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-          "line": 1421,
+          "line": 1477,
           "deprecated": false
         },
         {
@@ -4509,7 +4536,7 @@
           "kind": "function",
           "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
           "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-          "line": 1509,
+          "line": 1568,
           "deprecated": false
         }
       ],
@@ -4517,7 +4544,7 @@
         {
           "name": "EditUtils",
           "summary": "Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).",
-          "line": 1572,
+          "line": 1631,
           "bases": [],
           "members": []
         }
@@ -4916,14 +4943,14 @@
         {
           "name": "DuplicateRadial",
           "summary": "Namespace mirror of mayatk's ``DuplicateRadial`` (helper also exposed module-level).",
-          "line": 138,
+          "line": 141,
           "bases": [],
           "members": []
         },
         {
           "name": "DuplicateRadialSlots",
           "summary": "Switchboard slot wiring for the Duplicate-Radial panel.",
-          "line": 149,
+          "line": 152,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -4934,7 +4961,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 184,
+              "line": 187,
               "deprecated": false
             },
             {
@@ -4943,7 +4970,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults: Resets all UI widgets to their default values.",
-              "line": 220,
+              "line": 223,
               "deprecated": false
             },
             {
@@ -4952,7 +4979,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "",
-              "line": 224,
+              "line": 227,
               "deprecated": false
             }
           ]
@@ -5600,7 +5627,7 @@
               "kind": "classmethod",
               "signature": "(cls, base_name, suffix='_', padding=3)",
               "summary": "A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of",
-              "line": 78,
+              "line": 80,
               "deprecated": false
             },
             {
@@ -5609,7 +5636,7 @@
               "kind": "staticmethod",
               "signature": "(input_data, replace_with='_')",
               "summary": "Replace characters outside ``[A-Za-z0-9_]`` (engine-export-safe naming).",
-              "line": 93,
+              "line": 95,
               "deprecated": false
             },
             {
@@ -5618,7 +5645,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, num_chars=1, trailing=False)",
               "summary": "Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —",
-              "line": 104,
+              "line": 106,
               "deprecated": false
             },
             {
@@ -5627,7 +5654,7 @@
               "kind": "staticmethod",
               "signature": "(objects, case='capitalize')",
               "summary": "Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /",
-              "line": 120,
+              "line": 122,
               "deprecated": false
             },
             {
@@ -5636,7 +5663,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, group_suffix='_GRP', locator_suffix='_LOC', joint_suffix='_JNT', mesh_suffix='_GEO', nurbs_curve_suffix='_CRV', camera_suffix='_CAM', light_suffix='_LGT', custom_suffixes=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True)",
               "summary": "Append a conventional type suffix (stripping any existing known suffix) — mirror of",
-              "line": 130,
+              "line": 132,
               "deprecated": false
             },
             {
@@ -5645,7 +5672,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False)",
               "summary": "Suffix objects by their distance from a reference point (origin, or the first object's",
-              "line": 175,
+              "line": 177,
               "deprecated": false
             }
           ]
@@ -6199,12 +6226,120 @@
           "deprecated": false
         },
         {
+          "name": "set_current_workspace",
+          "qualname": "set_current_workspace",
+          "kind": "function",
+          "signature": "(root=None)",
+          "summary": "Pin (or clear, with None) the session's current workspace — the Blender analogue of",
+          "line": 208,
+          "deprecated": false
+        },
+        {
+          "name": "current_workspace",
+          "qualname": "current_workspace",
+          "kind": "function",
+          "signature": "(path=None)",
+          "summary": "The active ``pythontk.Workspace``, or None.",
+          "line": 216,
+          "deprecated": false
+        },
+        {
+          "name": "workspace_root",
+          "qualname": "workspace_root",
+          "kind": "function",
+          "signature": "(path=None)",
+          "summary": "Absolute root of the current workspace, or '' — what ``get_env_info(\"workspace\")``",
+          "line": 244,
+          "deprecated": false
+        },
+        {
+          "name": "source_images_dir",
+          "qualname": "source_images_dir",
+          "kind": "function",
+          "signature": "(path=None)",
+          "summary": "The current workspace's texture folder — its ``sourceImages`` rule → an existing",
+          "line": 251,
+          "deprecated": false
+        },
+        {
+          "name": "scenes_dir",
+          "qualname": "scenes_dir",
+          "kind": "function",
+          "signature": "(path=None)",
+          "summary": "The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),",
+          "line": 261,
+          "deprecated": false
+        },
+        {
+          "name": "workspace_scenes_dir",
+          "qualname": "workspace_scenes_dir",
+          "kind": "function",
+          "signature": "(root)",
+          "summary": "The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when",
+          "line": 268,
+          "deprecated": false
+        },
+        {
+          "name": "list_workspace_templates",
+          "qualname": "list_workspace_templates",
+          "kind": "function",
+          "signature": "()",
+          "summary": "Saved workspace-template names (the Workspace Editor's Save Template entries).",
+          "line": 295,
+          "deprecated": false
+        },
+        {
+          "name": "workspace_template_rules",
+          "qualname": "workspace_template_rules",
+          "kind": "function",
+          "signature": "(name=None)",
+          "summary": "File rules for building a NEW workspace: the *name*d (default: active / last-saved)",
+          "line": 300,
+          "deprecated": false
+        },
+        {
+          "name": "save_workspace_template",
+          "qualname": "save_workspace_template",
+          "kind": "function",
+          "signature": "(name, rules)",
+          "summary": "Save *rules* as workspace template *name* and make it the active default for new",
+          "line": 320,
+          "deprecated": false
+        },
+        {
+          "name": "delete_workspace_template",
+          "qualname": "delete_workspace_template",
+          "kind": "function",
+          "signature": "(name)",
+          "summary": "Delete the user template *name* (the store keeps the active pointer consistent).",
+          "line": 329,
+          "deprecated": false
+        },
+        {
+          "name": "create_workspace",
+          "qualname": "create_workspace",
+          "kind": "function",
+          "signature": "(root, rules=None, create_dirs=True)",
+          "summary": "Create a marked workspace at ``root`` — the Blender counterpart of Maya's File ▸",
+          "line": 335,
+          "deprecated": false
+        },
+        {
+          "name": "promote_workspace",
+          "qualname": "promote_workspace",
+          "kind": "function",
+          "signature": "(root=None)",
+          "summary": "Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project",
+          "line": 347,
+          "deprecated": false
+        },
+        {
           "name": "find_workspaces",
           "qualname": "find_workspaces",
           "kind": "function",
           "signature": "(root_dir, recursive=False)",
-          "summary": "Project folders under ``root_dir`` — the root itself when it directly holds .blend files,",
-          "line": 202,
+          "summary": "Project folders under ``root_dir`` — marked workspaces (a ``workspace.mel`` at their",
+          "line": 373,
           "deprecated": false
         },
         {
@@ -6213,7 +6348,7 @@
           "kind": "function",
           "signature": "(path)",
           "summary": "Open a .blend file (replaces the current file — Maya's ``file -open``).",
-          "line": 247,
+          "line": 391,
           "deprecated": false
         },
         {
@@ -6222,7 +6357,7 @@
           "kind": "function",
           "signature": "(name, case=None, suffix='')",
           "summary": "Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`",
-          "line": 260,
+          "line": 404,
           "deprecated": false
         },
         {
@@ -6231,7 +6366,7 @@
           "kind": "function",
           "signature": "(directory, name, case=None, suffix='', subfolder='', overwrite=True)",
           "summary": "Save the current scene as a .blend under ``directory`` with naming conventions applied —",
-          "line": 278,
+          "line": 422,
           "deprecated": false
         },
         {
@@ -6240,7 +6375,7 @@
           "kind": "function",
           "signature": "(path, new_base)",
           "summary": "Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.",
-          "line": 317,
+          "line": 462,
           "deprecated": false
         },
         {
@@ -6249,7 +6384,7 @@
           "kind": "function",
           "signature": "(path)",
           "summary": "Delete a .blend (and its ``.blend1`` backup) — mirror of mayatk's ``delete_scene``.",
-          "line": 342,
+          "line": 487,
           "deprecated": false
         },
         {
@@ -6258,7 +6393,7 @@
           "kind": "function",
           "signature": "(library, mode)",
           "summary": "Set the display override for a linked library's objects — mirror of mayatk's",
-          "line": 384,
+          "line": 529,
           "deprecated": false
         },
         {
@@ -6267,7 +6402,7 @@
           "kind": "function",
           "signature": "(library)",
           "summary": "Return the active display mode (``\"off\"`` / ``\"reference\"`` / ``\"template\"``) for a linked",
-          "line": 407,
+          "line": 552,
           "deprecated": false
         }
       ],
@@ -6275,7 +6410,7 @@
         {
           "name": "EnvUtils",
           "summary": "Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).",
-          "line": 426,
+          "line": 571,
           "bases": [],
           "members": []
         }
@@ -6852,7 +6987,7 @@
         {
           "name": "HierarchySyncSlots",
           "summary": "Slots class for hierarchy management UI operations.",
-          "line": 889,
+          "line": 894,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -6863,7 +6998,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the header widget.",
-              "line": 977,
+              "line": 982,
               "deprecated": false
             },
             {
@@ -6872,7 +7007,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the reference/linked hierarchy tree widget.",
-              "line": 1040,
+              "line": 1045,
               "deprecated": false
             },
             {
@@ -6881,7 +7016,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the current scene hierarchy tree widget.",
-              "line": 1198,
+              "line": 1225,
               "deprecated": false
             },
             {
@@ -6890,7 +7025,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the diff-options WidgetComboBox below the Diff button.",
-              "line": 1256,
+              "line": 1283,
               "deprecated": false
             },
             {
@@ -6899,7 +7034,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the pull-options WidgetComboBox below the Pull button.",
-              "line": 1331,
+              "line": 1358,
               "deprecated": false
             },
             {
@@ -6908,7 +7043,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the Pull toggle button.",
-              "line": 1359,
+              "line": 1386,
               "deprecated": false
             },
             {
@@ -6917,7 +7052,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the fix/repair toggle button with options menu.",
-              "line": 1366,
+              "line": 1393,
               "deprecated": false
             },
             {
@@ -6926,7 +7061,7 @@
               "kind": "method",
               "signature": "(self, state=None)",
               "summary": "Run the diff analysis using settings from cmb_diff_options.",
-              "line": 1397,
+              "line": 1424,
               "deprecated": false
             },
             {
@@ -6935,7 +7070,7 @@
               "kind": "method",
               "signature": "(self, state=None)",
               "summary": "Pull the reference-tree selection into the current scene.",
-              "line": 1499,
+              "line": 1526,
               "deprecated": false
             },
             {
@@ -6944,7 +7079,7 @@
               "kind": "method",
               "signature": "(self, state=None)",
               "summary": "Toggle button for fix/repair operations.",
-              "line": 1544,
+              "line": 1571,
               "deprecated": false
             },
             {
@@ -6953,7 +7088,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Browse for reference scene file.",
-              "line": 1598,
+              "line": 1625,
               "deprecated": false
             },
             {
@@ -6962,7 +7097,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Refresh current scene hierarchy tree.",
-              "line": 1631,
+              "line": 1658,
               "deprecated": false
             },
             {
@@ -6971,7 +7106,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Select checked objects in the scene.",
-              "line": 1635,
+              "line": 1662,
               "deprecated": false
             },
             {
@@ -6980,7 +7115,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Expand all items in current scene tree.",
-              "line": 1644,
+              "line": 1671,
               "deprecated": false
             },
             {
@@ -6989,7 +7124,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Collapse all items in current scene tree.",
-              "line": 1648,
+              "line": 1675,
               "deprecated": false
             },
             {
@@ -6998,7 +7133,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Refresh reference hierarchy tree.",
-              "line": 1652,
+              "line": 1679,
               "deprecated": false
             },
             {
@@ -7007,7 +7142,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Show differences between hierarchies.",
-              "line": 1660,
+              "line": 1687,
               "deprecated": false
             },
             {
@@ -7016,7 +7151,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Analyze hierarchies and perform comparison (no auto-select/expand — see tb001).",
-              "line": 1670,
+              "line": 1697,
               "deprecated": false
             },
             {
@@ -7025,7 +7160,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Ignore selected items in the reference tree.",
-              "line": 1696,
+              "line": 1723,
               "deprecated": false
             },
             {
@@ -7034,7 +7169,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Unignore selected items in the reference tree.",
-              "line": 1700,
+              "line": 1727,
               "deprecated": false
             },
             {
@@ -7043,7 +7178,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Ignore selected items in the current scene tree.",
-              "line": 1704,
+              "line": 1731,
               "deprecated": false
             },
             {
@@ -7052,7 +7187,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Unignore selected items in the current scene tree.",
-              "line": 1708,
+              "line": 1735,
               "deprecated": false
             },
             {
@@ -7061,7 +7196,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete selected objects from the Blender scene and refresh the tree.",
-              "line": 1712,
+              "line": 1739,
               "deprecated": false
             },
             {
@@ -7070,7 +7205,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rename current-scene items to match reference names.",
-              "line": 1761,
+              "line": 1788,
               "deprecated": false
             },
             {
@@ -7079,7 +7214,7 @@
               "kind": "method",
               "signature": "(self, tree_widget)",
               "summary": "Count total items in a tree widget.",
-              "line": 2045,
+              "line": 2072,
               "deprecated": false
             }
           ]
@@ -7681,7 +7816,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya).",
-              "line": 213,
+              "line": 225,
               "deprecated": false
             },
             {
@@ -7690,7 +7825,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Workspace combo — project folders under the root (replaces Maya's workspace combo).",
-              "line": 264,
+              "line": 278,
               "deprecated": false
             },
             {
@@ -7699,7 +7834,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Filter field — enable toggle + ignore-case + target combo, plus live re-filter (mirror of Maya).",
-              "line": 269,
+              "line": 283,
               "deprecated": false
             },
             {
@@ -7708,7 +7843,25 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "One-time table setup (clickable action columns + context menu + signals), then populate.",
-              "line": 292,
+              "line": 306,
+              "deprecated": false
+            },
+            {
+              "name": "new_workspace",
+              "qualname": "ReferenceManagerSlots.new_workspace",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Create a marked workspace under the root (rules from the active template — see",
+              "line": 522,
+              "deprecated": false
+            },
+            {
+              "name": "mark_workspace",
+              "qualname": "ReferenceManagerSlots.mark_workspace",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Promote the current workspace folder to a shared Maya/Blender project — writes a",
+              "line": 542,
               "deprecated": false
             },
             {
@@ -7717,7 +7870,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the selected .blend (replaces the current file;",
-              "line": 799,
+              "line": 874,
               "deprecated": false
             },
             {
@@ -7726,7 +7879,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Save the current scene into the workspace with the header naming conventions.",
-              "line": 821,
+              "line": 896,
               "deprecated": false
             },
             {
@@ -7735,7 +7888,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rename the selected .blend on disk.",
-              "line": 842,
+              "line": 917,
               "deprecated": false
             },
             {
@@ -7744,7 +7897,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete the selected .blend file(s) from disk (confirmed).",
-              "line": 863,
+              "line": 938,
               "deprecated": false
             },
             {
@@ -7753,7 +7906,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reveal the selected .blend in the OS file manager (any row).",
-              "line": 875,
+              "line": 950,
               "deprecated": false
             },
             {
@@ -7762,7 +7915,7 @@
               "kind": "method",
               "signature": "(self, link=True)",
               "summary": "Link (or Append) the selected .blend file(s) as references.",
-              "line": 887,
+              "line": 962,
               "deprecated": false
             },
             {
@@ -7771,7 +7924,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reload the selected file's library from disk.",
-              "line": 903,
+              "line": 978,
               "deprecated": false
             },
             {
@@ -7780,7 +7933,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Point the selected file's library at a different .blend (native file browser).",
-              "line": 911,
+              "line": 986,
               "deprecated": false
             },
             {
@@ -7789,7 +7942,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Make the selected file's library data local (Maya's per-reference Import).",
-              "line": 924,
+              "line": 999,
               "deprecated": false
             },
             {
@@ -7798,7 +7951,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Remove the selected file's library (and everything linked from it).",
-              "line": 934,
+              "line": 1009,
               "deprecated": false
             },
             {
@@ -7807,7 +7960,7 @@
               "kind": "method",
               "signature": "(self, mode)",
               "summary": "Set the per-reference display mode (off / reference / template) on the selection.",
-              "line": 946,
+              "line": 1021,
               "deprecated": false
             },
             {
@@ -7816,7 +7969,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reload every linked library from disk (Maya's Update References).",
-              "line": 956,
+              "line": 1031,
               "deprecated": false
             },
             {
@@ -7825,7 +7978,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Make every linked library's data local (Maya's Unlink-and-Import All).",
-              "line": 964,
+              "line": 1039,
               "deprecated": false
             },
             {
@@ -7834,7 +7987,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Remove every linked library and its data (Maya's Un-Reference All).",
-              "line": 976,
+              "line": 1051,
               "deprecated": false
             }
           ]
@@ -7869,7 +8022,7 @@
               "kind": "method",
               "signature": "(self, version_format: str = '') -> str",
               "summary": "Generate the full export file path.",
-              "line": 313,
+              "line": 350,
               "deprecated": false
             },
             {
@@ -7878,7 +8031,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> str",
               "summary": "Format the export name using a regex pattern and replacement (e.g.",
-              "line": 449,
+              "line": 486,
               "deprecated": false
             },
             {
@@ -7887,7 +8040,7 @@
               "kind": "method",
               "signature": "(self, export_path: str) -> str",
               "summary": "Generate the log file path based on the export path.",
-              "line": 467,
+              "line": 504,
               "deprecated": false
             },
             {
@@ -7896,7 +8049,7 @@
               "kind": "method",
               "signature": "(self, log_file_path: str)",
               "summary": "Setup file logging to log actions during export.",
-              "line": 472,
+              "line": 509,
               "deprecated": false
             },
             {
@@ -7905,7 +8058,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Close and remove file handlers after logging is complete.",
-              "line": 488,
+              "line": 525,
               "deprecated": false
             },
             {
@@ -7914,7 +8067,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "All FBX export-option preset names (built-in + user;",
-              "line": 512,
+              "line": 549,
               "deprecated": false
             },
             {
@@ -7923,7 +8076,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "Writable directory FBX export-option presets are saved to (the \"Open Preset",
-              "line": 518,
+              "line": 555,
               "deprecated": false
             },
             {
@@ -7932,7 +8085,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Optional[str]",
               "summary": "Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it",
-              "line": 524,
+              "line": 561,
               "deprecated": false
             },
             {
@@ -7941,7 +8094,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, options: Optional[Dict[str, Any]] = None) -> str",
               "summary": "Save *options* (default: :data:`_DEFAULT_FBX_OPTIONS`) as user preset *name*.",
-              "line": 532,
+              "line": 569,
               "deprecated": false
             },
             {
@@ -7950,7 +8103,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete the *user* FBX export-option preset *name* (built-ins are read-only).",
-              "line": 543,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -7959,7 +8112,7 @@
               "kind": "method",
               "signature": "(self, name: Optional[str] = None, verify: bool = False) -> Optional[dict]",
               "summary": "Load a named FBX export-option preset so the next :meth:`perform_export` call",
-              "line": 548,
+              "line": 585,
               "deprecated": false
             },
             {
@@ -7968,7 +8121,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "Return (and log) the FBX export kwargs the next :meth:`perform_export` call will",
-              "line": 583,
+              "line": 620,
               "deprecated": false
             }
           ]
@@ -8548,6 +8701,104 @@
               "signature": "(filepath, **usd_opts)",
               "summary": "Import a USD file (wrapper over ``bpy.ops.wm.usd_import``).",
               "line": 145,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "env_utils/workspace_editor.py",
+      "summary": "blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one",
+      "functions": [],
+      "classes": [
+        {
+          "name": "WorkspaceEditorSlots",
+          "summary": "Switchboard slot wiring for the Workspace Editor (Project Window) panel.",
+          "line": 43,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "header_init",
+              "qualname": "WorkspaceEditorSlots.header_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Rule add, view toggle, reset/clear, template combo, help text.",
+              "line": 57,
+              "deprecated": false
+            },
+            {
+              "name": "txt000_init",
+              "qualname": "WorkspaceEditorSlots.txt000_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "Project Root — one full path (browse + open-folder option-box actions).",
+              "line": 128,
+              "deprecated": false
+            },
+            {
+              "name": "tbl000_init",
+              "qualname": "WorkspaceEditorSlots.tbl000_init",
+              "kind": "method",
+              "signature": "(self, widget)",
+              "summary": "",
+              "line": 149,
+              "deprecated": false
+            },
+            {
+              "name": "add_rule",
+              "qualname": "WorkspaceEditorSlots.add_rule",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Append an empty, editable rule row (saves once both cells are filled).",
+              "line": 335,
+              "deprecated": false
+            },
+            {
+              "name": "reset_row",
+              "qualname": "WorkspaceEditorSlots.reset_row",
+              "kind": "method",
+              "signature": "(self, row)",
+              "summary": "Reset *row*'s location to the active template's default for its rule.",
+              "line": 353,
+              "deprecated": false
+            },
+            {
+              "name": "remove_row",
+              "qualname": "WorkspaceEditorSlots.remove_row",
+              "kind": "method",
+              "signature": "(self, row)",
+              "summary": "Remove *row* and delete its rule from workspace.mel.",
+              "line": 364,
+              "deprecated": false
+            },
+            {
+              "name": "reset_rules",
+              "qualname": "WorkspaceEditorSlots.reset_rules",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Restore the default file rules — the active template's — and save.",
+              "line": 376,
+              "deprecated": false
+            },
+            {
+              "name": "clear_rules",
+              "qualname": "WorkspaceEditorSlots.clear_rules",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Remove every file rule and save (hand-written marker lines survive).",
+              "line": 381,
+              "deprecated": false
+            },
+            {
+              "name": "open_folder",
+              "qualname": "WorkspaceEditorSlots.open_folder",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Open the project root in the system file browser.",
+              "line": 387,
               "deprecated": false
             }
           ]
@@ -9235,7 +9486,7 @@
           "kind": "function",
           "signature": "(mode='relative', project_dir=None, images=None)",
           "summary": "Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.",
-          "line": 601,
+          "line": 605,
           "deprecated": false
         },
         {
@@ -9244,7 +9495,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "``{image-name: [material names]}`` for every FILE image referenced by a material's shader",
-          "line": 663,
+          "line": 670,
           "deprecated": false
         },
         {
@@ -9253,7 +9504,7 @@
           "kind": "function",
           "signature": "(paths)",
           "summary": "Scene materials whose shader graph references an image at one of ``paths`` (matched by",
-          "line": 680,
+          "line": 687,
           "deprecated": false
         },
         {
@@ -9262,7 +9513,7 @@
           "kind": "function",
           "signature": "(images=None, force_update=False, dry_run=False)",
           "summary": "Assign each texture image its correct color space by map type — the Blender counterpart of",
-          "line": 720,
+          "line": 727,
           "deprecated": false
         },
         {
@@ -9271,7 +9522,7 @@
           "kind": "function",
           "signature": "(images=None, target_dir=None, mode='rewrite')",
           "summary": "Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture",
-          "line": 813,
+          "line": 820,
           "deprecated": false
         },
         {
@@ -9280,7 +9531,7 @@
           "kind": "function",
           "signature": "(images=None, search_dir=None, dest_dir=None, mode='copy')",
           "summary": "Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),",
-          "line": 843,
+          "line": 850,
           "deprecated": false
         },
         {
@@ -9289,7 +9540,7 @@
           "kind": "function",
           "signature": "(records=None)",
           "summary": "Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).",
-          "line": 880,
+          "line": 891,
           "deprecated": false
         },
         {
@@ -9298,7 +9549,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "The available Principled-BSDF template names (mirror of Maya's Shader Templates list).",
-          "line": 927,
+          "line": 938,
           "deprecated": false
         },
         {
@@ -9307,7 +9558,7 @@
           "kind": "function",
           "signature": "(material, template)",
           "summary": "Apply a Principled-BSDF template preset to ``material``'s shader.",
-          "line": 957,
+          "line": 968,
           "deprecated": false
         },
         {
@@ -9316,7 +9567,7 @@
           "kind": "function",
           "signature": "(template, name=None)",
           "summary": "Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of",
-          "line": 972,
+          "line": 983,
           "deprecated": false
         },
         {
@@ -9325,7 +9576,7 @@
           "kind": "function",
           "signature": "(material)",
           "summary": "Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of",
-          "line": 1001,
+          "line": 1012,
           "deprecated": false
         },
         {
@@ -9334,7 +9585,7 @@
           "kind": "function",
           "signature": "(data, name=None, textures=None)",
           "summary": "Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's",
-          "line": 1051,
+          "line": 1062,
           "deprecated": false
         },
         {
@@ -9343,7 +9594,7 @@
           "kind": "function",
           "signature": "(textures, name=None, normal_direction='OpenGL')",
           "summary": "Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's",
-          "line": 1152,
+          "line": 1163,
           "deprecated": false
         },
         {
@@ -9352,7 +9603,7 @@
           "kind": "function",
           "signature": "(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')",
           "summary": "Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.",
-          "line": 1383,
+          "line": 1394,
           "deprecated": false
         },
         {
@@ -9361,7 +9612,7 @@
           "kind": "function",
           "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
           "summary": "Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).",
-          "line": 1611,
+          "line": 1622,
           "deprecated": false
         }
       ],
@@ -9369,7 +9620,7 @@
         {
           "name": "MatUpdater",
           "summary": "Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.",
-          "line": 1424,
+          "line": 1435,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -9380,7 +9631,7 @@
               "kind": "classmethod",
               "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Reprocess the textures of ``materials`` and repath their image nodes to the results.",
-              "line": 1442,
+              "line": 1453,
               "deprecated": false
             }
           ]
@@ -9388,7 +9639,7 @@
         {
           "name": "MatUtils",
           "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
-          "line": 1618,
+          "line": 1629,
           "bases": [],
           "members": []
         }
@@ -9493,7 +9744,7 @@
         {
           "name": "GameShaderSlots",
           "summary": "Switchboard slot wiring for the Game Shader panel.",
-          "line": 35,
+          "line": 33,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -9504,7 +9755,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 62,
+              "line": 61,
               "deprecated": false
             },
             {
@@ -9513,7 +9764,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 66,
+              "line": 65,
               "deprecated": false
             },
             {
@@ -9522,7 +9773,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the header widget.",
-              "line": 70,
+              "line": 68,
               "deprecated": false
             },
             {
@@ -9531,7 +9782,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Graph the most recently created material in the Shader Editor.",
-              "line": 107,
+              "line": 105,
               "deprecated": false
             },
             {
@@ -9540,7 +9791,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Get the material name from the user input text field.",
-              "line": 115,
+              "line": 113,
               "deprecated": false
             },
             {
@@ -9549,7 +9800,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Return the affix text when it resolves as a prefix, else empty string.",
-              "line": 124,
+              "line": 122,
               "deprecated": false
             },
             {
@@ -9558,7 +9809,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Return the affix text when it resolves as a suffix, else empty string.",
-              "line": 132,
+              "line": 130,
               "deprecated": false
             },
             {
@@ -9567,7 +9818,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "Get the normal map direction from the comboBox's current text.",
-              "line": 140,
+              "line": 138,
               "deprecated": false
             },
             {
@@ -9576,7 +9827,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Add a prefix/suffix/auto-mode picker to the affix field.",
-              "line": 162,
+              "line": 160,
               "deprecated": false
             },
             {
@@ -9585,7 +9836,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Create Network — pick PBR texture files and build Principled material(s) from them.",
-              "line": 193,
+              "line": 191,
               "deprecated": false
             }
           ]
@@ -9880,7 +10131,7 @@
           "kind": "function",
           "signature": "(objects, high_suffix, low_suffix, pre_classified=None)",
           "summary": "Group *objects* into ``(highs, lows, others)`` by name suffix.",
-          "line": 309,
+          "line": 311,
           "deprecated": false
         },
         {
@@ -9889,7 +10140,7 @@
           "kind": "function",
           "signature": "(root)",
           "summary": "Recursively gather ``mset.MeshObject`` descendants of *root*.",
-          "line": 391,
+          "line": 393,
           "deprecated": false
         },
         {
@@ -9898,7 +10149,7 @@
           "kind": "function",
           "signature": "(preset_path)",
           "summary": "Load a ``.tbsky`` preset onto the scene's existing SkyObject.",
-          "line": 431,
+          "line": 433,
           "deprecated": false
         },
         {
@@ -9907,7 +10158,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Frame the imported scene in the viewport (best-effort).",
-          "line": 455,
+          "line": 457,
           "deprecated": false
         }
       ],
@@ -10449,7 +10700,7 @@
         {
           "name": "MatUpdaterSlots",
           "summary": "Switchboard slot wiring for the Material Updater panel.",
-          "line": 34,
+          "line": 35,
           "bases": [
             "MatUpdater"
           ],
@@ -10460,7 +10711,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Format global options in the header menu (mirror of the Maya panel's, minus the",
-              "line": 70,
+              "line": 72,
               "deprecated": false
             },
             {
@@ -10469,7 +10720,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 260,
+              "line": 262,
               "deprecated": false
             },
             {
@@ -10478,7 +10729,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 264,
+              "line": 266,
               "deprecated": false
             },
             {
@@ -10487,7 +10738,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 268,
+              "line": 270,
               "deprecated": false
             },
             {
@@ -10496,7 +10747,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 272,
+              "line": 274,
               "deprecated": false
             },
             {
@@ -10505,7 +10756,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 276,
+              "line": 278,
               "deprecated": false
             },
             {
@@ -10514,7 +10765,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 280,
+              "line": 282,
               "deprecated": false
             },
             {
@@ -10523,7 +10774,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Presets",
-              "line": 283,
+              "line": 285,
               "deprecated": false
             },
             {
@@ -10532,7 +10783,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Update Materials",
-              "line": 301,
+              "line": 303,
               "deprecated": false
             }
           ]
@@ -10671,7 +10922,7 @@
         {
           "name": "ShaderTemplatesSlots",
           "summary": "Switchboard slot wiring for the Shader Templates panel.",
-          "line": 50,
+          "line": 48,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -10682,7 +10933,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 78,
+              "line": 76,
               "deprecated": false
             },
             {
@@ -10691,7 +10942,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 82,
+              "line": 80,
               "deprecated": false
             },
             {
@@ -10700,7 +10951,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 90,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -10709,7 +10960,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the header widget.",
-              "line": 94,
+              "line": 91,
               "deprecated": false
             },
             {
@@ -10718,7 +10969,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the last restored material in the Shader Editor.",
-              "line": 135,
+              "line": 132,
               "deprecated": false
             },
             {
@@ -10727,7 +10978,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shader templates directory in the OS file manager.",
-              "line": 142,
+              "line": 139,
               "deprecated": false
             },
             {
@@ -10736,7 +10987,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize the ComboBox for shader templates.",
-              "line": 147,
+              "line": 144,
               "deprecated": false
             },
             {
@@ -10745,7 +10996,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Refresh the list of templates.",
-              "line": 175,
+              "line": 172,
               "deprecated": false
             },
             {
@@ -10754,7 +11005,7 @@
               "kind": "method",
               "signature": "(self, widget, new_name)",
               "summary": "Safe rename that checks for None.",
-              "line": 182,
+              "line": 179,
               "deprecated": false
             },
             {
@@ -10763,7 +11014,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Set the ComboBox as editable to allow renaming.",
-              "line": 194,
+              "line": 191,
               "deprecated": false
             },
             {
@@ -10772,7 +11023,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete the selected template.",
-              "line": 199,
+              "line": 196,
               "deprecated": false
             },
             {
@@ -10781,7 +11032,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the selected template in the default editor.",
-              "line": 206,
+              "line": 203,
               "deprecated": false
             },
             {
@@ -10790,7 +11041,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Create shader network using selected template.",
-              "line": 212,
+              "line": 209,
               "deprecated": false
             },
             {
@@ -10799,7 +11050,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Load texture maps and update GUI.",
-              "line": 239,
+              "line": 236,
               "deprecated": false
             },
             {
@@ -10808,7 +11059,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Save current graph as a new shader template.",
-              "line": 253,
+              "line": 250,
               "deprecated": false
             }
           ]
@@ -11340,7 +11591,7 @@
               "kind": "method",
               "signature": "(self, widget=None)",
               "summary": "Search a folder for replacements for missing (selected, or all) textures.",
-              "line": 605,
+              "line": 614,
               "deprecated": false
             },
             {
@@ -11349,7 +11600,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Select rows whose image is used by a material on the scene selection.",
-              "line": 642,
+              "line": 651,
               "deprecated": false
             },
             {
@@ -11358,7 +11609,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Select rows whose texture file is missing.",
-              "line": 666,
+              "line": 675,
               "deprecated": false
             },
             {
@@ -11367,7 +11618,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Select rows whose path is absolute (not a // project-relative path).",
-              "line": 671,
+              "line": 680,
               "deprecated": false
             },
             {
@@ -11376,7 +11627,7 @@
               "kind": "method",
               "signature": "(self, selection=None)",
               "summary": "Open a file dialog and repath the selected row's image (single selection only).",
-              "line": 707,
+              "line": 716,
               "deprecated": false
             },
             {
@@ -11385,7 +11636,7 @@
               "kind": "method",
               "signature": "(self, selection=None)",
               "summary": "Select scene objects using the materials of the selected rows.",
-              "line": 743,
+              "line": 752,
               "deprecated": false
             },
             {
@@ -11394,7 +11645,7 @@
               "kind": "method",
               "signature": "(self, selection=None)",
               "summary": "Disabled (see the row-menu tooltip) — retained for structural parity with mayatk's",
-              "line": 761,
+              "line": 770,
               "deprecated": false
             },
             {
@@ -11403,7 +11654,7 @@
               "kind": "method",
               "signature": "(self, selection=None)",
               "summary": "Graph the selected row's material(s) in the Shader Editor (Hypershade analogue).",
-              "line": 769,
+              "line": 778,
               "deprecated": false
             },
             {
@@ -11412,7 +11663,7 @@
               "kind": "method",
               "signature": "(self, selection=None)",
               "summary": "Remove the selected image datablock(s).",
-              "line": 783,
+              "line": 792,
               "deprecated": false
             },
             {
@@ -11421,7 +11672,7 @@
               "kind": "method",
               "signature": "(self, row, col)",
               "summary": "Editing a path cell repaths that row's image;",
-              "line": 807,
+              "line": 816,
               "deprecated": false
             },
             {
@@ -11430,7 +11681,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Manual refresh trigger from the header refresh button.",
-              "line": 877,
+              "line": 886,
               "deprecated": false
             },
             {
@@ -11439,7 +11690,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Clean up scene-change subscriptions via ScriptJobManager.",
-              "line": 922,
+              "line": 931,
               "deprecated": false
             }
           ]
@@ -11577,7 +11828,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, filter_key='custom', invert=False)",
               "summary": "Return the channel descriptors shared across all *objects* for the given filter.",
-              "line": 183,
+              "line": 192,
               "deprecated": false
             },
             {
@@ -11586,7 +11837,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
               "summary": "Return the raw Python value for *descriptor* on *obj* (``None`` on failure).",
-              "line": 246,
+              "line": 255,
               "deprecated": false
             },
             {
@@ -11595,7 +11846,7 @@
               "kind": "classmethod",
               "signature": "(cls, val)",
               "summary": "Convert a channel value to a display string (``\"*\"`` marks a mixed multi-selection).",
-              "line": 269,
+              "line": 278,
               "deprecated": false
             },
             {
@@ -11604,7 +11855,7 @@
               "kind": "classmethod",
               "signature": "(cls, text, descriptor)",
               "summary": "Convert user-entered *text* to a Python value for *descriptor* (``None`` = skip).",
-              "line": 300,
+              "line": 309,
               "deprecated": false
             },
             {
@@ -11613,7 +11864,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
               "summary": "Lock state for *descriptor*.",
-              "line": 330,
+              "line": 339,
               "deprecated": false
             },
             {
@@ -11622,7 +11873,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Toggle the lock state of *descriptor* across *objects* (transform channels only).",
-              "line": 343,
+              "line": 352,
               "deprecated": false
             },
             {
@@ -11631,7 +11882,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors, lock)",
               "summary": "Lock or unlock *descriptors* across all *objects* (transform channels only).",
-              "line": 351,
+              "line": 360,
               "deprecated": false
             },
             {
@@ -11640,7 +11891,7 @@
               "kind": "classmethod",
               "signature": "(cls, obj, descriptor)",
               "summary": "Classify what drives *descriptor* on *obj*.",
-              "line": 420,
+              "line": 429,
               "deprecated": false
             },
             {
@@ -11649,7 +11900,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, filter_key='custom', invert=False)",
               "summary": "Build ``(rows, states)`` for the table.",
-              "line": 457,
+              "line": 466,
               "deprecated": false
             },
             {
@@ -11658,7 +11909,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor, text)",
               "summary": "Parse *text* and set *descriptor* on all *objects*.",
-              "line": 491,
+              "line": 500,
               "deprecated": false
             },
             {
@@ -11667,7 +11918,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Reset *descriptors* to their default values across all *objects*.",
-              "line": 507,
+              "line": 516,
               "deprecated": false
             },
             {
@@ -11676,7 +11927,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Set or remove a keyframe on *descriptor* at the current frame across *objects*.",
-              "line": 538,
+              "line": 547,
               "deprecated": false
             },
             {
@@ -11685,7 +11936,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Remove the animation / driver on *descriptor* across *objects* (Maya's break-connection).",
-              "line": 564,
+              "line": 573,
               "deprecated": false
             },
             {
@@ -11694,7 +11945,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors, mute=True)",
               "summary": "Mute / unmute the F-curve (or driver) on each descriptor across *objects*.",
-              "line": 616,
+              "line": 625,
               "deprecated": false
             },
             {
@@ -11703,7 +11954,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Set a breakdown key on *descriptors* at the current frame across *objects*.",
-              "line": 644,
+              "line": 653,
               "deprecated": false
             },
             {
@@ -11712,7 +11963,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptor)",
               "summary": "Select the object(s) driving *descriptor* on the primary object.",
-              "line": 680,
+              "line": 689,
               "deprecated": false
             },
             {
@@ -11721,7 +11972,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, name, attr_type, min_val=None, max_val=None, default_val=0.0)",
               "summary": "Create a custom (ID) property on *objects*.",
-              "line": 731,
+              "line": 740,
               "deprecated": false
             },
             {
@@ -11730,7 +11981,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors)",
               "summary": "Delete custom *descriptors* across all *objects* (transform channels are skipped).",
-              "line": 785,
+              "line": 794,
               "deprecated": false
             },
             {
@@ -11739,7 +11990,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, old_name, new_name)",
               "summary": "Rename a custom property on *objects* (preserves value + UI metadata).",
-              "line": 798,
+              "line": 807,
               "deprecated": false
             },
             {
@@ -11748,7 +11999,7 @@
               "kind": "staticmethod",
               "signature": "(obj, new_name)",
               "summary": "Rename the object datablock and return its (possibly suffixed) new name.",
-              "line": 821,
+              "line": 830,
               "deprecated": false
             },
             {
@@ -11757,7 +12008,7 @@
               "kind": "method",
               "signature": "(self, objects, descriptors)",
               "summary": "Copy *descriptors*' values from the primary object into the instance clipboard.",
-              "line": 835,
+              "line": 844,
               "deprecated": false
             },
             {
@@ -11766,7 +12017,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Paste previously copied values onto *objects* (matched by channel name).",
-              "line": 845,
+              "line": 854,
               "deprecated": false
             },
             {
@@ -11775,7 +12026,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects, descriptors=None)",
               "summary": "Apply (freeze) transforms on *objects*, restricted to the touched channel groups.",
-              "line": 861,
+              "line": 874,
               "deprecated": false
             },
             {
@@ -11784,7 +12035,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects)",
               "summary": "Restore previously frozen transforms on *objects* (Maya's Unfreeze Transforms).",
-              "line": 898,
+              "line": 911,
               "deprecated": false
             },
             {
@@ -11793,7 +12044,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Return ``True`` when at least one of *objects* carries stored freeze data.",
-              "line": 914,
+              "line": 927,
               "deprecated": false
             }
           ]
@@ -11826,7 +12077,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the filter combobox + wire its invert action (bpy-free).",
-              "line": 281,
+              "line": 302,
               "deprecated": false
             },
             {
@@ -11835,7 +12086,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Filter changed — refresh table.",
-              "line": 305,
+              "line": 326,
               "deprecated": false
             },
             {
@@ -11844,7 +12095,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Populate the header menu (Qt-only;",
-              "line": 327,
+              "line": 348,
               "deprecated": false
             },
             {
@@ -11853,7 +12104,7 @@
               "kind": "method",
               "signature": "(self, *args)",
               "summary": "Show the *Create Attribute* popup (a custom-property form).",
-              "line": 793,
+              "line": 818,
               "deprecated": false
             },
             {
@@ -11862,7 +12113,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "One-time table setup (action columns + context menu + signals), then a guarded refresh.",
-              "line": 875,
+              "line": 900,
               "deprecated": false
             }
           ]
@@ -12063,7 +12314,7 @@
         {
           "name": "CurveToTubeSlots",
           "summary": "Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's",
-          "line": 172,
+          "line": 162,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -12074,7 +12325,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 239,
+              "line": 229,
               "deprecated": false
             },
             {
@@ -12083,7 +12334,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults.",
-              "line": 280,
+              "line": 270,
               "deprecated": false
             },
             {
@@ -12092,7 +12343,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Build the tube(s) from the selected curves (Preview entry point).",
-              "line": 284,
+              "line": 274,
               "deprecated": false
             }
           ]
@@ -12332,7 +12583,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, ctype, target=None, subtarget=None, **props)",
               "summary": "Add a **pose-bone** constraint (``ctype`` e.g.",
-              "line": 230,
+              "line": 232,
               "deprecated": false
             },
             {
@@ -12341,7 +12592,7 @@
               "kind": "staticmethod",
               "signature": "(armature, bone_name, curve, chain_count, name='Spline IK', **props)",
               "summary": "Add a **Spline IK** bone constraint to pose bone *bone_name* so *chain_count* bones up the",
-              "line": 246,
+              "line": 248,
               "deprecated": false
             },
             {
@@ -12350,7 +12601,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, armature, auto_weights=True)",
               "summary": "Bind *mesh* to *armature* (Maya ``skinCluster`` analogue).",
-              "line": 256,
+              "line": 258,
               "deprecated": false
             },
             {
@@ -12359,7 +12610,7 @@
               "kind": "staticmethod",
               "signature": "(mesh, group_name, center, radius, profile='linear', add_group=True)",
               "summary": "Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's",
-              "line": 275,
+              "line": 277,
               "deprecated": false
             },
             {
@@ -12368,7 +12619,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0)",
               "summary": "Maya pointConstraint → COPY_LOCATION.",
-              "line": 336,
+              "line": 338,
               "deprecated": false
             },
             {
@@ -12377,7 +12628,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, influence=1.0)",
               "summary": "Maya orientConstraint → COPY_ROTATION.",
-              "line": 341,
+              "line": 343,
               "deprecated": false
             },
             {
@@ -12386,7 +12637,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y')",
               "summary": "Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK.",
-              "line": 346,
+              "line": 348,
               "deprecated": false
             },
             {
@@ -12395,7 +12646,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, track_axis='TRACK_Y', up_axis='UP_Z')",
               "summary": "Aim with an up-vector (full Maya aimConstraint) → TRACK_TO.",
-              "line": 351,
+              "line": 353,
               "deprecated": false
             },
             {
@@ -12404,7 +12655,7 @@
               "kind": "staticmethod",
               "signature": "(obj, target, set_inverse=True)",
               "summary": "Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose).",
-              "line": 356,
+              "line": 358,
               "deprecated": false
             },
             {
@@ -12413,7 +12664,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Force-recompile every driver on ``objects`` — call ONCE after building a rig's drivers.",
-              "line": 369,
+              "line": 371,
               "deprecated": false
             },
             {
@@ -12422,7 +12673,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, a, b, expression='dist', var_name='dist')",
               "summary": "Drive ``obj.<data_path>[index]`` from the live distance between objects ``a`` and ``b``",
-              "line": 386,
+              "line": 388,
               "deprecated": false
             },
             {
@@ -12431,7 +12682,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index, target, transform_type, space='WORLD_SPACE', expression=None, var_name='var')",
               "summary": "Drive ``obj.<data_path>[index]`` from a single transform channel of ``target`` (a",
-              "line": 405,
+              "line": 407,
               "deprecated": false
             },
             {
@@ -12440,7 +12691,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, id_obj, data_path, id_type=None)",
               "summary": "Append a ``SINGLE_PROP`` variable to an existing driver fcurve — e.g.",
-              "line": 429,
+              "line": 431,
               "deprecated": false
             },
             {
@@ -12449,7 +12700,7 @@
               "kind": "staticmethod",
               "signature": "(fcurve, name, target, transform_type, space='WORLD_SPACE')",
               "summary": "Append a ``TRANSFORMS`` variable (a single transform channel of *target*) to an existing",
-              "line": 449,
+              "line": 451,
               "deprecated": false
             },
             {
@@ -12458,7 +12709,7 @@
               "kind": "staticmethod",
               "signature": "(obj, name, value, min_value=None, max_value=None)",
               "summary": "Set a keyable custom property (Maya's ``addAttr`` analogue), creating it if absent and",
-              "line": 467,
+              "line": 469,
               "deprecated": false
             },
             {
@@ -12467,7 +12718,7 @@
               "kind": "staticmethod",
               "signature": "(obj, data_path, index=None)",
               "summary": "Remove a driver on ``obj.<data_path>[index]`` if present (idempotent;",
-              "line": 488,
+              "line": 490,
               "deprecated": false
             },
             {
@@ -12476,7 +12727,7 @@
               "kind": "staticmethod",
               "signature": "(obj, location=None, rotation=None, scale=None)",
               "summary": "Lock the given transform channels (each a 3-tuple of bools, or ``None`` to leave as-is).",
-              "line": 500,
+              "line": 502,
               "deprecated": false
             }
           ]
@@ -12623,7 +12874,25 @@
               "kind": "classmethod",
               "signature": "(cls, planes=None, start=None, end=None)",
               "summary": "Bake shadow planes' driven channels to keyframes and remove the drivers so the",
-              "line": 561,
+              "line": 574,
+              "deprecated": false
+            },
+            {
+              "name": "delete",
+              "qualname": "ShadowRig.delete",
+              "kind": "method",
+              "signature": "(self, delete_textures=False)",
+              "summary": "Delete this rig completely.",
+              "line": 601,
+              "deprecated": false
+            },
+            {
+              "name": "delete_rigs",
+              "qualname": "ShadowRig.delete_rigs",
+              "kind": "classmethod",
+              "signature": "(cls, planes=None, delete_textures=False)",
+              "summary": "Tear down shadow rig(s) completely — live or baked (mirror of",
+              "line": 608,
               "deprecated": false
             },
             {
@@ -12632,7 +12901,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Republish the ``shadow_metadata`` channel on the ``data_export`` carrier",
-              "line": 642,
+              "line": 737,
               "deprecated": false
             },
             {
@@ -12641,7 +12910,7 @@
               "kind": "classmethod",
               "signature": "(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name='shadow_source', recursive=True, mode='stretch', ground_height=0.0)",
               "summary": "Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``).",
-              "line": 680,
+              "line": 775,
               "deprecated": false
             }
           ]
@@ -12649,7 +12918,7 @@
         {
           "name": "ShadowRigSlots",
           "summary": "Switchboard slot wiring for the Shadow Rig panel.",
-          "line": 707,
+          "line": 805,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -12660,7 +12929,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 742,
+              "line": 840,
               "deprecated": false
             },
             {
@@ -12669,7 +12938,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reset to Defaults — restore all UI widgets to their default values.",
-              "line": 931,
+              "line": 1029,
               "deprecated": false
             },
             {
@@ -12678,7 +12947,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Bake to Keyframes: bake selected (or all) shadow planes' drivers to keys over the",
-              "line": 935,
+              "line": 1033,
               "deprecated": false
             },
             {
@@ -12687,7 +12956,7 @@
               "kind": "method",
               "signature": "(self, objects)",
               "summary": "Build the shadow rig for the selected target(s).",
-              "line": 958,
+              "line": 1056,
               "deprecated": false
             }
           ]
@@ -13370,7 +13639,7 @@
           "kind": "function",
           "signature": "(menu_idname)",
           "summary": "Pop Blender's own native menu ``menu_idname`` (e.g.",
-          "line": 556,
+          "line": 555,
           "deprecated": false
         },
         {
@@ -13379,7 +13648,7 @@
           "kind": "function",
           "signature": "(text, title='Info', icon='INFO')",
           "summary": "Show a small native Blender info popup at the cursor (multi-line ``text`` supported).",
-          "line": 582,
+          "line": 581,
           "deprecated": false
         }
       ],
@@ -13387,7 +13656,7 @@
         {
           "name": "UiUtils",
           "summary": "Namespace mirror (helpers also exposed module-level).",
-          "line": 612,
+          "line": 611,
           "bases": [],
           "members": []
         }
@@ -13482,7 +13751,7 @@
               "kind": "classmethod",
               "signature": "(cls, switchboard: Switchboard = None, **kwargs) -> 'BlenderUiHandler'",
               "summary": "Return the BlenderUiHandler singleton, bootstrapping if needed.",
-              "line": 72,
+              "line": 84,
               "deprecated": false
             },
             {
@@ -13491,7 +13760,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> bool",
               "summary": "Recognise the native Blender menus this handler wraps on demand.",
-              "line": 94,
+              "line": 106,
               "deprecated": false
             },
             {
@@ -13500,7 +13769,7 @@
               "kind": "method",
               "signature": "(self, ui, pos=None, force: bool = False, **kwargs)",
               "summary": "Swap a native-menu proxy for its wrapped, freshly-harvested menu window;",
-              "line": 139,
+              "line": 151,
               "deprecated": false
             },
             {
@@ -13509,7 +13778,7 @@
               "kind": "method",
               "signature": "(self, ui, style=None)",
               "summary": "Give blendertk-sourced tool panels a hide button instead of a pin.",
-              "line": 234,
+              "line": 246,
               "deprecated": false
             }
           ]
@@ -13850,7 +14119,7 @@
         {
           "name": "QtDock",
           "summary": "Host a Qt widget as the body of a true docked Blender area.",
-          "line": 56,
+          "line": 68,
           "bases": [],
           "members": [
             {
@@ -13859,7 +14128,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> bool",
               "summary": "True when embedding can work here: Windows + a live QApplication.",
-              "line": 116,
+              "line": 128,
               "deprecated": false
             },
             {
@@ -13868,7 +14137,7 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "True while the widget is embedded over a LIVE docked area — a user closing/",
-              "line": 122,
+              "line": 134,
               "deprecated": false
             },
             {
@@ -13877,7 +14146,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The hosted widget (or None) — for callers/tests.",
-              "line": 129,
+              "line": 141,
               "deprecated": false
             },
             {
@@ -13886,7 +14155,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "Our docked ``bpy.types.Area`` (or None).",
-              "line": 134,
+              "line": 146,
               "deprecated": false
             },
             {
@@ -13895,7 +14164,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "The WINDOW (content) region of our area, or None when the area is gone —",
-              "line": 138,
+              "line": 150,
               "deprecated": false
             },
             {
@@ -13904,7 +14173,7 @@
               "kind": "method",
               "signature": "(self, widget, height: Optional[int] = None) -> bool",
               "summary": "Dock ``widget``: create/dock the placeholder area, embed the widget as a",
-              "line": 151,
+              "line": 163,
               "deprecated": false
             },
             {
@@ -13913,7 +14182,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Release the widget (un-parent to a hidden top-level, ready to re-dock) and",
-              "line": 204,
+              "line": 216,
               "deprecated": false
             },
             {
@@ -13922,7 +14191,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Full uninstall for a host reload: :meth:`undock` + drop the widget reference.",
-              "line": 219,
+              "line": 231,
               "deprecated": false
             }
           ]
@@ -13939,7 +14208,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Names of the shipped theme presets (e.g.",
-          "line": 56,
+          "line": 57,
           "deprecated": false
         },
         {
@@ -13948,7 +14217,7 @@
           "kind": "function",
           "signature": "(create=False)",
           "summary": "Blender's per-user ``presets/interface_theme`` dir — the dropdown's writable source.",
-          "line": 66,
+          "line": 67,
           "deprecated": false
         },
         {
@@ -13957,7 +14226,7 @@
           "kind": "function",
           "signature": "(name)",
           "summary": "Path a preset named ``name`` would have in the user preset dir.",
-          "line": 73,
+          "line": 74,
           "deprecated": false
         },
         {
@@ -13966,7 +14235,7 @@
           "kind": "function",
           "signature": "(name)",
           "summary": "True if ``<name>.xml`` is in the user preset dir (i.e.",
-          "line": 78,
+          "line": 79,
           "deprecated": false
         },
         {
@@ -13975,7 +14244,7 @@
           "kind": "function",
           "signature": "(overwrite=False)",
           "summary": "Copy the shipped theme presets into Blender's user preset dir so they appear in",
-          "line": 83,
+          "line": 130,
           "deprecated": false
         },
         {
@@ -13984,7 +14253,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes",
-          "line": 99,
+          "line": 147,
           "deprecated": false
         },
         {
@@ -13993,7 +14262,7 @@
           "kind": "function",
           "signature": "(filepath)",
           "summary": "Apply any native theme preset by its ``.xml`` filepath (the token from :func:`list_templates`)",
-          "line": 118,
+          "line": 166,
           "deprecated": false
         },
         {
@@ -14002,7 +14271,7 @@
           "kind": "function",
           "signature": "(name)",
           "summary": "Apply a shipped/installed theme preset by NAME (not path).",
-          "line": 128,
+          "line": 176,
           "deprecated": false
         },
         {
@@ -14011,7 +14280,7 @@
           "kind": "function",
           "signature": "(name, install_presets=True, persist=False)",
           "summary": "Switch Blender's UI to the named shipped style (e.g.",
-          "line": 148,
+          "line": 196,
           "deprecated": false
         }
       ],
@@ -14019,7 +14288,7 @@
         {
           "name": "StyleSetter",
           "summary": "Public namespace for the style-setter helpers (``btk.StyleSetter.set_style(\"Maya\")`` …).",
-          "line": 171,
+          "line": 219,
           "bases": [],
           "members": []
         }
@@ -14125,7 +14394,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in",
-          "line": 674,
+          "line": 680,
           "deprecated": false
         },
         {
@@ -14134,7 +14403,7 @@
           "kind": "function",
           "signature": "(objects, snapshot)",
           "summary": "Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the",
-          "line": 696,
+          "line": 702,
           "deprecated": false
         },
         {
@@ -14143,7 +14412,7 @@
           "kind": "function",
           "signature": "(objects, tolerance=None)",
           "summary": "Stack UV islands on top of each other.",
-          "line": 720,
+          "line": 726,
           "deprecated": false
         },
         {
@@ -14152,7 +14421,7 @@
           "kind": "function",
           "signature": "(objects, mode='LENGTH_AVERAGE')",
           "summary": "Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via",
-          "line": 781,
+          "line": 787,
           "deprecated": false
         },
         {
@@ -14161,7 +14430,7 @@
           "kind": "function",
           "signature": "(objects, angle=66.0, margin=0.0)",
           "summary": "Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's",
-          "line": 842,
+          "line": 848,
           "deprecated": false
         },
         {
@@ -14170,7 +14439,7 @@
           "kind": "function",
           "signature": "(objects, axis='u')",
           "summary": "Distribute UV islands evenly along ``axis`` (``\"u\"`` or ``\"v\"``) — the first and",
-          "line": 883,
+          "line": 889,
           "deprecated": false
         },
         {
@@ -14179,7 +14448,7 @@
           "kind": "function",
           "signature": "(objects, u=True, v=True, angle=30.0)",
           "summary": "Straighten the selected UV edges — edges within ``angle`` degrees of horizontal",
-          "line": 918,
+          "line": 924,
           "deprecated": false
         },
         {
@@ -14188,7 +14457,7 @@
           "kind": "function",
           "signature": "(objects, axis='u', mode='avg')",
           "summary": "Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and",
-          "line": 1000,
+          "line": 1006,
           "deprecated": false
         },
         {
@@ -14197,7 +14466,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:",
-          "line": 1050,
+          "line": 1056,
           "deprecated": false
         },
         {
@@ -14206,7 +14475,7 @@
           "kind": "function",
           "signature": "(objects, to_edge=False)",
           "summary": "Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /",
-          "line": 1076,
+          "line": 1082,
           "deprecated": false
         },
         {
@@ -14215,7 +14484,7 @@
           "kind": "function",
           "signature": "(objects, seed=0)",
           "summary": "Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell",
-          "line": 1093,
+          "line": 1099,
           "deprecated": false
         }
       ],
@@ -14223,7 +14492,7 @@
         {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 1110,
+          "line": 1116,
           "bases": [],
           "members": []
         }
@@ -14720,7 +14989,7 @@
           "kind": "function",
           "signature": "(objects, delete_attrs=True)",
           "summary": "Un-freeze: compose the stored pre-freeze channels back into the local transform",
-          "line": 91,
+          "line": 105,
           "deprecated": false
         },
         {
@@ -14729,7 +14998,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Map each object → whether it carries pre-freeze bake data (mirror of",
-          "line": 126,
+          "line": 140,
           "deprecated": false
         },
         {
@@ -14738,7 +15007,7 @@
           "kind": "function",
           "signature": "(objects, scale_factor=1.1)",
           "summary": "Scale each CONNECTED set of selected edges about that set's own centroid — mirror",
-          "line": 160,
+          "line": 174,
           "deprecated": false
         },
         {
@@ -14747,7 +15016,7 @@
           "kind": "function",
           "signature": "(objects, align='Min', origin=False, center_pivot=False)",
           "summary": "Drop each object so its bbox ``Min`` / ``Mid`` / ``Max`` sits on the ground (Z=0).",
-          "line": 197,
+          "line": 211,
           "deprecated": false
         },
         {
@@ -14756,7 +15025,7 @@
           "kind": "function",
           "signature": "(objects, mode='object')",
           "summary": "Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.",
-          "line": 225,
+          "line": 243,
           "deprecated": false
         },
         {
@@ -14765,7 +15034,7 @@
           "kind": "function",
           "signature": "(objects, translate=True, rotate=False, scale=False, world_space=True, select_targets_after_transfer=False)",
           "summary": "Transfer the object **origin** from the first object to the rest — mirror of Maya's",
-          "line": 262,
+          "line": 280,
           "deprecated": false
         },
         {
@@ -14774,7 +15043,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Center-pivot mode keys understood by :func:`center_pivot`.",
-          "line": 314,
+          "line": 332,
           "deprecated": false
         },
         {
@@ -14783,7 +15052,7 @@
           "kind": "function",
           "signature": "(source, target, average=True)",
           "summary": "Uniformly rescale ``source`` object(s) to match ``target``'s bounding-box size.",
-          "line": 319,
+          "line": 337,
           "deprecated": false
         },
         {
@@ -14792,7 +15061,7 @@
           "kind": "function",
           "signature": "(source, target, pivot='center')",
           "summary": "Move ``source`` object(s) so their pivot aligns with the ``target``'s pivot point.",
-          "line": 336,
+          "line": 354,
           "deprecated": false
         },
         {
@@ -14801,7 +15070,7 @@
           "kind": "function",
           "signature": "(objects, value='', world_space=True)",
           "summary": "Combined bounding box of ``objects`` — mirror of ``mtk.get_bounding_box`` (name + behavior).",
-          "line": 350,
+          "line": 370,
           "deprecated": false
         },
         {
@@ -14810,7 +15079,7 @@
           "kind": "function",
           "signature": "(objects)",
           "summary": "Bounding-box center of ``objects`` as an ``(x, y, z)`` tuple (mirror of",
-          "line": 378,
+          "line": 398,
           "deprecated": false
         },
         {
@@ -14819,7 +15088,7 @@
           "kind": "function",
           "signature": "(obj, pivot)",
           "summary": "World pivot frame (orientation + position, scale stripped) for a per-object linear/",
-          "line": 384,
+          "line": 404,
           "deprecated": false
         },
         {
@@ -14828,7 +15097,7 @@
           "kind": "function",
           "signature": "(a, b)",
           "summary": "Distance between two points — each an object (world origin), ``Vector``, or 3-sequence",
-          "line": 443,
+          "line": 463,
           "deprecated": false
         },
         {
@@ -14837,7 +15106,7 @@
           "kind": "function",
           "signature": "(objects, reference_point=None, reverse=False)",
           "summary": "Order ``objects`` by distance from ``reference_point`` (an object / Vector / 3-seq;",
-          "line": 449,
+          "line": 469,
           "deprecated": false
         },
         {
@@ -14846,7 +15115,7 @@
           "kind": "function",
           "signature": "(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))",
           "summary": "Aim ``objects`` at a world-space point — mirror of ``mtk.aim_object_at_point`` (which uses",
-          "line": 468,
+          "line": 488,
           "deprecated": false
         }
       ],
@@ -14854,7 +15123,7 @@
         {
           "name": "XformUtils",
           "summary": "Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).",
-          "line": 489,
+          "line": 509,
           "bases": [],
           "members": [
             {
@@ -14863,7 +15132,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Pivot keys understood by :func:`move_to` (mirror of ``mtk.XformUtils.get_pivot_options``).",
-              "line": 510,
+              "line": 530,
               "deprecated": false
             }
           ]

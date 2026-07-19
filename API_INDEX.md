@@ -92,7 +92,7 @@ _Generated: 2026-07-19_
 
 ### `anim_utils/shots/shot_manifest/shot_manifest_slots.py` — Switchboard slots for the Shot Manifest UI (Blender).
 - `class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin)`
-  - methods: detect, remove_callbacks, browse_csv, build, assess
+  - methods: detect, remove_callbacks, build, assess
 - `class ShotManifestSlots(ptk.LoggingMixin)`
   - methods: header_init, btn_expand_missing, btn_expand_extra, btn_settings, b002, b003
 
@@ -179,8 +179,9 @@ _Generated: 2026-07-19_
 - `class AudioClipsSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
 
-### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).
+### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 - `adjust_camera_clipping(camera=None, near_clip=None, far_clip=None)`
+- `navigate_view(mode='ORBIT')`
 - `class CamUtils`
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
@@ -204,12 +205,12 @@ _Generated: 2026-07-19_
 - `class CoreUtils(ptk.CoreUtils)`
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
-- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING') -> List[object]`
+- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
 - `class InstanceCandidate`
   - methods: obj, exists
 - `class InstanceGroup`
 - `class AutoInstancer(ptk.LoggingMixin)`
-  - methods: tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
+  - methods: default_summary, format_summary, tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
 
 ### `core_utils/auto_instancer/assembly_reconstructor.py` — Logic for separating and reassembling mesh assemblies (bpy adapter).
 - `class AssemblyReconstructor`
@@ -239,7 +240,7 @@ _Generated: 2026-07-19_
 
 ### `core_utils/script_job_manager.py` — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - `class ScriptJobManager`
-  - methods: instance, reset, subscribe, unsubscribe, unsubscribe_all, connect_cleanup, suppress, resume, status, print_status, teardown
+  - methods: instance, reset, subscribe, unsubscribe, unsubscribe_all, connect_cleanup, suppress, resume, suppressed, status, print_status, teardown
 
 ### `display_utils/_display_utils.py` — Display utilities — the exploded-view toggle (mirror of mayatk's
 - `is_exploded(objects)`
@@ -401,6 +402,18 @@ _Generated: 2026-07-19_
 - `reload_library(library)`
 - `remove_library(library)`
 - `make_library_local(library)`
+- `set_current_workspace(root=None)`
+- `current_workspace(path=None)`
+- `workspace_root(path=None)`
+- `source_images_dir(path=None)`
+- `scenes_dir(path=None)`
+- `workspace_scenes_dir(root)`
+- `list_workspace_templates()`
+- `workspace_template_rules(name=None)`
+- `save_workspace_template(name, rules)`
+- `delete_workspace_template(name)`
+- `create_workspace(root, rules=None, create_dirs=True)`
+- `promote_workspace(root=None)`
 - `find_workspaces(root_dir, recursive=False)`
 - `open_scene(path)`
 - `format_scene_name(name, case=None, suffix='')`
@@ -498,7 +511,7 @@ _Generated: 2026-07-19_
 
 ### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - `class ReferenceManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, reference_selected, reload_selected, relocate_selected, make_local_selected, remove_selected, set_display, reload_all, make_local_all, remove_all
+  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, reference_selected, reload_selected, relocate_selected, make_local_selected, remove_selected, set_display, reload_all, make_local_all, remove_all
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
@@ -540,6 +553,10 @@ _Generated: 2026-07-19_
 - `import_usd(filepath, **usd_opts)`
 - `class UsdUtils`
   - methods: is_usd_file, export, import_usd
+
+### `env_utils/workspace_editor.py` — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
+- `class WorkspaceEditorSlots(ptk.LoggingMixin)`
+  - methods: header_init, txt000_init, tbl000_init, add_rule, reset_row, remove_row, reset_rules, clear_rules, open_folder
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)`
@@ -818,7 +835,7 @@ _Generated: 2026-07-19_
 
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, refresh_export_metadata, create
+  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, delete, delete_rigs, refresh_export_metadata, create
 - `class ShadowRigSlots(ptk.LoggingMixin)`
   - methods: header_init, b001, b002, perform_operation
 
