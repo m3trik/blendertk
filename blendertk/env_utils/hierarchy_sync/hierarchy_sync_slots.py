@@ -876,11 +876,16 @@ class _MiddleButtonDragFilter(QtCore.QObject):
             return super().eventFilter(obj, event)
 
         if etype == QtCore.QEvent.Drop and self._reparent_callback:
+            # Let Qt handle the tree-item move first.
             result = super().eventFilter(obj, event)
-            for item in self._dragged_items:
-                new_parent = item.parent()
-                self._reparent_callback(item, new_parent)
+            # Mirror every reparent via ONE batch callback. The callback rebuilds
+            # the tree, which deletes every QTreeWidgetItem — a per-item callback
+            # left the remaining iterations holding dangling C++ items
+            # (RuntimeError + partial reparent on multi-select drags).
+            moves = [(item, item.parent()) for item in self._dragged_items]
             self._dragged_items.clear()
+            if moves:
+                self._reparent_callback(moves)
             return result
 
         return super().eventFilter(obj, event)
@@ -1162,37 +1167,59 @@ class HierarchySyncSlots(ptk.LoggingMixin):
         finally:
             self._renaming_in_progress = False
 
-    def _on_tree001_drop_reparent(self, item, new_parent_item):
-        """Mirror a tree-widget drag-drop reparent in the Blender scene."""
-        obj = item.data(0, self.sb.QtCore.Qt.UserRole)
-        if obj is None:
-            return
-        try:
-            obj.name
-        except ReferenceError:
-            return
+    def _on_tree001_drop_reparent(self, moves):
+        """Mirror tree-widget drag-drop reparents in the Blender scene.
 
-        # A manual drag is a deliberate act, so warn (don't skip) — unlike the batched Fix path,
-        # which honours the 'Skip Animated' toggle.
-        if HierarchySync._reparent_would_shift_animation(obj):
-            self.controller.logger.warning(
-                f"'{obj.name}' has animation — its motion may change under the new parent."
-            )
+        Called by :class:`_MiddleButtonDragFilter` with the whole dropped
+        selection after Qt finishes moving the tree items. Every ``(obj,
+        parent_obj)`` is resolved from its ``QTreeWidgetItem`` up front, before
+        the final tree rebuild — ``refresh_trees`` clears ``tree001`` and
+        destroys every item, so a per-item callback left the remaining items
+        dangling (``RuntimeError`` + partial reparent). Unlike Maya, bpy object
+        references stay valid across reparenting, so resolving item data before
+        the single final refresh is sufficient (no UUID indirection needed).
 
-        try:
+        Parameters:
+            moves: List of ``(item, new_parent_item)`` pairs; ``new_parent_item``
+                is ``None`` when dropped at root.
+        """
+        role = self.sb.QtCore.Qt.UserRole
+        pending = []  # (obj, parent_obj | None-for-world) — resolved while items live
+        for item, new_parent_item in moves:
+            obj = item.data(0, role)
+            if obj is None:
+                continue
+            try:
+                obj.name
+            except ReferenceError:
+                continue
             if new_parent_item is not None:
-                parent_obj = new_parent_item.data(0, self.sb.QtCore.Qt.UserRole)
+                parent_obj = new_parent_item.data(0, role)
                 if parent_obj is None:
                     self.controller.logger.warning("Drop target has no scene object — reparent skipped.")
-                    return
-                _reparent([obj], parent_obj, keep_transform=True)
-                self.controller.logger.info(f"Reparented '{obj.name}' under '{parent_obj.name}'")
+                    continue
+                pending.append((obj, parent_obj))
             else:
-                _reparent([obj], None, keep_transform=True)
-                self.controller.logger.info(f"Reparented '{obj.name}' to world")
+                pending.append((obj, None))  # dropped at root
+        if not pending:
+            return
+
+        try:
+            for obj, parent_obj in pending:
+                # A manual drag is a deliberate act, so warn (don't skip) — unlike the
+                # batched Fix path, which honours the 'Skip Animated' toggle.
+                if HierarchySync._reparent_would_shift_animation(obj):
+                    self.controller.logger.warning(
+                        f"'{obj.name}' has animation — its motion may change under the new parent."
+                    )
+                _reparent([obj], parent_obj, keep_transform=True)
+                if parent_obj is not None:
+                    self.controller.logger.info(f"Reparented '{obj.name}' under '{parent_obj.name}'")
+                else:
+                    self.controller.logger.info(f"Reparented '{obj.name}' to world")
             self.controller.refresh_trees()
         except Exception as e:
-            self.controller.logger.error(f"Reparent failed for '{obj.name}': {e}")
+            self.controller.logger.error(f"Reparent failed: {e}")
             self.controller.tree.populate_current_scene_tree(self.ui.tree001)
 
     def tree001_init(self, widget):

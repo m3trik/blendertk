@@ -543,6 +543,8 @@ def resolve_missing_textures(
 
     Returns the count resolved.
     """
+    import bpy
+
     if not (search_dir and os.path.isdir(search_dir)):
         return 0
     index = {}  # lowercase basename (with ext) -> first (shallowest) path found
@@ -572,7 +574,9 @@ def resolve_missing_textures(
         ap = _abspath(img)
         if ap and os.path.exists(ap):
             continue
-        base = os.path.basename(getattr(img, "filepath", "") or "")
+        # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
+        # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
+        base = bpy.path.basename(getattr(img, "filepath", "") or "")
         if not base:
             continue
         target_orig_stem = os.path.splitext(base)[0]
@@ -605,6 +609,7 @@ def normalize_texture_paths(mode="relative", project_dir=None, images=None):
       * ``"relative"`` / ``"absolute"`` — rewrite each path relative to / absolute from the saved
         .blend (relative needs a saved file; no-op otherwise).
       * ``"copy"`` / ``"move"`` — bring *external* textures (outside ``project_dir``, default
+        the workspace's texture folder — its ``sourceImages`` rule when marked, else
         ``<blenddir>/textures``) into that folder and repath to them.
 
     ``images=None`` targets every FILE image in the .blend (the default); pass an explicit list to
@@ -621,9 +626,11 @@ def normalize_texture_paths(mode="relative", project_dir=None, images=None):
 
     if mode in ("copy", "move"):
         if not project_dir:
-            if not blenddir:
+            from blendertk.env_utils._env_utils import source_images_dir
+
+            project_dir = source_images_dir()
+            if not project_dir:
                 return 0
-            project_dir = os.path.join(blenddir, "textures")
         os.makedirs(project_dir, exist_ok=True)
         for img in images:
             ap = _abspath(img)
@@ -845,11 +852,15 @@ def find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode="co
     relocate the matches into ``dest_dir`` (``mode`` copy/move), and repath — mirror of the Texture
     Path Editor's *Find & Copy Textures*. A match whose destination already holds a different-size
     file is skipped (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
+    import bpy
+
     if not (search_dir and os.path.isdir(search_dir) and dest_dir):
         return 0
     wanted = {}  # basename -> image datablock
     for img in _resolve_images(images):
-        base = os.path.basename(getattr(img, "filepath", "") or "").lower()
+        # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
+        # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
+        base = bpy.path.basename(getattr(img, "filepath", "") or "").lower()
         if base:
             wanted.setdefault(base, img)
     if not wanted:

@@ -66,7 +66,7 @@ class _OutputCapture:
         self._size = 0               # sum of chunk text lengths (cheap cap enforcement)
         self._lock = threading.Lock()  # prints can come from worker threads
         self._listener = None        # callable(str, level) — the console's live sink
-        self._notifying = False      # same-thread reentrancy guard for the listener call
+        self._notifying = threading.local()  # per-thread reentrancy guard for the listener call
         self._tee_out = None
         self._tee_err = None
         self._orig_stdout = None
@@ -208,15 +208,15 @@ class _OutputCapture:
         # Notify OUTSIDE the lock (the listener may print, re-entering _write — the buffer
         # append above stays safe; the nested notify is skipped by the guard, same-thread).
         listener = self._listener
-        if listener is None or self._notifying:
+        if listener is None or getattr(self._notifying, "active", False):
             return
-        self._notifying = True
+        self._notifying.active = True
         try:
             listener(text, level)
         except Exception:
             pass
         finally:
-            self._notifying = False
+            self._notifying.active = False
 
 
 class ScriptConsole:

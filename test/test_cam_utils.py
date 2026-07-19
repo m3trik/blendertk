@@ -63,6 +63,64 @@ try:
     btk.adjust_camera_clipping(near_clip="auto", far_clip="auto")
     check("no camera -> no-op", True)
 
+    # ---- interactive view-nav math (pure RegionView3D delta -> new view; headless-testable) ----
+    from mathutils import Quaternion, Vector
+    from blendertk.cam_utils._cam_utils import (
+        _orbit_rotation, _roll_rotation, _dolly_distance, _track_location,
+        _ensure_view_nav_operator,
+    )
+    I = Quaternion()  # identity view: looks down -Z, up +Y, right +X
+
+    # orbit: horizontal drag orbits about world-Z (azimuth) by -dx*sens; from identity that
+    # carries the right vector (1,0,0) to (cos(-0.5), sin(-0.5), 0) for dx=100 (sens 0.005).
+    v = _orbit_rotation(I, 100, 0) @ Vector((1.0, 0.0, 0.0))
+    check("orbit dx rotates about world-Z by -dx*sens",
+          approx(v.x, math.cos(-0.5)) and approx(v.y, math.sin(-0.5)) and approx(v.z, 0.0),
+          f"v={tuple(round(c, 3) for c in v)}")
+    # orbit: vertical drag orbits about the view's right axis (X here) by +dy*sens (drag up tilts
+    # the view up); (0,1,0)->(0,cos(0.5),sin(0.5)) for dy=100.
+    v = _orbit_rotation(I, 0, 100) @ Vector((0.0, 1.0, 0.0))
+    check("orbit dy rotates about view-right by +dy*sens (drag up tilts view up)",
+          approx(v.x, 0.0) and approx(v.y, math.cos(0.5)) and approx(v.z, math.sin(0.5)),
+          f"v={tuple(round(c, 3) for c in v)}")
+
+    # roll: rotates about the forward axis — forward (0,0,-1) preserved, right vector rotates.
+    rl = _roll_rotation(I, 100)
+    fwd, right = rl @ Vector((0.0, 0.0, -1.0)), rl @ Vector((1.0, 0.0, 0.0))
+    check("roll preserves the forward axis",
+          approx(fwd.x, 0.0) and approx(fwd.y, 0.0) and approx(fwd.z, -1.0),
+          f"fwd={tuple(round(c, 3) for c in fwd)}")
+    check("roll rotates the right vector about forward by dx*sens",
+          approx(right.x, math.cos(-0.5)) and approx(right.y, math.sin(-0.5)),
+          f"right={tuple(round(c, 3) for c in right)}")
+
+    # dolly: multiplicative; drag up (dy>0) shrinks distance; floored so the eye never crosses.
+    check("dolly dy=50 halves distance (1 - 50*0.01)", approx(_dolly_distance(10.0, 50), 5.0),
+          f"d={_dolly_distance(10.0, 50)}")
+    check("dolly floors at min_dist", approx(_dolly_distance(10.0, 1000), 1e-4, tol=1e-5),
+          f"d={_dolly_distance(10.0, 1000)}")
+
+    # track: grab-and-drag — pivot slides OPPOSITE the drag on both axes (scale = 0.001*dist), so
+    # the scene follows the cursor. dx=100 -> pivot -x; dy=100 -> pivot -y.
+    loc = _track_location(Vector((0.0, 0.0, 0.0)), I, 10.0, 100, 0)
+    check("track dx pans pivot along -right*dx*sens*dist (drag right: scene follows cursor)",
+          approx(loc.x, -1.0) and approx(loc.y, 0.0) and approx(loc.z, 0.0),
+          f"loc={tuple(round(c, 3) for c in loc)}")
+    loc = _track_location(Vector((0.0, 0.0, 0.0)), I, 10.0, 0, 100)
+    check("track dy pans pivot along -up*dy*sens*dist (drag up: scene follows cursor)",
+          approx(loc.x, 0.0) and approx(loc.y, -1.0),
+          f"loc={tuple(round(c, 3) for c in loc)}")
+
+    # operator registers, helper is exposed, and the launch refuses deterministically headless.
+    _ensure_view_nav_operator()
+    check("BTK_OT_view_nav registered", hasattr(bpy.types, "BTK_OT_view_nav"))
+    check("btk.navigate_view exposed", callable(getattr(btk, "navigate_view", None)))
+    try:
+        btk.navigate_view("ORBIT")
+        check("navigate_view refuses in --background", False, "no RuntimeError raised")
+    except RuntimeError:
+        check("navigate_view refuses in --background", True)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -60,6 +60,28 @@ try:
             scan += [f for f in os.listdir(d) if f.endswith(".xml")]
     check("Maya.xml is visible to the native Themes dropdown scan", "Maya.xml" in scan, str(sorted(set(scan))))
 
+    # ---- install() purges the retired 'Default' phantom (pre-2026-07-05 backup/restore design):
+    # a Default.xml byte-identical to a shipped style + its Default_Backup.json sidecar. A fresh
+    # user never had them; an upgrade must drop them so "Default" stops shadowing Maya.
+    preset_dir = ss.user_preset_dir(create=True)
+    shutil.copyfile(ss._shipped_xml("Maya"), os.path.join(preset_dir, "Default.xml"))
+    with open(os.path.join(preset_dir, "Default_Backup.json"), "w") as fh:
+        fh.write("{}")
+    ss.install()
+    check("install() removes the stale 'Default.xml' (byte-identical to a shipped style)",
+          not os.path.isfile(os.path.join(preset_dir, "Default.xml")))
+    check("install() removes the legacy 'Default_Backup.json' sidecar",
+          not os.path.isfile(os.path.join(preset_dir, "Default_Backup.json")))
+    check("'Default' phantom no longer surfaces in list_templates()",
+          "Default" not in ss.list_templates(), str(list(ss.list_templates())))
+    # a user's OWN theme named 'Default' (NOT byte-identical to a shipped style) must survive
+    with open(os.path.join(preset_dir, "Default.xml"), "w") as fh:
+        fh.write("<blender><!-- a real user theme --></blender>")
+    ss.install()
+    check("install() preserves a genuine user 'Default' theme (not a shipped-style copy)",
+          os.path.isfile(os.path.join(preset_dir, "Default.xml")))
+    os.remove(os.path.join(preset_dir, "Default.xml"))  # keep it out of the later scans
+
     # ---- list_templates() is the native Themes list: built-ins + user + our injected Maya
     templates = ss.list_templates()
     check("list_templates() returns a {display_name: filepath} mapping", isinstance(templates, dict) and all(os.path.isfile(v) for v in templates.values()), str(list(templates)))

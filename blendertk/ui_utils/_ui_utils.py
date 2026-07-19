@@ -490,7 +490,6 @@ def dispatch_log_link(url, logger=None) -> bool:
     Returns:
         True if the link was handled, False otherwise.
     """
-    import os
     from urllib.parse import parse_qs
 
     if url.scheme() != "action":
@@ -505,11 +504,11 @@ def dispatch_log_link(url, logger=None) -> bool:
         filepath = params.get("path", [""])[0] or params.get("filepath", [""])[0]
         if not filepath:
             return False
-        try:
-            os.startfile(filepath)
-        except OSError as e:
-            if logger:
-                logger.warning(f"Could not open file: {e}")
+        import pythontk as ptk
+
+        # Use pythontk's cross-platform opener: a bare ``os.startfile`` is Windows-only
+        # and raises an ``AttributeError`` (not caught by ``except OSError``) on Linux/macOS.
+        if not ptk.FileUtils.open_explorer(filepath, logger=logger):
             return False
         return True
 

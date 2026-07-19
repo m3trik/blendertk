@@ -384,8 +384,7 @@ class ShotSequencer:
         self._scale_keys([obj], old_start, old_end, new_start, new_end)
 
     def move_object_in_shot(self, shot_id: int, obj: str, old_start: float,
-                            old_end: float, new_start: float,
-                            prevent_overlap: bool = False) -> None:
+                            old_end: float, new_start: float) -> None:
         """Move one object's keys within a shot, growing the shot + rippling when it overruns."""
         shot = self.shot_by_id(shot_id)
         if shot is None:
@@ -395,9 +394,6 @@ class ShotSequencer:
         new_end = self.store.snap(new_start + dur)
 
         self.move_object_keys(obj, old_start, old_end, new_start)
-
-        if prevent_overlap:
-            self._push_overlapping_objects(shot, obj, new_start, new_end)
 
         prior_start, prior_end = shot.start, shot.end
         start_expanded = end_expanded = False
@@ -419,28 +415,6 @@ class ShotSequencer:
             self.store.mark_dirty()
         # No _enforce_gap_holds here (matches mayatk): a per-object move must
         # not restep tangents on objects the user didn't touch.
-
-    def _push_overlapping_objects(self, shot, moved_obj, moved_start, moved_end) -> None:
-        """Cascade-push other objects in *shot* so none overlaps the moved clip's new range."""
-        segments = self.collect_object_segments(shot.shot_id)
-        obj_ranges: dict = {}
-        for seg in segments:
-            name = seg["obj"]
-            if name == moved_obj:
-                continue
-            if name in obj_ranges:
-                obj_ranges[name] = (min(obj_ranges[name][0], seg["start"]),
-                                    max(obj_ranges[name][1], seg["end"]))
-            else:
-                obj_ranges[name] = (seg["start"], seg["end"])
-        push_end = moved_end
-        for name, (s, e) in sorted(obj_ranges.items(), key=lambda x: x[1][0]):
-            if s < push_end and e > moved_start:
-                delta = push_end - s
-                self.move_object_keys(name, s, e, s + delta)
-                push_end = e + delta
-            else:
-                push_end = max(push_end, e)
 
     # ---- resize (scale keys + ripple) ------------------------------------
 

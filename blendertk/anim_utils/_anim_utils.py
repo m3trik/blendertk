@@ -47,8 +47,17 @@ def _actions(objects):
     for o in ptk.make_iterable(objects):
         ad = getattr(o, "animation_data", None)
         action = ad.action if ad else None
-        if action is not None and all(action is not a for a, _s in seen):
-            seen.append((action, getattr(ad, "action_slot", None)))
+        if action is None:
+            continue
+        # Uniqueness is per (action, slot): one slotted action can drive several
+        # objects through different slots (Blender 4.4+/5.x). Compare the action
+        # by identity (IDs are instance-cached) but the slot with ``==`` —
+        # slots are non-ID RNA structs Blender does not wrapper-cache, so ``is``
+        # spuriously fails for the same slot; ``bpy_struct.__eq__`` matches by
+        # data pointer.
+        slot = getattr(ad, "action_slot", None)
+        if all(not (action is a and slot == s) for a, s in seen):
+            seen.append((action, slot))
     return seen
 
 
@@ -585,6 +594,24 @@ def invert_keys(
                         k.co.y = 2.0 * value_pivot - k.co.y
                         k.handle_left.y = 2.0 * value_pivot - k.handle_left.y
                         k.handle_right.y = 2.0 * value_pivot - k.handle_right.y
+                    if do_time:
+                        # Time reversal reflects handles horizontally, so the handle
+                        # that was on the right now sits on the left (and vice versa):
+                        # swap the two sides entirely (x, y, type). AUTO/AUTO_CLAMPED
+                        # keys have equal types and get recomputed by fc.update() below,
+                        # so this only corrects FREE/ALIGNED/custom-tangent keys.
+                        k.handle_left.x, k.handle_right.x = (
+                            k.handle_right.x,
+                            k.handle_left.x,
+                        )
+                        k.handle_left.y, k.handle_right.y = (
+                            k.handle_right.y,
+                            k.handle_left.y,
+                        )
+                        k.handle_left_type, k.handle_right_type = (
+                            k.handle_right_type,
+                            k.handle_left_type,
+                        )
                 fc.update()
             continue
 
@@ -612,14 +639,24 @@ def invert_keys(
             new_y = (2.0 * value_pivot - oy) if do_value else oy
             nk = fc.keyframe_points.insert(new_x, new_y)
             nk.interpolation = interp
-            nk.handle_left_type = hlt
-            nk.handle_right_type = hrt
-            # Time-reversal swaps which side a handle sits on; value-reversal flips the
-            # handle's y offset about the same pivot as the key.
-            new_hl_dx = -hr_dx if do_time else hl_dx
-            new_hr_dx = -hl_dx if do_time else hr_dx
-            new_hl_dy = -hl_dy if do_value else hl_dy
-            new_hr_dy = -hr_dy if do_value else hr_dy
+            # Time-reversal reflects handles horizontally, so the handle that was
+            # on the right now sits on the left (and vice versa): swap the source
+            # side for the x-offset, y-offset AND handle type together. Value-
+            # reversal then flips the y-offset about the same pivot as the key.
+            # Mirrors the in-place branch above (which swaps all three); leaving
+            # y/type unswapped here made the copy path disagree with it.
+            if do_time:
+                new_hl_dx, new_hr_dx = -hr_dx, -hl_dx
+                src_hl_dy, src_hr_dy = hr_dy, hl_dy
+                new_hlt, new_hrt = hrt, hlt
+            else:
+                new_hl_dx, new_hr_dx = hl_dx, hr_dx
+                src_hl_dy, src_hr_dy = hl_dy, hr_dy
+                new_hlt, new_hrt = hlt, hrt
+            nk.handle_left_type = new_hlt
+            nk.handle_right_type = new_hrt
+            new_hl_dy = -src_hl_dy if do_value else src_hl_dy
+            new_hr_dy = -src_hr_dy if do_value else src_hr_dy
             nk.handle_left.x = new_x + new_hl_dx
             nk.handle_left.y = new_y + new_hl_dy
             nk.handle_right.x = new_x + new_hr_dx

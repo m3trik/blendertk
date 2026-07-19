@@ -25,8 +25,6 @@ removed, so the two panels stay diffable side-by-side:
   - ``cmb004`` (shader type: Stingray PBS / Standard Surface / Open PBR) has no Blender analogue —
     there is a single Principled BSDF shader.
 """
-import os
-
 import pythontk as ptk
 
 import blendertk as btk
@@ -56,7 +54,8 @@ class GameShaderSlots(ptk.LoggingMixin):
         self.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
         self.logger.setup_logging_redirect(self.ui.txt001)
 
-    # The .blend's own folder / its "textures" subfolder (Maya `sourceimages` analogue).
+    # The current workspace / its texture folder (Maya `sourceimages` analogue) — rule-fed for
+    # marked workspace.mel projects, "textures" convention for plain Blender folders.
     # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
     @property
     def workspace_dir(self) -> str:
@@ -64,8 +63,7 @@ class GameShaderSlots(ptk.LoggingMixin):
 
     @property
     def source_images_dir(self) -> str:
-        ws = self.workspace_dir
-        return os.path.join(ws, "textures") if ws else ""
+        return btk.source_images_dir()
 
     def header_init(self, widget):
         """Initialize the header widget."""

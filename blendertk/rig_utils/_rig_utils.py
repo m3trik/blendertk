@@ -192,6 +192,8 @@ class RigUtils:
         tube-rig step-workflow's only call site never keeps the original). Reads each bone's world
         head/tail/radius first, then replaces the whole chain end->start in one EDIT-mode pass so
         the new first bone sits at the old chain's END. Returns the new ordered bone names."""
+        if not bone_names:
+            return []
         mw = armature.matrix_world
         mw_inv = mw.inverted()
         data_bones = armature.data.bones

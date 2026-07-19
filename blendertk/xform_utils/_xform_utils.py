@@ -79,12 +79,26 @@ def freeze_transforms(objects, location=True, rotation=False, scale=True, store=
     if not objects:
         return
     bpy.ops.object.select_all(action="DESELECT")
+    snapshots = []  # prior bake values (read pre-store) so a failed apply leaves no orphaned bakes
     for o in objects:
         if store:
+            snapshots.append(
+                (o, {k: (list(o[k]) if k in o else None) for k in (_BAKE_T, _BAKE_R, _BAKE_S)})
+            )
             _store_bakes(o, location, rotation, scale)
         o.select_set(True)
     bpy.context.view_layer.objects.active = objects[0]
-    bpy.ops.object.transform_apply(location=location, rotation=rotation, scale=scale)
+    try:
+        bpy.ops.object.transform_apply(location=location, rotation=rotation, scale=scale)
+    except Exception:  # e.g. "Cannot apply to a multi user" — undo the just-stamped bakes and re-raise
+        for o, snap in snapshots:
+            for k, prev in snap.items():
+                if prev is None:
+                    if k in o:
+                        del o[k]
+                else:
+                    o[k] = prev
+        raise
 
 
 @_object_mode
@@ -203,12 +217,16 @@ def drop_to_grid(objects, align="Min", origin=False, center_pivot=False):
     import bpy
 
     for obj in (o for o in ptk.make_iterable(objects) if o):
-        if origin:
-            obj.location = (0.0, 0.0, 0.0)
+        if origin:  # move to the world origin (round-trip matrix_world so parented objects reach it)
+            m = obj.matrix_world.copy()
+            m.translation = (0.0, 0.0, 0.0)
+            obj.matrix_world = m
         bpy.context.view_layer.update()
         mn, mx = get_world_bbox(obj)
         z = {"Min": mn.z, "Max": mx.z}.get(align, (mn.z + mx.z) / 2.0)
-        obj.location.z -= z
+        m = obj.matrix_world.copy()  # shift Z in world space so the parent transform doesn't rescale it
+        m.translation.z -= z
+        obj.matrix_world = m
         bpy.context.view_layer.update()  # refresh matrix_world for downstream reads
         if center_pivot:  # bool param; reach the helper via the class (name is shadowed here)
             XformUtils.center_pivot(obj, mode="object")
@@ -343,7 +361,9 @@ def move_to(source, target, pivot="center"):
     dst = _pivot_point(targets, pivot)
     for src in (o for o in ptk.make_iterable(source) if o):
         cur = _pivot_point([src], pivot)
-        src.location = src.location + (dst - cur)
+        mw = src.matrix_world.copy()  # dst/cur are world-space; apply the delta through matrix_world
+        mw.translation = mw.translation + (dst - cur)
+        src.matrix_world = mw
         bpy.context.view_layer.update()
 
 

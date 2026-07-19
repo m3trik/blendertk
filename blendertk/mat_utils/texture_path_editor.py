@@ -591,15 +591,24 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             widget, "cmb_external_mode", self._NORMALIZE_MODE_ITEMS
         )
         record = self._snapshot_for_tracking(images)
-        if external_mode in ("copy", "move"):
+        moved = (
             btk.normalize_texture_paths(external_mode, images=images)
+            if external_mode in ("copy", "move")
+            else 0
+        )
         n = btk.normalize_texture_paths("relative", images=images)
         record()
-        self.sb.message_box(
-            f"Made <hl>{n}</hl> path(s) relative ({scope_label})."
-            if n
-            else "Nothing changed — paths are already relative (or the .blend isn't saved)."
-        )
+        if moved or n:
+            parts = []
+            if moved:
+                verb = "Copied" if external_mode == "copy" else "Moved"
+                parts.append(f"{verb} <hl>{moved}</hl> external texture(s)")
+            if n:
+                parts.append(f"made <hl>{n}</hl> path(s) relative")
+            msg = f"{'; '.join(parts)} ({scope_label})."
+        else:
+            msg = "Nothing changed — paths are already relative (or the .blend isn't saved)."
+        self.sb.message_box(msg)
         self.ui.tbl000.init_slot()
 
     def tb_resolve_missing_textures(self, widget=None):
@@ -977,15 +986,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
     def _resolve_source_images_path(self) -> str:
         """The project's texture folder — Blender analogue of mayatk's
-        ``EnvUtils.get_env_info("sourceimages")``: ``<blenddir>/textures`` when that folder
-        exists, else the .blend's own folder. Empty until the file has been saved."""
-        import bpy
-
-        blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
-        if not blenddir:
+        ``EnvUtils.get_env_info("sourceimages")``: the workspace's ``sourceImages`` rule (or an
+        existing ``sourceimages``/``textures`` folder), else the workspace root itself. Empty
+        until the file has been saved (or a workspace is pinned)."""
+        ws = btk.current_workspace()
+        if ws is None:
             return ""
-        target = os.path.join(blenddir, "textures")
-        return target if os.path.isdir(target) else blenddir
+        return ws.resolve_dir(("sourceImages",), ("sourceimages", "textures")) or ws.root
 
 
 # -----------------------------------------------------------------------------

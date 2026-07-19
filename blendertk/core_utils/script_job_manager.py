@@ -33,6 +33,9 @@ Usage::
     mgr.subscribe("SelectionChanged", self._on_sel, owner=self, ephemeral=True)
     mgr.connect_cleanup(self.ui, owner=self)  # auto-unsubscribe on Qt widget destroy
 
+    with mgr.suppressed(token):  # silence listeners while mutating the scene
+        ...
+
 Divergence from mayatk: there is no ``add_om_callback`` — its OpenMaya ``MMessage`` analogue is
 ``bpy.msgbus``, which has its own survival-across-load semantics; add a ``subscribe_rna`` only
 when a tool actually needs arbitrary RNA-property watching (YAGNI). ``import bpy`` is deferred
@@ -40,9 +43,10 @@ into the call bodies (no import side effects).
 """
 from __future__ import annotations
 
+import contextlib
 import itertools
 import logging
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set
+from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Set, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -106,8 +110,12 @@ class ScriptJobManager:
         self._events: Dict[str, List[int]] = {}  # event -> [tokens]
         self._handlers: Dict[str, Callable] = {}  # handler-list name -> installed master fn
         self._counter = itertools.count(1)
-        self._connected_widgets: Set[int] = set()
-        self._suppressed: Set[int] = set()
+        # (id(widget), id(owner)) pairs — one cleanup connection per pair, so
+        # several owners can share a widget without shadowing each other.
+        self._cleanup_pairs: Set[Tuple[int, int]] = set()
+        # token -> nested suppress count; counted so nested/overlapping
+        # suppressed() blocks compose correctly (mirror of mayatk).
+        self._suppressed: Dict[int, int] = {}
         self._last_selection: FrozenSet[str] = frozenset()
 
     # -------------------------------------------------------------- public API
@@ -155,7 +163,7 @@ class ScriptJobManager:
 
     def unsubscribe(self, token: int) -> None:
         """Remove a single subscription by *token*."""
-        self._suppressed.discard(token)
+        self._suppressed.pop(token, None)
         sub = self._subs.pop(token, None)
         if sub is None:
             return
@@ -177,23 +185,55 @@ class ScriptJobManager:
     def connect_cleanup(self, widget, owner: Any) -> None:
         """Connect *widget*.destroyed → :meth:`unsubscribe_all` for *owner* (Qt).
 
-        Safe to call multiple times for the same *widget*. The Qt signal is used directly
-        (no import) so this stays headless-safe until a real widget is passed.
+        Safe to call multiple times for the same *widget* / *owner* pair, and several
+        owners may share one widget — each gets its own cleanup. The Qt signal is used
+        directly (no import) so this stays headless-safe until a real widget is passed.
         """
-        wid = id(widget)
-        if wid in self._connected_widgets:
+        pair = (id(widget), id(owner))
+        if pair in self._cleanup_pairs:
             return
-        self._connected_widgets.add(wid)
-        widget.destroyed.connect(lambda *_: self._on_widget_destroyed(wid, owner))
+        self._cleanup_pairs.add(pair)
+        widget.destroyed.connect(lambda *_: self._on_widget_destroyed(pair, owner))
 
     def suppress(self, token: int) -> None:
-        """Temporarily silence a subscription without removing it."""
+        """Temporarily silence a subscription without removing it.
+
+        Counted: each ``suppress`` needs a matching :meth:`resume`, so
+        nested/overlapping suppressions compose (prefer :meth:`suppressed`).
+        """
         if token in self._subs:
-            self._suppressed.add(token)
+            self._suppressed[token] = self._suppressed.get(token, 0) + 1
 
     def resume(self, token: int) -> None:
-        """Re-enable a previously suppressed subscription."""
-        self._suppressed.discard(token)
+        """Undo one :meth:`suppress`; the subscription re-enables at zero."""
+        count = self._suppressed.get(token, 0)
+        if count <= 1:
+            self._suppressed.pop(token, None)
+        else:
+            self._suppressed[token] = count - 1
+
+    @contextlib.contextmanager
+    def suppressed(self, *tokens: Optional[int]) -> Iterator[None]:
+        """Silence *tokens* for the duration of a ``with`` block (mirror of mayatk).
+
+        Replaces the manual ``suppress`` / ``try``/``finally`` ``resume`` dance around
+        scene-mutating code. ``None`` tokens are skipped, and tokens already suppressed
+        on entry stay suppressed on exit — suppression is counted, so nested and
+        overlapping blocks compose correctly.
+
+        Divergence from mayatk: resume is immediate. Blender's ``bpy.app.handlers``
+        fire synchronously inside the mutating call, so everything raised in the block
+        has already been (silently) dispatched by exit — mayatk instead defers resume
+        to idle because Maya queues scriptJob dispatch until then.
+        """
+        active = [t for t in tokens if t is not None]
+        for token in active:
+            self.suppress(token)
+        try:
+            yield
+        finally:
+            for token in active:
+                self.resume(token)
 
     def status(self) -> Dict[str, Any]:
         """Snapshot of installed handlers and current subscriptions."""
@@ -229,7 +269,7 @@ class ScriptJobManager:
         self._subs.clear()
         self._events.clear()
         self._suppressed.clear()
-        self._connected_widgets.clear()
+        self._cleanup_pairs.clear()
 
     # -------------------------------------------------------------- internals
     def _ensure_handler(self, name: str) -> None:
@@ -293,8 +333,13 @@ class ScriptJobManager:
             if sub is not None:
                 try:
                     sub.callback()
-                except Exception as exc:
-                    logger.debug("ScriptJobManager: %r listener error: %s", event, exc)
+                except Exception:
+                    logger.warning(
+                        "ScriptJobManager: %r listener error (owner=%r)",
+                        event,
+                        sub.owner,
+                        exc_info=True,
+                    )
         if event in _SCENE_CHANGE_EVENTS:
             self._prune_ephemerals()
 
@@ -313,7 +358,7 @@ class ScriptJobManager:
         for token in [t for t, s in self._subs.items() if s.ephemeral]:
             self.unsubscribe(token)
 
-    def _on_widget_destroyed(self, wid: int, owner: Any) -> None:
+    def _on_widget_destroyed(self, pair: Tuple[int, int], owner: Any) -> None:
         """Qt widget destroyed → clean up all of *owner*'s subscriptions."""
-        self._connected_widgets.discard(wid)
+        self._cleanup_pairs.discard(pair)
         self.unsubscribe_all(owner)

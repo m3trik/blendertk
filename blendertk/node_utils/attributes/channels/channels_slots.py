@@ -160,10 +160,11 @@ class ChannelsSlots:
         txt1.editingFinished.connect(self._on_target_renamed)
 
         def _dbl_click(event, _orig=txt1.mouseDoubleClickEvent):
-            if txt1.isReadOnly() and self._current_target is not None:
+            name = self._target_name()
+            if txt1.isReadOnly() and name is not None:
                 txt1.setReadOnly(False)
                 txt1.setToolTip(
-                    f"{self._current_target.name}"
+                    f"{name}"
                     "\n\n(Type a new name and press Enter to rename.)"
                 )
                 txt1.selectAll()
@@ -177,9 +178,10 @@ class ChannelsSlots:
             Qt = self.sb.QtCore.Qt
 
             if event.key() == Qt.Key_Escape and not txt1.isReadOnly():
-                if self._current_target is not None:
+                name = self._target_name()
+                if name is not None:
                     txt1.blockSignals(True)
-                    txt1.setText(self._current_target.name)
+                    txt1.setText(name)
                     txt1.blockSignals(False)
                 txt1.setReadOnly(True)
                 txt1.setToolTip("Double-click to rename.")
@@ -262,14 +264,33 @@ class ChannelsSlots:
             txt.blockSignals(False)
             txt.setReadOnly(True)
 
+    def _target_name(self):
+        """The current target object's name, or ``None`` if there is no live target.
+
+        ``_current_target`` is a live ``bpy.types.Object`` (not an inert name string as
+        in the Maya panel), so reading ``.name`` on a freed StructRNA raises
+        ``ReferenceError`` — and ``getattr``'s default only catches ``AttributeError``.
+        A dead reference is dropped and treated as "no target", mirroring the guard in
+        :meth:`Channels.get_selected_nodes`.
+        """
+        tgt = self._current_target
+        if tgt is None:
+            return None
+        try:
+            return tgt.name
+        except (ReferenceError, AttributeError):
+            self._current_target = None
+            return None
+
     def _on_target_renamed(self):
         txt = self.ui.txt001
         was_editing = not txt.isReadOnly()
         txt.setReadOnly(True)
-        if not was_editing or self._current_target is None:
+        cur = self._target_name()
+        if not was_editing or cur is None:
             return
         new_name = txt.text().strip()
-        if not new_name or new_name == self._current_target.name:
+        if not new_name or new_name == cur:
             return
         self.controller.rename_node(self._current_target, new_name)
         self._refresh_table(self.ui.tbl000)
@@ -737,7 +758,10 @@ class ChannelsSlots:
             _orig_lbl_dbl = footer._status_label.mouseDoubleClickEvent
 
             def _footer_label_dbl_click(event, _orig=_orig_lbl_dbl):
-                if self._compact_view and self._current_target is not None:
+                # Route through _target_name() (not the raw _current_target) so a
+                # freed/dead target short-circuits instead of raising ReferenceError
+                # in _enter_footer_edit_mode — consistent with the other call sites.
+                if self._compact_view and self._target_name() is not None:
                     self._enter_footer_edit_mode()
                     return
                 _orig(event)
@@ -763,7 +787,7 @@ class ChannelsSlots:
         footer = getattr(self.ui, "footer", None)
         if not footer or self._footer_lineedit is None or self._footer_edit_page < 0:
             return
-        name = getattr(self._current_target, "name", "") if self._current_target else ""
+        name = self._target_name() or ""
         self._footer_lineedit.blockSignals(True)
         self._footer_lineedit.setText(name)
         self._footer_lineedit.blockSignals(False)
@@ -780,10 +804,11 @@ class ChannelsSlots:
             except Exception:
                 pass
 
-        if self._current_target is None or self._footer_lineedit is None:
+        cur = self._target_name()
+        if cur is None or self._footer_lineedit is None:
             return
         new_name = self._footer_lineedit.text().strip()
-        if not new_name or new_name == self._current_target.name:
+        if not new_name or new_name == cur:
             if self._footer_controller is not None:
                 self._footer_controller.update()
             return

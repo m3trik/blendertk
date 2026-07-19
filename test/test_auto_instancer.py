@@ -523,6 +523,40 @@ try:
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     check("safety: second run stable", sorted(users.values()) == [2], f"{dict(users)}")
 
+    # ------------------------------------------------------------- 9. run summary (why matches did / didn't instance)
+    reset()
+    bpy.ops.mesh.primitive_uv_sphere_add(location=(0, 0, 0)); d0 = bpy.context.active_object; d0.name = "Dense0"
+    bpy.ops.mesh.primitive_uv_sphere_add(location=(5, 0, 0)); d1 = bpy.context.active_object; d1.name = "Dense1"
+    _, summ = btk.auto_instance([d0, d1], combine_non_instanced=False, verbose=False, return_summary=True)
+    check("summary: dense duplicates instanced",
+          summ["matched_groups"] == 1 and summ["instanced_groups"] == 1
+          and summ["instances_created"] == 1 and summ["simple_groups"] == 0, f"{summ}")
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); t0 = bpy.context.active_object; t0.name = "Tiny0"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0)); t1 = bpy.context.active_object; t1.name = "Tiny1"
+    created, summ = btk.auto_instance([t0, t1], combine_non_instanced=True, verbose=False, return_summary=True)
+    check("summary: micro duplicates flagged too-simple (combined, not instanced)",
+          summ["matched_groups"] == 1 and summ["simple_groups"] == 1
+          and summ["instanced_groups"] == 0
+          and any(x["reason"] == "too_simple" for x in summ["details"]), f"{summ}")
+    check("summary: too-simple text surfaced",
+          "too simple" in AutoInstancer.format_summary(summ, len(created)))
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); u0 = bpy.context.active_object; u0.name = "Uq0"
+    bpy.ops.mesh.primitive_uv_sphere_add(location=(3, 0, 0)); u1 = bpy.context.active_object; u1.name = "Uq1"
+    _, summ = btk.auto_instance([u0, u1], combine_non_instanced=False, verbose=False, return_summary=True)
+    check("summary: no matches reported as such",
+          summ["matched_groups"] == 0
+          and "no geometrically identical meshes were found"
+          in AutoInstancer.format_summary(summ, 0), f"{summ}")
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); solo = bpy.context.active_object
+    check("summary: return_summary defaults off (bare list, backward compatible)",
+          isinstance(btk.auto_instance([solo], verbose=False), list))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

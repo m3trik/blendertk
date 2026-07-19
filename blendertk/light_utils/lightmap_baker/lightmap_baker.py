@@ -1170,25 +1170,25 @@ class LightmapBakerSlots(ptk.LoggingMixin):
         """Open the most recent output folder in the file browser."""
         out = self._last_output_dir or self._output_dir()
         if out and os.path.isdir(out):
-            os.startfile(out)
+            try:
+                ptk.FileUtils.reveal_in_file_manager(out)
+            except (FileNotFoundError, OSError) as e:
+                self.ui.footer.setText(str(e))
         else:
             self.ui.footer.setText("No output folder yet — bake first.")
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
     def _output_dir() -> str:
-        """Where bakes go: ``//textures`` next to the .blend, else a temp dir.
-
-        Blender has no Maya-style "sourceimages" project workspace to write into (the header
-        menu's "Open Output Folder" — mayatk's counterpart is "Open Sourceimages Folder" —
-        browses this instead); everything lands next to the .blend so it travels with the file.
-        """
-        import bpy
+        """Where bakes go: the workspace's texture folder (its ``sourceImages`` rule for a
+        marked workspace.mel project, else ``textures`` next to the .blend), or a temp dir
+        until the file has been saved. The header menu's "Open Output Folder" — mayatk's
+        counterpart is "Open Sourceimages Folder" — browses this."""
         import tempfile
 
-        blend = bpy.data.filepath
-        root = os.path.dirname(blend) if blend else tempfile.gettempdir()
-        return os.path.join(root, "textures")
+        from blendertk.env_utils._env_utils import source_images_dir
+
+        return source_images_dir() or os.path.join(tempfile.gettempdir(), "textures")
 
 
 # -----------------------------------------------------------------------------

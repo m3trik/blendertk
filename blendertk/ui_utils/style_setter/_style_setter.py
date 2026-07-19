@@ -37,6 +37,7 @@ identically to one picked through us).
 """
 import os
 import glob
+import filecmp
 
 import pythontk as ptk
 
@@ -80,10 +81,57 @@ def is_installed(name):
     return os.path.isfile(user_preset_path(name))
 
 
+# Legacy artifacts from the pre-native backup/restore design retired 2026-07-05 (see the package
+# CHANGELOG / test_style_setter.py): it saved the user's own look as ``Default_Backup.json`` and
+# wrote the Maya theme into the dropdown as a ``Default`` preset. Both linger in the user preset
+# dir, where :func:`list_templates` surfaces "Default" as a phantom duplicate of Maya. The current
+# native-only design never creates them, so :func:`install` clears them on upgrade; a fresh user
+# never had them.
+_LEGACY_BACKUP_SIDECAR = "Default_Backup.json"
+_LEGACY_DEFAULT_PRESET = "Default.xml"
+
+
+def _is_shipped_copy(path):
+    """True if ``path`` is byte-identical to one of our shipped style XMLs — i.e. it's our stale
+    copy, not a user's own theme that merely shares the name. Silent on ``OSError`` (a file
+    vanishing mid-check just yields False)."""
+    for name in list_styles():
+        shipped = _shipped_xml(name)
+        try:
+            if os.path.isfile(shipped) and filecmp.cmp(path, shipped, shallow=False):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _purge_legacy_default_preset():
+    """Remove the retired ``Default`` preset + its ``Default_Backup.json`` sidecar from the user
+    preset dir (see :data:`_LEGACY_DEFAULT_PRESET`).
+
+    The ``.xml`` is removed only when it's a shipped-style copy (:func:`_is_shipped_copy`) — never
+    a user's own theme that merely happens to be named "Default". The ``.json`` sidecar is ours
+    unambiguously (Blender never writes ``.json`` into a preset dir). Best-effort and silent: a
+    missing file or an ``OSError`` just leaves the dropdown as-is."""
+    d = user_preset_dir()
+    if not d or not os.path.isdir(d):
+        return
+    # (filename, guard) — the guard gates removal of a same-named user theme; None = always ours.
+    for filename, guard in ((_LEGACY_BACKUP_SIDECAR, None), (_LEGACY_DEFAULT_PRESET, _is_shipped_copy)):
+        path = os.path.join(d, filename)
+        if not os.path.isfile(path) or (guard and not guard(path)):
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def install(overwrite=False):
     """Copy the shipped theme presets into Blender's user preset dir so they appear in
     Preferences > Themes > preset dropdown. Idempotent; returns the names copied this call
     (empty when everything was already installed and ``overwrite`` is False)."""
+    _purge_legacy_default_preset()  # drop the retired 'Default' phantom (pre-2026-07-05 builds)
     dest = user_preset_dir(create=True)
     copied = []
     for name in list_styles():

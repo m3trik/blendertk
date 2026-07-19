@@ -62,6 +62,18 @@ class BlenderUiHandler(UiHandler):
             **kwargs,
         )
 
+        # Route the log panel's node actions through uitk's dependency-inverted
+        # registry so uitk needn't import blendertk (mirror of MayaUiHandler).
+        # Before this, uitk hard-imported mayatk, so Blender-session node links
+        # were dead despite blendertk shipping its own dispatch_log_link.
+        try:
+            from uitk.bridge.slots import register_log_link_handler
+            from blendertk.ui_utils._ui_utils import dispatch_log_link
+
+            register_log_link_handler(dispatch_log_link)
+        except Exception:  # never let a wiring hiccup block UI-handler startup
+            pass
+
         # Wrap Blender's native menus for the both-button chord menu (mirror of the way
         # MayaUiHandler wraps Maya's). Register a lightweight proxy per symbolic node name so a
         # release on a bare-target MenuButton resolves to a real UI via the shared switchboard's

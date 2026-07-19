@@ -252,6 +252,54 @@ try:
     check("explicit axis='y' (top-down) silhouette builds",
           rig.image is not None and tuple(rig.image.size) == (32, 32))
 
+    # ============================ DELETE ============================
+    # delete_rigs tears down the WHOLE rig (mirror of mayatk's): plane +
+    # group + contact empty, material/image datablocks, the PNG on disk
+    # (delete_textures), and republishes (clears) the metadata channel —
+    # while the target and the shared source empty survive.
+    reset()
+    c = cube("Box")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, mode="stretch")
+    tex = rig.texture_path
+    deleted = ShadowRig.delete_rigs([rig.shadow_plane], delete_textures=True)
+    check("delete_rigs returns the plane name", deleted == ["Box_shadow"], f"{deleted}")
+    check("delete removes plane/group/contact",
+          not any(bpy.data.objects.get(n)
+                  for n in ("Box_shadow", "Box_shadow_grp", "Box_contact")),
+          f"{[o.name for o in bpy.data.objects]}")
+    check("delete keeps target + shared source",
+          bpy.data.objects.get("Box") is not None
+          and bpy.data.objects.get("shadow_source") is not None)
+    check("delete frees material + image datablocks",
+          bpy.data.materials.get("Box_shadow_mat") is None
+          and bpy.data.images.get("Box_shadow") is None)
+    check("delete_textures removes the PNG", not (tex and os.path.exists(tex)))
+    check("delete clears the metadata channel",
+          DataNodes.get_export_string(ShadowRig.SHADOW_METADATA) is None)
+
+    # A BAKED rig (drivers already stripped) still tears down fully.
+    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, mode="stretch")
+    rig.bake(1, 2)
+    rig.delete()
+    check("baked rig still tears down fully",
+          bpy.data.objects.get("Box_shadow") is None
+          and bpy.data.objects.get("Box_contact") is None)
+
+    # An overlapping selection (group + its plane child) must not double-list
+    # the plane — delete_rigs would hit the second, already-removed entry.
+    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, mode="stretch")
+    grp = rig.shadow_plane.parent
+    found = ShadowRig.find_shadow_planes([grp, rig.shadow_plane])
+    check("find_shadow_planes dedups an overlapping selection",
+          len(found) == 1, f"{[o.name for o in found]}")
+    deleted = ShadowRig.delete_rigs([grp, rig.shadow_plane])
+    check("delete_rigs survives an overlapping selection",
+          deleted == ["Box_shadow"] and bpy.data.objects.get("Box_shadow") is None,
+          f"{deleted}")
+    check("second delete on the stale ref no-ops (mirror of Maya)",
+          ShadowRig.delete_rigs([rig.shadow_plane]) == [])
+
     # ============================ FOOTPRINT INCLUDES DESCENDANTS ============================
     # A target empty with a large mesh CHILD: the plane footprint + contact must come from the
     # child geometry, not the empty's meaningless unit bound_box (Maya's exactWorldBoundingBox

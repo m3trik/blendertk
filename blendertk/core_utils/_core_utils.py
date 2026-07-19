@@ -165,9 +165,12 @@ def get_env_info(key=None):
     """
     import bpy
 
+    from blendertk.env_utils._env_utils import current_workspace
+
     scene = bpy.context.scene
     filepath = bpy.data.filepath
-    workspace = os.path.dirname(filepath) if filepath else ""
+    ws = current_workspace()  # ambient: session pin → marked root → the .blend's dir
+    workspace = ws.root if ws else ""
     info = {
         "sceneName": filepath or "untitled",
         "blenderVersion": bpy.app.version_string,
@@ -176,7 +179,8 @@ def get_env_info(key=None):
         "frameRange": (scene.frame_start, scene.frame_end),
         "unitSystem": scene.unit_settings.system,
         "selectionCount": len(selected_objects()),
-        # Blender's analogue of Maya's project workspace = the saved .blend file's directory.
+        # Blender's analogue of Maya's project workspace — the current-workspace resolver:
+        # session pin → marked (workspace.mel) root containing the .blend → the .blend's dir.
         "workspace": workspace,
         "workspace_dir": os.path.basename(workspace) if workspace else "",
     }
@@ -614,7 +618,7 @@ def _active_view_layer():
 
     ``bpy.context.selected_objects`` / ``active_object`` are *screen-context* members: they are
     populated only when ``bpy.context.window`` is non-``None``. tentacle drives the Blender slots
-    from ``QApplication.processEvents()`` pumped inside a ``bpy.app.timers`` callback (see
+    from Qt events delivered inside a ``bpy.app.timers`` callback (see
     ``tcl_blender._QtHost.start_pump``) — a context whose ``window`` is frequently ``None`` (proven:
     with ``window=None`` those members return ``[]`` / ``None`` while a cube is selected). The view
     layer is window-independent, so reading selection through ``view_layer.objects`` is correct from

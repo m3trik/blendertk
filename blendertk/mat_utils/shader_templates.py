@@ -40,8 +40,6 @@ The engine lives in ``blendertk.MatUtils`` (``serialize_material`` / ``restore_m
 helpers are deferred into the call bodies. Served by ``BlenderUiHandler``
 (``marking_menu.show("shader_templates")``).
 """
-import os
-
 import pythontk as ptk
 
 import blendertk as btk
@@ -70,9 +68,9 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
             pass
         self.ui.txt001.setText("Pick a template, then Create Network.")
 
-    # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — Blender's
-    # analogue of Maya's project workspace is the .blend's own folder (`workspace`), with a
-    # "textures" subfolder as the nearest match to Maya's `sourceimages` convention.
+    # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — both route
+    # through the current-workspace resolver (marked workspace.mel projects get their real
+    # sourceImages rule; plain Blender projects keep the "textures" convention).
     # Resolved lazily: needs bpy (so panel load stays bpy-free) and tracks the current file.
     @property
     def workspace_dir(self) -> str:
@@ -80,8 +78,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
 
     @property
     def source_images_dir(self) -> str:
-        ws = self.workspace_dir
-        return os.path.join(ws, "textures") if ws else ""
+        return btk.source_images_dir()
 
         # No Blender analogue of mayatk's `EnvUtils.load_plugin("shaderFXPlugin"/"mtoa")` — the
         # Principled BSDF shader is always available; there is no render-plugin load step.
