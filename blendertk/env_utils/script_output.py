@@ -35,6 +35,7 @@ transcript) — **observably**: the reason is logged. Module API mirrors mayatk'
 
 ``import bpy`` / Qt are deferred into call bodies (no import side effects; headless-import safe).
 """
+
 import os
 import sys
 import json
@@ -59,14 +60,18 @@ class _OutputCapture:
     knows — past the tee, a logging record is just characters.
     """
 
-    MAX_CHARS = 200_000  # transcript cap (chars) — the widget itself caps at max_blocks anyway
+    MAX_CHARS = (
+        200_000  # transcript cap (chars) — the widget itself caps at max_blocks anyway
+    )
 
     def __init__(self):
-        self._chunks = []            # the transcript, as (text, level) pairs
-        self._size = 0               # sum of chunk text lengths (cheap cap enforcement)
+        self._chunks = []  # the transcript, as (text, level) pairs
+        self._size = 0  # sum of chunk text lengths (cheap cap enforcement)
         self._lock = threading.Lock()  # prints can come from worker threads
-        self._listener = None        # callable(str, level) — the console's live sink
-        self._notifying = threading.local()  # per-thread reentrancy guard for the listener call
+        self._listener = None  # callable(str, level) — the console's live sink
+        self._notifying = (
+            threading.local()
+        )  # per-thread reentrancy guard for the listener call
         self._tee_out = None
         self._tee_err = None
         self._orig_stdout = None
@@ -149,7 +154,9 @@ class _OutputCapture:
         """Detach the listener, restore the streams, remove the logging handler."""
         import logging
 
-        self._listener = None  # first: even a stacked foreign tee can no longer reach the widget
+        self._listener = (
+            None  # first: even a stacked foreign tee can no longer reach the widget
+        )
         if not self.installed:
             return
         # Only unwind streams that are still OURS — if another tool redirected on top of the
@@ -230,7 +237,9 @@ class ScriptConsole:
 
     _instance: Optional["ScriptConsole"] = None
     _STATE_FILE = "blendertk_script_output.json"
-    DEFAULT_HEIGHT = QtDock.DEFAULT_HEIGHT  # first-ever dock height (px); user resize persists
+    DEFAULT_HEIGHT = (
+        QtDock.DEFAULT_HEIGHT
+    )  # first-ever dock height (px); user resize persists
     # Tests point this at a sandbox dir so check runs never touch the user's real config
     # (the ShotStore._prefs_dir_override pattern).
     _state_dir_override: Optional[str] = None
@@ -238,10 +247,12 @@ class ScriptConsole:
     def __init__(self):
         self._capture = _OutputCapture()
         self._dock = QtDock(editor="Info Log", on_detach=self._on_detach)
-        self._widget = None         # uitk.ScriptOutput — built once, survives hide cycles
-        self._fallback_area = None  # bare native Info Log area (no-Qt / off-Windows degrade)
+        self._widget = None  # uitk.ScriptOutput — built once, survives hide cycles
+        self._fallback_area = (
+            None  # bare native Info Log area (no-Qt / off-Windows degrade)
+        )
         self._fallback_window = None
-        self._visible = False       # docked + shown (vs hidden-but-still-capturing)
+        self._visible = False  # docked + shown (vs hidden-but-still-capturing)
 
     @classmethod
     def instance(cls) -> "ScriptConsole":
@@ -306,7 +317,9 @@ class ScriptConsole:
         # Ctrl+C to the widget rather than hijacking it app-wide (Maya's default).
         # max_blocks: terminal-style scrollback cap so a long session can't grow the
         # document unbounded.
-        widget = ScriptOutput(clear_callback=self._clear, app_wide_copy=False, max_blocks=5000)
+        widget = ScriptOutput(
+            clear_callback=self._clear, app_wide_copy=False, max_blocks=5000
+        )
         widget.setWindowTitle("Script Output")
         self._widget = widget
         # Seed chunk-by-chunk rather than as one joined string: the level tags are
@@ -345,8 +358,41 @@ class ScriptConsole:
         except Exception:
             pass
 
-    # -- lifecycle ----------------------------------------------------------------
-    def begin_capture(self) -> "ScriptConsole":
+    # -- public API (procedural entry points; the singleton is an implementation detail) -------
+    @classmethod
+    def show(cls, *args, **kwargs) -> "ScriptConsole":
+        """Dock + show the Script Output console (reuses the persistent instance/widget if one
+        already exists from an earlier show/hide cycle — history isn't lost)."""
+        return cls.instance()._show()
+
+    @classmethod
+    def hide(cls, *args, **kwargs) -> None:
+        """Undock + hide the Script Output console (capture keeps running in the background)."""
+        cls.instance()._hide()
+
+    @classmethod
+    def toggle(cls, *args, **kwargs):
+        """Toggle the Script Output console shown/hidden."""
+        console = cls.instance()
+        if console.is_open():
+            console._hide()
+            return None
+        return console._show()
+
+    @classmethod
+    def begin_capture(cls) -> "ScriptConsole":
+        """Start the stdout/stderr/logging capture now (idempotent; UI-free). Call as early as
+        possible at startup so the console's transcript covers the whole session."""
+        return cls.instance()._begin_capture()
+
+    @classmethod
+    def restore(cls) -> "ScriptConsole":
+        """Start capture and re-open the console if it was open when the previous session
+        ended — called by the tentacle host at launch (≈ Maya's workspace uiScript restore)."""
+        return cls.instance()._restore()
+
+    # -- lifecycle (instance implementation) --------------------------------------
+    def _begin_capture(self) -> "ScriptConsole":
         """Start recording stdout/stderr/logging into the transcript buffer NOW (idempotent).
 
         Call as early as possible (the tentacle startup script does, before ``import
@@ -356,18 +402,18 @@ class ScriptConsole:
         self._capture.install()
         return self
 
-    def restore(self) -> "ScriptConsole":
+    def _restore(self) -> "ScriptConsole":
         """Reinstate the previous session's console — the Blender analogue of Maya's
         ``workspaceControl`` ``uiScript`` restore (Maya re-runs the uiScript from its
         workspace prefs at launch; Blender has no such hook, so the tentacle host calls
         this explicitly once the Qt host is up). Starts capture unconditionally, then
         re-shows the console if it was visible when the last session ended."""
-        self.begin_capture()
+        self._begin_capture()
         if self._load_state().get("visible", False):
-            self.show()
+            self._show()
         return self
 
-    def show(self) -> "ScriptConsole":
+    def _show(self) -> "ScriptConsole":
         """Dock the console into the main window and persist visible=True.
 
         The capture + widget are built ONCE and are never torn down by :meth:`hide` —
@@ -420,7 +466,7 @@ class ScriptConsole:
         self._save_state(True)
         return self
 
-    def hide(self) -> None:
+    def _hide(self) -> None:
         """Undock (persisting the user's strip height) and persist visible=False. Capture
         keeps running in the background — stdout/stderr/logging keep accumulating, so the
         next :meth:`show` (this session or the next) picks up where this left off."""
@@ -509,41 +555,10 @@ class ScriptConsole:
         self._visible = False
 
 
-# -----------------------------------------------------------------------------
-# Module API — mirrors mayatk.env_utils.script_output (show / toggle / hide),
-# plus the Blender-only persistence hooks (begin_capture / restore).
-# -----------------------------------------------------------------------------
-def show(*args, **kwargs) -> ScriptConsole:
-    """Dock + show the Script Output console (reuses the persistent instance/widget if one
-    already exists from an earlier show/hide cycle — history isn't lost)."""
-    return ScriptConsole.instance().show()
-
-
-def hide(*args, **kwargs) -> None:
-    """Undock + hide the Script Output console (capture keeps running in the background)."""
-    ScriptConsole.instance().hide()
-
-
-def toggle(*args, **kwargs):
-    """Toggle the Script Output console shown/hidden."""
-    console = ScriptConsole.instance()
-    if console.is_open():
-        console.hide()
-        return None
-    return console.show()
-
-
-def begin_capture() -> ScriptConsole:
-    """Start the stdout/stderr/logging capture now (idempotent; UI-free). Call as early as
-    possible at startup so the console's transcript covers the whole session."""
-    return ScriptConsole.instance().begin_capture()
-
-
-def restore() -> ScriptConsole:
-    """Start capture and re-open the console if it was open when the previous session
-    ended — called by the tentacle host at launch (≈ Maya's workspace uiScript restore)."""
-    return ScriptConsole.instance().restore()
+# The procedural entry points (show / hide / toggle / begin_capture / restore) are classmethods
+# on ``ScriptConsole`` above — mirror of mayatk.env_utils.script_output. No module-level functions:
+# consumers call ``ScriptConsole.<action>()`` (or ``btk.ScriptConsole.<action>()``).
 
 
 if __name__ == "__main__":
-    show()
+    ScriptConsole.show()

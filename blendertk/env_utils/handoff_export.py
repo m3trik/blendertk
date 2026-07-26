@@ -12,6 +12,7 @@ any future Blender->X bridge don't each re-implement them. Mirror of mayatk's
 headless ``blender --background`` and outside Blender entirely; ``blendertk`` itself
 imports Qt-free.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -55,7 +56,9 @@ class BlenderExportMixin:
             apply_unit_scale=bool(params.get("APPLY_UNIT_SCALE", True)),
         )
 
-    def _export_fbx(self, objects: List[Any], fbx_path: str, params: Dict[str, Any]) -> None:
+    def _export_fbx(
+        self, objects: List[Any], fbx_path: str, params: Dict[str, Any]
+    ) -> None:
         """Export *objects* to *fbx_path* with FBX options derived from *params*.
 
         When ``INCLUDE_MATERIALS`` is False the objects are copied (full data copy),
@@ -66,7 +69,9 @@ class BlenderExportMixin:
         fbx_opts = self._fbx_options(params)
 
         if bool(params.get("INCLUDE_MATERIALS", True)):
-            btk.export_selection_fbx(filepath=fbx_path, objects=objects, **fbx_opts)
+            btk.FbxUtils.export_selection_fbx(
+                filepath=fbx_path, objects=objects, **fbx_opts
+            )
             return
 
         # Strip-materials path: export shader-less copies, leave originals alone.
@@ -88,7 +93,7 @@ class BlenderExportMixin:
                 data = getattr(obj, "data", None)
                 if data is not None and hasattr(data, "materials"):
                     data.materials.clear()
-            btk.export_selection_fbx(
+            btk.FbxUtils.export_selection_fbx(
                 filepath=fbx_path, objects=[d[0] for d in dups], **fbx_opts
             )
         finally:

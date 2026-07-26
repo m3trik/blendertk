@@ -30,6 +30,13 @@ try:
     def world_xs(o):
         return [(o.matrix_world @ v.co).x for v in o.data.vertices]
 
+    def world_bbox_center(o):
+        from mathutils import Vector
+        cs = [o.matrix_world @ Vector(c) for c in o.bound_box]
+        mn = Vector((min(c.x for c in cs), min(c.y for c in cs), min(c.z for c in cs)))
+        mx = Vector((max(c.x for c in cs), max(c.y for c in cs), max(c.z for c in cs)))
+        return (mn + mx) / 2.0
+
     # ---- mirror merge_mode=-1 (separate object) about world plane
     reset()
     o = cube_at(x=2.0)  # spans x 1..3
@@ -131,6 +138,59 @@ try:
     xs = world_xs(o)
     check("cut offset moves the plane (+0.5)", abs(max(xs) - 0.5) < 1e-4,
           f"max x {max(xs):.2f}")
+
+    # ---- PIVOT CENTERING ---------------------------------------------------------
+    # merge combines into the source object; its old origin is now off the doubled
+    # result, so it re-centers on the combined bbox (cube 1..3 mirror world -> -3..3).
+    reset()
+    o = cube_at(x=2.0)
+    btk.mirror(o, axis="x", pivot="world", merge_mode=1)
+    ox = o.matrix_world.translation.x
+    check("merge re-centers origin on combined bbox (x~0)", abs(ox) < 1e-4, f"origin x {ox:.3f}")
+
+    # center_pivot=False keeps the pre-mirror origin (opt-out escape hatch)
+    reset()
+    o = cube_at(x=2.0)
+    btk.mirror(o, axis="x", pivot="world", merge_mode=1, center_pivot=False)
+    ox = o.matrix_world.translation.x
+    check("merge center_pivot=False keeps origin (x~2)", abs(ox - 2.0) < 1e-4, f"origin x {ox:.3f}")
+
+    # separate: the NEW half centers on ITSELF; the SOURCE origin is left untouched
+    reset()
+    o = cube_at(x=2.0)  # origin at x=2
+    src_x = o.matrix_world.translation.x
+    created = btk.mirror(o, axis="x", pivot="world", merge_mode=-1)  # new spans -3..-1
+    m = created[0]
+    mx = m.matrix_world.translation.x
+    check("separate centers new half on itself (x~-2)", abs(mx + 2.0) < 1e-4, f"new origin x {mx:.3f}")
+    check("separate leaves source origin untouched (x~2)",
+          abs(o.matrix_world.translation.x - src_x) < 1e-4, f"src origin x {o.matrix_world.translation.x:.3f}")
+
+    # symmetrize (cut mirror+delete) combines into the object -> re-center. Offset the mesh
+    # off its origin first so a no-op would be visible (origin 0, geometry world 2..4).
+    reset()
+    o = cube_at()
+    for v in o.data.vertices:
+        v.co.x += 3.0
+    o.data.update()
+    bpy.context.view_layer.update()
+    btk.cut_along_axis(o, axis="x", pivot="center", amount=1, invert=True, delete=True, mirror=True)
+    c = world_bbox_center(o)
+    otr = o.matrix_world.translation
+    check("symmetrize re-centers origin on result bbox", (otr - c).length < 1e-4,
+          f"origin {tuple(round(v,2) for v in otr)} vs center {tuple(round(v,2) for v in c)}")
+    check("symmetrize actually moved the origin off 0", abs(otr.x) > 0.5, f"origin x {otr.x:.2f}")
+
+    # a plain cut (no mirror) is not a combine -> origin left alone
+    reset()
+    o = cube_at()
+    for v in o.data.vertices:
+        v.co.x += 3.0
+    o.data.update()
+    bpy.context.view_layer.update()
+    btk.cut_along_axis(o, axis="x", pivot="center", amount=1, delete=True)  # trims a half
+    check("plain cut leaves origin untouched (x~0)", abs(o.matrix_world.translation.x) < 1e-4,
+          f"origin x {o.matrix_world.translation.x:.3f}")
 
 except Exception:
     traceback.print_exc()

@@ -14,6 +14,7 @@ instead of Maya's ``cmds.listRelatives(allDescendents=True)``. Blender paths nee
 cleaning (see ``_hierarchy_sync.build_path``), so :meth:`build_clean_path_set` is a plain
 dedup rather than a namespace-stripping pass.
 """
+
 import hashlib
 import json
 import os
@@ -92,7 +93,9 @@ class HierarchySidecar:
         base = cls.base_stem(export_path)
         if not directory or not os.path.isdir(directory):
             return None
-        legacy_re = re.compile(rf"^\.{re.escape(base)}_v(\d+)\.hierarchy\.json$", re.IGNORECASE)
+        legacy_re = re.compile(
+            rf"^\.{re.escape(base)}_v(\d+)\.hierarchy\.json$", re.IGNORECASE
+        )
         matches = []
         for f in os.listdir(directory):
             m = legacy_re.match(f)
@@ -185,13 +188,13 @@ class HierarchySidecar:
         path strings; here *objects* are live ``bpy.types.Object`` references and descendants
         come from Blender's own ``children_recursive``.
         """
-        from blendertk.env_utils.hierarchy_sync._hierarchy_sync import build_path
+        from blendertk.env_utils.hierarchy_sync._hierarchy_sync import HierarchySync
 
         all_paths = []
         for obj in objects:
-            all_paths.append(build_path(obj))
+            all_paths.append(HierarchySync.build_path(obj))
             for descendant in obj.children_recursive:
-                all_paths.append(build_path(descendant))
+                all_paths.append(HierarchySync.build_path(descendant))
         return all_paths
 
     @staticmethod
@@ -246,7 +249,9 @@ class HierarchySidecar:
         return hashlib.sha256(payload).hexdigest()
 
     @classmethod
-    def write_manifest(cls, export_path: str, paths, *, base_stem: bool = False) -> Optional[str]:
+    def write_manifest(
+        cls, export_path: str, paths, *, base_stem: bool = False
+    ) -> Optional[str]:
         """Write *paths* to the sidecar manifest for *export_path*.
 
         Before overwriting, the existing manifest (if any) is preserved as a ``.prev`` file so
@@ -265,7 +270,11 @@ class HierarchySidecar:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(
-                    {"paths": sorted_paths, "object_count": len(sorted_paths), "hash": path_hash},
+                    {
+                        "paths": sorted_paths,
+                        "object_count": len(sorted_paths),
+                        "hash": path_hash,
+                    },
                     f,
                     indent=2,
                 )
@@ -305,7 +314,9 @@ class HierarchySidecar:
         return None
 
     @classmethod
-    def read_manifest(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]:
+    def read_manifest(
+        cls, export_path: str, *, base_stem: bool = False
+    ) -> Optional[Set[str]]:
         """Read the manifest for *export_path*.
 
         Falls back to the ``.prev`` backup when the manifest itself is missing or unreadable.
@@ -314,7 +325,9 @@ class HierarchySidecar:
             A set of hierarchy path strings, or ``None`` if neither the manifest nor its backup
             can be read.
         """
-        data = cls._load_manifest(cls.manifest_path_for(export_path, base_stem=base_stem))
+        data = cls._load_manifest(
+            cls.manifest_path_for(export_path, base_stem=base_stem)
+        )
         return None if data is None else set(data.get("paths", []))
 
     # ------------------------------------------------------------------

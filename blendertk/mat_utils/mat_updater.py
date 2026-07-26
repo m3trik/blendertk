@@ -25,6 +25,7 @@ relative Output Folder.
 Served by ``BlenderUiHandler`` (``marking_menu.show("mat_updater")``); the Qt-only imports (``fmt``,
 ``QtCore``) are deferred into the call bodies — headless Blender ships no Qt binding.
 """
+
 import pythontk as ptk
 from uitk.switchboard import Cancelable
 
@@ -35,7 +36,9 @@ from blendertk.mat_utils._mat_utils import MatUpdater
 class MatUpdaterSlots(MatUpdater):
     """Switchboard slot wiring for the Material Updater panel."""
 
-    msg_intro = "Batch-reprocess material textures (convert / resize / pack) and repath them."
+    msg_intro = (
+        "Batch-reprocess material textures (convert / resize / pack) and repath them."
+    )
     msg_completed = '<br><hl style="color:rgb(0, 255, 255);"><b>COMPLETED.</b></hl>'
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -72,7 +75,7 @@ class MatUpdaterSlots(MatUpdater):
     def header_init(self, widget):
         """Format global options in the header menu (mirror of the Maya panel's, minus the
         Maya-only File Management transfer mode — see the TODO at its wiring point)."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Selection Mode
         widget.menu.add(
@@ -212,7 +215,7 @@ class MatUpdaterSlots(MatUpdater):
             setToolTip="Optional: Folder (under Output Folder) to move original files into.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Material Updater",
                 body="Batch-process scene materials and their textures — "
                 "format conversion, max-size enforcement, mask scaling, and "
@@ -226,34 +229,43 @@ class MatUpdaterSlots(MatUpdater):
                     "Press <b>Update</b> to run.",
                 ],
                 sections=[
-                    ("Processing options", [
-                        "<b>Max Size</b> — clamp texture resolution.",
-                        "<b>Mask Map Scale</b> — independent resolution for "
-                        "mask outputs.",
-                        "<b>Force Packed Maps</b> — emit ORM / MSAO regardless "
-                        "of whether the source channels exist (uses input fallbacks). Written "
-                        "to disk for engine export; never wired into the Principled BSDF.",
-                        "<b>Use Input Fallbacks</b> — generate missing inputs "
-                        "from related ones (e.g. Base Color from Diffuse).",
-                        "<b>Use Output Fallbacks</b> — substitute missing "
-                        "outputs (e.g. AO alone for Mask Map). Disabled when "
-                        "Force Packed Maps is on.",
-                        "<b>Discover Maps in sourceimages</b> — gap-fill each "
-                        "material with same-base-name textures sitting in "
-                        "the .blend's own folder that were never connected. Only missing "
-                        "map types are added; connected textures are kept.",
-                        "<b>Dry Run</b> — preview the plan without writing files.",
-                    ]),
-                    ("File management", [
-                        "<b>Transfer Mode</b> — not used by the Blender engine "
-                        "(disabled); processed textures always land directly in Output Folder.",
-                        "<b>Output Folder</b> — destination for processed textures.",
-                        "<b>Archive To</b> — optional folder to move original "
-                        "files into for safekeeping.",
-                    ]),
-                    ("Notes", [
-                        "Needs Pillow — installed into Blender's Python on first run.",
-                    ]),
+                    (
+                        "Processing options",
+                        [
+                            "<b>Max Size</b> — clamp texture resolution.",
+                            "<b>Mask Map Scale</b> — independent resolution for "
+                            "mask outputs.",
+                            "<b>Force Packed Maps</b> — emit ORM / MSAO regardless "
+                            "of whether the source channels exist (uses input fallbacks). Written "
+                            "to disk for engine export; never wired into the Principled BSDF.",
+                            "<b>Use Input Fallbacks</b> — generate missing inputs "
+                            "from related ones (e.g. Base Color from Diffuse).",
+                            "<b>Use Output Fallbacks</b> — substitute missing "
+                            "outputs (e.g. AO alone for Mask Map). Disabled when "
+                            "Force Packed Maps is on.",
+                            "<b>Discover Maps in sourceimages</b> — gap-fill each "
+                            "material with same-base-name textures sitting in "
+                            "the .blend's own folder that were never connected. Only missing "
+                            "map types are added; connected textures are kept.",
+                            "<b>Dry Run</b> — preview the plan without writing files.",
+                        ],
+                    ),
+                    (
+                        "File management",
+                        [
+                            "<b>Transfer Mode</b> — not used by the Blender engine "
+                            "(disabled); processed textures always land directly in Output Folder.",
+                            "<b>Output Folder</b> — destination for processed textures.",
+                            "<b>Archive To</b> — optional folder to move original "
+                            "files into for safekeeping.",
+                        ],
+                    ),
+                    (
+                        "Notes",
+                        [
+                            "Needs Pillow — installed into Blender's Python on first run.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -325,9 +337,7 @@ class MatUpdaterSlots(MatUpdater):
                 return
             materials = btk.get_mats(selection)
             if not materials:
-                self.ui.txt001.append(
-                    "No materials found on the selected objects."
-                )
+                self.ui.txt001.append("No materials found on the selected objects.")
                 return
         elif mode == "Browse...":
             try:
@@ -344,9 +354,7 @@ class MatUpdaterSlots(MatUpdater):
                 return
             materials = btk.materials_for_textures(paths)
             if not materials:
-                self.ui.txt001.append(
-                    "No materials reference the selected textures."
-                )
+                self.ui.txt001.append("No materials reference the selected textures.")
                 return
 
         self.ui.txt001.clear()

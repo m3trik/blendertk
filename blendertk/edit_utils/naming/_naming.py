@@ -13,6 +13,7 @@ CAMERA→_CAM, LIGHT→_LGT, ARMATURE→_JNT, EMPTY→_GRP when it has children 
 layers (_LYR) have no object-type analogue (collections), so that suffix is unused. ``import bpy`` is
 deferred into the call bodies.
 """
+
 import re
 import string
 
@@ -23,8 +24,16 @@ class Naming(ptk.HelpMixin):
     """Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``)."""
 
     @classmethod
-    def rename(cls, objects, to, fltr="", regex=False, ignore_case=False,
-               retain_suffix=False, valid_suffixes=None):
+    def rename(
+        cls,
+        objects,
+        to,
+        fltr="",
+        regex=False,
+        ignore_case=False,
+        retain_suffix=False,
+        valid_suffixes=None,
+    ):
         """Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
 
         ``to`` formatting tokens (via :func:`pythontk.find_str_and_format`): ``chars`` replace all,
@@ -34,13 +43,19 @@ class Naming(ptk.HelpMixin):
         ``valid_suffixes``). Returns the new names parallel to ``objects``.
         """
         objects = [o for o in ptk.make_iterable(objects) if o]
-        name_to_obj = {o.name: o for o in objects}  # Blender object names are globally unique
+        name_to_obj = {
+            o.name: o for o in objects
+        }  # Blender object names are globally unique
 
         # An empty filter means "match all" → "*" (one batch call covers both cases).
         try:
             pairs = ptk.find_str_and_format(
-                list(name_to_obj), to, fltr or "*",
-                regex=regex, ignore_case=ignore_case, return_orig_strings=True,
+                list(name_to_obj),
+                to,
+                fltr or "*",
+                regex=regex,
+                ignore_case=ignore_case,
+                return_orig_strings=True,
             )
         except Exception:  # malformed pattern/filter — leave names unchanged
             return [o.name for o in objects]
@@ -63,14 +78,16 @@ class Naming(ptk.HelpMixin):
         ``valid_suffixes`` when provided. Mirror of mayatk's inline retain-suffix block."""
         if "_" not in old_name:
             return new_name
-        old_suffix_base = old_name[old_name.rfind("_"):].rstrip("0123456789")
-        if old_suffix_base == "_":  # trailing token was purely digits, not a type suffix
+        old_suffix_base = old_name[old_name.rfind("_") :].rstrip("0123456789")
+        if (
+            old_suffix_base == "_"
+        ):  # trailing token was purely digits, not a type suffix
             return new_name
         if valid_suffixes is not None and old_suffix_base not in valid_suffixes:
             old_suffix_base = ""
         if old_suffix_base and not new_name.endswith(old_suffix_base):
             if "_" in new_name:
-                new_suffix_base = new_name[new_name.rfind("_"):].rstrip("0123456789")
+                new_suffix_base = new_name[new_name.rfind("_") :].rstrip("0123456789")
                 if valid_suffixes is None or new_suffix_base in valid_suffixes:
                     new_name = new_name[: new_name.rfind("_")]
             new_name += old_suffix_base
@@ -86,7 +103,9 @@ class Naming(ptk.HelpMixin):
             return base_name
         counter = 1
         while True:
-            candidate = cls.strip_illegal_chars(f"{base_name}{suffix}{str(counter).zfill(padding)}")
+            candidate = cls.strip_illegal_chars(
+                f"{base_name}{suffix}{str(counter).zfill(padding)}"
+            )
             if candidate not in bpy.data.objects:
                 return candidate
             counter += 1
@@ -129,20 +148,41 @@ class Naming(ptk.HelpMixin):
         return results
 
     @classmethod
-    def suffix_by_type(cls, objects, group_suffix="_GRP", locator_suffix="_LOC",
-                       joint_suffix="_JNT", mesh_suffix="_GEO", nurbs_curve_suffix="_CRV",
-                       camera_suffix="_CAM", light_suffix="_LGT", custom_suffixes=None,
-                       strip_trailing_ints=False, strip_trailing_underscores=False,
-                       strip_trailing_padding=True):
+    def suffix_by_type(
+        cls,
+        objects,
+        group_suffix="_GRP",
+        locator_suffix="_LOC",
+        joint_suffix="_JNT",
+        mesh_suffix="_GEO",
+        nurbs_curve_suffix="_CRV",
+        camera_suffix="_CAM",
+        light_suffix="_LGT",
+        custom_suffixes=None,
+        strip_trailing_ints=False,
+        strip_trailing_underscores=False,
+        strip_trailing_padding=True,
+    ):
         """Append a conventional type suffix (stripping any existing known suffix) — mirror of
         mayatk's ``suffix_by_type``. Blender type map: MESH→mesh, CURVE/SURFACE→nurbs_curve,
         CAMERA→camera, LIGHT→light, ARMATURE→joint, EMPTY→group (has children) / locator."""
         smap = {
-            "MESH": mesh_suffix, "CURVE": nurbs_curve_suffix, "SURFACE": nurbs_curve_suffix,
-            "CAMERA": camera_suffix, "LIGHT": light_suffix, "ARMATURE": joint_suffix,
+            "MESH": mesh_suffix,
+            "CURVE": nurbs_curve_suffix,
+            "SURFACE": nurbs_curve_suffix,
+            "CAMERA": camera_suffix,
+            "LIGHT": light_suffix,
+            "ARMATURE": joint_suffix,
         }
-        all_suffixes = {group_suffix, locator_suffix, joint_suffix, mesh_suffix,
-                        nurbs_curve_suffix, camera_suffix, light_suffix}
+        all_suffixes = {
+            group_suffix,
+            locator_suffix,
+            joint_suffix,
+            mesh_suffix,
+            nurbs_curve_suffix,
+            camera_suffix,
+            light_suffix,
+        }
         if custom_suffixes:
             smap.update(custom_suffixes)
             all_suffixes.update(custom_suffixes.values())
@@ -159,13 +199,19 @@ class Naming(ptk.HelpMixin):
                     base = base[: -len(wrong)]
                     break
             if strip_trailing_ints:
-                base = ptk.format_suffix(base, suffix="", strip_trailing_ints=True,
-                                         strip_trailing_alpha=False)
+                base = ptk.format_suffix(
+                    base,
+                    suffix="",
+                    strip_trailing_ints=True,
+                    strip_trailing_alpha=False,
+                )
             if strip_trailing_underscores:
                 base = re.sub(r"_+$", "", base)
             if strip_trailing_padding:
                 cleaned = re.sub(r"_+$", "", base)
-                if cleaned != base:  # underscores were at the end → also drop exposed trailing digits
+                if (
+                    cleaned != base
+                ):  # underscores were at the end → also drop exposed trailing digits
                     cleaned = re.sub(r"_+$", "", re.sub(r"\d+$", "", cleaned))
                 base = cleaned
             new_name = base + target if (target and not base.endswith(target)) else base
@@ -174,15 +220,23 @@ class Naming(ptk.HelpMixin):
         return results
 
     @classmethod
-    def append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False,
-                                     strip_trailing_ints=True, strip_defined_suffixes=True,
-                                     valid_suffixes=None, reverse=False, independent_groups=False):
+    def append_location_based_suffix(
+        cls,
+        objects,
+        first_obj_as_ref=False,
+        alphabetical=False,
+        strip_trailing_ints=True,
+        strip_defined_suffixes=True,
+        valid_suffixes=None,
+        reverse=False,
+        independent_groups=False,
+    ):
         """Suffix objects by their distance from a reference point (origin, or the first object's
         bbox center when ``first_obj_as_ref``) — ``_A``/``_B`` (``alphabetical``, ≤26) or ``_01``/
         ``_02``. Mirror of mayatk's ``append_location_based_suffix`` (uses ``order_by_distance``)."""
         import bpy
 
-        from blendertk.xform_utils._xform_utils import order_by_distance, get_world_bbox
+        from blendertk.xform_utils._xform_utils import XformUtils
 
         objects = [o for o in ptk.make_iterable(objects) if o]
         if not objects:
@@ -194,7 +248,7 @@ class Naming(ptk.HelpMixin):
 
         reference_point = (0.0, 0.0, 0.0)
         if first_obj_as_ref:
-            mn, mx = get_world_bbox(objects[0])
+            mn, mx = XformUtils.get_world_bbox(objects[0])
             reference_point = tuple((mn[i] + mx[i]) / 2.0 for i in range(3))
 
         strip_for_grouping = strip_defined_suffixes and not independent_groups
@@ -227,7 +281,9 @@ class Naming(ptk.HelpMixin):
             for o in objects:
                 groups.setdefault(base_of(o.name), []).append(o)
             for base, members in groups.items():
-                ordered = order_by_distance(members, reference_point=reference_point, reverse=reverse)
+                ordered = XformUtils.order_by_distance(
+                    members, reference_point=reference_point, reverse=reverse
+                )
                 root, type_suffix = base, ""
                 for s in sorted_suffixes:
                     if base.endswith(s):
@@ -238,7 +294,9 @@ class Naming(ptk.HelpMixin):
                 for i, (o, sfx) in enumerate(zip(ordered, suffixes_for(len(ordered)))):
                     new_names[o] = f"{root}_{sfx}{type_suffix}"
         else:
-            ordered = order_by_distance(objects, reference_point=reference_point, reverse=reverse)
+            ordered = XformUtils.order_by_distance(
+                objects, reference_point=reference_point, reverse=reverse
+            )
             for o, sfx in zip(ordered, suffixes_for(len(ordered))):
                 new_names[o] = f"{base_of(o.name)}_{sfx}"
 

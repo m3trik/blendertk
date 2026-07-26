@@ -63,6 +63,7 @@ GameObject name and finishes the Unity setup automatically (mirror of the lightm
 ``import bpy`` / ``numpy`` are deferred into the call bodies and the Qt-only ``uitk`` helper into its
 method, so the module resolves headless and loads under the workspace ``.venv``.
 """
+
 import os
 
 import pythontk as ptk
@@ -111,14 +112,20 @@ class ShadowRig(ptk.LoggingMixin):
     def create_contact_locator(self):
         """Empty at the footprint's lowest point (min-Z), parented to the first target so it tracks."""
         lo, hi = self._world_bounds()
-        loc = ((lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, lo[2])  # center XY, min Z (ground-up)
+        loc = (
+            (lo[0] + hi[0]) * 0.5,
+            (lo[1] + hi[1]) * 0.5,
+            lo[2],
+        )  # center XY, min Z (ground-up)
         self.contact = RigUtils.create_locator(
             f"{self._base}_contact", location=loc, display_type="PLAIN_AXES", size=0.2
         )
         RigUtils.parent_keep_transform(self.contact, self.targets[0])
         return self.contact
 
-    def get_or_create_shadow_source(self, position=(5.0, 5.0, 10.0), source_name="shadow_source"):
+    def get_or_create_shadow_source(
+        self, position=(5.0, 5.0, 10.0), source_name="shadow_source"
+    ):
         """Reuse an existing source Empty by name, else create one (Z-up default: high on +Z)."""
         import bpy
 
@@ -146,7 +153,9 @@ class ShadowRig(ptk.LoggingMixin):
 
         # Orbit rotates/scales about the heel (anchor) edge; stretch about the center (Maya parity).
         origin = "edge" if self.mode == "orbit" else "center"
-        self.shadow_plane = self._build_plane(f"{self._base}_shadow", self.plane_size, origin)
+        self.shadow_plane = self._build_plane(
+            f"{self._base}_shadow", self.plane_size, origin
+        )
         self.shadow_plane.location = (cx, cy, self.ground_height + self.GROUND_OFFSET)
 
         RigUtils.ensure_custom_prop(self.shadow_plane, "shadowIntensity", 1.0, 0.0, 1.0)
@@ -158,8 +167,12 @@ class ShadowRig(ptk.LoggingMixin):
             self.shadow_plane, "fadeHeight", max(2.0 * self.object_height, 0.001), 0.0
         )
         # Measured constants are read live by the drivers; always (re)stamp to this build's values.
-        RigUtils.ensure_custom_prop(self.shadow_plane, "basePlaneSize", self.plane_size, 0.0)
-        RigUtils.ensure_custom_prop(self.shadow_plane, "objectHeight", self.object_height, 0.0)
+        RigUtils.ensure_custom_prop(
+            self.shadow_plane, "basePlaneSize", self.plane_size, 0.0
+        )
+        RigUtils.ensure_custom_prop(
+            self.shadow_plane, "objectHeight", self.object_height, 0.0
+        )
         self.shadow_plane["basePlaneSize"] = self.plane_size
         self.shadow_plane["objectHeight"] = self.object_height
         return self.shadow_plane
@@ -186,7 +199,9 @@ class ShadowRig(ptk.LoggingMixin):
         return obj
 
     # ------------------------------------------------------------------ silhouette
-    def create_silhouette_texture(self, size=512, axis="auto", recursive=True, **kwargs):
+    def create_silhouette_texture(
+        self, size=512, axis="auto", recursive=True, **kwargs
+    ):
         """Rasterize the targets' world silhouette to an RGBA PNG via
         ``pythontk.ImgUtils.rasterize_silhouette`` and load it as a reusable image datablock.
 
@@ -225,7 +240,9 @@ class ShadowRig(ptk.LoggingMixin):
             # semantics (and 'auto' = perpendicular-to-widest-horizontal) match Maya's exactly.
             swapped = [(p[:, [0, 2, 1]], t) for p, t in meshes]
             raster_axis = self._RASTER_AXIS.get(axis, "auto")
-        arr = ptk.ImgUtils.rasterize_silhouette(swapped, size=size, axis=raster_axis, **kwargs)
+        arr = ptk.ImgUtils.rasterize_silhouette(
+            swapped, size=size, axis=raster_axis, **kwargs
+        )
 
         self.texture_path = os.path.join(self._output_dir(), f"{self._base}_shadow.png")
         img_name = f"{self._base}_shadow"
@@ -241,8 +258,12 @@ class ShadowRig(ptk.LoggingMixin):
         img.file_format = "PNG"
         try:
             img.save()
-        except RuntimeError as e:  # read-only dir / locked file — keep the in-memory datablock
-            self.logger.warning(f"Could not save silhouette PNG ({e}); using in-memory texture.")
+        except (
+            RuntimeError
+        ) as e:  # read-only dir / locked file — keep the in-memory datablock
+            self.logger.warning(
+                f"Could not save silhouette PNG ({e}); using in-memory texture."
+            )
         self.image = img
         return self.texture_path
 
@@ -326,7 +347,9 @@ class ShadowRig(ptk.LoggingMixin):
             objs.extend(o.children_recursive)
         pts = []
         for o in objs:
-            if o is None or o.type == "EMPTY":  # an empty's bound_box is a unit cube → skip
+            if (
+                o is None or o.type == "EMPTY"
+            ):  # an empty's bound_box is a unit cube → skip
                 continue
             for corner in o.bound_box:
                 pts.append(o.matrix_world @ Vector(corner))
@@ -412,8 +435,16 @@ class ShadowRig(ptk.LoggingMixin):
         k = f"min(max((Lz-{G})/max(Lz-Cz,0.1),0),10)"
         return G, relH, base, k
 
-    def _plane_props(self, *, influence=False, size=False, height=False, limit=False,
-                     opacity=False, fade=False):
+    def _plane_props(
+        self,
+        *,
+        influence=False,
+        size=False,
+        height=False,
+        limit=False,
+        opacity=False,
+        fade=False,
+    ):
         """Convenience: the SINGLE_PROP var specs this driver needs off the shadow plane."""
         specs = []
         if influence:
@@ -451,8 +482,18 @@ class ShadowRig(ptk.LoggingMixin):
         # rather than read off the plane's driven scale channel — a transform channel reading its
         # own object's transform is a depsgraph cycle); Z static on the ground.
         props = self._plane_props(influence=True, size=True, height=True, limit=True)
-        x_locs = [("Cx", C, "LOC_X"), ("Lx", L, "LOC_X"), ("Lz", L, "LOC_Z"), ("Cz", C, "LOC_Z")]
-        y_locs = [("Cy", C, "LOC_Y"), ("Ly", L, "LOC_Y"), ("Lz", L, "LOC_Z"), ("Cz", C, "LOC_Z")]
+        x_locs = [
+            ("Cx", C, "LOC_X"),
+            ("Lx", L, "LOC_X"),
+            ("Lz", L, "LOC_Z"),
+            ("Cz", C, "LOC_Z"),
+        ]
+        y_locs = [
+            ("Cy", C, "LOC_Y"),
+            ("Ly", L, "LOC_Y"),
+            ("Lz", L, "LOC_Z"),
+            ("Cz", C, "LOC_Z"),
+        ]
         self._driver(p, "location", 0, f"(Lx+(Cx-Lx)*{k})+{px}*(1-{sx})", x_locs, props)
         self._driver(p, "location", 1, f"(Ly+(Cy-Ly)*{k})+{py}*(1-{sy})", y_locs, props)
         self._driver(p, "scale", 0, sx, x_locs, props)
@@ -481,20 +522,55 @@ class ShadowRig(ptk.LoggingMixin):
         dist = "sqrt((Cx-Lx)*(Cx-Lx)+(Cy-Ly)*(Cy-Ly))"
         sy = f"((1+min(max((objH*(({dist})/{relH}))/size,0),lim))*{base})"
 
-        common = [("Cx", C, "LOC_X"), ("Lx", L, "LOC_X"), ("Cy", C, "LOC_Y"),
-                  ("Ly", L, "LOC_Y"), ("Lz", L, "LOC_Z"), ("Cz", C, "LOC_Z")]
+        common = [
+            ("Cx", C, "LOC_X"),
+            ("Lx", L, "LOC_X"),
+            ("Cy", C, "LOC_Y"),
+            ("Ly", L, "LOC_Y"),
+            ("Lz", L, "LOC_Z"),
+            ("Cz", C, "LOC_Z"),
+        ]
         # Heel sits half a plane behind the projected anchor, toward the light (Maya parity).
-        self._driver(p, "location", 0, f"(Lx+(Cx-Lx)*{k})-(size*0.5)*(Cx-Lx)/(({dist})+1e-6)",
-                     common, self._plane_props(size=True))
-        self._driver(p, "location", 1, f"(Ly+(Cy-Ly)*{k})-(size*0.5)*(Cy-Ly)/(({dist})+1e-6)",
-                     common, self._plane_props(size=True))
-        self._driver(p, "scale", 1, sy, common,
-                     self._plane_props(influence=True, size=True, height=True, limit=True))
+        self._driver(
+            p,
+            "location",
+            0,
+            f"(Lx+(Cx-Lx)*{k})-(size*0.5)*(Cx-Lx)/(({dist})+1e-6)",
+            common,
+            self._plane_props(size=True),
+        )
+        self._driver(
+            p,
+            "location",
+            1,
+            f"(Ly+(Cy-Ly)*{k})-(size*0.5)*(Cy-Ly)/(({dist})+1e-6)",
+            common,
+            self._plane_props(size=True),
+        )
+        self._driver(
+            p,
+            "scale",
+            1,
+            sy,
+            common,
+            self._plane_props(influence=True, size=True, height=True, limit=True),
+        )
         # rotation about Z (radians — Blender, unlike Maya's degrees): face the head (local +Y)
         # away from the light. R_z(t) sends +Y to (-sin t, cos t) → t = atan2(Lx-Cx, Cy-Ly).
         # (atan2(Cx-Lx, Cy-Ly) — the naive Maya transliteration — mirrors the bearing across Y.)
-        self._driver(p, "rotation_euler", 2, "atan2(Lx-Cx,Cy-Ly)",
-                     [("Cx", C, "LOC_X"), ("Lx", L, "LOC_X"), ("Cy", C, "LOC_Y"), ("Ly", L, "LOC_Y")], [])
+        self._driver(
+            p,
+            "rotation_euler",
+            2,
+            "atan2(Lx-Cx,Cy-Ly)",
+            [
+                ("Cx", C, "LOC_X"),
+                ("Lx", L, "LOC_X"),
+                ("Cy", C, "LOC_Y"),
+                ("Ly", L, "LOC_Y"),
+            ],
+            [],
+        )
         self._set_static(scale_x=1.0)
         self._opacity_driver(
             f"min(max((intensity/max(0.001,pow(sclY,power)))"
@@ -518,7 +594,9 @@ class ShadowRig(ptk.LoggingMixin):
         ``prop_vars``: ``[(name, id_obj, data_path)]``. Returns the fcurve."""
         RigUtils.remove_driver(obj, data_path, index)
         name0, tgt0, tt0 = loc_vars[0]
-        fc = RigUtils.add_transform_driver(obj, data_path, index, tgt0, tt0, var_name=name0)
+        fc = RigUtils.add_transform_driver(
+            obj, data_path, index, tgt0, tt0, var_name=name0
+        )
         for name, tgt, tt in loc_vars[1:]:
             RigUtils.add_transform_var(fc, name, tgt, tt)
         for name, idobj, dpath in prop_vars:
@@ -600,9 +678,7 @@ class ShadowRig(ptk.LoggingMixin):
     # ------------------------------------------------------------------ delete
     def delete(self, delete_textures=False):
         """Delete this rig completely. See :meth:`delete_rigs`."""
-        return self.delete_rigs(
-            [self.shadow_plane], delete_textures=delete_textures
-        )
+        return self.delete_rigs([self.shadow_plane], delete_textures=delete_textures)
 
     @classmethod
     def delete_rigs(cls, planes=None, delete_textures=False):
@@ -661,9 +737,7 @@ class ShadowRig(ptk.LoggingMixin):
             except (ReferenceError, RuntimeError):
                 pass  # already gone (dead pointer)
             for mat in mats:
-                node = (
-                    mat.node_tree.nodes.get("shadow_tex") if mat.node_tree else None
-                )
+                node = mat.node_tree.nodes.get("shadow_tex") if mat.node_tree else None
                 img = getattr(node, "image", None) if node is not None else None
                 if mat.users == 0:
                     bpy.data.materials.remove(mat)
@@ -694,7 +768,9 @@ class ShadowRig(ptk.LoggingMixin):
         for f in range(start, end + 1):
             scene.frame_set(f)
             ev = plane.evaluated_get(bpy.context.evaluated_depsgraph_get())
-            samples.append((f, tuple(ev.location), tuple(ev.rotation_euler), tuple(ev.scale)))
+            samples.append(
+                (f, tuple(ev.location), tuple(ev.rotation_euler), tuple(ev.scale))
+            )
         scene.frame_set(cur)
 
         for path in ("location", "rotation_euler", "scale"):
@@ -773,8 +849,15 @@ class ShadowRig(ptk.LoggingMixin):
     # ------------------------------------------------------------------ orchestration
     @classmethod
     def create(
-        cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis="auto",
-        source_name="shadow_source", recursive=True, mode="stretch", ground_height=0.0,
+        cls,
+        targets,
+        light_pos=(5.0, 5.0, 10.0),
+        texture_res=512,
+        axis="auto",
+        source_name="shadow_source",
+        recursive=True,
+        mode="stretch",
+        ground_height=0.0,
     ):
         """Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``)."""
         rig = cls(targets=targets, ground_height=ground_height, mode=mode)
@@ -790,7 +873,9 @@ class ShadowRig(ptk.LoggingMixin):
         rig.create_material()
         rig.setup_drivers()
 
-        grp = RigUtils.create_group(f"{rig._base}_shadow_grp", children=[rig.shadow_plane])
+        grp = RigUtils.create_group(
+            f"{rig._base}_shadow_grp", children=[rig.shadow_plane]
+        )
         rig.group = grp
         # Publish the engine hand-off record onto the data_export carrier
         # (blendertk producers publish at authoring time — no pre-export hook).
@@ -839,10 +924,10 @@ class ShadowRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Shadow Rig",
                 body="Create a projected-shadow plane rig that exports cleanly for game engines "
                 "(Unity, etc.). The plane carries a baked silhouette PNG (rendered as seen from "
@@ -862,21 +947,27 @@ class ShadowRigSlots(ptk.LoggingMixin):
                     "<i>shadow_metadata</i> rides the data_export carrier automatically.",
                 ],
                 sections=[
-                    ("Modes", [
-                        "<b>Stretch</b> — Plane stays axis-aligned; scales + compensatory "
-                        "translation warp the shadow. Bake-friendly (default), but the "
-                        "silhouette mirrors if the light crosses to the target's opposite side.",
-                        "<b>Orbit</b> — Plane rotates about Z to face away from the light. "
-                        "Correct for animated/orbiting lights.",
-                    ]),
-                    ("Plane properties", [
-                        "<b>shadowIntensity</b> / <b>falloffPower</b> — overall strength and "
-                        "distance falloff.",
-                        "<b>maxStretch</b> — clamp on shadow elongation.",
-                        "<b>fadeHeight</b> — rise off the ground at which the shadow has fully "
-                        "faded.",
-                        "<b>scaleInfluence</b> — art-directed extra grow.",
-                    ]),
+                    (
+                        "Modes",
+                        [
+                            "<b>Stretch</b> — Plane stays axis-aligned; scales + compensatory "
+                            "translation warp the shadow. Bake-friendly (default), but the "
+                            "silhouette mirrors if the light crosses to the target's opposite side.",
+                            "<b>Orbit</b> — Plane rotates about Z to face away from the light. "
+                            "Correct for animated/orbiting lights.",
+                        ],
+                    ),
+                    (
+                        "Plane properties",
+                        [
+                            "<b>shadowIntensity</b> / <b>falloffPower</b> — overall strength and "
+                            "distance falloff.",
+                            "<b>maxStretch</b> — clamp on shadow elongation.",
+                            "<b>fadeHeight</b> — rise off the ground at which the shadow has fully "
+                            "faded.",
+                            "<b>scaleInfluence</b> — art-directed extra grow.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Blender is Z-up: the plane lies on the XY ground. The Axis combo's labels "
@@ -900,12 +991,12 @@ class ShadowRigSlots(ptk.LoggingMixin):
 
     def _init_tooltips(self):
         """Set the polished (uitk ``fmt``) tooltips for every option and action."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         ui = self.ui
 
         ui.cmb_mode.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Rig Mode",
                 body="How the shadow plane reacts to the light's position.",
                 sections=[
@@ -931,23 +1022,20 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
         ui.chk_combine.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Include Children",
                 body="Include the selected objects' descendant meshes in the "
                 "baked silhouette.",
                 notes=[
-                    "The selection always shares a single combined shadow "
-                    "plane.",
-                    "Off — only the selected meshes themselves are "
-                    "rasterized.",
+                    "The selection always shares a single combined shadow plane.",
+                    "Off — only the selected meshes themselves are rasterized.",
                 ],
             )
         )
         ui.txt_source.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Source Name",
-                body="Name for the shadow-source empty that anchors the "
-                "projection.",
+                body="Name for the shadow-source empty that anchors the projection.",
                 notes=[
                     "Reuse a name to share one source; use distinct names for "
                     "separate shadow sources.",
@@ -955,7 +1043,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
         ui.s000.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Texture Resolution",
                 body="Pixel resolution of the baked silhouette PNG carried by "
                 "the shadow plane.",
@@ -965,7 +1053,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
         ui.cmb000.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Projection Axis",
                 body="Viewing axis the silhouette is rendered along.",
                 rows=[
@@ -979,22 +1067,20 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
         ui.chk_preview.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Preview",
                 body="Builds the shadow rig live so you can judge it before "
                 "committing.",
                 notes=[
                     "Tweaking any option refreshes the preview.",
-                    "<b>Create Shadow</b> commits it; disabling Preview "
-                    "discards it.",
+                    "<b>Create Shadow</b> commits it; disabling Preview discards it.",
                 ],
             )
         )
         ui.b000.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Create Shadow",
-                body="Commits the previewed shadow rig for the selected "
-                "target(s).",
+                body="Commits the previewed shadow rig for the selected target(s).",
                 steps=[
                     "Select one or more target objects.",
                     "Enable <b>Preview</b> and dial in the options.",
@@ -1007,13 +1093,13 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
         ui.b001.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Reset to Defaults",
                 body="Restores every option on this panel to its default value.",
             )
         )
         ui.b002.setToolTip(
-            fmt(
+            TooltipFormat.fmt(
                 title="Bake to Keyframes",
                 body="Bakes the shadow plane's driven motion to keyframes over "
                 "the scene frame range and removes the live rig — leaving an "
@@ -1071,8 +1157,12 @@ class ShadowRigSlots(ptk.LoggingMixin):
         mode = self._MODE_MAP.get(self.ui.cmb_mode.currentIndex(), "stretch")
 
         ShadowRig.create(
-            targets, texture_res=resolution, axis=axis, source_name=source_name,
-            recursive=recursive, mode=mode,
+            targets,
+            texture_res=resolution,
+            axis=axis,
+            source_name=source_name,
+            recursive=recursive,
+            mode=mode,
         )
 
 

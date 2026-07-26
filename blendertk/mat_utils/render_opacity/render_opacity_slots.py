@@ -9,11 +9,12 @@ same widget tree, same method names/signal-connection order); delegates all logi
 ``__init__`` is Qt-only (no ``bpy``) so the panel loads under the workspace ``.venv`` — the
 selection-changed subscription is wrapped in a try/except that no-ops without a running Blender.
 """
+
 import logging
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import active_object, selected_objects, undoable
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
 
 
@@ -66,7 +67,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add("Separator", setTitle="Options")
         widget.menu.add(
@@ -74,7 +75,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             setText="Last Selected Only",
             setObjectName="chk_last_selected",
             setChecked=False,
-            setToolTip=fmt(
+            setToolTip=TooltipFormat.fmt(
                 body="Applies to Create, Key, and Remove operations.",
                 bullets=[
                     "<b>On:</b> Only the active object is processed.",
@@ -87,7 +88,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             setText="Delete Visibility Keys",
             setObjectName="chk_delete_vis_keys",
             setChecked=False,
-            setToolTip=fmt(
+            setToolTip=TooltipFormat.fmt(
                 bullets=[
                     "<b>On:</b> Existing visibility keyframes are deleted before applying opacity.",
                     "<b>Off:</b> Objects with visibility keys are skipped with a warning.",
@@ -95,7 +96,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             ),
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Render Opacity",
                 body="Add a keyable <b>opacity</b> custom property (0-1) to objects for "
                 "engine-ready transparency control. The <b>Mode</b> combo is kept for parity "
@@ -111,13 +112,16 @@ class RenderOpacitySlots(ptk.LoggingMixin):
                     "(Fade In / Fade Out / Auto).",
                 ],
                 sections=[
-                    ("Header menu", [
-                        "<b>Last Selected Only</b> — only the active object participates in "
-                        "Create / Key / Remove.",
-                        "<b>Delete Visibility Keys</b> — when on, existing visibility keys are "
-                        "removed before Create; when off, objects with vis keys are skipped "
-                        "with a warning.",
-                    ]),
+                    (
+                        "Header menu",
+                        [
+                            "<b>Last Selected Only</b> — only the active object participates in "
+                            "Create / Key / Remove.",
+                            "<b>Delete Visibility Keys</b> — when on, existing visibility keys are "
+                            "removed before Create; when off, objects with vis keys are skipped "
+                            "with a warning.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Use <b>Remove Opacity</b> to clean up every artifact (property, Alpha "
@@ -154,7 +158,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
         When the header checkbox is checked and the selection is non-empty,
         only the active object is returned.
         """
-        objects = selected_objects()
+        objects = CoreUtils.selected_objects()
         if objects and self.ui.header.menu.chk_last_selected.isChecked():
             import bpy
 
@@ -162,7 +166,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             return [active] if active in objects else objects[-1:]
         return objects
 
-    @undoable
+    @CoreUtils.undoable
     def _apply_opacity(self):
         """Apply Render Opacity to selected objects (or create a cube first)."""
         import bpy
@@ -172,7 +176,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
         objects = self._get_selected()
         if not objects:
             bpy.ops.mesh.primitive_cube_add()
-            cube = active_object()  # window-independent (bpy.context.active_object is None from the Qt-pump context)
+            cube = CoreUtils.active_object()  # window-independent (bpy.context.active_object is None from the Qt-pump context)
             cube.name = "opacity_cube"
             objects = [cube]
 
@@ -203,7 +207,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
 
     def tb000_init(self, widget):
         """Key Render Opacity Init — configure option-box menu."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.option_box.menu.setTitle("Key Render Opacity")
         widget.option_box.menu.add(
@@ -220,7 +224,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             setText="End at Playhead",
             setObjectName="chk000",
             setChecked=True,
-            setToolTip=fmt(
+            setToolTip=TooltipFormat.fmt(
                 bullets=[
                     "<b>On:</b> Fade ends at the playhead (current−frames → current).",
                     "<b>Off:</b> Fade starts at the playhead (current → current+frames).",
@@ -230,7 +234,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
         cmb = widget.option_box.menu.add(
             "QComboBox",
             setObjectName="cmb_direction",
-            setToolTip=fmt(
+            setToolTip=TooltipFormat.fmt(
                 title="Fade Direction",
                 bullets=[
                     "<b>Fade In:</b> Key opacity 0 → 1.",
@@ -257,7 +261,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             ),
         )
 
-    @undoable
+    @CoreUtils.undoable
     def tb000(self, widget):
         """Key Render Opacity — key a fade on the opacity property (+ mirror to visibility)."""
         import bpy
@@ -317,7 +321,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
     # Manage
     # ------------------------------------------------------------------
 
-    @undoable
+    @CoreUtils.undoable
     def _remove_opacity(self):
         """Remove all opacity artifacts from selected objects."""
         objects = self._get_selected()
@@ -366,7 +370,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             if not self.ui or not self.ui.isVisible():
                 return
 
-            selected = selected_objects()
+            selected = CoreUtils.selected_objects()
             if not selected:
                 for item in self.ui.tb000.option_box.menu.get_items():
                     item.setEnabled(False)

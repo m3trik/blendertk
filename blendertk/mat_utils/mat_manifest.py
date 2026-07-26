@@ -9,6 +9,7 @@ registry like mayatk's ``ShaderAttributeMap`` -- one socket map covers every mat
 ``import bpy`` is deferred into the methods so the module resolves headlessly (mirrors the rest
 of blendertk); the Qt-only bridge slots that call this stay Qt-free too.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -47,10 +48,10 @@ class MatManifest(ptk.HelpMixin):
         Returns:
             Manifest dict ready for serialisation.
         """
-        from blendertk.mat_utils._mat_utils import get_mats
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         manifest: Dict[str, Any] = {"materials": {}}
-        for mat in get_mats(objects):
+        for mat in MatUtils.get_mats(objects):
             data = cls._process_material(mat)
             if data:
                 manifest["materials"][mat.name] = data
@@ -169,7 +170,10 @@ class MatManifest(ptk.HelpMixin):
 
         norm = os.path.normpath(tex_path)
         for img in bpy.data.images:
-            if img.filepath and os.path.normpath(bpy.path.abspath(img.filepath)) == norm:
+            if (
+                img.filepath
+                and os.path.normpath(bpy.path.abspath(img.filepath)) == norm
+            ):
                 return img
         try:
             return bpy.data.images.load(tex_path)

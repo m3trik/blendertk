@@ -18,6 +18,7 @@ shared "uitk"/"shared" registry root, so there is no need to renumber widgets to
 Self-contained (``ptk.LoggingMixin`` only) so blendertk carries no back-dependency on tentacle.
 The Qt-only ``uitk`` helper is deferred into its method (headless Blender ships no Qt binding).
 """
+
 import pythontk as ptk
 
 from blendertk.core_utils.preview import Preview
@@ -108,12 +109,12 @@ class MirrorSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Mirror",
                 body="Mirror selected meshes across an axis, optionally merging "
                 "seam vertices or keeping the mirrored half as its own object.",
@@ -128,20 +129,26 @@ class MirrorSlots(ptk.LoggingMixin):
                     "Toggle <b>Preview</b> to iterate, or press <b>Create</b> to commit.",
                 ],
                 sections=[
-                    ("Bounding Box pivots", [
-                        "<b>Center</b> — keep one half and mirror it across the "
-                        "center to symmetrize. The <b>—</b> toggle flips which half "
-                        "is kept.",
-                        "<b>Border</b> — mirror across the max face of the axis; "
-                        "the <b>—</b> toggle flips it to the min face.",
-                    ]),
-                    ("Options", [
-                        "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
-                        "setting (3D Cursor / Bounding Box / Active Element / …).",
-                        "<b>Un-Instance</b> — make shared mesh data single-user first.",
-                        "<b>Delete Original</b> — with Merge OFF, remove the source "
-                        "object once the mirrored copy exists.",
-                    ]),
+                    (
+                        "Bounding Box pivots",
+                        [
+                            "<b>Center</b> — keep one half and mirror it across the "
+                            "center to symmetrize. The <b>—</b> toggle flips which half "
+                            "is kept.",
+                            "<b>Border</b> — mirror across the max face of the axis; "
+                            "the <b>—</b> toggle flips it to the min face.",
+                        ],
+                    ),
+                    (
+                        "Options",
+                        [
+                            "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
+                            "setting (3D Cursor / Bounding Box / Active Element / …).",
+                            "<b>Un-Instance</b> — make shared mesh data single-user first.",
+                            "<b>Delete Original</b> — with Merge OFF, remove the source "
+                            "object once the mirrored copy exists.",
+                        ],
+                    ),
                 ],
             )
         )

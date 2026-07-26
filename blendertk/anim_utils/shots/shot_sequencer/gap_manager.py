@@ -7,9 +7,10 @@ handles gap resize/move/lock and range-highlight interactions.  The only DCC swa
 is the undo bracket (``CoreUtils.undo_chunk`` → ``btk.undo_chunk``); every edit is
 expressed through the DCC-agnostic ``ShotSequencer`` + ``BlenderShotStore`` surface.
 """
+
 from __future__ import annotations
 
-from blendertk.core_utils._core_utils import undo_chunk
+from blendertk.core_utils._core_utils import CoreUtils
 
 # Threshold for detecting meaningful time deltas (frame-level tolerance).
 TIME_SNAP_EPS = 1e-3
@@ -53,7 +54,7 @@ class GapManagerMixin:
         if abs(ds - de) < TIME_SNAP_EPS and abs(ds) > TIME_SNAP_EPS:
             self._syncing = True
             try:
-                with undo_chunk():
+                with CoreUtils.undo_chunk():
                     self.sequencer.move_shot(self.active_shot_id, start)
             finally:
                 self._syncing = False
@@ -63,9 +64,11 @@ class GapManagerMixin:
         # Edge resize
         self._syncing = True
         try:
-            with undo_chunk():
+            with CoreUtils.undo_chunk():
                 if shift_held:
-                    self.sequencer.store.update_shot(self.active_shot_id, start=start, end=end)
+                    self.sequencer.store.update_shot(
+                        self.active_shot_id, start=start, end=end
+                    )
                 else:
                     self.sequencer.resize_shot(self.active_shot_id, start, end)
         finally:
@@ -142,19 +145,28 @@ class GapManagerMixin:
         self._save_shot_state()
         self._syncing = True
         try:
-            with undo_chunk():
+            with CoreUtils.undo_chunk():
                 if shift_held:
-                    self.sequencer.store.update_shot(target.shot_id, start=target.start + delta)
-                elif self.active_shot_id is not None and target.shot_id == self.active_shot_id:
+                    self.sequencer.store.update_shot(
+                        target.shot_id, start=target.start + delta
+                    )
+                elif (
+                    self.active_shot_id is not None
+                    and target.shot_id == self.active_shot_id
+                ):
                     if self._scale_shot_edge(target, new_start=new_next_start):
                         self.sequencer._enforce_gap_holds()
                 else:
-                    self.sequencer.slide_shot(target.shot_id, new_next_start, direction="downstream")
+                    self.sequencer.slide_shot(
+                        target.shot_id, new_next_start, direction="downstream"
+                    )
         finally:
             self._syncing = False
         self._gap_edit_epilogue()
 
-    def on_gap_left_resized(self, original_prev_end: float, new_prev_end: float) -> None:
+    def on_gap_left_resized(
+        self, original_prev_end: float, new_prev_end: float
+    ) -> None:
         """Handle left-edge gap drag (a shot's ``.end``).
 
         Inner (active shot) → scale end (start fixed, no ripple); outer → slide the
@@ -174,20 +186,27 @@ class GapManagerMixin:
         self._save_shot_state()
         self._syncing = True
         try:
-            with undo_chunk():
+            with CoreUtils.undo_chunk():
                 if shift_held:
                     self.sequencer.store.update_shot(target.shot_id, end=new_prev_end)
-                elif self.active_shot_id is not None and target.shot_id == self.active_shot_id:
+                elif (
+                    self.active_shot_id is not None
+                    and target.shot_id == self.active_shot_id
+                ):
                     if self._scale_shot_edge(target, new_end=new_prev_end):
                         self.sequencer._enforce_gap_holds()
                 else:
                     new_start = target.start + delta
-                    self.sequencer.slide_shot(target.shot_id, new_start, direction="upstream")
+                    self.sequencer.slide_shot(
+                        target.shot_id, new_start, direction="upstream"
+                    )
         finally:
             self._syncing = False
         self._gap_edit_epilogue()
 
-    def on_gap_moved(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None:
+    def on_gap_moved(
+        self, old_start: float, old_end: float, new_start: float, new_end: float
+    ) -> None:
         """Handle body gap drag — slide the gap while preserving its width."""
         if self.sequencer is None:
             return
@@ -203,29 +222,53 @@ class GapManagerMixin:
         self._save_shot_state()
         self._syncing = True
         try:
-            with undo_chunk():
-                left_is_active = (left_shot is not None and active_id is not None
-                                  and left_shot.shot_id == active_id)
-                right_is_active = (right_shot is not None and active_id is not None
-                                   and right_shot.shot_id == active_id)
+            with CoreUtils.undo_chunk():
+                left_is_active = (
+                    left_shot is not None
+                    and active_id is not None
+                    and left_shot.shot_id == active_id
+                )
+                right_is_active = (
+                    right_shot is not None
+                    and active_id is not None
+                    and right_shot.shot_id == active_id
+                )
 
                 if left_is_active:
                     if right_shot is not None:
-                        self.sequencer.slide_shot(right_shot.shot_id, right_shot.start + delta,
-                                                  direction="downstream", _enforce=False)
+                        self.sequencer.slide_shot(
+                            right_shot.shot_id,
+                            right_shot.start + delta,
+                            direction="downstream",
+                            _enforce=False,
+                        )
                     self._scale_shot_edge(left_shot, new_end=left_shot.end + delta)
                 elif right_is_active:
                     if left_shot is not None:
-                        self.sequencer.slide_shot(left_shot.shot_id, left_shot.start + delta,
-                                                  direction="upstream", _enforce=False)
-                    self._scale_shot_edge(right_shot, new_start=right_shot.start + delta)
+                        self.sequencer.slide_shot(
+                            left_shot.shot_id,
+                            left_shot.start + delta,
+                            direction="upstream",
+                            _enforce=False,
+                        )
+                    self._scale_shot_edge(
+                        right_shot, new_start=right_shot.start + delta
+                    )
                 else:
                     if right_shot is not None:
-                        self.sequencer.slide_shot(right_shot.shot_id, right_shot.start + delta,
-                                                  direction="downstream", _enforce=False)
+                        self.sequencer.slide_shot(
+                            right_shot.shot_id,
+                            right_shot.start + delta,
+                            direction="downstream",
+                            _enforce=False,
+                        )
                     if left_shot is not None:
-                        self.sequencer.slide_shot(left_shot.shot_id, left_shot.start + delta,
-                                                  direction="upstream", _enforce=False)
+                        self.sequencer.slide_shot(
+                            left_shot.shot_id,
+                            left_shot.start + delta,
+                            direction="upstream",
+                            _enforce=False,
+                        )
                 self.sequencer._enforce_gap_holds()
         finally:
             self._syncing = False
@@ -233,7 +276,9 @@ class GapManagerMixin:
 
     # ---- gap lock --------------------------------------------------------
 
-    def on_gap_lock_changed(self, gap_start: float, gap_end: float, locked: bool) -> None:
+    def on_gap_lock_changed(
+        self, gap_start: float, gap_end: float, locked: bool
+    ) -> None:
         """Handle a single gap's lock state being toggled via context menu."""
         if self.sequencer is None:
             return

@@ -40,6 +40,7 @@ The engine lives in ``blendertk.MatUtils`` (``serialize_material`` / ``restore_m
 helpers are deferred into the call bodies. Served by ``BlenderUiHandler``
 (``marking_menu.show("shader_templates")``).
 """
+
 import pythontk as ptk
 
 import blendertk as btk
@@ -90,7 +91,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------ header menu
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.setTitle("Shader Templates")
         widget.menu.add(
@@ -106,7 +107,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
             setToolTip="Open the last restored material in the Shader Editor.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Shader Templates",
                 body="Save and restore shader networks as reusable templates. Templates live "
                 "in blendertk's shared user-preset store.",
@@ -119,12 +120,15 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
                     "<b>Create Network</b>.",
                 ],
                 sections=[
-                    ("Menu options", [
-                        "<b>Open Templates Directory</b> — reveal the templates folder in the "
-                        "OS file manager.",
-                        "<b>Graph Material</b> — open the most recently restored material in "
-                        "the Shader Editor.",
-                    ]),
+                    (
+                        "Menu options",
+                        [
+                            "<b>Open Templates Directory</b> — reveal the templates folder in the "
+                            "OS file manager.",
+                            "<b>Graph Material</b> — open the most recently restored material in "
+                            "the Shader Editor.",
+                        ],
+                    ),
                 ],
             )
         )

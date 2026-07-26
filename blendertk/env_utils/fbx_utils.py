@@ -21,6 +21,7 @@ Mirrors the module + class name and the **portable export/import** surface over
 surface never requires a running Blender. ``export_selection_fbx`` stays exported (module-level)
 as the selection-only convenience used by the Substance / Marmoset / RizomUV bridges.
 """
+
 import os
 
 import pythontk as ptk
@@ -28,7 +29,7 @@ import pythontk as ptk
 # Window-independent selection reader + window-supplying override for the Qt event-pump timer
 # context (``bpy.context.window`` is ``None`` there — see ``_core_utils.selected_objects``). Both
 # import Qt-free / bpy-deferred, so importing this module never needs a running Blender.
-from blendertk.core_utils._core_utils import selected_objects, window_context_override
+from blendertk.core_utils._core_utils import CoreUtils
 
 # Bridge/export defaults: mesh-only, modifiers applied, selection-only — the safe hand-off set
 # (the same defaults the bridges relied on when this lived in ``core_utils``).
@@ -42,34 +43,38 @@ _EXPORT_DEFAULTS = {
 }
 
 
-def _translate_fbx_options(options):
-    """Translate Maya MEL FBX option names (``FBXExport*``) in *options* to ``export_scene.fbx``
-    kwargs, returning a new dict.
+class _FbxUtilsInternal(object):
+    """Internal helpers for FbxUtils."""
 
-    The Substance/Marmoset bridge templates are vendored verbatim from mayatk, where ``FBX_OPTIONS``
-    drives ``mel.eval`` ``FBXExport*`` commands (``FbxUtils.set_fbx_options``). Those names are
-    meaningless to Blender's ``bpy.ops.export_scene.fbx`` — passing one raises
-    ``keyword "FBXExport…" unrecognized``. This is the Blender side of the "engine does the
-    idiomatic-per-DCC translation" contract the bridges' ``_DEFAULT_FBX_OPTIONS`` documents.
+    @staticmethod
+    def _translate_fbx_options(options):
+        """Translate Maya MEL FBX option names (``FBXExport*``) in *options* to ``export_scene.fbx``
+        kwargs, returning a new dict.
 
-    Known Maya names map to their Blender equivalent; an unmapped ``FBXExport*`` name is a Maya-only
-    concept and is dropped. Every non-Maya key passes through unchanged, so Blender still validates
-    real ``export_scene.fbx`` kwargs (a typo'd Blender kwarg still errors loudly). Maya translations
-    are applied last so their intent wins over the Blender-native defaults regardless of dict order.
-    """
-    passthrough, maya = {}, {}
-    for key, value in options.items():
-        (maya if key.startswith("FBXExport") else passthrough)[key] = value
-    for key, value in maya.items():
-        if key == "FBXExportEmbeddedTextures":
-            passthrough["embed_textures"] = bool(value)
-            if value:  # Blender only embeds textures when the paths are copied in
-                passthrough["path_mode"] = "COPY"
-        # else: Maya MEL option with no Blender analogue — intentionally dropped.
-    return passthrough
+        The Substance/Marmoset bridge templates are vendored verbatim from mayatk, where ``FBX_OPTIONS``
+        drives ``mel.eval`` ``FBXExport*`` commands (``FbxUtils.set_fbx_options``). Those names are
+        meaningless to Blender's ``bpy.ops.export_scene.fbx`` — passing one raises
+        ``keyword "FBXExport…" unrecognized``. This is the Blender side of the "engine does the
+        idiomatic-per-DCC translation" contract the bridges' ``_DEFAULT_FBX_OPTIONS`` documents.
+
+        Known Maya names map to their Blender equivalent; an unmapped ``FBXExport*`` name is a Maya-only
+        concept and is dropped. Every non-Maya key passes through unchanged, so Blender still validates
+        real ``export_scene.fbx`` kwargs (a typo'd Blender kwarg still errors loudly). Maya translations
+        are applied last so their intent wins over the Blender-native defaults regardless of dict order.
+        """
+        passthrough, maya = {}, {}
+        for key, value in options.items():
+            (maya if key.startswith("FBXExport") else passthrough)[key] = value
+        for key, value in maya.items():
+            if key == "FBXExportEmbeddedTextures":
+                passthrough["embed_textures"] = bool(value)
+                if value:  # Blender only embeds textures when the paths are copied in
+                    passthrough["path_mode"] = "COPY"
+            # else: Maya MEL option with no Blender analogue — intentionally dropped.
+        return passthrough
 
 
-class FbxUtils:
+class FbxUtils(_FbxUtilsInternal):
     """FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface)."""
 
     @staticmethod
@@ -95,7 +100,9 @@ class FbxUtils:
         import tempfile
 
         if not filepath:
-            stem = os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
+            stem = (
+                os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
+            )
             filepath = os.path.join(tempfile.gettempdir(), f"{stem}_bridge.fbx")
         if not filepath.lower().endswith(".fbx"):
             filepath += ".fbx"
@@ -113,15 +120,15 @@ class FbxUtils:
             opts["object_types"] = {value} if isinstance(value, str) else set(value)
         # Templates vendored from mayatk carry Maya MEL FBX names (e.g. FBXExportEmbeddedTextures);
         # translate them to export_scene.fbx kwargs so they don't fault the Blender exporter.
-        opts = _translate_fbx_options(opts)
+        opts = _FbxUtilsInternal._translate_fbx_options(opts)
 
         # Selection is read via the window-independent ``selected_objects`` (view layer), never
         # ``bpy.context.selected_objects`` — the latter raises AttributeError from tentacle's Qt
         # event-pump timer (``bpy.context.window is None``). The operators run under
         # ``window_context_override`` because ``export_scene.fbx``'s io_scene_fbx handler *itself*
         # reads ``context.selected_objects`` internally, so a window must be in context for it.
-        prior = list(selected_objects()) if objects is not None else None
-        with window_context_override():
+        prior = list(CoreUtils.selected_objects()) if objects is not None else None
+        with CoreUtils.window_context_override():
             if objects is not None:
                 bpy.ops.object.select_all(action="DESELECT")
                 for o in ptk.make_iterable(objects):
@@ -133,7 +140,7 @@ class FbxUtils:
             # raises (e.g. ``objects`` given but all names resolved to nothing — the DESELECT above
             # already cleared the real selection).
             try:
-                if selection_only and not selected_objects():
+                if selection_only and not CoreUtils.selected_objects():
                     raise RuntimeError("Nothing selected to export.")
                 bpy.ops.export_scene.fbx(filepath=filepath, **opts)
             finally:
@@ -168,21 +175,18 @@ class FbxUtils:
         # (it selects the imported objects), so a window must be in context —
         # driven bare from tentacle's Qt event-pump timer, context.window is
         # None and the op raises.
-        with window_context_override():
+        with CoreUtils.window_context_override():
             bpy.ops.import_scene.fbx(filepath=filepath, **fbx_opts)
         return [o for o in bpy.data.objects if o not in before]
 
+    @staticmethod
+    def export_selection_fbx(filepath=None, objects=None, **fbx_opts):
+        """Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
 
-def export_selection_fbx(filepath=None, objects=None, **fbx_opts):
-    """Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
-
-    The non-interactive counterpart of the scene slot's "Export Selection" — used by the Substance
-    / Marmoset / RizomUV bridges to stage the current selection. Thin selection-only alias for
-    :meth:`FbxUtils.export` (kept module-level for the established ``btk.export_selection_fbx`` API).
-    """
-    return FbxUtils.export(filepath=filepath, objects=objects, selection_only=True, **fbx_opts)
-
-
-def import_fbx(filepath, **fbx_opts):
-    """Import an FBX file; returns the objects created (alias for :meth:`FbxUtils.import_fbx`)."""
-    return FbxUtils.import_fbx(filepath, **fbx_opts)
+        The non-interactive counterpart of the scene slot's "Export Selection" — used by the
+        Substance / Marmoset / RizomUV bridges to stage the current selection. Thin selection-only
+        alias for :meth:`FbxUtils.export`.
+        """
+        return FbxUtils.export(
+            filepath=filepath, objects=objects, selection_only=True, **fbx_opts
+        )

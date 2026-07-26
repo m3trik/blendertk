@@ -19,12 +19,14 @@ removed on success, kept + logged on failure (``TempArtifacts`` scoped policy).
 headless ``blender --background`` and in plain-venv tests. Requires a local Maya
 install (the conversion checks out a Maya license for the duration of the run).
 """
+
 from __future__ import annotations
 
-import hashlib
 import os
+import shutil
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import pythontk as ptk
 from pythontk.core_utils import script_template as _templates
@@ -33,6 +35,7 @@ from blendertk.env_utils.maya_bridge._maya_bridge import _SPEC, _TEMPLATE_DIR
 
 _IMPORT_TEMPLATE = _TEMPLATE_DIR / "_import_scene.py"
 _IMPORT_TEMPLATE_USD = _TEMPLATE_DIR / "_import_scene_usd.py"
+_BAKE_TEMPLATE = _TEMPLATE_DIR / "_bake_scene.py"
 
 # Conversion intermediates by route: "fbx" = classic material model + texture-
 # manifest sidecar rebuilt via create_pbr_material; "usd" = native materials /
@@ -43,9 +46,87 @@ _TEMPLATES = {"fbx": _IMPORT_TEMPLATE, "usd": _IMPORT_TEMPLATE_USD}
 # Maya scene formats cmds.file(open=...) accepts; FBX would be imported directly.
 SUPPORTED_EXTENSIONS = (".ma", ".mb")
 
+# Sources bake_scene turns into a linkable .blend. A .ma/.mb needs the headless-Maya
+# conversion first; an .fbx is already the bake's own input, so it skips that hop (and
+# the Maya license checkout) entirely.
+BAKE_SOURCE_EXTENSIONS = (".ma", ".mb", ".fbx")
+
+# Sidecar written beside every bake naming the scene it came from. The Reference Manager
+# lists SOURCE rows but links the BAKED file, so "is this row referenced?" can only be
+# answered by walking back from a linked library to its origin. On disk rather than in
+# panel settings so the mapping survives a session change and is shared by every panel.
+BAKE_SOURCE_SUFFIX = ".source.json"
+
+# Child-process argv for the bake Blender: headless, factory settings (deterministic,
+# and skips any startup toolkit the user's Blender autoloads), then our rendered script.
+_BAKE_LAUNCH_ARGS = ("--background", "--factory-startup", "--python")
+
 # USD sources short-circuit the whole pipeline: both DCCs speak USD natively,
 # so there is no conversion (and no Maya install/license) involved at all.
 USD_EXTENSIONS = ptk.USD_EXTENSIONS
+
+# Maya driver node types whose animation the plain FBX round trip would lose or
+# mangle — the ASCII-scene mirror of the conversion template's Maya-side
+# ``_detect_complex_anim`` probe (which can't be imported here: it lives in the
+# dependency-free mayapy template). Kept in step with it by hand.
+_DRIVER_NODE_TYPES = frozenset(
+    {
+        "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
+        "aimConstraint", "poleVectorConstraint", "geometryConstraint",
+        "normalConstraint", "tangentConstraint",
+        "expression", "ikHandle", "motionPath",
+        "animCurveUL", "animCurveUA", "animCurveUU",  # set-driven keys
+    }
+)
+
+
+def _smart_bake_syspath(mayatk_path: Optional[str] = None) -> List[str]:
+    """Package-parent dirs to add to the conversion mayapy's ``PYTHONPATH`` so the
+    template's optional smart-bake pre-pass can ``import mayatk`` (which itself needs
+    ``pythontk``). Returns ``[]`` when mayatk can't be located -- the template then
+    degrades to the plain FBX bake.
+
+    Resolution order: an explicit *mayatk_path*; an importable ``mayatk`` (installed
+    or already on ``sys.path``); else the monorepo sibling of ``pythontk``
+    (``.../pythontk`` and ``.../mayatk`` share a parent). Each candidate is verified
+    to actually contain the package before being returned.
+    """
+    import importlib.util
+
+    def _holds_mayatk(parent: Optional[str]) -> bool:
+        # A real package parent, not a namespace-package dir (the repo root
+        # ``_scripts/mayatk`` has no ``__init__.py`` and must be rejected — putting
+        # it on PYTHONPATH would NOT make ``import mayatk`` resolve).
+        return bool(parent) and os.path.isfile(
+            os.path.join(parent, "mayatk", "__init__.py")
+        )
+
+    dirs: List[str] = []
+    pythontk_file = getattr(ptk, "__file__", None)
+    if pythontk_file:  # SmartBake imports pythontk -> its parent must be on the path
+        dirs.append(os.path.dirname(os.path.dirname(pythontk_file)))
+
+    candidates: List[str] = []
+    if mayatk_path:
+        candidates.append(mayatk_path)
+    else:
+        spec = importlib.util.find_spec("mayatk")
+        # ``spec.origin`` is the package __init__ for a REGULAR package and ``None``
+        # for a namespace package — using it (not submodule_search_locations) skips
+        # the namespace trap where a bare repo dir masquerades as ``mayatk``.
+        if spec and spec.origin:
+            candidates.append(os.path.dirname(os.path.dirname(spec.origin)))
+    if pythontk_file:  # monorepo fallback: _scripts/{pythontk,mayatk} are siblings
+        scripts_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(pythontk_file))
+        )
+        candidates.append(os.path.join(scripts_root, "mayatk"))
+
+    for parent in candidates:
+        if _holds_mayatk(parent):
+            dirs.append(parent)
+            return [d for d in dict.fromkeys(dirs) if d and os.path.isdir(d)]
+    return []  # mayatk unresolvable -> no injection, plain bake in the child
 
 # Child-process env for the conversion mayapy: skip the startup baggage a
 # headless one-shot converter never needs. userSetup.py is the big one on
@@ -60,28 +141,27 @@ _FAST_MAYA_ENV = {
 }
 
 
-def mayapy_from_maya_exe(maya_exe: str) -> Optional[str]:
-    """Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
-
-    The bridge's :class:`pythontk.AppSpec` discovers the GUI binary
-    (``.../bin/maya.exe``); the headless interpreter ships in the same ``bin`` dir.
-    """
-    exe = Path(maya_exe)
-    # The install scan can return 'maya.EXE' — the suffix check must be case-insensitive.
-    candidate = exe.with_name("mayapy.exe" if exe.suffix.lower() == ".exe" else "mayapy")
-    return str(candidate) if candidate.is_file() else None
-
-
 class MayaSceneImport(ptk.LoggingMixin):
     """Engine: convert a Maya scene to FBX via headless Maya, then import it.
 
     Scriptable and synchronous; async affordances belong to the calling UI layer.
     """
 
-    def __init__(self, maya_path: Optional[str] = None, log_level: str = "INFO"):
+    def __init__(
+        self,
+        maya_path: Optional[str] = None,
+        log_level: str = "INFO",
+        blender_path: Optional[str] = None,
+        mayatk_path: Optional[str] = None,
+    ):
         super().__init__()
         self.logger.setLevel(log_level)
         self._maya_path = maya_path
+        # Host binary for the FBX -> .blend bake (see the blender_path property).
+        self._blender_path = blender_path
+        # Optional explicit mayatk location for the smart-bake pre-pass (else it is
+        # auto-resolved; see _smart_bake_syspath).
+        self._mayatk_path = mayatk_path
 
     # ------------------------------------------------------------------ discovery
     @property
@@ -99,14 +179,14 @@ class MayaSceneImport(ptk.LoggingMixin):
     def mayapy_path(self) -> Optional[str]:
         """The headless ``mayapy`` interpreter derived from :attr:`maya_path`."""
         maya_exe = self.maya_path
-        return mayapy_from_maya_exe(maya_exe) if maya_exe else None
+        return MayaSceneImport.mayapy_from_maya_exe(maya_exe) if maya_exe else None
 
     def require_mayapy(self) -> str:
         """Return :attr:`mayapy_path` or raise an error naming what's missing."""
         maya_exe = self.maya_path
         if not maya_exe:
             raise FileNotFoundError(_SPEC.app.not_found_message)
-        mayapy = mayapy_from_maya_exe(maya_exe)
+        mayapy = MayaSceneImport.mayapy_from_maya_exe(maya_exe)
         if not mayapy:
             raise FileNotFoundError(f"mayapy not found beside {maya_exe}.")
         return mayapy
@@ -123,10 +203,21 @@ class MayaSceneImport(ptk.LoggingMixin):
             ) from None
 
     def render_script(
-        self, src_path: str, out_path: str, *, via: str = "fbx",
-        embed_textures: bool = False, include_animation: bool = True,
+        self,
+        src_path: str,
+        out_path: str,
+        *,
+        via: str = "fbx",
+        embed_textures: bool = False,
+        include_animation: bool = True,
+        smart_bake: Union[bool, str] = "auto",
     ) -> str:
-        """Render the Maya-side conversion script (exposed for tests/preview)."""
+        """Render the Maya-side conversion script (exposed for tests/preview).
+
+        *smart_bake* (FBX route only): ``"auto"`` bakes driven animation to keys
+        via mayatk's ``SmartBake`` only when a cheap probe detects it; ``True``
+        always attempts it; ``False`` reproduces the pre-smart-bake plain bake.
+        """
         context = {
             "SRC_PATH": str(src_path).replace("\\", "/"),
             "INCLUDE_ANIMATION": repr(bool(include_animation)),
@@ -138,14 +229,25 @@ class MayaSceneImport(ptk.LoggingMixin):
                     "embed_textures has no USD-route equivalent (textures are "
                     "referenced on disk); ignored."
                 )
+            if smart_bake not in (False, "auto"):
+                self.logger.info(
+                    "smart_bake applies to the FBX route only (the USD route bakes "
+                    "animation natively); ignored."
+                )
         else:
             context["OUT_FBX"] = str(out_path).replace("\\", "/")
             context["EMBED_TEXTURES"] = repr(bool(embed_textures))
-        return _templates.render_template(self._template(via), context)
+            context["SMART_BAKE"] = repr(smart_bake)
+        return _templates.ScriptTemplate.render_template(self._template(via), context)
 
     def convert(
-        self, src_path: str, out_path: str, *, via: str = "fbx",
-        timeout: float = 600, **script_opts: Any
+        self,
+        src_path: str,
+        out_path: str,
+        *,
+        via: str = "fbx",
+        timeout: float = 600,
+        **script_opts: Any,
     ) -> "ptk.ScriptRunResult":
         """Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking)."""
         src = os.path.abspath(os.path.expandvars(str(src_path)))
@@ -159,6 +261,23 @@ class MayaSceneImport(ptk.LoggingMixin):
         self.logger.info(f"Converting {os.path.basename(src)} via {mayapy} ...")
         env = dict(os.environ)
         env.update(_FAST_MAYA_ENV)
+        # Smart-bake pre-pass needs mayatk (+ pythontk) importable in the child
+        # mayapy — inject their package parents on PYTHONPATH. "auto"/True enable it;
+        # False (or the USD route) skips injection entirely. Missing mayatk -> [] ->
+        # the template's guarded import degrades to the plain FBX bake.
+        smart_bake = script_opts.get("smart_bake", "auto")
+        if via == "fbx" and smart_bake is not False:
+            extra = _smart_bake_syspath(self._mayatk_path)
+            if extra:
+                existing = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = os.pathsep.join(
+                    extra + ([existing] if existing else [])
+                )
+            elif smart_bake is True:
+                self.logger.warning(
+                    "smart_bake=True but mayatk could not be located; the conversion "
+                    "will fall back to the plain FBX bake."
+                )
         result = self._run_script(
             mayapy,
             self.render_script(src, out_path, via=via, **script_opts),
@@ -175,7 +294,7 @@ class MayaSceneImport(ptk.LoggingMixin):
     # Seam for tests (stub the mayapy run without patching pythontk internals).
     @staticmethod
     def _run_script(app_exe, script_text, *, artifact, timeout, env=None):
-        return ptk.run_script_to_artifact(
+        return ptk.ScriptRunner.run_script_to_artifact(
             app_exe, script_text, artifact=artifact, timeout=timeout, env=env
         )
 
@@ -186,13 +305,33 @@ class MayaSceneImport(ptk.LoggingMixin):
         conversion template's own identity (per *via*) -- a template fix must
         invalidate stale cached payloads, or a retry after an upgrade replays
         the old bug."""
-        stat = os.stat(src)
-        tpl = os.stat(cls._template(via))
-        blob = (
-            f"{src}|{stat.st_mtime_ns}|{stat.st_size}|{sorted(script_opts.items())}"
-            f"|{tpl.st_mtime_ns}|{tpl.st_size}"
+        return ptk.CachedArtifact.key(
+            sorted(script_opts.items()), files=[src, cls._template(via)]
         )
-        return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+    def _cached_conversion(
+        self,
+        src: str,
+        *,
+        via: str,
+        use_cache: bool,
+        timeout: float,
+        script_opts: Dict[str, Any],
+    ) -> "ptk.CachedArtifact.Result":
+        """The cached FBX/USD conversion of *src*, produced on a miss.
+
+        Shared by :meth:`import_scene` and :meth:`bake_scene`: both need the SAME
+        intermediate, so a scene that was already imported bakes without a second Maya
+        launch (and without a second license checkout).
+        """
+        ext = ".usd" if via == "usd" else ".fbx"
+        self._template(via)  # validate the route before any work
+        return ptk.CachedArtifact("maya_to_btk", extension=ext).get(
+            self._cache_key(src, script_opts, via),
+            lambda out: self.convert(src, out, via=via, timeout=timeout, **script_opts),
+            sidecars=(".manifest.json",),
+            use_cache=use_cache and os.path.isfile(src),
+        )
 
     # ------------------------------------------------------------------ import
     def import_scene(
@@ -204,6 +343,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         use_cache: bool = True,
         timeout: float = 600,
         fbx_options: Optional[Dict[str, Any]] = None,
+        smart_bake: Union[bool, str] = "auto",
         **script_opts: Any,
     ) -> List[Any]:
         """Import the Maya scene at *src_path*; return the objects created.
@@ -238,10 +378,23 @@ class MayaSceneImport(ptk.LoggingMixin):
             fbx_options: Forwarded to ``bpy.ops.import_scene.fbx``
                 (``via="fbx"`` only; the USD route imports with the native
                 defaults).
+            smart_bake: Pre-bake driven animation to keys via mayatk's
+                ``SmartBake`` before the FBX export, so channels FBX's plain
+                bake loses -- inherited visibility, set-driven keys, constraints,
+                IK, motion paths, driven blend shapes -- survive the round trip.
+                ``"auto"`` (default) does it only when a cheap probe detects such
+                animation; ``True`` always attempts it; ``False`` reproduces the
+                pre-smart-bake plain bake. FBX route only (inert for USD, which
+                bakes animation natively); needs mayatk importable (auto-located,
+                or ``mayatk_path`` on the constructor) and degrades to the plain
+                bake without it.
             **script_opts: Maya-side knobs (``embed_textures`` /
                 ``include_animation``; ``embed_textures`` is FBX-route only).
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
+
+        # Surface the option into the cache key + the Maya-side render context.
+        script_opts["smart_bake"] = smart_bake
 
         src = os.path.abspath(os.path.expandvars(str(src_path)))
         if os.path.splitext(src)[1].lower() in USD_EXTENSIONS:
@@ -257,48 +410,10 @@ class MayaSceneImport(ptk.LoggingMixin):
             self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
             return imported
 
-        ext = ".usd" if via == "usd" else ".fbx"
-        self._template(via)  # validate the route before any work
-        use_cache = use_cache and os.path.isfile(src)
-        cache_path = None
-        if use_cache:
-            store = ptk.TempArtifacts("maya_to_btk_cache", policy="detached")
-            cache_path = store.path(
-                extension=ext, name=self._cache_key(src, script_opts, via)
-            )
-
-        tmp = None
-        if cache_path and os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
-            out_path = cache_path
-            self.logger.info(
-                f"Conversion cache hit ({os.path.basename(cache_path)}) -- "
-                "skipping the Maya launch."
-            )
-        else:
-            # Conversion always targets scoped SCRATCH; a completed conversion
-            # is then atomically promoted into the cache slot. A timeout-killed
-            # partial write can therefore never poison the cache (the failure
-            # stays in scratch, kept + logged for debugging), and concurrent
-            # imports of the same scene can't interleave into one file.
-            tmp = ptk.TempArtifacts("maya_to_btk", policy="scoped")
-            out_path = tmp.path(extension=ext)
-            tmp.register(out_path + ".manifest.json")
-            try:
-                self.convert(src, out_path, via=via, timeout=timeout, **script_opts)
-            except Exception:
-                if os.path.isfile(out_path):
-                    self.logger.warning(
-                        f"Keeping intermediate {via.upper()} for debugging: {out_path}"
-                    )
-                raise
-            if cache_path:
-                os.replace(out_path, cache_path)
-                if os.path.isfile(out_path + ".manifest.json"):
-                    os.replace(out_path + ".manifest.json",
-                               cache_path + ".manifest.json")
-                elif os.path.isfile(cache_path + ".manifest.json"):
-                    os.remove(cache_path + ".manifest.json")  # stale partial promote
-                out_path = cache_path
+        got = self._cached_conversion(
+            src, via=via, use_cache=use_cache, timeout=timeout, script_opts=script_opts
+        )
+        out_path, tmp = got.path, got.scratch
 
         # Sidecar the FBX template writes for the textures FBX cannot carry
         # (packed metallic/roughness/ao maps on translated materials). The USD
@@ -326,6 +441,18 @@ class MayaSceneImport(ptk.LoggingMixin):
                 self.logger.warning(
                     f"Texture-manifest rebuild failed ({e}); keeping FBX materials."
                 )
+            # Smart-bake visibility (the manifest's ``visibility`` section — FBX
+            # carries the curve, Blender's importer drops it) — replayed as
+            # hide_render/hide_viewport keys, shifted by the same anim_offset the
+            # FBX importer applied to the transforms (default 1.0). Non-fatal.
+            try:
+                self._apply_visibility_manifest(
+                    manifest_path,
+                    imported,
+                    frame_offset=float((fbx_options or {}).get("anim_offset", 1.0)),
+                )
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning(f"Visibility replay failed ({e}); skipped.")
         if cleanup and tmp is not None:
             tmp.cleanup()
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
@@ -348,13 +475,15 @@ class MayaSceneImport(ptk.LoggingMixin):
         """
         import json
 
-        from blendertk.mat_utils._mat_utils import assign_mat, create_pbr_material
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         try:
             with open(manifest_path, "r", encoding="utf-8") as fh:
                 manifest = json.load(fh)
         except Exception as e:
-            self.logger.warning(f"Texture manifest unreadable ({e}); keeping FBX materials.")
+            self.logger.warning(
+                f"Texture manifest unreadable ({e}); keeping FBX materials."
+            )
             return
         if not isinstance(manifest, dict):
             self.logger.warning("Texture manifest malformed; keeping FBX materials.")
@@ -386,7 +515,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                             "textures need relinking. Material stays untextured."
                         )
                     continue
-                material = create_pbr_material(files, name=name)
+                material = MatUtils.create_pbr_material(files, name=name)
                 if material is None:  # nothing classified -- keep the FBX phong
                     self.logger.warning(
                         f"{name}: no texture classified by filename; keeping the "
@@ -420,20 +549,111 @@ class MayaSceneImport(ptk.LoggingMixin):
 
                 # Fallback (importer renamed the material): whole-object assign.
                 targets = [
-                    obj for member in entry.get("objects", [])
+                    obj
+                    for member in entry.get("objects", [])
                     for obj in by_short.get(member, [])
                 ]
                 if not targets:
                     self._purge_orphans([material])  # nothing to attach it to
                     self.logger.warning(f"{name}: no matching slot or object found.")
                     continue
-                assign_mat(targets, material)
+                MatUtils.assign_mat(targets, material)
                 self.logger.info(
                     f"Rebuilt material {material.name} from {len(files)} file(s) "
                     f"on {len(targets)} object(s) (object-level fallback)."
                 )
             except Exception as e:
                 self.logger.warning(f"Manifest entry {name} skipped: {e}")
+
+    def _apply_visibility_manifest(
+        self, manifest_path: str, imported: List[Any], frame_offset: float = 1.0
+    ) -> None:
+        """Replay the manifest's ``visibility`` section (smart-bake output) as
+        ``hide_render`` / ``hide_viewport`` keyframes on the imported objects.
+
+        FBX carries a visibility curve but Blender's FBX importer silently drops it
+        (verified empirically), so baked visibility — chiefly *inherited* visibility,
+        which Maya's own FBX exporter never writes for the child at all — reaches
+        Blender through the conversion's ``.manifest.json`` (one sidecar, shared
+        with the texture section) instead of the FBX stream. Shared by the direct
+        import path and the ``.blend`` bake template, exactly like
+        :meth:`_apply_texture_manifest`, so there is one copy of the logic.
+
+        *frame_offset* MUST match the FBX importer's ``anim_offset`` (default 1.0):
+        Blender shifts every FBX-imported curve by that many frames (Maya frame N
+        lands on Blender frame N + anim_offset — verified), but these visibility
+        values arrive as raw Maya frames, so the same shift is applied here to keep
+        the show/hide aligned with the transform animation. Omitting it desyncs
+        visibility by a frame.
+
+        Best-effort by contract: a failed replay must never break an import whose
+        geometry + transform animation already landed. Objects match by SHORT name
+        (the importer may suffix ``.001``), the same convention the texture manifest
+        uses. Values are Maya ``.visibility`` (``0`` = hidden); interpolation is
+        forced CONSTANT (visibility is boolean — Bezier would ramp it)."""
+        import json
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as e:
+            self.logger.warning(f"Visibility manifest unreadable ({e}); skipped.")
+            return
+        vis = data.get("visibility", {}) if isinstance(data, dict) else {}
+        if not vis:
+            return
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return  # no Blender (the .venv degradation path) -> nothing to key
+
+        by_short: Dict[str, List[Any]] = {}
+        for obj in imported:
+            by_short.setdefault(obj.name.split(".")[0], []).append(obj)
+
+        keyed = 0
+        for short, keys in vis.items():
+            for obj in by_short.get(short, []):
+                try:
+                    for frame, value in keys:
+                        hidden = float(value) == 0.0  # Maya .visibility 0 = hidden
+                        obj.hide_render = hidden
+                        obj.hide_viewport = hidden
+                        obj.keyframe_insert("hide_render", frame=frame + frame_offset)
+                        obj.keyframe_insert("hide_viewport", frame=frame + frame_offset)
+                    self._step_visibility_fcurves(obj)
+                    keyed += 1
+                except Exception as e:  # noqa: BLE001
+                    self.logger.debug(f"Visibility replay skipped for {obj.name}: {e}")
+        if keyed:
+            self.logger.info(
+                f"Replayed baked visibility onto {keyed} object(s) "
+                "(hide_render / hide_viewport)."
+            )
+
+    @staticmethod
+    def _step_visibility_fcurves(obj: Any) -> None:
+        """Force CONSTANT interpolation on *obj*'s ``hide_*`` fcurves — visibility is
+        boolean, so the default Bezier would ramp the toggle. Handles the Blender
+        4.4+/5.x slotted-action layout (layer → strip → channelbag) and the legacy
+        ``action.fcurves``."""
+        ad = getattr(obj, "animation_data", None)
+        action = getattr(ad, "action", None) if ad else None
+        if action is None:
+            return
+        fcurves: List[Any] = []
+        for layer in getattr(action, "layers", []) or []:
+            for strip in getattr(layer, "strips", []) or []:
+                for cbag in getattr(strip, "channelbags", []) or []:
+                    fcurves.extend(cbag.fcurves)
+        try:
+            fcurves.extend(action.fcurves)
+        except (AttributeError, TypeError):
+            pass
+        for fc in fcurves:
+            if fc.data_path in ("hide_render", "hide_viewport"):
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "CONSTANT"
 
     def _purge_orphans(self, materials: List[Any]) -> None:
         """Remove replaced materials (and their now-exclusive images) once unused.
@@ -450,7 +670,8 @@ class MayaSceneImport(ptk.LoggingMixin):
                 if mat.users:
                     continue
                 images = [
-                    n.image for n in (mat.node_tree.nodes if mat.node_tree else [])
+                    n.image
+                    for n in (mat.node_tree.nodes if mat.node_tree else [])
                     if getattr(n, "image", None) is not None
                 ]
                 bpy.data.materials.remove(mat)
@@ -459,6 +680,261 @@ class MayaSceneImport(ptk.LoggingMixin):
                         bpy.data.images.remove(img)
             except Exception as e:  # noqa: BLE001
                 self.logger.debug(f"Orphan purge skipped: {e}")
+
+    # ------------------------------------------------------------------ bake (FBX -> .blend)
+    @property
+    def blender_path(self) -> Optional[str]:
+        """The Blender executable used for the bake — this host's own binary.
+
+        Unlike :attr:`maya_path` (a foreign app, discovered through an ``AppSpec``), the
+        bake runs the SAME Blender the panel runs in, so the binary is already known:
+        ``bpy.app.binary_path``. Falls back to ``PATH`` for plain-venv/test contexts.
+        """
+        if not self._blender_path:
+            try:
+                import bpy
+
+                self._blender_path = bpy.app.binary_path or None
+            except Exception:
+                self._blender_path = None
+            if not self._blender_path:
+                self._blender_path = shutil.which("blender")
+        return self._blender_path
+
+    @blender_path.setter
+    def blender_path(self, value: Optional[str]) -> None:
+        self._blender_path = value
+
+    def require_blender(self) -> str:
+        """Return :attr:`blender_path` or raise an error naming what's missing."""
+        blender_exe = self.blender_path
+        if not blender_exe:
+            raise FileNotFoundError(
+                "No Blender executable found for the bake (bpy.app.binary_path is empty "
+                "and 'blender' is not on PATH). Set MayaSceneImport.blender_path."
+            )
+        return blender_exe
+
+    def render_bake_script(self, fbx_path: str, out_path: str) -> str:
+        """Render the Blender-side FBX->.blend bake script (exposed for tests/preview)."""
+        return _templates.ScriptTemplate.render_template(
+            _BAKE_TEMPLATE,
+            {
+                "SRC_FBX": str(fbx_path).replace("\\", "/"),
+                "OUT_BLEND": str(out_path).replace("\\", "/"),
+                # The child is the same Blender build, so the parent's sys.path entries
+                # are valid there -- this is what makes the shared manifest replay
+                # (blendertk in the child) reliable rather than best-effort.
+                "EXTRA_SYS_PATH": repr(list(sys.path)),
+            },
+        )
+
+    def bake(self, fbx_path: str, out_path: str, *, timeout: float = 600) -> Any:
+        """Bake *fbx_path* into the .blend at *out_path* in a fresh headless Blender."""
+        fbx = os.path.abspath(os.path.expandvars(str(fbx_path)))
+        if not os.path.isfile(fbx):
+            raise FileNotFoundError(f"FBX not found: {fbx}")
+        blender_exe = self.require_blender()
+        self.logger.info(f"Baking {os.path.basename(fbx)} to .blend via {blender_exe} ...")
+        result = self._run_bake_script(
+            blender_exe,
+            self.render_bake_script(fbx, out_path),
+            artifact=out_path,
+            timeout=timeout,
+        )
+        self.logger.info(
+            f"Baked to .blend in {result.duration:.1f}s "
+            f"({os.path.getsize(result.artifact) // 1024} KB)."
+        )
+        return result
+
+    # Seam for tests (stub the Blender run without patching pythontk internals).
+    @staticmethod
+    def _run_bake_script(app_exe, script_text, *, artifact, timeout, env=None):
+        return ptk.ScriptRunner.run_script_to_artifact(
+            app_exe,
+            script_text,
+            artifact=artifact,
+            launch_args=lambda script_path: [*_BAKE_LAUNCH_ARGS, script_path],
+            timeout=timeout,
+            env=env,
+        )
+
+    def bake_scene(
+        self,
+        src_path: str,
+        *,
+        use_cache: bool = True,
+        timeout: float = 600,
+        smart_bake: Union[bool, str] = "auto",
+        **script_opts: Any,
+    ) -> str:
+        """Bake *src_path* to a cached ``.blend`` and return its path — the link path.
+
+        Blender can only link a ``.blend``, so a foreign row's reference toggle needs a
+        native stand-in: ``.ma``/``.mb`` are converted to FBX in a headless Maya (the
+        cached intermediate :meth:`import_scene` already uses), then that FBX is baked
+        into a ``.blend`` in a headless Blender. An ``.fbx`` source skips straight to the
+        bake — no Maya, no license.
+
+        Both stages are cached independently, and the bake's key includes the FBX's
+        identity **and the bake template's**, so a template fix invalidates stale bakes
+        (a retry after an upgrade must not replay the old bug).
+
+        Parameters:
+            src_path: A ``.ma`` / ``.mb`` / ``.fbx`` file.
+            use_cache: Reuse a prior conversion + bake of the identical source.
+            timeout: Max seconds for EACH headless stage.
+            smart_bake: Pre-bake driven animation to keys via mayatk's
+                ``SmartBake`` before the FBX export (see :meth:`import_scene`).
+                ``"auto"`` (default) acts only when a cheap probe detects it;
+                inert for an ``.fbx`` source (no Maya stage to bake in).
+            **script_opts: Maya-side conversion knobs (``embed_textures`` /
+                ``include_animation``); inert for an ``.fbx`` source.
+
+        Returns:
+            str: Path to the cached ``.blend`` — pass it to
+            :func:`blendertk.link_blend_file`.
+        """
+        src = os.path.abspath(os.path.expandvars(str(src_path)))
+        ext = os.path.splitext(src)[1].lower()
+        if ext not in BAKE_SOURCE_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported bake source: {src} (expected {BAKE_SOURCE_EXTENSIONS})"
+            )
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"Scene not found: {src}")
+
+        if ext == ".fbx":
+            fbx_path, conversion = src, None
+        else:
+            script_opts["smart_bake"] = smart_bake  # into the cache key + render context
+            conversion = self._cached_conversion(
+                src,
+                via="fbx",
+                use_cache=use_cache,
+                timeout=timeout,
+                script_opts=script_opts,
+            )
+            fbx_path = conversion.path
+
+        got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(
+            ptk.CachedArtifact.key(files=[fbx_path, _BAKE_TEMPLATE]),
+            lambda out: self.bake(fbx_path, out, timeout=timeout),
+            use_cache=use_cache,
+        )
+        # The FBX scratch is consumed once the bake has read it; the .blend scratch is
+        # NOT cleaned up -- the caller links that file, so it must outlive this call
+        # (an uncached bake therefore lives under the scoped store's stale sweep).
+        if conversion is not None and conversion.scratch is not None:
+            conversion.scratch.cleanup()
+        # Rewritten on a cache hit too: cheap, and it self-heals a sidecar lost to a
+        # partial sweep (without it the panel silently forgets the row is linked).
+        self._write_bake_source(got.path, src)
+        self.logger.info(f"Baked {src_path} -> {got.path}")
+        return got.path
+
+    def _write_bake_source(self, baked_path: str, src: str) -> None:
+        """Record beside *baked_path* which foreign scene it was baked from."""
+        import json
+
+        try:
+            with open(baked_path + BAKE_SOURCE_SUFFIX, "w", encoding="utf-8") as fh:
+                json.dump({"source": os.path.abspath(src)}, fh)
+        except OSError as e:  # cosmetic bookkeeping — never fail a completed bake
+            self.logger.debug(f"Could not write the bake source sidecar: {e}")
+
+    @staticmethod
+    def bake_source(baked_path: str) -> Optional[str]:
+        """The foreign scene *baked_path* was baked from, or None if it is not a bake.
+
+        The inverse of :meth:`bake_scene` — lets a browser map a linked library back to
+        the source row the user actually sees.
+        """
+        import json
+
+        try:
+            with open(baked_path + BAKE_SOURCE_SUFFIX, "r", encoding="utf-8") as fh:
+                return json.load(fh).get("source") or None
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def mayapy_from_maya_exe(maya_exe: str) -> Optional[str]:
+        """Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
+
+        The bridge's :class:`pythontk.AppSpec` discovers the GUI binary
+        (``.../bin/maya.exe``); the headless interpreter ships in the same ``bin`` dir.
+        """
+        exe = Path(maya_exe)
+        # The install scan can return 'maya.EXE' — the suffix check must be case-insensitive.
+        candidate = exe.with_name(
+            "mayapy.exe" if exe.suffix.lower() == ".exe" else "mayapy"
+        )
+        return str(candidate) if candidate.is_file() else None
+
+    # ------------------------------------------------------------------ discovery (browser API)
+    @staticmethod
+    def scene_has_complex_animation(src_path: str) -> bool:
+        """Cheap pre-conversion probe: does the ``.ma`` declare *driven* animation the
+        plain FBX round trip would lose (constraints, set-driven keys, expressions,
+        IK, motion paths, or keyed visibility)? Lets a browser prompt bake-vs-raw
+        WITHOUT launching Maya.
+
+        A text scan of the ASCII scene, mirroring the node-type signals of the
+        conversion template's Maya-side :func:`_detect_complex_anim` (the
+        authoritative check, run during the actual bake). Early-exits on the first
+        driver node. Returns ``False`` for ``.fbx`` (already baked — no Maya drivers)
+        and ``.mb`` (binary — not text-scannable; the caller then falls back to the
+        ``"auto"`` default, which still bakes if the Maya side detects driven
+        animation)."""
+        if (
+            os.path.splitext(str(src_path))[1].lower() != ".ma"
+            or not os.path.isfile(src_path)
+        ):
+            return False
+        try:
+            with open(src_path, "r", encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    if not line.startswith("createNode "):
+                        continue
+                    parts = line.split(None, 2)
+                    if len(parts) < 2:
+                        continue
+                    node_type = parts[1]
+                    if node_type in _DRIVER_NODE_TYPES:
+                        return True
+                    # Keyed visibility: Maya auto-names the curve ``<node>_visibility``.
+                    if node_type == "animCurveTU" and '_visibility"' in line:
+                        return True
+        except OSError:
+            return False
+        return False
+
+    @staticmethod
+    def find_scenes(
+        root_dir: str,
+        recursive: bool = False,
+        extensions: Optional[Sequence[str]] = None,
+    ) -> List[str]:
+        """Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.
+
+        The discovery half of the import: pairs with :meth:`import_scene` so a browser can
+        list convertible Maya scenes with one call, using the SAME extension set the importer
+        accepts. USD sources are import-capable too but are not *Maya scenes*, so they are
+        intentionally excluded here (list them from their own project, not as "Maya files").
+
+        *extensions* narrows or widens that default — a browser listing *bakeable* rows
+        passes :data:`BAKE_SOURCE_EXTENSIONS` (which adds ``.fbx``), or the subset the
+        user has enabled.
+        """
+        if not (root_dir and os.path.isdir(root_dir)):
+            return []
+        inc = [f"*{ext}" for ext in (extensions or SUPPORTED_EXTENSIONS)]
+        found = ptk.FileUtils.get_dir_contents(
+            root_dir, content="filepath", recursive=recursive, inc_files=inc
+        )
+        return sorted(os.path.normpath(p) for p in found)
 
 
 def import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]:
@@ -471,4 +947,15 @@ def import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]:
     return MayaSceneImport().import_scene(src_path, **kwargs)
 
 
-__all__ = ["MayaSceneImport", "import_maya_scene", "mayapy_from_maya_exe"]
+def bake_maya_scene(src_path: str, **kwargs: Any) -> str:
+    """Bake a foreign scene (.ma/.mb/.fbx) to a cached .blend and return its path.
+
+    Convenience wrapper over :meth:`MayaSceneImport.bake_scene` -- the linkable
+    counterpart of :func:`import_maya_scene`: pass the result to
+    :func:`blendertk.link_blend_file` to REFERENCE a foreign scene instead of importing
+    it. A ``.ma``/``.mb`` source requires a local Maya install; an ``.fbx`` does not.
+    """
+    return MayaSceneImport().bake_scene(src_path, **kwargs)
+
+
+__all__ = ["MayaSceneImport", "import_maya_scene", "bake_maya_scene"]

@@ -17,6 +17,7 @@ tooltip explaining the gap) -- ``TODO(blender-parity)``. No method is defined fo
 placeholder: :class:`TaskFactory` gracefully skips a missing method (logs + no-ops), and a
 disabled widget can never be toggled to invoke it anyway.
 """
+
 import math
 import os
 import re
@@ -27,7 +28,7 @@ import pythontk as ptk
 
 from pythontk import TaskFactory
 
-from blendertk.core_utils._core_utils import strip_dup_suffix
+from blendertk.core_utils._core_utils import CoreUtils
 
 
 _NEEDS_HIERARCHY_MANAGER = (
@@ -62,18 +63,18 @@ class _TaskDataMixin:
 
     @property
     def _has_keyframes(self) -> bool:
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         if not self.objects:
             return False
-        return any(fc.keyframe_points for fc in get_fcurves(self.objects))
+        return any(fc.keyframe_points for fc in AnimUtils.get_fcurves(self.objects))
 
     def _get_all_materials(self) -> List:
         """Materials assigned to ``self.objects`` (cached; invalidated on ``objects`` reassign)."""
-        from blendertk.mat_utils._mat_utils import get_mats
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         if not hasattr(self, "_cached_materials") or self._cached_materials is None:
-            self._cached_materials = get_mats(self.objects or [])
+            self._cached_materials = MatUtils.get_mats(self.objects or [])
         return self._cached_materials
 
     def _get_export_images(self, materials=None) -> List:
@@ -150,13 +151,13 @@ class _TaskActionsMixin(_TaskDataMixin):
 
         import bpy
 
-        from blendertk.node_utils._node_utils import get_children
+        from blendertk.node_utils._node_utils import NodeUtils
 
         excluded = set()
         for root in (o for o in bpy.data.objects if o.parent is None):
             if root.name.lower() in names:
                 excluded.add(root)
-                excluded.update(get_children(root, recursive=True))
+                excluded.update(NodeUtils.get_children(root, recursive=True))
         if excluded:
             before = len(self.objects)
             self.objects = [o for o in self.objects if o not in excluded]
@@ -168,13 +169,11 @@ class _TaskActionsMixin(_TaskDataMixin):
 
     def reassign_duplicate_materials(self):
         """Reassign every object using a duplicate material to the group's canonical material."""
-        from blendertk.mat_utils._mat_utils import (
-            find_materials_with_duplicate_textures,
-            reassign_duplicate_materials as _reassign,
-        )
+        from blendertk.mat_utils._mat_utils import MatUtils
 
+        _reassign = MatUtils.reassign_duplicate_materials
         materials = self._get_all_materials()
-        groups = find_materials_with_duplicate_textures(materials=materials)
+        groups = MatUtils.find_materials_with_duplicate_textures(materials=materials)
         if not groups:
             return
         count = _reassign(groups, delete=True)
@@ -184,22 +183,22 @@ class _TaskActionsMixin(_TaskDataMixin):
     def convert_to_relative_paths(self):
         """Copy external textures into the project's textures folder, then convert their paths
         to ``//``-relative (the Blender analogue of mayatk's sourceimages + relative-path task)."""
-        from blendertk.mat_utils._mat_utils import normalize_texture_paths
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         images = self._get_export_images()
         if not images:
             return
-        copied = normalize_texture_paths(mode="copy", images=images)
+        copied = MatUtils.normalize_texture_paths(mode="copy", images=images)
         if copied:
             self.logger.info(
                 f"Copied {copied} external texture(s) into the project textures folder "
                 "before relative-path conversion."
             )
-        normalize_texture_paths(mode="relative", images=images)
+        MatUtils.normalize_texture_paths(mode="relative", images=images)
 
     def resolve_invalid_texture_paths(self):
         """Attempt to resolve missing texture paths by searching the .blend's directory."""
-        from blendertk.mat_utils._mat_utils import resolve_missing_textures
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         images = self._get_export_images()
         if not images:
@@ -210,7 +209,7 @@ class _TaskActionsMixin(_TaskDataMixin):
                 "No saved .blend directory to search for missing textures. Skipping."
             )
             return
-        resolved = resolve_missing_textures(
+        resolved = MatUtils.resolve_missing_textures(
             search_dir, recursive=True, stem=True, texture=True, images=images
         )
         if resolved:
@@ -230,7 +229,9 @@ class _TaskActionsMixin(_TaskDataMixin):
         baker = SmartBake(objects=self.objects, sample_by=1)
         analysis = baker.analyze()
         if not any(a.requires_bake for a in analysis.values()):
-            self.logger.info("No constrained/driven objects found. Skipping smart bake.")
+            self.logger.info(
+                "No constrained/driven objects found. Skipping smart bake."
+            )
             return
 
         bake_count = sum(1 for a in analysis.values() if a.requires_bake)
@@ -256,8 +257,9 @@ class _TaskActionsMixin(_TaskDataMixin):
             self.logger.debug("No keyframes found. Skipping optimization.")
             return
 
-        from blendertk.anim_utils._anim_utils import optimize_keys as _optimize_keys
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
+        _optimize_keys = AnimUtils.optimize_keys
         self.logger.info("Optimizing baked animation keys...")
         stats = _optimize_keys(self.objects)
         self.logger.info(
@@ -271,10 +273,10 @@ class _TaskActionsMixin(_TaskDataMixin):
             self.logger.debug("No keyframes found. Skipping tie operation.")
             return
 
-        from blendertk.anim_utils._anim_utils import tie_keyframes
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         self.logger.info("Tying keyframes for all objects.")
-        changed = tie_keyframes(self.objects, absolute=True)
+        changed = AnimUtils.tie_keyframes(self.objects, absolute=True)
         self.logger.info(f"Tied {changed} keyframe(s).")
 
     def snap_keys_to_frame(self):
@@ -283,10 +285,10 @@ class _TaskActionsMixin(_TaskDataMixin):
             self.logger.debug("No keyframes found. Skipping snap operation.")
             return
 
-        from blendertk.anim_utils._anim_utils import snap_keys
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         self.logger.info("Snapping keyframes to nearest whole frame.")
-        snapped = snap_keys(self.objects)
+        snapped = AnimUtils.snap_keys(self.objects)
         self.logger.info(f"Snapped {snapped} keyframe(s).")
 
     def set_bake_animation_range(self):
@@ -298,9 +300,9 @@ class _TaskActionsMixin(_TaskDataMixin):
         set the scene's own range for the export and revert it after. Runs last in the
         animation phase (TASK_ORDER) so it captures the final, post-processing extent.
         """
-        from blendertk.anim_utils._anim_utils import _key_range, get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
-        rng = _key_range(get_fcurves(self.objects))
+        rng = AnimUtils._key_range(AnimUtils.get_fcurves(self.objects))
         if rng is None:
             self.logger.debug("No keyframes found. Skipping frame range setting.")
             return None
@@ -426,15 +428,17 @@ class _TaskChecksMixin(_TaskDataMixin):
         scene = bpy.context.scene
         actual = scene.render.fps / scene.render.fps_base
         if abs(actual - target) > 1e-3:
-            return False, [f"Scene FPS ({actual:g}) does not match target ({target:g})."]
+            return False, [
+                f"Scene FPS ({actual:g}) does not match target ({target:g})."
+            ]
         return True, []
 
     def check_referenced_objects(self, enabled) -> tuple:
         if not enabled:
             return True, []
-        from blendertk.env_utils._env_utils import list_libraries
+        from blendertk.env_utils._env_utils import EnvUtils
 
-        libs = list_libraries()
+        libs = EnvUtils.list_libraries()
         if libs:
             names = ", ".join(r["name"] for r in libs)
             return False, [
@@ -446,7 +450,11 @@ class _TaskChecksMixin(_TaskDataMixin):
         """Informational only -- always succeeds (mirrors mayatk's contract)."""
         if not enabled or not self.objects:
             return True, []
-        found = [o.name for o in self.objects if o.type == "MESH" and _LOD_SUFFIX_RE.search(o.name)]
+        found = [
+            o.name
+            for o in self.objects
+            if o.type == "MESH" and _LOD_SUFFIX_RE.search(o.name)
+        ]
         if found:
             shown = ", ".join(found[:10]) + (" …" if len(found) > 10 else "")
             return True, [f"{len(found)} object(s) use an LOD suffix: {shown}"]
@@ -462,10 +470,12 @@ class _TaskChecksMixin(_TaskDataMixin):
         groups = defaultdict(list)
         for o in self.objects:
             if o.type == "EMPTY":
-                groups[strip_dup_suffix(o.name)].append(o.name)
+                groups[CoreUtils.strip_dup_suffix(o.name)].append(o.name)
         dupes = {k: v for k, v in groups.items() if len(v) > 1}
         if dupes:
-            messages = [f"'{base}': {', '.join(names)}" for base, names in dupes.items()]
+            messages = [
+                f"'{base}': {', '.join(names)}" for base, names in dupes.items()
+            ]
             return False, ["Duplicate Empty base name(s) detected:"] + messages
         return True, []
 
@@ -473,11 +483,11 @@ class _TaskChecksMixin(_TaskDataMixin):
         """Root groups (an Empty with children) should sit at identity transform."""
         if not enabled or not self.objects:
             return True, []
-        from blendertk.node_utils._node_utils import get_parent
+        from blendertk.node_utils._node_utils import NodeUtils
 
         roots = set()
         for o in self.objects:
-            chain = get_parent(o, all=True)
+            chain = NodeUtils.get_parent(o, all=True)
             root = chain[-1] if chain else o
             if root.type == "EMPTY" and root.children:
                 roots.add(root)
@@ -487,43 +497,57 @@ class _TaskChecksMixin(_TaskDataMixin):
             loc = tuple(round(v, 5) for v in root.location)
             rot = tuple(round(v, 5) for v in root.rotation_euler)
             scale = tuple(round(v, 5) for v in root.scale)
-            if loc != (0.0, 0.0, 0.0) or rot != (0.0, 0.0, 0.0) or scale != (1.0, 1.0, 1.0):
+            if (
+                loc != (0.0, 0.0, 0.0)
+                or rot != (0.0, 0.0, 0.0)
+                or scale != (1.0, 1.0, 1.0)
+            ):
                 bad.append(root.name)
         if bad:
-            return False, [f"Root group(s) with non-default transform: {', '.join(bad)}"]
+            return False, [
+                f"Root group(s) with non-default transform: {', '.join(bad)}"
+            ]
         return True, []
 
     def check_hidden_geometry(self, enabled) -> tuple:
         if not enabled or not self.objects:
             return True, []
-        hidden = [o.name for o in self.objects if o.type == "MESH" and not o.visible_get()]
+        hidden = [
+            o.name for o in self.objects if o.type == "MESH" and not o.visible_get()
+        ]
         if hidden:
             shown = ", ".join(hidden[:10]) + (" …" if len(hidden) > 10 else "")
-            return False, [f"{len(hidden)} hidden mesh object(s) will be exported: {shown}"]
+            return False, [
+                f"{len(hidden)} hidden mesh object(s) will be exported: {shown}"
+            ]
         return True, []
 
     def check_overlapping_duplicate_mesh(self, enabled) -> tuple:
         if not enabled or not self.objects:
             return True, []
-        from blendertk.edit_utils._edit_utils import get_overlapping_duplicates
+        from blendertk.edit_utils._edit_utils import EditUtils
 
-        dupes = get_overlapping_duplicates(objects=self.objects)
+        dupes = EditUtils.get_overlapping_duplicates(objects=self.objects)
         if dupes:
-            shown = ", ".join(o.name for o in dupes[:10]) + (" …" if len(dupes) > 10 else "")
-            return False, [f"{len(dupes)} overlapping duplicate mesh object(s) found: {shown}"]
+            shown = ", ".join(o.name for o in dupes[:10]) + (
+                " …" if len(dupes) > 10 else ""
+            )
+            return False, [
+                f"{len(dupes)} overlapping duplicate mesh object(s) found: {shown}"
+            ]
         return True, []
 
     def check_objects_below_floor(self, enabled, tolerance: float = 0.5) -> tuple:
         """Blender is Z-up natively (Maya's version checks Y)."""
         if not enabled or not self.objects:
             return True, []
-        from blendertk.xform_utils._xform_utils import get_world_bbox
+        from blendertk.xform_utils._xform_utils import XformUtils
 
         below = []
         for o in self.objects:
             if o.type != "MESH":
                 continue
-            mn, _mx = get_world_bbox(o)
+            mn, _mx = XformUtils.get_world_bbox(o)
             if mn.z < -tolerance:
                 below.append(o.name)
         if below:
@@ -534,12 +558,16 @@ class _TaskChecksMixin(_TaskDataMixin):
     def check_duplicate_materials(self, enabled) -> tuple:
         if not enabled:
             return True, []
-        from blendertk.mat_utils._mat_utils import find_materials_with_duplicate_textures
+        from blendertk.mat_utils._mat_utils import MatUtils
 
-        groups = find_materials_with_duplicate_textures(materials=self._get_all_materials())
+        groups = MatUtils.find_materials_with_duplicate_textures(
+            materials=self._get_all_materials()
+        )
         if groups:
             messages = [", ".join(m.name for m in g) for g in groups]
-            return False, [f"{len(groups)} duplicate material group(s) found:"] + messages
+            return False, [
+                f"{len(groups)} duplicate material group(s) found:"
+            ] + messages
         return True, []
 
     def check_absolute_paths(self, enabled) -> tuple:
@@ -548,7 +576,8 @@ class _TaskChecksMixin(_TaskDataMixin):
         absolute = [
             img.name
             for img in self._get_export_images()
-            if (getattr(img, "filepath", "") or "") and not img.filepath.startswith("//")
+            if (getattr(img, "filepath", "") or "")
+            and not img.filepath.startswith("//")
         ]
         if absolute:
             shown = ", ".join(absolute[:10]) + (" …" if len(absolute) > 10 else "")
@@ -560,11 +589,11 @@ class _TaskChecksMixin(_TaskDataMixin):
         matching Maya's version -- not limited to the export object set)."""
         if not enabled:
             return True, []
-        from blendertk.env_utils._env_utils import list_libraries
-        from blendertk.mat_utils._mat_utils import get_image_records
+        from blendertk.env_utils._env_utils import EnvUtils
+        from blendertk.mat_utils._mat_utils import MatUtils
 
-        missing = [r["name"] for r in get_image_records() if not r["exists"]]
-        missing += [r["name"] for r in list_libraries() if not r["exists"]]
+        missing = [r["name"] for r in MatUtils.get_image_records() if not r["exists"]]
+        missing += [r["name"] for r in EnvUtils.list_libraries() if not r["exists"]]
         if missing:
             shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
             return False, [f"{len(missing)} missing file(s): {shown}"]
@@ -573,9 +602,9 @@ class _TaskChecksMixin(_TaskDataMixin):
     def check_texture_file_size(self, max_mb) -> tuple:
         if not max_mb:
             return True, []
-        from blendertk.mat_utils._mat_utils import get_texture_paths
+        from blendertk.mat_utils._mat_utils import MatUtils
 
-        paths = get_texture_paths(objects=self.objects, absolute=True)
+        paths = MatUtils.get_texture_paths(objects=self.objects, absolute=True)
         oversized = []
         for p in paths:
             try:
@@ -595,13 +624,13 @@ class _TaskChecksMixin(_TaskDataMixin):
         if not enabled or not self._has_keyframes:
             return True, []
 
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         untied = []
         for o in self.objects:
             bounds = [
                 (fc, fc.keyframe_points[0].co.x, fc.keyframe_points[-1].co.x)
-                for fc in get_fcurves([o])
+                for fc in AnimUtils.get_fcurves([o])
                 if len(fc.keyframe_points)
             ]
             if not bounds:
@@ -625,11 +654,11 @@ class _TaskChecksMixin(_TaskDataMixin):
         if not enabled or not self._has_keyframes:
             return True, []
 
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         offenders = []
         for o in self.objects:
-            for fc in get_fcurves([o]):
+            for fc in AnimUtils.get_fcurves([o]):
                 for k in fc.keyframe_points:
                     if abs(k.co.x - round(k.co.x)) > 1e-4:
                         offenders.append(
@@ -639,7 +668,9 @@ class _TaskChecksMixin(_TaskDataMixin):
 
         if offenders:
             shown = ", ".join(offenders[:10]) + (" …" if len(offenders) > 10 else "")
-            return False, [f"{len(offenders)} curve(s) have floating point keys: {shown}"]
+            return False, [
+                f"{len(offenders)} curve(s) have floating point keys: {shown}"
+            ]
         return True, []
 
 
@@ -884,7 +915,10 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setToolTip": "Check for linked libraries (Blender's analogue of Maya file references).",
                 "setChecked": True,
             },
-            "sep_hierarchy": {"widget_type": "Separator", "title": "Hierarchy & Naming"},
+            "sep_hierarchy": {
+                "widget_type": "Separator",
+                "title": "Hierarchy & Naming",
+            },
             "check_geometry_lod_suffix": {
                 "widget_type": "QCheckBox",
                 "setText": "Check Geometry LOD Suffix (_LODx)",

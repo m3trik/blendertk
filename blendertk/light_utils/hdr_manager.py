@@ -39,23 +39,16 @@ Maya's project ``sourceimages`` workspace (which mayatk's dropdown auto-scans) h
 analogue, so the HDR folder here is an explicit, persisted choice — header menu ▸ **Set HDR
 Folder…** — rather than auto-resolved.
 """
+
 import os
 import shutil
 from typing import Optional
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import undoable
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.script_job_manager import ScriptJobManager
-from blendertk.light_utils._light_utils import (
-    get_world_hdri,
-    set_world_hdri,
-    clear_world_hdri,
-    set_world_ray_visibility,
-    get_world_ray_visibility,
-    set_world_importance_resolution,
-    get_world_importance_resolution,
-)
+from blendertk.light_utils._light_utils import LightUtils
 
 
 class HdrManagerSlots(ptk.LoggingMixin):
@@ -115,7 +108,10 @@ class HdrManagerSlots(ptk.LoggingMixin):
         # caught below, exactly like an unavailable Maya scriptJob on some Maya build).
         mgr = ScriptJobManager.instance()
         for events, handler in (
-            (("SceneOpened", "NewSceneOpened", "SceneImported"), self._on_scene_changed),
+            (
+                ("SceneOpened", "NewSceneOpened", "SceneImported"),
+                self._on_scene_changed,
+            ),
             (("Undo", "Redo"), self._sync_ui_to_scene),
         ):
             for event in events:
@@ -247,7 +243,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
 
     def header_init(self, widget) -> None:
         """Configure header menu and refresh button."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self._refresh_and_sync_combo)
@@ -275,7 +271,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
             setToolTip="Remove the world HDRI environment (Environment Texture / Mapping nodes).",
         ).clicked.connect(self.clear_network)
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="HDR Manager",
                 body="Manage the scene's world HDR environment lighting "
                 "(Environment Texture + Mapping + Background world-shader network).",
@@ -293,34 +289,46 @@ class HdrManagerSlots(ptk.LoggingMixin):
                     "as the render background; lighting is unaffected either way).",
                 ],
                 sections=[
-                    ("Advanced Options (collapsible)", [
-                        "<b>Diffuse</b> / <b>Specular</b> — whether the world contributes to "
-                        "diffuse vs glossy lighting (Cycles ray visibility; EEVEE ignores this). "
-                        "Any value &gt;0 enables it, 0 disables it — Arnold's continuous scale "
-                        "has no Blender equivalent, only on/off.",
-                        "<b>Resolution</b> / <b>Samples</b> — disabled: Arnold-only concepts "
-                        "(HDR importance-sampling resolution, per-light sample count); Cycles "
-                        "handles both automatically and globally, with no per-light override.",
-                    ]),
-                    ("Add HDR(s)… (option-box menu ▸)", [
-                        "One dialog picks <b>loose files and/or a whole folder</b>; folders are "
-                        "expanded to their .hdr/.exr contents. Incomplete/corrupt files are "
-                        "skipped.",
-                        "Files already inside the HDR folder (any subfolder) are used in place "
-                        "— never duplicated; the dropdown lists them automatically.",
-                        "<b>Copy</b> — duplicate an <i>external</i> file into the HDR folder "
-                        "(default; keeps the folder self-contained).",
-                        "<b>Move</b> — relocate an external file into the HDR folder.",
-                        "<b>Link</b> — wire each in at its original path.",
-                    ]),
-                    ("Dropdown right-click", [
-                        "Reveal the texture in the OS file manager.",
-                    ]),
-                    ("Header menu", [
-                        "<b>Set HDR Folder…</b> — choose the folder scanned for HDR maps.",
-                        "<b>Open HDR Folder</b> — OS file manager shortcut.",
-                        "<b>Clear Network</b> — delete the world HDRI environment nodes.",
-                    ]),
+                    (
+                        "Advanced Options (collapsible)",
+                        [
+                            "<b>Diffuse</b> / <b>Specular</b> — whether the world contributes to "
+                            "diffuse vs glossy lighting (Cycles ray visibility; EEVEE ignores this). "
+                            "Any value &gt;0 enables it, 0 disables it — Arnold's continuous scale "
+                            "has no Blender equivalent, only on/off.",
+                            "<b>Resolution</b> / <b>Samples</b> — disabled: Arnold-only concepts "
+                            "(HDR importance-sampling resolution, per-light sample count); Cycles "
+                            "handles both automatically and globally, with no per-light override.",
+                        ],
+                    ),
+                    (
+                        "Add HDR(s)… (option-box menu ▸)",
+                        [
+                            "One dialog picks <b>loose files and/or a whole folder</b>; folders are "
+                            "expanded to their .hdr/.exr contents. Incomplete/corrupt files are "
+                            "skipped.",
+                            "Files already inside the HDR folder (any subfolder) are used in place "
+                            "— never duplicated; the dropdown lists them automatically.",
+                            "<b>Copy</b> — duplicate an <i>external</i> file into the HDR folder "
+                            "(default; keeps the folder self-contained).",
+                            "<b>Move</b> — relocate an external file into the HDR folder.",
+                            "<b>Link</b> — wire each in at its original path.",
+                        ],
+                    ),
+                    (
+                        "Dropdown right-click",
+                        [
+                            "Reveal the texture in the OS file manager.",
+                        ],
+                    ),
+                    (
+                        "Header menu",
+                        [
+                            "<b>Set HDR Folder…</b> — choose the folder scanned for HDR maps.",
+                            "<b>Open HDR Folder</b> — OS file manager shortcut.",
+                            "<b>Clear Network</b> — delete the world HDRI environment nodes.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Applying an HDR does not change the active render engine — Blender's world "
@@ -552,7 +560,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         network.
         """
         try:
-            state = get_world_hdri()
+            state = LightUtils.get_world_hdri()
         except ModuleNotFoundError:
             # No Blender runtime (Qt-only harness): nothing to sync.  This runs
             # from a deferred QTimer callback — letting the ImportError escape
@@ -564,11 +572,11 @@ class HdrManagerSlots(ptk.LoggingMixin):
         intensity = state["intensity"] if has_env else 1.0
         exposure = state["exposure"] if has_env else 0.0
         visible = state["visible"] if has_env else True
-        rv = get_world_ray_visibility() or {}
+        rv = LightUtils.get_world_ray_visibility() or {}
         diffuse = 1.0 if rv.get("diffuse", True) else 0.0
         specular = 1.0 if rv.get("glossy", True) else 0.0
         # Manual importance-sampling resolution when set, else the .ui default (automatic mode).
-        resolution = get_world_importance_resolution()
+        resolution = LightUtils.get_world_importance_resolution()
         if resolution is None:
             resolution = self.ui.spn_resolution.value()
 
@@ -597,7 +605,9 @@ class HdrManagerSlots(ptk.LoggingMixin):
 
         # Reflect the LIVE world HDR in the dropdown so the combo always shows what's actually
         # lighting the scene (it's restore_state=False, so it never shows a persisted pick).
-        self._select_active_in_combo(has_env=has_env, filepath=state["filepath"] if has_env else None)
+        self._select_active_in_combo(
+            has_env=has_env, filepath=state["filepath"] if has_env else None
+        )
 
     def _select_active_in_combo(
         self, has_env: Optional[bool] = None, filepath: Optional[str] = None
@@ -612,7 +622,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         :meth:`_refresh_combo` and re-added here if the link is still active.
         """
         if has_env is None:
-            state = get_world_hdri()
+            state = LightUtils.get_world_hdri()
             has_env = state is not None
             filepath = state["filepath"] if has_env else None
         current_path = filepath if has_env else None
@@ -701,9 +711,9 @@ class HdrManagerSlots(ptk.LoggingMixin):
     def _apply_levels(self) -> None:
         """Re-apply intensity/exposure/rotation/visibility to an already-set environment
         (no-op until a map has been selected)."""
-        if get_world_hdri() is None:
+        if LightUtils.get_world_hdri() is None:
             return
-        set_world_hdri(
+        LightUtils.set_world_hdri(
             None,
             intensity=self.ui.spn_intensity.value(),
             exposure=self.ui.spn_exposure.value(),
@@ -715,7 +725,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         """Importance-sampling map resolution — switches the world to manual Cycles sampling and
         applies the map size (the Blender analogue of Arnold's skydome Resolution; Cycles-only,
         no-op off-Cycles)."""
-        set_world_importance_resolution(self.ui.spn_resolution.value())
+        LightUtils.set_world_importance_resolution(self.ui.spn_resolution.value())
 
     def spn_diffuse(self, value, widget) -> None:
         """Diffuse contribution — any value >0 enables it, 0 disables it (Cycles ray
@@ -730,7 +740,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
     def _apply_ray_visibility(self) -> None:
         """Push the Diffuse / Specular spin boxes to the world's Cycles ray visibility
         (no-op off-Cycles)."""
-        set_world_ray_visibility(
+        LightUtils.set_world_ray_visibility(
             diffuse=self.ui.spn_diffuse.value() > 0.0,
             glossy=self.ui.spn_specular.value() > 0.0,
         )
@@ -770,17 +780,19 @@ class HdrManagerSlots(ptk.LoggingMixin):
         )
         return False
 
-    def _clear_environment(self, absent_msg: str, *, absent_level: str = "info") -> bool:
+    def _clear_environment(
+        self, absent_msg: str, *, absent_level: str = "info"
+    ) -> bool:
         """Remove the world HDRI network, resync the UI, and report.
 
         Single owner of the clear path — shared by the deferred apply's "None" selection
         (:meth:`_apply_selection`) and the header's Clear Network action (:meth:`clear_network`).
         Returns True when a network was cleared; when none is present, reports *absent_msg* at
         *absent_level* and returns False."""
-        if get_world_hdri() is None:
+        if LightUtils.get_world_hdri() is None:
             self._notify(absent_msg, level=absent_level)
             return False
-        clear_world_hdri()
+        LightUtils.clear_world_hdri()
         self._sync_ui_to_scene()
         self._notify("HDR environment cleared.", level="success")
         return True
@@ -791,7 +803,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         The shared apply primitive behind the combo selection (:meth:`_apply_selection`) and the
         Add-HDR Link / off-list paths (:meth:`_apply_path`); un-decorated so each caller pushes
         exactly one undo step (``@undoable`` wraps the entry points, not this)."""
-        set_world_hdri(
+        LightUtils.set_world_hdri(
             path,
             intensity=self.ui.spn_intensity.value(),
             exposure=self.ui.spn_exposure.value(),
@@ -800,7 +812,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         )
         self._apply_ray_visibility()
 
-    @undoable
+    @CoreUtils.undoable
     def _apply_selection(self) -> None:
         """Apply the current dropdown selection — clear / swap / build.
 
@@ -964,7 +976,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
             added, skipped, last, where=where, careful=careful, mode=mode, did_io=did_io
         )
 
-    @undoable
+    @CoreUtils.undoable
     def _apply_path(self, path: str) -> None:
         """Light the scene from *path* directly (the Add-HDR apply step).
 
@@ -1006,14 +1018,16 @@ class HdrManagerSlots(ptk.LoggingMixin):
         """Open the HDR folder in the OS file manager."""
         src = self._hdr_folder()
         if not src or not os.path.isdir(src):
-            self._notify("No HDR folder set (header menu ▸ Set HDR Folder…).", level="warning")
+            self._notify(
+                "No HDR folder set (header menu ▸ Set HDR Folder…).", level="warning"
+            )
             return
         try:
             ptk.FileUtils.reveal_in_file_manager(src)
         except (FileNotFoundError, OSError) as e:
             self._notify(str(e), level="error")
 
-    @undoable
+    @CoreUtils.undoable
     def clear_network(self) -> None:
         """Delete the world HDRI network and reset the UI to defaults."""
         self._clear_environment("No HDR network in scene.")
@@ -1024,7 +1038,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
 
     def ctx_reveal_in_explorer(self) -> None:
         """Reveal the environment's HDR texture file in the OS file manager."""
-        state = get_world_hdri()
+        state = LightUtils.get_world_hdri()
         path = state["filepath"] if state else None
         if path and os.path.exists(path):
             try:
@@ -1074,11 +1088,14 @@ class HdrManagerSlots(ptk.LoggingMixin):
 
     def _confirm_overwrite(self, target_path: str) -> bool:
         """Ask the user before overwriting an existing file in the HDR folder."""
-        return self.sb.message_box(
-            f"{os.path.basename(target_path)} already exists in the HDR folder.\nOverwrite it?",
-            "Yes",
-            "No",
-        ) == "Yes"
+        return (
+            self.sb.message_box(
+                f"{os.path.basename(target_path)} already exists in the HDR folder.\nOverwrite it?",
+                "Yes",
+                "No",
+            )
+            == "Yes"
+        )
 
 
 # -----------------------------------------------------------------------------

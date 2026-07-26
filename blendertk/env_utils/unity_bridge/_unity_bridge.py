@@ -22,6 +22,7 @@ Composition:
 ``import bpy`` is deferred (via the mixin) so the engine surface resolves headlessly; the
 ``unitytk`` import is module-level (pure-Python, no DCC/Qt).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,9 +40,6 @@ _PKG_DIR = Path(__file__).resolve().parent
 
 # Module-level helper so the slots can populate the combo without a live engine. Single-sources
 # the delivery modes from the shared deliverer.
-def list_delivery_modes() -> List[Tuple[str, str]]:
-    """``[(mode_stem, ""), ...]`` for the panel's delivery combo."""
-    return list(CopyToAssetsDeliverer.DELIVERY_MODES)
 
 
 class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
@@ -61,12 +59,12 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
 
     # ------------------------------------------------------------------ bindings
     def list_template_modes(self):
-        return list_delivery_modes()
+        return UnityBridge.list_delivery_modes()
 
     def params_defaults(self):
         from blendertk.env_utils.unity_bridge import parameters as _params
 
-        return _params.defaults()
+        return _params.Parameters.defaults()
 
     def _produce(self, objects, request) -> ptk.Payload:
         """Export the FBX (via the mixin) and stamp the default asset name for the deliverer."""
@@ -78,6 +76,11 @@ class UnityBridge(BlenderExportMixin, ptk.HandoffBridge):
     def _default_asset_name(objects) -> str:
         """Asset stem from the first selected object."""
         return objects[0].name
+
+    @staticmethod
+    def list_delivery_modes() -> List[Tuple[str, str]]:
+        """``[(mode_stem, ""), ...]`` for the panel's delivery combo."""
+        return list(CopyToAssetsDeliverer.DELIVERY_MODES)
 
 
 # -----------------------------------------------------------------------------

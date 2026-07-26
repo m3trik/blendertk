@@ -17,8 +17,8 @@ Rigs a tube-shaped mesh **multiple ways** through a strategy registry, mirroring
 Each strategy still *declares its options* as plain Qt-free **dicts** (``AttributeSpec``-shaped —
 see :data:`SplineIKStrategy.options`); the engine stays Qt-free (Blender ``--background`` has no Qt
 binding) and ``TubeStrategy.resolve``/``defaults`` use them to fill in a one-shot ``build()`` call's
-missing kwargs. Adding a rig type = subclass :class:`TubeStrategy` + :func:`register_strategy` — no
-``.ui`` edits needed to use it from code; ``register_strategy`` is a genuine blendertk-only
+missing kwargs. Adding a rig type = subclass :class:`TubeStrategy` + :meth:`TubeStrategy.register` —
+no ``.ui`` edits needed to use it from code; ``TubeStrategy.register`` is a genuine blendertk-only
 extension point mayatk's hardcoded ``if strategy == …`` dispatch doesn't have.
 
 ``tube_rig.ui`` is now a **verbatim mirror of mayatk's** (same objectNames/layout: a toolbox with
@@ -43,6 +43,7 @@ per-mesh ``TubeRig`` UUID cache → none yet (each call resolves fresh from the 
 same end-user model, no cross-call rig registry). The centerline comes from the shared
 :class:`~blendertk.rig_utils.tube_path.TubePath`. ``import bpy`` is deferred into the call bodies.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -52,7 +53,7 @@ import pythontk as ptk
 from blendertk.rig_utils._rig_utils import RigUtils
 from blendertk.rig_utils.controls import Controls
 from blendertk.rig_utils.tube_path import TubePath
-from blendertk.edit_utils._edit_utils import hook_curve_point
+from blendertk.edit_utils._edit_utils import EditUtils
 
 
 @dataclass
@@ -64,16 +65,6 @@ class TubeRigBundle:
     bones: List[str]
     curve: Optional[object] = None
     controls: List = field(default_factory=list)
-
-
-def _xz_scale_mode(squash: bool, volume: bool) -> str:
-    """Map Maya's separate squash / volume toggles onto Blender's Spline IK XZ-scale enum (Maya's
-    two node-graph systems collapse to one native constraint mode): no squash -> ``NONE`` (the
-    cross-section stays fixed on stretch); squash without volume -> ``INVERSE_PRESERVE`` (XZ = 1/Y,
-    over-thins); squash with volume -> ``VOLUME_PRESERVE`` (XZ = 1/sqrt(Y), true volume preservation)."""
-    if not squash:
-        return "NONE"
-    return "VOLUME_PRESERVE" if volume else "INVERSE_PRESERVE"
 
 
 # ----------------------------------------------------------------------------
@@ -89,6 +80,15 @@ class TubeStrategy(ABC):
     label: str = ""
     options: List[dict] = []
 
+    @staticmethod
+    def register(cls):
+        """Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension
+        point mirroring Maya's mode registry, reached as ``btk.TubeStrategy.register``. Usable as a
+        decorator: ``@TubeStrategy.register`` above a strategy subclass. A genuine blendertk-only
+        extension point mayatk's hardcoded ``if strategy == …`` dispatch doesn't have."""
+        TUBE_STRATEGIES[cls.name] = cls
+        return cls
+
     def defaults(self) -> dict:
         return {o["key"]: o.get("default") for o in self.options}
 
@@ -100,30 +100,75 @@ class TubeStrategy(ABC):
         return d
 
     @abstractmethod
-    def build(self, rig: "TubeRig", **opts) -> TubeRigBundle:
-        ...
+    def build(self, rig: "TubeRig", **opts) -> TubeRigBundle: ...
 
 
 class SplineIKStrategy(TubeStrategy):
     name = "spline"
     label = "Spline (Hose/Cable)"
     options = [
-        {"key": "num_joints", "label": "Joints", "kind": "int", "default": 12,
-         "minimum": 2, "maximum": 200, "tooltip": "Deforming bones fit to the curve."},
-        {"key": "num_controls", "label": "Controls", "kind": "int", "default": 3,
-         "minimum": 2, "maximum": 24, "tooltip": "Animatable handles hooked along the curve."},
-        {"key": "radius", "label": "Control Size", "kind": "float", "default": 1.0,
-         "minimum": 0.01, "maximum": 100.0, "decimals": 2},
-        {"key": "enable_stretch", "label": "Stretch", "kind": "bool", "default": True,
-         "tooltip": "Bones scale to fill the curve length (Spline IK Fit Curve)."},
-        {"key": "enable_squash", "label": "Squash", "kind": "bool", "default": True,
-         "tooltip": "Cross-section thins on stretch / fattens on compression (Spline IK XZ scale)."},
-        {"key": "enable_volume", "label": "Volume", "kind": "bool", "default": True,
-         "tooltip": "Preserve volume while squashing (XZ = 1/sqrt of the stretch). Needs Squash."},
-        {"key": "enable_auto_bend", "label": "Auto Bend", "kind": "bool", "default": False,
-         "tooltip": "The middle bulges out as the two ends compress together (hose buckle)."},
-        {"key": "enable_twist", "label": "Twist", "kind": "bool", "default": False,
-         "tooltip": "Add a tip roll control; rolling it twists the hose progressively from start to end."},
+        {
+            "key": "num_joints",
+            "label": "Joints",
+            "kind": "int",
+            "default": 12,
+            "minimum": 2,
+            "maximum": 200,
+            "tooltip": "Deforming bones fit to the curve.",
+        },
+        {
+            "key": "num_controls",
+            "label": "Controls",
+            "kind": "int",
+            "default": 3,
+            "minimum": 2,
+            "maximum": 24,
+            "tooltip": "Animatable handles hooked along the curve.",
+        },
+        {
+            "key": "radius",
+            "label": "Control Size",
+            "kind": "float",
+            "default": 1.0,
+            "minimum": 0.01,
+            "maximum": 100.0,
+            "decimals": 2,
+        },
+        {
+            "key": "enable_stretch",
+            "label": "Stretch",
+            "kind": "bool",
+            "default": True,
+            "tooltip": "Bones scale to fill the curve length (Spline IK Fit Curve).",
+        },
+        {
+            "key": "enable_squash",
+            "label": "Squash",
+            "kind": "bool",
+            "default": True,
+            "tooltip": "Cross-section thins on stretch / fattens on compression (Spline IK XZ scale).",
+        },
+        {
+            "key": "enable_volume",
+            "label": "Volume",
+            "kind": "bool",
+            "default": True,
+            "tooltip": "Preserve volume while squashing (XZ = 1/sqrt of the stretch). Needs Squash.",
+        },
+        {
+            "key": "enable_auto_bend",
+            "label": "Auto Bend",
+            "kind": "bool",
+            "default": False,
+            "tooltip": "The middle bulges out as the two ends compress together (hose buckle).",
+        },
+        {
+            "key": "enable_twist",
+            "label": "Twist",
+            "kind": "bool",
+            "default": False,
+            "tooltip": "Add a tip roll control; rolling it twists the hose progressively from start to end.",
+        },
     ]
 
     def build(self, rig, **opts):
@@ -134,9 +179,14 @@ class SplineIKStrategy(TubeStrategy):
         # Steps 2 (IK/controls + deform) is the shared attach_spline_rig — the same engine path the
         # granular b002 button drives, so the one-shot and step workflows can't diverge.
         curve, controls = rig.attach_spline_rig(
-            arm, bones, num_controls=int(o["num_controls"]), radius=float(o["radius"]),
-            enable_stretch=o["enable_stretch"], enable_squash=o["enable_squash"],
-            enable_volume=o["enable_volume"], enable_auto_bend=o["enable_auto_bend"],
+            arm,
+            bones,
+            num_controls=int(o["num_controls"]),
+            radius=float(o["radius"]),
+            enable_stretch=o["enable_stretch"],
+            enable_squash=o["enable_squash"],
+            enable_volume=o["enable_volume"],
+            enable_auto_bend=o["enable_auto_bend"],
             enable_twist=o["enable_twist"],
         )
         RigUtils.bind_armature(rig.mesh, arm, auto_weights=True)
@@ -147,10 +197,22 @@ class AnchorStrategy(TubeStrategy):
     name = "anchor"
     label = "Anchor (Piston/Hydraulic)"
     options = [
-        {"key": "radius", "label": "Control Size", "kind": "float", "default": 1.0,
-         "minimum": 0.01, "maximum": 100.0, "decimals": 2},
-        {"key": "enable_stretch", "label": "Stretch", "kind": "bool", "default": True,
-         "tooltip": "Bone stretches between the two anchors (else fixed-length aim)."},
+        {
+            "key": "radius",
+            "label": "Control Size",
+            "kind": "float",
+            "default": 1.0,
+            "minimum": 0.01,
+            "maximum": 100.0,
+            "decimals": 2,
+        },
+        {
+            "key": "enable_stretch",
+            "label": "Stretch",
+            "kind": "bool",
+            "default": True,
+            "tooltip": "Bone stretches between the two anchors (else fixed-length aim).",
+        },
     ]
 
     def build(self, rig, **opts):
@@ -160,13 +222,25 @@ class AnchorStrategy(TubeStrategy):
         root = rig.create_root()
         arm, bones = rig.create_armature([start, end])
         c_start, c_end = (
-            rig.make_control("cube", f"{rig.rig_name}_start", o["radius"] * 1.5, start, root, (0, 1, 1)),
-            rig.make_control("cube", f"{rig.rig_name}_end", o["radius"] * 1.5, end, root, (0, 1, 1)),
+            rig.make_control(
+                "cube",
+                f"{rig.rig_name}_start",
+                o["radius"] * 1.5,
+                start,
+                root,
+                (0, 1, 1),
+            ),
+            rig.make_control(
+                "cube", f"{rig.rig_name}_end", o["radius"] * 1.5, end, root, (0, 1, 1)
+            ),
         )
         # head follows the start anchor; the bone stretches (or just aims) at the end anchor.
         RigUtils.add_bone_constraint(arm, bones[0], "COPY_LOCATION", target=c_start)
         RigUtils.add_bone_constraint(
-            arm, bones[0], "STRETCH_TO" if o["enable_stretch"] else "DAMPED_TRACK", target=c_end
+            arm,
+            bones[0],
+            "STRETCH_TO" if o["enable_stretch"] else "DAMPED_TRACK",
+            target=c_end,
         )
         RigUtils.bind_armature(rig.mesh, arm, auto_weights=True)
         return TubeRigBundle(root, arm, bones, controls=[c_start, c_end])
@@ -176,10 +250,24 @@ class FKChainStrategy(TubeStrategy):
     name = "fk"
     label = "FK Chain (Tail/Tentacle)"
     options = [
-        {"key": "num_joints", "label": "Joints", "kind": "int", "default": 10,
-         "minimum": 2, "maximum": 200, "tooltip": "FK control bones along the tube."},
-        {"key": "radius", "label": "Control Size", "kind": "float", "default": 1.0,
-         "minimum": 0.01, "maximum": 100.0, "decimals": 2},
+        {
+            "key": "num_joints",
+            "label": "Joints",
+            "kind": "int",
+            "default": 10,
+            "minimum": 2,
+            "maximum": 200,
+            "tooltip": "FK control bones along the tube.",
+        },
+        {
+            "key": "radius",
+            "label": "Control Size",
+            "kind": "float",
+            "default": 1.0,
+            "minimum": 0.01,
+            "maximum": 100.0,
+            "decimals": 2,
+        },
     ]
 
     def build(self, rig, **opts):
@@ -189,24 +277,19 @@ class FKChainStrategy(TubeStrategy):
         arm, bones = rig.create_armature(centerline)
         # native bone-hierarchy FK: the deform bones ARE the controls; a curve custom shape per bone
         # makes each grabbable (rotating one carries its descendants through the connected chain).
-        shape = rig._hidden_control_shape(f"{rig.rig_name}_fkshape", o["radius"], axis="x")
+        shape = rig._hidden_control_shape(
+            f"{rig.rig_name}_fkshape", o["radius"], axis="x"
+        )
         for bn in bones:
             arm.pose.bones[bn].custom_shape = shape
         RigUtils.bind_armature(rig.mesh, arm, auto_weights=True)
         return TubeRigBundle(root, arm, bones, controls=list(bones))
 
 
-# Strategy registry (mayatk's RIG_MODES) — extend with register_strategy.
+# Strategy registry (mayatk's RIG_MODES) — extend with ``TubeStrategy.register``.
 TUBE_STRATEGIES = {
     c.name: c for c in (SplineIKStrategy, AnchorStrategy, FKChainStrategy)
 }
-
-
-def register_strategy(cls):
-    """Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension point
-    mirroring Maya's mode registry. Usable as a decorator."""
-    TUBE_STRATEGIES[cls.name] = cls
-    return cls
 
 
 # ----------------------------------------------------------------------------
@@ -214,7 +297,21 @@ def register_strategy(cls):
 # ----------------------------------------------------------------------------
 
 
-class TubeRig(ptk.LoggingMixin):
+class _TubeRigInternal(object):
+    """Internal helpers for TubeRig."""
+
+    @staticmethod
+    def _xz_scale_mode(squash: bool, volume: bool) -> str:
+        """Map Maya's separate squash / volume toggles onto Blender's Spline IK XZ-scale enum (Maya's
+        two node-graph systems collapse to one native constraint mode): no squash -> ``NONE`` (the
+        cross-section stays fixed on stretch); squash without volume -> ``INVERSE_PRESERVE`` (XZ = 1/Y,
+        over-thins); squash with volume -> ``VOLUME_PRESERVE`` (XZ = 1/sqrt(Y), true volume preservation)."""
+        if not squash:
+            return "NONE"
+        return "VOLUME_PRESERVE" if volume else "INVERSE_PRESERVE"
+
+
+class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
     """Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
 
     ``TubeRig(mesh).build("spline", num_joints=16, num_controls=4)`` builds a Spline-IK hose rig.
@@ -258,7 +355,9 @@ class TubeRig(ptk.LoggingMixin):
         """Armature + bone chain along *centerline*, parented under the rig root. Returns
         ``(armature_obj, bone_names)``. *radius* (optional) sets each bone's display radius
         (Maya's per-joint ``.radius``) — see :meth:`RigUtils.add_bone_chain`."""
-        arm = RigUtils.create_armature(f"{self.rig_name}_arm", collection=self.collection)
+        arm = RigUtils.create_armature(
+            f"{self.rig_name}_arm", collection=self.collection
+        )
         bones = RigUtils.add_bone_chain(
             arm, centerline, prefix=f"{self.rig_name}_jnt", radius=radius
         )
@@ -292,8 +391,13 @@ class TubeRig(ptk.LoggingMixin):
         bpy.context.view_layer.update()
         rest = (start.matrix_world.translation - end.matrix_world.translation).length
         RigUtils.add_distance_driver(
-            mid, "delta_location", 1, start, end,
-            expression=f"max(0.0, ({rest:.5f} - dist)) * {factor}", var_name="dist",
+            mid,
+            "delta_location",
+            1,
+            start,
+            end,
+            expression=f"max(0.0, ({rest:.5f} - dist)) * {factor}",
+            var_name="dist",
         )
         RigUtils.refresh_drivers([mid])
 
@@ -316,26 +420,49 @@ class TubeRig(ptk.LoggingMixin):
         db = armature.data.bones
         tip = mw @ db[bones[-1]].tail_local
         prev = mw @ db[bones[-1]].head_local
-        axis = (tip - prev)
+        axis = tip - prev
         axis = axis.normalized() if axis.length > 1e-6 else Vector((0.0, 0.0, 1.0))
         twist = RigUtils.add_bone(
-            armature, f"{self.rig_name}_twist_ctrl",
-            head=tip, tail=tip + axis * max(float(radius), 0.1), deform=False,
+            armature,
+            f"{self.rig_name}_twist_ctrl",
+            head=tip,
+            tail=tip + axis * max(float(radius), 0.1),
+            deform=False,
         )
         n = len(bones)
         for bn in bones:
             RigUtils.add_bone_constraint(
-                armature, bn, "COPY_ROTATION", target=armature, subtarget=twist,
-                use_x=False, use_y=True, use_z=False,
-                mix_mode="ADD", owner_space="LOCAL", target_space="LOCAL", influence=1.0 / n,
+                armature,
+                bn,
+                "COPY_ROTATION",
+                target=armature,
+                subtarget=twist,
+                use_x=False,
+                use_y=True,
+                use_z=False,
+                mix_mode="ADD",
+                owner_space="LOCAL",
+                target_space="LOCAL",
+                influence=1.0 / n,
             )
-        shape = self._hidden_control_shape(f"{self.rig_name}_twistshape", radius, axis="y")
+        shape = self._hidden_control_shape(
+            f"{self.rig_name}_twistshape", radius, axis="y"
+        )
         armature.pose.bones[twist].custom_shape = shape
         return twist
 
-    def attach_spline_rig(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True,
-                          enable_squash=False, enable_volume=False, enable_auto_bend=False,
-                          enable_twist=False):
+    def attach_spline_rig(
+        self,
+        armature,
+        bones,
+        num_controls=3,
+        radius=1.0,
+        enable_stretch=True,
+        enable_squash=False,
+        enable_volume=False,
+        enable_auto_bend=False,
+        enable_twist=False,
+    ):
         """Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's
         granular Step 2 (the 'spline' branch of ``b002``), which adds IK/controls onto joints a
         prior step already created, instead of building the armature itself (that's
@@ -364,9 +491,12 @@ class TubeRig(ptk.LoggingMixin):
         curve = self.build_curve(centerline, int(num_controls))
         RigUtils.parent_keep_transform(curve, self._root)
         RigUtils.add_spline_ik(
-            armature, bones[-1], curve, chain_count=len(bones),
+            armature,
+            bones[-1],
+            curve,
+            chain_count=len(bones),
             y_scale_mode=("FIT_CURVE" if enable_stretch else "BONE_ORIGINAL"),
-            xz_scale_mode=_xz_scale_mode(enable_squash, enable_volume),
+            xz_scale_mode=_TubeRigInternal._xz_scale_mode(enable_squash, enable_volume),
         )
         controls = self.hook_curve_controls(curve, float(radius), self._root)
         if enable_twist:
@@ -380,9 +510,7 @@ class TubeRig(ptk.LoggingMixin):
         Spline IK to follow — built at the world origin (identity matrix → clean hook binds)."""
         import bpy
 
-        ctrl_pts = ptk.Polyline.resample(
-            [list(p) for p in points], max(2, int(count))
-        )
+        ctrl_pts = ptk.Polyline.resample([list(p) for p in points], max(2, int(count)))
         cu = bpy.data.curves.new(f"{self.rig_name}_curve", "CURVE")
         cu.dimensions = "3D"
         sp = cu.splines.new("NURBS")
@@ -401,14 +529,20 @@ class TubeRig(ptk.LoggingMixin):
         :meth:`add_twist` (the roll control). The source object is hidden (the bones draw it, not the
         origin clutter) and parented under the rig root so it's owned by the rig (deleted with it)."""
         shape = Controls.create(
-            "circle", name=name, size=float(size), axis=axis, collection=self.collection,
+            "circle",
+            name=name,
+            size=float(size),
+            axis=axis,
+            collection=self.collection,
         )
         shape.hide_viewport = shape.hide_render = True
         if self._root:
             RigUtils.parent_keep_transform(shape, self._root)
         return shape
 
-    def make_control(self, shape, name, size, location, root, color=(1, 1, 0), axis="x"):
+    def make_control(
+        self, shape, name, size, location, root, color=(1, 1, 0), axis="x"
+    ):
         """Create a control curve at *location*, parented under *root* (keeping its world pos).
 
         *root* comes from :meth:`create_root` (built at the world origin → identity ``matrix_world``
@@ -416,8 +550,13 @@ class TubeRig(ptk.LoggingMixin):
         parent-inverse here. Callers that then read the control's ``matrix_world`` (e.g. for a hook
         bind) must ``view_layer.update()`` once after creating all controls — not per control."""
         ctrl = Controls.create(
-            shape, name=name, size=size, axis=axis, color=color,
-            location=tuple(location), collection=self.collection,
+            shape,
+            name=name,
+            size=size,
+            axis=axis,
+            color=color,
+            location=tuple(location),
+            collection=self.collection,
         )
         RigUtils.parent_keep_transform(ctrl, root)
         return ctrl
@@ -433,11 +572,13 @@ class TubeRig(ptk.LoggingMixin):
         for i, p in enumerate(spline.points):
             world = curve.matrix_world @ p.co.to_3d()  # NURBS points are 4D
             controls.append(
-                self.make_control("circle", f"{self.rig_name}_ctrl_{i}", radius, world, root)
+                self.make_control(
+                    "circle", f"{self.rig_name}_ctrl_{i}", radius, world, root
+                )
             )
         bpy.context.view_layer.update()  # settle control matrices before binding hooks
         for i, ctrl in enumerate(controls):
-            hook_curve_point(curve, i, ctrl)
+            EditUtils.hook_curve_point(curve, i, ctrl)
         bpy.context.view_layer.update()
         return controls
 
@@ -473,8 +614,9 @@ class TubeRig(ptk.LoggingMixin):
             return None
         return hooks[min(hooks)] if index == 0 else hooks[max(hooks)]
 
-    def constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0,
-                                   bone_index=-1, control=None):
+    def constrain_end_with_falloff(
+        self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None
+    ):
         """Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
         weight blend — Blender mirror of mayatk's ``constrain_end_with_falloff`` (the granular Step-4
         utility). Grafts an *anchor bone* onto *armature* at the anchor's position, ``COPY_LOCATION``s
@@ -506,7 +648,7 @@ class TubeRig(ptk.LoggingMixin):
         mw = armature.matrix_world
         end_head = mw @ db[constrained].head_local
         end_tail = mw @ db[constrained].tail_local
-        axis = (end_tail - end_head)
+        axis = end_tail - end_head
         axis = axis.normalized() if axis.length > 1e-6 else Vector((0.0, 0.0, 1.0))
         length = max((end_tail - end_head).length, 1e-3)
         anchor_pos = anchor.matrix_world.translation.copy()
@@ -514,17 +656,26 @@ class TubeRig(ptk.LoggingMixin):
         end = "start" if idx == 0 else "end"
 
         anchor_bone = RigUtils.add_bone(
-            armature, f"{self.rig_name}_anchor_{end}",
-            head=anchor_pos, tail=anchor_pos + axis * length,
-            radius=db[constrained].head_radius, deform=True,
+            armature,
+            f"{self.rig_name}_anchor_{end}",
+            head=anchor_pos,
+            tail=anchor_pos + axis * length,
+            radius=db[constrained].head_radius,
+            deform=True,
         )
         # the anchor bone tracks the external anchor object; the graft deforms via the matching group.
-        RigUtils.add_bone_constraint(armature, anchor_bone, "COPY_LOCATION", target=anchor)
+        RigUtils.add_bone_constraint(
+            armature, anchor_bone, "COPY_LOCATION", target=anchor
+        )
         if control is None and idx in (0, len(bones) - 1):
             control = self._end_control(armature, bones, 0 if idx == 0 else -1)
         if control is not None:
-            RigUtils.child_of(control, anchor)  # coherent end-assembly follow (curve hook + bones)
-        RigUtils.apply_falloff_weights(mesh, anchor_bone, anchor_pos, falloff, profile="linear")
+            RigUtils.child_of(
+                control, anchor
+            )  # coherent end-assembly follow (curve hook + bones)
+        RigUtils.apply_falloff_weights(
+            mesh, anchor_bone, anchor_pos, falloff, profile="linear"
+        )
         return anchor_bone
 
     # -- dispatch --------------------------------------------------------------
@@ -563,16 +714,18 @@ class TubeRigSlots(ptk.LoggingMixin):
 
         self.ui.cmb_preset.clear()
         for name, cls in TUBE_STRATEGIES.items():
-            self.ui.cmb_preset.addItem(cls.label or name, name)  # userData = strategy key
+            self.ui.cmb_preset.addItem(
+                cls.label or name, name
+            )  # userData = strategy key
         self.ui.cmb_preset.currentIndexChanged.connect(self._on_mode_changed)
         self._rebuild_options()
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Tube Rig",
                 body="Rig a tube-shaped mesh several ways. The centerline is auto-detected; pick a "
                 "<b>Mode</b> and the options below reconfigure to that rig type.",
@@ -582,19 +735,22 @@ class TubeRigSlots(ptk.LoggingMixin):
                     "Set the mode's options, then press <b>Build Rig</b>.",
                 ],
                 sections=[
-                    ("Modes", [
-                        "<b>Spline</b> — a bone chain follows a curve; a few control handles hook "
-                        "the curve (great for hoses/cables, with stretch).",
-                        "<b>Anchor</b> — two end controls drive a piston/hydraulic that stretches "
-                        "between them.",
-                        "<b>FK</b> — the bones are the controls (rotate one, the rest follow) — a "
-                        "tail/tentacle.",
-                    ]),
+                    (
+                        "Modes",
+                        [
+                            "<b>Spline</b> — a bone chain follows a curve; a few control handles hook "
+                            "the curve (great for hoses/cables, with stretch).",
+                            "<b>Anchor</b> — two end controls drive a piston/hydraulic that stretches "
+                            "between them.",
+                            "<b>FK</b> — the bones are the controls (rotate one, the rest follow) — a "
+                            "tail/tentacle.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Each mode <b>declares its own options</b>; the panel rebuilds them on mode "
-                    "change. Custom strategies registered via <b>register_strategy</b> appear here "
-                    "automatically.",
+                    "change. Custom strategies registered via <b>TubeStrategy.register</b> appear "
+                    "here automatically.",
                 ],
             )
         )
@@ -607,7 +763,7 @@ class TubeRigSlots(ptk.LoggingMixin):
     def _rebuild_options(self):
         """Clear + repopulate the options container from the selected strategy's option dicts."""
         from qtpy import QtWidgets, QtCore
-        from uitk.bridge.spec import AttributeSpec, make_widget
+        from uitk.bridge.spec import AttributeSpec, KindFactory
 
         layout = self.ui.wgt_options.layout()
         while layout.count():
@@ -630,7 +786,7 @@ class TubeRigSlots(ptk.LoggingMixin):
             label = QtWidgets.QLabel(spec.display_label + ":", row)
             label.setMinimumWidth(90)
             label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-            widget = make_widget(spec, row)
+            widget = KindFactory.make_widget(spec, row)
             widget.setObjectName(f"opt_{spec.key}")
             if spec.tooltip:
                 label.setToolTip(spec.tooltip)
@@ -644,16 +800,16 @@ class TubeRigSlots(ptk.LoggingMixin):
         self._rebuild_options()
 
     def _collect_opts(self):
-        from uitk.bridge.spec import read_value
+        from uitk.bridge.spec import KindFactory
 
-        return {k: read_value(w) for k, w in self._option_widgets.items()}
+        return {k: KindFactory.read_value(w) for k, w in self._option_widgets.items()}
 
     # ------------------------------------------------------------------ build
     def b000(self):
         """Build Rig — run the selected strategy on the selected tube mesh."""
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        meshes = [o for o in selected_objects() if o.type == "MESH"]
+        meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         if not meshes:
             self.sb.message_box("Select a tube mesh to rig.")
             return
@@ -681,6 +837,7 @@ class TubeRigSlots(ptk.LoggingMixin):
         isolated control bones (an ``enable_twist`` roll control, ``b004`` anchor bones — all parentless
         AND childless), picks the parentless root whose chain is LONGEST, so those single-bone helpers
         can't be mistaken for the deform chain (order-independent, unlike picking the first root)."""
+
         def walk(root):
             chain, b = [], root
             while b is not None:
@@ -694,9 +851,9 @@ class TubeRigSlots(ptk.LoggingMixin):
     def b001(self):
         """Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls
         or bind yet). Mirror of Maya's ``b001`` create_joints_from_tube; Reverse Direction = chk000."""
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        meshes = [o for o in selected_objects() if o.type == "MESH"]
+        meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         if not meshes:
             self.sb.message_box("Select a tube mesh to create joints from.")
             return
@@ -706,13 +863,16 @@ class TubeRigSlots(ptk.LoggingMixin):
             rig = TubeRig(meshes[-1], rig_name=rig_name)
             centerline = rig.resolve_centerline(int(opts.get("num_joints", 12)))
             _, bones = rig.create_joint_chain(
-                centerline, radius=float(opts.get("radius", 1.0)),
+                centerline,
+                radius=float(opts.get("radius", 1.0)),
                 reverse=self.ui.chk000.isChecked(),
             )
         except Exception as e:  # surface the engine's reason (e.g. non-tube mesh)
             self.sb.message_box(f"Create Joints failed: {e}")
             return
-        self.sb.message_box(f"<hl>Step 1: created {len(bones)} joints on {meshes[-1].name}.</hl>")
+        self.sb.message_box(
+            f"<hl>Step 1: created {len(bones)} joints on {meshes[-1].name}.</hl>"
+        )
 
     def b002(self):
         """Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING
@@ -721,21 +881,29 @@ class TubeRigSlots(ptk.LoggingMixin):
 
         arm = bpy.context.view_layer.objects.active
         if arm is None or arm.type != "ARMATURE":
-            arm = next((o for o in bpy.context.selected_objects if o.type == "ARMATURE"), None)
+            arm = next(
+                (o for o in bpy.context.selected_objects if o.type == "ARMATURE"), None
+            )
         if arm is None:
             self.sb.message_box("Select the joint chain (armature) created in Step 1.")
             return
         bones = self._ordered_chain(arm)
         if len(bones) < 2:
-            self.sb.message_box("The selected armature needs a chain of at least 2 bones for Spline IK.")
+            self.sb.message_box(
+                "The selected armature needs a chain of at least 2 bones for Spline IK."
+            )
             return
         opts = self._collect_opts()
         rig_name = (self.ui.txt000.text() or "").strip() or None
         try:
             rig = TubeRig(None, rig_name=rig_name)
-            rig._root = arm.parent  # reuse Step 1's rig root if present (else attach_spline_rig makes one)
+            rig._root = (
+                arm.parent
+            )  # reuse Step 1's rig root if present (else attach_spline_rig makes one)
             _, controls = rig.attach_spline_rig(
-                arm, bones, num_controls=int(opts.get("num_controls", 3)),
+                arm,
+                bones,
+                num_controls=int(opts.get("num_controls", 3)),
                 radius=float(opts.get("radius", 1.0)),
                 enable_stretch=bool(opts.get("enable_stretch", True)),
                 enable_squash=bool(opts.get("enable_squash", False)),
@@ -746,7 +914,9 @@ class TubeRigSlots(ptk.LoggingMixin):
         except Exception as e:
             self.sb.message_box(f"Create IK / Controls failed: {e}")
             return
-        self.sb.message_box(f"<hl>Step 2: added Spline IK + {len(controls)} controls to {arm.name}.</hl>")
+        self.sb.message_box(
+            f"<hl>Step 2: added Spline IK + {len(controls)} controls to {arm.name}.</hl>"
+        )
 
     def b003(self):
         """Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic
@@ -757,7 +927,9 @@ class TubeRigSlots(ptk.LoggingMixin):
         mesh = next((o for o in sel if o.type == "MESH"), None)
         arm = next((o for o in sel if o.type == "ARMATURE"), None)
         if mesh is None or arm is None:
-            self.sb.message_box("Select BOTH the tube mesh and its joint chain (armature), then Bind.")
+            self.sb.message_box(
+                "Select BOTH the tube mesh and its joint chain (armature), then Bind."
+            )
             return
         try:
             RigUtils.bind_armature(mesh, arm, auto_weights=True)
@@ -798,12 +970,18 @@ class TubeRigSlots(ptk.LoggingMixin):
         anchors = anchors[:2]
         bones = self._ordered_chain(arm)
         if len(bones) < 2:
-            self.sb.message_box("The selected armature needs a chain of at least 2 bones.")
+            self.sb.message_box(
+                "The selected armature needs a chain of at least 2 bones."
+            )
             return
         # the bound mesh: a mesh whose Armature modifier targets this armature (Maya's skinCluster check)
         mesh = next(
-            (o for o in bpy.data.objects if o.type == "MESH"
-             and any(m.type == "ARMATURE" and m.object is arm for m in o.modifiers)),
+            (
+                o
+                for o in bpy.data.objects
+                if o.type == "MESH"
+                and any(m.type == "ARMATURE" and m.object is arm for m in o.modifiers)
+            ),
             None,
         )
         if mesh is None:
@@ -822,14 +1000,20 @@ class TubeRigSlots(ptk.LoggingMixin):
         crossed = ((a0 - p_start).length + (a1 - p_end).length) > (
             (a1 - p_start).length + (a0 - p_end).length
         )
-        start_anchor, end_anchor = (anchors[1], anchors[0]) if crossed else (anchors[0], anchors[1])
+        start_anchor, end_anchor = (
+            (anchors[1], anchors[0]) if crossed else (anchors[0], anchors[1])
+        )
 
         falloff = self._estimate_tube_radius(mesh) * 2.0
         rig_name = (self.ui.txt000.text() or "").strip() or None
         try:
             rig = TubeRig(mesh, rig_name=rig_name)
-            s = rig.constrain_end_with_falloff(arm, bones, start_anchor, mesh, falloff=falloff, bone_index=0)
-            e = rig.constrain_end_with_falloff(arm, bones, end_anchor, mesh, falloff=falloff, bone_index=-1)
+            s = rig.constrain_end_with_falloff(
+                arm, bones, start_anchor, mesh, falloff=falloff, bone_index=0
+            )
+            e = rig.constrain_end_with_falloff(
+                arm, bones, end_anchor, mesh, falloff=falloff, bone_index=-1
+            )
         except Exception as ex:
             self.sb.message_box(f"Add End Constraints failed: {ex}")
             return

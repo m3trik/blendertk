@@ -14,11 +14,12 @@ inheriting from ``BridgeSlotsBase`` directly, so the fallback lives in one
 place (Unity opts back out by overriding ``default_output_dir`` to return
 ``""`` -- mirroring mayatk, a ``.blend`` dir isn't a Unity project).
 """
+
 from __future__ import annotations
 
 from uitk.bridge import BridgeSlotsBase
 
-from blendertk.core_utils._core_utils import get_env_info
+from blendertk.core_utils._core_utils import CoreUtils
 
 
 class BlenderBridgeSlotsBase(BridgeSlotsBase):
@@ -26,4 +27,4 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
 
     def default_output_dir(self) -> str:
         """The saved ``.blend`` file's directory, or ``""`` if unsaved."""
-        return get_env_info("workspace") or ""
+        return CoreUtils.get_env_info("workspace") or ""

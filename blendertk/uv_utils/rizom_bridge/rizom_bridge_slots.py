@@ -48,9 +48,23 @@ class _VersionedParamsProxy:
 
     def referenced_keys(self, script_text: str):
         version = self._slot.bridge.rizom_version
-        return self._mod.referenced_keys(self._mod.strip_unsupported(script_text, version))
+        # Expand includes BEFORE stripping: version-gated tokens that live only
+        # inside an include (e.g. __PACK_BLOCK__) aren't in the raw preset text,
+        # so stripping first would leave them for referenced_keys to re-surface
+        # and the panel would show knobs the send path silently drops below the
+        # installed Rizom version. referenced_keys re-expands idempotently.
+        return self._mod.Parameters.referenced_keys(
+            self._mod.Parameters.strip_unsupported(
+                self._mod.Parameters.expand_includes(script_text), version
+            )
+        )
 
     def __getattr__(self, name):
+        # The parameter helpers live on ``Parameters`` now; module-level names
+        # (``PARAMS``) still come off the module. Route each to its home.
+        params_cls = getattr(self._mod, "Parameters", None)
+        if params_cls is not None and hasattr(params_cls, name):
+            return getattr(params_cls, name)
         return getattr(self._mod, name)
 
 
@@ -111,12 +125,17 @@ class RizomBridgeSlots(BridgeSlotsBase):
         ],
         "sections": [
             ("Presets", [
-                "<b>pack / unwrap_hard / unwrap_organic / optimize</b> -- round-trip: Blender "
-                "exports <code>__RZTMP</code> copies, RizomUV runs the script headlessly, and the "
-                "UVs are transferred back onto the originals.",
+                "<b>pack / unwrap_hard / unwrap_organic / unwrap_hybrid / optimize</b> -- "
+                "round-trip: Blender exports <code>__RZTMP</code> copies, RizomUV runs the script "
+                "headlessly, and the UVs are transferred back onto the originals. (unwrap_hybrid "
+                "needs RizomUV 2022+.)",
                 "<b>send</b> -- one-way: exports the selection directly (no rename), optionally "
                 "collects textures from the materials, then launches RizomUV detached. Save "
                 "manually inside RizomUV when done.",
+                "<b>pack_into_existing</b> -- packs the selection's shells into the empty space "
+                "of the layout shared by every mesh using the selection's material(s); the "
+                "existing shells don't move. Requires RizomUV 2022.2+ (hidden from the dropdown "
+                "on older installs).",
             ]),
             ("Header menu", [
                 "<b>Open UV Editor</b> -- open a new window with Blender's UV Editor to inspect "
@@ -151,12 +170,29 @@ class RizomBridgeSlots(BridgeSlotsBase):
     # Name of the pseudo-preset that runs the one-way send flow instead of the headless round-trip.
     SEND_PRESET = "send"
 
+    # Preset that packs the SELECTION's islands into the empty space of the existing layout: the
+    # processed object set expands to every mesh sharing the selection's materials (the material
+    # defines "the map"), and the selection becomes select_objects= so only its islands move.
+    # Version-gated >= 2022.2 via its @min_rizom header. Mirror of mayatk.
+    PACK_INTO_EXISTING_PRESET = "pack_into_existing"
+
     def list_template_modes(self):
         """Return ``[(stem, ""), ...]`` for every bundled ``.lua`` script.
 
         Rizom has no per-template mode dimension, so ``mode=""`` is emitted for every entry (elides
-        the parens in the combo label, matching mayatk)."""
-        return [(p.stem, "") for p in sorted(_SCRIPT_DIR.glob("*.lua"))]
+        the parens in the combo label, matching mayatk). Presets carrying an ``@min_rizom`` header
+        marker above the installed Rizom version are omitted entirely (mirrors the bridge-side gate
+        in ``process_with_rizomuv``)."""
+        version = self.bridge.rizom_version
+        pairs = []
+        for path in sorted(_SCRIPT_DIR.glob("*.lua")):
+            required = _params.Parameters.preset_min_version(
+                path.read_text(encoding="utf-8")
+            )
+            if required and version < required:
+                continue
+            pairs.append((path.stem, ""))
+        return pairs
 
     # ------------------------------------------------------------------
     # b000 -- the per-bridge process action
@@ -200,6 +236,21 @@ class RizomBridgeSlots(BridgeSlotsBase):
                         load_uvw_props=params.get("LOAD_UVW_PROPS", True),
                         import_groups=params.get("IMPORT_GROUPS", True),
                         load_textures=params.get("LOAD_TEXTURES", True),
+                    )
+                elif preset == self.PACK_INTO_EXISTING_PRESET:
+                    all_objs, new_objs = RizomUVBridge.expand_by_materials(selection)
+                    if len(all_objs) <= len(new_objs):
+                        self.bridge.logger.warning(
+                            "No other meshes share the selection's material(s) -- there is no "
+                            "existing layout to pack into. Use the 'pack' preset instead."
+                        )
+                        return
+                    self.bridge.logger.info(
+                        f"Packing {len(new_objs)} object(s) into the layout of "
+                        f"{len(all_objs) - len(new_objs)} other mesh(es) sharing their material(s)."
+                    )
+                    self.bridge.process_with_rizomuv(
+                        all_objs, preset=preset, params=params, select_objects=new_objs,
                     )
                 else:
                     self.bridge.process_with_rizomuv(

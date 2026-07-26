@@ -13,7 +13,10 @@ The check runs from a one-shot ``bpy.app.timers`` timer after the window is up, 
 usual ``===RESULT===`` sentinel, and quits Blender itself (under a window override — a bare
 ``wm.quit_blender`` from a timer has a NULL context window and crashes).
 """
-import sys, os, traceback
+
+import sys
+import os
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -25,14 +28,18 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 import bpy  # noqa: E402
 
 lines = []
+
+
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 def _run():
     try:
         import blendertk as btk
-        from blendertk.core_utils._core_utils import get_view3d_context
+        from blendertk.core_utils._core_utils import CoreUtils
 
         # (App timers differ from tentacle's Qt pump in that they DO carry a context window;
         # the activation path is shared either way — get_view3d_context never reads
@@ -40,25 +47,38 @@ def _run():
 
         # Full production activation path: prep (edit mode / vertex mask / deselect) +
         # modal invoke, all from the timer context via the VIEW_3D override.
-        btk.target_weld()
+        btk.TargetWeld.activate()
         active = bpy.context.view_layer.objects.active
-        check("prep entered Edit Mode on the active mesh",
-              active is not None and active.mode == "EDIT", f"mode={getattr(active, 'mode', None)}")
-        check("prep set vertex select mode",
-              tuple(bpy.context.scene.tool_settings.mesh_select_mode) == (True, False, False))
+        check(
+            "prep entered Edit Mode on the active mesh",
+            active is not None and active.mode == "EDIT",
+            f"mode={getattr(active, 'mode', None)}",
+        )
+        check(
+            "prep set vertex select mode",
+            tuple(bpy.context.scene.tool_settings.mesh_select_mode)
+            == (True, False, False),
+        )
 
         win = bpy.context.window_manager.windows[0]
         modal = getattr(win, "modal_operators", None)
-        if modal is None:  # pre-4.2 API — activation not raising is the best signal we have
-            check("modal handler running (API unavailable — activation did not raise)", True)
+        if (
+            modal is None
+        ):  # pre-4.2 API — activation not raising is the best signal we have
+            check(
+                "modal handler running (API unavailable — activation did not raise)",
+                True,
+            )
         else:
-            check("modal handler running on the window",
-                  any(op.bl_idname == "BTK_OT_target_weld" for op in modal),
-                  f"modal={[op.bl_idname for op in modal]}")
+            check(
+                "modal handler running on the window",
+                any(op.bl_idname == "BTK_OT_target_weld" for op in modal),
+                f"modal={[op.bl_idname for op in modal]}",
+            )
 
         # Exercise the POST_PIXEL draw handler with real redraws (a draw-time exception
         # would traceback to the console; reaching the next check proves the op survived).
-        ctx = {k: v for k, v in get_view3d_context().items() if v is not None}
+        ctx = {k: v for k, v in CoreUtils.get_view3d_context().items() if v is not None}
         with bpy.context.temp_override(**ctx):
             bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=3)
         check("viewport redraws with the draw handler installed", True)
@@ -68,8 +88,10 @@ def _run():
 
     print("\n".join(lines))
     ok = all(l.startswith("OK") for l in lines) and lines
-    print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== "
-          f"({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+    print(
+        f"===RESULT: {'PASS' if ok else 'FAIL'}=== "
+        f"({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+    )
     sys.stdout.flush()
 
     # Quit under a window override — bare quit from a timer crashes (NULL context window).

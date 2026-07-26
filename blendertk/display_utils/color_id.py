@@ -18,6 +18,7 @@ The engine (``ColorId``) lives next to its panel + ``.ui`` (mirror of mayatk's
 deferred into the methods that use them (headless Blender ships no Qt binding). ``import bpy``
 is deferred too.
 """
+
 import random
 from typing import List, Optional, Sequence, Tuple
 
@@ -34,9 +35,18 @@ class ColorId:
 
     # Desaturated defaults so swatches aren't all white on first launch (mirrors mayatk).
     DEFAULT_SWATCH_COLORS = [
-        (180, 120, 120), (180, 150, 120), (180, 180, 120), (120, 180, 120),
-        (120, 180, 160), (120, 180, 180), (120, 150, 180), (120, 120, 180),
-        (150, 120, 180), (180, 120, 180), (180, 120, 150), (160, 160, 160),
+        (180, 120, 120),
+        (180, 150, 120),
+        (180, 180, 120),
+        (120, 180, 120),
+        (120, 180, 160),
+        (120, 180, 180),
+        (120, 150, 180),
+        (120, 120, 180),
+        (150, 120, 180),
+        (180, 120, 180),
+        (180, 120, 150),
+        (160, 160, 160),
     ]
 
     # ── apply ──────────────────────────────────────────────────────────────
@@ -55,7 +65,9 @@ class ColorId:
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         if bsdf and "Base Color" in bsdf.inputs:
             bsdf.inputs["Base Color"].default_value = rgba
-        if hasattr(obj.data, "materials"):  # mesh/curve/surface/text/meta hold material slots
+        if hasattr(
+            obj.data, "materials"
+        ):  # mesh/curve/surface/text/meta hold material slots
             obj.data.materials.clear()
             obj.data.materials.append(mat)
         return mat
@@ -73,7 +85,9 @@ class ColorId:
         mesh = obj.data
         attr = mesh.color_attributes.get(name)
         if attr is None:
-            attr = mesh.color_attributes.new(name=name, type="BYTE_COLOR", domain="CORNER")
+            attr = mesh.color_attributes.new(
+                name=name, type="BYTE_COLOR", domain="CORNER"
+            )
         rgba = (color[0], color[1], color[2], 1.0)
         for d in attr.data:
             d.color = rgba
@@ -170,13 +184,19 @@ class ColorId:
             matched = False
             if check_material and not matched:
                 c = cls.get_material_color(obj)
-                matched = c is not None and cls.color_difference(c, target_color) <= threshold
+                matched = (
+                    c is not None and cls.color_difference(c, target_color) <= threshold
+                )
             if check_object and not matched:
                 c = cls.get_object_color(obj)
-                matched = c is not None and cls.color_difference(c, target_color) <= threshold
+                matched = (
+                    c is not None and cls.color_difference(c, target_color) <= threshold
+                )
             if check_vertex and not matched:
                 c = cls.get_average_vertex_color(obj)
-                matched = c is not None and cls.color_difference(c, target_color) <= threshold
+                matched = (
+                    c is not None and cls.color_difference(c, target_color) <= threshold
+                )
             if matched:
                 out.append(obj)
         return out
@@ -278,7 +298,9 @@ class ColorIdSlots(ptk.LoggingMixin):
             return
         original = presets.metadata_provider
         presets.metadata_provider = lambda: {
-            "swatches": [self._hex_from_rgb(rgb) for rgb in ColorId.DEFAULT_SWATCH_COLORS]
+            "swatches": [
+                self._hex_from_rgb(rgb) for rgb in ColorId.DEFAULT_SWATCH_COLORS
+            ]
         }
         try:
             presets.save(self._DEFAULT_PRESET)
@@ -287,12 +309,12 @@ class ColorIdSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text and preset combobox."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt, kbd
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Color ID",
                 body="Color-code scene objects across three channels: an ID "
                 "<b>Material</b>, the <b>Object Color</b> (viewport tint), and "
@@ -307,21 +329,27 @@ class ColorIdSlots(ptk.LoggingMixin):
                     "color across the enabled channels.",
                 ],
                 sections=[
-                    ("Notes", [
-                        f"<b>Reset</b> clears assignments on the selection (or every "
-                        f"object with {kbd('Ctrl')}-click).",
-                        "Object Color shows in the viewport's <b>Object</b> color "
-                        "shading mode (Solid display ▸ Color ▸ Object).",
-                        "<b>Material</b> assigns a flat ID material (replaces the "
-                        "object's material slots).",
-                        "<b>Wireframe</b> is disabled — Blender has no per-object "
-                        "wireframe-color override to mirror Maya's channel.",
-                    ]),
-                    ("Presets", [
-                        "The header menu's preset combo saves / restores swatch "
-                        "palettes. Use <b>Save</b> to capture the current colors; "
-                        "pick a preset to restore them.",
-                    ]),
+                    (
+                        "Notes",
+                        [
+                            f"<b>Reset</b> clears assignments on the selection (or every "
+                            f"object with {TooltipFormat.kbd('Ctrl')}-click).",
+                            "Object Color shows in the viewport's <b>Object</b> color "
+                            "shading mode (Solid display ▸ Color ▸ Object).",
+                            "<b>Material</b> assigns a flat ID material (replaces the "
+                            "object's material slots).",
+                            "<b>Wireframe</b> is disabled — Blender has no per-object "
+                            "wireframe-color override to mirror Maya's channel.",
+                        ],
+                    ),
+                    (
+                        "Presets",
+                        [
+                            "The header menu's preset combo saves / restores swatch "
+                            "palettes. Use <b>Save</b> to capture the current colors; "
+                            "pick a preset to restore them.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -443,7 +471,9 @@ class ColorIdSlots(ptk.LoggingMixin):
         if color is None and ch["vertex"]:
             color = ColorId.get_average_vertex_color(obj)
         if color is None:
-            self.sb.message_box("No color found on the active object's enabled channels.")
+            self.sb.message_box(
+                "No color found on the active object's enabled channels."
+            )
             return
         button.color = self.sb.QtGui.QColor(
             int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)

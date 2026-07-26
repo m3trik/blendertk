@@ -17,21 +17,16 @@ NOTE: ``uitk.bridge`` (Qt) is imported at module top -- this module is only impo
 (which already require Qt). The engine (:mod:`_maya_bridge`) defers its ``parameters`` import into
 call bodies so the engine surface still resolves under headless ``blender --background`` (no Qt).
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from uitk.bridge import (
-    AttributeSpec,
-    python_literal,
-    referenced_keys as _refkeys,
-    defaults as _defaults,
-    render_context as _render_context,
-)
+from uitk.bridge import AttributeSpec, Formatters, Parameters as _BridgeParams
 
 
 # Templates are executable Maya Python -- substitute user values as Python source literals.
-_FORMATTER = python_literal
+_FORMATTER = Formatters.python_literal
 
 
 # Display order is iteration order over this dict.
@@ -103,16 +98,25 @@ PARAMS: "dict[str, AttributeSpec]" = {
 }
 
 
-def referenced_keys(script_text: str) -> "set[str]":
-    """Registered keys present in *script_text* (delegates to uitk.bridge)."""
-    return _refkeys(script_text, PARAMS)
+class Parameters:
+    """Parameters — module namespace."""
 
+    #: The parameter registry, exposed on the class so a bridge slot can hand
+    #: this class to the shared base as its ``params_module`` (the base reads
+    #: ``params_module.PARAMS`` and ``.referenced_keys``) — no module-level shim.
+    PARAMS = PARAMS
 
-def defaults() -> "dict[str, Any]":
-    """Return ``{key: default}`` for every registered parameter."""
-    return _defaults(PARAMS)
+    @staticmethod
+    def referenced_keys(script_text: str) -> "set[str]":
+        """Registered keys present in *script_text* (delegates to uitk.bridge)."""
+        return _BridgeParams.referenced_keys(script_text, PARAMS)
 
+    @staticmethod
+    def defaults() -> "dict[str, Any]":
+        """Return ``{key: default}`` for every registered parameter."""
+        return _BridgeParams.defaults(PARAMS)
 
-def render_context(values: "dict[str, Any]") -> "dict[str, str]":
-    """Format *values* for ``StrUtils.replace_delimited`` using Python literals."""
-    return _render_context(values, PARAMS, formatter=_FORMATTER)
+    @staticmethod
+    def render_context(values: "dict[str, Any]") -> "dict[str, str]":
+        """Format *values* for ``StrUtils.replace_delimited`` using Python literals."""
+        return _BridgeParams.render_context(values, PARAMS, formatter=_FORMATTER)

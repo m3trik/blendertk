@@ -24,6 +24,7 @@ Run headless (fresh instance — session-safety rule):
 
 Prints the ``===RESULT: PASS/FAIL===`` sentinel ``Run-Tests.ps1`` greps for.
 """
+
 import os
 import sys
 import tempfile
@@ -41,18 +42,16 @@ def _run_shots_adapter_checks():
 
     def check(label, cond, detail=""):
         ok = bool(cond)
-        lines.append(f"{'OK' if ok else 'FAIL'}: {label}" + (f" — {detail}" if detail and not ok else ""))
+        lines.append(
+            f"{'OK' if ok else 'FAIL'}: {label}"
+            + (f" — {detail}" if detail and not ok else "")
+        )
         return ok
 
     import bpy
 
     from blendertk import BlenderShotStore, BlenderScenePersistence
-    from blendertk.anim_utils.shots._shots import (
-        ATTR_NAME,
-        iter_action_fcurves,
-        collect_transform_segments,
-        collect_selected_key_entries,
-    )
+    from blendertk.anim_utils.shots._shots import ATTR_NAME
 
     # ---- isolate class state + user-prefs side effects -------------------
     BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_shots_prefs_")
@@ -67,7 +66,9 @@ def _run_shots_adapter_checks():
     bpy.ops.object.delete()
 
     # ---- has_animation: empty scene --------------------------------------
-    check("has_animation False on empty scene", BlenderShotStore.has_animation() is False)
+    check(
+        "has_animation False on empty scene", BlenderShotStore.has_animation() is False
+    )
 
     def add_keyed_cube(name, frames, base_x, vary=True):
         bpy.ops.mesh.primitive_cube_add()
@@ -80,32 +81,47 @@ def _run_shots_adapter_checks():
         return obj
 
     cube_a = add_keyed_cube("CubeA", [1, 5, 10], 0.0)
-    cube_b = add_keyed_cube("CubeB", [50, 55, 60], 5.0)
+    add_keyed_cube("CubeB", [50, 55, 60], 5.0)
     # keyed but constant location -> flat, must be excluded from motion detection
     add_keyed_cube("CubeFlat", [5, 8], 3.0, vary=False)
 
     # ---- has_animation: keyed scene --------------------------------------
-    check("has_animation True with keyed transforms", BlenderShotStore.has_animation() is True)
+    check(
+        "has_animation True with keyed transforms",
+        BlenderShotStore.has_animation() is True,
+    )
 
     # ---- _scene_fps hook -------------------------------------------------
     scene.render.fps = 30
     scene.render.fps_base = 1.0
     fps_store = BlenderShotStore()
-    check("_scene_fps reads render.fps/fps_base", abs(fps_store._scene_fps() - 30.0) < 1e-6,
-          f"got {fps_store._scene_fps()}")
+    check(
+        "_scene_fps reads render.fps/fps_base",
+        abs(fps_store._scene_fps() - 30.0) < 1e-6,
+        f"got {fps_store._scene_fps()}",
+    )
     scene.render.fps = 24  # restore
 
     # ---- fcurve walk (5.1 slotted action) --------------------------------
-    fcs_a = list(iter_action_fcurves(cube_a))
-    check("iter_action_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}")
+    fcs_a = list(BlenderShotStore.iter_action_fcurves(cube_a))
+    check(
+        "iter_action_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}"
+    )
 
     # ---- collect_transform_segments (flat cube excluded) -----------------
-    segs = collect_transform_segments(gap_threshold=5.0)
+    segs = BlenderShotStore.collect_transform_segments(gap_threshold=5.0)
     seg_objs = sorted({s["obj"] for s in segs})
-    check("segments only from moving cubes", seg_objs == ["CubeA", "CubeB"], f"got {seg_objs}")
+    check(
+        "segments only from moving cubes",
+        seg_objs == ["CubeA", "CubeB"],
+        f"got {seg_objs}",
+    )
     seg_a = next((s for s in segs if s["obj"] == "CubeA"), None)
-    check("CubeA segment spans its keys", seg_a and seg_a["start"] == 1.0 and seg_a["end"] == 10.0,
-          f"{seg_a}")
+    check(
+        "CubeA segment spans its keys",
+        seg_a and seg_a["start"] == 1.0 and seg_a["end"] == 10.0,
+        f"{seg_a}",
+    )
 
     # ---- detect_regions auto mode ----------------------------------------
     store = BlenderShotStore()
@@ -115,30 +131,41 @@ def _run_shots_adapter_checks():
     check("auto detect finds 2 shots", len(regions) == 2, f"n={len(regions)}")
     if len(regions) == 2:
         r0, r1 = sorted(regions, key=lambda r: r["start"])
-        check("shot 1 bounds+objects", r0["start"] == 1.0 and r0["end"] == 10.0 and r0["objects"] == ["CubeA"],
-              f"{r0}")
-        check("shot 2 bounds+objects", r1["start"] == 50.0 and r1["end"] == 60.0 and r1["objects"] == ["CubeB"],
-              f"{r1}")
+        check(
+            "shot 1 bounds+objects",
+            r0["start"] == 1.0 and r0["end"] == 10.0 and r0["objects"] == ["CubeA"],
+            f"{r0}",
+        )
+        check(
+            "shot 2 bounds+objects",
+            r1["start"] == 50.0 and r1["end"] == 60.0 and r1["objects"] == ["CubeB"],
+            f"{r1}",
+        )
         all_objs = set(r0["objects"]) | set(r1["objects"])
         check("flat cube excluded from detection", "CubeFlat" not in all_objs)
 
     # ---- detect_regions selected-keys mode -------------------------------
     for obj in scene.objects:
-        for fc in iter_action_fcurves(obj):
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
             for kp in fc.keyframe_points:
                 kp.select_control_point = False
-    for fc in iter_action_fcurves(cube_a):
+    for fc in BlenderShotStore.iter_action_fcurves(cube_a):
         for kp in fc.keyframe_points:
             kp.select_control_point = True
-    entries = collect_selected_key_entries()
+    entries = BlenderShotStore.collect_selected_key_entries()
     ent_objs = sorted({e[2] for e in entries})
-    check("selected-key entries only from CubeA", ent_objs == ["CubeA"], f"got {ent_objs}")
+    check(
+        "selected-key entries only from CubeA", ent_objs == ["CubeA"], f"got {ent_objs}"
+    )
     sk_store = BlenderShotStore()
     sk_store.detection_mode = "all"
     sk_store.detection_threshold = 5.0
     sk_regions = sk_store.detect_regions()
-    check("selected-keys mode yields a region at first key", bool(sk_regions) and sk_regions[0]["start"] == 1.0,
-          f"{sk_regions}")
+    check(
+        "selected-keys mode yields a region at first key",
+        bool(sk_regions) and sk_regions[0]["start"] == 1.0,
+        f"{sk_regions}",
+    )
 
     # ---- persistence round-trip + active() auto-install ------------------
     BlenderShotStore.clear_active()
@@ -146,19 +173,31 @@ def _run_shots_adapter_checks():
         del scene[ATTR_NAME]
     active = BlenderShotStore.active()
     check("active() returns a BlenderShotStore", isinstance(active, BlenderShotStore))
-    check("active() auto-installs BlenderScenePersistence",
-          isinstance(BlenderShotStore._persistence, BlenderScenePersistence))
+    check(
+        "active() auto-installs BlenderScenePersistence",
+        isinstance(BlenderShotStore._persistence, BlenderScenePersistence),
+    )
     active.define_shot("Intro", 1, 20, objects=["CubeA"])
-    check("scene prop written on define (immediate flush)", scene.get(ATTR_NAME) is not None)
+    check(
+        "scene prop written on define (immediate flush)",
+        scene.get(ATTR_NAME) is not None,
+    )
 
     BlenderShotStore.clear_active()
     reloaded = BlenderShotStore.active()
-    check("reloaded exactly 1 shot", len(reloaded.shots) == 1, f"n={len(reloaded.shots)}")
+    check(
+        "reloaded exactly 1 shot", len(reloaded.shots) == 1, f"n={len(reloaded.shots)}"
+    )
     if reloaded.shots:
         sh = reloaded.shots[0]
-        check("reloaded shot fields intact",
-              sh.name == "Intro" and sh.start == 1.0 and sh.end == 20.0 and sh.objects == ["CubeA"],
-              f"{sh}")
+        check(
+            "reloaded shot fields intact",
+            sh.name == "Intro"
+            and sh.start == 1.0
+            and sh.end == 20.0
+            and sh.objects == ["CubeA"],
+            f"{sh}",
+        )
 
     # ---- assess: missing object flagged ----------------------------------
     BlenderShotStore.clear_active()
@@ -166,10 +205,16 @@ def _run_shots_adapter_checks():
     real = a_store.define_shot("Real", 1, 10, objects=["CubeA"])
     ghost = a_store.define_shot("Ghost", 20, 30, objects=["NoSuchObj"])
     verdict = a_store.assess()
-    check("assess valid for existing-object shot", verdict.get(real.shot_id) == "valid",
-          f"{verdict}")
-    check("assess missing_object for ghost shot", verdict.get(ghost.shot_id) == "missing_object",
-          f"{verdict}")
+    check(
+        "assess valid for existing-object shot",
+        verdict.get(real.shot_id) == "valid",
+        f"{verdict}",
+    )
+    check(
+        "assess missing_object for ghost shot",
+        verdict.get(ghost.shot_id) == "missing_object",
+        f"{verdict}",
+    )
 
     # ---- scene-swap invalidation lifecycle (C1) ---------------------------
     # BlenderScenePersistence must wire load_post (via ScriptJobManager) so a
@@ -186,11 +231,16 @@ def _run_shots_adapter_checks():
 
     swap_store = BlenderShotStore.active()
     backend = BlenderShotStore._persistence
-    check("persistence backend installed its SceneOpened scene job",
-          isinstance(backend, BlenderScenePersistence) and backend._scene_subs_installed)
+    check(
+        "persistence backend installed its SceneOpened scene job",
+        isinstance(backend, BlenderScenePersistence) and backend._scene_subs_installed,
+    )
     status = ScriptJobManager.instance().status()
-    check("SJM installed the persistent load_post master handler",
-          "load_post" in status["installed_handlers"], f"{status['installed_handlers']}")
+    check(
+        "SJM installed the persistent load_post master handler",
+        "load_post" in status["installed_handlers"],
+        f"{status['installed_handlers']}",
+    )
     swap_store.define_shot("OldSceneShot", 1, 20, objects=["CubeA"])
 
     fired = []
@@ -202,24 +252,36 @@ def _run_shots_adapter_checks():
     bpy.ops.wm.read_homefile(use_empty=True)  # File > New — fires load_post for real
     scene = bpy.context.scene  # the old scene datablock is gone
 
-    check("invalidation listener fired exactly once on file load",
-          len(fired) == 1, f"n={len(fired)}")
+    check(
+        "invalidation listener fired exactly once on file load",
+        len(fired) == 1,
+        f"n={len(fired)}",
+    )
     check("active store nulled on file load", BlenderShotStore._active is None)
     fresh = BlenderShotStore.active()
-    check("post-load active() yields the NEW file's (empty) store",
-          len(fresh.shots) == 0, f"n={len(fresh.shots)}")
+    check(
+        "post-load active() yields the NEW file's (empty) store",
+        len(fresh.shots) == 0,
+        f"n={len(fresh.shots)}",
+    )
     fresh.define_shot("NewSceneShot", 1, 5, objects=[])
     raw = scene.get(ATTR_NAME) or ""
-    check("old file's shots never leak into the new scene's property",
-          "OldSceneShot" not in raw and "NewSceneShot" in raw, f"{raw[:120]}")
+    check(
+        "old file's shots never leak into the new scene's property",
+        "OldSceneShot" not in raw and "NewSceneShot" in raw,
+        f"{raw[:120]}",
+    )
     BlenderShotStore.remove_invalidation_listener(_record_invalidation)
 
     # teardown path: clear_active() -> backend.remove_callbacks() drops the job
     backend2 = BlenderShotStore._persistence
     BlenderShotStore.clear_active()
     subs_after = ScriptJobManager.instance().status()["subscriptions"]
-    check("clear_active tears down the backend's scene job",
-          not any(s["owner"] == repr(backend2) for s in subs_after), f"{subs_after}")
+    check(
+        "clear_active tears down the backend's scene job",
+        not any(s["owner"] == repr(backend2) for s in subs_after),
+        f"{subs_after}",
+    )
 
     # cleanup class state so a later suite in the same process starts clean
     BlenderShotStore.clear_active()

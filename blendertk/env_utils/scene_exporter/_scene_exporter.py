@@ -43,6 +43,7 @@ engine API -- see that module's docstring.
 
 ``import bpy`` is deferred into call bodies (no import side effects).
 """
+
 import os
 import re
 import shutil
@@ -85,7 +86,6 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
 
 
 class SceneExporter(ptk.LoggingMixin):
-
     # PresetStore identity for FBX export-option presets (see module docstring).
     PRESET_NAME = "scene_exporter"
     PRESET_PACKAGE = "blendertk"
@@ -111,9 +111,7 @@ class SceneExporter(ptk.LoggingMixin):
         self.logger.info(f"Generating log file path: {log_file_path}")
         self.setup_file_logging(log_file_path)
 
-    def _initialize_objects(
-        self, objects: Optional[Union[List, Callable]]
-    ) -> List:
+    def _initialize_objects(self, objects: Optional[Union[List, Callable]]) -> List:
         """Initialize objects for the scene."""
         import blendertk as btk
 
@@ -156,7 +154,7 @@ class SceneExporter(ptk.LoggingMixin):
         """Perform the export operation, including initialization and task management."""
         import bpy
 
-        from blendertk.env_utils.fbx_utils import export_selection_fbx
+        from blendertk.env_utils.fbx_utils import FbxUtils
 
         start_time = time.time()
         self.logger.info("Starting export process ...")
@@ -231,9 +229,7 @@ class SceneExporter(ptk.LoggingMixin):
             # they'd silently never ship. Re-querying the live selection here instead would
             # bypass that filtering and re-admit anything it deliberately excluded by name.
             current = set(initialized_objs)
-            extras = [
-                o for o in (self.task_manager.objects or []) if o not in current
-            ]
+            extras = [o for o in (self.task_manager.objects or []) if o not in current]
             export_objects = list(current) + extras
 
         if not export_objects:
@@ -251,7 +247,7 @@ class SceneExporter(ptk.LoggingMixin):
                 fbx_write_path = self.export_path
 
             fbx_options = self.verify_fbx_preset()
-            export_selection_fbx(
+            FbxUtils.export_selection_fbx(
                 filepath=fbx_write_path,
                 objects=export_objects,
                 **fbx_options,
@@ -260,13 +256,10 @@ class SceneExporter(ptk.LoggingMixin):
 
             deliverable_path = self.export_path
             if glb_only:
-                glb_path = self._create_glb(
-                    fbx_path=fbx_write_path, announce=False
-                )
+                glb_path = self._create_glb(fbx_path=fbx_write_path, announce=False)
                 if not (glb_path and os.path.exists(glb_path)):
                     self.logger.error(
-                        "GLB-only export failed: FBX→GLB conversion produced "
-                        "no file."
+                        "GLB-only export failed: FBX→GLB conversion produced no file."
                     )
                     export_succeeded = False
                     return False
@@ -290,9 +283,7 @@ class SceneExporter(ptk.LoggingMixin):
                 if c_cnt:
                     export_info_lines.append(f"Checks Passed: {c_cnt}/{c_cnt}")
 
-            self.logger.log_box(
-                "EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS"
-            )
+            self.logger.log_box("EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS")
 
             if create_glb_enabled and not glb_only:
                 self._create_glb()
@@ -455,26 +446,19 @@ class SceneExporter(ptk.LoggingMixin):
                 return "x"
 
         try:
-            test_name = internal_format.format_map(
-                _Dummy(stem="test", n=1, ext=ext)
-            )
+            test_name = internal_format.format_map(_Dummy(stem="test", n=1, ext=ext))
             test_stem = os.path.splitext(test_name)[0]
             if not _VERSION_SUFFIX_RE.search(test_stem):
                 self.logger.warning(
-                    f"Version format {template!r} produces names not matching "
-                    "'_v<N>'."
+                    f"Version format {template!r} produces names not matching '_v<N>'."
                 )
         except (ValueError, IndexError, KeyError) as e:
             self.logger.warning(f"Could not validate version format: {e}")
 
         try:
-            new_path = ptk.FileUtils.next_version_path(
-                path, format=internal_format
-            )
+            new_path = ptk.FileUtils.next_version_path(path, format=internal_format)
         except ValueError as e:
-            self.logger.error(
-                f"Version format invalid: {e}. Versioning skipped."
-            )
+            self.logger.error(f"Version format invalid: {e}. Versioning skipped.")
             return path
 
         self.logger.info(

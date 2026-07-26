@@ -17,13 +17,14 @@ Built on the shared ``RigUtils`` base (constraints / drivers / custom-prop vars)
 deferred into the call bodies and the Qt-only ``uitk`` helper into its method, so importing the
 module / resolving the package surface never needs a running Blender or Qt.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import undo_checkpoint
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.script_job_manager import ScriptJobManager
 from blendertk.edit_utils.naming._naming import Naming
 from blendertk.rig_utils._rig_utils import RigUtils
-from blendertk.xform_utils._xform_utils import freeze_transforms as _apply_freeze_transforms
+from blendertk.xform_utils._xform_utils import XformUtils
 
 
 class WheelRig(ptk.LoggingMixin):
@@ -55,15 +56,23 @@ class WheelRig(ptk.LoggingMixin):
     def __init__(self, control, wheels, rig_name=None, freeze_transforms=True):
         super().__init__()
         self.control = RigUtils.resolve_object(control)
-        resolved_wheels = [RigUtils.resolve_object(o) for o in ptk.make_iterable(wheels)]
+        resolved_wheels = [
+            RigUtils.resolve_object(o) for o in ptk.make_iterable(wheels)
+        ]
 
-        if self.control is None or not resolved_wheels or any(w is None for w in resolved_wheels):
+        if (
+            self.control is None
+            or not resolved_wheels
+            or any(w is None for w in resolved_wheels)
+        ):
             raise ValueError("Invalid control or wheel inputs.")
         self.wheels = resolved_wheels
 
         # Check for persistent rig ID
         stored_name = self.control.get("wheel_rig_id")
-        self._rig_name = rig_name or stored_name or Naming.generate_unique_name("wheel_rig")
+        self._rig_name = (
+            rig_name or stored_name or Naming.generate_unique_name("wheel_rig")
+        )
 
         # Persist ID
         self.control["wheel_rig_id"] = self._rig_name
@@ -71,8 +80,12 @@ class WheelRig(ptk.LoggingMixin):
         if freeze_transforms:
             # Freeze location only — rotation must be preserved so the auto-flip pass can read
             # mirrored-wheel orientation from the world matrix.
-            _apply_freeze_transforms(self.control, location=True, rotation=False, scale=False)
-            _apply_freeze_transforms(self.wheels, location=True, rotation=False, scale=False)
+            XformUtils.freeze_transforms(
+                self.control, location=True, rotation=False, scale=False
+            )
+            XformUtils.freeze_transforms(
+                self.wheels, location=True, rotation=False, scale=False
+            )
 
     @property
     def rig_name(self) -> str:
@@ -113,11 +126,13 @@ class WheelRig(ptk.LoggingMixin):
             for wheel in self.wheels:
                 for index in range(3):
                     RigUtils.remove_driver(wheel, "rotation_euler", index)
-            self.logger.info(f"Deleted {len(drivers)} driver(s) for rig: {self.rig_name}")
+            self.logger.info(
+                f"Deleted {len(drivers)} driver(s) for rig: {self.rig_name}"
+            )
         else:
             self.logger.info(f"No drivers found to delete for rig: {self.rig_name}")
 
-    @undo_checkpoint
+    @CoreUtils.undo_checkpoint
     def rig_rotation(
         self,
         movement_axis: str = "LOC_Z",
@@ -148,9 +163,15 @@ class WheelRig(ptk.LoggingMixin):
         """
         import bpy
 
-        wheels = self.wheels if wheels is None else [
-            w for w in (RigUtils.resolve_object(o) for o in ptk.make_iterable(wheels)) if w
-        ]
+        wheels = (
+            self.wheels
+            if wheels is None
+            else [
+                w
+                for w in (RigUtils.resolve_object(o) for o in ptk.make_iterable(wheels))
+                if w
+            ]
+        )
         if not wheels:
             raise ValueError("No wheels specified. You must pass wheels to rig.")
         if wheel_height <= 0:
@@ -173,7 +194,9 @@ class WheelRig(ptk.LoggingMixin):
         suffix_idx = 0
         epsilon = 0.01
         while True:
-            candidate = "wheelHeight" if suffix_idx == 0 else f"wheelHeight_{suffix_idx}"
+            candidate = (
+                "wheelHeight" if suffix_idx == 0 else f"wheelHeight_{suffix_idx}"
+            )
 
             if candidate not in self.control:
                 RigUtils.ensure_custom_prop(
@@ -205,28 +228,45 @@ class WheelRig(ptk.LoggingMixin):
             wheel_axis = wheel.matrix_world.col[rotation_index].to_3d()
             auto_flip = -1.0 if ctrl_axis.dot(wheel_axis) < 0 else 1.0
 
-            RigUtils.remove_driver(wheel, "rotation_euler", rotation_index)  # re-entrant
+            RigUtils.remove_driver(
+                wheel, "rotation_euler", rotation_index
+            )  # re-entrant
 
             # Build the driver + ALL variables BEFORE the expression — an expression that
             # references a not-yet-added variable evaluates it as 0 (div-by-zero) and sticks.
             fcurve = RigUtils.add_transform_driver(
-                wheel, "rotation_euler", rotation_index, self.control, movement_axis,
-                space=space, var_name="travel",
+                wheel,
+                "rotation_euler",
+                rotation_index,
+                self.control,
+                movement_axis,
+                space=space,
+                var_name="travel",
             )
-            RigUtils.add_prop_var(fcurve, "height", self.control, f'["{height_attr_name}"]')
+            RigUtils.add_prop_var(
+                fcurve, "height", self.control, f'["{height_attr_name}"]'
+            )
             RigUtils.add_prop_var(fcurve, "enable", self.control, '["enableRotation"]')
-            RigUtils.add_prop_var(fcurve, "direction", self.control, '["spinDirection"]')
+            RigUtils.add_prop_var(
+                fcurve, "direction", self.control, '["spinDirection"]'
+            )
             # radians = 2*travel/height (== Maya's distance/(pi*height)*360deg). Pure arithmetic
             # (no ternary -> stays on Blender's fast driver parser, no full-Python security gate);
             # height can't hit 0 (custom-prop min=0.001).
-            fcurve.driver.expression = f"enable * direction * {auto_flip} * 2.0 * travel / height"
+            fcurve.driver.expression = (
+                f"enable * direction * {auto_flip} * 2.0 * travel / height"
+            )
 
             self.logger.debug(
                 f"Rigged wheel: {wheel.name} with driver: rotation_euler[{rotation_index}]"
             )
 
-        RigUtils.refresh_drivers(wheels)  # post-build recompile (script-built driver gotcha)
-        self.logger.info(f"Wheel rig rotation updated for wheels: {[w.name for w in wheels]}")
+        RigUtils.refresh_drivers(
+            wheels
+        )  # post-build recompile (script-built driver gotcha)
+        self.logger.info(
+            f"Wheel rig rotation updated for wheels: {[w.name for w in wheels]}"
+        )
         return wheels
 
 
@@ -290,7 +330,7 @@ class WheelRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu with mode toggle and instructions."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt, kbd
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add("Separator", setTitle="Mode")
         # Local vs World Space is a two-valued mode, not a modifier — a combobox
@@ -308,42 +348,56 @@ class WheelRigSlots(ptk.LoggingMixin):
             ),
         )
         cmb_space.addItems(["Local", "World Space"])
-        cmb_space.setCurrentText("Local")  # preserve prior default (checkbox off = local)
+        cmb_space.setCurrentText(
+            "Local"
+        )  # preserve prior default (checkbox off = local)
         cmb_space.currentTextChanged.connect(self._on_space_changed)
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Wheel Rig",
                 body="Drive wheel rotation from a control's linear movement. "
                 "Wheel diameter (Wheel Height) and travel axis determine the "
                 "rotation speed.",
                 sections=[
-                    ("Selection order", [
-                        "Select one or more <b>wheel</b> objects.",
-                        f"{kbd('Shift')}-select the <b>driver / control</b> "
-                        "object LAST so it becomes the <b>active</b> object.",
-                        "Click <b>Rig Rotation</b>.",
-                    ]),
-                    ("Settings", [
-                        "<b>Axis</b> — which travel axis drives which "
-                        "rotation axis. e.g. <i>Move Z → Rotate X</i> means "
-                        "forward Z movement produces pitch on X.",
-                        "<b>Wheel Height</b> — diameter used to compute "
-                        "rotation speed. Use <b>Get Wheel Size</b> (slider "
-                        "option box) to auto-detect from the bounding box.",
-                    ]),
-                    ("Modes", [
-                        "<b>Local</b> (default) — reads the driver's own "
-                        "translate channel. Best when the driver itself is animated.",
-                        "<b>World Space</b> — reads world-space position so "
-                        "parent transform movement is captured. Toggle via "
-                        "the header menu.",
-                    ]),
-                    ("Driver attributes added", [
-                        "<b>wheelHeight</b> — animation-friendly diameter control.",
-                        "<b>enableRotation</b> — on/off toggle (0..1).",
-                        "<b>spinDirection</b> — flip direction (+1 / -1).",
-                    ]),
+                    (
+                        "Selection order",
+                        [
+                            "Select one or more <b>wheel</b> objects.",
+                            f"{TooltipFormat.kbd('Shift')}-select the <b>driver / control</b> "
+                            "object LAST so it becomes the <b>active</b> object.",
+                            "Click <b>Rig Rotation</b>.",
+                        ],
+                    ),
+                    (
+                        "Settings",
+                        [
+                            "<b>Axis</b> — which travel axis drives which "
+                            "rotation axis. e.g. <i>Move Z → Rotate X</i> means "
+                            "forward Z movement produces pitch on X.",
+                            "<b>Wheel Height</b> — diameter used to compute "
+                            "rotation speed. Use <b>Get Wheel Size</b> (slider "
+                            "option box) to auto-detect from the bounding box.",
+                        ],
+                    ),
+                    (
+                        "Modes",
+                        [
+                            "<b>Local</b> (default) — reads the driver's own "
+                            "translate channel. Best when the driver itself is animated.",
+                            "<b>World Space</b> — reads world-space position so "
+                            "parent transform movement is captured. Toggle via "
+                            "the header menu.",
+                        ],
+                    ),
+                    (
+                        "Driver attributes added",
+                        [
+                            "<b>wheelHeight</b> — animation-friendly diameter control.",
+                            "<b>enableRotation</b> — on/off toggle (0..1).",
+                            "<b>spinDirection</b> — flip direction (+1 / -1).",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Re-running on the same driver updates the existing "
@@ -378,7 +432,9 @@ class WheelRigSlots(ptk.LoggingMixin):
         Blender's driver targets a ``rotation_euler`` component INDEX (0/1/2), unlike Maya's
         named ``rotateX/Y/Z`` attribute string — same property name/role, adapted return type.
         """
-        _, rotation_index = WheelRig._AXIS_MAP.get(self.ui.cmb000.currentIndex(), ("LOC_Z", 0))
+        _, rotation_index = WheelRig._AXIS_MAP.get(
+            self.ui.cmb000.currentIndex(), ("LOC_Z", 0)
+        )
         return rotation_index
 
     def resolve_selection(self):
@@ -394,11 +450,13 @@ class WheelRigSlots(ptk.LoggingMixin):
         """
         import bpy
 
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        sel = selected_objects()
+        sel = CoreUtils.selected_objects()
         if len(sel) < 2:
-            raise ValueError("Select one or more wheel objects, then the driver (active last).")
+            raise ValueError(
+                "Select one or more wheel objects, then the driver (active last)."
+            )
 
         control = bpy.context.view_layer.objects.active
         if control is None or control not in sel:
@@ -413,9 +471,9 @@ class WheelRigSlots(ptk.LoggingMixin):
         """Get the wheel height from the selected object's bounding box."""
         import bpy
 
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        sel = selected_objects()
+        sel = CoreUtils.selected_objects()
         if not sel:
             self.sb.message_box("Select a single object to determine wheel height.")
             return
@@ -466,7 +524,9 @@ class WheelRigSlots(ptk.LoggingMixin):
         """Update the rig name placeholder based on the driver (active object)."""
         try:
             import bpy
-        except ImportError:  # Qt-only harness — no selection to reflect (bpy-free load contract)
+        except (
+            ImportError
+        ):  # Qt-only harness — no selection to reflect (bpy-free load contract)
             return
 
         control = bpy.context.view_layer.objects.active

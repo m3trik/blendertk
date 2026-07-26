@@ -22,6 +22,7 @@ Import-clean: no ``bpy`` / Qt at module top — ``bpy`` and ``qtpy`` are deferre
 functions, and the Qt surface is just the ``QMenu`` instance handed in — so offscreen Qt
 tests and headless Blender can both import it.
 """
+
 import functools
 import inspect
 import types
@@ -29,6 +30,331 @@ import types
 # Menus legitimately recur across branches (e.g. VIEW3D_MT_snap appears under several
 # parents) — the cycle guard is per recursion *path*, not global. Depth is a backstop.
 _MAX_DEPTH = 8
+
+
+class _MenuHarvestInternal(object):
+    """Internal helpers for MenuHarvest."""
+
+    @staticmethod
+    def _plain_props(rec):
+        """An ``_OpProps`` tree as plain (possibly nested) dicts for the ``bpy.ops`` call.
+
+        Empty nested groups — created by reads that never assigned — are dropped.
+        """
+        out = {}
+        for key, value in rec.props.items():
+            if isinstance(value, _OpProps):
+                nested = _MenuHarvestInternal._plain_props(value)
+                if nested:
+                    out[key] = nested
+            else:
+                out[key] = value
+        return out
+
+    @staticmethod
+    def _op_callable(op_idname):
+        """The ``bpy.ops`` callable for ``"module.operator"``, or None for a bad id."""
+        import bpy
+
+        mod, _, op = op_idname.partition(".")
+        try:
+            return getattr(getattr(bpy.ops, mod), op)
+        except AttributeError:
+            return None
+
+    @staticmethod
+    def _op_label(fn, op_idname):
+        try:
+            return fn.get_rna_type().name or op_idname
+        except Exception:
+            return op_idname
+
+    @staticmethod
+    def _op_poll(fn):
+        """Whether the operator would run right now; unknowable polls stay clickable."""
+        try:
+            return bool(fn.poll())
+        except Exception:
+            return True
+
+    @staticmethod
+    def _set_prop_deferred(data, prop_name, value):
+        """Deferred boolean-prop toggle (menu rows like *Auto Merge*); dead refs are ignored."""
+        import bpy
+
+        def _run():
+            try:
+                setattr(data, prop_name, value)
+            except Exception:
+                pass
+            return None
+
+        bpy.app.timers.register(_run, first_interval=0.05)
+
+    @staticmethod
+    def _refill(qmenu, idname):
+        from qtpy import QtCore, QtWidgets
+
+        # Harvest BEFORE clearing so a failing draw leaves the previous content intact.
+        items = MenuHarvest.harvest_menu(idname)
+        # clear() removes actions but never deletes child QMenus created by addMenu —
+        # without this, every refill leaks the previous show's submenu tree.
+        old_submenus = qmenu.findChildren(
+            QtWidgets.QMenu, options=QtCore.Qt.FindDirectChildrenOnly
+        )
+        qmenu.clear()
+        for submenu in old_submenus:
+            submenu.deleteLater()
+        return _MenuHarvestInternal._fill(qmenu, items, depth=0, path={idname})
+
+    @staticmethod
+    def _fill(qmenu, items, depth, path):
+        count = 0
+        for item in items:
+            kind = item[0]
+            if kind == "separator":
+                qmenu.addSeparator()
+            elif kind == "label":
+                action = qmenu.addAction(item[1])
+                action.setEnabled(False)
+            elif kind == "operator":
+                count += _MenuHarvestInternal._add_operator(qmenu, item)
+            elif kind == "menu":
+                count += _MenuHarvestInternal._add_submenu(
+                    qmenu, item[1], item[2], depth, path
+                )
+            elif kind == "menu_contents":
+                count += _MenuHarvestInternal._add_menu_contents(
+                    qmenu, item[1], depth, path
+                )
+            elif kind == "op_menu_enum":
+                count += _MenuHarvestInternal._add_enum_submenu(
+                    qmenu, item[1], item[2], item[3]
+                )
+            elif kind == "op_enum":
+                count += _MenuHarvestInternal._add_enum_inline(qmenu, item[1], item[2])
+            elif kind == "prop":
+                count += _MenuHarvestInternal._add_prop(qmenu, item)
+        return count
+
+    @staticmethod
+    def _add_operator(qmenu, item):
+        _, op_idname, text, enabled, rec = item
+        fn = _MenuHarvestInternal._op_callable(op_idname)
+        if fn is None:
+            return 0
+        action = qmenu.addAction(text or _MenuHarvestInternal._op_label(fn, op_idname))
+        action.setEnabled(enabled and _MenuHarvestInternal._op_poll(fn))
+        action.triggered.connect(
+            functools.partial(
+                _MenuHarvestInternal._trigger_op,
+                op_idname,
+                _MenuHarvestInternal._plain_props(rec),
+            )
+        )
+        return 1
+
+    @staticmethod
+    def _trigger_op(op_idname, props, *_args):
+        MenuHarvest.invoke_operator(op_idname, props)
+
+    @staticmethod
+    def _add_submenu(qmenu, sub_idname, text, depth, path):
+        """A nested native menu — harvested eagerly; a failing child draw becomes one
+        disabled row instead of sinking the parent."""
+        import bpy
+
+        menu_cls = getattr(bpy.types, sub_idname, None)
+        if menu_cls is None:
+            return 0
+        label = text or getattr(menu_cls, "bl_label", sub_idname)
+        if sub_idname in path or depth >= _MAX_DEPTH:
+            return 0
+        try:
+            items = MenuHarvest.harvest_menu(sub_idname)
+        except Exception:
+            action = qmenu.addAction(label)
+            action.setEnabled(False)
+            return 1
+        submenu = qmenu.addMenu(label)
+        count = _MenuHarvestInternal._fill(
+            submenu, items, depth + 1, path | {sub_idname}
+        )
+        if not count:
+            submenu.menuAction().setEnabled(False)
+        return 1
+
+    @staticmethod
+    def _add_menu_contents(qmenu, sub_idname, depth, path):
+        """``layout.menu_contents`` inlines another menu's rows at this level."""
+        if sub_idname in path or depth >= _MAX_DEPTH:
+            return 0
+        try:
+            items = MenuHarvest.harvest_menu(sub_idname)
+        except Exception:
+            return 0
+        return _MenuHarvestInternal._fill(qmenu, items, depth + 1, path | {sub_idname})
+
+    @staticmethod
+    def _enum_items(fn, prop_name):
+        try:
+            prop = fn.get_rna_type().properties[prop_name]
+            return [(e.identifier, e.name) for e in prop.enum_items]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _add_enum_submenu(qmenu, op_idname, prop_name, text):
+        fn = _MenuHarvestInternal._op_callable(op_idname)
+        if fn is None:
+            return 0
+        items = _MenuHarvestInternal._enum_items(fn, prop_name)
+        if not items:
+            # Dynamic (callback-driven) enum — fall back to a plain invoke; Blender
+            # presents its own chooser for ops that need one.
+            action = qmenu.addAction(
+                text or _MenuHarvestInternal._op_label(fn, op_idname)
+            )
+            action.setEnabled(_MenuHarvestInternal._op_poll(fn))
+            action.triggered.connect(
+                functools.partial(_MenuHarvestInternal._trigger_op, op_idname, {})
+            )
+            return 1
+        submenu = qmenu.addMenu(text or _MenuHarvestInternal._op_label(fn, op_idname))
+        enabled = _MenuHarvestInternal._op_poll(fn)
+        for identifier, name in items:
+            action = submenu.addAction(name)
+            action.setEnabled(enabled)
+            action.triggered.connect(
+                functools.partial(
+                    _MenuHarvestInternal._trigger_op, op_idname, {prop_name: identifier}
+                )
+            )
+        if not enabled:
+            submenu.menuAction().setEnabled(False)
+        return 1
+
+    @staticmethod
+    def _add_enum_inline(qmenu, op_idname, prop_name):
+        fn = _MenuHarvestInternal._op_callable(op_idname)
+        if fn is None:
+            return 0
+        enabled = _MenuHarvestInternal._op_poll(fn)
+        count = 0
+        for identifier, name in _MenuHarvestInternal._enum_items(fn, prop_name):
+            action = qmenu.addAction(name)
+            action.setEnabled(enabled)
+            action.triggered.connect(
+                functools.partial(
+                    _MenuHarvestInternal._trigger_op, op_idname, {prop_name: identifier}
+                )
+            )
+            count += 1
+        return count
+
+    @staticmethod
+    def _add_prop(qmenu, item):
+        """Boolean props become checkable rows; other prop types have no menu-row analogue."""
+        _, data, prop_name, text, enabled = item
+        try:
+            rna_prop = data.bl_rna.properties[prop_name]
+            if rna_prop.type != "BOOLEAN" or getattr(rna_prop, "is_array", False):
+                return 0
+            value = bool(getattr(data, prop_name))
+            label = text or rna_prop.name
+        except Exception:
+            return 0
+        action = qmenu.addAction(label)
+        action.setCheckable(True)
+        action.setChecked(value)
+        action.setEnabled(enabled)
+        action.triggered.connect(
+            functools.partial(_MenuHarvestInternal._toggle_prop, data, prop_name)
+        )
+        return 1
+
+    @staticmethod
+    def _toggle_prop(data, prop_name, checked=False, *_args):
+        _MenuHarvestInternal._set_prop_deferred(data, prop_name, bool(checked))
+
+
+class MenuHarvest(_MenuHarvestInternal):
+    """MenuHarvest — module namespace."""
+
+    @staticmethod
+    def harvest_menu(idname):
+        """Execute ``idname``'s ``draw`` against a recorder; return the recorded item list.
+
+        Raises whatever the draw raises — mode-dependent draws (``VIEW3D_MT_edit_armature``)
+        deref ``context.edit_object`` and fail outside their mode; the caller treats that as
+        "this menu does not exist right now" and falls back.
+        """
+        import bpy
+
+        menu_cls = getattr(bpy.types, idname)
+        recorder = _LayoutRecorder()
+        menu_cls.draw(_MenuShim(menu_cls, recorder), bpy.context)
+        return recorder.items
+
+    @staticmethod
+    def invoke_operator(op_idname, props=None):
+        """Run an operator one timer tick later, ``INVOKE_DEFAULT``, under a VIEW_3D override.
+
+        Deferred so the Qt click that triggered it fully unwinds first (the same reason the
+        old ``wm.call_menu`` path deferred). Errors surface as a native popup rather than a
+        silent console traceback.
+        """
+        import bpy
+        import blendertk as btk
+
+        fn = _MenuHarvestInternal._op_callable(op_idname)
+        if fn is None:
+            return
+
+        def _run():
+            try:
+                ctx = btk.get_view3d_context()
+                if ctx:
+                    with bpy.context.temp_override(**ctx):
+                        fn("INVOKE_DEFAULT", **(props or {}))
+                else:
+                    fn("INVOKE_DEFAULT", **(props or {}))
+            except Exception as e:
+                btk.popup_message(str(e), title=op_idname, icon="ERROR")
+            return None  # one-shot
+
+        bpy.app.timers.register(_run, first_interval=0.05)
+
+    @staticmethod
+    def refill_qmenu(qmenu, idname):
+        """Rebuild ``qmenu``'s actions from a fresh harvest of ``idname``; return the row count.
+
+        Runs the whole harvest (draws + polls) under one VIEW_3D override when a viewport
+        exists, so mode/region-sensitive draws and ``poll()`` see the same context a real
+        menu open would. When nothing is being edited, the active object is injected as
+        ``edit_object`` — a few mode-scoped draws hard-deref it (``VIEW3D_MT_edit_armature``,
+        ``VIEW3D_MT_edit_curve_ctrlpoints``) and any object satisfies the deref, so their
+        menus open out of mode with ``poll()``-greyed rows (Maya's menus are likewise always
+        openable) instead of failing. Called on every show — content is mode- and add-on-live,
+        and data refs recorded into prop toggles are always fresh.
+        """
+        import bpy
+        import blendertk as btk
+
+        ctx = btk.get_view3d_context()
+        if ctx:
+            try:
+                editing = bpy.context.edit_object
+            except AttributeError:  # windowless (Qt-timer) context
+                editing = None
+            if editing is None:
+                active = btk.active_object()
+                if active is not None:
+                    ctx = dict(ctx)
+                    ctx["edit_object"] = active
+            with bpy.context.temp_override(**ctx):
+                return _MenuHarvestInternal._refill(qmenu, idname)
+        return _MenuHarvestInternal._refill(qmenu, idname)
 
 
 class _OpProps:
@@ -57,22 +383,6 @@ class _OpProps:
             value = _OpProps()
             self.props[name] = value
         return value
-
-
-def _plain_props(rec):
-    """An ``_OpProps`` tree as plain (possibly nested) dicts for the ``bpy.ops`` call.
-
-    Empty nested groups — created by reads that never assigned — are dropped.
-    """
-    out = {}
-    for key, value in rec.props.items():
-        if isinstance(value, _OpProps):
-            nested = _plain_props(value)
-            if nested:
-                out[key] = nested
-        else:
-            out[key] = value
-    return out
 
 
 class _Sink:
@@ -168,282 +478,3 @@ class _MenuShim:
                 return attr
             return functools.partial(attr, self)
         return attr
-
-
-def harvest_menu(idname):
-    """Execute ``idname``'s ``draw`` against a recorder; return the recorded item list.
-
-    Raises whatever the draw raises — mode-dependent draws (``VIEW3D_MT_edit_armature``)
-    deref ``context.edit_object`` and fail outside their mode; the caller treats that as
-    "this menu does not exist right now" and falls back.
-    """
-    import bpy
-
-    menu_cls = getattr(bpy.types, idname)
-    recorder = _LayoutRecorder()
-    menu_cls.draw(_MenuShim(menu_cls, recorder), bpy.context)
-    return recorder.items
-
-
-def _op_callable(op_idname):
-    """The ``bpy.ops`` callable for ``"module.operator"``, or None for a bad id."""
-    import bpy
-
-    mod, _, op = op_idname.partition(".")
-    try:
-        return getattr(getattr(bpy.ops, mod), op)
-    except AttributeError:
-        return None
-
-
-def _op_label(fn, op_idname):
-    try:
-        return fn.get_rna_type().name or op_idname
-    except Exception:
-        return op_idname
-
-
-def _op_poll(fn):
-    """Whether the operator would run right now; unknowable polls stay clickable."""
-    try:
-        return bool(fn.poll())
-    except Exception:
-        return True
-
-
-def invoke_operator(op_idname, props=None):
-    """Run an operator one timer tick later, ``INVOKE_DEFAULT``, under a VIEW_3D override.
-
-    Deferred so the Qt click that triggered it fully unwinds first (the same reason the
-    old ``wm.call_menu`` path deferred). Errors surface as a native popup rather than a
-    silent console traceback.
-    """
-    import bpy
-    import blendertk as btk
-
-    fn = _op_callable(op_idname)
-    if fn is None:
-        return
-
-    def _run():
-        try:
-            ctx = btk.get_view3d_context()
-            if ctx:
-                with bpy.context.temp_override(**ctx):
-                    fn("INVOKE_DEFAULT", **(props or {}))
-            else:
-                fn("INVOKE_DEFAULT", **(props or {}))
-        except Exception as e:
-            btk.popup_message(str(e), title=op_idname, icon="ERROR")
-        return None  # one-shot
-
-    bpy.app.timers.register(_run, first_interval=0.05)
-
-
-def _set_prop_deferred(data, prop_name, value):
-    """Deferred boolean-prop toggle (menu rows like *Auto Merge*); dead refs are ignored."""
-    import bpy
-
-    def _run():
-        try:
-            setattr(data, prop_name, value)
-        except Exception:
-            pass
-        return None
-
-    bpy.app.timers.register(_run, first_interval=0.05)
-
-
-def refill_qmenu(qmenu, idname):
-    """Rebuild ``qmenu``'s actions from a fresh harvest of ``idname``; return the row count.
-
-    Runs the whole harvest (draws + polls) under one VIEW_3D override when a viewport
-    exists, so mode/region-sensitive draws and ``poll()`` see the same context a real
-    menu open would. When nothing is being edited, the active object is injected as
-    ``edit_object`` — a few mode-scoped draws hard-deref it (``VIEW3D_MT_edit_armature``,
-    ``VIEW3D_MT_edit_curve_ctrlpoints``) and any object satisfies the deref, so their
-    menus open out of mode with ``poll()``-greyed rows (Maya's menus are likewise always
-    openable) instead of failing. Called on every show — content is mode- and add-on-live,
-    and data refs recorded into prop toggles are always fresh.
-    """
-    import bpy
-    import blendertk as btk
-
-    ctx = btk.get_view3d_context()
-    if ctx:
-        try:
-            editing = bpy.context.edit_object
-        except AttributeError:  # windowless (Qt-timer) context
-            editing = None
-        if editing is None:
-            active = btk.active_object()
-            if active is not None:
-                ctx = dict(ctx)
-                ctx["edit_object"] = active
-        with bpy.context.temp_override(**ctx):
-            return _refill(qmenu, idname)
-    return _refill(qmenu, idname)
-
-
-def _refill(qmenu, idname):
-    from qtpy import QtCore, QtWidgets
-
-    # Harvest BEFORE clearing so a failing draw leaves the previous content intact.
-    items = harvest_menu(idname)
-    # clear() removes actions but never deletes child QMenus created by addMenu —
-    # without this, every refill leaks the previous show's submenu tree.
-    old_submenus = qmenu.findChildren(
-        QtWidgets.QMenu, options=QtCore.Qt.FindDirectChildrenOnly
-    )
-    qmenu.clear()
-    for submenu in old_submenus:
-        submenu.deleteLater()
-    return _fill(qmenu, items, depth=0, path={idname})
-
-
-def _fill(qmenu, items, depth, path):
-    count = 0
-    for item in items:
-        kind = item[0]
-        if kind == "separator":
-            qmenu.addSeparator()
-        elif kind == "label":
-            action = qmenu.addAction(item[1])
-            action.setEnabled(False)
-        elif kind == "operator":
-            count += _add_operator(qmenu, item)
-        elif kind == "menu":
-            count += _add_submenu(qmenu, item[1], item[2], depth, path)
-        elif kind == "menu_contents":
-            count += _add_menu_contents(qmenu, item[1], depth, path)
-        elif kind == "op_menu_enum":
-            count += _add_enum_submenu(qmenu, item[1], item[2], item[3])
-        elif kind == "op_enum":
-            count += _add_enum_inline(qmenu, item[1], item[2])
-        elif kind == "prop":
-            count += _add_prop(qmenu, item)
-    return count
-
-
-def _add_operator(qmenu, item):
-    _, op_idname, text, enabled, rec = item
-    fn = _op_callable(op_idname)
-    if fn is None:
-        return 0
-    action = qmenu.addAction(text or _op_label(fn, op_idname))
-    action.setEnabled(enabled and _op_poll(fn))
-    action.triggered.connect(
-        functools.partial(_trigger_op, op_idname, _plain_props(rec))
-    )
-    return 1
-
-
-def _trigger_op(op_idname, props, *_args):
-    invoke_operator(op_idname, props)
-
-
-def _add_submenu(qmenu, sub_idname, text, depth, path):
-    """A nested native menu — harvested eagerly; a failing child draw becomes one
-    disabled row instead of sinking the parent."""
-    import bpy
-
-    menu_cls = getattr(bpy.types, sub_idname, None)
-    if menu_cls is None:
-        return 0
-    label = text or getattr(menu_cls, "bl_label", sub_idname)
-    if sub_idname in path or depth >= _MAX_DEPTH:
-        return 0
-    try:
-        items = harvest_menu(sub_idname)
-    except Exception:
-        action = qmenu.addAction(label)
-        action.setEnabled(False)
-        return 1
-    submenu = qmenu.addMenu(label)
-    count = _fill(submenu, items, depth + 1, path | {sub_idname})
-    if not count:
-        submenu.menuAction().setEnabled(False)
-    return 1
-
-
-def _add_menu_contents(qmenu, sub_idname, depth, path):
-    """``layout.menu_contents`` inlines another menu's rows at this level."""
-    if sub_idname in path or depth >= _MAX_DEPTH:
-        return 0
-    try:
-        items = harvest_menu(sub_idname)
-    except Exception:
-        return 0
-    return _fill(qmenu, items, depth + 1, path | {sub_idname})
-
-
-def _enum_items(fn, prop_name):
-    try:
-        prop = fn.get_rna_type().properties[prop_name]
-        return [(e.identifier, e.name) for e in prop.enum_items]
-    except Exception:
-        return []
-
-
-def _add_enum_submenu(qmenu, op_idname, prop_name, text):
-    fn = _op_callable(op_idname)
-    if fn is None:
-        return 0
-    items = _enum_items(fn, prop_name)
-    if not items:
-        # Dynamic (callback-driven) enum — fall back to a plain invoke; Blender
-        # presents its own chooser for ops that need one.
-        action = qmenu.addAction(text or _op_label(fn, op_idname))
-        action.setEnabled(_op_poll(fn))
-        action.triggered.connect(functools.partial(_trigger_op, op_idname, {}))
-        return 1
-    submenu = qmenu.addMenu(text or _op_label(fn, op_idname))
-    enabled = _op_poll(fn)
-    for identifier, name in items:
-        action = submenu.addAction(name)
-        action.setEnabled(enabled)
-        action.triggered.connect(
-            functools.partial(_trigger_op, op_idname, {prop_name: identifier})
-        )
-    if not enabled:
-        submenu.menuAction().setEnabled(False)
-    return 1
-
-
-def _add_enum_inline(qmenu, op_idname, prop_name):
-    fn = _op_callable(op_idname)
-    if fn is None:
-        return 0
-    enabled = _op_poll(fn)
-    count = 0
-    for identifier, name in _enum_items(fn, prop_name):
-        action = qmenu.addAction(name)
-        action.setEnabled(enabled)
-        action.triggered.connect(
-            functools.partial(_trigger_op, op_idname, {prop_name: identifier})
-        )
-        count += 1
-    return count
-
-
-def _add_prop(qmenu, item):
-    """Boolean props become checkable rows; other prop types have no menu-row analogue."""
-    _, data, prop_name, text, enabled = item
-    try:
-        rna_prop = data.bl_rna.properties[prop_name]
-        if rna_prop.type != "BOOLEAN" or getattr(rna_prop, "is_array", False):
-            return 0
-        value = bool(getattr(data, prop_name))
-        label = text or rna_prop.name
-    except Exception:
-        return 0
-    action = qmenu.addAction(label)
-    action.setCheckable(True)
-    action.setChecked(value)
-    action.setEnabled(enabled)
-    action.triggered.connect(functools.partial(_toggle_prop, data, prop_name))
-    return 1
-
-
-def _toggle_prop(data, prop_name, checked=False, *_args):
-    _set_prop_deferred(data, prop_name, bool(checked))

@@ -11,14 +11,53 @@ and keeps a single full-path index plus a last-component fallback.
 
 ``qtpy`` is deferred into each function body (headless Blender ships no Qt binding).
 """
+
 from typing import Any, Dict, List, Tuple
 
 import pythontk as ptk
 
-from blendertk.env_utils.hierarchy_sync._hierarchy_sync import build_path
+from blendertk.env_utils.hierarchy_sync._hierarchy_sync import HierarchySync
 
 
-class TreePathMatcher(ptk.LoggingMixin):
+class _TreePathMatcherInternal(object):
+    """Internal helpers for TreePathMatcher."""
+
+    @staticmethod
+    def _extract_object_name_from_item(item) -> str:
+        """Extract the hierarchy path from a tree widget item.
+
+        Prefers the stored UserRole object's canonical hierarchy path (``build_path``): the
+        display-text chain can drift from the live object's real name, and a bare leaf name is
+        ambiguous when duplicate names exist under different parents. Placeholder rows (the
+        'Browse…' / 'Open scene…' prompts) resolve to no object.
+        """
+        from qtpy import QtCore
+
+        try:
+            data = item.data(0, QtCore.Qt.UserRole)
+        except Exception:
+            data = None
+
+        if isinstance(data, str):
+            if data in _PLACEHOLDER_USER_DATA:
+                return ""
+        elif data is not None:
+            try:
+                return HierarchySync.build_path(data)  # a live bpy object payload
+            except (ReferenceError, AttributeError):
+                pass
+
+        raw_name = getattr(item, "_raw_name", None)
+        parts = []
+        current = item
+        while current:
+            parts.insert(0, current.text(0))
+            current = current.parent()
+        full = "|".join(parts) if len(parts) > 1 else parts[0] if parts else ""
+        return full or raw_name or ""
+
+
+class TreePathMatcher(ptk.LoggingMixin, _TreePathMatcherInternal):
     """Tree path matching functionality for UI tree widgets."""
 
     def build_tree_index(self, widget):
@@ -45,7 +84,9 @@ class TreePathMatcher(ptk.LoggingMixin):
 
         return by_full, by_last
 
-    def find_path_matches(self, target_path: str, by_full: dict, by_last: dict, strict: bool = False):
+    def find_path_matches(
+        self, target_path: str, by_full: dict, by_last: dict, strict: bool = False
+    ):
         """Find tree items matching a target path — exact full-path match, falling back to
         last-component matching unless ``strict``."""
         candidates = []
@@ -98,117 +139,92 @@ class TreePathMatcher(ptk.LoggingMixin):
 
     def log_matching_debug(self, path, candidates, strategy, prefix=""):
         """Log debug information about path matching."""
-        self.logger.debug(f"{prefix} path '{path}' -> {len(candidates)} candidates via {strategy}")
+        self.logger.debug(
+            f"{prefix} path '{path}' -> {len(candidates)} candidates via {strategy}"
+        )
 
     def log_tree_index_debug(self, by_full, by_last, tree_type):
         """Log debug information about tree indices."""
-        self.logger.debug(f"{tree_type} tree index: {len(by_full)} full, {len(by_last)} last")
+        self.logger.debug(
+            f"{tree_type} tree index: {len(by_full)} full, {len(by_last)} last"
+        )
 
+    @staticmethod
+    def get_selected_object_names(tree_widget) -> List[str]:
+        """Extract object names from selected tree widget items."""
+        return [
+            name
+            for item in TreePathMatcher.get_selected_tree_items(tree_widget)
+            if (name := _TreePathMatcherInternal._extract_object_name_from_item(item))
+        ]
 
-def get_selected_object_names(tree_widget) -> List[str]:
-    """Extract object names from selected tree widget items."""
-    return [
-        name
-        for item in get_selected_tree_items(tree_widget)
-        if (name := _extract_object_name_from_item(item))
-    ]
+    @staticmethod
+    def get_selected_tree_items(tree_widget) -> list:
+        """Get all selected items from tree widget."""
+        from qtpy import QtWidgets
 
+        selected_items = []
+        iterator = QtWidgets.QTreeWidgetItemIterator(tree_widget)
+        while iterator.value():
+            item = iterator.value()
+            if item.isSelected():
+                selected_items.append(item)
+            iterator += 1
+        return selected_items
 
-def get_selected_tree_items(tree_widget) -> list:
-    """Get all selected items from tree widget."""
-    from qtpy import QtWidgets
+    @staticmethod
+    def find_tree_item_by_name(tree_widget, object_name: str):
+        """Find tree widget item by object name (or hierarchy path)."""
+        from qtpy import QtWidgets
 
-    selected_items = []
-    iterator = QtWidgets.QTreeWidgetItemIterator(tree_widget)
-    while iterator.value():
-        item = iterator.value()
-        if item.isSelected():
-            selected_items.append(item)
-        iterator += 1
-    return selected_items
+        iterator = QtWidgets.QTreeWidgetItemIterator(tree_widget)
+        while iterator.value():
+            item = iterator.value()
+            if (
+                _TreePathMatcherInternal._extract_object_name_from_item(item)
+                == object_name
+            ):
+                return item
+            iterator += 1
+        return None
+
+    @staticmethod
+    def build_hierarchy_structure(objects: list) -> Tuple[Dict[str, Dict], List[str]]:
+        """Build hierarchical structure from Blender objects.
+
+        Keys are the full pipe-path (``Grp|Child``, see ``build_path``) so same-named objects under
+        different parents are preserved (Blender itself only guarantees name-uniqueness within a
+        single parent-independent namespace, but the hierarchy display still benefits from full paths
+        for consistency with the diff engine).
+
+        Returns:
+            Tuple of (object_items_dict, root_objects_list).
+        """
+        object_items: Dict[str, dict] = {}
+        root_objects: List[str] = []
+
+        for obj in objects:
+            try:
+                obj_key = HierarchySync.build_path(obj)
+                parent = obj.parent
+
+                object_items[obj_key] = {
+                    "object": obj,
+                    "short_name": obj.name,
+                    "type": obj.type,
+                    "parent": HierarchySync.build_path(parent)
+                    if parent is not None
+                    else None,
+                    "item": None,
+                }
+
+                if parent is None:
+                    root_objects.append(obj_key)
+            except Exception:
+                continue
+
+        return object_items, root_objects
 
 
 #: UserRole payloads that are UI placeholders, not scene objects.
 _PLACEHOLDER_USER_DATA = {"browse_placeholder", "open_scene_placeholder"}
-
-
-def _extract_object_name_from_item(item) -> str:
-    """Extract the hierarchy path from a tree widget item.
-
-    Prefers the stored UserRole object's canonical hierarchy path (``build_path``): the
-    display-text chain can drift from the live object's real name, and a bare leaf name is
-    ambiguous when duplicate names exist under different parents. Placeholder rows (the
-    'Browse…' / 'Open scene…' prompts) resolve to no object.
-    """
-    from qtpy import QtCore
-
-    try:
-        data = item.data(0, QtCore.Qt.UserRole)
-    except Exception:
-        data = None
-
-    if isinstance(data, str):
-        if data in _PLACEHOLDER_USER_DATA:
-            return ""
-    elif data is not None:
-        try:
-            return build_path(data)  # a live bpy object payload
-        except (ReferenceError, AttributeError):
-            pass
-
-    raw_name = getattr(item, "_raw_name", None)
-    parts = []
-    current = item
-    while current:
-        parts.insert(0, current.text(0))
-        current = current.parent()
-    full = "|".join(parts) if len(parts) > 1 else parts[0] if parts else ""
-    return full or raw_name or ""
-
-
-def find_tree_item_by_name(tree_widget, object_name: str):
-    """Find tree widget item by object name (or hierarchy path)."""
-    from qtpy import QtWidgets
-
-    iterator = QtWidgets.QTreeWidgetItemIterator(tree_widget)
-    while iterator.value():
-        item = iterator.value()
-        if _extract_object_name_from_item(item) == object_name:
-            return item
-        iterator += 1
-    return None
-
-
-def build_hierarchy_structure(objects: list) -> Tuple[Dict[str, Dict], List[str]]:
-    """Build hierarchical structure from Blender objects.
-
-    Keys are the full pipe-path (``Grp|Child``, see ``build_path``) so same-named objects under
-    different parents are preserved (Blender itself only guarantees name-uniqueness within a
-    single parent-independent namespace, but the hierarchy display still benefits from full paths
-    for consistency with the diff engine).
-
-    Returns:
-        Tuple of (object_items_dict, root_objects_list).
-    """
-    object_items: Dict[str, dict] = {}
-    root_objects: List[str] = []
-
-    for obj in objects:
-        try:
-            obj_key = build_path(obj)
-            parent = obj.parent
-
-            object_items[obj_key] = {
-                "object": obj,
-                "short_name": obj.name,
-                "type": obj.type,
-                "parent": build_path(parent) if parent is not None else None,
-                "item": None,
-            }
-
-            if parent is None:
-                root_objects.append(obj_key)
-        except Exception:
-            continue
-
-    return object_items, root_objects

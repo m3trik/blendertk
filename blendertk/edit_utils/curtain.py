@@ -5,12 +5,12 @@
 mirror of mayatk's ``edit_utils.curtain``: same parameters, same drape math —
 only the mesh build and post-ops differ).
 
-``create_curtain`` builds a grid mesh from :meth:`CurtainDrape.grid_points`
+``CurtainUtils.create_curtain`` builds a grid mesh from :meth:`CurtainDrape.grid_points`
 and owns the Blender post-ops (``thickness`` → applied Solidify, ``reduce`` →
 :func:`blendertk.decimate`, ``invert`` → reversed faces, ``soften`` → smooth
-shading). ``curtain_rail_from_selection`` is the Blender counterpart of
+shading). ``CurtainUtils.curtain_rail_from_selection`` is the Blender counterpart of
 mayatk's ``Rail.from_selection`` (edit-mode mesh edges / a curve object / 2+
-object positions).
+object positions). Both are class-only (``btk.CurtainUtils.<fn>``).
 
 :class:`CurtainSlots` is the Switchboard slot wiring for the co-located
 ``curtain.ui`` panel — it lives here next to the engine it drives (mirror of
@@ -22,138 +22,142 @@ bodies so importing this module to resolve the engine surface never needs a runn
 Blender *or* a Qt binding — Blender's headless interpreter (``--background``) ships
 neither (unlike mayapy, which bundles PySide6, so mayatk can import uitk at module top).
 """
+
 from pathlib import Path
 from typing import Optional
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import _object_mode, selected_objects
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.preview import Preview
 from blendertk.edit_utils._curtain_drape import CurtainDrape
-from blendertk.edit_utils._edit_utils import _apply_modifier, hook_bind_inverse
-from blendertk.xform_utils._xform_utils import get_world_bbox
+from blendertk.edit_utils._edit_utils import EditUtils
+from blendertk.xform_utils._xform_utils import XformUtils
 
 # Shipped, read-only curtain presets (UI-state snapshots). Identical to mayatk's — the panel
 # shares the Maya widget names AND the vendored CurtainDrape engine, so a preset drapes the same.
 _PRESETS_DIR = Path(__file__).resolve().parent / "presets" / "curtain"
 
 
-def curtain_rail_from_selection(objects):
-    """Resolve a rail polyline from a Blender selection.
-
-    Accepts (in priority order, mirroring the Maya resolver) edit-mode selected
-    mesh edges (ordered into a path), a curve object (sampled via its evaluated
-    tessellation; ``closed`` from the spline's cyclic flag), or two-plus
-    objects' world positions. Returns ``(points, closed)`` or None when nothing
-    usable is selected.
-    """
-    import bpy
-    import bmesh
-
-    objects = [o for o in ptk.make_iterable(objects) if o]
-
-    active = bpy.context.view_layer.objects.active
-    if active and active.type == "MESH" and active.mode == "EDIT":
-        bm = bmesh.from_edit_mesh(active.data)
-        verts = {v for e in bm.edges if e.select for v in e.verts}
-        if len(verts) >= 2:
-            pts = [tuple(active.matrix_world @ v.co) for v in verts]
-            ordered = ptk.Polyline.order_points(pts)
-            return ([tuple(float(c) for c in p) for p in ordered], False)
-
-    for o in objects:
-        if o.type != "CURVE":
-            continue
-        closed = any(s.use_cyclic_u for s in o.data.splines)
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        evaluated = o.evaluated_get(depsgraph)
-        me = evaluated.to_mesh()
-        pts = [tuple(o.matrix_world @ v.co) for v in me.vertices]
-        evaluated.to_mesh_clear()
-        if len(pts) < 2:  # un-tessellatable curve — fall back to control points
-            pts = []
-            for s in o.data.splines:
-                for p in s.points if len(s.points) else s.bezier_points:
-                    co = p.co.to_3d() if len(p.co) == 4 else p.co  # spline pts are 4D
-                    pts.append(tuple(o.matrix_world @ co))
-        if len(pts) >= 2:
-            return ([tuple(float(c) for c in p) for p in pts], closed)
-
-    if len(objects) >= 2:
-        bpy.context.view_layer.update()  # fresh objects may have stale matrices
-        return ([tuple(o.matrix_world.translation) for o in objects], False)
-    return None
-
-
-@_object_mode
-def create_curtain(rail, name="curtain", **options):
-    """Create a pleated, gravity-draped curtain mesh from a rail polyline.
-
-    The drape math is :class:`CurtainDrape` (the vendored twin of mayatk's
-    ``CurtainMesh`` engine — see it for the parameter reference); this builds the grid
-    mesh from :meth:`grid_points` with grid UVs, then applies the post-ops:
-    ``thickness`` (applied Solidify shell), ``reduce`` (percent decimated),
-    ``invert`` (reversed normals), ``soften`` (smooth shading).
-
-    Returns:
-        (bpy.types.Object) the created curtain object.
-    """
-    import bpy
-    import bmesh
-
-    drape = CurtainDrape(rail, name=name, **options)
-    u_segs, v_segs, pts = drape.grid_points()
-    cols = u_segs + 1
-
-    bm = bmesh.new()
-    verts = [bm.verts.new(p) for p in pts]
-    uv_of = {
-        v: ((i % cols) / u_segs, (i // cols) / v_segs) for i, v in enumerate(verts)
-    }
-    for r in range(v_segs):
-        base = r * cols
-        for c in range(u_segs):
-            bm.faces.new(
-                (
-                    verts[base + c],
-                    verts[base + c + 1],
-                    verts[base + c + 1 + cols],
-                    verts[base + c + cols],
-                )
-            )
-    uv_layer = bm.loops.layers.uv.new("UVMap")
-    for f in bm.faces:
-        f.smooth = drape.soften
-        for loop in f.loops:
-            loop[uv_layer].uv = uv_of[loop.vert]
-    if drape.invert:
-        bmesh.ops.reverse_faces(bm, faces=bm.faces)
-
-    mesh = bpy.data.meshes.new(name)
-    bm.to_mesh(mesh)
-    bm.free()
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-
-    if drape.thickness > 0:
-        mod = obj.modifiers.new(name="Solidify", type="SOLIDIFY")
-        mod.thickness = drape.thickness
-        mod.offset = 1.0  # shell outward, matching Maya's face extrude
-        _apply_modifier(obj, mod.name)
-    if drape.reduce > 0:
-        import blendertk as btk
-
-        btk.decimate(obj, percentage=drape.reduce)
-    return obj
-
-
 class CurtainUtils:
-    """Namespace mirror of mayatk's curtain module (helpers also exposed module-level)."""
+    """Curtain (draped-cloth) generation engine — mirror of mayatk's ``edit_utils.curtain``.
 
-    create_curtain = staticmethod(create_curtain)
-    curtain_rail_from_selection = staticmethod(curtain_rail_from_selection)
+    Reached as ``btk.CurtainUtils.create_curtain`` / ``.curtain_rail_from_selection`` (class-only;
+    the co-located ``CurtainSlots`` panel is discovered by ``BlenderUiHandler``, so the module is
+    not wildcard-scanned onto the flat ``btk.*`` namespace)."""
+
+    @staticmethod
+    def curtain_rail_from_selection(objects):
+        """Resolve a rail polyline from a Blender selection.
+
+        Accepts (in priority order, mirroring the Maya resolver) edit-mode selected
+        mesh edges (ordered into a path), a curve object (sampled via its evaluated
+        tessellation; ``closed`` from the spline's cyclic flag), or two-plus
+        objects' world positions. Returns ``(points, closed)`` or None when nothing
+        usable is selected.
+        """
+        import bpy
+        import bmesh
+
+        objects = [o for o in ptk.make_iterable(objects) if o]
+
+        active = bpy.context.view_layer.objects.active
+        if active and active.type == "MESH" and active.mode == "EDIT":
+            bm = bmesh.from_edit_mesh(active.data)
+            verts = {v for e in bm.edges if e.select for v in e.verts}
+            if len(verts) >= 2:
+                pts = [tuple(active.matrix_world @ v.co) for v in verts]
+                ordered = ptk.Polyline.order_points(pts)
+                return ([tuple(float(c) for c in p) for p in ordered], False)
+
+        for o in objects:
+            if o.type != "CURVE":
+                continue
+            closed = any(s.use_cyclic_u for s in o.data.splines)
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            evaluated = o.evaluated_get(depsgraph)
+            me = evaluated.to_mesh()
+            pts = [tuple(o.matrix_world @ v.co) for v in me.vertices]
+            evaluated.to_mesh_clear()
+            if len(pts) < 2:  # un-tessellatable curve — fall back to control points
+                pts = []
+                for s in o.data.splines:
+                    for p in s.points if len(s.points) else s.bezier_points:
+                        co = (
+                            p.co.to_3d() if len(p.co) == 4 else p.co
+                        )  # spline pts are 4D
+                        pts.append(tuple(o.matrix_world @ co))
+            if len(pts) >= 2:
+                return ([tuple(float(c) for c in p) for p in pts], closed)
+
+        if len(objects) >= 2:
+            bpy.context.view_layer.update()  # fresh objects may have stale matrices
+            return ([tuple(o.matrix_world.translation) for o in objects], False)
+        return None
+
+    @staticmethod
+    @CoreUtils._object_mode
+    def create_curtain(rail, name="curtain", **options):
+        """Create a pleated, gravity-draped curtain mesh from a rail polyline.
+
+        The drape math is :class:`CurtainDrape` (the vendored twin of mayatk's
+        ``CurtainMesh`` engine — see it for the parameter reference); this builds the grid
+        mesh from :meth:`grid_points` with grid UVs, then applies the post-ops:
+        ``thickness`` (applied Solidify shell), ``reduce`` (percent decimated),
+        ``invert`` (reversed normals), ``soften`` (smooth shading).
+
+        Returns:
+            (bpy.types.Object) the created curtain object.
+        """
+        import bpy
+        import bmesh
+
+        drape = CurtainDrape(rail, name=name, **options)
+        u_segs, v_segs, pts = drape.grid_points()
+        cols = u_segs + 1
+
+        bm = bmesh.new()
+        verts = [bm.verts.new(p) for p in pts]
+        uv_of = {
+            v: ((i % cols) / u_segs, (i // cols) / v_segs) for i, v in enumerate(verts)
+        }
+        for r in range(v_segs):
+            base = r * cols
+            for c in range(u_segs):
+                bm.faces.new(
+                    (
+                        verts[base + c],
+                        verts[base + c + 1],
+                        verts[base + c + 1 + cols],
+                        verts[base + c + cols],
+                    )
+                )
+        uv_layer = bm.loops.layers.uv.new("UVMap")
+        for f in bm.faces:
+            f.smooth = drape.soften
+            for loop in f.loops:
+                loop[uv_layer].uv = uv_of[loop.vert]
+        if drape.invert:
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        if drape.thickness > 0:
+            mod = obj.modifiers.new(name="Solidify", type="SOLIDIFY")
+            mod.thickness = drape.thickness
+            mod.offset = 1.0  # shell outward, matching Maya's face extrude
+            EditUtils._apply_modifier(obj, mod.name)
+        if drape.reduce > 0:
+            import blendertk as btk
+
+            btk.decimate(obj, percentage=drape.reduce)
+        return obj
 
 
 # ----------------------------------------------------------------------------
@@ -184,8 +188,8 @@ class CurtainRig:
     (``matrix_inverse = control.matrix_world.inverted() @ curtain.matrix_world`` → identity deform
     at bind, so the cloth doesn't jump).
 
-    Decoupled from the drape (:func:`create_curtain`) so it attaches to *any* curtain mesh, like
-    Maya's ``CurtainRig`` taking any mesh + any curve.
+    Decoupled from the drape (:meth:`CurtainUtils.create_curtain`) so it attaches to *any* curtain
+    mesh, like Maya's ``CurtainRig`` taking any mesh + any curve.
     """
 
     @staticmethod
@@ -269,7 +273,7 @@ class CurtainRig:
         """Ordered world positions of the rail (top) edge the controls sit on.
 
         The ``CurtainDrape`` engine hangs the cloth in **-Y** (gravity axis; see
-        :func:`create_curtain`), so the rail is the band of verts near the maximum Y. Ordered
+        :meth:`CurtainUtils.create_curtain`), so the rail is the band of verts near the maximum Y. Ordered
         along the rail's length with the shared path sorter (handles a bowed/curved rail).
         """
         mw = curtain.matrix_world
@@ -293,14 +297,18 @@ class CurtainRig:
 
         mw = curtain.matrix_world
         cpos = Vector(pos)
-        dists = [(i, (mw @ v.co - cpos).length) for i, v in enumerate(curtain.data.vertices)]
+        dists = [
+            (i, (mw @ v.co - cpos).length) for i, v in enumerate(curtain.data.vertices)
+        ]
         # verts within the dropoff reach; if none (tiny dropoff) grab the single nearest so the
         # handle still bites the cloth.
-        idx = [i for i, d in dists if d <= dropoff] or [min(dists, key=lambda t: t[1])[0]]
+        idx = [i for i, d in dists if d <= dropoff] or [
+            min(dists, key=lambda t: t[1])[0]
+        ]
         mod.vertex_indices_set(idx)
         # center is in the curtain's LOCAL space; matrix_inverse cancels the bind (identity deform).
         mod.center = mw.inverted() @ cpos
-        mod.matrix_inverse = hook_bind_inverse(control, curtain)
+        mod.matrix_inverse = EditUtils.hook_bind_inverse(control, curtain)
         return mod
 
     @staticmethod
@@ -382,7 +390,9 @@ class CurtainSlots(ptk.LoggingMixin):
         )
         # Re-drape live as any numeric field changes; Closed/Invert are pure re-drapes
         # (see _on_param_changed for why the driver curve itself isn't resynced here).
-        self.sb.connect_multi(self.ui, "s000-27", "valueChanged", self._on_param_changed)
+        self.sb.connect_multi(
+            self.ui, "s000-27", "valueChanged", self._on_param_changed
+        )
         self.sb.connect_multi(self.ui, "chk001,chk004", "clicked", self.preview.refresh)
 
         # The Position fields dropped their "X "/"Y "/"Z " prefixes; color-code the
@@ -401,10 +411,10 @@ class CurtainSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text (the preset combo lives in the panel)."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Curtain",
                 body="Drape a pleated cloth curtain from a <b>rail</b> — a "
                 "selected curve object, edit-mode mesh edge loop, or chain of "
@@ -413,31 +423,33 @@ class CurtainSlots(ptk.LoggingMixin):
                 steps=[
                     "Toggle <b>Preview</b> (a rail is auto-created from "
                     "Width/Curvature if you haven't selected your own).",
-                    "Set <b>Hanging Points</b> (the pleats/pins) and "
-                    "<b>Fullness</b>.",
+                    "Set <b>Hanging Points</b> (the pleats/pins) and <b>Fullness</b>.",
                     "Dial <b>Gravity</b> — how far the fabric falls between "
                     "hanging points.",
                     "Press <b>Create</b> to commit.",
                 ],
                 sections=[
-                    ("Model", [
-                        "Each <b>Hanging Point</b> is a pleat where the fabric "
-                        "pins to the rail — one clean gather at the rail — and "
-                        "bellies into a full fold between consecutive points, so "
-                        "the count maps roughly 1:1 to the folds you see. The "
-                        "spans sag down a real <b>catenary</b> (cosh).",
-                        "<b>Gravity</b> sets the sag depth (wider gaps fall "
-                        "further); <b>Catenary Tension</b> shapes that curve.",
-                        "<b>Taper</b> gathers the pleats at the top and flares "
-                        "them toward the hem.",
-                        "<b>Mid Folds</b> fork V-folds down from some hang "
-                        "points (seed varies which), breaking the plain in/out "
-                        "belly; <b>Creases</b> add diagonal V break-lines; "
-                        "<b>Sway</b> randomly leans a subset of the folds left "
-                        "or right along the rail (not just in/out); the "
-                        "<b>Ends</b> group bends each end; <b>Round</b> softens "
-                        "the hooks.",
-                    ]),
+                    (
+                        "Model",
+                        [
+                            "Each <b>Hanging Point</b> is a pleat where the fabric "
+                            "pins to the rail — one clean gather at the rail — and "
+                            "bellies into a full fold between consecutive points, so "
+                            "the count maps roughly 1:1 to the folds you see. The "
+                            "spans sag down a real <b>catenary</b> (cosh).",
+                            "<b>Gravity</b> sets the sag depth (wider gaps fall "
+                            "further); <b>Catenary Tension</b> shapes that curve.",
+                            "<b>Taper</b> gathers the pleats at the top and flares "
+                            "them toward the hem.",
+                            "<b>Mid Folds</b> fork V-folds down from some hang "
+                            "points (seed varies which), breaking the plain in/out "
+                            "belly; <b>Creases</b> add diagonal V break-lines; "
+                            "<b>Sway</b> randomly leans a subset of the folds left "
+                            "or right along the rail (not just in/out); the "
+                            "<b>Ends</b> group bends each end; <b>Round</b> softens "
+                            "the hooks.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "The <b>preset</b> combo loads built-in looks "
@@ -637,7 +649,7 @@ class CurtainSlots(ptk.LoggingMixin):
 
     def _user_selection(self):
         """Current selection minus our own driver curve."""
-        return [o for o in selected_objects() if o.name != self._driver]
+        return [o for o in CoreUtils.selected_objects() if o.name != self._driver]
 
     def _ensure_rail(self, state: bool) -> None:
         """On preview-enable, guarantee a usable rail; a no-op on disable.
@@ -657,7 +669,7 @@ class CurtainSlots(ptk.LoggingMixin):
         """
         if not state:
             return
-        if curtain_rail_from_selection(self._user_selection()) is not None:
+        if CurtainUtils.curtain_rail_from_selection(self._user_selection()) is not None:
             self._discard_driver()
             self._generated = False
             return
@@ -671,7 +683,7 @@ class CurtainSlots(ptk.LoggingMixin):
         effect on every refresh); selected mode resolves the user's rail.
         """
         if not self._generated:
-            rail = curtain_rail_from_selection(
+            rail = CurtainUtils.curtain_rail_from_selection(
                 [o for o in objects if getattr(o, "name", o) != self._driver]
             )
             if rail is not None:
@@ -695,11 +707,11 @@ class CurtainSlots(ptk.LoggingMixin):
         curtain re-centers immediately.
         """
         ours = {self._driver, self.last_curtain}
-        sel = [o for o in selected_objects() if o.name not in ours]
+        sel = [o for o in CoreUtils.selected_objects() if o.name not in ours]
         if not sel:
             self.sb.message_box("Select object(s) to center the rail on.")
             return
-        boxes = [get_world_bbox(o) for o in sel]
+        boxes = [XformUtils.get_world_bbox(o) for o in sel]
         mn = [min(b[0][i] for b in boxes) for i in range(3)]
         mx = [max(b[1][i] for b in boxes) for i in range(3)]
         for widget, value in zip(
@@ -717,7 +729,7 @@ class CurtainSlots(ptk.LoggingMixin):
         """Build the curtain from the resolved rail (Preview entry point)."""
         points, closed = self._resolve_rail(objects)
 
-        obj = create_curtain(
+        obj = CurtainUtils.create_curtain(
             points,
             height=self.ui.s000.value(),
             hanging_points=int(self.ui.s003.value()),

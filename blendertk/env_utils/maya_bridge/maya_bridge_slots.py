@@ -14,16 +14,13 @@ Discovered by ``BlenderUiHandler`` (``marking_menu.show("maya_bridge")``). The Q
 still resolves under headless ``blender --background`` (no Qt). This module is only imported when
 the handler loads the panel, which always happens under Qt.
 """
+
 from pathlib import Path
 
 from uitk.bridge import BridgeSlotsBase
 
 import blendertk as btk
-from blendertk.env_utils.maya_bridge._maya_bridge import (
-    MayaBridge,
-    _TEMPLATE_DIR,
-    list_template_modes,
-)
+from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge, _TEMPLATE_DIR
 from blendertk.env_utils.maya_bridge import parameters as _params
 
 
@@ -50,11 +47,14 @@ class MayaBridgeSlots(BridgeSlotsBase):
             "Click <b>Send to Maya</b>.",
         ],
         "sections": [
-            ("Options", [
-                "<b>Clear Scene First</b> — open a new Maya scene before importing (clean slate). "
-                "Off imports additively.",
-                "<b>Frame in View</b> — after import, select &amp; frame the new objects (viewFit).",
-            ]),
+            (
+                "Options",
+                [
+                    "<b>Clear Scene First</b> — open a new Maya scene before importing (clean slate). "
+                    "Off imports additively.",
+                    "<b>Frame in View</b> — after import, select &amp; frame the new objects (viewFit).",
+                ],
+            ),
         ],
         "notes": [
             "One <b>import</b> template ships, exposing every option above; the dropdown also "
@@ -68,7 +68,7 @@ class MayaBridgeSlots(BridgeSlotsBase):
     # ------------------------------------------------------------------ base-class hooks
     @property
     def params_module(self):
-        return _params
+        return _params.Parameters
 
     @property
     def template_dir(self) -> Path:
@@ -78,7 +78,7 @@ class MayaBridgeSlots(BridgeSlotsBase):
         return MayaBridge()
 
     def list_template_modes(self):
-        return list_template_modes()
+        return MayaBridge.list_template_modes()
 
     # ------------------------------------------------------------------ b000 -- send
     def b000(self):
@@ -92,7 +92,9 @@ class MayaBridgeSlots(BridgeSlotsBase):
 
         pair = self._selected_template_mode()
         if not pair:
-            self.bridge.logger.warning("No template chosen. Pick one from the dropdown above.")
+            self.bridge.logger.warning(
+                "No template chosen. Pick one from the dropdown above."
+            )
             return
         template, mode = pair
 
@@ -102,7 +104,9 @@ class MayaBridgeSlots(BridgeSlotsBase):
             )
             return
 
-        self.bridge.logger.info(f"--- {template} ({mode}) on {len(selection)} object(s) ---")
+        self.bridge.logger.info(
+            f"--- {template} ({mode}) on {len(selection)} object(s) ---"
+        )
         try:
             self.bridge.send(
                 objects=selection,

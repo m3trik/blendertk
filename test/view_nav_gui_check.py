@@ -13,7 +13,10 @@ It does NOT synthesize the mouse drag (event injection is fragile); it proves th
 drag is built from — the modal is live, and ``_apply_view_nav`` moves a real view — then quits
 itself under a window override (a bare ``wm.quit_blender`` from a timer crashes).
 """
-import sys, os, traceback
+
+import sys
+import os
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -25,8 +28,12 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 import bpy  # noqa: E402
 
 lines = []
+
+
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 def _rv3d():
@@ -39,8 +46,10 @@ def _rv3d():
 def _finish():
     print("\n".join(lines))
     ok = bool(lines) and all(l.startswith("OK") for l in lines)
-    print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== "
-          f"({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+    print(
+        f"===RESULT: {'PASS' if ok else 'FAIL'}=== "
+        f"({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+    )
     sys.stdout.flush()
     win = bpy.context.window_manager.windows[0]
     with bpy.context.temp_override(window=win):
@@ -51,35 +60,47 @@ def _finish():
 def _phase2():
     """Runs after navigate_view's deferred (0.01s) invoke has fired."""
     try:
-        from blendertk.cam_utils._cam_utils import _apply_view_nav
+        from blendertk.cam_utils._cam_utils import CamUtils
 
         win = bpy.context.window_manager.windows[0]
         modal = getattr(win, "modal_operators", None)
         if modal is None:  # pre-4.2 API — invoke not raising is the best signal we have
             check("modal running (modal_operators API unavailable)", True)
         else:
-            check("btk.view_nav modal is live on the window after navigate_view",
-                  any(op.bl_idname == "BTK_OT_view_nav" for op in modal),
-                  f"modal={[op.bl_idname for op in modal]}")
+            check(
+                "btk.view_nav modal is live on the window after navigate_view",
+                any(op.bl_idname == "BTK_OT_view_nav" for op in modal),
+                f"modal={[op.bl_idname for op in modal]}",
+            )
 
         rv = _rv3d()
         check("VIEW_3D region_data present", rv is not None)
         if rv is not None:
             r0 = rv.view_rotation.copy()
-            _apply_view_nav(rv, "ORBIT", 100, 0)
-            check("ORBIT mutates the live view_rotation",
-                  rv.view_rotation.rotation_difference(r0).angle > 1e-3)
+            CamUtils._apply_view_nav(rv, "ORBIT", 100, 0)
+            check(
+                "ORBIT mutates the live view_rotation",
+                rv.view_rotation.rotation_difference(r0).angle > 1e-3,
+            )
             r0 = rv.view_rotation.copy()
-            _apply_view_nav(rv, "ROLL", 100, 0)
-            check("ROLL mutates the live view_rotation",
-                  rv.view_rotation.rotation_difference(r0).angle > 1e-3)
+            CamUtils._apply_view_nav(rv, "ROLL", 100, 0)
+            check(
+                "ROLL mutates the live view_rotation",
+                rv.view_rotation.rotation_difference(r0).angle > 1e-3,
+            )
             d0 = rv.view_distance
-            _apply_view_nav(rv, "DOLLY", 0, 50)
-            check("DOLLY mutates the live view_distance", abs(rv.view_distance - d0) > 1e-3,
-                  f"{d0:.3f}->{rv.view_distance:.3f}")
+            CamUtils._apply_view_nav(rv, "DOLLY", 0, 50)
+            check(
+                "DOLLY mutates the live view_distance",
+                abs(rv.view_distance - d0) > 1e-3,
+                f"{d0:.3f}->{rv.view_distance:.3f}",
+            )
             l0 = rv.view_location.copy()
-            _apply_view_nav(rv, "TRACK", 100, 0)
-            check("TRACK mutates the live view_location", (rv.view_location - l0).length > 1e-3)
+            CamUtils._apply_view_nav(rv, "TRACK", 100, 0)
+            check(
+                "TRACK mutates the live view_location",
+                (rv.view_location - l0).length > 1e-3,
+            )
     except Exception:
         traceback.print_exc()
         lines.append("FAIL unhandled exception")
@@ -91,8 +112,11 @@ def _phase1():
         import blendertk as btk
 
         if bpy.app.background:
-            check("requires a windowed Blender (running --background)", False,
-                  "relaunch WITHOUT --background")
+            check(
+                "requires a windowed Blender (running --background)",
+                False,
+                "relaunch WITHOUT --background",
+            )
             return _finish()
         btk.navigate_view("ORBIT")  # deferred INVOKE_DEFAULT under a VIEW_3D override
         check("navigate_view scheduled without raising", True)
@@ -100,7 +124,9 @@ def _phase1():
         traceback.print_exc()
         lines.append("FAIL unhandled exception")
         return _finish()
-    bpy.app.timers.register(_phase2, first_interval=0.5)  # after the deferred invoke fires
+    bpy.app.timers.register(
+        _phase2, first_interval=0.5
+    )  # after the deferred invoke fires
     return None
 
 

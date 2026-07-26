@@ -24,6 +24,7 @@ export (the same resilience contract as ``fbx_utils._translate_fbx_options``).
 ``import bpy`` is deferred into the call bodies so resolving the package surface
 never requires a running Blender.
 """
+
 import os
 
 import pythontk as ptk
@@ -31,7 +32,7 @@ import pythontk as ptk
 # Window-independent selection reader + window-supplying override for the Qt
 # event-pump timer context (see ``fbx_utils`` — same contract: the USD io
 # handlers read ``context`` internally, so a window must be in context).
-from blendertk.core_utils._core_utils import selected_objects, window_context_override
+from blendertk.core_utils._core_utils import CoreUtils
 
 #: Extensions the USD runtime reads/writes (shared SSoT with pythontk).
 USD_EXTENSIONS = ptk.USD_EXTENSIONS
@@ -49,30 +50,34 @@ _EXPORT_DEFAULTS = {
 }
 
 
-def _filter_op_options(op, options):
-    """*options* restricted to kwargs *op* actually declares, a new dict.
+class _UsdUtilsInternal(object):
+    """Internal helpers for UsdUtils."""
 
-    Blender renames USD operator options between majors; a stale name must
-    degrade to a logged drop, not fault the whole export (mirror of the FBX
-    option-translation contract). Never filters out ``filepath``.
-    """
-    known = {p.identifier for p in op.get_rna_type().properties}
-    kept, dropped = {}, []
-    for key, value in options.items():
-        if key in known:
-            kept[key] = value
-        else:
-            dropped.append(key)
-    if dropped:
-        import logging
+    @staticmethod
+    def _filter_op_options(op, options):
+        """*options* restricted to kwargs *op* actually declares, a new dict.
 
-        logging.getLogger(__name__).warning(
-            "USD option(s) unknown to this Blender dropped: %s", ", ".join(dropped)
-        )
-    return kept
+        Blender renames USD operator options between majors; a stale name must
+        degrade to a logged drop, not fault the whole export (mirror of the FBX
+        option-translation contract). Never filters out ``filepath``.
+        """
+        known = {p.identifier for p in op.get_rna_type().properties}
+        kept, dropped = {}, []
+        for key, value in options.items():
+            if key in known:
+                kept[key] = value
+            else:
+                dropped.append(key)
+        if dropped:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "USD option(s) unknown to this Blender dropped: %s", ", ".join(dropped)
+            )
+        return kept
 
 
-class UsdUtils:
+class UsdUtils(_UsdUtilsInternal):
     """USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``)."""
 
     EXTENSIONS = USD_EXTENSIONS
@@ -80,7 +85,7 @@ class UsdUtils:
     @staticmethod
     def is_usd_file(filepath) -> bool:
         """True when *filepath* is a USD layer/package (delegates to pythontk)."""
-        return ptk.is_usd_file(filepath)
+        return ptk.UsdFile.is_usd_file(filepath)
 
     @staticmethod
     def export(filepath=None, objects=None, selection_only=True, **usd_opts):
@@ -108,7 +113,9 @@ class UsdUtils:
         import tempfile
 
         if not filepath:
-            stem = os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
+            stem = (
+                os.path.splitext(os.path.basename(bpy.data.filepath))[0] or "untitled"
+            )
             filepath = os.path.join(tempfile.gettempdir(), f"{stem}_bridge.usd")
         if os.path.splitext(filepath)[1].lower() not in USD_EXTENSIONS:
             filepath += ".usd"
@@ -117,10 +124,10 @@ class UsdUtils:
         opts = dict(_EXPORT_DEFAULTS)
         opts["selected_objects_only"] = selection_only
         opts.update(usd_opts)
-        opts = _filter_op_options(bpy.ops.wm.usd_export, opts)
+        opts = _UsdUtilsInternal._filter_op_options(bpy.ops.wm.usd_export, opts)
 
-        prior = list(selected_objects()) if objects is not None else None
-        with window_context_override():
+        prior = list(CoreUtils.selected_objects()) if objects is not None else None
+        with CoreUtils.window_context_override():
             if objects is not None:
                 bpy.ops.object.select_all(action="DESELECT")
                 for o in ptk.make_iterable(objects):
@@ -128,7 +135,7 @@ class UsdUtils:
                     if obj is not None:
                         obj.select_set(True)
             try:
-                if selection_only and not selected_objects():
+                if selection_only and not CoreUtils.selected_objects():
                     raise RuntimeError("Nothing selected to export.")
                 bpy.ops.wm.usd_export(filepath=filepath, **opts)
             finally:
@@ -160,22 +167,21 @@ class UsdUtils:
         filepath = os.path.abspath(os.path.expandvars(filepath))
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"USD file not found: {filepath}")
-        opts = _filter_op_options(bpy.ops.wm.usd_import, usd_opts)
+        opts = _UsdUtilsInternal._filter_op_options(bpy.ops.wm.usd_import, usd_opts)
         before = set(bpy.data.objects)
-        with window_context_override():
+        with CoreUtils.window_context_override():
             bpy.ops.wm.usd_import(filepath=filepath, **opts)
         return [o for o in bpy.data.objects if o not in before]
 
+    @staticmethod
+    def export_selection_usd(filepath=None, objects=None, **usd_opts):
+        """Export the selection (or *objects*) to a USD file for an external-app hand-off.
 
-def export_selection_usd(filepath=None, objects=None, **usd_opts):
-    """Export the selection (or ``objects``) to a USD file for an external-app hand-off.
-
-    Thin selection-only alias for :meth:`UsdUtils.export` (the USD counterpart of
-    ``export_selection_fbx``).
-    """
-    return UsdUtils.export(filepath=filepath, objects=objects, selection_only=True, **usd_opts)
-
-
-def import_usd(filepath, **usd_opts):
-    """Import a USD file; returns the objects created (alias for :meth:`UsdUtils.import_usd`)."""
-    return UsdUtils.import_usd(filepath, **usd_opts)
+        Thin selection-only alias for :meth:`UsdUtils.export` (the USD counterpart of
+        :meth:`FbxUtils.export_selection_fbx`). Reached as ``btk.UsdUtils.export_selection_usd``
+        — the module is scoped class-only (a generic ``export`` would collide flat with
+        ``FbxUtils.export`` under a wildcard scan).
+        """
+        return UsdUtils.export(
+            filepath=filepath, objects=objects, selection_only=True, **usd_opts
+        )

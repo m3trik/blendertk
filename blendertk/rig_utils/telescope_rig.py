@@ -25,9 +25,10 @@ the rest are the segments (near→far).
 ``import bpy`` is deferred into the call bodies and the Qt-only ``uitk`` helper into its method, so
 importing the module / resolving the package surface never needs a running Blender or Qt.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import undo_checkpoint
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.rig_utils._rig_utils import RigUtils
 
 
@@ -39,8 +40,10 @@ class TelescopeRig(ptk.LoggingMixin):
         super().__init__()
         self.set_log_level(log_level)
 
-    @undo_checkpoint
-    def setup_telescope_rig(self, base_locator, end_locator, segments, collapsed_distance=1.0):
+    @CoreUtils.undo_checkpoint
+    def setup_telescope_rig(
+        self, base_locator, end_locator, segments, collapsed_distance=1.0
+    ):
         """Wire a telescoping rig between two handles.
 
         Parameters:
@@ -74,7 +77,11 @@ class TelescopeRig(ptk.LoggingMixin):
             self.logger.error("A valid end handle must be provided.")
             raise ValueError("A valid end handle must be provided.")
 
-        segs = [s for s in (RigUtils.resolve_object(o) for o in ptk.make_iterable(segments)) if s is not None]
+        segs = [
+            s
+            for s in (RigUtils.resolve_object(o) for o in ptk.make_iterable(segments))
+            if s is not None
+        ]
         if len(segs) < 2:
             self.logger.error("At least two segments must be provided.")
             raise ValueError("At least two segments must be provided.")
@@ -114,7 +121,12 @@ class TelescopeRig(ptk.LoggingMixin):
             for k, seg in enumerate(segs):
                 if 0 < k < k_last:
                     RigUtils.add_distance_driver(
-                        seg, "scale", 1, base, end, expression=f"dist / {initial_distance!r}"
+                        seg,
+                        "scale",
+                        1,
+                        base,
+                        end,
+                        expression=f"dist / {initial_distance!r}",
                     )
             self.logger.info("Driven keys set.")
 
@@ -122,7 +134,10 @@ class TelescopeRig(ptk.LoggingMixin):
             # Location & rotation are constraint-driven; only scale.y telescopes.
             for seg in segs:
                 RigUtils.lock_channels(
-                    seg, location=(True, True, True), rotation=(True, True, True), scale=(True, False, True)
+                    seg,
+                    location=(True, True, True),
+                    rotation=(True, True, True),
+                    scale=(True, False, True),
                 )
 
         constrain_locators()
@@ -130,7 +145,9 @@ class TelescopeRig(ptk.LoggingMixin):
         set_driven_keys()
         lock_segment_attributes()
 
-        RigUtils.refresh_drivers(segs)  # post-build recompile (script-built driver gotcha)
+        RigUtils.refresh_drivers(
+            segs
+        )  # post-build recompile (script-built driver gotcha)
         base["telescope_collapsed_distance"] = float(collapsed_distance)
 
         self.logger.success("Telescope Rig setup complete.")
@@ -174,10 +191,10 @@ class TelescopeRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Telescope Rig",
                 body="Build a telescoping segment chain where segments extend "
                 "and retract between a base and end handle, driven by their "
@@ -210,9 +227,9 @@ class TelescopeRigSlots(ptk.LoggingMixin):
 
         import bpy
 
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        sel = selected_objects()
+        sel = CoreUtils.selected_objects()
         base = bpy.context.view_layer.objects.active
         if len(sel) < 4 or base is None or base not in sel:
             self.logger.error("Insufficient selection.")
@@ -244,7 +261,9 @@ class TelescopeRigSlots(ptk.LoggingMixin):
             # Stream the engine's logs into the same panel browser (mirror the Maya panel).
             # ``logger`` is a ClassProperty (no setter) — configure it, never reassign it.
             try:
-                rig.logger.set_text_handler(self.sb.registered_widgets.TextEditLogHandler)
+                rig.logger.set_text_handler(
+                    self.sb.registered_widgets.TextEditLogHandler
+                )
                 rig.logger.setup_logging_redirect(self.ui.txt003)
             except (AttributeError, TypeError):
                 pass

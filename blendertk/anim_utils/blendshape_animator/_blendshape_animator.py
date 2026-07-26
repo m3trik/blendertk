@@ -22,6 +22,7 @@ Divergence from mayatk (by design):
       us a real, robust place to store this, so :meth:`from_existing` prefers it and only falls
       back to a heuristic scan for scenes set up before this convention existed.
 """
+
 from typing import List, Optional, Tuple
 
 import pythontk as ptk
@@ -35,9 +36,6 @@ from pythontk import Weights
 
 _TARGET_PROP = "blendshape_animator_target"
 _KEY_PROP = "blendshape_animator_key"
-#: Corrective-key naming infix (kept in lockstep with Applicator._CORRECTIVE_INFIX) so
-#: ``from_existing`` can tell a master key apart from its own correctives.
-_CORRECTIVE_INFIX = Applicator._CORRECTIVE_INFIX
 
 
 class BlendshapeAnimator(ptk.LoggingMixin):
@@ -85,9 +83,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             end_frame = self.DEFAULT_END_FRAME
 
         if base_obj is None or target_obj is None:
-            from blendertk.core_utils._core_utils import selected_objects
+            from blendertk.core_utils._core_utils import CoreUtils
 
-            sel = selected_objects()
+            sel = CoreUtils.selected_objects()
             if len(sel) != 2:
                 self.logger.error(
                     "Please select exactly 2 mesh objects (the contributing shape, then the "
@@ -129,13 +127,17 @@ class BlendshapeAnimator(ptk.LoggingMixin):
 
                 new_kb = base_obj.data.shape_keys.key_blocks[-1]
                 new_kb.name = name
-                self.key_name = new_kb.name  # Blender may have suffixed .001 on a name clash
+                self.key_name = (
+                    new_kb.name
+                )  # Blender may have suffixed .001 on a name clash
                 self.logger.info(f"Created shape key: {self.key_name}")
 
             kb = base_obj.data.shape_keys.key_blocks[self.key_name]
             kb.slider_min, kb.slider_max = 0.0, 1.0
 
-            self._warn_if_sibling_master_key_exists(base_obj.data.shape_keys, self.key_name)
+            self._warn_if_sibling_master_key_exists(
+                base_obj.data.shape_keys, self.key_name
+            )
 
             base_obj[_KEY_PROP] = self.key_name
             base_obj[_TARGET_PROP] = target_obj.name
@@ -152,7 +154,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 self.logger.info("Testing shape key setup...")
                 self.keyframes.test_morph()
 
-            self.logger.info(f"CREATE phase complete: {base_obj.name} -> {target_obj.name}")
+            self.logger.info(
+                f"CREATE phase complete: {base_obj.name} -> {target_obj.name}"
+            )
             self.logger.info(f"Animation range: {start_frame} to {end_frame}")
             return True
 
@@ -174,10 +178,11 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         animated = {
             fc.data_path[len('key_blocks["') : -len('"].value')]
             for fc in btk.get_fcurves([shape_keys])
-            if fc.data_path.startswith('key_blocks["') and fc.data_path.endswith('"].value')
+            if fc.data_path.startswith('key_blocks["')
+            and fc.data_path.endswith('"].value')
         }
         animated.discard(key_name)
-        animated = {n for n in animated if _CORRECTIVE_INFIX not in n}
+        animated = {n for n in animated if Applicator._CORRECTIVE_INFIX not in n}
         if animated:
             self.logger.warning(
                 f"Base mesh already has another animated master key {sorted(animated)} — "
@@ -308,7 +313,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             try:
                 self.tween_creator.tag_tween_mesh(obj, weight)
                 self.tween_applicator.apply_tweens([Target(obj)])
-                self.logger.info(f"  Added {obj.name} as in-between at weight {weight:.3f}")
+                self.logger.info(
+                    f"  Added {obj.name} as in-between at weight {weight:.3f}"
+                )
             except (RuntimeError, ValueError) as e:
                 self.logger.error(f"  Failed to add {obj.name}: {e}")
 
@@ -363,7 +370,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
 
         if applied:
             self.logger.info(f"Applied {len(applied)} tween edits")
-            self.logger.info("Scrub the timeline - animation should now show custom curve")
+            self.logger.info(
+                "Scrub the timeline - animation should now show custom curve"
+            )
             return True
         self.logger.warning("No tween edits found to apply")
         return False
@@ -413,7 +422,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                     except ReferenceError:
                         pass
                 if deleted_count:
-                    self.logger.info(f"  Deleted {deleted_count} in-between mesh objects")
+                    self.logger.info(
+                        f"  Deleted {deleted_count} in-between mesh objects"
+                    )
 
                 group = bpy.data.objects.get(Targets.GROUP_NAME)
                 if group is not None and not group.children:
@@ -461,9 +472,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         cls.logger.info("=== LOADING EXISTING SETUP ===")
 
         if base_obj is None:
-            from blendertk.core_utils._core_utils import selected_objects
+            from blendertk.core_utils._core_utils import CoreUtils
 
-            sel = selected_objects()
+            sel = CoreUtils.selected_objects()
             if sel:
                 base_obj = sel[0]
             else:
@@ -483,7 +494,8 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 (
                     kb.name
                     for kb in shape_keys.key_blocks
-                    if kb.name != "Basis" and _CORRECTIVE_INFIX not in kb.name
+                    if kb.name != "Basis"
+                    and Applicator._CORRECTIVE_INFIX not in kb.name
                 ),
                 None,
             )
@@ -549,7 +561,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             "Could not recover original range - creating default animation "
             f"(frames {self.DEFAULT_START_FRAME}-{self.DEFAULT_END_FRAME})"
         )
-        if self.keyframes.create_keyframes(self.DEFAULT_START_FRAME, self.DEFAULT_END_FRAME):
+        if self.keyframes.create_keyframes(
+            self.DEFAULT_START_FRAME, self.DEFAULT_END_FRAME
+        ):
             self.logger.info("Default animation created")
             return True
 
@@ -602,7 +616,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 continue
 
             if tween_verts == base_verts and tween_faces == base_faces:
-                self.logger.info(f"  {tween.mesh}: {tween_verts}v, {tween_faces}f (MATCH)")
+                self.logger.info(
+                    f"  {tween.mesh}: {tween_verts}v, {tween_faces}f (MATCH)"
+                )
             else:
                 self.logger.error(
                     f"  {tween.mesh}: {tween_verts}v, {tween_faces}f (MISMATCH)"
@@ -668,8 +684,12 @@ class BlendshapeAnimator(ptk.LoggingMixin):
 
         if apply_valid_only and valid_tweens:
             self.logger.info(f"Applying {len(valid_tweens)} valid meshes...")
-            results = self.tween_applicator.apply_tweens(valid_tweens, validate_topology=False)
-            applied_count = sum(1 for _, status in results if status is ApplyStatus.APPLIED)
+            results = self.tween_applicator.apply_tweens(
+                valid_tweens, validate_topology=False
+            )
+            applied_count = sum(
+                1 for _, status in results if status is ApplyStatus.APPLIED
+            )
             self.logger.info(f"Successfully applied {applied_count} valid meshes")
 
         if delete_mismatched and invalid_tweens:
@@ -736,7 +756,9 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 self.target_obj = None
 
                 if self.keyframes.key_block is not None:
-                    self.logger.info(f"Shape key '{self.key_name}' preserved - animation intact")
+                    self.logger.info(
+                        f"Shape key '{self.key_name}' preserved - animation intact"
+                    )
                 else:
                     self.logger.warning("Shape key not found - animation may be lost")
 

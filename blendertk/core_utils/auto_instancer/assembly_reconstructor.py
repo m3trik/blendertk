@@ -20,6 +20,7 @@ scene structure. Maya→Blender mappings:
 - locked-normal preservation → custom split normals captured in world space
   and re-set after the transform edit.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,9 +31,9 @@ import numpy as np
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import _object_mode
-from blendertk.core_utils.auto_instancer.geometry_matcher import GeometryMatcher, _mesh
-from blendertk.node_utils._node_utils import _object_users, reparent
+from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.core_utils.auto_instancer.geometry_matcher import GeometryMatcher
+from blendertk.node_utils._node_utils import NodeUtils
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +42,21 @@ logger = logging.getLogger(__name__)
 ASSEMBLY_TAG_ATTR = "autoInstancerAssembly"
 
 
-def _alive(obj) -> bool:
-    """True when *obj* is a live object still registered in ``bpy.data``."""
-    import bpy
+class _AssemblyReconstructorInternal(object):
+    """Internal helpers for AssemblyReconstructor."""
 
-    try:
-        return obj is not None and bpy.data.objects.get(obj.name) is not None
-    except ReferenceError:
-        return False
+    @staticmethod
+    def _alive(obj) -> bool:
+        """True when *obj* is a live object still registered in ``bpy.data``."""
+        import bpy
+
+        try:
+            return obj is not None and bpy.data.objects.get(obj.name) is not None
+        except ReferenceError:
+            return False
 
 
-class AssemblyReconstructor:
+class AssemblyReconstructor(_AssemblyReconstructorInternal):
     """Handles the separation and intelligent reassembly of combined meshes."""
 
     def __init__(
@@ -86,26 +91,26 @@ class AssemblyReconstructor:
         """
         import bmesh
 
-        from blendertk.edit_utils._edit_utils import _count_shells, separate_objects
+        from blendertk.edit_utils._edit_utils import EditUtils
 
         new_nodes: List[object] = []
         for obj in objects:
-            if not _alive(obj):
+            if not _AssemblyReconstructorInternal._alive(obj):
                 continue
-            me = _mesh(obj)
+            me = GeometryMatcher._mesh(obj)
             if me is None:
                 new_nodes.append(obj)
                 continue
 
             # Never split an already-instanced mesh — separation would
             # collapse the sharing the user (or a prior run) set up.
-            if _object_users(me) > 1:
+            if NodeUtils._object_users(me) > 1:
                 new_nodes.append(obj)
                 continue
 
             bm = bmesh.new()
             bm.from_mesh(me)
-            num_shells = _count_shells(bm)
+            num_shells = EditUtils._count_shells(bm)
             bm.free()
 
             if num_shells > 1:
@@ -119,7 +124,7 @@ class AssemblyReconstructor:
                     # NOTE: Do NOT canonicalize here — it expands bounding
                     # boxes and breaks BFS grouping. Canonicalization is done
                     # after reassemble_assemblies for instancing purposes.
-                    parts = separate_objects([obj], center_pivots=False)
+                    parts = EditUtils.separate_objects([obj], center_pivots=False)
                     # separate mutates the source datablock in place (it
                     # keeps one shell) — drop any cached geometry for it.
                     self.matcher.invalidate(me)
@@ -205,7 +210,7 @@ class AssemblyReconstructor:
         import bpy
         from mathutils import Vector
 
-        me = _mesh(obj)
+        me = GeometryMatcher._mesh(obj)
         if me is None:
             return
         pts = self.matcher._object_points(me)
@@ -232,13 +237,13 @@ class AssemblyReconstructor:
         import bpy
         from mathutils import Matrix
 
-        me = _mesh(obj)
+        me = GeometryMatcher._mesh(obj)
         if me is None:
             return
         # Editing points through one instance would counter-rotate the
         # shared datablock for every OTHER user — never canonicalize
         # instanced geometry (the robust matcher handles it uncanonicalized).
-        if _object_users(me) > 1:
+        if NodeUtils._object_users(me) > 1:
             return
 
         try:
@@ -273,14 +278,14 @@ class AssemblyReconstructor:
         for group Empties, canonicalizes mesh children one level deep.
         """
         for obj in objects:
-            if not _alive(obj):
+            if not _AssemblyReconstructorInternal._alive(obj):
                 logger.debug("canonicalize_leaf_meshes: skipping stale object")
                 continue
-            if _mesh(obj) is not None:
+            if GeometryMatcher._mesh(obj) is not None:
                 self.canonicalize_transform(obj)
             else:
                 for child in obj.children:
-                    if _mesh(child) is not None:
+                    if GeometryMatcher._mesh(child) is not None:
                         self.canonicalize_transform(child)
         return objects
 
@@ -306,17 +311,17 @@ class AssemblyReconstructor:
         valid_nodes = []
         passthrough: List[object] = []
         for o in objects:
-            if not _alive(o):
+            if not _AssemblyReconstructorInternal._alive(o):
                 continue
-            if _mesh(o) is None:
+            if GeometryMatcher._mesh(o) is None:
                 continue
-            if _object_users(o.data) > 1:
+            if NodeUtils._object_users(o.data) > 1:
                 passthrough.append(o)
             else:
                 valid_nodes.append(o)
 
         if not valid_nodes:
-            return [o for o in objects if _alive(o)]
+            return [o for o in objects if _AssemblyReconstructorInternal._alive(o)]
 
         # Build part info (exact world-vert bbox — the corner-transformed
         # local bbox overestimates for rotated parts and would create false
@@ -379,9 +384,7 @@ class AssemblyReconstructor:
         sorted composite key for run-to-run determinism.
         """
         try:
-            mats = sorted(
-                {s.material.name for s in obj.material_slots if s.material}
-            )
+            mats = sorted({s.material.name for s in obj.material_slots if s.material})
             if mats:
                 return ",".join(mats)
         except Exception:
@@ -410,9 +413,7 @@ class AssemblyReconstructor:
             root = parts[root_idx]["node"]
             children = [parts[idx]["node"] for idx in group if idx != root_idx]
 
-            if root.session_uid in used or any(
-                c.session_uid in used for c in children
-            ):
+            if root.session_uid in used or any(c.session_uid in used for c in children):
                 for idx in group:
                     obj = parts[idx]["node"]
                     if obj.session_uid not in used:
@@ -436,7 +437,7 @@ class AssemblyReconstructor:
                 grp.rotation_euler = root.matrix_world.to_euler()
                 bpy.context.view_layer.update()
 
-                reparent([root] + children, grp, keep_transform=True)
+                NodeUtils.reparent([root] + children, grp, keep_transform=True)
                 used.add(root.session_uid)
                 used.update(c.session_uid for c in children)
                 result.append(grp)
@@ -460,12 +461,15 @@ class AssemblyReconstructor:
 
     @staticmethod
     def _is_mesh_object(obj) -> bool:
-        return _alive(obj) and _mesh(obj) is not None
+        return (
+            _AssemblyReconstructorInternal._alive(obj)
+            and GeometryMatcher._mesh(obj) is not None
+        )
 
     # ------------------------------------------------------------------
     # Assembly combining
     # ------------------------------------------------------------------
-    @_object_mode
+    @CoreUtils._object_mode
     def combine_reassembled_assemblies(self, objects: List[object]) -> List[object]:
         """Combine each copy of a repeated assembly type into a single mesh.
 
@@ -485,7 +489,7 @@ class AssemblyReconstructor:
         combined_meshes: List[object] = []
         assembly_groups: List[object] = []
         for obj in objects:
-            if not _alive(obj):
+            if not _AssemblyReconstructorInternal._alive(obj):
                 continue
             if self._is_assembly_group(obj):
                 assembly_groups.append(obj)
@@ -520,7 +524,9 @@ class AssemblyReconstructor:
 
             for grp in grps:
                 grp_parts = [
-                    p for p in grp_children[grp.session_uid] if _alive(p)
+                    p
+                    for p in grp_children[grp.session_uid]
+                    if _AssemblyReconstructorInternal._alive(p)
                 ]
                 if not grp_parts:
                     combined_meshes.append(grp)
@@ -542,7 +548,7 @@ class AssemblyReconstructor:
                         core_mesh.name = f"{grp_name}_combined"
                         self.canonicalize_transform(core_mesh)
                         if core_mesh.parent is not None:
-                            reparent([core_mesh], None, keep_transform=True)
+                            NodeUtils.reparent([core_mesh], None, keep_transform=True)
                     except Exception:
                         pass
                     self._combined_assembly_uids.append(core_mesh.session_uid)

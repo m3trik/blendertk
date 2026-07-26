@@ -33,16 +33,14 @@ Divergence from mayatk (by design, ledgered):
       (its ``apply_behavior`` is a free function; Blender's applier needs the adapter's
       RenderOpacity/VSE seams, so the primitive lives here).  One-sided by design.
 """
+
 import logging
 from typing import List, Optional, Tuple
 
 from pythontk import ShotManifest
-from pythontk.core_utils.engines.shots.manifest.behaviors import (
-    load_behavior,
-    resolve_keys,
-)
+from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
-from blendertk.anim_utils.shots._shots import iter_action_fcurves, _is_transform_path
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 
 _log = logging.getLogger(__name__)
 
@@ -92,8 +90,8 @@ class BlenderShotManifest(ShotManifest):
     @staticmethod
     def _has_transform_key_in_range(obj, start, end) -> bool:
         """True if *obj* has a transform-channel key in ``[start, end]``."""
-        for fc in iter_action_fcurves(obj):
-            if not _is_transform_path(fc.data_path):
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
+            if not BlenderShotStore._is_transform_path(fc.data_path):
                 continue
             if any(start - 1e-6 <= kp.co[0] <= end + 1e-6 for kp in fc.keyframe_points):
                 return True
@@ -148,7 +146,7 @@ class BlenderShotManifest(ShotManifest):
             return None
         lo = None
         hi = None
-        for fc in iter_action_fcurves(obj):
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
             for kp in fc.keyframe_points:
                 t = kp.co[0]
                 lo = t if lo is None else min(lo, t)
@@ -175,7 +173,7 @@ class BlenderShotManifest(ShotManifest):
         Blender-idiomatic check — ``RenderOpacity`` realises fades as opacity +
         stepped ``hide_render`` keys, not template-exact placements)."""
         try:
-            template = load_behavior(behavior)
+            template = Behaviors.load_behavior(behavior)
         except FileNotFoundError:
             template = {}
         if (template.get("verify") or {}).get("mode", "") == "audio_clip":
@@ -187,10 +185,12 @@ class BlenderShotManifest(ShotManifest):
         o = bpy.data.objects.get(obj)
         if o is None:
             return False
-        for fc in iter_action_fcurves(o):
+        for fc in BlenderShotStore.iter_action_fcurves(o):
             dp = fc.data_path
             if "opacity" in dp or dp == "hide_render":
-                if any(start - 1e-6 <= kp.co[0] <= end + 1e-6 for kp in fc.keyframe_points):
+                if any(
+                    start - 1e-6 <= kp.co[0] <= end + 1e-6 for kp in fc.keyframe_points
+                ):
                     return True
         return False
 
@@ -268,7 +268,10 @@ class BlenderShotManifest(ShotManifest):
                 except Exception as exc:
                     _log.warning(
                         "Behavior '%s' on '%s' (shot %s) failed: %s",
-                        bname, oname, shot.name, exc,
+                        bname,
+                        oname,
+                        shot.name,
+                        exc,
                     )
                     failed.append(dict(rec, error=str(exc)))
 
@@ -279,7 +282,7 @@ class BlenderShotManifest(ShotManifest):
         """True if *obj* carries ANY fcurve key in ``[start, end]`` — the Blender
         counterpart of mayatk's ``cmds.keyframe(obj, q=True, time=(start, end))``
         existing-keys guard (any channel counts, matching Maya's semantics)."""
-        for fc in iter_action_fcurves(obj):
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
             if any(start - 1e-6 <= kp.co[0] <= end + 1e-6 for kp in fc.keyframe_points):
                 return True
         return False
@@ -295,10 +298,10 @@ class BlenderShotManifest(ShotManifest):
         which stacked duplicates) and only when no strip with that name exists.
         Wrapped in a single undo step.  Returns whether anything was applied.
         """
-        from blendertk.core_utils._core_utils import undo_chunk
+        from blendertk.core_utils._core_utils import CoreUtils
 
         done = False
-        with undo_chunk("ShotManifest_reapply"):
+        with CoreUtils.undo_chunk("ShotManifest_reapply"):
             if getattr(obj, "kind", "scene") == "audio":
                 entry = {
                     "name": obj.name,
@@ -324,7 +327,7 @@ class BlenderShotManifest(ShotManifest):
         if obj is None:
             return False
         try:
-            tmpl = load_behavior(bname)
+            tmpl = Behaviors.load_behavior(bname)
         except FileNotFoundError:
             return False
         done = False
@@ -333,7 +336,7 @@ class BlenderShotManifest(ShotManifest):
                 block = attr_def.get(phase)
                 if not block:
                     continue
-                keys = resolve_keys(block, shot.start, shot.end)
+                keys = Behaviors.resolve_keys(block, shot.start, shot.end)
                 if not keys:
                     continue
                 lo = min(k["time"] for k in keys)

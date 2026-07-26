@@ -20,6 +20,7 @@ requires Blender (no module-level ``bpy`` use; the operator class is built insid
     from blendertk.edit_utils import macros
     macros.Macros.set_macros("m_frame, key=f, cat=Display")
 """
+
 import inspect
 import os
 from collections import defaultdict
@@ -27,20 +28,22 @@ from typing import Dict, List, Optional, Tuple
 
 try:
     import bpy
-except ImportError:  # surface must resolve headless (btk.Macros) — bpy used only at runtime
+except (
+    ImportError
+):  # surface must resolve headless (btk.Macros) — bpy used only at runtime
     bpy = None
 import pythontk as ptk
 
-from blendertk.edit_utils._edit_utils import set_subdivision, _group_under_empty
+from blendertk.edit_utils._edit_utils import EditUtils
 
 # Read selection/active through the view-layer (window-independent): the macros run from the Qt
 # event-pump timer context where bpy.context.selected_objects / active_object are empty (their
 # screen-context requires bpy.context.window, which is None there). See _core_utils.selected_objects.
-from blendertk.core_utils._core_utils import active_object, selected_objects
+from blendertk.core_utils._core_utils import CoreUtils
 
 # The topbar/statusbar driver behind m_toggle_panels' menu-bar half (Qt-free + bpy-deferred,
 # so this stays a safe module-level import — ui_utils only reaches back into btk lazily).
-from blendertk.ui_utils._ui_utils import toggle_window_bars
+from blendertk.ui_utils._ui_utils import UiUtils
 
 
 # ====================================================================================
@@ -90,7 +93,9 @@ class DisplayMacros(_ViewportMixin):
         """Toggle Back-Face Culling in the viewport."""
         _area, space = cls._view3d()
         if space:
-            space.shading.show_backface_culling = not space.shading.show_backface_culling
+            space.shading.show_backface_culling = (
+                not space.shading.show_backface_culling
+            )
 
     @classmethod
     def m_isolate_selected(cls):
@@ -126,7 +131,11 @@ class DisplayMacros(_ViewportMixin):
             return
         order = ["WIREFRAME", "SOLID", "MATERIAL"]
         current = space.shading.type
-        space.shading.type = order[(order.index(current) + 1) % len(order)] if current in order else "SOLID"
+        space.shading.type = (
+            order[(order.index(current) + 1) % len(order)]
+            if current in order
+            else "SOLID"
+        )
 
     @classmethod
     def m_lighting(cls):
@@ -141,7 +150,11 @@ class DisplayMacros(_ViewportMixin):
             return
         order = ["STUDIO", "MATCAP", "FLAT"]
         current = space.shading.light
-        space.shading.light = order[(order.index(current) + 1) % len(order)] if current in order else "STUDIO"
+        space.shading.light = (
+            order[(order.index(current) + 1) % len(order)]
+            if current in order
+            else "STUDIO"
+        )
 
     @classmethod
     def m_grid(cls):
@@ -180,19 +193,23 @@ class DisplayMacros(_ViewportMixin):
         first object). A reversible draw cycle rather than Maya's Visible/XRay/Templated/Hidden:
         actually hiding an object would drop it from the selection and break the cycle (use H/Alt-H
         to hide). All selected objects follow the first's next state."""
-        sel = selected_objects()
+        sel = CoreUtils.selected_objects()
         if not sel:
             return
         cycle = cls._DISPLAY_CYCLE
         current = sel[0].display_type
-        nxt = cycle[(cycle.index(current) + 1) % len(cycle)] if current in cycle else cycle[1]
+        nxt = (
+            cycle[(cycle.index(current) + 1) % len(cycle)]
+            if current in cycle
+            else cycle[1]
+        )
         for o in sel:
             o.display_type = nxt
 
     @classmethod
     def m_smooth_preview(cls):
         """Toggle a live Subdivision-Surface preview on the selected meshes."""
-        objs = [o for o in selected_objects() if o.type == "MESH"]
+        objs = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         if not objs:
             return
         has_subsurf = any(
@@ -203,7 +220,7 @@ class DisplayMacros(_ViewportMixin):
                 for m in [m for m in o.modifiers if m.type == "SUBSURF"]:
                     o.modifiers.remove(m)
         else:
-            set_subdivision(objs, viewport_levels=1)
+            EditUtils.set_subdivision(objs, viewport_levels=1)
 
     @classmethod
     def m_frame(cls):
@@ -211,8 +228,8 @@ class DisplayMacros(_ViewportMixin):
         ov = cls._view3d_override()
         if ov is None:
             return
-        active = active_object()
-        framing_selection = bool(selected_objects()) or (
+        active = CoreUtils.active_object()
+        framing_selection = bool(CoreUtils.selected_objects()) or (
             active is not None and active.mode == "EDIT"
         )
         with ov:
@@ -228,7 +245,7 @@ class EditMacros(_ViewportMixin):
     @staticmethod
     def m_multi_component():
         """Multi-component selection — enable vertex+edge+face select together (edit mode)."""
-        obj = active_object()
+        obj = CoreUtils.active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.context.tool_settings.mesh_select_mode = (True, True, True)
 
@@ -245,13 +262,13 @@ class EditMacros(_ViewportMixin):
     def m_merge_vertices(tolerance=0.0001):
         """Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
         mesh in Object Mode (mirrors Maya's component- and object-mode merge)."""
-        obj = active_object()
+        obj = CoreUtils.active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.ops.mesh.remove_doubles(threshold=tolerance)
             return
         import bmesh
 
-        for o in (m for m in selected_objects() if m.type == "MESH"):
+        for o in (m for m in CoreUtils.selected_objects() if m.type == "MESH"):
             bm = bmesh.new()
             bm.from_mesh(o.data)
             bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=tolerance)
@@ -263,10 +280,10 @@ class EditMacros(_ViewportMixin):
     def m_group():
         """Group the selected objects under an Empty at the selection's center, keeping their
         world transforms (Maya's group + center-pivot)."""
-        sel = selected_objects()
+        sel = CoreUtils.selected_objects()
         if not sel:
             return
-        _group_under_empty(sel, "group", center=True)
+        EditUtils._group_under_empty(sel, "group", center=True)
 
 
 class SelectionMacros:
@@ -275,13 +292,13 @@ class SelectionMacros:
     @staticmethod
     def m_object_selection():
         """Object selection mask — leave edit mode (object mode)."""
-        obj = active_object()
+        obj = CoreUtils.active_object()
         if obj and obj.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
     @staticmethod
     def _enter_edit_mesh_mode(select_mode):
-        obj = active_object()
+        obj = CoreUtils.active_object()
         if not (obj and obj.type == "MESH"):
             return False
         if obj.mode != "EDIT":
@@ -307,7 +324,7 @@ class SelectionMacros:
     @staticmethod
     def m_invert_selection():
         """Invert the current selection (component-aware)."""
-        obj = active_object()
+        obj = CoreUtils.active_object()
         if obj and obj.type == "MESH" and obj.mode == "EDIT":
             bpy.ops.mesh.select_all(action="INVERT")
         else:
@@ -342,7 +359,7 @@ class UiMacros(_ViewportMixin):
         it sits out and the regions lead themselves, as they did before the bars were wired in.
         ``toggle_menu`` covers the bars, ``toggle_panels`` the viewport regions.
         """
-        new_state = toggle_window_bars() if toggle_menu else None
+        new_state = UiUtils.toggle_window_bars() if toggle_menu else None
         if not toggle_panels:
             return
         # Resolve the viewport AFTER the bars: their round-trip rebuilds the screen, which
@@ -373,14 +390,14 @@ class AnimationMacros:
     @classmethod
     def m_set_selected_keys(cls):
         """Set keys on the selected objects' transform channels at the current frame."""
-        for obj in selected_objects():
+        for obj in CoreUtils.selected_objects():
             for path in cls._CHANNELS:
                 obj.keyframe_insert(data_path=path)
 
     @classmethod
     def m_unset_selected_keys(cls):
         """Remove keys on the selected objects' transform channels at the current frame."""
-        for obj in selected_objects():
+        for obj in CoreUtils.selected_objects():
             for path in cls._CHANNELS:
                 try:
                     obj.keyframe_delete(data_path=path)
@@ -436,14 +453,33 @@ class MacroManager:
 
     # Maya key token -> Blender keymap ``type`` enum.
     _DIGITS = {
-        "0": "ZERO", "1": "ONE", "2": "TWO", "3": "THREE", "4": "FOUR",
-        "5": "FIVE", "6": "SIX", "7": "SEVEN", "8": "EIGHT", "9": "NINE",
+        "0": "ZERO",
+        "1": "ONE",
+        "2": "TWO",
+        "3": "THREE",
+        "4": "FOUR",
+        "5": "FIVE",
+        "6": "SIX",
+        "7": "SEVEN",
+        "8": "EIGHT",
+        "9": "NINE",
     }
     _SPECIAL = {
-        "up": "UP_ARROW", "down": "DOWN_ARROW", "left": "LEFT_ARROW", "right": "RIGHT_ARROW",
-        "home": "HOME", "end": "END", "page_up": "PAGE_UP", "page_down": "PAGE_DOWN",
-        "insert": "INSERT", "return": "RET", "enter": "RET", "space": "SPACE",
-        "tab": "TAB", "delete": "DEL", "backspace": "BACK_SPACE",
+        "up": "UP_ARROW",
+        "down": "DOWN_ARROW",
+        "left": "LEFT_ARROW",
+        "right": "RIGHT_ARROW",
+        "home": "HOME",
+        "end": "END",
+        "page_up": "PAGE_UP",
+        "page_down": "PAGE_DOWN",
+        "insert": "INSERT",
+        "return": "RET",
+        "enter": "RET",
+        "space": "SPACE",
+        "tab": "TAB",
+        "delete": "DEL",
+        "backspace": "BACK_SPACE",
     }
     # Reverse of the above — Blender keymap ``type`` -> Maya-style key token —
     # used to read a live keymap item back into a "ctl+sht+i"-style string.
@@ -567,7 +603,9 @@ class MacroManager:
                 attr = inspect.getattr_static(cls, name)
             except AttributeError:
                 continue
-            func = attr.__func__ if isinstance(attr, (staticmethod, classmethod)) else attr
+            func = (
+                attr.__func__ if isinstance(attr, (staticmethod, classmethod)) else attr
+            )
             if not callable(func):
                 continue
             doc = (getattr(func, "__doc__", "") or "").strip()
@@ -578,7 +616,9 @@ class MacroManager:
     def macro_label(cls, name: str) -> str:
         """Humanize a macro name for display, e.g. ``m_back_face_culling`` ->
         "Back Face Culling" (acronyms like ``UV`` / ``ID`` are preserved)."""
-        return ptk.HotkeyUtils.humanize_label(name, prefix=cls.MACRO_PREFIX, acronyms=cls._LABEL_ACRONYMS)
+        return ptk.HotkeyUtils.humanize_label(
+            name, prefix=cls.MACRO_PREFIX, acronyms=cls._LABEL_ACRONYMS
+        )
 
     @classmethod
     def macro_category(cls, name: str) -> str:
@@ -778,7 +818,11 @@ class MacroManager:
         ``preset_dir="blendertk/macro_manager"``), so headless and
         editor-driven usage share one source of truth.
         """
-        return ptk.PresetStore(cls.PRESET_NAME, package=cls.PRESET_PACKAGE, builtin_dir=cls._builtin_presets_dir())
+        return ptk.PresetStore(
+            cls.PRESET_NAME,
+            package=cls.PRESET_PACKAGE,
+            builtin_dir=cls._builtin_presets_dir(),
+        )
 
     @classmethod
     def list_presets(cls) -> List[str]:

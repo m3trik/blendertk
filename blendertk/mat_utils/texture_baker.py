@@ -19,6 +19,7 @@ bake natively in Cycles**, so this is a thin adapter over ``bpy.ops.object.bake`
 
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
 """
+
 import os
 from typing import Any, Callable, Dict, List, Optional
 
@@ -100,9 +101,16 @@ class TextureBaker(ptk.LoggingMixin):
                     break
                 try:
                     path = self._bake_one(
-                        obj, output_dir, prefix, suffix, stem, used,
-                        bake_type=bake_type, pass_filter=pass_filter,
-                        uv_set=uv_set, colorspace=colorspace,
+                        obj,
+                        output_dir,
+                        prefix,
+                        suffix,
+                        stem,
+                        used,
+                        bake_type=bake_type,
+                        pass_filter=pass_filter,
+                        uv_set=uv_set,
+                        colorspace=colorspace,
                     )
                     if path:
                         result[obj.name] = path
@@ -115,12 +123,22 @@ class TextureBaker(ptk.LoggingMixin):
         return result
 
     def _bake_one(
-        self, obj, output_dir: str, prefix: str, suffix: str, stem, used: set,
-        *, bake_type: str, pass_filter: Optional[set], uv_set, colorspace: str,
+        self,
+        obj,
+        output_dir: str,
+        prefix: str,
+        suffix: str,
+        stem,
+        used: set,
+        *,
+        bake_type: str,
+        pass_filter: Optional[set],
+        uv_set,
+        colorspace: str,
     ) -> Optional[str]:
         """Bake a single object into a fresh EXR; returns its path (cleans up temp nodes)."""
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if uv_set is not None:  # optional UV-set targeting (e.g. a lightmap UV channel)
             name = uv_set(obj) if callable(uv_set) else uv_set
@@ -150,13 +168,17 @@ class TextureBaker(ptk.LoggingMixin):
             nt.nodes.active = node
             added.append((nt, node))
 
-        for x in selected_objects():
+        for x in CoreUtils.selected_objects():
             x.select_set(False)
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
 
         try:
-            bake_kwargs = {"type": bake_type, "use_clear": True, "save_mode": "INTERNAL"}
+            bake_kwargs = {
+                "type": bake_type,
+                "use_clear": True,
+                "save_mode": "INTERNAL",
+            }
             if pass_filter:
                 bake_kwargs["pass_filter"] = set(pass_filter)
             bpy.ops.object.bake(**bake_kwargs)
@@ -172,7 +194,9 @@ class TextureBaker(ptk.LoggingMixin):
             bpy.data.images.remove(image)
         return path
 
-    def _configure_bake_scene(self, margin: int, use_pass_color: bool) -> Dict[str, Any]:
+    def _configure_bake_scene(
+        self, margin: int, use_pass_color: bool
+    ) -> Dict[str, Any]:
         """Switch the scene to a deterministic Cycles bake config; return the prior state.
 
         Overrides every ``scene.render.bake`` field the bake depends on (not just the passes)
@@ -194,7 +218,9 @@ class TextureBaker(ptk.LoggingMixin):
         }
         prev = {
             "engine": scene.render.engine,
-            "samples": getattr(scene.cycles, "samples", None) if hasattr(scene, "cycles") else None,
+            "samples": getattr(scene.cycles, "samples", None)
+            if hasattr(scene, "cycles")
+            else None,
             "bake": {k: getattr(bake, k) for k in new_bake},
         }
         scene.render.engine = "CYCLES"
@@ -224,10 +250,10 @@ class TextureBaker(ptk.LoggingMixin):
     def resolve_meshes(objects) -> List[Any]:
         """Normalize ``objects`` (refs / names / None=selection) to mesh objects."""
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
-            objects = selected_objects()
+            objects = CoreUtils.selected_objects()
         pool = []
         for o in ptk.make_iterable(objects):
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o
@@ -238,13 +264,15 @@ class TextureBaker(ptk.LoggingMixin):
     @staticmethod
     def _ensure_materials(obj) -> List[Any]:
         """Every material slot uses nodes (Cycles needs a node tree); create one if absent."""
-        from blendertk.mat_utils._mat_utils import create_mat, assign_mat
+        from blendertk.mat_utils._mat_utils import MatUtils
 
         # Dedupe by identity: a material shared across two slots must get one bake node, not two.
-        materials = list(dict.fromkeys(s.material for s in obj.material_slots if s.material))
+        materials = list(
+            dict.fromkeys(s.material for s in obj.material_slots if s.material)
+        )
         if not materials:
-            mat = create_mat("standard", name=f"{obj.name}_mat")
-            assign_mat(obj, mat)
+            mat = MatUtils.create_mat("standard", name=f"{obj.name}_mat")
+            MatUtils.assign_mat(obj, mat)
             materials = [mat]
         for mat in materials:
             if not mat.use_nodes:

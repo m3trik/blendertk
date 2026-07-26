@@ -15,6 +15,7 @@ falls back to the hand-authored ``<name>#submenu`` overlay — exactly Maya's fa
 and the ``BlenderUiHandler`` that consumes it — import cleanly without a running Blender or a
 Qt binding (the Qt-only offscreen tests and headless Blender both rely on that).
 """
+
 import pythontk as ptk
 
 
@@ -162,7 +163,7 @@ class BlenderNativeMenus(ptk.LoggingMixin):
             widget.setObjectName(f"{name}_menu")
 
         try:
-            count = menu_harvest.refill_qmenu(widget.menu, idname)
+            count = menu_harvest.MenuHarvest.refill_qmenu(widget.menu, idname)
         except Exception as e:
             self.logger.debug(f"Native menu '{name}' ({idname}) harvest failed: {e}")
             count = 0

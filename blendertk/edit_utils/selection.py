@@ -27,7 +27,8 @@ in the flat ``_SELECT_TYPES`` dict this replaces, so keeping them avoids regress
 
 ``import bpy``/``bmesh`` are deferred into the call bodies (no import side effects).
 """
-from blendertk.node_utils._node_utils import get_children, get_parent
+
+from blendertk.node_utils._node_utils import NodeUtils
 
 
 class Selection:
@@ -81,9 +82,15 @@ class Selection:
             "Follicles": lambda objs: Selection._select_by_particle_type(objs, "HAIR"),
             "Lattices": lambda objs: [o for o in objs if o.type == "LATTICE"],
             "nCloths": lambda objs: Selection._select_by_modifier(objs, "CLOTH"),
-            "nRigids": lambda objs: Selection._select_by_rigid_body_type(objs, "PASSIVE"),
-            "Particles": lambda objs: Selection._select_by_particle_type(objs, "EMITTER"),
-            "Rigid Bodies": lambda objs: Selection._select_by_rigid_body_type(objs, "ACTIVE"),
+            "nRigids": lambda objs: Selection._select_by_rigid_body_type(
+                objs, "PASSIVE"
+            ),
+            "Particles": lambda objs: Selection._select_by_particle_type(
+                objs, "EMITTER"
+            ),
+            "Rigid Bodies": lambda objs: Selection._select_by_rigid_body_type(
+                objs, "ACTIVE"
+            ),
             "Rigid Constraints": lambda objs: [
                 o for o in objs if getattr(o, "rigid_body_constraint", None)
             ],
@@ -98,14 +105,14 @@ class Selection:
                 o for o in objs if o.type in Selection._GEOMETRY_TYPES
             ],
             "Hidden Geometry": lambda objs: Selection._select_hidden_geometry(objs),
-            "Non-Selectable Geometry": lambda objs: Selection._select_unselectable_geometry(
-                objs
+            "Non-Selectable Geometry": lambda objs: (
+                Selection._select_unselectable_geometry(objs)
             ),
             "NURBS Curves": lambda objs: [o for o in objs if o.type == "CURVE"],
             "NURBS Surfaces": lambda objs: [o for o in objs if o.type == "SURFACE"],
             "Polygon Meshes": lambda objs: [o for o in objs if o.type == "MESH"],
-            "Single-Instance Geometry": lambda objs: Selection._select_single_instance_geometry(
-                objs
+            "Single-Instance Geometry": lambda objs: (
+                Selection._select_single_instance_geometry(objs)
             ),
             # Blender-only bonus leaves (no Maya counterpart) -- kept from the _SELECT_TYPES
             # dict this replaces so no prior capability regresses.
@@ -156,13 +163,17 @@ class Selection:
             "Front-Facing": lambda objs: Selection._select_uv_face_orientation(
                 objs, want_flipped=False
             ),
-            "Overlapping": lambda objs: Selection._select_uv_overlap(objs, want_overlap=True),
+            "Overlapping": lambda objs: Selection._select_uv_overlap(
+                objs, want_overlap=True
+            ),
             "Non-Overlapping": lambda objs: Selection._select_uv_overlap(
                 objs, want_overlap=False
             ),
             # Blender's own boundary-between-UV-islands marker IS the seam edge.
             "Texture Borders": lambda objs: [
-                o for o in objs if o.type == "MESH" and any(e.use_seam for e in o.data.edges)
+                o
+                for o in objs
+                if o.type == "MESH" and any(e.use_seam for e in o.data.edges)
             ],
             "Unmapped": lambda objs: [
                 o for o in objs if o.type == "MESH" and not o.data.uv_layers
@@ -185,10 +196,10 @@ class Selection:
             list: The matched objects (also applied to the live selection per ``mode``).
         """
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
-            sel = list(selected_objects())
+            sel = list(CoreUtils.selected_objects())
             objects = sel if sel else list(bpy.data.objects)
         objects = [o for o in objects if o]
         if not objects:
@@ -224,7 +235,7 @@ class Selection:
         """The immediate children of the given objects (one level below only)."""
         result = set()
         for obj in objects:
-            result.update(get_children(obj, recursive=False))
+            result.update(NodeUtils.get_children(obj, recursive=False))
         return result
 
     @staticmethod
@@ -232,7 +243,7 @@ class Selection:
         """All ancestor objects above the given objects (full parent chain)."""
         result = set()
         for obj in objects:
-            result.update(get_parent(obj, all=True))
+            result.update(NodeUtils.get_parent(obj, all=True))
         return result
 
     @staticmethod
@@ -240,7 +251,7 @@ class Selection:
         """All descendant objects below the given objects (full child subtree)."""
         result = set()
         for obj in objects:
-            result.update(get_children(obj, recursive=True))
+            result.update(NodeUtils.get_children(obj, recursive=True))
         return result
 
     @staticmethod
@@ -249,7 +260,8 @@ class Selection:
         return [
             o
             for o in objects
-            if o.animation_data and (o.animation_data.action or o.animation_data.drivers)
+            if o.animation_data
+            and (o.animation_data.action or o.animation_data.drivers)
         ]
 
     @staticmethod
@@ -267,7 +279,9 @@ class Selection:
     @staticmethod
     def _select_by_rigid_body_type(objects, rb_type):
         return [
-            o for o in objects if getattr(o, "rigid_body", None) and o.rigid_body.type == rb_type
+            o
+            for o in objects
+            if getattr(o, "rigid_body", None) and o.rigid_body.type == rb_type
         ]
 
     @staticmethod
@@ -351,7 +365,7 @@ class Selection:
         ``bpy.ops.uv.select_overlap()`` run per-object in Edit Mode (UV-sync forced ON so the
         result reads back onto the mesh's own face-select state)."""
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         candidates = [o for o in objects if o.type == "MESH" and o.data.uv_layers]
         if not candidates:
@@ -361,7 +375,7 @@ class Selection:
         ts = bpy.context.scene.tool_settings
         prev_sync = ts.use_uv_select_sync
         prev_active = bpy.context.view_layer.objects.active
-        prev_selected = list(selected_objects())
+        prev_selected = list(CoreUtils.selected_objects())
         ts.use_uv_select_sync = True
         try:
             for o in candidates:
@@ -401,7 +415,9 @@ class Selection:
     def _signed_uv_area(face, uv_layer):
         """Shoelace signed area of a face's UVs in loop order. Positive = normal winding,
         negative = flipped/mirrored in UV space (matches Maya's face-orientation convention)."""
-        uvs = [loop[uv_layer].uv for loop in face.loops]  # materialize once (O(1) indexing)
+        uvs = [
+            loop[uv_layer].uv for loop in face.loops
+        ]  # materialize once (O(1) indexing)
         n = len(uvs)
         area = 0.0
         for i in range(n):
@@ -722,7 +738,9 @@ class Selection:
         bm = Selection._edit_bmesh(obj)
         uv_layer = bm.loops.layers.uv.active
         loop_edges = {e for e in bm.edges if e.select}
-        walkable = {e for e in loop_edges if not Selection._edge_is_uv_boundary(e, uv_layer)}
+        walkable = {
+            e for e in loop_edges if not Selection._edge_is_uv_boundary(e, uv_layer)
+        }
         # break vertices: a loop vertex the walk must stop at because one of its incident edges is
         # a UV boundary (seam/open). Only loop vertices are ever visited, so restrict the (costly)
         # boundary test to them rather than scanning every edge in the mesh.
@@ -730,7 +748,9 @@ class Selection:
         break_verts = {
             v
             for v in loop_verts
-            if any(Selection._edge_is_uv_boundary(inc, uv_layer) for inc in v.link_edges)
+            if any(
+                Selection._edge_is_uv_boundary(inc, uv_layer) for inc in v.link_edges
+            )
         }
         start = {e for e in walkable if e.index in orig_idx}
         result = set(start)

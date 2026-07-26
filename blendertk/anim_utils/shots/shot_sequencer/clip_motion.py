@@ -13,92 +13,21 @@ travels with it.  Divergences (ledgered): audio-clip *motion* is a no-op this ph
 "no audio shifting"), and per-attribute sub-row segmentation uses the object-segment
 fallback (no ``SegmentKeys`` port).
 """
+
 from __future__ import annotations
 
-from blendertk.core_utils._core_utils import undo_chunk
-from blendertk.anim_utils.shots._shots import iter_action_fcurves
+from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 
 # Near-zero guard for floating-point comparisons.
 FLOAT_ZERO_EPS = 1e-6
 _EPS = 1e-3
 
-__all__ = ["ClipMotionMixin", "curves_for_attr", "scale_attribute_keys"]
+__all__ = ["ClipMotionMixin"]
 
 # ---------------------------------------------------------------------------
 # Standalone helpers
 # ---------------------------------------------------------------------------
-
-
-def curves_for_attr(obj_name: str, attr_name: str) -> list:
-    """Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.
-
-    Matches by :func:`segment_collector.attr_label` — the *same* forward function
-    ``_provide_sub_rows`` labels sub-rows with — so resolution is always consistent
-    with the label the user sees, works for ``rotation_quaternion`` (a hand-kept
-    reverse ``translateX→(location,0)`` map missed it and silently returned ``[]``),
-    and can't drift from ``attr_label``.  Falls back to a raw ``data_path`` substring
-    for non-standard/custom-property channels.
-    """
-    try:
-        import bpy
-    except ImportError:
-        return []
-    from blendertk.anim_utils.shots.shot_sequencer.segment_collector import attr_label
-
-    obj = bpy.data.objects.get(obj_name)
-    if obj is None:
-        return []
-    return [fc for fc in iter_action_fcurves(obj)
-            if attr_label(fc) == attr_name or attr_name in fc.data_path]
-
-
-def _shift_fcurve_keys(fcurves, delta: float, time_range) -> None:
-    """Shift every key of *fcurves* within *time_range* by *delta* (Blender direct move)."""
-    if abs(delta) < FLOAT_ZERO_EPS:
-        return
-    lo, hi = time_range[0] - _EPS, time_range[1] + _EPS
-    for fc in fcurves:
-        moved = False
-        for kp in fc.keyframe_points:
-            if lo <= kp.co[0] <= hi:
-                kp.co[0] += delta
-                kp.handle_left[0] += delta
-                kp.handle_right[0] += delta
-                moved = True
-        if moved:
-            fc.update()
-
-
-def scale_attribute_keys(obj_name: str, attr_name: str, old_start: float,
-                         old_end: float, new_start: float, new_end: float) -> None:
-    """Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize)."""
-    curves = curves_for_attr(obj_name, attr_name)
-    if not curves or abs(old_end - old_start) < FLOAT_ZERO_EPS:
-        return
-    scale = (new_end - new_start) / (old_end - old_start)
-    lo, hi = old_start - _EPS, old_end + _EPS
-
-    def _remap(x):
-        return new_start + (x - old_start) * scale
-
-    for fc in curves:
-        moved = False
-        for kp in fc.keyframe_points:
-            if lo <= kp.co[0] <= hi:
-                kp.handle_left[0] = _remap(kp.handle_left[0])
-                kp.handle_right[0] = _remap(kp.handle_right[0])
-                kp.co[0] = _remap(kp.co[0])
-                moved = True
-        if moved:
-            fc.update()
-
-
-def _object_exists(obj_name: str) -> bool:
-    try:
-        import bpy
-    except ImportError:
-        return False
-    return obj_name in bpy.data.objects
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +35,36 @@ def _object_exists(obj_name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-class ClipMotionMixin:
+class _ClipMotionMixinInternal(object):
+    """Internal helpers for ClipMotionMixin."""
+
+    @staticmethod
+    def _shift_fcurve_keys(fcurves, delta: float, time_range) -> None:
+        """Shift every key of *fcurves* within *time_range* by *delta* (Blender direct move)."""
+        if abs(delta) < FLOAT_ZERO_EPS:
+            return
+        lo, hi = time_range[0] - _EPS, time_range[1] + _EPS
+        for fc in fcurves:
+            moved = False
+            for kp in fc.keyframe_points:
+                if lo <= kp.co[0] <= hi:
+                    kp.co[0] += delta
+                    kp.handle_left[0] += delta
+                    kp.handle_right[0] += delta
+                    moved = True
+            if moved:
+                fc.update()
+
+    @staticmethod
+    def _object_exists(obj_name: str) -> bool:
+        try:
+            import bpy
+        except ImportError:
+            return False
+        return obj_name in bpy.data.objects
+
+
+class ClipMotionMixin(_ClipMotionMixinInternal):
     """Mixin supplying clip move, resize, and batch-move handlers.
 
     Expects the host controller to provide ``sequencer``, ``_get_sequencer_widget()``,
@@ -116,7 +74,9 @@ class ClipMotionMixin:
     ``_set_footer()``, and ``logger``.
     """
 
-    def on_clip_resized(self, clip_id: int, new_start: float, new_duration: float) -> None:
+    def on_clip_resized(
+        self, clip_id: int, new_start: float, new_duration: float
+    ) -> None:
         """Resize a clip — attribute sub-row (scale one channel) or main track (``resize_object``)."""
         if self.sequencer is None:
             return
@@ -138,11 +98,15 @@ class ClipMotionMixin:
         self._save_shot_state()
         new_end = new_start + new_duration
         attr_name = clip.data.get("attr_name")
-        with undo_chunk():
+        with CoreUtils.undo_chunk():
             if attr_name:
-                scale_attribute_keys(obj_name, attr_name, orig_start, orig_end, new_start, new_end)
+                ClipMotionMixin.scale_attribute_keys(
+                    obj_name, attr_name, orig_start, orig_end, new_start, new_end
+                )
             else:
-                self.sequencer.resize_object(shot_id, obj_name, orig_start, orig_end, new_start, new_end)
+                self.sequencer.resize_object(
+                    shot_id, obj_name, orig_start, orig_end, new_start, new_end
+                )
         self._gap_edit_epilogue()
         label = f"{obj_name}.{attr_name}" if attr_name else obj_name
         dur = int(new_end - new_start)
@@ -169,7 +133,7 @@ class ClipMotionMixin:
             orig_end = clip.data.get("orig_end")
             if not obj_name or orig_start is None or orig_end is None:
                 return False
-            if not _object_exists(obj_name):
+            if not _ClipMotionMixinInternal._object_exists(obj_name):
                 return False
             delta = new_start - orig_start
             if abs(delta) < FLOAT_ZERO_EPS:
@@ -178,11 +142,14 @@ class ClipMotionMixin:
             # (label-scoped, quaternion-safe).  The engine's move_stepped_keys
             # takes a data_path filter, not a display label, so it can't be used
             # here — a stepped key is just a point window (orig_start, orig_start).
-            curves = curves_for_attr(obj_name, attr_name)
+            curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
             if curves:
-                window = (orig_start, orig_start) if clip.data.get("is_stepped") \
+                window = (
+                    (orig_start, orig_start)
+                    if clip.data.get("is_stepped")
                     else (orig_start, orig_end)
-                _shift_fcurve_keys(curves, delta, window)
+                )
+                _ClipMotionMixinInternal._shift_fcurve_keys(curves, delta, window)
             new_end = new_start + (orig_end - orig_start)
             self._expand_shot_for_clip(clip, new_start, new_end)
             return True
@@ -194,7 +161,12 @@ class ClipMotionMixin:
         obj_name = clip.data.get("obj")
         orig_start = clip.data.get("orig_start")
         orig_end = clip.data.get("orig_end")
-        if shot_id is None or obj_name is None or orig_start is None or orig_end is None:
+        if (
+            shot_id is None
+            or obj_name is None
+            or orig_start is None
+            or orig_end is None
+        ):
             return False
         delta = new_start - orig_start
         if abs(delta) < FLOAT_ZERO_EPS:
@@ -219,13 +191,20 @@ class ClipMotionMixin:
         if shift_held:
             self.sequencer.move_object_keys(obj_name, orig_start, orig_end, new_start)
         else:
-            self.sequencer.move_object_in_shot(shot_id, obj_name, orig_start, orig_end, new_start)
+            self.sequencer.move_object_in_shot(
+                shot_id, obj_name, orig_start, orig_end, new_start
+            )
             self._shifted_out_keys.pop(obj_name, None)
 
         shot_after = self.sequencer.shot_by_id(shot_id)
-        if (pre_bounds is not None and shot_after is not None
-                and (abs(shot_after.start - pre_bounds[0]) > FLOAT_ZERO_EPS
-                     or abs(shot_after.end - pre_bounds[1]) > FLOAT_ZERO_EPS)):
+        if (
+            pre_bounds is not None
+            and shot_after is not None
+            and (
+                abs(shot_after.start - pre_bounds[0]) > FLOAT_ZERO_EPS
+                or abs(shot_after.end - pre_bounds[1]) > FLOAT_ZERO_EPS
+            )
+        ):
             self._segment_cache.clear()
             self._sub_row_cache.clear()
         return True
@@ -252,7 +231,9 @@ class ClipMotionMixin:
             was_syncing = self._syncing
             self._syncing = True
             try:
-                self.sequencer.store.update_shot(shot_id, start=expanded_start, end=expanded_end)
+                self.sequencer.store.update_shot(
+                    shot_id, start=expanded_start, end=expanded_end
+                )
                 if abs(start_delta) > 1e-6:
                     self.sequencer.ripple_upstream(shot_id, prior_start, start_delta)
                 if abs(end_delta) > 1e-6:
@@ -269,7 +250,7 @@ class ClipMotionMixin:
         obj_name = clip.data.get("obj", "") if clip else ""
 
         self._save_shot_state()
-        with undo_chunk():
+        with CoreUtils.undo_chunk():
             if self._apply_clip_move(clip_id, new_start):
                 self._sync_to_widget(shot_id=shot_id)
                 self._sync_combobox()
@@ -286,7 +267,7 @@ class ClipMotionMixin:
                 if clip:
                     shot_id = clip.data.get("shot_id")
         self._save_shot_state()
-        with undo_chunk():
+        with CoreUtils.undo_chunk():
             needs_sync = False
             for clip_id, new_start in moves:
                 if self._apply_clip_move(clip_id, new_start):
@@ -294,7 +275,9 @@ class ClipMotionMixin:
             if needs_sync:
                 self._sync_to_widget(shot_id=shot_id)
                 self._sync_combobox()
-                self._set_footer(f"Moved {len(moves)} clip{'s' if len(moves) != 1 else ''}")
+                self._set_footer(
+                    f"Moved {len(moves)} clip{'s' if len(moves) != 1 else ''}"
+                )
 
     # -- per-key handlers ---------------------------------------------------
 
@@ -318,12 +301,12 @@ class ClipMotionMixin:
         attr_name = clip.data.get("attr_name")
         if not obj_name or not attr_name:
             return
-        curves = curves_for_attr(obj_name, attr_name)
+        curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
         if not curves:
             return
 
         moved_any = False
-        with undo_chunk():
+        with CoreUtils.undo_chunk():
             for fc in curves:
                 # Pass 1 — match against pre-move positions (each key claimed once).
                 targets = []
@@ -361,7 +344,9 @@ class ClipMotionMixin:
                         self._segment_cache.pop(sid, None)
         self._sync_to_widget(shot_id=shot_id)
         n = len(changes)
-        self._set_footer(f"Moved {n} key{'s' if n != 1 else ''} on {obj_name}.{attr_name}")
+        self._set_footer(
+            f"Moved {n} key{'s' if n != 1 else ''} on {obj_name}.{attr_name}"
+        )
 
     def on_keys_deleted(self, clip_id: int, times: list) -> None:
         """Delete individual keyframes from the fcurves, then refresh."""
@@ -373,15 +358,17 @@ class ClipMotionMixin:
         attr_name = clip.data.get("attr_name")
         if not obj_name or not attr_name:
             return
-        curves = curves_for_attr(obj_name, attr_name)
+        curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
         if not curves:
             return
 
         deleted = False
-        with undo_chunk():
+        with CoreUtils.undo_chunk():
             for t in times:
                 for fc in curves:
-                    victims = [kp for kp in fc.keyframe_points if abs(kp.co[0] - t) < _EPS]
+                    victims = [
+                        kp for kp in fc.keyframe_points if abs(kp.co[0] - t) < _EPS
+                    ]
                     for kp in reversed(victims):
                         fc.keyframe_points.remove(kp)
                         deleted = True
@@ -394,4 +381,64 @@ class ClipMotionMixin:
         shot_id = clip.data.get("shot_id")
         self._sync_to_widget(shot_id=shot_id)
         n = len(times)
-        self._set_footer(f"Deleted {n} key{'s' if n != 1 else ''} on {obj_name}.{attr_name}")
+        self._set_footer(
+            f"Deleted {n} key{'s' if n != 1 else ''} on {obj_name}.{attr_name}"
+        )
+
+    @staticmethod
+    def curves_for_attr(obj_name: str, attr_name: str) -> list:
+        """Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.
+
+        Matches by :func:`segment_collector.attr_label` — the *same* forward function
+        ``_provide_sub_rows`` labels sub-rows with — so resolution is always consistent
+        with the label the user sees, works for ``rotation_quaternion`` (a hand-kept
+        reverse ``translateX→(location,0)`` map missed it and silently returned ``[]``),
+        and can't drift from ``attr_label``.  Falls back to a raw ``data_path`` substring
+        for non-standard/custom-property channels.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return []
+        from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+            SegmentCollector,
+        )
+
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            return []
+        return [
+            fc
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            if SegmentCollector.attr_label(fc) == attr_name or attr_name in fc.data_path
+        ]
+
+    @staticmethod
+    def scale_attribute_keys(
+        obj_name: str,
+        attr_name: str,
+        old_start: float,
+        old_end: float,
+        new_start: float,
+        new_end: float,
+    ) -> None:
+        """Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize)."""
+        curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
+        if not curves or abs(old_end - old_start) < FLOAT_ZERO_EPS:
+            return
+        scale = (new_end - new_start) / (old_end - old_start)
+        lo, hi = old_start - _EPS, old_end + _EPS
+
+        def _remap(x):
+            return new_start + (x - old_start) * scale
+
+        for fc in curves:
+            moved = False
+            for kp in fc.keyframe_points:
+                if lo <= kp.co[0] <= hi:
+                    kp.handle_left[0] = _remap(kp.handle_left[0])
+                    kp.handle_right[0] = _remap(kp.handle_right[0])
+                    kp.co[0] = _remap(kp.co[0])
+                    moved = True
+            if moved:
+                fc.update()

@@ -20,12 +20,13 @@ base-layer-conversion mode to give a standalone "mute the driver instead of the 
 ``Backup`` combo are wired straight through to the engine's own ``preserve_outside_keys``/
 ``optimize_keys``/``backup_file`` parameters.
 """
+
 from typing import List, Optional
 
 import pythontk as ptk
 from uitk.switchboard import Cancelable
 
-from blendertk.core_utils._core_utils import selected_objects
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
 
 
@@ -119,7 +120,7 @@ class SmartBakeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget) -> None:
         """Configure header menu, refresh button, and help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self._refresh_session_state)
@@ -130,7 +131,7 @@ class SmartBakeSlots(ptk.LoggingMixin):
             setToolTip="Reset every field in this panel to its default value.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Smart Bake",
                 body="Analyzes the scene for constraints, IK, drivers, and driven shape-key "
                 "weights, then bakes only the objects/bones that are actually driven — "
@@ -176,7 +177,7 @@ class SmartBakeSlots(ptk.LoggingMixin):
         scans every mesh/empty/armature and bakes only the ones analyze() finds actually
         driven)."""
         if self.ui.cmb_scope.currentIndex() == 1:  # Selected
-            return selected_objects()
+            return CoreUtils.selected_objects()
         return None
 
     def _backup_value(self):
@@ -237,7 +238,9 @@ class SmartBakeSlots(ptk.LoggingMixin):
             f"range {result.time_range[0]}-{result.time_range[1]}."
         )
 
-        details = [f"{key}: {', '.join(sources)}" for key, sources in result.baked.items()]
+        details = [
+            f"{key}: {', '.join(sources)}" for key, sources in result.baked.items()
+        ]
         if result.skipped:
             details.append(f"Skipped {len(result.skipped)} item(s).")
         if result.muted_constraints:
@@ -268,7 +271,9 @@ class SmartBakeSlots(ptk.LoggingMixin):
         self._log_run_header("Unbake")
         restore = SmartBake.restore()
         if not restore.success:
-            self._warn(restore.warnings[0] if restore.warnings else "Nothing to restore.")
+            self._warn(
+                restore.warnings[0] if restore.warnings else "Nothing to restore."
+            )
         else:
             summary = f"Restored session '{restore.session_id}'."
             self._succeed(

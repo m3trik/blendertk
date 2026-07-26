@@ -35,6 +35,7 @@ doesn't exist on the Blender side yet, this panel's launcher sits in
 ``import bpy`` / the Qt-only ``uitk`` helpers are deferred into call bodies (headless Blender
 ships no Qt binding; this module must also resolve with no Blender running).
 """
+
 import os
 
 import pythontk as ptk
@@ -51,7 +52,17 @@ class AudioClipsSlots(ptk.LoggingMixin):
     only "selection", decoupled from Blender's own object/strip selection state.
     """
 
-    AUDIO_GLOBS = ["*.wav", "*.aif", "*.aiff", "*.mp3", "*.ogg", "*.m4a", "*.flac", "*.aac", "*.opus"]
+    AUDIO_GLOBS = [
+        "*.wav",
+        "*.aif",
+        "*.aiff",
+        "*.mp3",
+        "*.ogg",
+        "*.m4a",
+        "*.flac",
+        "*.aac",
+        "*.opus",
+    ]
     AUDIO_FILTER = f"Audio Files ({' '.join(AUDIO_GLOBS)});;All Files (*)"
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -82,10 +93,10 @@ class AudioClipsSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Help text only — no header menu items apply (see module docstring)."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Audio Clips",
                 body="Scene-wide sound clips as native Video Sequence Editor strips — "
                 "add/remove/trim them and keep the scene frame range in sync.",
@@ -100,17 +111,23 @@ class AudioClipsSlots(ptk.LoggingMixin):
                     "loaded clips.",
                 ],
                 sections=[
-                    ("Clips option box (▸)", [
-                        "<b>Rename Selected</b> / <b>Replace Selected</b> — rename the clip "
-                        "or swap its source file (position/trim is preserved).",
-                        "<b>Remove Selected</b> / <b>Remove All</b> — delete one clip or "
-                        "every clip in the scene.",
-                    ]),
-                    ("Move To Current Frame option box (▸)", [
-                        "<b>select icon</b> — reveal the selected clip in the Sequencer "
-                        "editor.",
-                        "<b>refresh icon</b> — same as the Sync Scene Range button.",
-                    ]),
+                    (
+                        "Clips option box (▸)",
+                        [
+                            "<b>Rename Selected</b> / <b>Replace Selected</b> — rename the clip "
+                            "or swap its source file (position/trim is preserved).",
+                            "<b>Remove Selected</b> / <b>Remove All</b> — delete one clip or "
+                            "every clip in the scene.",
+                        ],
+                    ),
+                    (
+                        "Move To Current Frame option box (▸)",
+                        [
+                            "<b>select icon</b> — reveal the selected clip in the Sequencer "
+                            "editor.",
+                            "<b>refresh icon</b> — same as the Sync Scene Range button.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Every clip is a real Sequencer sound strip — open the Sequencer/VSE "
@@ -129,35 +146,50 @@ class AudioClipsSlots(ptk.LoggingMixin):
         from uitk.widgets.optionBox.options.browse import BrowseOption
 
         if not getattr(widget, "is_initialized", False):
-            widget.option_box.add_option(
-                BrowseOption(
-                    wrapped_widget=widget,
-                    file_types=self.AUDIO_FILTER,
-                    mode="files",
-                    title="Select Audio Files",
-                    tooltip="Browse for audio files to add as clips at the current frame.",
-                    callback=self._browse_audio_files_cb,
-                )
+            # Audio-file picker — folded into the "Clips" menu as "Add Clips…"
+            # rather than a standalone browse icon (mirror of Maya's "Add Tracks…").
+            self._browse_option = BrowseOption(
+                wrapped_widget=widget,
+                file_types=self.AUDIO_FILTER,
+                mode="files",
+                title="Select Audio Files",
+                tooltip="Browse for audio files to add as clips at the current frame.",
+                callback=self._browse_audio_files_cb,
             )
 
             widget.option_box.menu.setTitle("Clips")
+            btn_add = widget.option_box.menu.add(
+                "QPushButton",
+                setText="Add Clips…",
+                setObjectName="btn_add_clips",
+                setToolTip="Browse for audio files to add as clips at the current frame.",
+            )
+            btn_add.clicked.connect(lambda *_: self._browse_option.browse())
             btn_rename = widget.option_box.menu.add(
-                "QPushButton", setText="Rename Selected", setObjectName="btn_rename_track",
+                "QPushButton",
+                setText="Rename Selected",
+                setObjectName="btn_rename_track",
                 setToolTip="Rename the selected clip.",
             )
             btn_rename.clicked.connect(self.b001)
             btn_replace = widget.option_box.menu.add(
-                "QPushButton", setText="Replace Selected", setObjectName="btn_replace_track",
+                "QPushButton",
+                setText="Replace Selected",
+                setObjectName="btn_replace_track",
                 setToolTip="Swap the selected clip's audio file (position/trim is preserved).",
             )
             btn_replace.clicked.connect(self.b002)
             btn_remove_sel = widget.option_box.menu.add(
-                "QPushButton", setText="Remove Selected", setObjectName="btn_remove_selected",
+                "QPushButton",
+                setText="Remove Selected",
+                setObjectName="btn_remove_selected",
                 setToolTip="Delete the selected clip.",
             )
             btn_remove_sel.clicked.connect(self.b005)
             btn_remove_all = widget.option_box.menu.add(
-                "QPushButton", setText="Remove All", setObjectName="btn_remove_audio",
+                "QPushButton",
+                setText="Remove All",
+                setObjectName="btn_remove_audio",
                 setToolTip="Delete every clip in the scene.",
             )
             btn_remove_all.clicked.connect(self.b006)
@@ -303,15 +335,24 @@ class AudioClipsSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------
 
     def tb001_init(self, widget):
-        """Move option box — reveal-in-Sequencer + a Sync Scene Range shortcut."""
-        widget.option_box.set_action(
-            self._reveal_in_sequencer, icon="select",
-            tooltip="Reveal the selected clip in the Sequencer editor.",
-        )
-        widget.option_box.add_action(
-            self.b004, icon="refresh",
-            tooltip="Sync the scene frame range to the loaded clips (same as the button below).",
-        )
+        """Move option box — reveal-in-Sequencer + Sync Scene Range folded into the menu.
+
+        Mirrors Maya's tb001, whose carrier-select + sync actions live as menu
+        rows rather than standalone option-box icons.
+        """
+        widget.option_box.menu.setTitle("Move To Current Frame")
+        widget.option_box.menu.add(
+            "QPushButton",
+            setText="Reveal In Sequencer",
+            setObjectName="btn_reveal_sequencer",
+            setToolTip="Reveal the selected clip in the Sequencer editor.",
+        ).clicked.connect(lambda *_: self._reveal_in_sequencer())
+        widget.option_box.menu.add(
+            "QPushButton",
+            setText="Sync Scene Range",
+            setObjectName="btn_sync_range",
+            setToolTip="Sync the scene frame range to the loaded clips (same as the button below).",
+        ).clicked.connect(lambda *_: self.b004())
 
     def tb001(self, widget=None):
         """Move the selected clip so it starts at the current frame (trim is preserved)."""
@@ -367,7 +408,9 @@ class AudioClipsSlots(ptk.LoggingMixin):
             return
         offset_start = int(self.ui.s000.value())
         offset_end = int(self.ui.s001.value())
-        if AudioUtils.trim_clip(current, offset_start=offset_start, offset_end=offset_end):
+        if AudioUtils.trim_clip(
+            current, offset_start=offset_start, offset_end=offset_end
+        ):
             info = AudioUtils.get_clip(current)
             self.ui.footer.setText(
                 f"Trimmed '{current}' — {info['duration']} frame(s) visible."
@@ -383,14 +426,17 @@ class AudioClipsSlots(ptk.LoggingMixin):
         widget.option_box.menu.setTitle("Sync Scene Range")
         # Extend Only vs Exact Fit is a two-valued mode, not a modifier — name both states.
         fit = widget.option_box.menu.add(
-            "QComboBox", setObjectName="cmb_fit",
+            "QComboBox",
+            setObjectName="cmb_fit",
             setToolTip=(
                 "Extend Only: only grow the range to cover clips that fall outside it.\n"
                 "Exact Fit: fit the range exactly to the clips (can also shrink it)."
             ),
         )
         fit.addItems(["Extend Only", "Exact Fit"])
-        fit.setCurrentText("Extend Only")  # preserve prior default (checkbox on = extend only)
+        fit.setCurrentText(
+            "Extend Only"
+        )  # preserve prior default (checkbox on = extend only)
 
     def b004(self, widget=None):
         """Fit the scene frame range to the loaded clips."""
