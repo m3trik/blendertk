@@ -21,7 +21,9 @@ tmp = tempfile.mkdtemp(prefix="tpe_test_")
 try:
     import bpy
     import blendertk as btk
-    from blendertk.mat_utils._mat_utils import _abspath
+    from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+    _abspath = _MatUtilsInternal._abspath  # helper moved onto the internal base
 
     def reset():
         for o in list(bpy.data.objects):
