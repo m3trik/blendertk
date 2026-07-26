@@ -16,78 +16,236 @@ import random
 import pythontk as ptk
 
 
+class _MatUtilsInternal:
+    """DCC-agnostic private helpers for MatUpdater + MatUtils (mirror of mayatk's
+    ``_MatUtilsInternal``). Staticmethods; call as ``_MatUtilsInternal._x(...)``."""
+
+    @staticmethod
+    def _is_gp_material(mat):
+        """Grease-pencil materials (attribute renamed across Blender's GPv3 transition)."""
+        return bool(getattr(mat, "is_grease_pencil", False))
+
+    @staticmethod
+    def _material_image_nodes(mat):
+        """``(node, image)`` pairs for the image-texture nodes of ``mat``'s node tree."""
+        nt = getattr(mat, "node_tree", None)
+        if not nt:
+            return []
+        return [(n, n.image) for n in nt.nodes if n.type == "TEX_IMAGE" and n.image]
+
+    @staticmethod
+    def _mat_surface_type(mat):
+        """A human-readable material 'type' for the report — the surface shader node's label
+        (e.g. ``Principled BSDF``), the Blender analogue of Maya's ``cmds.nodeType``. Falls back
+        to ``"Material"``."""
+        nt = getattr(mat, "node_tree", None)
+        if nt:
+            out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+            surf = out.inputs.get("Surface") if out else None
+            if surf is not None and surf.is_linked:
+                return surf.links[0].from_node.bl_label
+        return "Material"
+
+    @staticmethod
+    def _abspath(img):
+        """Absolute, normalized path of an image datablock's file (or '' when unset)."""
+        import bpy
+
+        fp = getattr(img, "filepath", "") or ""
+        if not fp:
+            return ""
+        try:
+            return os.path.normpath(bpy.path.abspath(fp))
+        except Exception:
+            return os.path.normpath(fp)
+
+    @staticmethod
+    def _image_meta(img):
+        """Texture metadata read from the Blender image datablock (no PIL): path / name / size /
+        width / height / mode / format / bit_depth."""
+        path = _MatUtilsInternal._abspath(img)
+        size = os.path.getsize(path) if path and os.path.exists(path) else None
+        w, h = (int(img.size[0]), int(img.size[1])) if len(img.size) >= 2 else (0, 0)
+        mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}.get(img.channels, f"{img.channels}ch")
+        return {
+            "path": path,
+            "name": os.path.basename(path) if path else img.name,
+            "size": size,
+            "width": w,
+            "height": h,
+            "mode": mode,
+            "format": img.file_format or None,
+            "bit_depth": f"{img.depth}bit" if img.depth else None,
+        }
+
+    @staticmethod
+    def _resolve_materials(objects=None, materials=None):
+        """Resolve a material scope: explicit ``materials`` win, else materials of ``objects``,
+        else every scene material. An explicit empty iterable means 'no scope' → []."""
+        import bpy
+
+        if materials is not None:
+            return [m for m in ptk.make_iterable(materials) if m]
+        if objects is not None:
+            return MatUtils.get_mats(objects)
+        return [m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)]
+
+    @staticmethod
+    def _map_type_and_base(orig_stem):
+        """``(map_type, base_name_lower)`` for an ORIGINAL-CASE stem via the shared MapFactory.
+
+        Resolution is done on the original case because short map aliases (``AO``, ``MS``, …) are
+        case-sensitive — lowercasing first would silently drop them.
+        """
+        fname = orig_stem + ".png"  # extension is irrelevant to map-type / base resolution
+        try:
+            mt = ptk.MapFactory.resolve_map_type(fname, key=True)
+        except Exception:
+            mt = None
+        try:
+            base = ptk.MapFactory.get_base_texture_name(fname).lower()
+        except Exception:
+            base = orig_stem.lower()
+        return mt, base
+
+    @staticmethod
+    def _resolve_by_map_type(target_orig_stem, cand_meta, stem_index):
+        """Map-type-aware fuzzy resolve (mayatk's 'Texture' strategy): restrict candidates to files of
+        the SAME map type (AO/Normal/Roughness/…), then fuzzy-match the map-stripped base name — so an
+        ``_AO`` is never repathed to a ``_Normal``. Returns a path or None.
+
+        ``cand_meta`` is the pre-computed ``[(stem_key_lower, base_lower, map_type), …]`` for the
+        search index (``stem_key_lower`` indexes ``stem_index``).
+        """
+        target_map, target_base = _MatUtilsInternal._map_type_and_base(target_orig_stem)
+        if not target_map:
+            return None
+        same_keys = [k for k, _b, mt in cand_meta if mt == target_map]
+        same_bases = [b for _k, b, mt in cand_meta if mt == target_map]
+        if not same_bases:
+            return None
+        match, _score, status, _strat = ptk.FuzzyMatcher.find_with_fallbacks(
+            target_base,
+            same_bases,
+            strategies=["substring", "ratio"],
+            score_threshold=0.5,
+        )
+        if status != "unique":
+            return None
+        return stem_index.get(same_keys[same_bases.index(match)])
+
+    @staticmethod
+    def _resolve_images(images):
+        """Coerce ``images`` (datablocks, names, or None=all) to a list of FILE image datablocks."""
+        import bpy
+
+        if images is None:
+            return [i for i in bpy.data.images if i.source == "FILE"]
+        out = []
+        for i in ptk.make_iterable(images):
+            img = bpy.data.images.get(i) if isinstance(i, str) else i
+            if img is not None:
+                out.append(img)
+        return out
+
+    @staticmethod
+    def _safe_relocate(src, dst, mode):
+        """Relocate ``src`` → ``dst`` (``mode`` ``"copy"``/``"move"``) with a same-name collision guard
+        — mirror of the Maya Texture Path Editor's policy (DRY'd here across the three relocate ops).
+
+        Returns:
+            ``"relocated"`` — the file was written to ``dst``.
+            ``"rebind"``    — ``dst`` already holds an identical-size file (reuse it without
+                              overwriting; for ``"move"`` the redundant ``src`` is removed), or
+                              ``src`` is already at ``dst``.
+            ``"skip"``      — ``dst`` holds a DIFFERENT-size file: refuse to overwrite, so we never
+                              rebind to the wrong texture (and never destroy the external).
+            ``"error"``     — the disk op failed.
+        """
+        import logging
+        import shutil
+
+        if os.path.normpath(src) == os.path.normpath(dst):
+            return "rebind"  # already in place
+        try:
+            if os.path.exists(dst):
+                try:
+                    same = os.path.getsize(src) == os.path.getsize(dst)
+                except OSError:
+                    same = False
+                if not same:
+                    # Mirrors mayatk's ``cmds.warning`` on the same collision — never silently
+                    # rebind to a wrong texture, never destroy the external file.
+                    logging.getLogger(__name__).warning(
+                        f"'{os.path.basename(dst)}' already exists at destination with a "
+                        f"different size; skipping to avoid a wrong-file rebind: {dst}"
+                    )
+                    return (
+                        "skip"  # different file, same name — don't clobber / wrong-rebind
+                    )
+                if mode == "move":
+                    try:
+                        os.remove(src)  # dst is equivalent; the source copy is redundant
+                    except OSError:
+                        pass
+                return "rebind"
+            os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+            shutil.move(src, dst) if mode == "move" else shutil.copy2(src, dst)
+            return "relocated"
+        except (OSError, shutil.Error):
+            return "error"
+
+    @staticmethod
+    def _html_escape(s):
+        import html
+
+        return html.escape(str(s))
+
+    @staticmethod
+    def _principled_node(mat):
+        """The material's Principled BSDF node, or None."""
+        if not (mat and getattr(mat, "use_nodes", False)):
+            return None
+        return next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+
+    @staticmethod
+    def _set_principled_inputs(node, params):
+        """Set named Principled-BSDF inputs from a ``{label: value}`` dict (skipping inputs absent in
+        this Blender version). Returns the labels actually set. Shared by apply_shader_template +
+        restore_material's parameter-preset path."""
+        applied = []
+        for label, value in (params or {}).items():
+            inp = node.inputs.get(label) if node is not None else None
+            if inp is not None:
+                try:
+                    inp.default_value = value
+                    applied.append(label)
+                except (TypeError, ValueError):
+                    pass
+        return applied
+
+    @staticmethod
+    def _json_socket_value(value):
+        """Coerce a socket ``default_value`` (float / int / bool / Color / Vector) to a JSON-safe form."""
+        if hasattr(value, "__len__") and not isinstance(value, str):
+            return [float(x) for x in value]  # Color / Vector → list
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return float(value)
+        return value  # str / enum
+
+    @staticmethod
+    def _norm(p):
+        """Case/sep-insensitive key for filesystem path comparison."""
+        return os.path.normcase(os.path.normpath(os.path.abspath(p)))
+
+
+
 # ------------------------------------------------------------------ scene materials
-def _is_gp_material(mat):
-    """Grease-pencil materials (attribute renamed across Blender's GPv3 transition)."""
-    return bool(getattr(mat, "is_grease_pencil", False))
-
-
 # ------------------------------------------------------------------ textures (TEX_IMAGE nodes)
-def _material_image_nodes(mat):
-    """``(node, image)`` pairs for the image-texture nodes of ``mat``'s node tree."""
-    nt = getattr(mat, "node_tree", None)
-    if not nt:
-        return []
-    return [(n, n.image) for n in nt.nodes if n.type == "TEX_IMAGE" and n.image]
-
-
-def _mat_surface_type(mat):
-    """A human-readable material 'type' for the report — the surface shader node's label
-    (e.g. ``Principled BSDF``), the Blender analogue of Maya's ``cmds.nodeType``. Falls back
-    to ``"Material"``."""
-    nt = getattr(mat, "node_tree", None)
-    if nt:
-        out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
-        surf = out.inputs.get("Surface") if out else None
-        if surf is not None and surf.is_linked:
-            return surf.links[0].from_node.bl_label
-    return "Material"
-
-
-def _abspath(img):
-    """Absolute, normalized path of an image datablock's file (or '' when unset)."""
-    import bpy
-
-    fp = getattr(img, "filepath", "") or ""
-    if not fp:
-        return ""
-    try:
-        return os.path.normpath(bpy.path.abspath(fp))
-    except Exception:
-        return os.path.normpath(fp)
-
-
-def _image_meta(img):
-    """Texture metadata read from the Blender image datablock (no PIL): path / name / size /
-    width / height / mode / format / bit_depth."""
-    path = _abspath(img)
-    size = os.path.getsize(path) if path and os.path.exists(path) else None
-    w, h = (int(img.size[0]), int(img.size[1])) if len(img.size) >= 2 else (0, 0)
-    mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}.get(img.channels, f"{img.channels}ch")
-    return {
-        "path": path,
-        "name": os.path.basename(path) if path else img.name,
-        "size": size,
-        "width": w,
-        "height": h,
-        "mode": mode,
-        "format": img.file_format or None,
-        "bit_depth": f"{img.depth}bit" if img.depth else None,
-    }
-
-
-def _resolve_materials(objects=None, materials=None):
-    """Resolve a material scope: explicit ``materials`` win, else materials of ``objects``,
-    else every scene material. An explicit empty iterable means 'no scope' → []."""
-    import bpy
-
-    if materials is not None:
-        return [m for m in ptk.make_iterable(materials) if m]
-    if objects is not None:
-        return MatUtils.get_mats(objects)
-    return [m for m in bpy.data.materials if not _is_gp_material(m)]
-
-
 # ------------------------------------------------------------------ cleanup
 
 
@@ -98,120 +256,9 @@ def _resolve_materials(objects=None, materials=None):
 # ---------------------------------------------------------------------------------------------
 
 
-def _map_type_and_base(orig_stem):
-    """``(map_type, base_name_lower)`` for an ORIGINAL-CASE stem via the shared MapFactory.
-
-    Resolution is done on the original case because short map aliases (``AO``, ``MS``, …) are
-    case-sensitive — lowercasing first would silently drop them.
-    """
-    fname = orig_stem + ".png"  # extension is irrelevant to map-type / base resolution
-    try:
-        mt = ptk.MapFactory.resolve_map_type(fname, key=True)
-    except Exception:
-        mt = None
-    try:
-        base = ptk.MapFactory.get_base_texture_name(fname).lower()
-    except Exception:
-        base = orig_stem.lower()
-    return mt, base
-
-
-def _resolve_by_map_type(target_orig_stem, cand_meta, stem_index):
-    """Map-type-aware fuzzy resolve (mayatk's 'Texture' strategy): restrict candidates to files of
-    the SAME map type (AO/Normal/Roughness/…), then fuzzy-match the map-stripped base name — so an
-    ``_AO`` is never repathed to a ``_Normal``. Returns a path or None.
-
-    ``cand_meta`` is the pre-computed ``[(stem_key_lower, base_lower, map_type), …]`` for the
-    search index (``stem_key_lower`` indexes ``stem_index``).
-    """
-    target_map, target_base = _map_type_and_base(target_orig_stem)
-    if not target_map:
-        return None
-    same_keys = [k for k, _b, mt in cand_meta if mt == target_map]
-    same_bases = [b for _k, b, mt in cand_meta if mt == target_map]
-    if not same_bases:
-        return None
-    match, _score, status, _strat = ptk.FuzzyMatcher.find_with_fallbacks(
-        target_base,
-        same_bases,
-        strategies=["substring", "ratio"],
-        score_threshold=0.5,
-    )
-    if status != "unique":
-        return None
-    return stem_index.get(same_keys[same_bases.index(match)])
-
-
-def _resolve_images(images):
-    """Coerce ``images`` (datablocks, names, or None=all) to a list of FILE image datablocks."""
-    import bpy
-
-    if images is None:
-        return [i for i in bpy.data.images if i.source == "FILE"]
-    out = []
-    for i in ptk.make_iterable(images):
-        img = bpy.data.images.get(i) if isinstance(i, str) else i
-        if img is not None:
-            out.append(img)
-    return out
-
-
 # pythontk's working-space label ("Linear" = raw/data) → Blender's image color-space names.
 _DATA_COLOR_SPACE = "Non-Color"
 _SRGB_COLOR_SPACE = "sRGB"
-
-
-def _safe_relocate(src, dst, mode):
-    """Relocate ``src`` → ``dst`` (``mode`` ``"copy"``/``"move"``) with a same-name collision guard
-    — mirror of the Maya Texture Path Editor's policy (DRY'd here across the three relocate ops).
-
-    Returns:
-        ``"relocated"`` — the file was written to ``dst``.
-        ``"rebind"``    — ``dst`` already holds an identical-size file (reuse it without
-                          overwriting; for ``"move"`` the redundant ``src`` is removed), or
-                          ``src`` is already at ``dst``.
-        ``"skip"``      — ``dst`` holds a DIFFERENT-size file: refuse to overwrite, so we never
-                          rebind to the wrong texture (and never destroy the external).
-        ``"error"``     — the disk op failed.
-    """
-    import logging
-    import shutil
-
-    if os.path.normpath(src) == os.path.normpath(dst):
-        return "rebind"  # already in place
-    try:
-        if os.path.exists(dst):
-            try:
-                same = os.path.getsize(src) == os.path.getsize(dst)
-            except OSError:
-                same = False
-            if not same:
-                # Mirrors mayatk's ``cmds.warning`` on the same collision — never silently
-                # rebind to a wrong texture, never destroy the external file.
-                logging.getLogger(__name__).warning(
-                    f"'{os.path.basename(dst)}' already exists at destination with a "
-                    f"different size; skipping to avoid a wrong-file rebind: {dst}"
-                )
-                return (
-                    "skip"  # different file, same name — don't clobber / wrong-rebind
-                )
-            if mode == "move":
-                try:
-                    os.remove(src)  # dst is equivalent; the source copy is redundant
-                except OSError:
-                    pass
-            return "rebind"
-        os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-        shutil.move(src, dst) if mode == "move" else shutil.copy2(src, dst)
-        return "relocated"
-    except (OSError, shutil.Error):
-        return "error"
-
-
-def _html_escape(s):
-    import html
-
-    return html.escape(str(s))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -237,29 +284,6 @@ SHADER_TEMPLATES = {
 }
 
 
-def _principled_node(mat):
-    """The material's Principled BSDF node, or None."""
-    if not (mat and getattr(mat, "use_nodes", False)):
-        return None
-    return next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
-
-
-def _set_principled_inputs(node, params):
-    """Set named Principled-BSDF inputs from a ``{label: value}`` dict (skipping inputs absent in
-    this Blender version). Returns the labels actually set. Shared by apply_shader_template +
-    restore_material's parameter-preset path."""
-    applied = []
-    for label, value in (params or {}).items():
-        inp = node.inputs.get(label) if node is not None else None
-        if inp is not None:
-            try:
-                inp.default_value = value
-                applied.append(label)
-            except (TypeError, ValueError):
-                pass
-    return applied
-
-
 # Curated, JSON-safe node properties captured by serialize_material (only those a node actually has
 # are stored). Enum/bool/int — all round-trip cleanly; left unset, the node keeps its created default.
 _GRAPH_NODE_PROPS = (
@@ -279,24 +303,6 @@ _GRAPH_NODE_PROPS = (
 )
 
 
-def _json_socket_value(value):
-    """Coerce a socket ``default_value`` (float / int / bool / Color / Vector) to a JSON-safe form."""
-    if hasattr(value, "__len__") and not isinstance(value, str):
-        return [float(x) for x in value]  # Color / Vector → list
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return float(value)
-    return value  # str / enum
-
-
-def _norm(p):
-    """Case/sep-insensitive key for filesystem path comparison."""
-    return os.path.normcase(os.path.normpath(os.path.abspath(p)))
-
-
 # Map-type key (``ptk.MapFactory.resolve_map_type``) → (Principled input, is_color) for the
 # single-channel maps that wire straight into one Principled BSDF input. (Opacity is handled in
 # the dedicated alpha section so an Albedo+Transparency map's alpha can take precedence.)
@@ -308,7 +314,7 @@ _PBR_DIRECT = {
 }
 
 
-class MatUpdater(ptk.LoggingMixin):
+class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
     """Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
 
     The reprocessing engine is the SHARED pythontk factory (``ptk.MapRegistry.resolve_config`` +
@@ -390,8 +396,8 @@ class MatUpdater(ptk.LoggingMixin):
         all_files = set()
         for mat in pool:
             recs, seen = [], set()
-            for _node, image in _material_image_nodes(mat):
-                ap = _abspath(image)
+            for _node, image in _MatUtilsInternal._material_image_nodes(mat):
+                ap = _MatUtilsInternal._abspath(image)
                 if ap and os.path.isfile(ap) and ap not in seen:
                     seen.add(ap)
                     recs.append((image, ap))
@@ -445,7 +451,7 @@ class MatUpdater(ptk.LoggingMixin):
             set_name = next(iter(orig_sets), "__single__")
             processed = {set_name: processed}
         file_to_set = {
-            _norm(f): set_name for set_name, files in orig_sets.items() for f in files
+            _MatUtilsInternal._norm(f): set_name for set_name, files in orig_sets.items() for f in files
         }
         out_by_set_type, out_by_type = {}, {}
         for set_name, files in processed.items():
@@ -487,7 +493,7 @@ class MatUpdater(ptk.LoggingMixin):
             updated = skipped = 0
             out_files = []
             for image, orig in recs:
-                new = _matched_output(orig, file_to_set.get(_norm(orig)))
+                new = _matched_output(orig, file_to_set.get(_MatUtilsInternal._norm(orig)))
                 if new:
                     MatUtils.repath_image(image, new)
                     out_files.append(new)
@@ -503,7 +509,7 @@ class MatUpdater(ptk.LoggingMixin):
         return results
 
 
-class MatUtils:
+class MatUtils(_MatUtilsInternal):
     """Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level)."""
 
     @staticmethod
@@ -620,7 +626,7 @@ class MatUtils:
         """
         import bpy
 
-        mats = [m for m in bpy.data.materials if not _is_gp_material(m)]
+        mats = [m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)]
         d = {m.name: m for m in mats}
         filtered = ptk.filter_dict(d, keys=True, inc=inc, exc=exc, **filter_kwargs)
         result = list(filtered.values())
@@ -664,11 +670,11 @@ class MatUtils:
         Scope resolves to materials (from ``objects`` if given, else ``materials``, else the whole
         scene); reads the ``filepath`` of each material's image-texture nodes. ``absolute`` resolves
         against the .blend (Blender ``//`` relative paths)."""
-        mats = _resolve_materials(objects, materials)
+        mats = _MatUtilsInternal._resolve_materials(objects, materials)
         paths = []
         for mat in mats:
-            for _node, img in _material_image_nodes(mat):
-                p = _abspath(img) if absolute else (getattr(img, "filepath", "") or "")
+            for _node, img in _MatUtilsInternal._material_image_nodes(mat):
+                p = _MatUtilsInternal._abspath(img) if absolute else (getattr(img, "filepath", "") or "")
                 if p:
                     paths.append(p)
         return list(dict.fromkeys(paths))
@@ -686,15 +692,15 @@ class MatUtils:
         else:
             images = [
                 img
-                for mat in _resolve_materials(objects, materials)
-                for _n, img in _material_image_nodes(mat)
+                for mat in _MatUtilsInternal._resolve_materials(objects, materials)
+                for _n, img in _MatUtilsInternal._material_image_nodes(mat)
             ]
         seen, info = set(), []
         for img in images:
-            key = _abspath(img) or img.name
+            key = _MatUtilsInternal._abspath(img) or img.name
             if key not in seen:
                 seen.add(key)
-                info.append(_image_meta(img))
+                info.append(_MatUtilsInternal._image_meta(img))
         return info
 
     @staticmethod
@@ -714,7 +720,7 @@ class MatUtils:
         ``pythontk.MatReport``. ``exclude_defaults`` is a no-op in Blender (no built-in defaults).
         ``optimize_check`` runs ``ptk.MapOptimizer.assess`` per texture (best-effort — degrades to an
         ``optimization`` error entry when the image stack is unavailable in Blender's Python)."""
-        mats = _resolve_materials(objects, materials)
+        mats = _MatUtilsInternal._resolve_materials(objects, materials)
         if exclude_unassigned and mats:
             mats = [m for m in mats if MatUtils.is_mat_assigned(m)]
 
@@ -724,8 +730,8 @@ class MatUtils:
                 progress_callback(i, total, f"Reading material: {mat.name}")
             tex_entries = []
             if include_textures:
-                for node, img in _material_image_nodes(mat):
-                    meta = _image_meta(img)
+                for node, img in _MatUtilsInternal._material_image_nodes(mat):
+                    meta = _MatUtilsInternal._image_meta(img)
                     entry = {
                         "file_node": node.name,
                         "path": meta["path"],
@@ -756,7 +762,7 @@ class MatUtils:
             records.append(
                 {
                     "material": mat.name,
-                    "type": _mat_surface_type(mat),
+                    "type": _MatUtilsInternal._mat_surface_type(mat),
                     "textures": tex_entries,
                 }
             )
@@ -786,9 +792,9 @@ class MatUtils:
             sig = tuple(
                 sorted(
                     {
-                        _abspath(img)
-                        for _n, img in _material_image_nodes(mat)
-                        if _abspath(img)
+                        _MatUtilsInternal._abspath(img)
+                        for _n, img in _MatUtilsInternal._material_image_nodes(mat)
+                        if _MatUtilsInternal._abspath(img)
                     }
                 )
             )
@@ -814,7 +820,7 @@ class MatUtils:
                         if slot.material is dup:
                             slot.material = keep
                             reassigned += 1
-                if delete and not _is_gp_material(dup):
+                if delete and not _MatUtilsInternal._is_gp_material(dup):
                     try:
                         bpy.data.materials.remove(dup)
                     except Exception:
@@ -830,7 +836,7 @@ class MatUtils:
 
         removed = []
         for mat in list(bpy.data.materials):
-            if _is_gp_material(mat) or mat.use_fake_user:
+            if _MatUtilsInternal._is_gp_material(mat) or mat.use_fake_user:
                 continue
             if not MatUtils.find_by_mat_id(mat):
                 removed.append(mat.name)
@@ -850,7 +856,7 @@ class MatUtils:
 
         from blendertk.ui_utils._ui_utils import UiUtils
 
-        mats = _resolve_materials(materials=materials)
+        mats = _MatUtilsInternal._resolve_materials(materials=materials)
         if not mats:
             return None
         mat = mats[0]
@@ -875,7 +881,7 @@ class MatUtils:
         for img in bpy.data.images:
             if img.source != "FILE":
                 continue
-            ap = _abspath(img)
+            ap = _MatUtilsInternal._abspath(img)
             records.append(
                 {
                     "name": img.name,
@@ -987,11 +993,11 @@ class MatUtils:
         if texture and stems:
             cand_meta = []
             for key, orig in orig_stems.items():
-                mt, base = _map_type_and_base(orig)
+                mt, base = _MatUtilsInternal._map_type_and_base(orig)
                 cand_meta.append((key, base, mt))
         resolved = 0
-        for img in _resolve_images(images):
-            ap = _abspath(img)
+        for img in _MatUtilsInternal._resolve_images(images):
+            ap = _MatUtilsInternal._abspath(img)
             if ap and os.path.exists(ap):
                 continue
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
@@ -1005,7 +1011,7 @@ class MatUtils:
             if not found and stem:
                 found = stem_index.get(target_stem)  # same name, any extension
             if not found and cand_meta:
-                found = _resolve_by_map_type(
+                found = _MatUtilsInternal._resolve_by_map_type(
                     target_orig_stem, cand_meta, stem_index
                 )  # same map type
             if not found and fuzzy and stems:
@@ -1046,7 +1052,7 @@ class MatUtils:
         import bpy
 
         blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
-        images = _resolve_images(images)
+        images = _MatUtilsInternal._resolve_images(images)
         changed = 0
 
         if mode in ("copy", "move"):
@@ -1058,7 +1064,7 @@ class MatUtils:
                     return 0
             os.makedirs(project_dir, exist_ok=True)
             for img in images:
-                ap = _abspath(img)
+                ap = _MatUtilsInternal._abspath(img)
                 if not (ap and os.path.exists(ap)):
                     continue
                 try:
@@ -1070,14 +1076,14 @@ class MatUtils:
                 if inside:
                     continue
                 dst = os.path.join(project_dir, os.path.basename(ap))
-                if _safe_relocate(ap, dst, mode) in ("skip", "error"):
+                if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
                     continue  # different-size collision — don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
                 changed += 1
             return changed
 
         for img in images:  # relative / absolute
-            ap = _abspath(img)
+            ap = _MatUtilsInternal._abspath(img)
             if not ap:
                 continue
             if mode == "absolute":
@@ -1119,14 +1125,14 @@ class MatUtils:
         Returns a list of material datablocks (de-duplicated, scene order)."""
         import bpy
 
-        targets = {_norm(p) for p in ptk.make_iterable(paths) if p}
+        targets = {_MatUtilsInternal._norm(p) for p in ptk.make_iterable(paths) if p}
         if not targets:
             return []
         out = []
         for mat in bpy.data.materials:
-            for _node, image in _material_image_nodes(mat):
-                ap = _abspath(image)
-                if ap and _norm(ap) in targets:
+            for _node, image in _MatUtilsInternal._material_image_nodes(mat):
+                ap = _MatUtilsInternal._abspath(image)
+                if ap and _MatUtilsInternal._norm(ap) in targets:
                     out.append(mat)
                     break
         return out
@@ -1156,7 +1162,7 @@ class MatUtils:
         import bpy
 
         changed = {}
-        for img in _resolve_images(images):
+        for img in _MatUtilsInternal._resolve_images(images):
             if not getattr(img, "filepath", ""):
                 continue
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which ``os.path``
@@ -1192,14 +1198,14 @@ class MatUtils:
         if not target_dir:
             return 0
         count = 0
-        for img in _resolve_images(images):
-            ap = _abspath(img)
+        for img in _MatUtilsInternal._resolve_images(images):
+            ap = _MatUtilsInternal._abspath(img)
             old = getattr(img, "filepath", "") or ""
             if not old:
                 continue
             dst = os.path.join(target_dir, os.path.basename(ap or old))
             if mode in ("copy", "move") and ap and os.path.exists(ap):
-                if _safe_relocate(ap, dst, mode) in ("skip", "error"):
+                if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
                     continue  # leave the image on its current (valid) path
             img.filepath = MatUtils.to_project_relative(dst)
             try:
@@ -1222,7 +1228,7 @@ class MatUtils:
         if not (search_dir and os.path.isdir(search_dir) and dest_dir):
             return 0
         wanted = {}  # basename -> image datablock
-        for img in _resolve_images(images):
+        for img in _MatUtilsInternal._resolve_images(images):
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
             # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
             base = bpy.path.basename(getattr(img, "filepath", "") or "").lower()
@@ -1242,7 +1248,7 @@ class MatUtils:
         count = 0
         for key, src in found.items():
             dst = os.path.join(dest_dir, os.path.basename(src))
-            if _safe_relocate(src, dst, mode) in ("skip", "error"):
+            if _MatUtilsInternal._safe_relocate(src, dst, mode) in ("skip", "error"):
                 continue  # different-size collision — don't clobber / wrong-rebind
             wanted[key].filepath = MatUtils.to_project_relative(dst)
             try:
@@ -1261,8 +1267,8 @@ class MatUtils:
             return "<h3>Texture Paths</h3><p>No file textures in the scene.</p>"
         rows = "".join(
             "<tr>"
-            f"<td>{'⚠ ' if not r['exists'] else ''}<b>{_html_escape(r['name'])}</b></td>"
-            f"<td>{_html_escape(r['filepath'])}</td>"
+            f"<td>{'⚠ ' if not r['exists'] else ''}<b>{_MatUtilsInternal._html_escape(r['name'])}</b></td>"
+            f"<td>{_MatUtilsInternal._html_escape(r['filepath'])}</td>"
             f"<td align='right'>{r['users']}</td>"
             "</tr>"
             for r in records
@@ -1285,10 +1291,10 @@ class MatUtils:
         """Apply a Principled-BSDF template preset to ``material``'s shader. Unknown inputs (across
         Blender versions) are skipped. Returns the list of inputs actually set."""
         params = SHADER_TEMPLATES.get(template)
-        node = _principled_node(material)
+        node = _MatUtilsInternal._principled_node(material)
         if params is None or node is None:
             return []
-        applied = _set_principled_inputs(node, params)
+        applied = _MatUtilsInternal._set_principled_inputs(node, params)
         if template == "Emission":
             ec = node.inputs.get("Emission Color")
             if ec is not None:
@@ -1331,7 +1337,7 @@ class MatUtils:
             for idx, sock in enumerate(n.inputs):
                 if sock.is_linked or not hasattr(sock, "default_value"):
                     continue
-                entry["inputs"][str(idx)] = _json_socket_value(sock.default_value)
+                entry["inputs"][str(idx)] = _MatUtilsInternal._json_socket_value(sock.default_value)
             for prop in _GRAPH_NODE_PROPS:
                 if hasattr(n, prop):
                     entry["props"][prop] = getattr(n, prop)
@@ -1385,7 +1391,7 @@ class MatUtils:
         nodes_data = data.get("nodes") or []
         if not nodes_data and isinstance(data.get("params"), dict):
             mat = MatUtils.create_mat("standard", name=name or "ShaderTemplate")
-            _set_principled_inputs(_principled_node(mat), data["params"])
+            _MatUtilsInternal._set_principled_inputs(_MatUtilsInternal._principled_node(mat), data["params"])
             return mat
 
         mat = bpy.data.materials.new(name or "ShaderTemplate")
@@ -1505,7 +1511,7 @@ class MatUtils:
 
         mat = MatUtils.create_mat("standard", name=name)
         nt = mat.node_tree
-        bsdf = _principled_node(mat)
+        bsdf = _MatUtilsInternal._principled_node(mat)
         output = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
 
         state = {"y": 600}

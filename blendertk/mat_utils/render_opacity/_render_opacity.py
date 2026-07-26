@@ -170,7 +170,7 @@ class RenderOpacity(ptk.LoggingMixin):
         with no Principled material get the prop but no viewport feedback (the prop still exports) —
         mirror of Maya's attribute-only objects.
         """
-        from blendertk.mat_utils._mat_utils import _principled_node
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         slots = getattr(obj.data, "materials", None)
         if not slots:
@@ -179,7 +179,7 @@ class RenderOpacity(ptk.LoggingMixin):
         for i, mat in enumerate(slots):
             if mat is None:
                 continue
-            node = _principled_node(mat)
+            node = _MatUtilsInternal._principled_node(mat)
             if node is None:
                 continue
             if (
@@ -187,7 +187,7 @@ class RenderOpacity(ptk.LoggingMixin):
             ):  # shared datablock -> per-object copy so opacity is per-object
                 mat = mat.copy()
                 obj.data.materials[i] = mat
-                node = _principled_node(mat)
+                node = _MatUtilsInternal._principled_node(mat)
             mat.use_nodes = True
             cls._set_blend(mat)
             cls._alpha_driver(mat, node, obj)
@@ -226,12 +226,12 @@ class RenderOpacity(ptk.LoggingMixin):
     @classmethod
     def remove(cls, objects=None, mode=None):
         """Remove the opacity prop, its Alpha drivers, and its anim curves from *objects*."""
-        from blendertk.mat_utils._mat_utils import _principled_node
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         for obj in cls._resolve(objects):
             # Alpha drivers on this object's materials.
             for mat in getattr(obj.data, "materials", None) or []:
-                node = _principled_node(mat) if mat else None
+                node = _MatUtilsInternal._principled_node(mat) if mat else None
                 if node is None:
                     continue
                 try:

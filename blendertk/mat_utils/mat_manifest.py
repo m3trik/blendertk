@@ -60,9 +60,9 @@ class MatManifest(ptk.HelpMixin):
     @classmethod
     def _process_material(cls, mat) -> Dict[str, str]:
         """Resolve texture paths for every mapped slot of a single material's Principled BSDF."""
-        from blendertk.mat_utils._mat_utils import _principled_node, _abspath
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
-        node = _principled_node(mat)
+        node = _MatUtilsInternal._principled_node(mat)
         if node is None:
             return {}
 
@@ -71,7 +71,7 @@ class MatManifest(ptk.HelpMixin):
             img = cls._trace_image(node, socket_names)
             if img is None:
                 continue
-            path = _abspath(img)
+            path = _MatUtilsInternal._abspath(img)
             if path:
                 data[slot] = path
         return data
@@ -121,7 +121,7 @@ class MatManifest(ptk.HelpMixin):
             Number of texture slots successfully reconnected.
         """
         import bpy
-        from blendertk.mat_utils._mat_utils import _principled_node
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         key = source_mat_name or mat_name
         mat_data = manifest.get("materials", {}).get(key, {})
@@ -129,7 +129,7 @@ class MatManifest(ptk.HelpMixin):
             return 0
 
         mat = bpy.data.materials.get(mat_name)
-        node = _principled_node(mat)
+        node = _MatUtilsInternal._principled_node(mat)
         if node is None:
             return 0
 

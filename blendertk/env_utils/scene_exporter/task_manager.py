@@ -82,14 +82,14 @@ class _TaskDataMixin:
 
         The Blender analogue of mayatk's ``_get_export_file_nodes`` (Maya ``file`` nodes).
         """
-        from blendertk.mat_utils._mat_utils import _material_image_nodes
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         materials = materials if materials is not None else self._get_all_materials()
         seen = []
         for mat in materials:
             if mat is None:
                 continue
-            for _node, img in _material_image_nodes(mat):
+            for _node, img in _MatUtilsInternal._material_image_nodes(mat):
                 if img not in seen:
                     seen.append(img)
         return seen
