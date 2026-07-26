@@ -243,12 +243,6 @@ class _MatUtilsInternal:
         return os.path.normcase(os.path.normpath(os.path.abspath(p)))
 
 
-
-# ------------------------------------------------------------------ scene materials
-# ------------------------------------------------------------------ textures (TEX_IMAGE nodes)
-# ------------------------------------------------------------------ cleanup
-
-
 # ---------------------------------------------------------------------------------------------
 # Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
 # texture_path_editor. Blender image datablocks carry the path (``img.filepath``), so this is the
