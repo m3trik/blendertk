@@ -34,6 +34,7 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
     maps to the round-bevel resolution (1 ≈ faceted, 3 ≈ smooth); ``Sections`` scales it for NURBS.
   * ``import bpy`` / ``bmesh`` deferred into the call bodies; the Qt-only ``uitk`` ``fmt`` into its method.
 """
+
 import math
 
 import pythontk as ptk
@@ -50,8 +51,19 @@ class CurveToTube(ptk.LoggingMixin):
     OUTPUT_TYPES = (("NURBS Tube", "nurbs"), ("Polygon Tube", "polygon"))
 
     @classmethod
-    def create(cls, curves, output_type="nurbs", radius=1.0, sections=8, path_divisions=1,
-               degree=3, caps=True, quads=True, live=False, name="tube"):
+    def create(
+        cls,
+        curves,
+        output_type="nurbs",
+        radius=1.0,
+        sections=8,
+        path_divisions=1,
+        degree=3,
+        caps=True,
+        quads=True,
+        live=False,
+        name="tube",
+    ):
         """Build a tube along each given curve.
 
         Parameters:
@@ -80,8 +92,16 @@ class CurveToTube(ptk.LoggingMixin):
             )
         return [
             cls._build_one(
-                src, output_type, radius, max(3, int(sections)), max(1, int(path_divisions)),
-                int(degree), bool(caps), bool(quads), bool(live), name,
+                src,
+                output_type,
+                radius,
+                max(3, int(sections)),
+                max(1, int(path_divisions)),
+                int(degree),
+                bool(caps),
+                bool(quads),
+                bool(live),
+                name,
             )
             for src in sources
         ]
@@ -106,11 +126,24 @@ class CurveToTube(ptk.LoggingMixin):
             (r * math.cos(2 * math.pi * i / n), r * math.sin(2 * math.pi * i / n), 0.0)
             for i in range(n)
         ]
-        return NurbsUtils.create_curve(pts, name=f"{name}_profile", cyclic=True, kind="POLY")
+        return NurbsUtils.create_curve(
+            pts, name=f"{name}_profile", cyclic=True, kind="POLY"
+        )
 
     @classmethod
-    def _build_one(cls, source, output_type, radius, sections, path_divisions, degree, caps,
-                   quads, live, name):
+    def _build_one(
+        cls,
+        source,
+        output_type,
+        radius,
+        sections,
+        path_divisions,
+        degree,
+        caps,
+        quads,
+        live,
+        name,
+    ):
         """Build one tube along one curve; return the finished object."""
         import bpy
 
@@ -126,7 +159,9 @@ class CurveToTube(ptk.LoggingMixin):
             target.data.bevel_mode = "ROUND"
             target.data.bevel_depth = float(radius)
             # Degree maps to the round-bevel resolution (1 ≈ faceted, 3 ≈ smooth); Sections scales it.
-            target.data.bevel_resolution = 0 if degree <= 1 else max(1, round(sections / 4))
+            target.data.bevel_resolution = (
+                0 if degree <= 1 else max(1, round(sections / 4))
+            )
             return target
 
         # Polygon → a MESH. A bevel_object circle of `sections` points gives exactly `sections`
@@ -138,13 +173,17 @@ class CurveToTube(ptk.LoggingMixin):
         work.data.bevel_object = profile
         work.data.resolution_u = path_divisions
         work.data.use_fill_caps = bool(caps)
-        mesh = NurbsUtils.curve_to_mesh(work, name=name, keep_curve=False)  # consumes the copy
+        mesh = NurbsUtils.curve_to_mesh(
+            work, name=name, keep_curve=False
+        )  # consumes the copy
         if profile.users_collection:
             bpy.data.objects.remove(profile, do_unlink=True)
         if not quads:
             cls._triangulate(mesh)
         if not live:
-            bpy.data.objects.remove(source, do_unlink=True)  # baked: consume the source curve
+            bpy.data.objects.remove(
+                source, do_unlink=True
+            )  # baked: consume the source curve
         return mesh
 
     @staticmethod
@@ -214,7 +253,9 @@ class CurveToTubeSlots(ptk.LoggingMixin):
         self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
         self.ui.cmb000.currentIndexChanged.connect(self._toggle_output_options)
         self.ui.chk001.toggled.connect(self.preview.refresh)  # Caps
-        self.ui.cmb_topology.currentIndexChanged.connect(self.preview.refresh)  # Quads/Triangles
+        self.ui.cmb_topology.currentIndexChanged.connect(
+            self.preview.refresh
+        )  # Quads/Triangles
         self.ui.chk003.toggled.connect(self.preview.refresh)  # Keep History (live)
 
         self._toggle_output_options()
@@ -228,10 +269,10 @@ class CurveToTubeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Curve to Tube",
                 body="Sweep a circular profile along selected curves to build a tube, output as "
                 "a smooth NURBS-style beveled curve or a polygon mesh.",
@@ -327,7 +368,9 @@ class CurveToTubeSlots(ptk.LoggingMixin):
         else:
             info = []
             for t in tubes:
-                n_pts = sum((len(s.points) or len(s.bezier_points)) for s in t.data.splines)
+                n_pts = sum(
+                    (len(s.points) or len(s.bezier_points)) for s in t.data.splines
+                )
                 info.append(f"{n_pts} pts, bevel res {t.data.bevel_resolution}")
             footer.setStatusText(f"{prefix}beveled curve · {', '.join(info)}")
 

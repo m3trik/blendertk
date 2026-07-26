@@ -35,6 +35,7 @@ Divergence from mayatk (by design, not a gap to fill in later):
       names are force-unique within ``bpy.data.objects`` and survive save/reopen, unlike
       Blender's process-local ``session_uid``.
 """
+
 import logging
 import math
 import os
@@ -42,7 +43,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from blendertk.core_utils._core_utils import undoable
+from blendertk.core_utils._core_utils import CoreUtils
 
 if TYPE_CHECKING:
     from blendertk.anim_utils.smart_bake.bake_session import RestoreResult
@@ -132,165 +133,174 @@ class BakeResult:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_analysis_key(key: str):
-    """Resolve a :attr:`BakeAnalysis.object` key back to live Blender data.
+class _SmartBakeInternal(object):
+    """Internal helpers for SmartBake."""
 
-    Returns ``(object, bone_name)`` — ``bone_name`` is ``None`` for a plain object key, or the
-    pose-bone name for an ``"armature:bone"`` composite key. ``(None, None)`` when nothing
-    resolves.
-    """
-    import bpy
+    @staticmethod
+    def _resolve_analysis_key(key: str):
+        """Resolve a :attr:`BakeAnalysis.object` key back to live Blender data.
 
-    if ":" in key:
-        arm_name, _, bone_name = key.partition(":")
-        arm = bpy.data.objects.get(arm_name)
-        if arm is not None and arm.type == "ARMATURE":
-            return arm, bone_name
-    return bpy.data.objects.get(key), None
+        Returns ``(object, bone_name)`` — ``bone_name`` is ``None`` for a plain object key, or the
+        pose-bone name for an ``"armature:bone"`` composite key. ``(None, None)`` when nothing
+        resolves.
+        """
+        import bpy
 
+        if ":" in key:
+            arm_name, _, bone_name = key.partition(":")
+            arm = bpy.data.objects.get(arm_name)
+            if arm is not None and arm.type == "ARMATURE":
+                return arm, bone_name
+        return bpy.data.objects.get(key), None
 
-def _constraints_for(obj, bone_name: Optional[str]):
-    """The constraints collection a :func:`_resolve_analysis_key` ``(obj, bone_name)`` pair maps
-    to — a pose bone's own when ``bone_name`` is given (an armature bone-level source), else the
-    object's own ``.constraints``. Shared by :func:`SmartBake.get_time_range` and
-    :func:`SmartBake.bake` so both always agree on which collection a given source lives in."""
-    return obj.pose.bones[bone_name].constraints if bone_name else obj.constraints
+    @staticmethod
+    def _constraints_for(obj, bone_name: Optional[str]):
+        """The constraints collection a :func:`_resolve_analysis_key` ``(obj, bone_name)`` pair maps
+        to — a pose bone's own when ``bone_name`` is given (an armature bone-level source), else the
+        object's own ``.constraints``. Shared by :func:`SmartBake.get_time_range` and
+        :func:`SmartBake.bake` so both always agree on which collection a given source lives in."""
+        return obj.pose.bones[bone_name].constraints if bone_name else obj.constraints
 
+    @staticmethod
+    def _object_key_range(obj) -> Optional[Tuple[float, float]]:
+        """(min, max) keyframe frame across ``obj``'s own action, or ``None`` when keyless."""
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
-def _object_key_range(obj) -> Optional[Tuple[float, float]]:
-    """(min, max) keyframe frame across ``obj``'s own action, or ``None`` when keyless."""
-    from blendertk.anim_utils._anim_utils import _key_range, get_fcurves
+        return AnimUtils._key_range(AnimUtils.get_fcurves([obj]))
 
-    return _key_range(get_fcurves([obj]))
-
-
-def _driver_variable_target_frames(ad, data_paths: List[str]) -> List[float]:
-    """Keyframe frames from every object a driver on ``ad`` (matching one of ``data_paths``)
-    reads through its variables — the driver's own "source animation" range."""
-    frames: List[float] = []
-    if ad is None:
+    @staticmethod
+    def _driver_variable_target_frames(ad, data_paths: List[str]) -> List[float]:
+        """Keyframe frames from every object a driver on ``ad`` (matching one of ``data_paths``)
+        reads through its variables — the driver's own "source animation" range."""
+        frames: List[float] = []
+        if ad is None:
+            return frames
+        for fc in ad.drivers:
+            if fc.data_path not in data_paths:
+                continue
+            for var in fc.driver.variables:
+                for target in var.targets:
+                    if target.id is not None:
+                        rng = _SmartBakeInternal._object_key_range(target.id)
+                        if rng:
+                            frames.extend(rng)
         return frames
-    for fc in ad.drivers:
-        if fc.data_path not in data_paths:
-            continue
-        for var in fc.driver.variables:
-            for target in var.targets:
-                if target.id is not None:
-                    rng = _object_key_range(target.id)
-                    if rng:
-                        frames.extend(rng)
-    return frames
 
+    @staticmethod
+    def _blend_shape_source_frames(sk, data_paths: List[str]) -> List[float]:
+        """Driving-animation frames for a shape-keys datablock's driven/animated weights: driver
+        variable targets when live drivers exist, else the shape-keys' own action key range (a
+        directly-keyed weight IS its own driving animation)."""
+        frames: List[float] = []
+        ad = getattr(sk, "animation_data", None) if sk is not None else None
+        if ad is None:
+            return frames
+        if ad.drivers:
+            frames.extend(
+                _SmartBakeInternal._driver_variable_target_frames(ad, data_paths)
+            )
+        elif ad.action is not None:
+            from blendertk.anim_utils._anim_utils import AnimUtils
 
-def _blend_shape_source_frames(sk, data_paths: List[str]) -> List[float]:
-    """Driving-animation frames for a shape-keys datablock's driven/animated weights: driver
-    variable targets when live drivers exist, else the shape-keys' own action key range (a
-    directly-keyed weight IS its own driving animation)."""
-    frames: List[float] = []
-    ad = getattr(sk, "animation_data", None) if sk is not None else None
-    if ad is None:
+            own = AnimUtils._key_range(AnimUtils._slot_fcurves(ad.action))
+            if own:
+                frames.extend(own)
         return frames
-    if ad.drivers:
-        frames.extend(_driver_variable_target_frames(ad, data_paths))
-    elif ad.action is not None:
-        from blendertk.anim_utils._anim_utils import _key_range, _slot_fcurves
 
-        own = _key_range(_slot_fcurves(ad.action))
-        if own:
-            frames.extend(own)
-    return frames
+    @staticmethod
+    def _shape_key_block_for_fcurve(sk, fc):
+        """The key_block a shape-keys datablock ``sk``'s driver/action fcurve ``fc`` targets (e.g.
+        ``key_blocks["Key 1"].value`` -> the ``"Key 1"`` key_block), or ``None`` if it doesn't
+        resolve. Shared by the driver- and action-snapshot branches of :func:`SmartBake.bake`."""
+        container_path = fc.data_path.rsplit(".", 1)[0] if "." in fc.data_path else ""
+        try:
+            return sk.path_resolve(container_path) if container_path else None
+        except Exception:
+            return None
 
+    @staticmethod
+    def _collect_constraint_sources(
+        constraints, bucket: str, sources: Dict[str, List[str]]
+    ) -> None:
+        """Append every live (unmuted) constraint's name into ``sources[bucket]`` — ``"IK"``-type
+        constraints go into the ``"ik"`` bucket regardless of ``bucket``."""
+        for c in constraints:
+            if c.mute:
+                continue
+            key = "ik" if c.type == "IK" else bucket
+            sources.setdefault(key, []).append(c.name)
 
-def _shape_key_block_for_fcurve(sk, fc):
-    """The key_block a shape-keys datablock ``sk``'s driver/action fcurve ``fc`` targets (e.g.
-    ``key_blocks["Key 1"].value`` -> the ``"Key 1"`` key_block), or ``None`` if it doesn't
-    resolve. Shared by the driver- and action-snapshot branches of :func:`SmartBake.bake`."""
-    container_path = fc.data_path.rsplit(".", 1)[0] if "." in fc.data_path else ""
-    try:
-        return sk.path_resolve(container_path) if container_path else None
-    except Exception:
-        return None
+    @staticmethod
+    def _copy_outside_range_keys(
+        original_action,
+        original_slot,
+        baked_action,
+        baked_slot,
+        time_range: Tuple[float, float],
+    ) -> None:
+        """Copy every ``keyframe_point`` on ``original_action`` that lies outside what ``baked_action``
+        actually ended up covering onto the matching (same ``data_path`` + ``array_index``) fcurve of
+        ``baked_action`` — the mechanism behind ``SmartBake(preserve_outside_keys=True)`` (the
+        default).
 
+        ``bake_keys`` (``nla.bake`` with ``use_current_action=False``) always produces a brand-new
+        Action containing ONLY the baked range (confirmed live: the pre-bake action's own fcurves are
+        never touched), so anything hand-keyed outside that range would otherwise be silently dropped
+        the moment the object swaps onto the new action. Only channels present on BOTH actions count
+        as a "corresponding channel" — mirrors mayatk's own ``preserveOutsideKeys`` semantics of
+        extending the SAME curve being baked rather than inventing new ones for untouched channels.
 
-def _collect_constraint_sources(
-    constraints, bucket: str, sources: Dict[str, List[str]]
-) -> None:
-    """Append every live (unmuted) constraint's name into ``sources[bucket]`` — ``"IK"``-type
-    constraints go into the ``"ik"`` bucket regardless of ``bucket``."""
-    for c in constraints:
-        if c.mute:
-            continue
-        key = "ik" if c.type == "IK" else bucket
-        sources.setdefault(key, []).append(c.name)
+        The "outside" boundary is taken from the corresponding baked fcurve's OWN first/last sampled
+        frame, not the nominal ``time_range`` passed in. Confirmed live: ``nla.bake``'s ``step`` (the
+        ``sample_by`` option) walks ``frame_start`` upward in fixed increments and does not force a
+        final sample exactly at ``frame_end`` when the range isn't evenly divisible by it — e.g.
+        ``step=3`` over ``(5, 10)`` bakes only frames ``5, 8`` and never touches ``10``. Comparing
+        against the nominal ``end`` in that case would misclassify a hand-key sitting anywhere in the
+        ``8..10`` gap as "inside" (silently discarding it) even though the baked curve never actually
+        reached that far — using the baked curve's real extent instead means anything past its last
+        real sample is correctly treated as unbaked and gets preserved. Falls back to ``time_range``
+        only for the (should not happen via ``nla.bake``) case of a baked fcurve with zero keys.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
+        fallback_start, fallback_end = time_range
+        baked_by_channel = {
+            (fc.data_path, fc.array_index): fc
+            for fc in AnimUtils._slot_fcurves(baked_action, baked_slot)
+        }
+        if not baked_by_channel:
+            return
 
-def _copy_outside_range_keys(
-    original_action,
-    original_slot,
-    baked_action,
-    baked_slot,
-    time_range: Tuple[float, float],
-) -> None:
-    """Copy every ``keyframe_point`` on ``original_action`` that lies outside what ``baked_action``
-    actually ended up covering onto the matching (same ``data_path`` + ``array_index``) fcurve of
-    ``baked_action`` — the mechanism behind ``SmartBake(preserve_outside_keys=True)`` (the
-    default).
-
-    ``bake_keys`` (``nla.bake`` with ``use_current_action=False``) always produces a brand-new
-    Action containing ONLY the baked range (confirmed live: the pre-bake action's own fcurves are
-    never touched), so anything hand-keyed outside that range would otherwise be silently dropped
-    the moment the object swaps onto the new action. Only channels present on BOTH actions count
-    as a "corresponding channel" — mirrors mayatk's own ``preserveOutsideKeys`` semantics of
-    extending the SAME curve being baked rather than inventing new ones for untouched channels.
-
-    The "outside" boundary is taken from the corresponding baked fcurve's OWN first/last sampled
-    frame, not the nominal ``time_range`` passed in. Confirmed live: ``nla.bake``'s ``step`` (the
-    ``sample_by`` option) walks ``frame_start`` upward in fixed increments and does not force a
-    final sample exactly at ``frame_end`` when the range isn't evenly divisible by it — e.g.
-    ``step=3`` over ``(5, 10)`` bakes only frames ``5, 8`` and never touches ``10``. Comparing
-    against the nominal ``end`` in that case would misclassify a hand-key sitting anywhere in the
-    ``8..10`` gap as "inside" (silently discarding it) even though the baked curve never actually
-    reached that far — using the baked curve's real extent instead means anything past its last
-    real sample is correctly treated as unbaked and gets preserved. Falls back to ``time_range``
-    only for the (should not happen via ``nla.bake``) case of a baked fcurve with zero keys.
-    """
-    from blendertk.anim_utils._anim_utils import _slot_fcurves
-
-    fallback_start, fallback_end = time_range
-    baked_by_channel = {
-        (fc.data_path, fc.array_index): fc for fc in _slot_fcurves(baked_action, baked_slot)
-    }
-    if not baked_by_channel:
-        return
-
-    for src_fc in _slot_fcurves(original_action, original_slot):
-        dst_fc = baked_by_channel.get((src_fc.data_path, src_fc.array_index))
-        if dst_fc is None:
-            continue
-        baked_frames = [k.co.x for k in dst_fc.keyframe_points]
-        start, end = (
-            (min(baked_frames), max(baked_frames))
-            if baked_frames
-            else (fallback_start, fallback_end)
-        )
-        outside = [k for k in src_fc.keyframe_points if k.co.x < start or k.co.x > end]
-        if not outside:
-            continue
-        for k in outside:
-            new_kf = dst_fc.keyframe_points.insert(k.co.x, k.co.y)
-            new_kf.interpolation = k.interpolation
-            new_kf.easing = k.easing
-            new_kf.back = k.back
-            new_kf.amplitude = k.amplitude
-            new_kf.period = k.period
-            new_kf.handle_left_type = k.handle_left_type
-            new_kf.handle_right_type = k.handle_right_type
-            new_kf.handle_left = k.handle_left.copy()
-            new_kf.handle_right = k.handle_right.copy()
-        dst_fc.update()
+        for src_fc in AnimUtils._slot_fcurves(original_action, original_slot):
+            dst_fc = baked_by_channel.get((src_fc.data_path, src_fc.array_index))
+            if dst_fc is None:
+                continue
+            baked_frames = [k.co.x for k in dst_fc.keyframe_points]
+            start, end = (
+                (min(baked_frames), max(baked_frames))
+                if baked_frames
+                else (fallback_start, fallback_end)
+            )
+            outside = [
+                k for k in src_fc.keyframe_points if k.co.x < start or k.co.x > end
+            ]
+            if not outside:
+                continue
+            for k in outside:
+                new_kf = dst_fc.keyframe_points.insert(k.co.x, k.co.y)
+                new_kf.interpolation = k.interpolation
+                new_kf.easing = k.easing
+                new_kf.back = k.back
+                new_kf.amplitude = k.amplitude
+                new_kf.period = k.period
+                new_kf.handle_left_type = k.handle_left_type
+                new_kf.handle_right_type = k.handle_right_type
+                new_kf.handle_left = k.handle_left.copy()
+                new_kf.handle_right = k.handle_right.copy()
+            dst_fc.update()
 
 
-class SmartBake:
+class SmartBake(_SmartBakeInternal):
     """Intelligent bake+restore with automatic detection of what needs baking.
 
     Analyzes objects/pose bones to find live constraints (including IK), drivers, and
@@ -417,7 +427,9 @@ class SmartBake:
         """Analyze one object's own constraints/drivers, plus (for an ARMATURE) each pose bone's
         constraints as separate composite-keyed entries."""
         own_sources: Dict[str, List[str]] = {}
-        _collect_constraint_sources(obj.constraints, "constraint", own_sources)
+        _SmartBakeInternal._collect_constraint_sources(
+            obj.constraints, "constraint", own_sources
+        )
 
         ad = getattr(obj, "animation_data", None)
         if ad is not None:
@@ -427,24 +439,30 @@ class SmartBake:
                 own_sources.setdefault("driver", []).append(fc.data_path)
 
         if own_sources:
-            results[obj.name] = BakeAnalysis(object=obj.name, driven_sources=own_sources)
+            results[obj.name] = BakeAnalysis(
+                object=obj.name, driven_sources=own_sources
+            )
 
         if obj.type == "ARMATURE":
             for bone in obj.pose.bones:
                 bone_sources: Dict[str, List[str]] = {}
-                _collect_constraint_sources(bone.constraints, "constraint", bone_sources)
+                _SmartBakeInternal._collect_constraint_sources(
+                    bone.constraints, "constraint", bone_sources
+                )
                 if bone_sources:
                     key = f"{obj.name}:{bone.name}"
                     results[key] = BakeAnalysis(object=key, driven_sources=bone_sources)
 
-    def _analyze_blend_shapes(self, objects: List[Any], results: Dict[str, BakeAnalysis]) -> None:
+    def _analyze_blend_shapes(
+        self, objects: List[Any], results: Dict[str, BakeAnalysis]
+    ) -> None:
         """Detect driven/animated shape-key weights — same condition as
         ``AnimUtils.bake_blend_shapes()`` uses to pick its targets (reused rather than
         re-derived): a live driver on the shape-keys datablock, or its own action fcurves.
         Unlike the constraint/driver buckets above, mute state is not checked here —
         ``bake_blend_shapes()`` destructively removes a shape-key driver outright regardless of
         mute (there is no mute-and-restore path for this bucket; see ``bake_session.py``)."""
-        from blendertk.anim_utils._anim_utils import _slot_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         for obj in objects:
             if obj.type != "MESH":
@@ -455,8 +473,8 @@ class SmartBake:
                 continue
             if ad.drivers:
                 names = [fc.data_path for fc in ad.drivers]
-            elif ad.action is not None and _slot_fcurves(ad.action):
-                names = [fc.data_path for fc in _slot_fcurves(ad.action)]
+            elif ad.action is not None and AnimUtils._slot_fcurves(ad.action):
+                names = [fc.data_path for fc in AnimUtils._slot_fcurves(ad.action)]
             else:
                 continue
 
@@ -470,7 +488,9 @@ class SmartBake:
     # Time Range Detection
     # -------------------------------------------------------------------------
 
-    def get_time_range(self, analysis: Optional[Dict[str, BakeAnalysis]] = None) -> Tuple[int, int]:
+    def get_time_range(
+        self, analysis: Optional[Dict[str, BakeAnalysis]] = None
+    ) -> Tuple[int, int]:
         """Determine the optimal bake time range from driver/constraint-target animation.
 
         Walks each driven source's own animation: a constraint's ``.target`` object, or a
@@ -489,26 +509,34 @@ class SmartBake:
         all_frames: List[float] = []
 
         for key, data in analysis.items():
-            obj, bone_name = _resolve_analysis_key(key)
+            obj, bone_name = _SmartBakeInternal._resolve_analysis_key(key)
             if obj is None:
                 continue
 
             for source_type, names in data.driven_sources.items():
                 if source_type in ("constraint", "ik"):
-                    constraints = _constraints_for(obj, bone_name)
+                    constraints = _SmartBakeInternal._constraints_for(obj, bone_name)
                     for name in names:
                         c = constraints.get(name)
                         target = getattr(c, "target", None) if c is not None else None
                         if target is not None:
-                            rng = _object_key_range(target)
+                            rng = _SmartBakeInternal._object_key_range(target)
                             if rng:
                                 all_frames.extend(rng)
                 elif source_type == "driver":
                     ad = getattr(obj, "animation_data", None)
-                    all_frames.extend(_driver_variable_target_frames(ad, names))
+                    all_frames.extend(
+                        _SmartBakeInternal._driver_variable_target_frames(ad, names)
+                    )
                 elif source_type == "blend_shape":
-                    sk = getattr(obj.data, "shape_keys", None) if obj.type == "MESH" else None
-                    all_frames.extend(_blend_shape_source_frames(sk, names))
+                    sk = (
+                        getattr(obj.data, "shape_keys", None)
+                        if obj.type == "MESH"
+                        else None
+                    )
+                    all_frames.extend(
+                        _SmartBakeInternal._blend_shape_source_frames(sk, names)
+                    )
 
         if all_frames:
             return math.floor(min(all_frames)), math.ceil(max(all_frames))
@@ -560,7 +588,7 @@ class SmartBake:
             logger.warning(f"SmartBake: failed to save backup: {e}")
             return None
 
-    @undoable
+    @CoreUtils.undoable
     def bake(
         self,
         analysis: Optional[Dict[str, BakeAnalysis]] = None,
@@ -615,7 +643,9 @@ class SmartBake:
             if any(st in data.driven_sources for st in ("constraint", "ik", "driver"))
         }
         blend_shape_keys = {
-            key: data for key, data in analysis.items() if "blend_shape" in data.driven_sources
+            key: data
+            for key, data in analysis.items()
+            if "blend_shape" in data.driven_sources
         }
 
         if not transform_keys and not blend_shape_keys:
@@ -645,7 +675,7 @@ class SmartBake:
         objects_to_bake = []
         seen = set()
         for key in transform_keys:
-            obj, _bone = _resolve_analysis_key(key)
+            obj, _bone = _SmartBakeInternal._resolve_analysis_key(key)
             if obj is not None and obj.name not in seen:
                 seen.add(obj.name)
                 objects_to_bake.append(obj)
@@ -667,7 +697,7 @@ class SmartBake:
                     getattr(ad, "action_slot", None) if ad is not None else None
                 )
 
-            _anim_utils.bake_keys(
+            _anim_utils.AnimUtils.bake_keys(
                 objects_to_bake,
                 frame_range=time_range,
                 step=self.sample_by,
@@ -689,7 +719,7 @@ class SmartBake:
                 baked_names.add(obj.name)
                 baked_objects_actual.append(obj)
                 if self.preserve_outside_keys and original_action is not None:
-                    _copy_outside_range_keys(
+                    _SmartBakeInternal._copy_outside_range_keys(
                         original_action,
                         pre_bake_slots.get(obj.name),
                         baked_action,
@@ -698,13 +728,17 @@ class SmartBake:
                     )
                 if session is not None:
                     baked_entry = {
-                        "object": bake_session.node_ref(obj),
-                        "original_action": bake_session.node_ref(original_action),
-                        "baked_action": bake_session.node_ref(baked_action),
+                        "object": bake_session.BakeSessionStore.node_ref(obj),
+                        "original_action": bake_session.BakeSessionStore.node_ref(
+                            original_action
+                        ),
+                        "baked_action": bake_session.BakeSessionStore.node_ref(
+                            baked_action
+                        ),
                     }
                     if original_action is not None:
-                        baked_entry["original_action_prior_fake_user"] = prior_fake_user.get(
-                            obj.name, False
+                        baked_entry["original_action_prior_fake_user"] = (
+                            prior_fake_user.get(obj.name, False)
                         )
                     session["baked_objects"].append(baked_entry)
 
@@ -712,7 +746,7 @@ class SmartBake:
         muted_constraints: List[str] = []
         muted_drivers: List[str] = []
         for key, data in transform_keys.items():
-            obj, bone_name = _resolve_analysis_key(key)
+            obj, bone_name = _SmartBakeInternal._resolve_analysis_key(key)
             if obj is None or obj.name not in baked_names:
                 continue
 
@@ -720,7 +754,7 @@ class SmartBake:
                 data.driven_sources.get("ik", [])
             )
             if constraint_names:
-                constraints = _constraints_for(obj, bone_name)
+                constraints = _SmartBakeInternal._constraints_for(obj, bone_name)
                 for name in constraint_names:
                     c = constraints.get(name)
                     if c is None:
@@ -731,7 +765,9 @@ class SmartBake:
                         if session is not None:
                             session["muted_constraints"].append(
                                 {
-                                    "ref": bake_session.constraint_ref(obj, c, bone=bone_name),
+                                    "ref": bake_session.BakeSessionStore.constraint_ref(
+                                        obj, c, bone=bone_name
+                                    ),
                                     "prior_mute": c.mute,
                                 }
                             )
@@ -753,7 +789,9 @@ class SmartBake:
                             if session is not None:
                                 session["muted_drivers"].append(
                                     {
-                                        "ref": bake_session.driver_ref(obj, fc),
+                                        "ref": bake_session.BakeSessionStore.driver_ref(
+                                            obj, fc
+                                        ),
                                         "prior_mute": fc.mute,
                                     }
                                 )
@@ -770,7 +808,7 @@ class SmartBake:
             bs_objects = []
             seen_bs = set()
             for key in blend_shape_keys:
-                obj, _bone = _resolve_analysis_key(key)
+                obj, _bone = _SmartBakeInternal._resolve_analysis_key(key)
                 if obj is not None and obj.name not in seen_bs:
                     seen_bs.add(obj.name)
                     bs_objects.append(obj)
@@ -783,10 +821,14 @@ class SmartBake:
                         continue
                     if ad.drivers:
                         for fc in list(ad.drivers):
-                            key_block = _shape_key_block_for_fcurve(sk, fc)
+                            key_block = _SmartBakeInternal._shape_key_block_for_fcurve(
+                                sk, fc
+                            )
                             if key_block is not None:
                                 session["blend_shape_drivers"].append(
-                                    bake_session.snapshot_blend_shape_driver(obj, key_block, fc)
+                                    bake_session.BakeSessionStore.snapshot_blend_shape_driver(
+                                        obj, key_block, fc
+                                    )
                                 )
                     elif ad.action is not None:
                         # No driver to snapshot-and-rebuild — this key's weight is animated by
@@ -794,16 +836,20 @@ class SmartBake:
                         # (same fcurve, no fresh Action datablock the way the transform bake
                         # gets one). The only way back is recording every existing key so
                         # restore can clear the dense resample and rebuild the originals.
-                        from blendertk.anim_utils._anim_utils import _slot_fcurves
+                        from blendertk.anim_utils._anim_utils import AnimUtils
 
-                        for fc in _slot_fcurves(ad.action):
-                            key_block = _shape_key_block_for_fcurve(sk, fc)
+                        for fc in AnimUtils._slot_fcurves(ad.action):
+                            key_block = _SmartBakeInternal._shape_key_block_for_fcurve(
+                                sk, fc
+                            )
                             if key_block is not None:
                                 session["blend_shape_actions"].append(
-                                    bake_session.snapshot_blend_shape_action(obj, key_block, fc)
+                                    bake_session.BakeSessionStore.snapshot_blend_shape_action(
+                                        obj, key_block, fc
+                                    )
                                 )
 
-            baked_bs_objects = _anim_utils.bake_blend_shapes(
+            baked_bs_objects = _anim_utils.AnimUtils.bake_blend_shapes(
                 bs_objects, frame_range=time_range, step=self.sample_by
             )
             for obj in baked_bs_objects:
@@ -826,7 +872,7 @@ class SmartBake:
                     if obj.name not in optimized_names:
                         optimized_names.append(obj.name)
             if optimize_targets:
-                _anim_utils.optimize_keys(optimize_targets)
+                _anim_utils.AnimUtils.optimize_keys(optimize_targets)
                 result.optimized = sorted(optimized_names)
 
         result.muted_constraints = muted_constraints
@@ -859,7 +905,7 @@ class SmartBake:
         return BakeSessionStore.list_ids()
 
     @classmethod
-    @undoable
+    @CoreUtils.undoable
     def restore(cls, session_id: Optional[str] = None) -> "RestoreResult":
         """Reverse a bake session recorded by ``bake(restorable=True)``.
 
@@ -879,7 +925,6 @@ class SmartBake:
         from blendertk.anim_utils.smart_bake.bake_session import (
             BakeSessionStore,
             RestoreResult,
-            restore_session,
         )
 
         session = BakeSessionStore.peek(session_id)
@@ -894,7 +939,7 @@ class SmartBake:
             logger.warning(f"SmartBake: {msg}")
             return result
 
-        result = restore_session(session)
+        result = BakeSessionStore.restore_session(session)
         # Pop only after the restore pass completes — an unexpected failure mid-restore leaves
         # the session in place so it can be retried.
         BakeSessionStore.pop(session.get("id"))

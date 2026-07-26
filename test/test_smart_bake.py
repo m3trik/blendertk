@@ -82,6 +82,7 @@ file never needs both runtimes at once. Engine round-trip coverage (bake analyze
 against real ``bpy`` state) is exercised separately during this port's live-Blender verification
 passes (see ``_smart_bake.py`` / ``bake_session.py`` module docstrings for what was proven).
 """
+
 import os
 import sys
 import unittest
@@ -168,11 +169,15 @@ class TestSmartBakePanelLoads(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_scope_combo_items(self):
-        items = [self.ui.cmb_scope.itemText(i) for i in range(self.ui.cmb_scope.count())]
+        items = [
+            self.ui.cmb_scope.itemText(i) for i in range(self.ui.cmb_scope.count())
+        ]
         self.assertEqual(items, ["Auto (Whole Scene)", "Selected"])
 
     def test_backup_combo_items(self):
-        items = [self.ui.cmb_backup.itemText(i) for i in range(self.ui.cmb_backup.count())]
+        items = [
+            self.ui.cmb_backup.itemText(i) for i in range(self.ui.cmb_backup.count())
+        ]
         self.assertEqual(items, ["Auto", "Always", "Never"])
 
     def test_preserve_outside_defaults_checked(self):
@@ -226,7 +231,9 @@ def _run_data_internal_export_exclusion_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
@@ -319,7 +326,6 @@ def _run_data_internal_export_exclusion_checks():
     return lines
 
 
-
 def _reset_smart_bake_regression_scene():
     """Clear objects/actions/armatures between the bpy-driven regression checks below -- each
     check builds its own scene from scratch."""
@@ -352,7 +358,9 @@ def _run_engine_round_trip_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
@@ -568,7 +576,9 @@ def _run_driver_bake_restore_regression_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
@@ -613,13 +623,16 @@ def _run_driver_bake_restore_regression_checks():
         analysis = baker.analyze()
         check(
             "driver detected on target",
-            "DriverTarget" in analysis and "driver" in analysis["DriverTarget"].driven_sources,
+            "DriverTarget" in analysis
+            and "driver" in analysis["DriverTarget"].driven_sources,
             f"{analysis}",
         )
 
         result = baker.bake(analysis, time_range=(1, 20))
         check("bake reports success", result.success, f"{result}")
-        check("session id recorded", result.session_id is not None, f"{result.session_id}")
+        check(
+            "session id recorded", result.session_id is not None, f"{result.session_id}"
+        )
         check("driver fcurve muted after bake", fcurve.mute is True, f"{fcurve.mute}")
 
         scene.frame_set(20)
@@ -646,7 +659,11 @@ def _run_driver_bake_restore_regression_checks():
             restore_result.warnings == [],
             f"{restore_result.warnings}",
         )
-        check("driver unmuted back to its prior (False) state", fcurve.mute is False, f"{fcurve.mute}")
+        check(
+            "driver unmuted back to its prior (False) state",
+            fcurve.mute is False,
+            f"{fcurve.mute}",
+        )
 
         scene.frame_set(30)
         bpy.context.view_layer.update()
@@ -674,7 +691,9 @@ def _run_ik_bake_restore_regression_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
@@ -807,13 +826,15 @@ def _run_preserve_outside_and_optimize_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
         import bmesh
 
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
         from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
 
         def cube(name):
@@ -856,11 +877,13 @@ def _run_preserve_outside_and_optimize_checks():
             baker_true.preserve_outside_keys is True,
         )
         result_true = baker_true.bake(baker_true.analyze(), time_range=(5, 10))
-        check("preserve-True bake reports success", result_true.success, f"{result_true}")
+        check(
+            "preserve-True bake reports success", result_true.success, f"{result_true}"
+        )
 
         rot_fc_true = next(
             fc
-            for fc in get_fcurves([driven_true])
+            for fc in AnimUtils.get_fcurves([driven_true])
             if fc.data_path == "rotation_euler" and fc.array_index == 2
         )
         frames_true = sorted(k.co.x for k in rot_fc_true.keyframe_points)
@@ -885,11 +908,15 @@ def _run_preserve_outside_and_optimize_checks():
             objects=[driven_false], bake_blend_shapes=False, preserve_outside_keys=False
         )
         result_false = baker_false.bake(baker_false.analyze(), time_range=(5, 10))
-        check("preserve-False bake reports success", result_false.success, f"{result_false}")
+        check(
+            "preserve-False bake reports success",
+            result_false.success,
+            f"{result_false}",
+        )
 
         rot_fc_false = next(
             fc
-            for fc in get_fcurves([driven_false])
+            for fc in AnimUtils.get_fcurves([driven_false])
             if fc.data_path == "rotation_euler" and fc.array_index == 2
         )
         frames_false = sorted(k.co.x for k in rot_fc_false.keyframe_points)
@@ -933,7 +960,7 @@ def _run_preserve_outside_and_optimize_checks():
 
         rot_fc_b = next(
             fc
-            for fc in get_fcurves([driven_b])
+            for fc in AnimUtils.get_fcurves([driven_b])
             if fc.data_path == "rotation_euler" and fc.array_index == 2
         )
         pts_b = sorted((k.co.x, k.co.y) for k in rot_fc_b.keyframe_points)
@@ -980,11 +1007,15 @@ def _run_preserve_outside_and_optimize_checks():
 
         baker_g = SmartBake(objects=[driven_g], sample_by=3, bake_blend_shapes=False)
         result_g = baker_g.bake(baker_g.analyze(), time_range=(5, 10))
-        check("tail-gap bake (sample_by=3) reports success", result_g.success, f"{result_g}")
+        check(
+            "tail-gap bake (sample_by=3) reports success",
+            result_g.success,
+            f"{result_g}",
+        )
 
         loc_fc_g = next(
             fc
-            for fc in get_fcurves([driven_g])
+            for fc in AnimUtils.get_fcurves([driven_g])
             if fc.data_path == "location" and fc.array_index == 0
         )
         baked_frames_g = sorted(k.co.x for k in loc_fc_g.keyframe_points)
@@ -997,7 +1028,7 @@ def _run_preserve_outside_and_optimize_checks():
 
         rot_fc_g = next(
             fc
-            for fc in get_fcurves([driven_g])
+            for fc in AnimUtils.get_fcurves([driven_g])
             if fc.data_path == "rotation_euler" and fc.array_index == 2
         )
         val9 = next((k.co.y for k in rot_fc_g.keyframe_points if k.co.x == 9.0), None)
@@ -1036,8 +1067,8 @@ def _run_preserve_outside_and_optimize_checks():
         check("optimize_keys=False bake reports success", result_no_opt.success)
         check(
             "optimize_keys=False leaves all 9 freshly-baked transform curves untouched",
-            len(get_fcurves([driven_no_opt])) == 9,
-            f"{len(get_fcurves([driven_no_opt]))}",
+            len(AnimUtils.get_fcurves([driven_no_opt])) == 9,
+            f"{len(AnimUtils.get_fcurves([driven_no_opt]))}",
         )
         check(
             "BakeResult.optimized stays empty when optimize_keys=False",
@@ -1049,15 +1080,21 @@ def _run_preserve_outside_and_optimize_checks():
 
         _reset_smart_bake_regression_scene()
         driven_opt = build_partially_varying_rig("OptOn")
-        baker_opt = SmartBake(objects=[driven_opt], bake_blend_shapes=False, optimize_keys=True)
+        baker_opt = SmartBake(
+            objects=[driven_opt], bake_blend_shapes=False, optimize_keys=True
+        )
         result_opt = baker_opt.bake(baker_opt.analyze(), time_range=(1, 20))
-        check("optimize_keys=True bake reports success", result_opt.success, f"{result_opt}")
+        check(
+            "optimize_keys=True bake reports success",
+            result_opt.success,
+            f"{result_opt}",
+        )
         check(
             "BakeResult.optimized records the baked object",
             result_opt.optimized == ["OptOn"],
             f"{result_opt.optimized}",
         )
-        post_curves = get_fcurves([driven_opt])
+        post_curves = AnimUtils.get_fcurves([driven_opt])
         check(
             "optimize_keys=True actually invoked AnimUtils.optimize_keys and collapsed the "
             "8 static baked curves, leaving only the 1 that truly varies",
@@ -1108,16 +1145,22 @@ def _run_preserve_outside_and_optimize_checks():
         bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 20
         mesh_bs = build_driven_shape_key_mesh("BsOpt")
 
-        baker_bs = SmartBake(objects=[mesh_bs], bake_blend_shapes=True, optimize_keys=True)
+        baker_bs = SmartBake(
+            objects=[mesh_bs], bake_blend_shapes=True, optimize_keys=True
+        )
         result_bs = baker_bs.bake(baker_bs.analyze(), time_range=(1, 20))
-        check("blend-shape optimize bake reports success", result_bs.success, f"{result_bs}")
+        check(
+            "blend-shape optimize bake reports success",
+            result_bs.success,
+            f"{result_bs}",
+        )
         check(
             "BakeResult.optimized includes the shape-key mesh object",
             "BsOpt" in result_bs.optimized,
             f"{result_bs.optimized}",
         )
 
-        post_sk_curves = get_fcurves([mesh_bs.data.shape_keys])
+        post_sk_curves = AnimUtils.get_fcurves([mesh_bs.data.shape_keys])
         check(
             "optimize_keys=True on a blend-shape bake collapsed the constant-valued shape-key "
             "curve, leaving only the one that truly varies",
@@ -1148,14 +1191,18 @@ def _run_backup_mode_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     import os
 
     here = os.path.dirname(os.path.abspath(__file__))
     temp_dir = os.path.join(here, "temp_tests")
     scene_path = os.path.join(temp_dir, "smart_bake_backup_probe.blend")
-    expected_backup_path = os.path.join(temp_dir, "smart_bake_backup_probe_prebake.blend")
+    expected_backup_path = os.path.join(
+        temp_dir, "smart_bake_backup_probe_prebake.blend"
+    )
 
     try:
         import bpy
@@ -1207,7 +1254,10 @@ def _run_backup_mode_checks():
         _reset_smart_bake_regression_scene()
         driven_a1 = build_driven_rig("AutoNoDelete")
         result_a1 = SmartBake.run(
-            objects=[driven_a1], bake_blend_shapes=False, backup_file=None, delete_sources=False
+            objects=[driven_a1],
+            bake_blend_shapes=False,
+            backup_file=None,
+            delete_sources=False,
         )
         check(
             "Auto (None) does NOT back up a plain bake",
@@ -1222,7 +1272,10 @@ def _run_backup_mode_checks():
         _reset_smart_bake_regression_scene()
         driven_a2 = build_driven_rig("AutoDelete")
         result_a2 = SmartBake.run(
-            objects=[driven_a2], bake_blend_shapes=False, backup_file=None, delete_sources=True
+            objects=[driven_a2],
+            bake_blend_shapes=False,
+            backup_file=None,
+            delete_sources=True,
         )
         check(
             "Auto (None) DOES back up a delete_sources bake",
@@ -1235,7 +1288,9 @@ def _run_backup_mode_checks():
         _reset_smart_bake_regression_scene()
         driven_always = build_driven_rig("Always")
         result_always = SmartBake.run(
-            objects=[driven_always], bake_blend_shapes=False, backup_file=True,
+            objects=[driven_always],
+            bake_blend_shapes=False,
+            backup_file=True,
             delete_sources=False,
         )
         check(
@@ -1251,12 +1306,15 @@ def _run_backup_mode_checks():
         _reset_smart_bake_regression_scene()
         driven_never = build_driven_rig("Never")
         result_never = SmartBake.run(
-            objects=[driven_never], bake_blend_shapes=False, backup_file=False,
+            objects=[driven_never],
+            bake_blend_shapes=False,
+            backup_file=False,
             delete_sources=True,
         )
         check(
             "Never (False) does not back up even WITH delete_sources",
-            result_never.backup_path is None and not os.path.exists(expected_backup_path),
+            result_never.backup_path is None
+            and not os.path.exists(expected_backup_path),
             f"{result_never.backup_path}",
         )
     except Exception as e:  # pragma: no cover - failure path prints its own traceback
@@ -1292,7 +1350,9 @@ def _run_task_manager_wiring_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import logging
@@ -1301,7 +1361,7 @@ def _run_task_manager_wiring_checks():
         import bmesh
 
         from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
         from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
 
         def reset():
@@ -1359,19 +1419,35 @@ def _run_task_manager_wiring_checks():
         check("check_floating_point_keys detects fractional keys", passed is False)
 
         passed, _ = tm.check_untied_keyframes(True)
-        check("check_untied_keyframes detects mismatched curve extents", passed is False)
+        check(
+            "check_untied_keyframes detects mismatched curve extents", passed is False
+        )
 
         tm.snap_keys_to_frame()
-        scale_fc = next(fc for fc in get_fcurves([rig]) if fc.data_path == "scale")
+        scale_fc = next(
+            fc for fc in AnimUtils.get_fcurves([rig]) if fc.data_path == "scale"
+        )
         frames = sorted(k.co.x for k in scale_fc.keyframe_points)
-        check("snap_keys_to_frame snaps to whole frames", frames == [3.0, 18.0], str(frames))
+        check(
+            "snap_keys_to_frame snaps to whole frames",
+            frames == [3.0, 18.0],
+            str(frames),
+        )
 
         passed, msgs = tm.check_floating_point_keys(True)
-        check("check_floating_point_keys passes after snap", passed is True and msgs == [])
+        check(
+            "check_floating_point_keys passes after snap", passed is True and msgs == []
+        )
 
         tm.tie_all_keyframes()
-        scale_fc = next(fc for fc in get_fcurves([rig]) if fc.data_path == "scale")
-        rot_fc = next(fc for fc in get_fcurves([rig]) if fc.data_path == "rotation_euler")
+        scale_fc = next(
+            fc for fc in AnimUtils.get_fcurves([rig]) if fc.data_path == "scale"
+        )
+        rot_fc = next(
+            fc
+            for fc in AnimUtils.get_fcurves([rig])
+            if fc.data_path == "rotation_euler"
+        )
         s_frames = sorted(k.co.x for k in scale_fc.keyframe_points)
         r_frames = sorted(k.co.x for k in rot_fc.keyframe_points)
         check(
@@ -1414,7 +1490,8 @@ def _run_task_manager_wiring_checks():
         tm2.smart_bake()
         check(
             "smart_bake assigns a fresh Action",
-            target.animation_data is not None and target.animation_data.action is not None,
+            target.animation_data is not None
+            and target.animation_data.action is not None,
         )
         check("smart_bake mutes the constraint by default", con.mute is True)
         check(
@@ -1423,30 +1500,39 @@ def _run_task_manager_wiring_checks():
         )
         check("_has_keyframes True after bake", tm2._has_keyframes is True)
 
-        before = len(get_fcurves([target]))
+        before = len(AnimUtils.get_fcurves([target]))
         tm2.optimize_keys()
-        after = len(get_fcurves([target]))
-        check("optimize_keys runs after bake without raising", after <= before, f"{before}->{after}")
+        after = len(AnimUtils.get_fcurves([target]))
+        check(
+            "optimize_keys runs after bake without raising",
+            after <= before,
+            f"{before}->{after}",
+        )
 
         tm2.tie_all_keyframes()
         tm2.snap_keys_to_frame()
         whole = all(
             abs(k.co.x - round(k.co.x)) < 1e-6
-            for fc in get_fcurves([target])
+            for fc in AnimUtils.get_fcurves([target])
             for k in fc.keyframe_points
         )
         check("post-bake tie/snap keep keys on whole frames", whole)
 
         original_range = tm2.set_bake_animation_range()
         scene = bpy.context.scene
-        frames_all = [k.co.x for fc in get_fcurves([target]) for k in fc.keyframe_points]
+        frames_all = [
+            k.co.x for fc in AnimUtils.get_fcurves([target]) for k in fc.keyframe_points
+        ]
         expected = (int(min(frames_all)), int(max(frames_all)))
         check(
             "set_bake_animation_range sets scene range to keyed extent",
             (scene.frame_start, scene.frame_end) == expected,
             f"actual=({scene.frame_start},{scene.frame_end}) expected={expected}",
         )
-        check("set_bake_animation_range returns the prior range", original_range == (1, 250))
+        check(
+            "set_bake_animation_range returns the prior range",
+            original_range == (1, 250),
+        )
 
         tm2.revert_bake_animation_range(original_range)
         check(
@@ -1539,7 +1625,9 @@ def _run_blend_shape_driver_restore_checks():
     lines = []
 
     def check(name, cond, detail=""):
-        lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
 
     try:
         import bpy
@@ -1610,7 +1698,9 @@ def _run_blend_shape_driver_restore_checks():
         var2.targets[0].id = target
         var2.targets[0].data_path = "location.y"
 
-        result = SmartBake.run(objects=[mesh, target], bake_blend_shapes=True, sample_by=1)
+        result = SmartBake.run(
+            objects=[mesh, target], bake_blend_shapes=True, sample_by=1
+        )
         check("bake succeeded", result.success, f"baked={result.baked}")
         check("bake recorded a restorable session", result.session_id is not None)
 
@@ -1664,7 +1754,9 @@ def _run_blend_shape_driver_restore_checks():
         var = rebuilt.variables[0] if rebuilt else None
         check(
             "Key1 driver rebuilt targeting the same object/data_path",
-            bool(var) and var.targets[0].id is target and var.targets[0].data_path == "location.x",
+            bool(var)
+            and var.targets[0].id is target
+            and var.targets[0].data_path == "location.x",
         )
         check(
             "Key2 driver correctly left un-rebuilt (out of scope)",
@@ -1714,7 +1806,9 @@ if __name__ == "__main__":
         print("\n".join(result_lines))
         passed = sum(1 for ln in result_lines if ln.startswith("OK"))
         ok = bool(result_lines) and all(ln.startswith("OK") for ln in result_lines)
-        print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({passed}/{len(result_lines)})")
+        print(
+            f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({passed}/{len(result_lines)})"
+        )
     else:
         _runner = unittest.TextTestRunner(verbosity=2)
         _result = _runner.run(

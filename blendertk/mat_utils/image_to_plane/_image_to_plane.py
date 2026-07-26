@@ -12,6 +12,7 @@ always builds a Principled material. Planes are built **upright in the XZ plane*
 view) rather than driven by Maya's ``axis`` normal vector. ``import bpy`` is deferred into the call
 bodies.
 """
+
 import os
 
 import pythontk as ptk
@@ -35,6 +36,7 @@ class ImageToPlane(ptk.LoggingMixin):
         plane_height=10.0,
         group=False,
         group_name="imagePlanes_GRP",
+        roughness=0.0,
     ):
         """Create textured planes for one or more images.
 
@@ -46,6 +48,8 @@ class ImageToPlane(ptk.LoggingMixin):
             plane_height (float): Plane height in scene units (width = height × image aspect).
             group (bool): Parent all created planes under a single Empty.
             group_name (str): Name of that Empty when ``group`` is True.
+            roughness (float): Principled BSDF roughness. Defaults to ``0.0`` (fully smooth)
+                so image planes read as flat, un-scattered reference cards.
 
         Returns:
             dict: ``{image_stem: plane_object, ...}`` (plus ``"__group__"`` when grouped).
@@ -57,7 +61,9 @@ class ImageToPlane(ptk.LoggingMixin):
                 cls.logger.warning(f"Image not found: {path}")
                 continue
             try:
-                plane = cls._create_single(path, mat_type, suffix, prefix, plane_height)
+                plane = cls._create_single(
+                    path, mat_type, suffix, prefix, plane_height, roughness
+                )
                 results[os.path.splitext(os.path.basename(path))[0]] = plane
             except Exception:
                 cls.logger.error(f"Failed to create plane for {path}", exc_info=True)
@@ -71,10 +77,10 @@ class ImageToPlane(ptk.LoggingMixin):
         """Remove planes and their auto-created materials/images (orphans only) — mirror of
         mayatk's ``ImageToPlane.remove``. ``None`` → the current selection. Returns the count removed."""
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
-            objects = list(selected_objects())
+            objects = list(CoreUtils.selected_objects())
         count = 0
         for obj in list(objects):
             if obj is None or obj.name not in bpy.data.objects:
@@ -84,7 +90,8 @@ class ImageToPlane(ptk.LoggingMixin):
             for mat in mats:
                 if mat.use_nodes:
                     imgs += [
-                        n.image for n in mat.node_tree.nodes
+                        n.image
+                        for n in mat.node_tree.nodes
                         if n.type == "TEX_IMAGE" and n.image
                     ]
             mesh = obj.data if obj.type == "MESH" else None
@@ -104,7 +111,7 @@ class ImageToPlane(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ internals
     @classmethod
-    def _create_single(cls, image_path, mat_type, suffix, prefix, plane_height):
+    def _create_single(cls, image_path, mat_type, suffix, prefix, plane_height, roughness=0.0):
         import bpy
 
         stem = os.path.splitext(os.path.basename(image_path))[0]
@@ -112,7 +119,10 @@ class ImageToPlane(ptk.LoggingMixin):
         w, h = image.size
         aspect = (w / h) if h else 1.0
         plane = cls._make_plane(stem, plane_height * aspect, plane_height)
-        mat = cls._make_material(f"{prefix}{stem}{suffix}", image, has_alpha=image.channels == 4)
+        mat = cls._make_material(
+            f"{prefix}{stem}{suffix}", image, has_alpha=image.channels == 4,
+            roughness=roughness,
+        )
         plane.data.materials.append(mat)
         return plane
 
@@ -134,7 +144,7 @@ class ImageToPlane(ptk.LoggingMixin):
         return obj
 
     @staticmethod
-    def _make_material(name, image, has_alpha):
+    def _make_material(name, image, has_alpha, roughness=0.0):
         import bpy
 
         image.colorspace_settings.name = "sRGB"  # color image (albedo), not data
@@ -148,9 +158,13 @@ class ImageToPlane(ptk.LoggingMixin):
         tex.image = image
         if bsdf:
             nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+            if roughness is not None:
+                bsdf.inputs["Roughness"].default_value = roughness
             if has_alpha:
                 nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
-        if has_alpha and hasattr(mat, "blend_method"):  # pre-4.2 EEVEE; 4.2+ derives it from alpha
+        if has_alpha and hasattr(
+            mat, "blend_method"
+        ):  # pre-4.2 EEVEE; 4.2+ derives it from alpha
             mat.blend_method = "HASHED"
         return mat
 

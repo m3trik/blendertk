@@ -16,10 +16,12 @@ so the presentation ports 1:1).  DCC swaps versus the Maya original:
 
 Mixed into :class:`ShotManifestController` via MRO.
 """
+
 from pythontk import BuilderStep, BuilderObject
-from pythontk.core_utils.engines.shots.manifest.behaviors import list_behaviors
+from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
 from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+    ManifestData,
     BEHAVIOR_STATUS_COLORS,
     ERROR_COLOR,
     HEADERS,
@@ -30,24 +32,25 @@ from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
     COL_BEHAVIORS,
     COL_START,
     COL_END,
-    fmt_behavior,
-    format_behavior_html,
-    try_load_blender_icons,
 )
 
 
-def _leaf_name(name: str) -> str:
-    """Leaf display name.
+class _ManifestTableMixinInternal(object):
+    """Internal helpers for ManifestTableMixin."""
 
-    Blender object names are flat and unique within ``bpy.data.objects``, so
-    this is effectively identity; it defensively strips a Maya-style ``|`` DAG
-    path if one is ever handed in, keeping the ``_use_short_names`` toggle a
-    harmless no-op for parity with mayatk.
-    """
-    return name.rsplit("|", 1)[-1] if "|" in name else name
+    @staticmethod
+    def _leaf_name(name: str) -> str:
+        """Leaf display name.
+
+        Blender object names are flat and unique within ``bpy.data.objects``, so
+        this is effectively identity; it defensively strips a Maya-style ``|`` DAG
+        path if one is ever handed in, keeping the ``_use_short_names`` toggle a
+        harmless no-op for parity with mayatk.
+        """
+        return name.rsplit("|", 1)[-1] if "|" in name else name
 
 
-class ManifestTableMixin:
+class ManifestTableMixin(_ManifestTableMixinInternal):
     """Presentation methods for the manifest tree widget.
 
     Expects the host class to provide:
@@ -73,7 +76,7 @@ class ManifestTableMixin:
         :func:`try_load_blender_icons`) so a future object-type icon map drops in
         without touching callers.
         """
-        node_icons_cls = try_load_blender_icons()
+        node_icons_cls = ManifestData.try_load_blender_icons()
         if node_icons_cls is None:
             return None
         return node_icons_cls.get_icon(obj_name)
@@ -143,7 +146,7 @@ class ManifestTableMixin:
                     broken = list(obj_st.broken_behaviors or [])
                 break
         label.setText(
-            format_behavior_html(
+            ManifestData.format_behavior_html(
                 obj.behaviors, broken=broken, status_color=status_color
             )
         )
@@ -152,7 +155,7 @@ class ManifestTableMixin:
             broken_set = set(obj_st.broken_behaviors or [])
             lines = []
             for b in obj.behaviors:
-                display = fmt_behavior(b)
+                display = ManifestData.fmt_behavior(b)
                 if obj_st.status == "missing_object":
                     lines.append(f"✖ {display}  (object missing)")
                 elif b in broken_set:
@@ -161,7 +164,9 @@ class ManifestTableMixin:
                     lines.append(f"✔ {display}")
             label.setToolTip("\n".join(lines))
         elif obj.behaviors:
-            label.setToolTip("\n".join(fmt_behavior(b) for b in obj.behaviors))
+            label.setToolTip(
+                "\n".join(ManifestData.fmt_behavior(b) for b in obj.behaviors)
+            )
         else:
             label.setToolTip("")
 
@@ -204,7 +209,7 @@ class ManifestTableMixin:
             for raw_name in merged:
                 if not raw_name:
                     continue
-                display = fmt_behavior(raw_name)
+                display = ManifestData.fmt_behavior(raw_name)
                 chk = menu.add("QCheckBox", setText=display)
                 chk.setChecked(raw_name in obj.behaviors)
                 chk.setProperty("behavior_raw", raw_name)
@@ -281,7 +286,11 @@ class ManifestTableMixin:
             )
             # Child rows: object name in Description column, behavior label
             for obj in step.objects:
-                display = _leaf_name(obj.name) if self._use_short_names else obj.name
+                display = (
+                    _ManifestTableMixinInternal._leaf_name(obj.name)
+                    if self._use_short_names
+                    else obj.name
+                )
                 if obj.kind == "audio":
                     child = tree.create_item(
                         ["", "", display, "", "", ""],
@@ -301,7 +310,9 @@ class ManifestTableMixin:
                 if display != obj.name:
                     child.setToolTip(COL_DESC, obj.name)
                 if obj.kind not in _kind_cache:
-                    _kind_cache[obj.kind] = list(list_behaviors(kind=obj.kind))
+                    _kind_cache[obj.kind] = list(
+                        Behaviors.list_behaviors(kind=obj.kind)
+                    )
                 self._make_behavior_label(
                     obj, tree, child, _kind_cache[obj.kind], step.step_id
                 )
@@ -588,7 +599,8 @@ class ManifestTableMixin:
                     if o.status != "missing_behavior":
                         continue
                     broken = ", ".join(
-                        fmt_behavior(b) for b in (o.broken_behaviors or o.behaviors)
+                        ManifestData.fmt_behavior(b)
+                        for b in (o.broken_behaviors or o.behaviors)
                     )
                     lines.append(f"{o.name}: {broken}")
                 parent.setToolTip(0, "Unverified behaviors:\n" + "\n".join(lines))
@@ -624,7 +636,7 @@ class ManifestTableMixin:
                     f"{len(beh_issues)} missing",
                 )
                 lines = [
-                    f"{o.name}  →  {', '.join(fmt_behavior(b) for b in (o.broken_behaviors or o.behaviors))}"
+                    f"{o.name}  →  {', '.join(ManifestData.fmt_behavior(b) for b in (o.broken_behaviors or o.behaviors))}"
                     for o in beh_issues
                 ]
                 parent.setToolTip(beh_col, "\n".join(lines))
@@ -677,13 +689,13 @@ class ManifestTableMixin:
                         desc = ""
                         try:
                             from pythontk.core_utils.engines.shots.manifest.behaviors import (
-                                load_behavior,
+                                Behaviors,
                             )
 
-                            desc = load_behavior(b).get("description", "")
+                            desc = Behaviors.load_behavior(b).get("description", "")
                         except Exception:
                             pass
-                        entry = fmt_behavior(b)
+                        entry = ManifestData.fmt_behavior(b)
                         if desc:
                             entry += f" — {desc}"
                         lines.append(entry)
@@ -697,10 +709,12 @@ class ManifestTableMixin:
             # Additional objects (in shot but not in CSV)
             if step_status.additional_objects:
                 a_fg, a_bg = PASTEL_STATUS.get("additional", (None, None))
-                node_icons_cls = try_load_blender_icons()
+                node_icons_cls = ManifestData.try_load_blender_icons()
                 for extra_name in step_status.additional_objects:
                     display = (
-                        _leaf_name(extra_name) if self._use_short_names else extra_name
+                        _ManifestTableMixinInternal._leaf_name(extra_name)
+                        if self._use_short_names
+                        else extra_name
                     )
                     extra_item = tree.create_item(
                         ["", "", display, "scene", ""],

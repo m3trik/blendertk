@@ -33,6 +33,7 @@ Engine logic is Qt-free and lives upstream (``pythontk.file_utils.workspace`` +
 ``_env_utils``); this module is the thin Qt driver (uitk/qtpy imports deferred per the
 headless rule — the panel surface must import without Qt or bpy).
 """
+
 import os
 
 import pythontk as ptk
@@ -57,7 +58,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
     def header_init(self, widget):
         """Rule add, view toggle, reset/clear, template combo, help text."""
         from uitk.widgets.comboBox import ComboBox
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
         from uitk.managers.preset_manager import PresetManager
         from blendertk.env_utils import _env_utils
 
@@ -65,36 +66,45 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         widget.refresh_requested.connect(self._load)
         widget.menu.add("Separator", setTitle="File Rules:")
         widget.menu.add(
-            "QPushButton", setText="Add New File Rule", setObjectName="btn_add_rule",
+            "QPushButton",
+            setText="Add New File Rule",
+            setObjectName="btn_add_rule",
             setToolTip="Append an empty rule row (Maya's Custom Data Locations ▸ Add new\n"
             "file rule); it saves once both cells are filled in.",
         ).clicked.connect(self.add_rule)
         widget.menu.add(
-            "QCheckBox", setText="View File Rules", setObjectName="chk_raw_names",
+            "QCheckBox",
+            setText="View File Rules",
+            setObjectName="chk_raw_names",
             setChecked=False,
             setToolTip="Show raw file-rule keys instead of nice names, and make the rule\n"
             "column editable (Maya's Edit ▸ View in File Rules).",
         ).toggled.connect(self._on_view_toggled)
         widget.menu.add("Separator", setTitle="Edit:")
         widget.menu.add(
-            "QPushButton", setText="Reset Settings", setObjectName="btn_reset",
+            "QPushButton",
+            setText="Reset Settings",
+            setObjectName="btn_reset",
             setToolTip="Restore the default file rules — the active template's — and save\n"
             "(Maya's Edit ▸ Reset Settings, applied immediately).",
         ).clicked.connect(self.reset_rules)
         widget.menu.add(
-            "QPushButton", setText="Clear Settings", setObjectName="btn_clear",
+            "QPushButton",
+            setText="Clear Settings",
+            setObjectName="btn_clear",
             setToolTip="Remove every file rule from the project and save (Maya's Edit ▸\n"
             "Clear Settings, applied immediately; hand-written lines survive).",
         ).clicked.connect(self.clear_rules)
         widget.menu.add("Separator", setTitle="Templates:")
         combo = widget.menu.add(
-            ComboBox, setObjectName="cmb_template",
+            ComboBox,
+            setObjectName="cmb_template",
             setToolTip="Workspace templates: picking one loads its rules into the project\n"
             "and makes it the ACTIVE default every new workspace is built from\n"
             "(btk.create_workspace, fresh paths here). Icons save the current\n"
             "rules as a template; the menu renames/deletes.",
         )
-        store = _env_utils._workspace_template_store()
+        store = _env_utils.EnvUtils._workspace_template_store()
         self._preset_mgr = PresetManager(
             preset_dir=str(store.user_dir),
             value_provider=self._gather,
@@ -102,7 +112,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         )
         self._preset_mgr.wire_combo(combo, placeholder="Templates…")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Workspace Editor (Project Window)",
                 body="Define a shared Maya/Blender project workspace — the mirror of "
                 "Maya's File ▸ Project Window. File rules map a location (Scenes, "
@@ -129,12 +139,14 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         """Project Root — one full path (browse + open-folder option-box actions)."""
         if not getattr(widget, "is_initialized", False):
             widget.option_box.browse(
-                mode="directory", title="Select Project Root",
+                mode="directory",
+                title="Select Project Root",
                 tooltip="Browse for the project root folder (an existing workspace\n"
                 "loads its rules).",
             )
             widget.option_box.add_action(
-                callback=self.open_folder, icon="open_external",
+                callback=self.open_folder,
+                icon="open_external",
                 tooltip="Open the project root in the system file browser.",
             )
         last = self.ui.settings.value("workspace_root") or ""
@@ -222,7 +234,12 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         table = self.ui.tbl000
         ordered = self._ordered(rules)
         rows = [
-            [ptk.RULE_NICE_NAMES.get(key, key) if self._nice_view else key, folder, "", ""]
+            [
+                ptk.RULE_NICE_NAMES.get(key, key) if self._nice_view else key,
+                folder,
+                "",
+                "",
+            ]
             for key, folder in ordered
         ] or [["", "", "", ""]]  # Clear keeps the table shape + one blank starter row
         self._updating = True
@@ -355,7 +372,9 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         key = self._key_at(row)
         default = btk.workspace_template_rules().get(key)
         if default is None:
-            self.ui.footer.setStatusText(f"No template default for '{key or '(blank)'}'.")
+            self.ui.footer.setStatusText(
+                f"No template default for '{key or '(blank)'}'."
+            )
             return
         item = self.ui.tbl000.item(row, 1)
         if item is not None and item.text() != default:
@@ -388,7 +407,9 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         """Open the project root in the system file browser."""
         root = self._root()
         if not (root and os.path.isdir(root)):
-            self.sb.message_box("The project doesn't exist yet — edit a rule to create it.")
+            self.sb.message_box(
+                "The project doesn't exist yet — edit a rule to create it."
+            )
             return
         try:
             ptk.FileUtils.reveal_in_file_manager(root)

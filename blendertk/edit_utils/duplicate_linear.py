@@ -10,85 +10,92 @@ the Switchboard wiring for the co-located ``duplicate_linear.ui`` panel, discove
 ``import bpy`` / ``mathutils`` (and the Qt-only ``uitk`` helpers) are deferred into the call
 bodies (no import side effects; headless Blender ships no Qt binding).
 """
+
 import math
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import _object_mode
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.preview import Preview
-from blendertk.edit_utils._edit_utils import _copy_object
-from blendertk.xform_utils._xform_utils import get_operation_axis_matrix
-
-
-@_object_mode
-def duplicate_linear(
-    objects,
-    num_copies,
-    translate=(0, 0, 0),
-    rotate=(0, 0, 0),
-    scale=(1, 1, 1),
-    weight_bias=0.5,
-    weight_curve=4,
-    pivot="object",
-    calculation_mode="weighted",
-    instance=True,
-):
-    """Duplicate object(s) along a linear path — mirror of mayatk's
-    ``DuplicateLinear.duplicate_linear``.
-
-    Each copy ``i`` interpolates toward the end-state ``translate`` / ``rotate`` / ``scale``
-    by ``ptk.ProgressionCurves.calculate_progression_factor(i, num_copies, …)`` (the same
-    shared math as Maya — the last copy gets the full offset). ``pivot`` is resolved via
-    :func:`blendertk.xform_utils.get_operation_axis_matrix` (``"object"`` / ``"world"`` /
-    ``"manip"`` / bbox locations / an explicit point — mirror of mayatk's
-    ``XformUtils.get_operation_axis_matrix``). Returns ``{original: [copies]}``.
-    """
-    import bpy
-    from mathutils import Euler, Matrix, Vector
-
-    out = {}
-    for src in (o for o in ptk.make_iterable(objects) if o):
-        copies = []
-
-        # Get the pivot matrix (Orientation + Position) using the centralized utility
-        pivot_mat = get_operation_axis_matrix(src, pivot)
-        pivot_inv = pivot_mat.inverted()
-        m0 = src.matrix_world.copy()
-
-        for i in range(num_copies):
-            dup = _copy_object(src, instance=instance)
-
-            # Calculate the transformation factor using the selected method
-            f = ptk.ProgressionCurves.calculate_progression_factor(
-                i, num_copies, weight_bias, weight_curve, calculation_mode
-            )
-
-            # Calculate transformations
-            factors = [(abs(s) ** f) * (-1.0 if s < 0 else 1.0) for s in scale]
-
-            # 1. Local scale
-            scaled = m0 @ Matrix.Diagonal((*factors, 1.0))
-
-            # 2. Rotate around Pivot — orbits the object around the pivot frame (Pos + Ori)
-            rot = Euler([math.radians(r * f) for r in rotate], "XYZ").to_matrix().to_4x4()
-            orbit = pivot_mat @ rot @ pivot_inv
-
-            # 3. Apply Translation (World Space, but respecting Pivot Orientation) — rotate
-            # the translation vector so it follows the pivot's axes (e.g. Manip axis).
-            t = pivot_mat.to_3x3() @ Vector([v * f for v in translate])
-
-            dup.matrix_world = Matrix.Translation(t) @ orbit @ scaled
-            copies.append(dup)
-
-        out[src] = copies
-    bpy.context.view_layer.update()
-    return out
+from blendertk.edit_utils._edit_utils import EditUtils
+from blendertk.xform_utils._xform_utils import XformUtils
 
 
 class DuplicateLinear:
-    """Namespace mirror of mayatk's ``DuplicateLinear`` (helper also exposed module-level)."""
+    """Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
 
-    duplicate_linear = staticmethod(duplicate_linear)
+    Reached as ``btk.DuplicateLinear.duplicate_linear`` (class-only; the co-located
+    ``DuplicateLinearSlots`` panel is discovered by ``BlenderUiHandler``, so the module is not
+    wildcard-scanned onto the flat ``btk.*`` namespace)."""
+
+    @staticmethod
+    @CoreUtils._object_mode
+    def duplicate_linear(
+        objects,
+        num_copies,
+        translate=(0, 0, 0),
+        rotate=(0, 0, 0),
+        scale=(1, 1, 1),
+        weight_bias=0.5,
+        weight_curve=4,
+        pivot="object",
+        calculation_mode="weighted",
+        instance=True,
+    ):
+        """Duplicate object(s) along a linear path — mirror of mayatk's
+        ``DuplicateLinear.duplicate_linear``.
+
+        Each copy ``i`` interpolates toward the end-state ``translate`` / ``rotate`` / ``scale``
+        by ``ptk.ProgressionCurves.calculate_progression_factor(i, num_copies, …)`` (the same
+        shared math as Maya — the last copy gets the full offset). ``pivot`` is resolved via
+        :func:`blendertk.xform_utils.get_operation_axis_matrix` (``"object"`` / ``"world"`` /
+        ``"manip"`` / bbox locations / an explicit point — mirror of mayatk's
+        ``XformUtils.get_operation_axis_matrix``). Returns ``{original: [copies]}``.
+        """
+        import bpy
+        from mathutils import Euler, Matrix, Vector
+
+        out = {}
+        for src in (o for o in ptk.make_iterable(objects) if o):
+            copies = []
+
+            # Get the pivot matrix (Orientation + Position) using the centralized utility
+            pivot_mat = XformUtils.get_operation_axis_matrix(src, pivot)
+            pivot_inv = pivot_mat.inverted()
+            m0 = src.matrix_world.copy()
+
+            for i in range(num_copies):
+                dup = EditUtils._copy_object(src, instance=instance)
+
+                # Calculate the transformation factor using the selected method
+                f = ptk.ProgressionCurves.calculate_progression_factor(
+                    i, num_copies, weight_bias, weight_curve, calculation_mode
+                )
+
+                # Calculate transformations
+                factors = [(abs(s) ** f) * (-1.0 if s < 0 else 1.0) for s in scale]
+
+                # 1. Local scale
+                scaled = m0 @ Matrix.Diagonal((*factors, 1.0))
+
+                # 2. Rotate around Pivot — orbits the object around the pivot frame (Pos + Ori)
+                rot = (
+                    Euler([math.radians(r * f) for r in rotate], "XYZ")
+                    .to_matrix()
+                    .to_4x4()
+                )
+                orbit = pivot_mat @ rot @ pivot_inv
+
+                # 3. Apply Translation (World Space, but respecting Pivot Orientation) — rotate
+                # the translation vector so it follows the pivot's axes (e.g. Manip axis).
+                t = pivot_mat.to_3x3() @ Vector([v * f for v in translate])
+
+                dup.matrix_world = Matrix.Translation(t) @ orbit @ scaled
+                copies.append(dup)
+
+            out[src] = copies
+        bpy.context.view_layer.update()
+        return out
 
 
 # ----------------------------------------------------------------------------
@@ -123,8 +130,16 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
         # "baked" has no Blender analogue (both handled in get_operation_axis_matrix / below).
         self.ui.cmb002.clear()
         self.pivot_options = [
-            "object", "world", "center", "manip",
-            "xmin", "xmax", "ymin", "ymax", "zmin", "zmax",
+            "object",
+            "world",
+            "center",
+            "manip",
+            "xmin",
+            "xmax",
+            "ymin",
+            "ymax",
+            "zmin",
+            "zmax",
             "baked",
         ]
         self.ui.cmb002.add(self.pivot_options, prefix="Pivot:")
@@ -217,10 +232,10 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Duplicate Linear",
                 body="Duplicate selected objects along a linear path with "
                 "per-copy translate, rotate, and scale offsets.",
@@ -304,7 +319,7 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
         # Get instance mode from checkbox
         instance = self.ui.cmb_inst.currentData() == "instance"
 
-        self.copies = duplicate_linear(
+        self.copies = DuplicateLinear.duplicate_linear(
             objects,
             num_copies,
             translate,

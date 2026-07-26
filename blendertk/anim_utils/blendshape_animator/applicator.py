@@ -66,12 +66,13 @@ correctives via a ``depsgraph_update_post``/``frame_change_post`` handler instea
 scripted driver, sidestepping the depsgraph ordering entirely) is a viable follow-up but adds
 handler-lifecycle scope (registration/undo/reload) beyond what could be verified here.
 """
+
 from enum import Enum
 from typing import List, Optional, Tuple
 
 import pythontk as ptk
 
-from blendertk.anim_utils.blendshape_animator.keyframes import Keyframes, preserve_sibling_values
+from blendertk.anim_utils.blendshape_animator.keyframes import Keyframes
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
 
 
@@ -229,7 +230,7 @@ class Applicator(ptk.LoggingMixin):
         for kb in shape_keys.key_blocks:
             if kb.name.startswith(prefix):
                 try:
-                    w = int(kb.name[len(prefix):]) / 1000.0
+                    w = int(kb.name[len(prefix) :]) / 1000.0
                 except ValueError:
                     continue
                 out.append((w, kb))
@@ -256,7 +257,7 @@ class Applicator(ptk.LoggingMixin):
             # the current frame (not just the drivers it's meant to recompile) whenever a
             # keyframe was recently inserted anywhere on it -- guard sibling master keys' live
             # values (see preserve_sibling_values' docstring for the concrete two-morph repro).
-            with preserve_sibling_values(self.keyframes.key_id):
+            with Keyframes.preserve_sibling_values(self.keyframes.key_id):
                 btk.RigUtils.refresh_drivers([self.keyframes.key_id])
 
     def _set_tent_driver(self, corr, w: float, w_prev: float, w_next: float) -> None:
@@ -271,8 +272,11 @@ class Applicator(ptk.LoggingMixin):
         drv = fc.driver
         drv.type = "SCRIPTED"
         btk.RigUtils.add_prop_var(
-            fc, "m", self.keyframes.key_id,
-            f'key_blocks["{self.keyframes.key_name}"].value', id_type="KEY",
+            fc,
+            "m",
+            self.keyframes.key_id,
+            f'key_blocks["{self.keyframes.key_name}"].value',
+            id_type="KEY",
         )
 
         left = "1" if w == w_prev else f"(m - {w_prev!r}) / {(w - w_prev)!r}"

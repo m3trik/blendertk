@@ -23,18 +23,17 @@ Layout
 - **Manage**: Remove selected planes.
 - **Footer**: Status messages.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import selected_objects, undoable
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.mat_utils.image_to_plane._image_to_plane import ImageToPlane
 
 
 class ImageToPlaneSlots(ptk.LoggingMixin):
     """Switchboard slots for the Image to Plane panel."""
 
-    IMAGE_FILTER = (
-        "Image Files (*.png *.jpg *.jpeg *.tga *.bmp *.tif *.tiff *.exr *.hdr);;All Files (*.*)"
-    )
+    IMAGE_FILTER = "Image Files (*.png *.jpg *.jpeg *.tga *.bmp *.tif *.tiff *.exr *.hdr);;All Files (*.*)"
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
@@ -54,7 +53,7 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add(
             "QCheckBox",
@@ -65,7 +64,7 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
         )
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Image to Plane",
                 body="Creates textured planes from image files — one "
                 "plane per image, sized to its aspect ratio and assigned a "
@@ -80,10 +79,13 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
                     "Press <b>Create Planes</b>.",
                 ],
                 sections=[
-                    ("Menu options", [
-                        "<b>Group Result</b> — parent all created planes under "
-                        "a single Empty.",
-                    ]),
+                    (
+                        "Menu options",
+                        [
+                            "<b>Group Result</b> — parent all created planes under "
+                            "a single Empty.",
+                        ],
+                    ),
                 ],
                 notes=[
                     "Use <b>Remove Selected</b> to delete planes and their "
@@ -110,13 +112,13 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
         if mode == "prefix":
             widget.setPlaceholderText("Material Prefix")
             widget.setToolTip(
-                'Prefix prepended to the image name for material naming.\n'
+                "Prefix prepended to the image name for material naming.\n"
                 'Example: image "brick" with prefix "MAT_" → material "MAT_brick".'
             )
         elif mode == "suffix":
             widget.setPlaceholderText("Material Suffix")
             widget.setToolTip(
-                'Suffix appended to the image name for material naming.\n'
+                "Suffix appended to the image name for material naming.\n"
                 'Example: image "brick" with suffix "_MAT" → material "brick_MAT".'
             )
         else:  # auto
@@ -164,7 +166,7 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
     # Create
     # ------------------------------------------------------------------
 
-    @undoable
+    @CoreUtils.undoable
     def _create_planes(self):
         """Create textured planes from the queued images."""
         import bpy
@@ -223,10 +225,10 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
     # Manage
     # ------------------------------------------------------------------
 
-    @undoable
+    @CoreUtils.undoable
     def _remove_selected(self):
         """Remove selected planes and their associated materials."""
-        objects = selected_objects()
+        objects = CoreUtils.selected_objects()
         if not objects:
             self.ui.footer.setText("Select planes to remove.")
             return

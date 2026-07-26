@@ -172,6 +172,10 @@ try:
           os.path.normcase(os.path.normpath(bpy.data.filepath)) == os.path.normcase(os.path.normpath(lib_path)))
     check("open_scene(missing) → False", not btk.open_scene(os.path.join(tmp, "nope.blend")))
 
+    # 18. new_scene — the 'close' counterpart: discard the open file, empty untitled scene.
+    check("new_scene resets to an empty, unsaved scene",
+          btk.new_scene() and bpy.data.filepath == "" and len(bpy.data.objects) == 0)
+
     # --- Slot bulk-operation routing (stub ui/sb; bypass the Qt-heavy __init__) ---------------
     from blendertk.env_utils.reference_manager import ReferenceManagerSlots
 
@@ -193,12 +197,17 @@ try:
         s._recursive = True
         return s, sb
 
-    # reload_all over a live linked library
+    # reload_all over a live linked library — success is logged, not popped up (the toast was
+    # dropped as a pure success confirmation), so capture the ring buffer to verify the reload ran.
     bpy.ops.wm.read_factory_settings(use_empty=True)
     btk.link_blend_file(lib_path, link=True)
     s, sb = make_slots()
+    ReferenceManagerSlots.set_log_level("DEBUG")
+    ReferenceManagerSlots.enable_log_buffer()
+    ReferenceManagerSlots.clear_log_buffer()
     s.reload_all()
-    check("slot reload_all reports a reload", any("Reloaded" in m for m in sb.messages), str(sb.messages))
+    check("slot reload_all reports a reload", "Reloaded" in ReferenceManagerSlots.dump_log(),
+          ReferenceManagerSlots.dump_log() or str(sb.messages))
 
     # make_local_all (confirm Yes) → library gone, data local
     s, sb = make_slots("Yes")
@@ -225,6 +234,107 @@ try:
     s.reload_all()
     check("slot reload_all with no libraries reports it",
           any("No linked" in m for m in sb.messages), str(sb.messages))
+
+    # Folder-structure filter must resolve {scenes} (regression: the filter passed no scenes= to
+    # replace_placeholders, so a "{scenes}/…" pattern — now the header default — matched nothing
+    # and silently hid every file, exactly the "panel shows nothing" symptom).
+    s, _fsb = make_slots()
+    fs_ws = os.path.join(tmp, "fs_ws")
+    os.makedirs(os.path.join(fs_ws, "scenes", "hero"), exist_ok=True)
+    in_scenes = os.path.join(fs_ws, "scenes", "hero", "hero.blend")
+    loose = os.path.join(fs_ws, "loose.blend")
+    open(in_scenes, "w").close()
+    open(loose, "w").close()
+    kept = s._filter_by_folder_structure([in_scenes, loose], fs_ws, "{scenes}/{name}", "")
+    check("folder-structure filter resolves {scenes} (keeps scenes/<name>, drops loose)",
+          [os.path.normcase(p) for p in kept] == [os.path.normcase(in_scenes)], str(kept))
+
+    # --- Include Types / foreign classification (mirror of mayatk's, inverted) ----------------
+    from blendertk.env_utils.maya_bridge._scene_import import (
+        MayaSceneImport, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, bake_maya_scene,
+    )
+
+    check("_is_foreign classifies ma/mb/fbx foreign, blend native",
+          all(ReferenceManagerSlots._is_foreign(f"x{e}") for e in (".ma", ".mb", ".fbx"))
+          and not ReferenceManagerSlots._is_foreign("x.blend"))
+    check("NATIVE + FOREIGN partition covers exactly the Include Types row",
+          set(ReferenceManagerSlots.NATIVE_EXTENSIONS) | set(ReferenceManagerSlots.FOREIGN_EXTENSIONS)
+          == {f".{t}" for t in ReferenceManagerSlots._INCLUDE_TYPES}
+          and not set(ReferenceManagerSlots.NATIVE_EXTENSIONS) & set(ReferenceManagerSlots.FOREIGN_EXTENSIONS))
+    check("include defaults are this panel's native type",
+          set(ReferenceManagerSlots._INCLUDE_DEFAULTS) == set(ReferenceManagerSlots.NATIVE_EXTENSIONS))
+    check("foreign set matches the bridge's bakeable sources",
+          set(ReferenceManagerSlots.FOREIGN_EXTENSIONS) == set(BAKE_SOURCE_EXTENSIONS))
+    s, _ = make_slots()  # stub ui has no header menu -> defaults
+    check("_included_extensions falls back to defaults without a menu",
+          s._included_extensions() == set(ReferenceManagerSlots._INCLUDE_DEFAULTS))
+
+    # find_scenes honors the extensions narrowing (drives the Include Types discovery).
+    scan_ws = os.path.join(tmp, "scan_ws")
+    os.makedirs(scan_ws, exist_ok=True)
+    for fname in ("a.ma", "b.mb", "c.fbx", "d.blend"):
+        open(os.path.join(scan_ws, fname), "w").close()
+    default_scan = {os.path.basename(p) for p in MayaSceneImport.find_scenes(scan_ws)}
+    check("find_scenes default lists Maya scenes only", default_scan == {"a.ma", "b.mb"}, str(default_scan))
+    fbx_scan = {os.path.basename(p) for p in MayaSceneImport.find_scenes(scan_ws, extensions=[".fbx"])}
+    check("find_scenes extensions= narrows to the checked types", fbx_scan == {"c.fbx"}, str(fbx_scan))
+
+    # Bake-source sidecar round trip (maps a linked bake back to the row the user sees).
+    fake_bake = os.path.join(tmp, "fake_bake.blend")
+    open(fake_bake, "w").close()
+    MayaSceneImport()._write_bake_source(fake_bake, os.path.join(scan_ws, "a.ma"))
+    check("bake_source reads back the sidecar",
+          os.path.normcase(MayaSceneImport.bake_source(fake_bake) or "")
+          == os.path.normcase(os.path.join(scan_ws, "a.ma")))
+    check("bake_source(non-bake) -> None", MayaSceneImport.bake_source(lib_path) is None)
+
+    # --- End-to-end: .fbx source -> cached .blend bake -> link -> row resolution --------------
+    # An .fbx bakes with NO Maya involved (the bake stage launches a fresh headless Blender),
+    # so this covers the real reference-toggle path for at least one foreign type.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    fbx_src = os.path.join(tmp, "kit_export.fbx")
+    bpy.ops.export_scene.fbx(filepath=fbx_src, use_selection=False)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    baked = bake_maya_scene(fbx_src, use_cache=False)
+    try:
+        check("bake_maya_scene(.fbx) produces a .blend", os.path.isfile(baked) and baked.lower().endswith(".blend"), baked)
+        check("bake sidecar points back at the .fbx source",
+              os.path.normcase(MayaSceneImport.bake_source(baked) or "") == os.path.normcase(fbx_src))
+        n_baked = btk.link_blend_file(baked, link=True)
+        check("baked .blend links like a native library", n_baked >= 1, f"count={n_baked}")
+        s, _ = make_slots()
+        lib = s._library_for_path(fbx_src)  # resolve the SOURCE row through the sidecar
+        check("_library_for_path resolves the foreign row via its bake", lib is not None)
+        if lib is not None:  # second toggle click: remove by the source path, row reads unreferenced
+            btk.remove_library(lib)
+            check("foreign row un-references through the same path", s._library_for_path(fbx_src) is None)
+    finally:
+        # The bake lands in the user-level cache store, not tmp — don't leave test artifacts there.
+        bpy.ops.wm.read_factory_settings(use_empty=True)  # release the link before deleting
+        for _p in (baked, baked + BAKE_SOURCE_SUFFIX):
+            try:
+                os.remove(_p)
+            except OSError:
+                pass
+
+    # --- _resolve_smart_bake: prompt bake-vs-raw when driven animation is present ---
+    complex_ma = os.path.join(tmp, "anim.ma")
+    with open(complex_ma, "w") as f:
+        f.write("//Maya ASCII 2025 scene\ncreateNode pointConstraint -n \"pc1\";\n")
+    static_ma = os.path.join(tmp, "static.ma")
+    with open(static_ma, "w") as f:
+        f.write("//Maya ASCII 2025 scene\ncreateNode transform -n \"cube\";\n")
+    # Driven animation present -> prompt; the mocked choice maps to smart_bake.
+    check("_resolve_smart_bake: Yes -> bake (True)",
+          make_slots("Yes")[0]._resolve_smart_bake(complex_ma) is True)
+    check("_resolve_smart_bake: No -> import raw (False)",
+          make_slots("No")[0]._resolve_smart_bake(complex_ma) is False)
+    check("_resolve_smart_bake: Cancel -> None (abort)",
+          make_slots("Cancel")[0]._resolve_smart_bake(complex_ma) is None)
+    # No driven animation -> no prompt, falls through to the bridge's "auto" default.
+    check("_resolve_smart_bake: static scene -> 'auto' (no prompt)",
+          make_slots("Yes")[0]._resolve_smart_bake(static_ma) == "auto")
 
 except Exception as e:
     traceback.print_exc()

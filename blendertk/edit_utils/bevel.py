@@ -16,10 +16,11 @@ view / region context, so it runs identically interactively and under headless `
 the Qt-only ``uitk`` helper into its method, so importing the module / resolving the package
 surface never needs a running Blender or Qt.
 """
+
 import pythontk as ptk
 
 from blendertk.core_utils.preview import Preview
-from blendertk.edit_utils._edit_utils import _meshes, _edit_mesh_each
+from blendertk.edit_utils._edit_utils import EditUtils
 
 
 class Bevel:
@@ -58,9 +59,11 @@ class Bevel:
             int: The number of components beveled (0 when the selection was empty).
         """
         import bmesh
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        meshes = _meshes(selected_objects() if objects is None else objects)
+        meshes = EditUtils._meshes(
+            CoreUtils.selected_objects() if objects is None else objects
+        )
         if not meshes:
             raise RuntimeError("Bevel requires a mesh selection.")
 
@@ -84,7 +87,7 @@ class Bevel:
             )
             return len(geom)
 
-        total = _edit_mesh_each(meshes, _do)
+        total = EditUtils._edit_mesh_each(meshes, _do)
         if not total:
             raise RuntimeError(
                 "Nothing to bevel — select edge(s) (or vertices) in Edit Mode first."
@@ -124,10 +127,10 @@ class BevelSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Bevel",
                 body="Add chamfer bevels to selected polygon edges.",
                 steps=[

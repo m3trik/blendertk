@@ -16,10 +16,26 @@ standardSurface baseColor file texture arrives in Blender only after translation
 
 Underscore-prefixed: hidden from the bridge panel's template list (this is not a
 user-pickable send recipe; it belongs to the pull engine).
+
+Smart-bake pre-pass (optional): FBX's ``BakeComplexAnimation`` carries plain
+keyframes but silently drops *inherited* visibility (a child whose show/hide comes
+from an animated ancestor) and can miss set-driven keys / motion paths. When
+``SMART_BAKE`` is requested AND a cheap dependency-free probe finds driven
+animation, this bakes those channels to real keys first via mayatk's ``SmartBake``
+-- the ONE existing engine for it (reused, not reimplemented). Baked visibility
+additionally travels in the manifest sidecar's ``visibility`` section (beside the
+``materials`` the manifest already carries): the FBX *does* carry the visibility
+curve, but Blender's FBX importer drops it (verified empirically -- even
+directly-keyed visibility arrives as nothing), so the Blender side replays the
+manifest as ``hide_render``/``hide_viewport`` keys. The
+core conversion stays dependency-free: the mayatk import is guarded and injected
+on ``PYTHONPATH`` by the driver only when smart-bake is active, so a pipeline
+mayapy without mayatk degrades to the plain FBX bake.
 """
 
-# Dependency-free Maya Python: no mayatk/blendertk imports (the target machine's
-# mayapy only has Maya's own modules).
+# Dependency-free Maya Python by default: the core conversion imports only Maya's
+# own modules. The OPTIONAL smart-bake pre-pass imports mayatk, but behind a guard
+# (missing -> plain FBX bake), so this template still runs on a bare mayapy.
 import json
 import os
 import sys
@@ -29,6 +45,17 @@ SRC_PATH = r"__SRC_PATH__"
 OUT_FBX = r"__OUT_FBX__"
 EMBED_TEXTURES = __EMBED_TEXTURES__
 INCLUDE_ANIMATION = __INCLUDE_ANIMATION__
+# "auto" = bake only if the cheap probe finds driven animation; True = always try;
+# False = never (the pre-smart-bake behaviour).
+SMART_BAKE = __SMART_BAKE__
+
+# Concrete constraint node types (``ls`` has no reliable abstract "constraint"
+# filter across versions) — the cheap probe's first signal of driven animation.
+_CONSTRAINT_TYPES = (
+    "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
+    "aimConstraint", "poleVectorConstraint", "geometryConstraint", "normalConstraint",
+    "tangentConstraint",
+)
 
 # Modern surface shaders whose textures FBX cannot carry (classic model only).
 MODERN_SHADER_TYPES = ("standardSurface", "aiStandardSurface", "openPBRSurface")
@@ -307,17 +334,110 @@ def fbx_safe_materials(cmds):
     return entries
 
 
-def write_texture_manifest(entries, path):
-    """Sidecar for the textures FBX cannot carry, consumed by MayaSceneImport.
+def write_manifest(entries, visibility, path):
+    """The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+    textures FBX cannot carry; ``visibility`` = smart-bake's baked visibility
+    (FBX carries the curve but Blender's importer drops it). One file — same
+    producer, same consumer, same lifecycle — not a sidecar per concern.
 
-    File-less entries are written too: a translated material whose texture
-    paths never resolved must surface as a NAMED warning on the Blender side,
-    not as silently pink geometry (live production report).
+    File-less material entries are written too: a translated material whose
+    texture paths never resolved must surface as a NAMED warning on the Blender
+    side, not as silently pink geometry (live production report).
     """
-    if not entries:
+    if not (entries or visibility):
         return
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"version": 1, "materials": entries}, fh, indent=1)
+        json.dump(
+            {"version": 1, "materials": entries, "visibility": visibility},
+            fh,
+            indent=1,
+        )
+    if visibility:
+        print(
+            "smart_bake: visibility for {} object(s) written to the manifest.".format(
+                len(visibility)
+            )
+        )
+
+
+def _detect_complex_anim(cmds):
+    """Cheap, dependency-free probe: does the scene hold animation FBX's plain bake
+    would lose? A proxy for ``SmartBake.analyze`` used to decide whether the (heavier)
+    mayatk import is worth it -- kept in Maya's own modules so a bare mayapy can gate
+    without pulling mayatk. Signals: any constraint / expression / IK / motion path,
+    any set-driven-key curve (``animCurveU*``), or any animCurve driving a
+    ``.visibility`` plug (the inherited-visibility case FBX drops)."""
+    if cmds.ls(type=_CONSTRAINT_TYPES + ("expression", "ikHandle", "motionPath")):
+        return True
+    if cmds.ls(type=("animCurveUL", "animCurveUA", "animCurveUU")):
+        return True
+    # Visibility is unitless -> animCurveTU; bounded scan (few such curves).
+    for crv in cmds.ls(type="animCurveTU") or []:
+        for plug in cmds.listConnections(
+            crv + ".output", source=False, destination=True, plugs=True
+        ) or []:
+            if plug.split(".")[-1] in ("visibility", "v"):
+                return True
+    return False
+
+
+def _collect_baked_visibility(cmds, result):
+    """Read the baked base-layer visibility curves into a serializable
+    ``{short_name: [[frame, value], ...]}`` map.
+
+    FBX *can* carry a visibility curve, but Blender's FBX importer silently drops
+    it (verified: even a directly-keyed node arrives with no ``hide_*`` animation),
+    so the transform-only FBX is not enough — the values travel to Blender via a
+    sidecar the bake / import replays as ``hide_render`` / ``hide_viewport`` keys.
+    ``SmartBake`` keys effective inherited visibility onto each mesh's own
+    ``.visibility`` on the base layer and reports the curves in
+    ``result.visibility_curves``; that is exactly what needs to reach Blender."""
+    vis = {}
+    for obj_long, curve in (getattr(result, "visibility_curves", None) or {}).items():
+        if not (curve and cmds.objExists(curve)):
+            continue
+        times = cmds.keyframe(curve, query=True, timeChange=True) or []
+        values = cmds.keyframe(curve, query=True, valueChange=True) or []
+        keys = [[t, v] for t, v in zip(times, values)]
+        if keys:
+            vis[obj_long.split("|")[-1].split(":")[-1]] = keys
+    return vis
+
+
+def _run_smart_bake(cmds):
+    """Bake driven channels (inherited visibility, SDKs, constraints, IK, motion
+    paths, driven blend shapes) to real keys via mayatk's ``SmartBake`` so the FBX
+    carries them. Nondestructive (override layer, flattened by
+    ``FBXExportBakeComplexAnimation``); the scene is throwaway so the restore
+    manifest is skipped. Guarded: without mayatk on ``PYTHONPATH`` the conversion
+    falls back to the plain FBX bake.
+
+    Returns the baked-visibility map (see :func:`_collect_baked_visibility`) for the
+    manifest's ``visibility`` section — empty when mayatk is absent or nothing was
+    baked."""
+    try:
+        from mayatk.anim_utils.smart_bake._smart_bake import SmartBake
+    except Exception as error:
+        print("smart_bake: mayatk unavailable ({}); plain FBX bake.".format(error))
+        return {}
+    try:
+        result = SmartBake(
+            use_override_layer=True,
+            bake_blend_shapes=True,
+            bake_inherited_visibility=True,
+            optimize_keys=True,
+            restorable=False,
+        ).execute()
+        print(
+            "smart_bake: baked {} object(s) over {} (skipped {}).".format(
+                result.baked_count, result.time_range, len(result.skipped)
+            )
+        )
+        return _collect_baked_visibility(cmds, result)
+    except Exception:
+        print("smart_bake: pre-pass failed; plain FBX bake.")
+        traceback.print_exc()
+        return {}
 
 
 def main():
@@ -332,6 +452,13 @@ def main():
     cmds.file(
         SRC_PATH, open=True, force=True, ignoreVersion=True, loadReferenceDepth="all"
     )
+    # Optional pre-pass: convert driven animation to keys before export (see module
+    # docstring). ``True`` forces the attempt; ``"auto"`` gates on the cheap probe.
+    visibility = {}
+    if SMART_BAKE and INCLUDE_ANIMATION and (
+        SMART_BAKE is True or _detect_complex_anim(cmds)
+    ):
+        visibility = _run_smart_bake(cmds)
     manifest_entries = fbx_safe_materials(cmds)
 
     if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
@@ -365,7 +492,7 @@ def main():
             print("FBX flag skipped (unsupported by this plugin): " + flag)
     mel.eval('FBXExport -f "{}"'.format(OUT_FBX))
     # Written only after a successful export (a manifest implies its FBX).
-    write_texture_manifest(manifest_entries, OUT_FBX + ".manifest.json")
+    write_manifest(manifest_entries, visibility, OUT_FBX + ".manifest.json")
 
 
 try:

@@ -74,6 +74,16 @@ try:
     check("image color → Base Color", base_linked)
     check("RGBA image → Alpha linked", alpha_linked)
     check("material named with the _MAT suffix", mat.name.startswith("wide_MAT"), mat.name)
+    bsdf = next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    check("default roughness is 0", bsdf is not None and bsdf.inputs["Roughness"].default_value == 0.0,
+          "" if bsdf is None else str(bsdf.inputs["Roughness"].default_value))
+
+    # ---- explicit roughness is honored --------------------------------------------------------
+    reset()
+    mat2 = ImageToPlane.create([wide], roughness=0.5)["wide"].data.materials[0]
+    bsdf2 = next((n for n in mat2.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    check("custom roughness applied", bsdf2 is not None and bsdf2.inputs["Roughness"].default_value == 0.5,
+          "" if bsdf2 is None else str(bsdf2.inputs["Roughness"].default_value))
 
     # ---- aspect for a tall image (0.5) --------------------------------------------------------
     reset()

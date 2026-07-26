@@ -26,6 +26,7 @@ Divergence from mayatk (by design, not a gap to fill in later — see the port's
       fresh from the reference ``.blend``, and native Append copies each object's Action wholesale
       — there is no per-curve transfer step for anim layers to complicate.
 """
+
 import os
 import tempfile
 import traceback
@@ -34,9 +35,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import strip_dup_suffix
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.display_utils.color_id import ColorId
-from blendertk.node_utils._node_utils import reparent as _reparent
+from blendertk.node_utils._node_utils import NodeUtils
+
 
 #: Worker run in a fresh headless Blender to convert an FBX reference into a standalone ``.blend``
 #: (see :func:`stage_reference_blend`). Committed beside this module and run **by path** as a
@@ -44,117 +46,9 @@ from blendertk.node_utils._node_utils import reparent as _reparent
 _FBX_STAGE_WORKER = os.path.join(os.path.dirname(__file__), "_fbx_stage_worker.py")
 
 
-def stage_reference_blend(reference_path: str, logger=None):
-    """Return a ``.blend`` path to link as the reference, converting other scene formats.
-
-    A ``.blend`` reference is staged directly. Any other supported scene format (currently
-    ``.fbx``) is converted to a throwaway temp ``.blend`` **in a fresh headless Blender**
-    (:data:`_FBX_STAGE_WORKER` via :class:`~blendertk.env_utils.blender_connection.BlenderConnection`)
-    so the whole linked-library Diff/Pull pipeline stays format-agnostic (an FBX reference becomes
-    indistinguishable from a ``.blend`` one). mayatk imports FBX straight into an isolating Maya
-    namespace; Blender object names are global to a ``.blend``, so importing the FBX into the
-    user's live scene would suffix every colliding object ``.001`` (the normal case for a Hierarchy
-    Sync reference, which shares names with the current scene) and bake that suffix into the staged
-    file — breaking the diff. Converting in a brand-new empty Blender guarantees clean names and
-    never mutates the user's scene.
-
-    Args:
-        reference_path: the reference ``.blend`` or ``.fbx``.
-        logger: optional ``ptk`` logger for progress/error reporting.
-
-    Returns:
-        ``(blend_path, temp_blend_or_None)`` — the temp file (if any) is the caller's to delete on
-        teardown. ``(None, None)`` on failure or an unsupported format.
-    """
-    def _log(level, msg):
-        if logger is not None:
-            getattr(logger, level)(msg)
-
-    ext = os.path.splitext(reference_path)[1].lower()
-    if ext == ".blend":
-        return reference_path, None
-    if ext != ".fbx":
-        _log("error", f"Unsupported reference format '{ext}'. Use a .blend or .fbx file.")
-        return None, None
-
-    import bpy
-    from blendertk.env_utils.blender_connection import BlenderConnection
-
-    _log("progress", f"Converting reference {ext} for staging: {os.path.basename(reference_path)}")
-
-    fd, temp_blend = tempfile.mkstemp(prefix="hier_ref_", suffix=".blend")
-    os.close(fd)
-
-    def _fail(msg):
-        _log("error", msg)
-        try:
-            os.remove(temp_blend)
-        except OSError:
-            pass
-        return None, None
-
-    try:
-        result = BlenderConnection(blender_exe=bpy.app.binary_path).run_script(
-            _FBX_STAGE_WORKER,
-            script_args=[os.path.abspath(reference_path), temp_blend],
-            timeout=300,
-        )
-    except Exception as e:  # noqa: BLE001 — launch/timeout failures reported cleanly, never raised
-        return _fail(f"Failed to stage reference FBX (could not launch Blender): {e}")
-
-    if result.returncode != 0 or not (os.path.isfile(temp_blend) and os.path.getsize(temp_blend)):
-        tail = (result.stdout or "").strip().splitlines()[-3:]
-        return _fail(
-            f"Reference FBX staging failed (rc={result.returncode}). " + " | ".join(tail)
-        )
-
-    return temp_blend, temp_blend
-
-
 # ---------------------------------------------------------------------------
 # Path building — the Blender analogue of mayatk's DAG full-path / clean-path split.
 # ---------------------------------------------------------------------------
-
-
-def build_path(obj) -> str:
-    """Pipe-joined hierarchy path from the root down to ``obj`` (e.g. ``"GRP|Child|Leaf"``).
-
-    Built from live ``.name`` values — Blender enforces globally-unique local names and a linked
-    library's objects keep their untouched source-file names, so (unlike Maya, where a namespace
-    prefix must be stripped for comparison) the path IS already the clean comparison key.
-    """
-    parts = [obj.name]
-    parent = obj.parent
-    while parent is not None:
-        parts.append(parent.name)
-        parent = parent.parent
-    return "|".join(reversed(parts))
-
-
-def delete_objects(objects) -> List[str]:
-    """Delete *objects* AND all their descendants from the blend data; return the deleted names.
-
-    Maya parity: ``cmds.delete`` removes the whole subtree, but a bare
-    ``bpy.data.objects.remove()`` re-roots the children instead — they stay in the scene and
-    their world transform shifts once the parent's transform vanishes. Descendants are expanded
-    up front (dedup by pointer, so an overlapping selection never double-deletes).
-    """
-    import bpy
-
-    doomed = {}
-    for obj in objects:
-        for cand in (obj, *obj.children_recursive):
-            doomed[cand.as_pointer()] = cand
-    names = [o.name for o in doomed.values()]
-    for o in doomed.values():
-        bpy.data.objects.remove(o, do_unlink=True)
-    return names
-
-
-def should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool:
-    """Filter by Blender object type — mirror of mayatk's shape-type filter."""
-    matched = obj.type in node_types
-    return not matched if exclude else matched
 
 
 class HierarchyMapBuilder:
@@ -169,7 +63,7 @@ class HierarchyMapBuilder:
     @staticmethod
     def build_path_map(objects) -> Dict[str, Any]:
         """Map every object in ``objects`` to its hierarchy path (see :func:`build_path`)."""
-        return {build_path(obj): obj for obj in objects}
+        return {HierarchySync.build_path(obj): obj for obj in objects}
 
 
 class HierarchySync(ptk.LoggingMixin):
@@ -216,12 +110,16 @@ class HierarchySync(ptk.LoggingMixin):
                 belonging to a linked library.
         """
         try:
-            self.current_scene_path_map = HierarchyMapBuilder.build_path_map(current_objects)
+            self.current_scene_path_map = HierarchyMapBuilder.build_path_map(
+                current_objects
+            )
             self.logger.progress(
                 f"Built current scene path map: {len(self.current_scene_path_map)} paths"
             )
 
-            self.reference_scene_path_map = HierarchyMapBuilder.build_path_map(reference_objects)
+            self.reference_scene_path_map = HierarchyMapBuilder.build_path_map(
+                reference_objects
+            )
             self.logger.progress(
                 f"Built reference path map: {len(self.reference_scene_path_map)} paths"
             )
@@ -240,7 +138,9 @@ class HierarchySync(ptk.LoggingMixin):
                     filtered = {
                         path: obj
                         for path, obj in pmap.items()
-                        if should_keep_node_by_type(obj, exclude_types, exclude=True)
+                        if HierarchySync.should_keep_node_by_type(
+                            obj, exclude_types, exclude=True
+                        )
                     }
                     setattr(self, attr, filtered)
 
@@ -267,11 +167,11 @@ class HierarchySync(ptk.LoggingMixin):
             reparented, remaining_missing, remaining_extra = self._detect_reparented(
                 remaining_missing, remaining_extra
             )
-            fuzzy_matches, remaining_missing, remaining_extra = self._detect_fuzzy_renames(
-                remaining_missing, remaining_extra
+            fuzzy_matches, remaining_missing, remaining_extra = (
+                self._detect_fuzzy_renames(remaining_missing, remaining_extra)
             )
-            suffix_matches, remaining_missing, remaining_extra = self._detect_suffix_flattening(
-                remaining_missing, remaining_extra
+            suffix_matches, remaining_missing, remaining_extra = (
+                self._detect_suffix_flattening(remaining_missing, remaining_extra)
             )
             fuzzy_matches.extend(suffix_matches)
 
@@ -340,7 +240,9 @@ class HierarchySync(ptk.LoggingMixin):
                     matched_missing.add(m_paths[0])
                     matched_extra.add(e_paths[0])
 
-            remaining_missing = [p for p in remaining_missing if p not in matched_missing]
+            remaining_missing = [
+                p for p in remaining_missing if p not in matched_missing
+            ]
             remaining_extra = [p for p in remaining_extra if p not in matched_extra]
 
             if reparented:
@@ -376,10 +278,16 @@ class HierarchySync(ptk.LoggingMixin):
                 if query_leaf == best_leaf:
                     continue
                 ref_path = next(
-                    (p for p in remaining_missing if p.rsplit("|", 1)[-1] == query_leaf), None
+                    (
+                        p
+                        for p in remaining_missing
+                        if p.rsplit("|", 1)[-1] == query_leaf
+                    ),
+                    None,
                 )
                 cur_path = next(
-                    (p for p in remaining_extra if p.rsplit("|", 1)[-1] == best_leaf), None
+                    (p for p in remaining_extra if p.rsplit("|", 1)[-1] == best_leaf),
+                    None,
                 )
                 if (
                     ref_path
@@ -388,12 +296,18 @@ class HierarchySync(ptk.LoggingMixin):
                     and cur_path not in matched_fm_extra
                 ):
                     fuzzy_matches.append(
-                        {"target_name": ref_path, "current_name": cur_path, "score": score}
+                        {
+                            "target_name": ref_path,
+                            "current_name": cur_path,
+                            "score": score,
+                        }
                     )
                     matched_fm_missing.add(ref_path)
                     matched_fm_extra.add(cur_path)
 
-            remaining_missing = [p for p in remaining_missing if p not in matched_fm_missing]
+            remaining_missing = [
+                p for p in remaining_missing if p not in matched_fm_missing
+            ]
             remaining_extra = [p for p in remaining_extra if p not in matched_fm_extra]
 
             if fuzzy_matches:
@@ -448,21 +362,29 @@ class HierarchySync(ptk.LoggingMixin):
                         if e_path in matched_extra or m_leaf == e_leaf:
                             continue
                         longer, shorter = (
-                            (m_leaf, e_leaf) if len(m_leaf) > len(e_leaf) else (e_leaf, m_leaf)
+                            (m_leaf, e_leaf)
+                            if len(m_leaf) > len(e_leaf)
+                            else (e_leaf, m_leaf)
                         )
                         if (
                             longer.endswith(shorter)
                             and longer[len(longer) - len(shorter) - 1] == "_"
                         ):
                             suffix_matches.append(
-                                {"target_name": m_path, "current_name": e_path, "score": 1.0}
+                                {
+                                    "target_name": m_path,
+                                    "current_name": e_path,
+                                    "score": 1.0,
+                                }
                             )
                             matched_missing.add(m_path)
                             matched_extra.add(e_path)
                             break
 
             if matched_missing:
-                remaining_missing = [p for p in remaining_missing if p not in matched_missing]
+                remaining_missing = [
+                    p for p in remaining_missing if p not in matched_missing
+                ]
                 remaining_extra = [p for p in remaining_extra if p not in matched_extra]
                 self.logger.debug(
                     f"Detected {len(matched_missing)} name-flattening matches (suffix matching)"
@@ -478,7 +400,11 @@ class HierarchySync(ptk.LoggingMixin):
 
     def _resolve_node(self, path: str, source: str = "current"):
         """Resolve a diff path to a live object, or ``None`` if not found / no longer valid."""
-        path_map = self.current_scene_path_map if source == "current" else self.reference_scene_path_map
+        path_map = (
+            self.current_scene_path_map
+            if source == "current"
+            else self.reference_scene_path_map
+        )
         obj = path_map.get(path)
         if obj is None:
             return None
@@ -507,7 +433,12 @@ class HierarchySync(ptk.LoggingMixin):
         for name in parts[:-1]:
             if current_parent is not None:
                 existing = next(
-                    (c for c in current_parent.children if c.name == name and c.library is None), None
+                    (
+                        c
+                        for c in current_parent.children
+                        if c.name == name and c.library is None
+                    ),
+                    None,
                 )
             else:
                 # library is None: only match LOCAL objects — bpy.context.scene.objects also
@@ -563,7 +494,11 @@ class HierarchySync(ptk.LoggingMixin):
                 pool = (
                     [c for c in parent.children if c.library is None]
                     if parent is not None
-                    else [o for o in bpy.context.scene.objects if o.parent is None and o.library is None]
+                    else [
+                        o
+                        for o in bpy.context.scene.objects
+                        if o.parent is None and o.library is None
+                    ]
                 )
                 if any(c.name == leaf for c in pool):
                     self.logger.debug(f"Stub skipped (already exists): {path}")
@@ -575,7 +510,7 @@ class HierarchySync(ptk.LoggingMixin):
                     stub.parent = parent
                 self._finalize_stub_node(stub)
                 created.append(stub.name)
-                self.logger.debug(f"Created stub: {build_path(stub)}")
+                self.logger.debug(f"Created stub: {HierarchySync.build_path(stub)}")
             except Exception as e:
                 self.logger.warning(f"Failed to create stub for {path}: {e}")
 
@@ -604,6 +539,7 @@ class HierarchySync(ptk.LoggingMixin):
         differs from Maya's (no anim layers, no expression nodes), so this checks the concepts
         that actually exist: ``animation_data.action``, drivers, and constraints.
         """
+
         def _check(o) -> bool:
             ad = getattr(o, "animation_data", None)
             if ad is not None and (ad.action or ad.drivers):
@@ -664,21 +600,27 @@ class HierarchySync(ptk.LoggingMixin):
 
         # Reuse anim_utils' slot-aware fcurve reader — Blender 5.1 dropped the flat
         # ``Action.fcurves`` list (keys now live in per-slot channelbags).
-        from blendertk.anim_utils._anim_utils import get_fcurves, _slot_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         paths = HierarchySync._TRANSFORM_DATA_PATHS
 
         def _hits(fcurves) -> bool:
             return any(getattr(fc, "data_path", None) in paths for fc in fcurves)
 
-        if _hits(get_fcurves([obj])):  # keyframed transform channels (active action)
+        if _hits(
+            AnimUtils.get_fcurves([obj])
+        ):  # keyframed transform channels (active action)
             return True
-        if getattr(ad, "drivers", None) and _hits(ad.drivers):  # driven transforms (flat list)
+        if getattr(ad, "drivers", None) and _hits(
+            ad.drivers
+        ):  # driven transforms (flat list)
             return True
         for track in getattr(ad, "nla_tracks", []):  # NLA-stacked actions
             for strip in track.strips:
                 action = getattr(strip, "action", None)
-                if action and _hits(_slot_fcurves(action, getattr(strip, "action_slot", None))):
+                if action and _hits(
+                    AnimUtils._slot_fcurves(action, getattr(strip, "action_slot", None))
+                ):
                     return True
         return False
 
@@ -734,7 +676,8 @@ class HierarchySync(ptk.LoggingMixin):
                 direct_extra_children = sum(
                     1
                     for p in targets_set
-                    if p.startswith(natural_root + "|") and "|" not in p[len(natural_root) + 1 :]
+                    if p.startswith(natural_root + "|")
+                    and "|" not in p[len(natural_root) + 1 :]
                 )
                 if natural_root in targets_set and direct_extra_children >= 2:
                     group = natural_root
@@ -755,7 +698,9 @@ class HierarchySync(ptk.LoggingMixin):
                 needs_move.append(p)
 
         if already_root:
-            self.logger.info(f"{len(already_root)} extra(s) already under '{group}' — skipped.")
+            self.logger.info(
+                f"{len(already_root)} extra(s) already under '{group}' — skipped."
+            )
 
         moved: List[str] = []
 
@@ -779,7 +724,9 @@ class HierarchySync(ptk.LoggingMixin):
 
         import bpy
 
-        quarantine_obj = None  # created lazily below, only once something actually needs it —
+        quarantine_obj = (
+            None  # created lazily below, only once something actually needs it —
+        )
         # never leave a stray, empty "_QUARANTINE" object behind when every item is skipped.
 
         skipped_animated: List[str] = []
@@ -796,26 +743,35 @@ class HierarchySync(ptk.LoggingMixin):
                     # library is None: never adopt a same-named object from the linked reference
                     # library as the quarantine container (see create_stubs' matching guard).
                     quarantine_obj = next(
-                        (o for o in bpy.data.objects if o.name == group and o.library is None), None
+                        (
+                            o
+                            for o in bpy.data.objects
+                            if o.name == group and o.library is None
+                        ),
+                        None,
                     )
                     if quarantine_obj is None:
                         quarantine_obj = bpy.data.objects.new(group, None)
                         bpy.context.scene.collection.objects.link(quarantine_obj)
-                _reparent([node], quarantine_obj, keep_transform=True)
+                NodeUtils.reparent([node], quarantine_obj, keep_transform=True)
                 moved.append(node.name)
-                self.logger.debug(f"Quarantined: {build_path(node)}")
+                self.logger.debug(f"Quarantined: {HierarchySync.build_path(node)}")
             except Exception as e:
                 self.logger.warning(f"Failed to quarantine {path}: {e}")
 
         if skipped_animated:
             for path in skipped_animated:
                 self.logger.debug(f"Skipped (animated): {path}")
-            self.logger.info(f"{len(skipped_animated)} extra(s) skipped (has animation data).")
+            self.logger.info(
+                f"{len(skipped_animated)} extra(s) skipped (has animation data)."
+            )
 
         self.logger.result(f"Quarantined {len(moved)} item(s) under '{group}'.")
         return moved
 
-    def fix_fuzzy_renames(self, items: Optional[List[Dict[str, str]]] = None) -> List[str]:
+    def fix_fuzzy_renames(
+        self, items: Optional[List[Dict[str, str]]] = None
+    ) -> List[str]:
         """Rename nodes identified as fuzzy matches to their reference names.
 
         Each item is a dict with ``current_name`` (current path) and ``target_name`` (reference
@@ -824,7 +780,9 @@ class HierarchySync(ptk.LoggingMixin):
         drivers reference objects by ID pointer, not by name string — renaming never breaks a
         driver, so there is no animated-node rename guard to mirror here.
         """
-        targets = items if items is not None else self.differences.get("fuzzy_matches", [])
+        targets = (
+            items if items is not None else self.differences.get("fuzzy_matches", [])
+        )
         if not targets:
             self.logger.notice("No fuzzy renames to fix.")
             return []
@@ -915,9 +873,11 @@ class HierarchySync(ptk.LoggingMixin):
             try:
                 old_parent = node.parent
                 target_parent = self._ensure_parent_chain(reference_path)
-                _reparent([node], target_parent, keep_transform=True)
+                NodeUtils.reparent([node], target_parent, keep_transform=True)
                 fixed.append(node.name)
-                self.logger.debug(f"Reparented: {node.name} -> {build_path(node)}")
+                self.logger.debug(
+                    f"Reparented: {node.name} -> {HierarchySync.build_path(node)}"
+                )
             except Exception as e:
                 self.logger.warning(f"Failed to reparent {current_path}: {e}")
                 continue
@@ -959,7 +919,7 @@ class HierarchySync(ptk.LoggingMixin):
             or self._has_animation_data(old_parent)
         ):
             return
-        if build_path(old_parent) in self.reference_scene_path_map:
+        if HierarchySync.build_path(old_parent) in self.reference_scene_path_map:
             self.logger.debug(
                 f"Preserved empty parent '{old_parent.name}' (exists in reference)"
             )
@@ -970,6 +930,128 @@ class HierarchySync(ptk.LoggingMixin):
         old_name = old_parent.name
         bpy.data.objects.remove(old_parent, do_unlink=True)
         self.logger.debug(f"Deleted empty source parent: {old_name}")
+
+    @staticmethod
+    def stage_reference_blend(reference_path: str, logger=None):
+        """Return a ``.blend`` path to link as the reference, converting other scene formats.
+
+        A ``.blend`` reference is staged directly. Any other supported scene format (currently
+        ``.fbx``) is converted to a throwaway temp ``.blend`` **in a fresh headless Blender**
+        (:data:`_FBX_STAGE_WORKER` via :class:`~blendertk.env_utils.blender_connection.BlenderConnection`)
+        so the whole linked-library Diff/Pull pipeline stays format-agnostic (an FBX reference becomes
+        indistinguishable from a ``.blend`` one). mayatk imports FBX straight into an isolating Maya
+        namespace; Blender object names are global to a ``.blend``, so importing the FBX into the
+        user's live scene would suffix every colliding object ``.001`` (the normal case for a Hierarchy
+        Sync reference, which shares names with the current scene) and bake that suffix into the staged
+        file — breaking the diff. Converting in a brand-new empty Blender guarantees clean names and
+        never mutates the user's scene.
+
+        Args:
+            reference_path: the reference ``.blend`` or ``.fbx``.
+            logger: optional ``ptk`` logger for progress/error reporting.
+
+        Returns:
+            ``(blend_path, temp_blend_or_None)`` — the temp file (if any) is the caller's to delete on
+            teardown. ``(None, None)`` on failure or an unsupported format.
+        """
+
+        def _log(level, msg):
+            if logger is not None:
+                getattr(logger, level)(msg)
+
+        ext = os.path.splitext(reference_path)[1].lower()
+        if ext == ".blend":
+            return reference_path, None
+        if ext != ".fbx":
+            _log(
+                "error",
+                f"Unsupported reference format '{ext}'. Use a .blend or .fbx file.",
+            )
+            return None, None
+
+        import bpy
+        from blendertk.env_utils.blender_connection import BlenderConnection
+
+        _log(
+            "progress",
+            f"Converting reference {ext} for staging: {os.path.basename(reference_path)}",
+        )
+
+        fd, temp_blend = tempfile.mkstemp(prefix="hier_ref_", suffix=".blend")
+        os.close(fd)
+
+        def _fail(msg):
+            _log("error", msg)
+            try:
+                os.remove(temp_blend)
+            except OSError:
+                pass
+            return None, None
+
+        try:
+            result = BlenderConnection(blender_exe=bpy.app.binary_path).run_script(
+                _FBX_STAGE_WORKER,
+                script_args=[os.path.abspath(reference_path), temp_blend],
+                timeout=300,
+            )
+        except Exception as e:  # noqa: BLE001 — launch/timeout failures reported cleanly, never raised
+            return _fail(
+                f"Failed to stage reference FBX (could not launch Blender): {e}"
+            )
+
+        if result.returncode != 0 or not (
+            os.path.isfile(temp_blend) and os.path.getsize(temp_blend)
+        ):
+            tail = (result.stdout or "").strip().splitlines()[-3:]
+            return _fail(
+                f"Reference FBX staging failed (rc={result.returncode}). "
+                + " | ".join(tail)
+            )
+
+        return temp_blend, temp_blend
+
+    @staticmethod
+    def build_path(obj) -> str:
+        """Pipe-joined hierarchy path from the root down to ``obj`` (e.g. ``"GRP|Child|Leaf"``).
+
+        Built from live ``.name`` values — Blender enforces globally-unique local names and a linked
+        library's objects keep their untouched source-file names, so (unlike Maya, where a namespace
+        prefix must be stripped for comparison) the path IS already the clean comparison key.
+        """
+        parts = [obj.name]
+        parent = obj.parent
+        while parent is not None:
+            parts.append(parent.name)
+            parent = parent.parent
+        return "|".join(reversed(parts))
+
+    @staticmethod
+    def delete_objects(objects) -> List[str]:
+        """Delete *objects* AND all their descendants from the blend data; return the deleted names.
+
+        Maya parity: ``cmds.delete`` removes the whole subtree, but a bare
+        ``bpy.data.objects.remove()`` re-roots the children instead — they stay in the scene and
+        their world transform shifts once the parent's transform vanishes. Descendants are expanded
+        up front (dedup by pointer, so an overlapping selection never double-deletes).
+        """
+        import bpy
+
+        doomed = {}
+        for obj in objects:
+            for cand in (obj, *obj.children_recursive):
+                doomed[cand.as_pointer()] = cand
+        names = [o.name for o in doomed.values()]
+        for o in doomed.values():
+            bpy.data.objects.remove(o, do_unlink=True)
+        return names
+
+    @staticmethod
+    def should_keep_node_by_type(
+        obj, node_types: List[str], exclude: bool = True
+    ) -> bool:
+        """Filter by Blender object type — mirror of mayatk's shape-type filter."""
+        matched = obj.type in node_types
+        return not matched if exclude else matched
 
 
 class ObjectSwapper(ptk.LoggingMixin):
@@ -1069,7 +1151,9 @@ class ObjectSwapper(ptk.LoggingMixin):
         self.logger.result(f"Pulled {pulled} object(s) into the scene.")
         return pulled > 0
 
-    def _pull_one(self, ref_path: str, ref_obj, source_file: Path, *, merge: bool) -> bool:
+    def _pull_one(
+        self, ref_path: str, ref_obj, source_file: Path, *, merge: bool
+    ) -> bool:
         """Append one reference object (and, if ``pull_children``, its subtree) into the scene."""
         import bpy
 
@@ -1089,7 +1173,9 @@ class ObjectSwapper(ptk.LoggingMixin):
         if merge:
             existing = self._find_local_at_path(ref_path)
             if existing is not None:
-                if existing.children or HierarchySync._has_animation_data(existing, check_descendants=True):
+                if existing.children or HierarchySync._has_animation_data(
+                    existing, check_descendants=True
+                ):
                     self.logger.info(
                         f"Preserved '{existing.name}' (has children or animation) — merge skipped "
                         f"for '{ref_path}'. Clear or move it first, or use Add to Scene."
@@ -1098,7 +1184,10 @@ class ObjectSwapper(ptk.LoggingMixin):
                 bpy.data.objects.remove(existing, do_unlink=True)
 
         before = set(bpy.data.objects)
-        with bpy.data.libraries.load(str(source_file), link=False) as (data_from, data_to):
+        with bpy.data.libraries.load(str(source_file), link=False) as (
+            data_from,
+            data_to,
+        ):
             present = [n for n in want_names if n in data_from.objects]
             data_to.objects = present
         wanted = [o for o in data_to.objects if o is not None]
@@ -1117,12 +1206,13 @@ class ObjectSwapper(ptk.LoggingMixin):
                 scene_coll.objects.link(o)
 
         pulled_root = next(
-            (o for o in wanted if strip_dup_suffix(o.name) == ref_obj.name), wanted[0]
+            (o for o in wanted if CoreUtils.strip_dup_suffix(o.name) == ref_obj.name),
+            wanted[0],
         )
 
         # Detach from the append-dragged ancestor (world preserved), then delete the dupes so
         # they don't collide with the rebuilt parent chain.
-        _reparent([pulled_root], None, keep_transform=True)
+        NodeUtils.reparent([pulled_root], None, keep_transform=True)
         for extra in extras:
             try:
                 bpy.data.objects.remove(extra, do_unlink=True)
@@ -1132,7 +1222,7 @@ class ObjectSwapper(ptk.LoggingMixin):
         # Graft onto the reference hierarchy position, preserving the reference world transform.
         target_parent = HierarchySync._ensure_parent_chain(ref_path)
         pulled_root.matrix_world = captured_world
-        _reparent([pulled_root], target_parent, keep_transform=True)
+        NodeUtils.reparent([pulled_root], target_parent, keep_transform=True)
 
         # Merge: take the exact clean name (append may have suffixed if a dupe lingered).
         if merge and pulled_root.name != clean_leaf:
@@ -1141,7 +1231,9 @@ class ObjectSwapper(ptk.LoggingMixin):
             except Exception:
                 pass
 
-        self.logger.debug(f"Pulled '{ref_path}' -> {build_path(pulled_root)}")
+        self.logger.debug(
+            f"Pulled '{ref_path}' -> {HierarchySync.build_path(pulled_root)}"
+        )
         return True
 
     @staticmethod
@@ -1150,16 +1242,9 @@ class ObjectSwapper(ptk.LoggingMixin):
         import bpy
 
         for o in bpy.context.scene.objects:
-            if o.library is None and build_path(o) == ref_path:
+            if o.library is None and HierarchySync.build_path(o) == ref_path:
                 return o
         return None
 
 
-__all__ = [
-    "HierarchySync",
-    "HierarchyMapBuilder",
-    "ObjectSwapper",
-    "build_path",
-    "should_keep_node_by_type",
-    "stage_reference_blend",
-]
+__all__ = ["HierarchySync", "HierarchyMapBuilder", "ObjectSwapper"]

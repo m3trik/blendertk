@@ -22,6 +22,7 @@ Maya→Blender orchestration mappings:
 - undo chunk             → none here; the calling slot wraps the run in
   ``@btk.undoable`` (blendertk convention: undo at the slot boundary).
 """
+
 from __future__ import annotations
 
 import re
@@ -30,21 +31,17 @@ from collections import defaultdict
 
 import pythontk as ptk
 
-from blendertk.core_utils.auto_instancer.geometry_matcher import (
-    GeometryMatcher,
-    _mesh,
-)
+from blendertk.core_utils.auto_instancer.geometry_matcher import GeometryMatcher
 from blendertk.core_utils.auto_instancer.assembly_reconstructor import (
     AssemblyReconstructor,
     ASSEMBLY_TAG_ATTR,
-    _alive,
 )
 from blendertk.core_utils.auto_instancer.instancing_strategy import (
     InstancingStrategy,
     StrategyConfig,
     StrategyType,
 )
-from blendertk.node_utils._node_utils import _object_users
+from blendertk.node_utils._node_utils import NodeUtils
 
 # Strategies that convert to instances. Both GPU_INSTANCE and COMBINE
 # convert: sharing mesh data saves memory and keeps duplicates
@@ -52,63 +49,6 @@ from blendertk.node_utils._node_utils import _object_users
 # strategy encodes. KEEP_SEPARATE (needs_individual, or non-static
 # non-GPU-instanceable) still blocks conversion.
 _CONVERTIBLE_STRATEGIES = (StrategyType.GPU_INSTANCE, StrategyType.COMBINE)
-
-
-def _natural_key(name: str) -> Tuple:
-    """Sort key ordering embedded integers numerically (``Cube2`` < ``Cube10``)."""
-    return tuple(
-        int(token) if token.isdigit() else token
-        for token in re.split(r"(\d+)", name)
-    )
-
-
-def _is_instanced(obj) -> bool:
-    """True if the object's mesh datablock is shared with another object."""
-    me = _mesh(obj)
-    if me is None:
-        return False
-    return _object_users(me) > 1
-
-
-def _depth(obj) -> int:
-    """Number of ancestors — the Blender analogue of DAG path depth."""
-    depth = 0
-    node = obj.parent
-    while node is not None:
-        depth += 1
-        node = node.parent
-    return depth
-
-
-def _descendants(obj) -> List[object]:
-    return list(obj.children_recursive)
-
-
-def _is_ancestor(a, b) -> bool:
-    """True when *a* is an ancestor of *b* (compared by session_uid — bpy
-    recreates RNA wrappers per access, so wrapper identity is unreliable)."""
-    uid = a.session_uid
-    node = b.parent
-    while node is not None:
-        if node.session_uid == uid:
-            return True
-        node = node.parent
-    return False
-
-
-def _prototype_preference_key(candidate: "InstanceCandidate") -> Tuple:
-    """Sort key for prototype selection within a group.
-
-    Already-instanced first (extends the existing instance set), then
-    natural name order — deterministic across runs.
-    """
-    obj = candidate.obj
-    name = obj.name if obj is not None else ""
-    return (
-        not (obj is not None and _is_instanced(obj)),
-        _natural_key(name),
-        name,
-    )
 
 
 class InstanceCandidate:
@@ -161,7 +101,68 @@ class InstanceGroup:
         )
 
 
-class AutoInstancer(ptk.LoggingMixin):
+class _AutoInstancerInternal(object):
+    """Internal helpers for AutoInstancer."""
+
+    @staticmethod
+    def _natural_key(name: str) -> Tuple:
+        """Sort key ordering embedded integers numerically (``Cube2`` < ``Cube10``)."""
+        return tuple(
+            int(token) if token.isdigit() else token
+            for token in re.split(r"(\d+)", name)
+        )
+
+    @staticmethod
+    def _is_instanced(obj) -> bool:
+        """True if the object's mesh datablock is shared with another object."""
+        me = GeometryMatcher._mesh(obj)
+        if me is None:
+            return False
+        return NodeUtils._object_users(me) > 1
+
+    @staticmethod
+    def _depth(obj) -> int:
+        """Number of ancestors — the Blender analogue of DAG path depth."""
+        depth = 0
+        node = obj.parent
+        while node is not None:
+            depth += 1
+            node = node.parent
+        return depth
+
+    @staticmethod
+    def _descendants(obj) -> List[object]:
+        return list(obj.children_recursive)
+
+    @staticmethod
+    def _is_ancestor(a, b) -> bool:
+        """True when *a* is an ancestor of *b* (compared by session_uid — bpy
+        recreates RNA wrappers per access, so wrapper identity is unreliable)."""
+        uid = a.session_uid
+        node = b.parent
+        while node is not None:
+            if node.session_uid == uid:
+                return True
+            node = node.parent
+        return False
+
+    @staticmethod
+    def _prototype_preference_key(candidate: "InstanceCandidate") -> Tuple:
+        """Sort key for prototype selection within a group.
+
+        Already-instanced first (extends the existing instance set), then
+        natural name order — deterministic across runs.
+        """
+        obj = candidate.obj
+        name = obj.name if obj is not None else ""
+        return (
+            not (obj is not None and _AutoInstancerInternal._is_instanced(obj)),
+            _AutoInstancerInternal._natural_key(name),
+            name,
+        )
+
+
+class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
     """Convert matching meshes into instances (shared mesh datablocks).
 
     Destructive operations (deleting originals) only happen after the
@@ -416,9 +417,9 @@ class AutoInstancer(ptk.LoggingMixin):
         empty hierarchy signatures and would otherwise be "instanced" into
         each other — i.e. deleted and replaced with empty transforms.
         """
-        if _mesh(obj) is not None:
+        if GeometryMatcher._mesh(obj) is not None:
             return True
-        return any(_mesh(c) is not None for c in obj.children_recursive)
+        return any(GeometryMatcher._mesh(c) is not None for c in obj.children_recursive)
 
     @staticmethod
     def _uneditable(obj) -> bool:
@@ -437,10 +438,10 @@ class AutoInstancer(ptk.LoggingMixin):
         when ``combine_non_instanced`` is enabled.
         """
         import bpy
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
-            objects = list(selected_objects())
+            objects = list(CoreUtils.selected_objects())
             if not objects:
                 objects = list(bpy.context.scene.objects)
         return self._run([o for o in objects if o is not None])
@@ -451,9 +452,9 @@ class AutoInstancer(ptk.LoggingMixin):
         out: List[object] = []
         seen = set()
         for obj in objects:
-            if not _alive(obj):
+            if not AssemblyReconstructor._alive(obj):
                 continue
-            for o in [obj] + _descendants(obj):
+            for o in [obj] + _AutoInstancerInternal._descendants(obj):
                 if o.session_uid not in seen:
                     seen.add(o.session_uid)
                     out.append(o)
@@ -494,14 +495,14 @@ class AutoInstancer(ptk.LoggingMixin):
         def _group_depth(group: InstanceGroup) -> int:
             objs = [m.obj for m in group.members if m.obj is not None]
             if objs:
-                return min(_depth(o) for o in objs)
+                return min(_AutoInstancerInternal._depth(o) for o in objs)
             proto = group.prototype.obj
-            return _depth(proto) if proto is not None else 0
+            return _AutoInstancerInternal._depth(proto) if proto is not None else 0
 
         groups.sort(
             key=lambda g: (
                 _group_depth(g),
-                _natural_key(g.prototype._name),
+                _AutoInstancerInternal._natural_key(g.prototype._name),
                 g.prototype._name,
             )
         )
@@ -562,7 +563,7 @@ class AutoInstancer(ptk.LoggingMixin):
         # Filter dead references (hierarchy-mode replacements delete
         # originals; callers get only live objects — the bpy analogue of the
         # Maya slot's objExists filter).
-        return [o for o in all_instances if _alive(o)]
+        return [o for o in all_instances if AssemblyReconstructor._alive(o)]
 
     def _combine_non_instanced(
         self, objects: List[object], converted: Sequence[object] = ()
@@ -582,27 +583,24 @@ class AutoInstancer(ptk.LoggingMixin):
         """
         import bpy
 
-        protected = set(
-            getattr(self.reconstructor, "_combined_assembly_uids", [])
-        )
-        assembly_roots = [
-            o for o in bpy.data.objects if o.get(ASSEMBLY_TAG_ATTR)
-        ]
+        protected = set(getattr(self.reconstructor, "_combined_assembly_uids", []))
+        assembly_roots = [o for o in bpy.data.objects if o.get(ASSEMBLY_TAG_ATTR)]
 
         def under_assembly(obj) -> bool:
-            return any(_is_ancestor(root, obj) for root in assembly_roots)
+            return any(
+                _AutoInstancerInternal._is_ancestor(root, obj)
+                for root in assembly_roots
+            )
 
         # Objects outside the active view layer (excluded collections) can
         # be instanced by the datablock swap but cannot be select_set/joined
         # — feeding one to combine_objects would abort the run mid-scene.
-        view_layer_uids = {
-            o.session_uid for o in bpy.context.view_layer.objects
-        }
+        view_layer_uids = {o.session_uid for o in bpy.context.view_layer.objects}
 
         candidates = [
             o
             for o in self._collect_leaf_candidates(objects, [], created=converted)
-            if not _is_instanced(o)
+            if not _AutoInstancerInternal._is_instanced(o)
             and o.session_uid not in protected
             and not under_assembly(o)
             and not self._uneditable(o)
@@ -611,9 +609,9 @@ class AutoInstancer(ptk.LoggingMixin):
         if len(candidates) < 2:
             return []
 
-        from blendertk.edit_utils._edit_utils import combine_objects
+        from blendertk.edit_utils._edit_utils import EditUtils
 
-        result = combine_objects(
+        result = EditUtils.combine_objects(
             candidates,
             group_by_material=self.combine_by_material,
             cluster_by_distance=self.combine_by_distance,
@@ -641,23 +639,25 @@ class AutoInstancer(ptk.LoggingMixin):
         """
         excluded = set()
         for o in processed:
-            if _alive(o):
+            if AssemblyReconstructor._alive(o):
                 excluded.add(o.session_uid)
         for o in created:
-            if _alive(o):
-                excluded.update(d.session_uid for d in _descendants(o))
+            if AssemblyReconstructor._alive(o):
+                excluded.update(
+                    d.session_uid for d in _AutoInstancerInternal._descendants(o)
+                )
 
         candidates: List[object] = []
         seen = set()
         for obj in objects:
-            if not _alive(obj):
+            if not AssemblyReconstructor._alive(obj):
                 continue
-            for o in [obj] + _descendants(obj):
+            for o in [obj] + _AutoInstancerInternal._descendants(obj):
                 uid = o.session_uid
                 if uid in seen or uid in excluded:
                     continue
                 seen.add(uid)
-                if _mesh(o) is not None:
+                if GeometryMatcher._mesh(o) is not None:
                     candidates.append(o)
         return candidates
 
@@ -685,16 +685,16 @@ class AutoInstancer(ptk.LoggingMixin):
         bpy.context.view_layer.update()
 
         if objects is None:
-            from blendertk.core_utils._core_utils import selected_objects
+            from blendertk.core_utils._core_utils import CoreUtils
 
-            objects = list(selected_objects())
+            objects = list(CoreUtils.selected_objects())
             if not objects:
                 objects = list(bpy.context.scene.objects)
 
         candidates = []
         seen = set()
         for obj in objects:
-            if not _alive(obj):
+            if not AssemblyReconstructor._alive(obj):
                 continue
             if obj.session_uid in seen or self._uneditable(obj):
                 continue
@@ -705,7 +705,7 @@ class AutoInstancer(ptk.LoggingMixin):
                     continue
                 candidates.append(InstanceCandidate(obj))
             else:
-                if _mesh(obj) is not None:
+                if GeometryMatcher._mesh(obj) is not None:
                     candidates.append(InstanceCandidate(obj))
 
         # Group by signature
@@ -724,9 +724,7 @@ class AutoInstancer(ptk.LoggingMixin):
             signature_map = self._merge_similar_signatures(signature_map)
 
         if self.verbose:
-            self.logger.debug(
-                "Signature map: %s unique signatures", len(signature_map)
-            )
+            self.logger.debug("Signature map: %s unique signatures", len(signature_map))
 
         # Every member is verified via _match_pair regardless of mode —
         # instancing replaces the member's geometry with the prototype's, so
@@ -735,7 +733,7 @@ class AutoInstancer(ptk.LoggingMixin):
         # prototype is TRIED against; nothing is accepted unverified.
         groups = []
         for sig, potential_matches in signature_map.items():
-            potential_matches.sort(key=_prototype_preference_key)
+            potential_matches.sort(key=_AutoInstancerInternal._prototype_preference_key)
 
             while potential_matches:
                 prototype = potential_matches.pop(0)
@@ -876,9 +874,7 @@ class AutoInstancer(ptk.LoggingMixin):
             else:
                 if len(survivors) < 2:
                     continue
-                group = self._rebuild_group_from_survivors(
-                    survivors, check_hierarchy
-                )
+                group = self._rebuild_group_from_survivors(survivors, check_hierarchy)
             if not group.members:
                 continue
 
@@ -960,7 +956,9 @@ class AutoInstancer(ptk.LoggingMixin):
         relative transforms are stale — each is re-matched against the
         promoted prototype (tolerance is not exactly transitive).
         """
-        survivors = sorted(survivors, key=_prototype_preference_key)
+        survivors = sorted(
+            survivors, key=_AutoInstancerInternal._prototype_preference_key
+        )
         prototype = survivors[0]
         group = InstanceGroup(prototype)
         self.logger.debug("Prototype gone; promoted survivor %s", prototype._name)
@@ -977,11 +975,13 @@ class AutoInstancer(ptk.LoggingMixin):
 
         tri_count = 0
         if proto is not None:
-            if _mesh(proto) is not None:
+            if GeometryMatcher._mesh(proto) is not None:
                 meshes = [proto]
             else:
                 # An assembly/group — total the descendant triangle counts.
-                meshes = [c for c in proto.children_recursive if _mesh(c)]
+                meshes = [
+                    c for c in proto.children_recursive if GeometryMatcher._mesh(c)
+                ]
             for m in meshes:
                 try:
                     tri_count += sum(
@@ -1071,8 +1071,8 @@ class AutoInstancer(ptk.LoggingMixin):
         # ancestor/descendant chain creates parent cycles.
         if (
             member_obj.session_uid == proto_obj.session_uid
-            or _is_ancestor(proto_obj, member_obj)
-            or _is_ancestor(member_obj, proto_obj)
+            or _AutoInstancerInternal._is_ancestor(proto_obj, member_obj)
+            or _AutoInstancerInternal._is_ancestor(member_obj, proto_obj)
         ):
             self.logger.warning(
                 "Skipping %s: overlaps prototype hierarchy %s",
@@ -1114,7 +1114,7 @@ class AutoInstancer(ptk.LoggingMixin):
                     new_children.append(c_new)
             except Exception:
                 for o in new_children:
-                    for d in [o] + _descendants(o):
+                    for d in [o] + _AutoInstancerInternal._descendants(o):
                         try:
                             bpy.data.objects.remove(d, do_unlink=True)
                         except Exception:
@@ -1153,7 +1153,7 @@ class AutoInstancer(ptk.LoggingMixin):
         except Exception:
             # Discard the partial replacement; the original is untouched.
             if new_root is not None:
-                for o in [new_root] + _descendants(new_root):
+                for o in [new_root] + _AutoInstancerInternal._descendants(new_root):
                     try:
                         bpy.data.objects.remove(o, do_unlink=True)
                     except Exception:
@@ -1162,7 +1162,7 @@ class AutoInstancer(ptk.LoggingMixin):
 
         # Replacement verified — now it is safe to swap.
         member_name = member_obj.name
-        doomed = [member_obj] + _descendants(member_obj)
+        doomed = [member_obj] + _AutoInstancerInternal._descendants(member_obj)
         for o in doomed:
             try:
                 bpy.data.objects.remove(o, do_unlink=True)

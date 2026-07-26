@@ -34,12 +34,13 @@ operation does, so that hazard doesn't exist here.
 ``import bpy`` / ``bmesh`` are deferred into the call bodies and the Qt-only ``uitk`` helper into
 its method.
 """
+
 import math
 
 import pythontk as ptk
 
 from blendertk.core_utils.preview import Preview
-from blendertk.edit_utils._edit_utils import _meshes, _edit_mesh_each
+from blendertk.edit_utils._edit_utils import EditUtils
 
 
 class Bridge:
@@ -70,9 +71,11 @@ class Bridge:
                 mirroring Maya's diagnosed failure rather than a raw traceback).
         """
         import bmesh
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        meshes = _meshes(selected_objects() if objects is None else objects)
+        meshes = EditUtils._meshes(
+            CoreUtils.selected_objects() if objects is None else objects
+        )
         if not meshes:
             raise RuntimeError("Bridge requires a mesh selection.")
 
@@ -105,7 +108,7 @@ class Bridge:
                 bmesh.ops.subdivide_edges(bm, edges=new_edges, cuts=int(divisions))
             return len(ret.get("faces", []))
 
-        total = _edit_mesh_each(meshes, _do)
+        total = EditUtils._edit_mesh_each(meshes, _do)
         if not total:
             raise RuntimeError(
                 "Nothing to bridge — select two open edge loops (border edges of two holes) on "
@@ -210,12 +213,12 @@ class BridgeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Bridge",
                 body="Connect two open edge loops with new polygon faces.",
                 steps=[

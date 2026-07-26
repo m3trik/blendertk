@@ -18,6 +18,7 @@ Identical objectNames between the mayatk and blendertk copies of this panel are 
 ``Switchboard.add_ui`` / ``MainWindow._relative_state`` host-namespace the QSettings branch by
 context tag (``mirror_maya`` vs ``mirror_blender``), so the two panels never collide.
 """
+
 import pythontk as ptk
 
 
@@ -84,11 +85,26 @@ class CalculatorSlots(ptk.LoggingMixin):
     """
 
     _CALC_BUTTONS = [
-        ("C", 0, 0), ("(", 0, 1), (")", 0, 2), ("/", 0, 3),
-        ("7", 1, 0), ("8", 1, 1), ("9", 1, 2), ("*", 1, 3),
-        ("4", 2, 0), ("5", 2, 1), ("6", 2, 2), ("-", 2, 3),
-        ("1", 3, 0), ("2", 3, 1), ("3", 3, 2), ("+", 3, 3),
-        ("0", 4, 0), (".", 4, 1), ("<", 4, 2), ("=", 4, 3),
+        ("C", 0, 0),
+        ("(", 0, 1),
+        (")", 0, 2),
+        ("/", 0, 3),
+        ("7", 1, 0),
+        ("8", 1, 1),
+        ("9", 1, 2),
+        ("*", 1, 3),
+        ("4", 2, 0),
+        ("5", 2, 1),
+        ("6", 2, 2),
+        ("-", 2, 3),
+        ("1", 3, 0),
+        ("2", 3, 1),
+        ("3", 3, 2),
+        ("+", 3, 3),
+        ("0", 4, 0),
+        (".", 4, 1),
+        ("<", 4, 2),
+        ("=", 4, 3),
     ]
     _UNITS = ["mm", "cm", "m", "km", "in", "ft", "yd", "mi"]
 
@@ -107,35 +123,44 @@ class CalculatorSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Calculator",
                 body="Expression-based calculator with unit conversion and "
                 "Blender time helpers.",
                 sections=[
-                    ("Expression entry", [
-                        "Type or click button keys to build an expression in "
-                        "the display field.",
-                        "Press <b>=</b> or <b>Enter</b> to evaluate.",
-                        "Standard math operators plus functions: "
-                        "<code>sin</code>, <code>cos</code>, <code>tan</code>, "
-                        "<code>sqrt</code>, <code>pow</code>, <code>pi</code>, "
-                        "etc.",
-                    ]),
-                    ("Unit conversion", [
-                        "Pick <b>From</b> and <b>To</b> units (mm, cm, m, km, "
-                        "in, ft, yd, mi).",
-                        "Press <b>Convert</b> to convert the current display "
-                        "value.",
-                    ]),
-                    ("Animation helpers", [
-                        "<b>Get FPS</b> — read the scene's frame rate.",
-                        "<b>Get Time</b> — read the current frame.",
-                        "<b>Frames → Sec</b> / <b>Sec → Frames</b> — convert "
-                        "the display value using the scene FPS.",
-                    ]),
+                    (
+                        "Expression entry",
+                        [
+                            "Type or click button keys to build an expression in "
+                            "the display field.",
+                            "Press <b>=</b> or <b>Enter</b> to evaluate.",
+                            "Standard math operators plus functions: "
+                            "<code>sin</code>, <code>cos</code>, <code>tan</code>, "
+                            "<code>sqrt</code>, <code>pow</code>, <code>pi</code>, "
+                            "etc.",
+                        ],
+                    ),
+                    (
+                        "Unit conversion",
+                        [
+                            "Pick <b>From</b> and <b>To</b> units (mm, cm, m, km, "
+                            "in, ft, yd, mi).",
+                            "Press <b>Convert</b> to convert the current display "
+                            "value.",
+                        ],
+                    ),
+                    (
+                        "Animation helpers",
+                        [
+                            "<b>Get FPS</b> — read the scene's frame rate.",
+                            "<b>Get Time</b> — read the current frame.",
+                            "<b>Frames → Sec</b> / <b>Sec → Frames</b> — convert "
+                            "the display value using the scene FPS.",
+                        ],
+                    ),
                 ],
             )
         )

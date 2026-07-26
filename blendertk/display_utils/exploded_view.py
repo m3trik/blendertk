@@ -17,15 +17,11 @@ rather than in the shared ``_display_utils.py``. The Slots class is discovered a
 ``import bpy`` is deferred into the call bodies (via ``selected_objects()``) and the Qt-only
 ``uitk`` helper into ``header_init``.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import selected_objects
-from blendertk.display_utils._display_utils import (
-    explode_view,
-    unexplode_view,
-    unexplode_all,
-    is_exploded,
-)
+from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.display_utils._display_utils import DisplayUtils
 
 
 class ExplodedViewSlots(ptk.LoggingMixin):
@@ -60,33 +56,36 @@ class ExplodedViewSlots(ptk.LoggingMixin):
                     collect(child, found)
 
         found = set()
-        for obj in selected_objects():
+        for obj in CoreUtils.selected_objects():
             collect(obj, found)
         return list(found)
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Exploded View",
                 body="Spread selected objects outward from their shared center to inspect "
                 "interior parts. Each object's pre-explode location is stamped as a custom "
                 "property, so the explode is fully reversible.",
                 sections=[
-                    ("Actions", [
-                        "<b>Explode</b> — push the selected meshes away from the group's bbox "
-                        "center until their bounding boxes no longer overlap.",
-                        "<b>Un-Explode</b> — return the selected objects to their stored "
-                        "positions.",
-                        "<b>Un-Explode All</b> — reset every exploded object in the scene "
-                        "(regardless of selection).",
-                        "<b>Toggle Explode</b> — alternate between exploded and original views "
-                        "on the current selection.",
-                    ]),
+                    (
+                        "Actions",
+                        [
+                            "<b>Explode</b> — push the selected meshes away from the group's bbox "
+                            "center until their bounding boxes no longer overlap.",
+                            "<b>Un-Explode</b> — return the selected objects to their stored "
+                            "positions.",
+                            "<b>Un-Explode All</b> — reset every exploded object in the scene "
+                            "(regardless of selection).",
+                            "<b>Toggle Explode</b> — alternate between exploded and original views "
+                            "on the current selection.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -94,18 +93,20 @@ class ExplodedViewSlots(ptk.LoggingMixin):
     def b000(self):
         """Explode."""
         meshes = self._mesh_selection()
-        if len(meshes) < 2:  # warn only when genuinely under-selected (not when already exploded)
+        if (
+            len(meshes) < 2
+        ):  # warn only when genuinely under-selected (not when already exploded)
             self.sb.message_box(self._NEED_TWO)
             return
-        explode_view(meshes)  # no-ops silently if already exploded
+        DisplayUtils.explode_view(meshes)  # no-ops silently if already exploded
 
     def b001(self):
         """Un-Explode (selected)."""
-        unexplode_view(self._mesh_selection())
+        DisplayUtils.unexplode_view(self._mesh_selection())
 
     def b002(self):
         """Un-Explode All."""
-        unexplode_all()
+        DisplayUtils.unexplode_all()
 
     def b003(self):
         """Toggle Explode."""
@@ -115,13 +116,15 @@ class ExplodedViewSlots(ptk.LoggingMixin):
         # stamps/moves the not-yet-exploded subset, so a partially-exploded selection converges
         # toward "fully exploded" one toggle at a time, same as mayatk's explode()/_get_target_
         # objects(unexploded=True) split.
-        fully_exploded = bool(meshes) and all(is_exploded([m]) for m in meshes)
+        fully_exploded = bool(meshes) and all(
+            DisplayUtils.is_exploded([m]) for m in meshes
+        )
         if fully_exploded:
-            unexplode_view(meshes)
+            DisplayUtils.unexplode_view(meshes)
         elif len(meshes) < 2:
             self.sb.message_box(self._NEED_TWO)
         else:
-            explode_view(meshes)
+            DisplayUtils.explode_view(meshes)
 
 
 # -----------------------------------------------------------------------------

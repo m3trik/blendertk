@@ -149,6 +149,61 @@ try:
     check("un-freeze after center_pivot preserves world position (no double-translate)",
           drift < 1e-4, f"drift={drift:.6f}")
 
+    # 7e. channels subset: restore only rotation; the translation bake must survive
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0)); c = bpy.context.active_object
+    c.rotation_euler = (0.0, 0.0, math.radians(45))
+    bpy.context.view_layer.update()
+    btk.freeze_transforms(c, location=True, rotation=True, scale=False)
+    btk.restore_transforms(c, channels=["rotate"])
+    check("channels=['rotate'] restores rotation only",
+          approx(math.degrees(c.rotation_euler.z), 45.0) and approx(c.location.x, 0.0),
+          f"rz={math.degrees(c.rotation_euler.z):.2f} x={c.location.x:.3f}")
+    check("unrestored translate bake survives", "btk_T_bake" in c and "btk_R_bake" not in c)
+    btk.restore_transforms(c, channels=["translate"])
+    check("second restore consumes the translate bake",
+          approx(c.location.x, 4.0) and "btk_T_bake" not in c, f"x={c.location.x:.3f}")
+
+    # 7f. traverse: one call on the parent restores the whole chain, parents first
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0)); p = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(2, 3, 0)); ch = bpy.context.active_object
+    ch.parent = p; ch.matrix_parent_inverse = p.matrix_world.inverted()
+    bpy.context.view_layer.update()
+    btk.freeze_transforms([p, ch], location=True, rotation=False, scale=False)
+    restored = btk.restore_transforms(p, traverse=True)
+    check("traverse restores parent and child", len(restored) == 2, f"n={len(restored)}")
+    check("traverse consumes bakes on the chain",
+          "btk_T_bake" not in p and "btk_T_bake" not in ch)
+    check("traverse child world position holds",
+          approx(ch.matrix_world.translation.x, 2.0)
+          and approx(ch.matrix_world.translation.y, 3.0),
+          f"xy=({ch.matrix_world.translation.x:.3f}, {ch.matrix_world.translation.y:.3f})")
+
+    # 7g. traverse under a ROTATED parent: child world position must still hold
+    # (guards against double-applying the parent transform through
+    # matrix_parent_inverse on restore).
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0)); p = bpy.context.active_object
+    p.rotation_euler = (0.0, 0.0, math.radians(45))
+    bpy.context.view_layer.update()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 3, 0)); ch = bpy.context.active_object
+    ch.parent = p; ch.matrix_parent_inverse = p.matrix_world.inverted()
+    bpy.context.view_layer.update()
+    ch_world_before = ch.matrix_world.translation.copy()
+    ch_verts_before = [(ch.matrix_world @ v.co).copy() for v in ch.data.vertices]
+    btk.freeze_transforms([p, ch], location=True, rotation=True, scale=False)
+    btk.restore_transforms(p, traverse=True)
+    drift_t = (ch.matrix_world.translation - ch_world_before).length
+    drift_v = max(
+        ((ch.matrix_world @ v.co) - w).length
+        for v, w in zip(ch.data.vertices, ch_verts_before)
+    )
+    check("traverse rotated-parent child world holds", drift_t < 1e-4,
+          f"drift={drift_t:.6f}")
+    check("traverse rotated-parent child verts hold", drift_v < 1e-4,
+          f"drift={drift_v:.6f}")
+
     # 8. scale_connected_edges: two separate selected edge loops each scale about their own center
     reset()
     bpy.ops.mesh.primitive_cube_add(size=2.0); c = bpy.context.active_object

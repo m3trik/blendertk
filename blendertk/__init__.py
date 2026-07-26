@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.21"
+__version__ = "0.5.24"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -38,19 +38,14 @@ DEFAULT_INCLUDE = {
     # Event-subscription manager — mirror of mayatk's ``core_utils.script_job_manager`` over
     # ``bpy.app.handlers`` (``btk.ScriptJobManager`` ↔ ``mtk.ScriptJobManager``).
     "core_utils.script_job_manager": ["ScriptJobManager"],
-    # Diagnostics subpackage — mirror of mayatk's ``core_utils.diagnostics``. The ``->Diagnostics``
-    # alias multi-inherits the per-module diag classes into one ``btk.Diagnostics`` namespace
-    # (``Diagnostics.find_problem_geometry`` / ``fix_non_orthogonal_axes``); ``find_problem_geometry``
-    # re-homed here from ``edit_utils`` (``btk.find_problem_geometry`` still resolves).
+    # Diagnostics subpackage — mirror of mayatk's ``core_utils.diagnostics``. Class-only (a submodule,
+    # not a ``_*_utils`` root — kept out of the flat namespace). The ``->Diagnostics`` alias
+    # multi-inherits the per-module diag classes into one ``btk.Diagnostics`` namespace; the
+    # problem-detection methods are reached as ``btk.Diagnostics.find_problem_geometry`` /
+    # ``.fix_non_orthogonal_axes`` (or via ``btk.MeshDiagnostics`` / ``btk.TransformDiagnostics``).
     "core_utils.diagnostics->Diagnostics": "*",
-    "core_utils.diagnostics.mesh_diag": [
-        "MeshDiagnostics",
-        "find_problem_geometry",
-    ],
-    "core_utils.diagnostics.transform_diag": [
-        "TransformDiagnostics",
-        "fix_non_orthogonal_axes",
-    ],
+    "core_utils.diagnostics.mesh_diag": "MeshDiagnostics",
+    "core_utils.diagnostics.transform_diag": "TransformDiagnostics",
     "xform_utils._xform_utils": "*",
     # Matrix helpers — mirror of mayatk's ``xform_utils.matrices.Matrices`` (the portable
     # compose/decompose/space-conversion + object-matrix IO subset over ``mathutils.Matrix``;
@@ -77,21 +72,17 @@ DEFAULT_INCLUDE = {
     # registered); the explode/unexplode engine lives module-level in ``_display_utils`` above
     # (``explode_view`` / ``unexplode_view`` / ``unexplode_all`` / ``is_exploded``).
     "env_utils._env_utils": "*",
-    # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils``. ``export_selection_fbx``
-    # (the bridges' selection-only export) moved here from ``core_utils``; ``import_fbx`` added.
-    "env_utils.fbx_utils": [
-        "FbxUtils",
-        "export_selection_fbx",
-        "import_fbx",
-    ],
+    # FBX import/export — mirror of mayatk's ``env_utils.fbx_utils.FbxUtils`` (``btk.FbxUtils`` ↔
+    # ``mtk.FbxUtils``). Scope-limited to the class on purpose: ``FbxUtils.export`` is a generic name
+    # that would collide flat with ``UsdUtils.export`` under "*" — the source-side fix for the
+    # collision (matching mayatk). Consumers use ``btk.FbxUtils.export_selection_fbx`` / ``.import_fbx``.
+    "env_utils.fbx_utils": "FbxUtils",
     # USD import/export over Blender's native USD runtime — mirror of mayatk's
-    # ``env_utils.usd.UsdUtils`` (``btk.UsdUtils`` ↔ ``mtk.UsdUtils``). The zero-dep
-    # sniffing/packaging floor is shared upstream in ``pythontk.file_utils.usd``.
-    "env_utils.usd": [
-        "UsdUtils",
-        "export_selection_usd",
-        "import_usd",
-    ],
+    # ``env_utils.usd.UsdUtils`` (``btk.UsdUtils`` ↔ ``mtk.UsdUtils``). Class-only (like
+    # ``fbx_utils``, and matching mayatk): a generic ``export`` would collide flat with
+    # ``FbxUtils.export`` under "*". Consumers use ``btk.UsdUtils.export_selection_usd`` /
+    # ``.import_usd``. The zero-dep sniffing/packaging floor is shared in ``pythontk.file_utils.usd``.
+    "env_utils.usd": "UsdUtils",
     # Headless test/launch harness — mirror of mayatk's ``env_utils.maya_connection.MayaConnection``.
     # Launches a FRESH ``blender --background`` per run (session-safe by construction); no bpy.
     "env_utils.blender_connection": [
@@ -117,6 +108,7 @@ DEFAULT_INCLUDE = {
     "env_utils.maya_bridge._scene_import": [
         "MayaSceneImport",
         "import_maya_scene",
+        "bake_maya_scene",
     ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
@@ -248,27 +240,18 @@ DEFAULT_INCLUDE = {
         "Selection",
     ],
     # Array-duplication tools — one self-contained module per pattern (engine + co-located
-    # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. The shared
-    # object-array primitives live in ``_edit_utils``; the ``<Tool>Slots`` classes are
-    # discovered by ``BlenderUiHandler`` (not registered here), matching how mayatk's tool
-    # Slots stay out of its DEFAULT_INCLUDE.
-    "edit_utils.duplicate_linear": [
-        "DuplicateLinear",
-        "duplicate_linear",
-    ],
-    "edit_utils.duplicate_radial": [
-        "DuplicateRadial",
-        "duplicate_radial",
-    ],
-    "edit_utils.duplicate_grid": [
-        "DuplicateGrid",
-        "duplicate_grid",
-    ],
+    # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. Class-only
+    # (matching mayatk): the engine method is reached as ``btk.DuplicateLinear.duplicate_linear``
+    # etc.; the shared object-array primitives live flat in ``_edit_utils``; the ``<Tool>Slots``
+    # classes are discovered by ``BlenderUiHandler`` (not registered here).
+    "edit_utils.duplicate_linear": "DuplicateLinear",
+    "edit_utils.duplicate_radial": "DuplicateRadial",
+    "edit_utils.duplicate_grid": "DuplicateGrid",
+    # Curtain (draped-cloth) generator + its wire-deformer rig. Class-only: reached as
+    # ``btk.CurtainUtils.create_curtain`` / ``.curtain_rail_from_selection`` and ``btk.CurtainRig``.
     "edit_utils.curtain": [
         "CurtainUtils",
         "CurtainRig",
-        "create_curtain",
-        "curtain_rail_from_selection",
     ],
     # Bevel engine — mirror of mayatk's ``edit_utils.bevel.Bevel`` (``btk.Bevel`` ↔ ``mtk.Bevel``).
     # The co-located ``BevelSlots`` panel is discovered by ``BlenderUiHandler`` (not registered
@@ -284,11 +267,11 @@ DEFAULT_INCLUDE = {
     # Target Weld — interactive drag-a-vertex-onto-another merge tool, the Blender build of
     # Maya's native ``targetWeldCtx`` / ``MergeVertexTool`` (which mayatk drives directly, so
     # there is no ``mtk`` counterpart module — the mirror is name + behavior of the Maya tool
-    # itself). Backs tentacle's ``polygons.b043`` / ``b008`` (mergeToCenter) on Blender.
-    "edit_utils.target_weld": [
-        "TargetWeld",
-        "target_weld",
-    ],
+    # itself). Backs tentacle's ``polygons.b043`` / ``b008`` (mergeToCenter) on Blender. Class-only:
+    # activate via ``btk.TargetWeld.activate``. (The module keeps its interactive tool as module-level
+    # functions — the modal-operator body + numpy pick helpers, unit-tested by direct module import —
+    # with ``TargetWeld`` the thin public facade over them; none leak onto the flat ``btk.*`` surface.)
+    "edit_utils.target_weld": "TargetWeld",
     # Snap tool — co-located ``SnapSlots`` panel (discovered by the handler, not registered); the
     # snap engine (``snap_closest_verts`` / ``snap_to_grid`` / ``snap_to_surface``) lives in
     # ``_edit_utils`` above (mirror of mayatk's ``edit_utils.snap.Snap``).
@@ -324,7 +307,6 @@ DEFAULT_INCLUDE = {
         "TubeRig",
         "TubeStrategy",
         "TubeRigBundle",
-        "register_strategy",
     ],
     "rig_utils.telescope_rig": [
         "TelescopeRig",

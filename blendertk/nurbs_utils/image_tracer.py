@@ -32,11 +32,12 @@ Divergences (documented for parity — see ``tentacle/docs/PARITY_PORTING_PLAN.m
     menu but disabled — see the ``# TODO(blender-parity)`` in ``header_init``.
   * ``import bpy`` is deferred into the call bodies; the Qt-only ``uitk`` ``fmt`` into ``header_init``.
 """
+
 import os
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import undoable
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.nurbs_utils._nurbs_utils import NurbsUtils
 
 try:
@@ -80,13 +81,14 @@ class ImageTracer(ptk.LoggingMixin):
             if simplify:
                 contour = cv2.approxPolyDP(contour, simplify, True)
             pts = [
-                (float(p[0][0]) * scale, float(height - p[0][1]) * scale, 0.0) for p in contour
+                (float(p[0][0]) * scale, float(height - p[0][1]) * scale, 0.0)
+                for p in contour
             ]
             if len(pts) > 2:
                 result.append(pts)
         return result
 
-    @undoable
+    @CoreUtils.undoable
     def trace_curves(self, name="traced_curve"):
         """Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested
         contours read as holes under 2D fill). Returns the curve object, or ``None`` if no contours.
@@ -107,7 +109,7 @@ class ImageTracer(ptk.LoggingMixin):
         curve.data.fill_mode = "BOTH"
         return NurbsUtils.curve_to_mesh(curve, name=name)
 
-    @undoable
+    @CoreUtils.undoable
     def create_mesh(self, curve=None, name="traced_mesh"):
         """Fill the traced contours into a mesh (positive space; nested contours become holes).
         Returns the mesh object, or ``None``.
@@ -115,8 +117,10 @@ class ImageTracer(ptk.LoggingMixin):
         curve = curve or self.trace_curves(name=name)
         return self._fill_to_mesh(curve, name) if curve is not None else None
 
-    @undoable
-    def create_negative_space_mesh(self, curve=None, margin_scale=0.1, name="negative_space_mesh"):
+    @CoreUtils.undoable
+    def create_negative_space_mesh(
+        self, curve=None, margin_scale=0.1, name="negative_space_mesh"
+    ):
         """Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with
         the contours as holes — Maya's ``create_negative_space_mesh``. Returns the mesh, or ``None``.
         """
@@ -132,7 +136,10 @@ class ImageTracer(ptk.LoggingMixin):
         x0, x1 = min(xs) - margin, max(xs) + margin
         y0, y1 = min(ys) - margin, max(ys) + margin
         NurbsUtils.add_spline(
-            curve, [(x0, y0, 0), (x1, y0, 0), (x1, y1, 0), (x0, y1, 0)], cyclic=True, kind="POLY"
+            curve,
+            [(x0, y0, 0), (x1, y0, 0), (x1, y1, 0), (x0, y1, 0)],
+            cyclic=True,
+            kind="POLY",
         )
         return self._fill_to_mesh(curve, name)
 
@@ -148,7 +155,7 @@ class ImageTracer(ptk.LoggingMixin):
                 ys.append(p.co.y)
         return xs, ys
 
-    @undoable
+    @CoreUtils.undoable
     def project_on_plane(self, curve=None, name="projected_curves"):
         """Project the traced curves onto a construction plane — Blender analogue of Maya's
         ``projectCurve`` onto a ``nurbsPlane``. Traced curves are already planar on Z=0 (Maya's are
@@ -171,8 +178,10 @@ class ImageTracer(ptk.LoggingMixin):
         center_y = (min(ys) + max(ys)) / 2.0
 
         NurbsUtils.create_plane(
-            width=width * 1.5, height=height * 1.5,
-            location=(center_x, center_y, -1.0), name="projection_plane",
+            width=width * 1.5,
+            height=height * 1.5,
+            location=(center_x, center_y, -1.0),
+            name="projection_plane",
         )
         projected = NurbsUtils.duplicate_curve(curve, name=name)
         projected.location.z -= 1.0
@@ -214,7 +223,7 @@ class ImageTracerSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # TODO(blender-parity): chk000 (Use Blue Pencil) / blue_pencil_button (Open Blue Pencil) —
         # Maya's Blue Pencil is a grease-annotation plugin with no Blender analogue; tracing
@@ -237,7 +246,7 @@ class ImageTracerSlots(ptk.LoggingMixin):
             setToolTip="Blender has no Blue Pencil tool to open.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Image Tracer",
                 body="Trace contours from a raster image into editable curves, then optionally "
                 "fill them into a mesh. Nested contours become holes automatically (Blender's 2D "
@@ -258,7 +267,9 @@ class ImageTracerSlots(ptk.LoggingMixin):
 
     def txt000_init(self, widget):
         """Configure the path field's option box (▸) as an image file browser."""
-        widget.option_box.browse(file_types=self.IMAGE_FILTER, title="Select Image", mode="file")
+        widget.option_box.browse(
+            file_types=self.IMAGE_FILTER, title="Select Image", mode="file"
+        )
 
     def browse_image(self):
         """Kept for structural parity with mayatk (unused in practice — txt000's option-box
@@ -273,17 +284,23 @@ class ImageTracerSlots(ptk.LoggingMixin):
             self.ui.txt000.setText(file_path)
 
     def _get_tracer(self):
-        use_bp = self.ui.chk000.isChecked()  # always False — chk000 is disabled, see header_init
+        use_bp = (
+            self.ui.chk000.isChecked()
+        )  # always False — chk000 is disabled, see header_init
         image_path = self.ui.txt000.text()
 
         if use_bp:
             self.sb.message_box("Blue Pencil tracing is not available in Blender.")
             return None
         if not image_path:
-            self.sb.message_box("Select an image first (browse via the ▸ on the path field).")
+            self.sb.message_box(
+                "Select an image first (browse via the ▸ on the path field)."
+            )
             return None
         if cv2 is None:
-            self.sb.message_box("OpenCV (cv2) is not installed in this Blender's Python.")
+            self.sb.message_box(
+                "OpenCV (cv2) is not installed in this Blender's Python."
+            )
             return None
 
         scale = self.ui.s000.value()
@@ -319,7 +336,9 @@ class ImageTracerSlots(ptk.LoggingMixin):
         if not tracer:
             return
         mesh = tracer.create_mesh()
-        self.sb.message_box("<hl>Created filled mesh.</hl>" if mesh else "No contours found.")
+        self.sb.message_box(
+            "<hl>Created filled mesh.</hl>" if mesh else "No contours found."
+        )
 
     def b004(self):
         """Build a mesh from the traced negative space."""

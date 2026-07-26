@@ -15,11 +15,14 @@ blendShape *node*) is dropped — see ``_blendshape_animator.py``'s module docst
 there is nothing analogous to rebuild in Blender's shape-key model. "Recover Animation" (a lost
 KEYFRAME range, not a corrupted node) is fully ported (``b005``).
 """
+
 from typing import Dict, List, Optional
 
 from qtpy import QtCore, QtWidgets
 
-from blendertk.anim_utils.blendshape_animator._blendshape_animator import BlendshapeAnimator
+from blendertk.anim_utils.blendshape_animator._blendshape_animator import (
+    BlendshapeAnimator,
+)
 from blendertk.anim_utils.blendshape_animator.applicator import ApplyStatus, Applicator
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
 from pythontk import Weights
@@ -51,21 +54,27 @@ class _NumericSortItem(QtWidgets.QTreeWidgetItem):
         return self.text(col) < other.text(col)
 
 
-def _is_valid_base_candidate(obj) -> bool:
-    """A mesh object carrying a usable (non-Basis, non-corrective) shape key — i.e. one that
-    :meth:`BlendshapeAnimator.from_existing` could bind to."""
-    if obj is None or getattr(obj, "type", None) != "MESH":
-        return False
-    if "isInbetweenTarget" in obj.keys():
-        return False  # a tween mesh itself, not a base candidate
-    shape_keys = getattr(obj.data, "shape_keys", None)
-    if shape_keys is None:
-        return False
-    infix = Applicator._CORRECTIVE_INFIX
-    return any(kb.name != "Basis" and infix not in kb.name for kb in shape_keys.key_blocks)
+class _BlendshapeAnimatorSlotsInternal(object):
+    """Internal helpers for BlendshapeAnimatorSlots."""
+
+    @staticmethod
+    def _is_valid_base_candidate(obj) -> bool:
+        """A mesh object carrying a usable (non-Basis, non-corrective) shape key — i.e. one that
+        :meth:`BlendshapeAnimator.from_existing` could bind to."""
+        if obj is None or getattr(obj, "type", None) != "MESH":
+            return False
+        if "isInbetweenTarget" in obj.keys():
+            return False  # a tween mesh itself, not a base candidate
+        shape_keys = getattr(obj.data, "shape_keys", None)
+        if shape_keys is None:
+            return False
+        infix = Applicator._CORRECTIVE_INFIX
+        return any(
+            kb.name != "Basis" and infix not in kb.name for kb in shape_keys.key_blocks
+        )
 
 
-class BlendshapeAnimatorSlots(BlendshapeAnimator):
+class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal):
     """Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.
 
     Inherits ``BlendshapeAnimator`` so domain methods (``create``, ``edit_weight_based``,
@@ -159,7 +168,7 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
                 obj.name
             except ReferenceError:
                 continue
-            if not _is_valid_base_candidate(obj):
+            if not _BlendshapeAnimatorSlotsInternal._is_valid_base_candidate(obj):
                 continue
             if self.base_obj is obj and self._has_setup():
                 return False
@@ -181,35 +190,44 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
 
     def header_init(self, widget) -> None:
         """Configure header buttons + about menu."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.config_buttons("menu", "minimize", "hide")
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Blendshape Animator",
                 body="Build a morph between two meshes as a shape key, add in-between "
                 "(tween) shapes for custom curve control, edit them, and apply the edits "
                 "back to the rig.",
                 sections=[
-                    ("Setup", [
-                        "Select two mesh objects — the <b>contributing shape</b> first, the "
-                        "<b>receiving mesh</b> last (it becomes active).",
-                        "Click <b>Create Setup</b>. The option box (▸) offers "
-                        "<i>Load From Existing</i> for resuming an in-progress setup.",
-                    ]),
-                    ("Edit", [
-                        "Add tweens by <b>weight</b> (count or comma-separated values) or by "
-                        "<b>frame</b>.",
-                        "Click rows in the tween list to select; right-click for per-tween "
-                        "actions (re-apply, delete, etc.) — supports multi-select.",
-                    ]),
-                    ("Apply &amp; export", [
-                        "<b>Apply All Edits</b> — bulk-apply every queued edit back to the "
-                        "shape key.",
-                        "<b>Diagnostics</b> — flag topology mismatches and recover lost keys.",
-                        "<b>Export</b> — finalize the scene for baking / FBX.",
-                    ]),
+                    (
+                        "Setup",
+                        [
+                            "Select two mesh objects — the <b>contributing shape</b> first, the "
+                            "<b>receiving mesh</b> last (it becomes active).",
+                            "Click <b>Create Setup</b>. The option box (▸) offers "
+                            "<i>Load From Existing</i> for resuming an in-progress setup.",
+                        ],
+                    ),
+                    (
+                        "Edit",
+                        [
+                            "Add tweens by <b>weight</b> (count or comma-separated values) or by "
+                            "<b>frame</b>.",
+                            "Click rows in the tween list to select; right-click for per-tween "
+                            "actions (re-apply, delete, etc.) — supports multi-select.",
+                        ],
+                    ),
+                    (
+                        "Apply &amp; export",
+                        [
+                            "<b>Apply All Edits</b> — bulk-apply every queued edit back to the "
+                            "shape key.",
+                            "<b>Diagnostics</b> — flag topology mismatches and recover lost keys.",
+                            "<b>Export</b> — finalize the scene for baking / FBX.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -230,7 +248,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
                 "creating a new one."
             ),
         )
-        widget.option_box.menu.btn_from_existing.clicked.connect(self._action_from_existing)
+        widget.option_box.menu.btn_from_existing.clicked.connect(
+            self._action_from_existing
+        )
 
     def b000(self, widget) -> None:
         """Create Setup."""
@@ -241,7 +261,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
             test_setup=False,
         )
         if ok:
-            self._set_status(f"Setup created: {self.base_obj.name} -> {self.target_obj.name}")
+            self._set_status(
+                f"Setup created: {self.base_obj.name} -> {self.target_obj.name}"
+            )
         else:
             self._set_status("Create Setup failed — see the log.")
         self._refresh_tree()
@@ -503,7 +525,12 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
         """Finalize for Export — option_box for the four boolean flags."""
         widget.option_box.menu.setTitle("Finalize for Export")
         for name, label, default, tip in (
-            ("cleanup_scene", "Cleanup scene", True, "Hide target mesh and tween meshes."),
+            (
+                "cleanup_scene",
+                "Cleanup scene",
+                True,
+                "Hide target mesh and tween meshes.",
+            ),
             (
                 "delete_construction_history",
                 "Delete construction history",
@@ -511,7 +538,12 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
                 "No-op on Blender (no deformer-node history to bake away) — kept for "
                 "interface parity with mayatk.",
             ),
-            ("hide_target_mesh", "Hide target mesh", True, "Hide the target instead of leaving it visible."),
+            (
+                "hide_target_mesh",
+                "Hide target mesh",
+                True,
+                "Hide the target instead of leaving it visible.",
+            ),
             (
                 "delete_inbetween_meshes",
                 "Delete in-between meshes",
@@ -559,7 +591,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
             "pending": ("#B49B5C", None),
             "error": ("#B97A7A", None),
         }
-        tree.set_column_formatter(COL_TOPOLOGY, tree.make_color_map_formatter(topology_map))
+        tree.set_column_formatter(
+            COL_TOPOLOGY, tree.make_color_map_formatter(topology_map)
+        )
         tree.set_column_formatter(COL_STATUS, tree.make_color_map_formatter(status_map))
 
         tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
@@ -569,11 +603,17 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
 
         try:
             tree.header_actions.add(
-                "refresh", "refresh", tooltip="Re-scan tween meshes", callback=self._refresh_tree,
+                "refresh",
+                "refresh",
+                tooltip="Re-scan tween meshes",
+                callback=self._refresh_tree,
             )
             tree.header_actions.add(
-                "filter", "filter", tooltip="Show only topology mismatches",
-                callback=self._toggle_filter_mismatches, toggle=True,
+                "filter",
+                "filter",
+                tooltip="Show only topology mismatches",
+                callback=self._toggle_filter_mismatches,
+                toggle=True,
             )
         except Exception:
             self.logger.debug("Header action bar unavailable on this tree widget")
@@ -611,7 +651,8 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
         n = len(tweens)
         base_verts = len(self.base_obj.data.vertices) if self.base_obj else None
         n_mismatch = sum(
-            1 for t in tweens
+            1
+            for t in tweens
             if base_verts is not None and len(t.obj.data.vertices) != base_verts
         )
         return f"{n} tween(s), {n_mismatch} topology mismatch(es)"
@@ -673,9 +714,12 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
                     tween.mesh,
                     f"{tween.weight:.3f}",
                     "" if frame is None else str(frame),
-                    "Match" if topology == "match" else (
+                    "Match"
+                    if topology == "match"
+                    else (
                         f"Mismatch ({vert_count} vs {base_vert_count})"
-                        if vert_count is not None else "Unknown"
+                        if vert_count is not None
+                        else "Unknown"
                     ),
                     status_key.capitalize(),
                 ]
@@ -686,8 +730,12 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator):
             item.setData(COL_WEIGHT, _NumericSortItem._NUM_ROLE, tween.weight)
             if frame is not None:
                 item.setData(COL_FRAME, _NumericSortItem._NUM_ROLE, frame)
-            item.setTextAlignment(COL_WEIGHT, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
-            item.setTextAlignment(COL_FRAME, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            item.setTextAlignment(
+                COL_WEIGHT, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
+            )
+            item.setTextAlignment(
+                COL_FRAME, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
+            )
             tree.addTopLevelItem(item)
 
         tree.apply_formatting()

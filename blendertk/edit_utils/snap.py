@@ -15,14 +15,11 @@ class is discovered and served by ``BlenderUiHandler`` (``marking_menu.show("sna
 
 ``import bpy`` is deferred into the call bodies and the Qt-only ``uitk`` helper into ``header_init``.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import selected_objects
-from blendertk.edit_utils._edit_utils import (
-    snap_closest_verts,
-    snap_to_grid,
-    snap_to_surface,
-)
+from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.edit_utils._edit_utils import EditUtils
 
 
 class SnapSlots(ptk.LoggingMixin):
@@ -42,36 +39,50 @@ class SnapSlots(ptk.LoggingMixin):
         selection); both restricted to meshes. Returns ([], None) when under-selected."""
         import bpy
 
-        meshes = [o for o in selected_objects() if o.type == "MESH"]
+        meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         target = bpy.context.view_layer.objects.active
-        if len(meshes) < 2 or target is None or target.type != "MESH" or target not in meshes:
+        if (
+            len(meshes) < 2
+            or target is None
+            or target.type != "MESH"
+            or target not in meshes
+        ):
             return [], None
         return [o for o in meshes if o is not target], target
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Snap",
                 body="Snap vertices to other vertices, surfaces, or the world grid. Each button "
                 "has an option box (▸) for its per-tool parameters.",
                 sections=[
-                    ("Snap to Surface", [
-                        "Select source mesh(es), then the target mesh <b>last (active)</b>.",
-                        "Source verts are projected onto the target surface.",
-                        "Option box: <b>Offset</b>, <b>Threshold</b>, <b>Invert</b>.",
-                    ]),
-                    ("Snap to Closest Vertex", [
-                        "Select exactly two meshes: source, then target <b>last (active)</b>.",
-                        "Source verts within <b>Tolerance</b> snap to the closest target vert.",
-                    ]),
-                    ("Snap to Grid", [
-                        "Select objects (or vertices in Edit Mode).",
-                        "Option box: <b>Grid Size</b> + per-axis filter (xyz).",
-                        "Edit Mode snaps selected verts; Object Mode snaps each object's origin.",
-                    ]),
+                    (
+                        "Snap to Surface",
+                        [
+                            "Select source mesh(es), then the target mesh <b>last (active)</b>.",
+                            "Source verts are projected onto the target surface.",
+                            "Option box: <b>Offset</b>, <b>Threshold</b>, <b>Invert</b>.",
+                        ],
+                    ),
+                    (
+                        "Snap to Closest Vertex",
+                        [
+                            "Select exactly two meshes: source, then target <b>last (active)</b>.",
+                            "Source verts within <b>Tolerance</b> snap to the closest target vert.",
+                        ],
+                    ),
+                    (
+                        "Snap to Grid",
+                        [
+                            "Select objects (or vertices in Edit Mode).",
+                            "Option box: <b>Grid Size</b> + per-axis filter (xyz).",
+                            "Edit Mode snaps selected verts; Object Mode snaps each object's origin.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -116,7 +127,7 @@ class SnapSlots(ptk.LoggingMixin):
         threshold = self.ui.b000.menu.s001.value() or None  # 0 means no limit
         invert = self.ui.b000.menu.chk000.isChecked()
 
-        count = snap_to_surface(
+        count = EditUtils.snap_to_surface(
             sources,
             target,
             offset=offset,
@@ -148,7 +159,7 @@ class SnapSlots(ptk.LoggingMixin):
 
         tolerance = self.ui.b001.menu.s002.value()
 
-        count = snap_closest_verts(sources[0], target, tolerance=tolerance)
+        count = EditUtils.snap_closest_verts(sources[0], target, tolerance=tolerance)
         self.sb.message_box(f"<hl>Snapped {count} vertices.</hl>")
 
     def b002_init(self, widget):
@@ -175,7 +186,7 @@ class SnapSlots(ptk.LoggingMixin):
         grid_size = self.ui.b002.menu.s003.value()
         axes = self.ui.b002.menu.txt000.text() or "xyz"
 
-        count = snap_to_grid(grid_size=grid_size, axes=axes)
+        count = EditUtils.snap_to_grid(grid_size=grid_size, axes=axes)
         self.sb.message_box(f"<hl>Snapped {count} items to grid.</hl>")
 
 

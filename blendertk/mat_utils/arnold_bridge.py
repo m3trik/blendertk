@@ -17,14 +17,15 @@ wired to no-op slots that explain why rather than silently doing nothing.
 ``ArnoldBridge`` itself has no scene-mutating implementation for the same reason: there is no
 Blender-side operation for it to perform. It exists for structural/API parity only.
 """
+
 from typing import List, Optional, Union
 
 import pythontk as ptk
 
 try:  # UI-only helper; keep the headless import clean if uitk is absent
-    from uitk.widgets.mixins.tooltip_mixin import fmt
+    from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 except Exception:
-    fmt = None
+    TooltipFormat = None
 
 
 _NOT_AVAILABLE = (
@@ -100,9 +101,9 @@ class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin):
     # ------------------------------------------------------------------ header
     def header_init(self, widget) -> None:
         """Configure the help text (no menu actions -- the panel is inert)."""
-        if fmt is not None:
+        if TooltipFormat is not None:
             widget.set_help_text(
-                fmt(
+                TooltipFormat.fmt(
                     title="Arnold Preview Shader",
                     body="Not available in Blender.",
                     sections=[

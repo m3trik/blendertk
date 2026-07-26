@@ -25,6 +25,7 @@ rejected). Its option-box mirrors mayatk's b003/b004/b007/b008 1:1 by objectName
 ``import bpy`` is deferred into the methods that need it (headless Blender ships no Qt binding
 either, so the Qt-only ``fmt`` import is deferred alongside it).
 """
+
 import os
 from typing import Dict, Any, Optional
 
@@ -34,7 +35,6 @@ from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
 
 
 class SceneExporterSlots(SceneExporter):
-
     _log_level_options: Dict[str, Any] = {
         "Log Level: DEBUG": 10,
         "Log Level: INFO": 20,
@@ -71,16 +71,16 @@ class SceneExporterSlots(SceneExporter):
 
     @property
     def workspace(self):
-        from blendertk.core_utils._core_utils import get_env_info
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        workspace_path = get_env_info("workspace")
+        workspace_path = CoreUtils.get_env_info("workspace")
         if not workspace_path:
             self.logger.error("No saved .blend directory found.")
         return workspace_path
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add_presets = True
         widget.menu.presets.preset_dir = "blendertk/scene_exporter"
@@ -102,7 +102,7 @@ class SceneExporterSlots(SceneExporter):
             setToolTip="Set the log level.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Scene Exporter",
                 body="Batch-export scene objects to FBX (or GLB) using configurable "
                 "task pipelines.",
@@ -113,12 +113,15 @@ class SceneExporterSlots(SceneExporter):
                     "Press the export action button to run.",
                 ],
                 sections=[
-                    ("Header menu", [
-                        "<b>Create Log File</b> — write a sidecar log next to "
-                        "each FBX.",
-                        "<b>Log Level</b> — DEBUG / INFO / WARNING / ERROR "
-                        "output verbosity.",
-                    ]),
+                    (
+                        "Header menu",
+                        [
+                            "<b>Create Log File</b> — write a sidecar log next to "
+                            "each FBX.",
+                            "<b>Log Level</b> — DEBUG / INFO / WARNING / ERROR "
+                            "output verbosity.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -393,9 +396,7 @@ class SceneExporterSlots(SceneExporter):
             objects=objects_to_export,
             export_dir=self.ui.txt000.text(),
             preset_name=self.ui.cmb000.currentData(),
-            export_visible=(
-                export_mode != "selected"
-            ),
+            export_visible=(export_mode != "selected"),
             output_name=self.ui.txt001.text(),
             name_regex=self.ui.txt002.text(),
             timestamp=self.ui.chk004.isChecked(),
@@ -433,7 +434,9 @@ class SceneExporterSlots(SceneExporter):
             try:
                 seed = self._preset_store().load(current)
             except (KeyError, ValueError, OSError) as e:
-                self.logger.error(f"Failed to read preset {current!r} to seed from: {e}")
+                self.logger.error(
+                    f"Failed to read preset {current!r} to seed from: {e}"
+                )
 
         name = self.sb.input_dialog(
             "Add FBX Export Preset",

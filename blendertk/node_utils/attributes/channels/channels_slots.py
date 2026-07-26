@@ -24,6 +24,7 @@ intentionally omitted are concepts with no Blender surface to act on:
 ``__init__`` is Qt-only (no ``bpy``) so the panel loads under the workspace ``.venv``; the live data
 refresh + selection-change subscription are guarded so they no-op without a running Blender.
 """
+
 from blendertk.node_utils.attributes.channels._channels import Channels
 
 
@@ -121,6 +122,11 @@ class ChannelsSlots:
         # txt001 — target display + double-click-to-rename (read-only until double-clicked).
         self._setup_target_field()
 
+        # Best-effort first pass at wiring the table signals (the authoritative call is in
+        # ``tbl000_init``, which re-runs on every show). Mirror of the mayatk panel — a stale
+        # binding from a dead slots instance would otherwise leave wheel-scrub / edits dead.
+        self._wire_table_signals(self.ui.tbl000)
+
     def apply_launch_config(self, targets=None, filter=None, search=None):
         """Configure the window from an external launch call (mirror of mayatk).
 
@@ -164,8 +170,7 @@ class ChannelsSlots:
             if txt1.isReadOnly() and name is not None:
                 txt1.setReadOnly(False)
                 txt1.setToolTip(
-                    f"{name}"
-                    "\n\n(Type a new name and press Enter to rename.)"
+                    f"{name}\n\n(Type a new name and press Enter to rename.)"
                 )
                 txt1.selectAll()
                 txt1.setFocus()
@@ -347,7 +352,7 @@ class ChannelsSlots:
 
     def header_init(self, widget):
         """Populate the header menu (Qt-only; editor shortcuts defer ``bpy`` to click time)."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add("Separator", setTitle="Create")
         widget.menu.add(
@@ -405,66 +410,89 @@ class ChannelsSlots:
         # (hdr_select_shape / hdr_select_history).
         widget.menu.add("Separator", setTitle="Blender Editors")
         widget.menu.add(
-            "QPushButton", setText="Properties Editor …", setObjectName="hdr_properties",
+            "QPushButton",
+            setText="Properties Editor …",
+            setObjectName="hdr_properties",
             setToolTip="Open Blender's Properties editor (Object tab) in a new window.",
         )
         widget.menu.add(
-            "QPushButton", setText="Drivers Editor …", setObjectName="hdr_drivers",
+            "QPushButton",
+            setText="Drivers Editor …",
+            setObjectName="hdr_drivers",
             setToolTip="Open Blender's Drivers editor in a new window.",
         )
         widget.menu.add(
-            "QPushButton", setText="Graph Editor …", setObjectName="hdr_graph",
+            "QPushButton",
+            setText="Graph Editor …",
+            setObjectName="hdr_graph",
             setToolTip="Open Blender's Graph editor (F-curves) in a new window.",
         )
-        widget.menu.hdr_properties.clicked.connect(lambda: self._open_editor("Properties", "OBJECT"))
+        widget.menu.hdr_properties.clicked.connect(
+            lambda: self._open_editor("Properties", "OBJECT")
+        )
         widget.menu.hdr_drivers.clicked.connect(lambda: self._open_editor("Drivers"))
         widget.menu.hdr_graph.clicked.connect(lambda: self._open_editor("Graph Editor"))
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Channels",
                 body="Inspect, edit, lock, and key a Blender object's channels — its transform "
                 "(location / rotation / scale) and custom properties — in a spreadsheet-style table.",
                 sections=[
-                    ("Table", [
-                        "Each row is one channel on the active selection.",
-                        "Edit values directly in the Value column, or MMB-drag / mouse-wheel "
-                        "over it to scrub numeric channels.",
-                        "Click the lock icon to lock/unlock a transform channel.",
-                        "Click the key icon to set/remove a keyframe at the current frame; "
-                        "Ctrl+click to break the animation/driver.",
-                        "A muted F-curve / driver shows the key icon in olive.",
-                    ]),
-                    ("Wheel-scrub modifiers", [
-                        "plain &mdash; ×1",
-                        "<b>Ctrl</b> &mdash; ×10 (coarse)",
-                        "<b>Ctrl+Shift</b> &mdash; ×100 (very coarse)",
-                        "<b>Alt</b> &mdash; ÷10 (fine)",
-                        "<b>Ctrl+Alt</b> &mdash; smallest representable step",
-                    ]),
-                    ("Right-click (context menu)", [
-                        "<b>Edit</b> — lock / unlock / reset to default.",
-                        "<b>Values</b> — copy / paste channel values.",
-                        "<b>Animation</b> — breakdown, mute / unmute, select connection "
-                        "(driver / constraint target), break animation.",
-                        "<b>Transform</b> — freeze / unfreeze transforms.",
-                        "<b>Manage</b> — delete custom propert(ies).",
-                    ]),
-                    ("Filter (top-left)", [
-                        "<b>Custom</b> — custom properties only.",
-                        "<b>Keyable</b> — transform channels + custom properties.",
-                        "<b>Locked</b> — locked transform channels.",
-                        "<b>Animated</b> — channels driven by an F-curve or driver.",
-                        "Invert (option box) shows the complement of the filter.",
-                    ]),
-                    ("Header", [
-                        "<b>Create Attribute…</b> — add a custom property.",
-                        "<b>Compact View</b> — collapse rows, hide the column header, "
-                        "and move the object name into the footer.",
-                        "<b>Auto-fit Window</b> — resize columns and grow/shrink the "
-                        "window to match contents on every refresh.",
-                        "<b>Properties / Drivers / Graph Editor…</b> — open the native editor.",
-                    ]),
+                    (
+                        "Table",
+                        [
+                            "Each row is one channel on the active selection.",
+                            "Edit values directly in the Value column, or MMB-drag / mouse-wheel "
+                            "over it to scrub numeric channels.",
+                            "Click the lock icon to lock/unlock a transform channel.",
+                            "Click the key icon to set/remove a keyframe at the current frame; "
+                            "Ctrl+click to break the animation/driver.",
+                            "A muted F-curve / driver shows the key icon in olive.",
+                        ],
+                    ),
+                    (
+                        "Wheel-scrub modifiers",
+                        [
+                            "plain &mdash; ×1",
+                            "<b>Ctrl</b> &mdash; ×10 (coarse)",
+                            "<b>Ctrl+Shift</b> &mdash; ×100 (very coarse)",
+                            "<b>Alt</b> &mdash; ÷10 (fine)",
+                            "<b>Ctrl+Alt</b> &mdash; smallest representable step",
+                        ],
+                    ),
+                    (
+                        "Right-click (context menu)",
+                        [
+                            "<b>Edit</b> — lock / unlock / reset to default.",
+                            "<b>Values</b> — copy / paste channel values.",
+                            "<b>Animation</b> — breakdown, mute / unmute, select connection "
+                            "(driver / constraint target), break animation.",
+                            "<b>Transform</b> — freeze / unfreeze transforms.",
+                            "<b>Manage</b> — delete custom propert(ies).",
+                        ],
+                    ),
+                    (
+                        "Filter (top-left)",
+                        [
+                            "<b>Custom</b> — custom properties only.",
+                            "<b>Keyable</b> — transform channels + custom properties.",
+                            "<b>Locked</b> — locked transform channels.",
+                            "<b>Animated</b> — channels driven by an F-curve or driver.",
+                            "Invert (option box) shows the complement of the filter.",
+                        ],
+                    ),
+                    (
+                        "Header",
+                        [
+                            "<b>Create Attribute…</b> — add a custom property.",
+                            "<b>Compact View</b> — collapse rows, hide the column header, "
+                            "and move the object name into the footer.",
+                            "<b>Auto-fit Window</b> — resize columns and grow/shrink the "
+                            "window to match contents on every refresh.",
+                            "<b>Properties / Drivers / Graph Editor…</b> — open the native editor.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -818,7 +846,10 @@ class ChannelsSlots:
     def show_create_menu(self, *args):
         """Show the *Create Attribute* popup (a custom-property form)."""
         menu = self.sb.registered_widgets.Menu(
-            parent=self.ui, position="cursor", add_defaults_button=False, fixed_item_height=20
+            parent=self.ui,
+            position="cursor",
+            add_defaults_button=False,
+            fixed_item_height=20,
         )
         menu.setTitle("Create Attribute")
         # Chrome is deferred to first show; build it now so the header exists
@@ -829,36 +860,70 @@ class ChannelsSlots:
 
         menu.add("QLabel", setText="Name:", row=0, col=0)
         le_name = menu.add(
-            "QLineEdit", setPlaceholderText="my_attribute", setObjectName="le_attr_name",
-            row=0, col=1,
+            "QLineEdit",
+            setPlaceholderText="my_attribute",
+            setObjectName="le_attr_name",
+            row=0,
+            col=1,
         )
         menu.add("QLabel", setText="Type:", row=1, col=0)
         cmb_type = menu.add(
-            "QComboBox", setObjectName="cmb_attr_type",
+            "QComboBox",
+            setObjectName="cmb_attr_type",
             # 'vector' = Maya's double3 (a 3-float XYZ array custom prop); 'enum' is not offered
             # (no arbitrary-object Blender analogue — see parity_map channels_slots:cmb_attr_type).
-            addItems=["float", "int", "bool", "string", "vector"], row=1, col=1,
+            addItems=["float", "int", "bool", "string", "vector"],
+            row=1,
+            col=1,
         )
         _ranged = ("float", "int", "vector")  # types that carry a default + min/max
 
         sep_range = menu.add("Separator", setTitle="Range", row=2)
         lbl_default = menu.add("QLabel", setText="Default:", row=3, col=0)
         spn_default = menu.add(
-            "QDoubleSpinBox", setObjectName="spn_default", setMinimum=-1e9, setMaximum=1e9,
-            row=3, col=1,
+            "QDoubleSpinBox",
+            setObjectName="spn_default",
+            setMinimum=-1e9,
+            setMaximum=1e9,
+            row=3,
+            col=1,
         )
         lbl_min = menu.add("QLabel", setText="Min:", row=4, col=0)
         spn_min = menu.add(
-            "QDoubleSpinBox", setObjectName="spn_min", setMinimum=-1e9, setMaximum=1e9, row=4, col=1,
+            "QDoubleSpinBox",
+            setObjectName="spn_min",
+            setMinimum=-1e9,
+            setMaximum=1e9,
+            row=4,
+            col=1,
         )
         lbl_max = menu.add("QLabel", setText="Max:", row=5, col=0)
         spn_max = menu.add(
-            "QDoubleSpinBox", setObjectName="spn_max", setMinimum=-1e9, setMaximum=1e9,
-            setValue=1.0, row=5, col=1,
+            "QDoubleSpinBox",
+            setObjectName="spn_max",
+            setMinimum=-1e9,
+            setMaximum=1e9,
+            setValue=1.0,
+            row=5,
+            col=1,
         )
-        btn = menu.add("QPushButton", setText="Create", setMinimumHeight=28, setMaximumHeight=28, row=6)
+        btn = menu.add(
+            "QPushButton",
+            setText="Create",
+            setMinimumHeight=28,
+            setMaximumHeight=28,
+            row=6,
+        )
 
-        _numeric = [sep_range, lbl_default, spn_default, lbl_min, spn_min, lbl_max, spn_max]
+        _numeric = [
+            sep_range,
+            lbl_default,
+            spn_default,
+            lbl_min,
+            spn_min,
+            lbl_max,
+            spn_max,
+        ]
 
         def _on_type_changed(text):
             is_ranged = text in _ranged
@@ -898,18 +963,30 @@ class ChannelsSlots:
     # ------------------------------------------------------------------
 
     def tbl000_init(self, widget):
-        """One-time table setup (action columns + context menu + signals), then a guarded refresh."""
+        """Table setup: (re)wire signals every show, one-time build, then a guarded refresh.
+
+        ``_wire_table_signals`` runs unconditionally because the ``tbl000`` QWidget can
+        outlive this slots instance (a UI reload / slots rebuild leaves ``is_initialized``
+        stamped on the persisted widget). Without the re-wire, the ``cellChanged`` /
+        ``cellWheelScrolled`` / scrub / context-menu signals stay bound to a dead ``self``
+        whose handlers silently no-op — the root cause of "wheel-scrub and edits do nothing
+        after a reload". Column registration + menu build stay in the one-time block (they
+        mutate the widget, which persists). Mirror of the mayatk panel.
+        """
+        self._wire_table_signals(widget)
         if not widget.is_initialized:
             widget.refresh_on_show = True
             self._setup_action_columns(widget)
             self._setup_context_menu(widget)
-            self._wire_context_menu_state(widget)
             self._setup_value_input(widget)
-            widget.cellChanged.connect(self._handle_cell_edit)
             self._subscribe_scene_changes()
 
-        widget.setColumnHidden(self.COL_TYPE, not self._chk_show_type.isChecked()
-                               if getattr(self, "_chk_show_type", None) else True)
+        widget.setColumnHidden(
+            self.COL_TYPE,
+            not self._chk_show_type.isChecked()
+            if getattr(self, "_chk_show_type", None)
+            else True,
+        )
         self._refresh_table(widget)
 
     def _subscribe_scene_changes(self):
@@ -918,7 +995,9 @@ class ChannelsSlots:
             from blendertk.core_utils.script_job_manager import ScriptJobManager
 
             mgr = ScriptJobManager.instance()
-            mgr.subscribe("SelectionChanged", self._on_scene_change, owner=self, ephemeral=True)
+            mgr.subscribe(
+                "SelectionChanged", self._on_scene_change, owner=self, ephemeral=True
+            )
             mgr.subscribe("SceneOpened", self._on_scene_change, owner=self)
             mgr.connect_cleanup(self.ui, owner=self)
         except Exception:
@@ -934,44 +1013,54 @@ class ChannelsSlots:
             self.COL_LOCK,
             states={
                 "locked": {
-                    "icon": "lock", "color": clr["locked"],
-                    "tooltip": "Locked — click to unlock", "action": self._on_icon_cell_clicked,
+                    "icon": "lock",
+                    "color": clr["locked"],
+                    "tooltip": "Locked — click to unlock",
+                    "action": self._on_icon_cell_clicked,
                 },
                 "unlocked": {
-                    "icon": "unlock", "color": clr["off"],
-                    "tooltip": "Unlocked — click to lock", "action": self._on_icon_cell_clicked,
+                    "icon": "unlock",
+                    "color": clr["off"],
+                    "tooltip": "Unlocked — click to lock",
+                    "action": self._on_icon_cell_clicked,
                 },
             },
         )
         conn_states = {
             "none": {
-                "icon": "disconnect", "color": clr["off"],
+                "icon": "disconnect",
+                "color": clr["off"],
                 "tooltip": "Not animated — click to key at the current frame.",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe": {
-                "icon": "connect", "color": clr["keyframe"],
+                "icon": "connect",
+                "color": clr["keyframe"],
                 "tooltip": "Animated — click to key at the current frame.\nCtrl+click: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe_active": {
-                "icon": "connect", "color": clr["keyframe_active"],
+                "icon": "connect",
+                "color": clr["keyframe_active"],
                 "tooltip": "Key on current frame — click to remove it.\nCtrl+click: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "driven_key": {
-                "icon": "connect", "color": clr["driven_key"],
+                "icon": "connect",
+                "color": clr["driven_key"],
                 "tooltip": "Driven — Ctrl+click to remove the driver.",
                 "action": self._on_icon_cell_clicked,
             },
             "constraint": {
-                "icon": "connect", "color": clr["constraint"],
+                "icon": "connect",
+                "color": clr["constraint"],
                 "tooltip": "Constrained object — click to key at the current frame.\n"
                 "(Manage constraints in the Properties editor.)",
                 "action": self._on_icon_cell_clicked,
             },
             "muted": {
-                "icon": "connect", "color": clr["muted"],
+                "icon": "connect",
+                "color": clr["muted"],
                 "tooltip": "Muted F-curve / driver — click to key at the current frame.\n"
                 "Right-click ▸ Unmute to re-enable.",
                 "action": self._on_icon_cell_clicked,
@@ -1036,13 +1125,21 @@ class ChannelsSlots:
             "ctx_delete": self._ctx_delete,
         }
         # Node-level actions operate on the selection even with no row highlighted.
-        _node_level = {"ctx_freeze_transforms", "ctx_unfreeze_transforms", "ctx_paste_values"}
+        _node_level = {
+            "ctx_freeze_transforms",
+            "ctx_unfreeze_transforms",
+            "ctx_paste_values",
+        }
         for label, obj_name, *rest in _items:
             if obj_name is None:
                 menu.add("Separator", setTitle=label)
                 continue
-            menu.add("QPushButton", setText=label, setObjectName=obj_name,
-                     setToolTip=rest[0] if rest else "")
+            menu.add(
+                "QPushButton",
+                setText=label,
+                setObjectName=obj_name,
+                setToolTip=rest[0] if rest else "",
+            )
             handler = handler_map.get(obj_name)
             if handler:
                 widget.register_menu_action(
@@ -1052,12 +1149,42 @@ class ChannelsSlots:
                     allow_empty=obj_name in _node_level,
                 )
 
-    def _wire_context_menu_state(self, widget):
-        """Run our enable/disable pass before the table paints its context menu.
+    def _wire_table_signals(self, widget):
+        """Clear stale table-signal bindings and wire this instance's handlers.
 
-        Qt fires ``customContextMenuRequested`` slots in connection order, so we clear all
-        bindings and re-add ours first, then the table's own popup (mirror of the Maya panel).
+        Idempotent (disconnect-then-connect on every call) and the authoritative wiring for
+        every signal the table depends on — collected here so the full contract is visible in
+        one place. Called from ``__init__`` (best-effort first pass) and unconditionally from
+        ``tbl000_init`` on every show, because the QWidget can outlive the slots instance and
+        leave these signals bound to a dead ``self``. Mirror of the mayatk panel.
         """
+        # cellChanged -> value-edit / custom-prop rename dispatch.
+        try:
+            widget.cellChanged.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        widget.cellChanged.connect(self._handle_cell_edit)
+
+        # Value-input signals (MMB scrub + wheel scroll). Column registration lives in
+        # ``_setup_value_input`` (one-time, persists on the widget); the connections belong
+        # here because the widget can persist across slots rebuilds while ``self`` does not.
+        for sig, slot in (
+            (getattr(widget, "cellScrubStarted", None), self._on_scrub_started),
+            (getattr(widget, "cellScrubMoved", None), self._on_scrub_moved),
+            (getattr(widget, "cellScrubFinished", None), self._on_scrub_finished),
+            (getattr(widget, "cellWheelScrolled", None), self._on_wheel_scrolled),
+        ):
+            if sig is None:
+                continue  # older TableWidget without the signal
+            try:
+                sig.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            sig.connect(slot)
+
+        # customContextMenuRequested -> our enable/disable state pass BEFORE the table's own
+        # popup. Qt fires slots in connection order, so clear all bindings and re-add ours
+        # first, the table's ``_show_context_menu`` second (mirror of the Maya panel).
         try:
             widget.customContextMenuRequested.disconnect()
         except (RuntimeError, TypeError):
@@ -1116,27 +1243,43 @@ class ChannelsSlots:
             self._update_target_display(objects)
 
             filter_key = self._filter_key()
-            rows, states = self.controller.build_table_data(objects, filter_key, self._filter_invert)
+            rows, states = self.controller.build_table_data(
+                objects, filter_key, self._filter_invert
+            )
             # Keep descriptors aligned with rows for click/edit dispatch.
             self._row_descriptors = (
-                self.controller.collect_channels(objects, filter_key, self._filter_invert)
-                if objects else []
+                self.controller.collect_channels(
+                    objects, filter_key, self._filter_invert
+                )
+                if objects
+                else []
             )
 
             # Name filter (wildcard) — reuse pythontk's filter, like the Maya panel.
-            text = self.ui.txt000.text().strip() if getattr(self.ui, "txt000", None) else ""
+            text = (
+                self.ui.txt000.text().strip()
+                if getattr(self.ui, "txt000", None)
+                else ""
+            )
             if self._filter_enabled and text and self._row_descriptors:
                 import pythontk as ptk
 
-                keep = set(ptk.IterUtils.filter_list(
-                    [d["name"] for d in self._row_descriptors], inc=text, ignore_case=True
-                ))
+                keep = set(
+                    ptk.IterUtils.filter_list(
+                        [d["name"] for d in self._row_descriptors],
+                        inc=text,
+                        ignore_case=True,
+                    )
+                )
                 paired = [
-                    (r, s, d) for r, s, d in zip(rows, states, self._row_descriptors)
+                    (r, s, d)
+                    for r, s, d in zip(rows, states, self._row_descriptors)
                     if d["name"] in keep
                 ]
                 if paired:
-                    rows, states, self._row_descriptors = (list(x) for x in zip(*paired))
+                    rows, states, self._row_descriptors = (
+                        list(x) for x in zip(*paired)
+                    )
                 else:
                     rows, states, self._row_descriptors = [], [], []
 
@@ -1146,7 +1289,9 @@ class ChannelsSlots:
             widget.add(rows, headers=["Name", "", "", "Value", "Type"])
             self._configure_columns(widget)
             for row_idx, (is_locked, conn_type) in enumerate(states):
-                widget.actions.set(row_idx, self.COL_LOCK, "locked" if is_locked else "unlocked")
+                widget.actions.set(
+                    row_idx, self.COL_LOCK, "locked" if is_locked else "unlocked"
+                )
                 widget.actions.set(row_idx, self.COL_CONN, conn_type)
             self._set_name_editability(widget)
         except Exception:
@@ -1228,7 +1373,11 @@ class ChannelsSlots:
         if col == self.COL_VALUE:
             self.controller.set_channel_value(objects, descriptor, text)
             self._refresh_table(self.ui.tbl000)
-        elif col == self.COL_NAME and descriptor["kind"] == "custom" and text != descriptor["name"]:
+        elif (
+            col == self.COL_NAME
+            and descriptor["kind"] == "custom"
+            and text != descriptor["name"]
+        ):
             self.controller.rename_attribute(objects, descriptor["name"], text)
             self._refresh_table(self.ui.tbl000)
 
@@ -1246,28 +1395,29 @@ class ChannelsSlots:
 
     # Wheel-scroll per-notch step ladder, mirroring uitk's WheelStepMixin: Ctrl scales up,
     # Alt scales down. Float smallest matches Channels._fmt_float's 4-decimal display precision.
-    _WHEEL_FLOAT_STEP = 0.1          # default (no modifier)
-    _WHEEL_FLOAT_COARSE = 1.0        # Ctrl        (×10)
+    _WHEEL_FLOAT_STEP = 0.1  # default (no modifier)
+    _WHEEL_FLOAT_COARSE = 1.0  # Ctrl        (×10)
     _WHEEL_FLOAT_VERY_COARSE = 10.0  # Ctrl+Shift  (×100)
-    _WHEEL_FLOAT_FINE = 0.01         # Alt         (÷10)
-    _WHEEL_FLOAT_SMALLEST = 0.0001   # Ctrl+Alt    (smallest representable)
-    _WHEEL_INT_COARSE = 10           # Ctrl on int (×10)
-    _WHEEL_INT_VERY_COARSE = 100     # Ctrl+Shift on int (×100)
-    _WHEEL_INT_SMALLEST = 1          # Ctrl+Alt on int — smallest int step
-    _WHEEL_INT_FINE = 0              # Alt on int — no sub-1 step; notch silently consumed
+    _WHEEL_FLOAT_FINE = 0.01  # Alt         (÷10)
+    _WHEEL_FLOAT_SMALLEST = 0.0001  # Ctrl+Alt    (smallest representable)
+    _WHEEL_INT_COARSE = 10  # Ctrl on int (×10)
+    _WHEEL_INT_VERY_COARSE = 100  # Ctrl+Shift on int (×100)
+    _WHEEL_INT_SMALLEST = 1  # Ctrl+Alt on int — smallest int step
+    _WHEEL_INT_FINE = 0  # Alt on int — no sub-1 step; notch silently consumed
 
     def _setup_value_input(self, widget):
-        """Opt the Value column into MMB-scrub, wheel-scrub, and single-click edit (uitk infra)."""
+        """Register the Value column for MMB-scrub, wheel-scrub, and single-click edit.
+
+        One-time-only: this configures the widget (state that persists across slots
+        rebuilds). The matching signal *connections* live in :meth:`_wire_table_signals`,
+        which re-runs on every ``tbl000_init`` (the widget can outlive this instance).
+        """
         widget.set_scrub_columns([self.COL_VALUE])
         widget.set_wheel_scrub_columns([self.COL_VALUE])
         try:
             widget.set_single_click_edit_columns([self.COL_VALUE])
         except AttributeError:
             pass
-        widget.cellScrubStarted.connect(self._on_scrub_started)
-        widget.cellScrubMoved.connect(self._on_scrub_moved)
-        widget.cellScrubFinished.connect(self._on_scrub_finished)
-        widget.cellWheelScrolled.connect(self._on_wheel_scrolled)
 
     def _scrub_value(self, obj, descriptor):
         """*obj*'s current display value for *descriptor* if it is numeric **and** unlocked, else ``None``.
@@ -1338,7 +1488,9 @@ class ChannelsSlots:
                 primary_new = new_val
         # Live cell feedback without a full rebuild (which would re-resolve descriptors mid-drag).
         if primary_new is not None:
-            self._set_value_cell_text(state["row"], self.controller.format_value(primary_new))
+            self._set_value_cell_text(
+                state["row"], self.controller.format_value(primary_new)
+            )
 
     def _on_scrub_finished(self, row, col):
         """Clear scrub state and re-sync the table (value + connection icons)."""
@@ -1375,7 +1527,9 @@ class ChannelsSlots:
         if ctrl and alt:
             return self._WHEEL_INT_SMALLEST if is_int else self._WHEEL_FLOAT_SMALLEST
         if ctrl and shift:
-            return self._WHEEL_INT_VERY_COARSE if is_int else self._WHEEL_FLOAT_VERY_COARSE
+            return (
+                self._WHEEL_INT_VERY_COARSE if is_int else self._WHEEL_FLOAT_VERY_COARSE
+            )
         if ctrl:
             return self._WHEEL_INT_COARSE if is_int else self._WHEEL_FLOAT_COARSE
         if alt:
@@ -1401,7 +1555,9 @@ class ChannelsSlots:
 
         is_int = descriptor["type"] == "int"
         step = self._wheel_step(mods, is_int)
-        if step == 0:  # Alt on an int — no sub-1 step exists; recognise the gesture, do nothing.
+        if (
+            step == 0
+        ):  # Alt on an int — no sub-1 step exists; recognise the gesture, do nothing.
             return
         delta = step * steps
 
@@ -1445,11 +1601,15 @@ class ChannelsSlots:
             for obj in objects:
                 if obj is objects[0]:
                     if not self.controller.is_locked(obj, descriptor):
-                        self.controller.set_channel_value([obj], descriptor, str(new_primary))
+                        self.controller.set_channel_value(
+                            [obj], descriptor, str(new_primary)
+                        )
                     continue
                 cur = self._scrub_value(obj, descriptor)
                 if cur is not None:
-                    self.controller.set_channel_value([obj], descriptor, str(apply_delta(cur)))
+                    self.controller.set_channel_value(
+                        [obj], descriptor, str(apply_delta(cur))
+                    )
             return
 
         # Display-mode: step each object's current value, then refresh the cell text in place.
@@ -1475,18 +1635,25 @@ class ChannelsSlots:
         return [by_name[n] for n in names if n in by_name]
 
     def _ctx_lock(self, selection):
-        self.controller.set_lock(self.controller.get_selected_nodes(),
-                                 self._selected_descriptors(selection), True)
+        self.controller.set_lock(
+            self.controller.get_selected_nodes(),
+            self._selected_descriptors(selection),
+            True,
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_unlock(self, selection):
-        self.controller.set_lock(self.controller.get_selected_nodes(),
-                                 self._selected_descriptors(selection), False)
+        self.controller.set_lock(
+            self.controller.get_selected_nodes(),
+            self._selected_descriptors(selection),
+            False,
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_reset_default(self, selection):
-        self.controller.reset_to_default(self.controller.get_selected_nodes(),
-                                         self._selected_descriptors(selection))
+        self.controller.reset_to_default(
+            self.controller.get_selected_nodes(), self._selected_descriptors(selection)
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_break_connection(self, selection):
@@ -1496,8 +1663,9 @@ class ChannelsSlots:
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_copy_values(self, selection):
-        self.controller.copy_values(self.controller.get_selected_nodes(),
-                                    self._selected_descriptors(selection))
+        self.controller.copy_values(
+            self.controller.get_selected_nodes(), self._selected_descriptors(selection)
+        )
 
     def _ctx_paste_values(self, selection):
         self.controller.paste_values(self.controller.get_selected_nodes())
@@ -1524,22 +1692,31 @@ class ChannelsSlots:
         if not objects:
             return
         if not self.controller.unfreeze_transforms(objects):
-            self.sb.message_box("Warning: No stored freeze data on the selected object(s).")
+            self.sb.message_box(
+                "Warning: No stored freeze data on the selected object(s)."
+            )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_breakdown(self, selection):
-        self.controller.set_breakdown_key(self.controller.get_selected_nodes(),
-                                          self._selected_descriptors(selection))
+        self.controller.set_breakdown_key(
+            self.controller.get_selected_nodes(), self._selected_descriptors(selection)
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_mute(self, selection):
-        self.controller.set_mute(self.controller.get_selected_nodes(),
-                                 self._selected_descriptors(selection), True)
+        self.controller.set_mute(
+            self.controller.get_selected_nodes(),
+            self._selected_descriptors(selection),
+            True,
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_unmute(self, selection):
-        self.controller.set_mute(self.controller.get_selected_nodes(),
-                                 self._selected_descriptors(selection), False)
+        self.controller.set_mute(
+            self.controller.get_selected_nodes(),
+            self._selected_descriptors(selection),
+            False,
+        )
         self._refresh_table(self.ui.tbl000)
 
     def _ctx_select_connection(self, selection):
@@ -1554,8 +1731,9 @@ class ChannelsSlots:
             )
 
     def _ctx_delete(self, selection):
-        self.controller.delete_attributes(self.controller.get_selected_nodes(),
-                                          self._selected_descriptors(selection))
+        self.controller.delete_attributes(
+            self.controller.get_selected_nodes(), self._selected_descriptors(selection)
+        )
         self._refresh_table(self.ui.tbl000)
 
     # ------------------------------------------------------------------

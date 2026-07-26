@@ -17,6 +17,7 @@ Co-located with its panel (``maya_bridge_slots.MayaBridgeSlots`` + ``maya_bridge
 import are deferred so the engine surface resolves under headless ``blender --background`` (no Qt).
 Windows-focused (Maya install layout).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,17 +32,6 @@ from blendertk.env_utils.handoff_export import BlenderExportMixin
 
 _PKG_DIR = Path(__file__).resolve().parent
 _TEMPLATE_DIR = _PKG_DIR / "templates"
-
-
-def _build_mel_command(script_path: str) -> str:
-    """Return the MEL passed to ``maya -command`` that exec's the rendered import script.
-
-    ``-command`` runs MEL on startup; have it exec our rendered Python template. The arg is a
-    single list element (AppLauncher uses no shell), so only MEL-level quoting matters: the MEL
-    string uses ``"``, the inner Python uses ``'`` + a raw string -> nothing to escape.
-    """
-    script_posix = str(script_path).replace("\\", "/")
-    return f"python(\"exec(open(r'{script_posix}').read())\")"
 
 
 # Declarative Maya hand-off config (target discovery + the ``-command`` launch args). Launches a
@@ -61,26 +51,16 @@ _SPEC = ptk.ScriptLaunchSpec(
         ),
     ),
     template_dir=_TEMPLATE_DIR,
-    launch_args=lambda script_path: ["-command", _build_mel_command(script_path)],
+    launch_args=lambda script_path: [
+        "-command",
+        MayaBridge._build_mel_command(script_path),
+    ],
     payload_prefix="btk_to_maya",
 )
 
 
 # Module-level template discovery -- kept so the slots (and tests) can list templates without a
 # live engine. Thin wrappers over the shared :mod:`pythontk.core_utils.script_template` helpers.
-def list_templates() -> List[Path]:
-    """User-visible templates in ``templates/`` (skips underscore-prefixed)."""
-    return _templates.list_templates(_TEMPLATE_DIR, ".py")
-
-
-def template_modes(template_path: Path) -> Tuple[str, ...]:
-    """Modes a template declares via ``BRIDGE_MODES``; ``("send_to",)`` fallback."""
-    return _templates.template_modes(template_path, (SEND_TO,))
-
-
-def list_template_modes() -> List[Tuple[str, str]]:
-    """``[(stem, mode), ...]`` for every (template, mode) pairing."""
-    return _templates.list_template_modes(_TEMPLATE_DIR, ".py", (SEND_TO,))
 
 
 class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
@@ -109,15 +89,41 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     def params_defaults(self) -> Dict[str, Any]:
         from blendertk.env_utils.maya_bridge import parameters as _params
 
-        return _params.defaults()
+        return _params.Parameters.defaults()
 
     def render_context(self, params: Dict[str, Any]) -> Dict[str, str]:
         from blendertk.env_utils.maya_bridge import parameters as _params
 
-        return _params.render_context(params)
+        return _params.Parameters.render_context(params)
 
     # Back-compat alias for tests that referenced the bound helper.
-    _build_mel_command = staticmethod(_build_mel_command)
+    @staticmethod
+    def _build_mel_command(script_path: str) -> str:
+        """Return the MEL passed to ``maya -command`` that exec's the rendered import script.
+
+        ``-command`` runs MEL on startup; have it exec our rendered Python template. The arg is a
+        single list element (AppLauncher uses no shell), so only MEL-level quoting matters: the MEL
+        string uses ``"``, the inner Python uses ``'`` + a raw string -> nothing to escape.
+        """
+        script_posix = str(script_path).replace("\\", "/")
+        return f"python(\"exec(open(r'{script_posix}').read())\")"
+
+    @staticmethod
+    def list_templates() -> List[Path]:
+        """User-visible templates in ``templates/`` (skips underscore-prefixed)."""
+        return _templates.ScriptTemplate.list_templates(_TEMPLATE_DIR, ".py")
+
+    @staticmethod
+    def template_modes(template_path: Path) -> Tuple[str, ...]:
+        """Modes a template declares via ``BRIDGE_MODES``; ``("send_to",)`` fallback."""
+        return _templates.ScriptTemplate.template_modes(template_path, (SEND_TO,))
+
+    @staticmethod
+    def list_template_modes() -> List[Tuple[str, str]]:
+        """``[(stem, mode), ...]`` for every (template, mode) pairing."""
+        return _templates.ScriptTemplate.list_template_modes(
+            _TEMPLATE_DIR, ".py", (SEND_TO,)
+        )
 
 
 # -----------------------------------------------------------------------------

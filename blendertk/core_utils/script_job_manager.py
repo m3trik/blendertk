@@ -41,6 +41,7 @@ Divergence from mayatk: there is no ``add_om_callback`` — its OpenMaya ``MMess
 when a tool actually needs arbitrary RNA-property watching (YAGNI). ``import bpy`` is deferred
 into the call bodies (no import side effects).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -108,7 +109,9 @@ class ScriptJobManager:
     def __init__(self):
         self._subs: Dict[int, _Subscription] = {}
         self._events: Dict[str, List[int]] = {}  # event -> [tokens]
-        self._handlers: Dict[str, Callable] = {}  # handler-list name -> installed master fn
+        self._handlers: Dict[
+            str, Callable
+        ] = {}  # handler-list name -> installed master fn
         self._counter = itertools.count(1)
         # (id(widget), id(owner)) pairs — one cleanup connection per pair, so
         # several owners can share a widget without shadowing each other.
@@ -255,10 +258,19 @@ class ScriptJobManager:
         """Pretty-print :meth:`status` for interactive debugging."""
         s = self.status()
         print("ScriptJobManager status")
-        print(f"  installed handlers ({len(s['installed_handlers'])}): {s['installed_handlers']}")
+        print(
+            f"  installed handlers ({len(s['installed_handlers'])}): {s['installed_handlers']}"
+        )
         print(f"  subscriptions ({len(s['subscriptions'])}):")
         for sub in s["subscriptions"]:
-            flags = [f for f, on in (("ephemeral", sub["ephemeral"]), ("suppressed", sub["suppressed"])) if on]
+            flags = [
+                f
+                for f, on in (
+                    ("ephemeral", sub["ephemeral"]),
+                    ("suppressed", sub["suppressed"]),
+                )
+                if on
+            ]
             tag = f" ({', '.join(flags)})" if flags else ""
             print(f"    #{sub['token']} {sub['event']} owner={sub['owner']}{tag}")
 
@@ -322,7 +334,9 @@ class ScriptJobManager:
             if fn in handler_list:
                 handler_list.remove(fn)
         except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("ScriptJobManager: failed to remove %r handler (%s)", name, exc)
+            logger.debug(
+                "ScriptJobManager: failed to remove %r handler (%s)", name, exc
+            )
 
     def _dispatch(self, event: str) -> None:
         """Dispatch *event* to its current subscribers, then prune ephemerals on scene change."""
@@ -346,10 +360,10 @@ class ScriptJobManager:
     def _current_selection(self) -> FrozenSet[str]:
         """The selected-object name set (for SelectionChanged diffs), via the shared
         ``selected_objects`` reader so the selection idiom stays single-sourced."""
-        from blendertk.core_utils._core_utils import selected_objects
+        from blendertk.core_utils._core_utils import CoreUtils
 
         try:
-            return frozenset(o.name for o in selected_objects())
+            return frozenset(o.name for o in CoreUtils.selected_objects())
         except Exception:
             return self._last_selection
 

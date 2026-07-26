@@ -29,18 +29,14 @@ Divergence from mayatk (by design, ledgered — not gaps to fill silently):
       (the planner's topological order already guarantees ordered-phase moves
       never cross, and park/land teleports clear all real content).
 """
+
 import logging
 from typing import List, Optional, Tuple
 
-from pythontk.core_utils.engines.shots.shot_plan import (
-    plan_respace,
-    plan_ripple_downstream,
-    plan_ripple_upstream,
-    plan_reorder,
-)
-from pythontk.core_utils.engines.shots.shot_apply import apply
+from pythontk.core_utils.engines.shots.shot_plan import ShotPlanner
+from pythontk.core_utils.engines.shots.shot_apply import ShotApply
 
-from blendertk.anim_utils.shots._shots import iter_action_fcurves, _is_transform_path
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 
 _log = logging.getLogger(__name__)
 
@@ -100,14 +96,27 @@ class ShotSequencer:
     def shot_by_name(self, name: str):
         return self.store.shot_by_name(name)
 
-    def define_shot(self, name, start, end, objects=None, metadata=None,
-                    locked=False, description=""):
+    def define_shot(
+        self,
+        name,
+        start,
+        end,
+        objects=None,
+        metadata=None,
+        locked=False,
+        description="",
+    ):
         """Define a shot; auto-discover keyed transforms when *objects* is None."""
         if objects is None:
             objects = self._find_keyed_transforms(start, end)
         return self.store.define_shot(
-            name=name, start=start, end=end, objects=objects,
-            metadata=metadata, locked=locked, description=description,
+            name=name,
+            start=start,
+            end=end,
+            objects=objects,
+            metadata=metadata,
+            locked=locked,
+            description=description,
         )
 
     # ---- scene helpers ---------------------------------------------------
@@ -131,8 +140,8 @@ class ShotSequencer:
             return []
         result: List[str] = []
         for obj in scene.objects:
-            for fc in iter_action_fcurves(obj):
-                if not _is_transform_path(fc.data_path):
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                if not BlenderShotStore._is_transform_path(fc.data_path):
                     continue
                 vals = [
                     kp.co[1]
@@ -192,7 +201,7 @@ class ShotSequencer:
             obj = scene.objects.get(name)
             if obj is None:
                 continue
-            for fc in iter_action_fcurves(obj):
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
                 moved = False
                 for kp in fc.keyframe_points:
                     t = kp.co[0]
@@ -209,18 +218,22 @@ class ShotSequencer:
 
     def ripple_downstream(self, shot_id: int, after_frame: float, delta: float) -> None:
         """Shift every shot starting at/after *after_frame* by *delta* (pivot excluded)."""
-        plan = plan_ripple_downstream(self.store, shot_id, after_frame, delta)
-        apply(plan, self.store, move_keys=self._move_keys)
+        plan = ShotPlanner.plan_ripple_downstream(
+            self.store, shot_id, after_frame, delta
+        )
+        ShotApply.apply(plan, self.store, move_keys=self._move_keys)
 
     def ripple_upstream(self, shot_id: int, before_frame: float, delta: float) -> None:
         """Shift every shot ending at/before *before_frame* by *delta* (pivot excluded)."""
-        plan = plan_ripple_upstream(self.store, shot_id, before_frame, delta)
-        apply(plan, self.store, move_keys=self._move_keys)
+        plan = ShotPlanner.plan_ripple_upstream(
+            self.store, shot_id, before_frame, delta
+        )
+        ShotApply.apply(plan, self.store, move_keys=self._move_keys)
 
     def respace(self, gap: float = 0, start_frame: float = 1) -> None:
         """Lay all shots out sequentially from *start_frame* with *gap* spacing."""
-        plan = plan_respace(self.store, gap, start_frame)
-        apply(plan, self.store, move_keys=self._move_keys)
+        plan = ShotPlanner.plan_respace(self.store, gap, start_frame)
+        ShotApply.apply(plan, self.store, move_keys=self._move_keys)
         self._enforce_gap_holds()
 
     # ---- pivot move (hybrid: neighbour ripple is pure, pivot is scene) ---
@@ -288,7 +301,9 @@ class ShotSequencer:
 
     # ---- per-object key motion (drag a clip within/around a shot) --------
 
-    def move_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float) -> None:
+    def move_object_keys(
+        self, obj: str, old_start: float, old_end: float, new_start: float
+    ) -> None:
         """Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.
 
         Blender needs none of mayatk's cut-and-recreate dance (Maya's
@@ -296,10 +311,18 @@ class ShotSequencer:
         writing ``keyframe_point.co[0] += delta`` directly has no neighbour clamp,
         so this is a single inclusive-window :meth:`_move_keys` call.
         """
-        self._move_keys([obj], old_start, old_end, new_start - old_start, half_open=False)
+        self._move_keys(
+            [obj], old_start, old_end, new_start - old_start, half_open=False
+        )
 
-    def move_stepped_keys(self, obj: str, old_time: float, new_time: float,
-                          attr_name: Optional[str] = None, eps: float = 1e-3) -> None:
+    def move_stepped_keys(
+        self,
+        obj: str,
+        old_time: float,
+        new_time: float,
+        attr_name: Optional[str] = None,
+        eps: float = 1e-3,
+    ) -> None:
         """Move the key(s) at *old_time* to *new_time*.
 
         A keyframe's interpolation travels with its point when relocated, so the
@@ -325,7 +348,7 @@ class ShotSequencer:
         if o is None:
             return
         lo, hi = old_time - eps, old_time + eps
-        for fc in iter_action_fcurves(o):
+        for fc in BlenderShotStore.iter_action_fcurves(o):
             if attr_name and attr_name not in fc.data_path:
                 continue
             moved = False
@@ -367,7 +390,7 @@ class ShotSequencer:
             o = scene.objects.get(name)
             if o is None:
                 continue
-            for fc in iter_action_fcurves(o):
+            for fc in BlenderShotStore.iter_action_fcurves(o):
                 moved = False
                 for kp in fc.keyframe_points:
                     if lo <= kp.co[0] <= hi:
@@ -378,13 +401,20 @@ class ShotSequencer:
                 if moved:
                     fc.update()
 
-    def scale_object_keys(self, obj: str, old_start: float, old_end: float,
-                          new_start: float, new_end: float) -> None:
+    def scale_object_keys(
+        self,
+        obj: str,
+        old_start: float,
+        old_end: float,
+        new_start: float,
+        new_end: float,
+    ) -> None:
         """Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``."""
         self._scale_keys([obj], old_start, old_end, new_start, new_end)
 
-    def move_object_in_shot(self, shot_id: int, obj: str, old_start: float,
-                            old_end: float, new_start: float) -> None:
+    def move_object_in_shot(
+        self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float
+    ) -> None:
         """Move one object's keys within a shot, growing the shot + rippling when it overruns."""
         shot = self.shot_by_id(shot_id)
         if shot is None:
@@ -418,8 +448,15 @@ class ShotSequencer:
 
     # ---- resize (scale keys + ripple) ------------------------------------
 
-    def resize_object(self, shot_id: int, obj: str, old_start: float, old_end: float,
-                      new_start: float, new_end: float) -> None:
+    def resize_object(
+        self,
+        shot_id: int,
+        obj: str,
+        old_start: float,
+        old_end: float,
+        new_start: float,
+        new_end: float,
+    ) -> None:
         """Scale one object's keys and ripple downstream shots by the tail delta."""
         shot = self.shot_by_id(shot_id)
         if shot is None:
@@ -453,8 +490,9 @@ class ShotSequencer:
         self._enforce_gap_holds()
         self.store.mark_dirty()
 
-    def resize_shot(self, shot_id: int, new_start: float, new_end: float,
-                    _enforce: bool = True) -> None:
+    def resize_shot(
+        self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True
+    ) -> None:
         """Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges."""
         shot = self.shot_by_id(shot_id)
         if shot is None:
@@ -480,7 +518,9 @@ class ShotSequencer:
 
     # ---- gap application -------------------------------------------------
 
-    def apply_gap(self, gap: float, scope: str = "all", shot_id: Optional[int] = None) -> bool:
+    def apply_gap(
+        self, gap: float, scope: str = "all", shot_id: Optional[int] = None
+    ) -> bool:
         """Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).
 
         Returns ``True`` if any shot was repositioned.
@@ -501,9 +541,7 @@ class ShotSequencer:
             self.move_shot(shot_id, sorted_s[idx - 1].end + gap)
             moved = True
             sorted_s = self.store.sorted_shots()
-            idx = next(
-                (i for i, s in enumerate(sorted_s) if s.shot_id == shot_id), idx
-            )
+            idx = next((i for i, s in enumerate(sorted_s) if s.shot_id == shot_id), idx)
         if scope in ("end", "start_end") and idx < len(sorted_s) - 1:
             self.move_shot(sorted_s[idx + 1].shot_id, sorted_s[idx].end + gap)
             moved = True
@@ -513,18 +551,22 @@ class ShotSequencer:
 
     def move_shot_to_position(self, shot_id: int, target_pos: int) -> None:
         """Reorder *shot_id* to 1-based timeline position *target_pos*."""
-        plan = plan_reorder(self.store, shot_id, target_pos, self.store.gap)
+        plan = ShotPlanner.plan_reorder(self.store, shot_id, target_pos, self.store.gap)
         if not plan.moves:
             return
-        apply(plan, self.store, move_keys=self._move_keys)
+        ShotApply.apply(plan, self.store, move_keys=self._move_keys)
         self._enforce_gap_holds()
         self.store.mark_dirty()
 
     # ---- per-object segment collection (timeline track data) -------------
 
-    def collect_object_segments(self, shot_id: int, ignore: Optional[str] = None,
-                                motion_rate: float = 1e-3,
-                                ignore_holds: bool = True) -> List[dict]:
+    def collect_object_segments(
+        self,
+        shot_id: int,
+        ignore: Optional[str] = None,
+        motion_rate: float = 1e-3,
+        ignore_holds: bool = True,
+    ) -> List[dict]:
         """Per-object keyed-span segments within a shot — the sequencer track data.
 
         For each of the shot's objects, returns one segment dict spanning its
@@ -575,24 +617,28 @@ class ShotSequencer:
             obj = scene.objects.get(name)
             if obj is None:
                 continue
-            times = sorted({
-                round(kp.co[0], 6)
-                for fc in iter_action_fcurves(obj)
-                if _is_transform_path(fc.data_path)
-                for kp in fc.keyframe_points
-                if lo - _EPS <= kp.co[0] <= hi + _EPS
-            })
+            times = sorted(
+                {
+                    round(kp.co[0], 6)
+                    for fc in BlenderShotStore.iter_action_fcurves(obj)
+                    if BlenderShotStore._is_transform_path(fc.data_path)
+                    for kp in fc.keyframe_points
+                    if lo - _EPS <= kp.co[0] <= hi + _EPS
+                }
+            )
             if not times:
                 continue
-            out.append({
-                "obj": name,
-                "curves": [],
-                "keyframes": times,
-                "start": times[0],
-                "end": times[-1],
-                "duration": times[-1] - times[0],
-                "segment_range": (times[0], times[-1]),
-            })
+            out.append(
+                {
+                    "obj": name,
+                    "curves": [],
+                    "keyframes": times,
+                    "start": times[0],
+                    "end": times[-1],
+                    "duration": times[-1] - times[0],
+                    "segment_range": (times[0], times[-1]),
+                }
+            )
         return out
 
     # ---- trim to content (hybrid: measure is scene, ripple is pure) -----
@@ -615,8 +661,8 @@ class ShotSequencer:
             obj = scene.objects.get(name)
             if obj is None:
                 continue
-            for fc in iter_action_fcurves(obj):
-                if not _is_transform_path(fc.data_path):
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                if not BlenderShotStore._is_transform_path(fc.data_path):
                     continue
                 for kp in fc.keyframe_points:
                     t = kp.co[0]
@@ -628,7 +674,9 @@ class ShotSequencer:
             return None
         return (lo, hi)
 
-    def fit_shot_to_content(self, shot_id: int, mode: str = "trim") -> Tuple[float, float]:
+    def fit_shot_to_content(
+        self, shot_id: int, mode: str = "trim"
+    ) -> Tuple[float, float]:
         """Resize a shot to its keyed content, rippling neighbours by the deltas.
 
         ``mode="trim"`` only moves bounds *inward* (never past existing content);

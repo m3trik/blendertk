@@ -25,6 +25,7 @@ removed, so the two panels stay diffable side-by-side:
   - ``cmb004`` (shader type: Stingray PBS / Standard Surface / Open PBR) has no Blender analogue —
     there is a single Principled BSDF shader.
 """
+
 import pythontk as ptk
 
 import blendertk as btk
@@ -67,7 +68,7 @@ class GameShaderSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.menu.add(
             self.sb.registered_widgets.Label,
@@ -76,7 +77,7 @@ class GameShaderSlots(ptk.LoggingMixin):
             setToolTip="Open the created material in the Shader Editor.",
         )
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Game Shader",
                 body="Auto-build a Principled-BSDF material from a set of PBR texture files — "
                 "each map is classified by filename and wired into the right input with the "
@@ -171,13 +172,13 @@ class GameShaderSlots(ptk.LoggingMixin):
         if mode == "prefix":
             widget.setPlaceholderText("Prefix")
             widget.setToolTip(
-                'Prefix prepended to the material name.\n'
+                "Prefix prepended to the material name.\n"
                 'Example: "MAT_" + "brick" → "MAT_brick".'
             )
         elif mode == "suffix":
             widget.setPlaceholderText("Suffix")
             widget.setToolTip(
-                'Suffix appended to the material name.\n'
+                "Suffix appended to the material name.\n"
                 'Example: "brick" + "_MAT" → "brick_MAT".'
             )
         else:  # auto
@@ -221,7 +222,9 @@ class GameShaderSlots(ptk.LoggingMixin):
         for mat in made:
             self.logger.info(f"Created material <hl>{mat.name}</hl>.")
         if len(made) > 1:
-            self.logger.info(f"Built {len(made)} materials from {len(made)} texture sets.")
+            self.logger.info(
+                f"Built {len(made)} materials from {len(made)} texture sets."
+            )
 
 
 # -----------------------------------------------------------------------------

@@ -12,6 +12,7 @@ exactly like mayatk's thin ``CutOnAxisSlots``. Served by ``BlenderUiHandler``
 Self-contained (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` helper is deferred into its
 method (headless Blender ships no Qt binding).
 """
+
 import pythontk as ptk
 
 from blendertk.core_utils.preview import Preview
@@ -58,12 +59,12 @@ class CutOnAxisSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Cut on Axis",
                 body="Slice selected meshes along an axis, then optionally "
                 "delete or mirror the cut half.",
@@ -75,15 +76,18 @@ class CutOnAxisSlots(ptk.LoggingMixin):
                     "Toggle <b>Preview</b>, then press <b>Cut</b> to commit.",
                 ],
                 sections=[
-                    ("Options", [
-                        "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
-                        "setting (3D Cursor / Bounding Box / Active Element / …).",
-                        "<b>Delete</b> — discard faces on the negative side of "
-                        "the axis after cutting.",
-                        "<b>Mirror</b> — after deleting one side, mirror the "
-                        "remaining half across the axis to rebuild symmetric "
-                        "geometry.",
-                    ]),
+                    (
+                        "Options",
+                        [
+                            "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
+                            "setting (3D Cursor / Bounding Box / Active Element / …).",
+                            "<b>Delete</b> — discard faces on the negative side of "
+                            "the axis after cutting.",
+                            "<b>Mirror</b> — after deleting one side, mirror the "
+                            "remaining half across the axis to rebuild symmetric "
+                            "geometry.",
+                        ],
+                    ),
                 ],
             )
         )

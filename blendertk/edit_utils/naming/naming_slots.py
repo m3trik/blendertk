@@ -13,6 +13,7 @@ The Qt-only ``uitk`` imports (``Signals``/``fmt``) load with this slots module, 
 imported in a Qt context (the UI handler / panel open), never by the headless engine path. ``import
 bpy`` is deferred into method bodies per blendertk convention.
 """
+
 import pythontk as ptk
 from uitk import Signals
 
@@ -37,7 +38,7 @@ class NamingSlots(Naming, ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu with tool description and workflow instructions."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
@@ -46,7 +47,7 @@ class NamingSlots(Naming, ptk.LoggingMixin):
             "QComboBox",
             addItems=["Selection", "All Objects"],
             setObjectName="cmb_scope",
-            setToolTip=fmt(
+            setToolTip=TooltipFormat.fmt(
                 title="Scope",
                 bullets=[
                     "<b>Selection</b> — Only the current selection.",
@@ -56,34 +57,40 @@ class NamingSlots(Naming, ptk.LoggingMixin):
         )
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Naming",
                 body="Batch find, rename, and suffix scene objects. Each "
                 "operation button has an option box (▸) for its parameters.",
                 sections=[
-                    ("Operations", [
-                        "<b>Find</b> — select objects by name pattern "
-                        "(wildcards or regex; case-sensitivity, Empties-only, "
-                        "and regex toggles in the option box).",
-                        "<b>Rename</b> — replace matched names with a new "
-                        "pattern. Option box: retain existing type suffix.",
-                        "<b>Convert Case</b> — upper / lower / title / "
-                        "capitalize / swapcase the selected names.",
-                        "<b>Strip Chars</b> — remove leading or trailing "
-                        "characters.",
-                        "<b>Suffix by Location</b> — auto-number objects by "
-                        "distance from a reference point (alphabetical or "
-                        "integer).",
-                        "<b>Suffix by Type</b> — append type-based suffixes "
-                        "(<code>_GEO</code>, <code>_GRP</code>, "
-                        "<code>_JNT</code>, etc.). Suffix strings are "
-                        "editable in the option box.",
-                    ]),
-                    ("Header menu", [
-                        "<b>Scope</b> — <i>Selection</i> (the current "
-                        "selection only) or <i>All Objects</i> (the whole "
-                        "scene). Applies to every operation.",
-                    ]),
+                    (
+                        "Operations",
+                        [
+                            "<b>Find</b> — select objects by name pattern "
+                            "(wildcards or regex; case-sensitivity, Empties-only, "
+                            "and regex toggles in the option box).",
+                            "<b>Rename</b> — replace matched names with a new "
+                            "pattern. Option box: retain existing type suffix.",
+                            "<b>Convert Case</b> — upper / lower / title / "
+                            "capitalize / swapcase the selected names.",
+                            "<b>Strip Chars</b> — remove leading or trailing "
+                            "characters.",
+                            "<b>Suffix by Location</b> — auto-number objects by "
+                            "distance from a reference point (alphabetical or "
+                            "integer).",
+                            "<b>Suffix by Type</b> — append type-based suffixes "
+                            "(<code>_GEO</code>, <code>_GRP</code>, "
+                            "<code>_JNT</code>, etc.). Suffix strings are "
+                            "editable in the option box.",
+                        ],
+                    ),
+                    (
+                        "Header menu",
+                        [
+                            "<b>Scope</b> — <i>Selection</i> (the current "
+                            "selection only) or <i>All Objects</i> (the whole "
+                            "scene). Applies to every operation.",
+                        ],
+                    ),
                 ],
             )
         )
@@ -169,7 +176,9 @@ class NamingSlots(Naming, ptk.LoggingMixin):
         text = widget.text()
         if text:
             # Filter objects based on the empties_only option (Blender's locator analogue)
-            objects = [o for o in bpy.data.objects if (o.type == "EMPTY" or not empties_only)]
+            objects = [
+                o for o in bpy.data.objects if (o.type == "EMPTY" or not empties_only)
+            ]
             obj_names = [o.name for o in objects]
             found_names = ptk.find_str(
                 text, obj_names, regex=regex, ignore_case=ign_case

@@ -2,39 +2,11 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-07-19_
+_Generated: 2026-07-26_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
-- `get_fcurves(objects)`
-- `scene_has_animation()`
-- `set_current_frame(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)`
-- `shift_keys(objects, offset)`
-- `move_keys_to_frame(objects, frame=None, retain_spacing=True, selected_keys_only=False, align='auto')`
-- `adjust_key_spacing(objects, spacing=1, frame=None, relative=False, preserve_keys=False, selected_keys_only=False, exact_gap=False)`
-- `align_selected_keyframes(objects, target_frame=None, use_earliest=True)`
-- `set_visibility_keys(objects, visible=True, frame=None, when='current', offset=0, group_overlapping=False)`
-- `add_intermediate_keys(objects, step=1.0, time_range=None, ignore_visibility=False, percent=None)`
-- `remove_intermediate_keys(objects, time_range=None, ignore_visibility=False)`
-- `select_keys(objects, time=None, add_to_selection=False)`
-- `invert_keys(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False)`
-- `snap_keys(objects, selected_only=False, time_range=None, method='nearest')`
-- `set_interpolation(objects, interpolation='CONSTANT', handle=None)`
-- `set_stepped(objects, stepped=True)`
-- `delete_keys(objects, time=None)`
-- `fit_playback_range(objects=None)`
-- `copy_keys(source, mode='action')`
-- `paste_keys(objects, buffer, target_time=None)`
-- `transfer_keyframes(objects, relative=False, optimize=False)`
-- `optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)`
-- `repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)`
-- `tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False)`
-- `bake_keys(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)`
-- `bake_blend_shapes(objects=None, frame_range=None, step=1)`
-- `get_animation_info(objects=None, by_time=False, ignore_holds=False)`
-- `format_animation_info_csv(records)`
-- `format_animation_info_html(records)`
-- `configure_render_output(scene, file_format='PNG', container=None, codec=None, quality=None)`
-- `class AnimUtils`
+- `class AnimUtils(_AnimUtilsInternal)`
+  - methods: get_fcurves, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(ptk.LoggingMixin)`
@@ -46,7 +18,7 @@ _Generated: 2026-07-19_
   - methods: validate_topology, apply_tweens
 
 ### `anim_utils/blendshape_animator/blendshape_animator_slots.py` — Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
-- `class BlendshapeAnimatorSlots(BlendshapeAnimator)`
+- `class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`
   - methods: header_init, b000_init, b000, cmb000_init, le001_init, b001_init, b001, b003, b004_init, b004, b005, b006_init, b006, b007, b008_init, b008
 
 ### `anim_utils/blendshape_animator/creator.py` — Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
@@ -54,9 +26,8 @@ _Generated: 2026-07-19_
   - methods: create_weight_based_tweens, create_frame_based_tween, tag_tween_mesh, get_existing_weights, find_nearby_weight
 
 ### `anim_utils/blendshape_animator/keyframes.py` — Master shape-key value keyframe animation — mirror of mayatk's
-- `preserve_sibling_values(key_id)`
 - `class Keyframes(ptk.LoggingMixin)`
-  - methods: key_id, key_block, create_keyframes, test_morph, get_frame_range
+  - methods: key_id, key_block, create_keyframes, test_morph, get_frame_range, preserve_sibling_values
 
 ### `anim_utils/blendshape_animator/target.py` — Tween mesh wrappers and registry — mirror of mayatk's
 - `class Target`
@@ -69,35 +40,31 @@ _Generated: 2026-07-19_
   - methods: validate_meshes, validate_shape_setup
 
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
-- `scale_keys(objects, factor, pivot=None, mode='uniform', absolute=False, group_mode='single_group', snap_mode='none', samples=64, include_rotation=False, split_static=True, merge_touching=False)`
-- `class ScaleKeys`
+- `class ScaleKeys(_ScaleKeysInternal)`
+  - methods: scale_keys
 
 ### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
-- `iter_action_fcurves(obj)`
-- `collect_transform_segments(scene=None, gap_threshold: float = 5.0) -> List[Dict[str, Any]]`
-- `collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]`
 - `class BlenderScenePersistence`
   - methods: remove_callbacks, save, load
-- `class BlenderShotStore(ShotStore)`
-  - methods: active, has_animation, detect_regions, assess
+- `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
+  - methods: active, has_animation, detect_regions, assess, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest)`
   - methods: apply_behaviors, reapply_object, from_csv
 
 ### `anim_utils/shots/shot_manifest/manifest_data.py` — Constants, column layout, and pure helper functions for the Shot Manifest UI.
-- `fmt_behavior(name: str) -> str`
-- `format_behavior_html(behaviors, broken=(), status_color=None) -> str`
-- `try_load_blender_icons()`
+- `class ManifestData`
+  - methods: fmt_behavior, format_behavior_html, try_load_blender_icons
 
 ### `anim_utils/shots/shot_manifest/shot_manifest_slots.py` — Switchboard slots for the Shot Manifest UI (Blender).
 - `class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin)`
-  - methods: detect, remove_callbacks, browse_csv, build, assess
+  - methods: detect, remove_callbacks, build, assess
 - `class ShotManifestSlots(ptk.LoggingMixin)`
   - methods: header_init, btn_expand_missing, btn_expand_extra, btn_settings, b002, b003
 
 ### `anim_utils/shots/shot_manifest/table_presenter.py` — Tree-widget presentation mixin for the Shot Manifest controller.
-- `class ManifestTableMixin`
+- `class ManifestTableMixin(_ManifestTableMixinInternal)`
   - methods: expand_missing, expand_extra
 
 ### `anim_utils/shots/shot_sequencer/_shot_sequencer.py` — Blender shot sequencer engine — timeline moves over the shared shots planner.
@@ -105,10 +72,8 @@ _Generated: 2026-07-19_
   - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, define_shot, reconcile_all_shots, ripple_downstream, ripple_upstream, respace, slide_shot, move_shot, move_object_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, resize_object, set_shot_duration, resize_shot, apply_gap, move_shot_to_position, collect_object_segments, fit_shot_to_content, trim_shot_to_content
 
 ### `anim_utils/shots/shot_sequencer/clip_motion.py` — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
-- `curves_for_attr(obj_name: str, attr_name: str) -> list`
-- `scale_attribute_keys(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None`
-- `class ClipMotionMixin`
-  - methods: on_clip_resized, on_clip_moved, on_clips_batch_moved, on_keys_moved, on_keys_deleted
+- `class ClipMotionMixin(_ClipMotionMixinInternal)`
+  - methods: on_clip_resized, on_clip_moved, on_clips_batch_moved, on_keys_moved, on_keys_deleted, curves_for_attr, scale_attribute_keys
 
 ### `anim_utils/shots/shot_sequencer/gap_manager.py` — Gap and range-highlight handlers for the shot sequencer controller (Blender).
 - `class GapManagerMixin`
@@ -119,18 +84,15 @@ _Generated: 2026-07-19_
   - methods: on_marker_added, on_marker_moved, on_marker_changed, on_marker_removed
 
 ### `anim_utils/shots/shot_sequencer/segment_collector.py` — Segment collection and attribute extraction for the shot sequencer (Blender).
-- `attr_label(fcurve) -> str`
-- `collect_segments(sequencer, shot, visible_shots, segment_cache, shifted_out_keys, logger)`
-- `active_object_set(shot, segments_by_shot) -> set`
-- `extract_attributes(segments) -> list`
-- `build_curve_preview(fcurve, t_start, t_end)`
+- `class SegmentCollector`
+  - methods: attr_label, collect_segments, active_object_set, extract_attributes, build_curve_preview
 
 ### `anim_utils/shots/shot_sequencer/shot_nav.py` — Shot navigation and combobox synchronization (Blender).
 - `class ShotNavMixin`
   - methods: select_shot, on_shot_block_clicked
 
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
-- `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin)`
+- `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`
   - methods: sequencer, remove_callbacks, on_zone_context_menu, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_gap_menu, on_key_selection_changed
 - `class ShotSequencerSlots(ptk.LoggingMixin)`
   - methods: header_init, btn_colors, spn_snap, btn_shortcuts, btn_shot_settings, cmb_shot
@@ -146,21 +108,12 @@ _Generated: 2026-07-19_
   - methods: requires_bake
 - `class BakeResult`
   - methods: baked_count, success
-- `class SmartBake`
+- `class SmartBake(_SmartBakeInternal)`
   - methods: analyze, get_time_range, bake, execute, list_sessions, restore, session, run
 
 ### `anim_utils/smart_bake/bake_session.py` — Persistence and restore engine for SmartBake's nondestructive manifest — mirror of mayatk's
-- `node_ref(obj_or_action) -> Optional[Dict[str, str]]`
-- `resolve_ref(ref: Optional[Dict[str, str]])`
-- `constraint_ref(obj, constraint, bone: Optional[str] = None) -> Dict[str, Any]`
-- `resolve_constraint(ref: Optional[Dict[str, Any]])`
-- `driver_ref(obj, fcurve) -> Dict[str, Any]`
-- `resolve_driver(ref: Optional[Dict[str, Any]])`
-- `snapshot_blend_shape_driver(obj, key_block, fcurve) -> Dict[str, Any]`
-- `snapshot_blend_shape_action(obj, key_block, fcurve) -> Dict[str, Any]`
-- `restore_session(session: dict) -> RestoreResult`
-- `class BakeSessionStore`
-  - methods: load, save, push, peek, pop, list_ids, new_session_id
+- `class BakeSessionStore(_BakeSessionStoreInternal)`
+  - methods: load, save, push, peek, pop, list_ids, new_session_id, node_ref, resolve_ref, constraint_ref, resolve_constraint, driver_ref, resolve_driver, snapshot_blend_shape_driver, snapshot_blend_shape_action, restore_session
 - `class RestoreResult`
 
 ### `anim_utils/smart_bake/smart_bake_slots.py` — Slots for the Smart Bake tool panel (``smart_bake.ui``) — Blender port of mayatk's
@@ -168,8 +121,8 @@ _Generated: 2026-07-19_
   - methods: cmb_scope_init, cmb_backup_init, header_init, reset_defaults, b000, b001
 
 ### `anim_utils/stagger_keys.py` — Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of mayatk's
-- `stagger_keys(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False)`
-- `class StaggerKeys`
+- `class StaggerKeys(_StaggerKeysInternal)`
+  - methods: stagger_keys
 
 ### `audio_utils/_audio_utils.py` — Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 - `class AudioUtils(ptk.LoggingMixin)`
@@ -179,44 +132,28 @@ _Generated: 2026-07-19_
 - `class AudioClipsSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
 
-### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``).
-- `adjust_camera_clipping(camera=None, near_clip=None, far_clip=None)`
-- `class CamUtils`
+### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
+- `class CamUtils(_CamUtilsInternal)`
+  - methods: adjust_camera_clipping, navigate_view
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
-- `strip_dup_suffix(name: str) -> str`
-- `undo_chunk(name: str = '')`
-- `undoable(fn)`
-- `undo_checkpoint(fn)`
-- `get_env_info(key=None)`
-- `ensure_image_deps(packages=None, add_to_path=True)`
-- `get_recent_files(index=None)`
-- `get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')`
-- `get_scene_info(objects=None)`
-- `format_scene_info_html(info)`
-- `analyze_scene(objects=None, adaptive=True, sections=None)`
-- `cleanup_scene(quiet=False)`
-- `selected_objects()`
-- `active_object()`
-- `get_areas(area_type)`
-- `get_view3d_context()`
-- `window_context_override()`
-- `class CoreUtils(ptk.CoreUtils)`
+- `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
+  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, get_areas, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
-- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING') -> List[object]`
+- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
 - `class InstanceCandidate`
   - methods: obj, exists
 - `class InstanceGroup`
-- `class AutoInstancer(ptk.LoggingMixin)`
-  - methods: tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
+- `class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal)`
+  - methods: default_summary, format_summary, tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
 
 ### `core_utils/auto_instancer/assembly_reconstructor.py` — Logic for separating and reassembling mesh assemblies (bpy adapter).
-- `class AssemblyReconstructor`
+- `class AssemblyReconstructor(_AssemblyReconstructorInternal)`
   - methods: separate_combined_meshes, cleanup_empty_sources, cleanup_empty_assembly_groups, center_transform_on_geometry, canonicalize_transform, canonicalize_leaf_meshes, reassemble_assemblies, combine_reassembled_assemblies
 
 ### `core_utils/auto_instancer/geometry_matcher.py` — Geometry analysis and matching logic for AutoInstancer (bpy adapter).
-- `class GeometryMatcher`
+- `class GeometryMatcher(_GeometryMatcherInternal)`
   - methods: clear_cache, invalidate, quantize, get_pca_basis, get_mesh_signature, get_hierarchy_signature, are_meshes_identical, are_meshes_identical_with_transform, are_hierarchies_identical
 
 ### `core_utils/auto_instancer/instancing_strategy.py` — Instancing strategy logic for AutoInstancer (mirror of mayatk's).
@@ -226,12 +163,12 @@ _Generated: 2026-07-19_
   - methods: evaluate
 
 ### `core_utils/diagnostics/mesh_diag.py` — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
-- `find_problem_geometry(objects, *, ngons=False, nonmanifold=False, interior=False, nonplanar=False, loose=False, concave=False, quads=False, zero_area_faces=False, zero_length_edges=False, zero_uv_area=False, planar_tolerance=0.001, area_tolerance=1e-06, edge_length_tolerance=1e-06, uv_area_tolerance=1e-06, select=True)`
-- `class MeshDiagnostics`
+- `class MeshDiagnostics(_MeshDiagnosticsInternal)`
+  - methods: find_problem_geometry
 
 ### `core_utils/diagnostics/transform_diag.py` — Transform diagnostics — the Blender counterpart of mayatk's
-- `fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-05)`
-- `class TransformDiagnostics`
+- `class TransformDiagnostics(_TransformDiagnosticsInternal)`
+  - methods: fix_non_orthogonal_axes
 
 ### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - `class Preview`
@@ -239,15 +176,11 @@ _Generated: 2026-07-19_
 
 ### `core_utils/script_job_manager.py` — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 - `class ScriptJobManager`
-  - methods: instance, reset, subscribe, unsubscribe, unsubscribe_all, connect_cleanup, suppress, resume, status, print_status, teardown
+  - methods: instance, reset, subscribe, unsubscribe, unsubscribe_all, connect_cleanup, suppress, resume, suppressed, status, print_status, teardown
 
 ### `display_utils/_display_utils.py` — Display utilities — the exploded-view toggle (mirror of mayatk's
-- `is_exploded(objects)`
-- `explode_view(objects, step=1.2, margin=0.05, max_iterations=50)`
-- `unexplode_view(objects)`
-- `unexplode_all()`
-- `get_visible_geometry(objects=None)`
-- `class DisplayUtils`
+- `class DisplayUtils(_DisplayUtilsInternal)`
+  - methods: is_exploded, explode_view, unexplode_view, unexplode_all, get_visible_geometry
 
 ### `display_utils/color_id.py` — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - `class ColorId`
@@ -260,45 +193,12 @@ _Generated: 2026-07-19_
   - methods: header_init, b000, b001, b002, b003
 
 ### `edit_utils/_curtain_drape.py` — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
-- `class CurtainDrape`
+- `class CurtainDrape(_CurtainDrapeInternal)`
   - methods: prepare, grid_points, drape
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
-- `hook_bind_inverse(target, obj)`
-- `hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')`
-- `decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)`
-- `dissolve_coplanar(objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True)`
-- `triangulate(objects)`
-- `tris_to_quads(objects, angle=40.0)`
-- `subdivide_mesh(objects, cuts=1)`
-- `boolean_op(objects, operation='DIFFERENCE', apply=True)`
-- `set_subdivision(objects, viewport_levels=None, render_levels=None, ensure=True)`
-- `apply_subdivision(objects)`
-- `set_shading(objects, smooth=True, selected_only=False)`
-- `average_normals(objects, by_uv_shell=False)`
-- `select_edges_by_angle(objects, low_angle=0.0, high_angle=180.0)`
-- `set_edge_hardness(objects, angle=30.0, upper_hardness=0, lower_hardness=180)`
-- `clear_custom_split_normals(objects)`
-- `add_custom_split_normals(objects)`
-- `has_custom_split_normals(objects)`
-- `flip_normals(objects, selected_only=False)`
-- `recalculate_normals(objects, inside=False)`
-- `clean_geometry(objects, *, merge=True, merge_distance=0.0001, delete_loose=True, degenerate=True, recalculate=True, fill_holes=False)`
-- `crease_edges(objects, amount=10.0, angle=None)`
-- `mirror(objects, axis='x', pivot='object', merge_mode=1, delete_original=False, uninstance=False, merge_threshold=0.001)`
-- `cut_along_axis(objects, axis='x', pivot='center', amount=1, offset=0.0, invert=False, delete=False, mirror=False, merge_threshold=0.0001)`
-- `wedge(objects, angle=90.0, divisions=4)`
-- `snap_closest_verts(obj_a, obj_b, tolerance=10.0)`
-- `snap_to_grid(objects=None, grid_size=1.0, axes='xyz')`
-- `snap_to_surface(source_meshes, target, offset=0.0, threshold=None, invert=False)`
-- `get_similar_mesh(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)`
-- `separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True)`
-- `combine_objects(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0)`
-- `detach_components(*, duplicate=False, separate=True, separate_each=False)`
-- `get_overlapping_faces(objects, delete=False, select=True, round_ndigits=5)`
-- `get_overlapping_duplicates(objects=None, retain=None, select=False, delete=False, round_ndigits=5)`
-- `loft(objects=None, *, close=False, reverse_normals=False, section_spans=1)`
-- `class EditUtils`
+- `class EditUtils(_EditUtilsInternal)`
+  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, clean_geometry, crease_edges, mirror, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
 ### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - `class Bevel`
@@ -313,9 +213,8 @@ _Generated: 2026-07-19_
   - methods: header_init, perform_operation
 
 ### `edit_utils/curtain.py` — Curtain (draped-cloth) generation — the Blender build over the vendored
-- `curtain_rail_from_selection(objects)`
-- `create_curtain(rail, name='curtain', **options)`
 - `class CurtainUtils`
+  - methods: curtain_rail_from_selection, create_curtain
 - `class CurtainRig`
   - methods: attach
 - `class CurtainSlots(ptk.LoggingMixin)`
@@ -326,20 +225,20 @@ _Generated: 2026-07-19_
   - methods: header_init, perform_operation
 
 ### `edit_utils/duplicate_grid.py` — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
-- `duplicate_grid(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')`
 - `class DuplicateGrid`
+  - methods: duplicate_grid
 - `class DuplicateGridSlots(ptk.LoggingMixin)`
   - methods: header_init, b001, perform_operation
 
 ### `edit_utils/duplicate_linear.py` — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
-- `duplicate_linear(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)`
 - `class DuplicateLinear`
+  - methods: duplicate_linear
 - `class DuplicateLinearSlots(ptk.LoggingMixin)`
   - methods: header_init, toggle_weight_ui, b001, perform_operation
 
 ### `edit_utils/duplicate_radial.py` — Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
-- `duplicate_radial(objects, num_copies, start_angle=0.0, end_angle=360.0, weight_bias=0.5, weight_curve=0.5, rotate_axis='y', offset=(0, 0, 0), translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), pivot='object', keep_original=False, instance=False, combine=False, suffix=True)`
-- `class DuplicateRadial`
+- `class DuplicateRadial(_DuplicateRadialInternal)`
+  - methods: duplicate_radial
 - `class DuplicateRadialSlots(ptk.LoggingMixin)`
   - methods: header_init, b001, perform_operation
 
@@ -384,42 +283,20 @@ _Generated: 2026-07-19_
   - methods: header_init, b000_init, b000, b001_init, b001, b002_init, b002
 
 ### `edit_utils/target_weld.py` — Target Weld — interactive drag-a-vertex-onto-another merge tool.
-- `project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]`
-- `pick_screen_point(mouse_xy: Sequence[float], points_xy: np.ndarray, depths: np.ndarray, radius: float = PICK_RADIUS, exclude: Optional[int] = None) -> Optional[int]`
-- `weld_position(src_co, tgt_co, merge_to_center: bool = False)`
-- `dash_segments(p0, p1, dash: float = DASH_LEN, gap: float = GAP_LEN)`
-- `weld_pair(bm, v_src, v_tgt, merge_to_center: bool = False) -> None`
-- `target_weld(merge_to_center: bool = False) -> bool`
-- `class TargetWeld`
+- `class TargetWeld(_TargetWeldInternal)`
+  - methods: activate, project_points, pick_screen_point, weld_position, dash_segments, weld_pair, target_weld
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
-- `find_blend_files(root_dir, recursive=True, filter_text='')`
-- `list_libraries()`
-- `linked_blend_paths()`
-- `is_blend_linked(path)`
-- `link_blend_file(path, link=True, instance=True, target_collection=None)`
-- `reload_library(library)`
-- `remove_library(library)`
-- `make_library_local(library)`
-- `find_workspaces(root_dir, recursive=False)`
-- `open_scene(path)`
-- `format_scene_name(name, case=None, suffix='')`
-- `save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)`
-- `rename_scene_file(path, new_base)`
-- `delete_scene_file(path)`
-- `set_reference_display_mode(library, mode)`
-- `get_reference_display_mode(library)`
-- `class EnvUtils`
+- `class EnvUtils(_EnvUtilsInternal)`
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, format_scene_name, save_scene_as, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - `class BlenderConnection`
   - methods: find_blender, run_script, run_code, run_result
 
 ### `env_utils/fbx_utils.py` — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
-- `export_selection_fbx(filepath=None, objects=None, **fbx_opts)`
-- `import_fbx(filepath, **fbx_opts)`
-- `class FbxUtils`
-  - methods: export, import_fbx
+- `class FbxUtils(_FbxUtilsInternal)`
+  - methods: export, import_fbx, export_selection_fbx
 
 ### `env_utils/handoff_export.py` — Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
@@ -428,14 +305,10 @@ _Generated: 2026-07-19_
 - `main() -> int`
 
 ### `env_utils/hierarchy_sync/_hierarchy_sync.py` — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
-- `stage_reference_blend(reference_path: str, logger=None)`
-- `build_path(obj) -> str`
-- `delete_objects(objects) -> List[str]`
-- `should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool`
 - `class HierarchyMapBuilder`
   - methods: build_path_map
 - `class HierarchySync(ptk.LoggingMixin)`
-  - methods: analyze_hierarchies, create_stubs, quarantine_extras, fix_fuzzy_renames, fix_reparented
+  - methods: analyze_hierarchies, create_stubs, quarantine_extras, fix_fuzzy_renames, fix_reparented, stage_reference_blend, build_path, delete_objects, should_keep_node_by_type
 - `class ObjectSwapper(ptk.LoggingMixin)`
   - methods: pull_objects_from_reference
 
@@ -454,38 +327,36 @@ _Generated: 2026-07-19_
   - methods: populate_current_scene_tree, populate_reference_tree, show_reference_placeholder, show_reference_error, populate_tree_with_hierarchy, apply_difference_formatting, clear_tree_colors, format_tree_differences, apply_ignore_styling, build_item_path, find_tree_item_by_name, get_selected_tree_items, get_selected_object_names
 
 ### `env_utils/hierarchy_sync/tree_utils.py` — Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
-- `get_selected_object_names(tree_widget) -> List[str]`
-- `get_selected_tree_items(tree_widget) -> list`
-- `find_tree_item_by_name(tree_widget, object_name: str)`
-- `build_hierarchy_structure(objects: list) -> Tuple[Dict[str, Dict], List[str]]`
-- `class TreePathMatcher(ptk.LoggingMixin)`
-  - methods: build_tree_index, find_path_matches, log_matching_debug, log_tree_index_debug
+- `class TreePathMatcher(ptk.LoggingMixin, _TreePathMatcherInternal)`
+  - methods: build_tree_index, find_path_matches, log_matching_debug, log_tree_index_debug, get_selected_object_names, get_selected_tree_items, find_tree_item_by_name, build_hierarchy_structure
 
 ### `env_utils/maya_bridge/_maya_bridge.py` — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
-- `list_templates() -> List[Path]`
-- `template_modes(template_path: Path) -> Tuple[str, ...]`
-- `list_template_modes() -> List[Tuple[str, str]]`
 - `class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`
-  - methods: maya_path, params_defaults, render_context
+  - methods: maya_path, params_defaults, render_context, list_templates, template_modes, list_template_modes
 
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
-- `mayapy_from_maya_exe(maya_exe: str) -> Optional[str]`
 - `import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`
+- `bake_maya_scene(src_path: str, **kwargs: Any) -> str`
 - `class MayaSceneImport(ptk.LoggingMixin)`
-  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene
+  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
 
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, b000
 
 ### `env_utils/maya_bridge/parameters.py` — Registry of user-tunable Maya-bridge parameters exposed to the panel.
-- `referenced_keys(script_text: str) -> 'set[str]'`
-- `defaults() -> 'dict[str, Any]'`
-- `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `class Parameters`
+  - methods: referenced_keys, defaults, render_context
+
+### `env_utils/maya_bridge/templates/_bake_scene.py` — Import an FBX headlessly and save it as a ``.blend`` so a foreign scene can be LINKED.
+- `import_fbx(bpy)`
+- `apply_manifest(engine, imported)`
+- `apply_visibility(engine, imported)`
+- `main()`
 
 ### `env_utils/maya_bridge/templates/_import_scene.py` — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - `fbx_safe_materials(cmds)`
-- `write_texture_manifest(entries, path)`
+- `write_manifest(entries, visibility, path)`
 - `main()`
 
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
@@ -498,7 +369,7 @@ _Generated: 2026-07-19_
 
 ### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - `class ReferenceManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, reference_selected, reload_selected, relocate_selected, make_local_selected, remove_selected, set_display, reload_all, make_local_all, remove_all
+  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, toggle_reference_selected, unlink_import_selected, reload_all, make_local_all, remove_all
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
@@ -513,43 +384,32 @@ _Generated: 2026-07-19_
   - methods: objects, task_definitions, check_definitions, definitions
 
 ### `env_utils/script_output.py` — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
-- `show(*args, **kwargs) -> ScriptConsole`
-- `hide(*args, **kwargs) -> None`
-- `toggle(*args, **kwargs)`
-- `begin_capture() -> ScriptConsole`
-- `restore() -> ScriptConsole`
 - `class ScriptConsole`
-  - methods: instance, widget, begin_capture, restore, show, hide, is_open, teardown
+  - methods: instance, widget, show, hide, toggle, begin_capture, restore, is_open, teardown
 
 ### `env_utils/unity_bridge/_unity_bridge.py` — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
-- `list_delivery_modes() -> List[Tuple[str, str]]`
 - `class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`
-  - methods: list_template_modes, params_defaults
+  - methods: list_template_modes, params_defaults, list_delivery_modes
 
 ### `env_utils/unity_bridge/parameters.py` — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
-- `referenced_keys(script_text: str) -> 'set[str]'`
-- `defaults() -> 'dict[str, Any]'`
-- `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `class Parameters`
+  - methods: referenced_keys, defaults, render_context
 
 ### `env_utils/unity_bridge/unity_bridge_slots.py` — Slots for the Unity bridge panel -- mirror of mayatk's
 - `class UnityBridgeSlots(BlenderBridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, default_output_dir, b000
 
 ### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
-- `export_selection_usd(filepath=None, objects=None, **usd_opts)`
-- `import_usd(filepath, **usd_opts)`
-- `class UsdUtils`
-  - methods: is_usd_file, export, import_usd
+- `class UsdUtils(_UsdUtilsInternal)`
+  - methods: is_usd_file, export, import_usd, export_selection_usd
+
+### `env_utils/workspace_editor.py` — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
+- `class WorkspaceEditorSlots(ptk.LoggingMixin)`
+  - methods: header_init, txt000_init, tbl000_init, add_rule, reset_row, remove_row, reset_rules, clear_rules, open_folder
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
-- `set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)`
-- `get_world_hdri()`
-- `set_world_ray_visibility(diffuse=None, glossy=None)`
-- `get_world_ray_visibility()`
-- `set_world_importance_resolution(resolution)`
-- `get_world_importance_resolution()`
-- `clear_world_hdri()`
-- `class LightUtils`
+- `class LightUtils(_LightUtilsInternal)`
+  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManagerSlots(ptk.LoggingMixin)`
@@ -562,46 +422,10 @@ _Generated: 2026-07-19_
   - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
 
 ### `mat_utils/_mat_utils.py` — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
-- `get_mats(objects)`
-- `create_mat(mat_type='standard', name='')`
-- `assign_mat(objects, material)`
-- `find_by_mat_id(material, objects=None)`
-- `select_by_material(material, add=False)`
-- `reload_textures()`
-- `get_scene_mats(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)`
-- `is_mat_assigned(mat)`
-- `get_mat_swatch_icon(mat, size=(20, 20), fallback_to_blank=True)`
-- `get_texture_paths(objects=None, materials=None, absolute=True)`
-- `get_texture_info(objects=None, materials=None)`
-- `get_mat_info(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)`
-- `format_mat_info_html(records)`
-- `format_texture_info_html(info_list)`
-- `find_materials_with_duplicate_textures(materials=None)`
-- `reassign_duplicate_materials(duplicate_groups, delete=True)`
-- `delete_unused_materials()`
-- `graph_materials(materials, mode=None)`
-- `get_image_records()`
-- `repath_image(image, new_path, reload=True)`
-- `to_project_relative(abspath, blenddir=None)`
-- `resolve_missing_textures(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)`
-- `normalize_texture_paths(mode='relative', project_dir=None, images=None)`
-- `get_image_material_map()`
-- `materials_for_textures(paths)`
-- `fix_color_spaces(images=None, force_update=False, dry_run=False)`
-- `set_texture_directory(images=None, target_dir=None, mode='rewrite')`
-- `find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy')`
-- `format_texture_paths_html(records=None)`
-- `get_shader_templates()`
-- `apply_shader_template(material, template)`
-- `create_shader_template(template, name=None)`
-- `serialize_material(material)`
-- `restore_material(data, name=None, textures=None)`
-- `create_pbr_material(textures, name=None, normal_direction='OpenGL')`
-- `create_pbr_materials(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')`
-- `update_materials(materials=None, config=None, verbose=False, progress_callback=None)`
 - `class MatUpdater(ptk.LoggingMixin)`
   - methods: update_materials
 - `class MatUtils`
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -622,44 +446,31 @@ _Generated: 2026-07-19_
   - methods: header_init, txt_suffix_init
 
 ### `mat_utils/marmoset_bridge/_marmoset_bridge.py` — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
-- `build_bake_pairs_manifest(objects: Sequence, high_suffix: str, low_suffix: str) -> Dict[str, str]`
-- `class MarmosetBridge(ptk.HandoffBridge)`
-  - methods: toolbag_path, params_defaults, render_template
+- `class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal)`
+  - methods: toolbag_path, params_defaults, render_template, build_bake_pairs_manifest
 
 ### `mat_utils/marmoset_bridge/_marmoset_engine.py` — Drive Marmoset Toolbag from the outside -- launch + templated automation.
-- `list_templates() -> List[Path]`
-- `template_modes(template_path: Path) -> Tuple[str, ...]`
-- `list_template_modes() -> List[Tuple[str, str]]`
 - `class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`
-  - methods: toolbag_path, toolbag_log_path, preflight, deliver, send, render_template
+  - methods: toolbag_path, toolbag_log_path, preflight, deliver, send, render_template, list_templates, template_modes, list_template_modes
 
 ### `mat_utils/marmoset_bridge/_toolbag_helpers.py` — Shared helpers for Marmoset Toolbag template scripts.
-- `derive_per_run_log_path(manifest_path)`
-- `begin_log(reference_path)`
-- `log(msg)`
-- `find_material(name, scene_mats)`
-- `load_manifest(manifest_path)`
-- `wire_materials_from_manifest(manifest_path, verbose=True)`
-- `split_high_low(objects, high_suffix, low_suffix, pre_classified=None)`
-- `collect_mesh_objects(root)`
-- `apply_sky_preset(preset_path)`
-- `frame_in_viewport()`
+- `class ToolbagHelpers(_ToolbagHelpersInternal)`
+  - methods: derive_per_run_log_path, begin_log, log, find_material, load_manifest, wire_materials_from_manifest, split_high_low, collect_mesh_objects, apply_sky_preset, frame_in_viewport
 
 ### `mat_utils/marmoset_bridge/marmoset_bridge_slots.py` — Slots for the Marmoset Toolbag bridge panel -- mirror of mayatk's
 - `class MarmosetBridgeSlots(BlenderBridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/connection.py` — JSON-RPC client bound to the marmoset_rpc Toolbag plugin.
-- `class MarmosetConnection(RpcClient)`
+- `class MarmosetConnection(RpcClient, _MarmosetConnectionInternal)`
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/installer.py` — Install the marmoset_rpc plugin into Toolbag's user plugin folder.
-- `user_plugin_dir(toolbag_exe: Optional[str] = None) -> Optional[Path]`
-- `is_installed(toolbag_exe: Optional[str] = None) -> bool`
-- `install(toolbag_exe: Optional[str] = None, force: bool = False) -> Optional[Path]`
-- `uninstall(toolbag_exe: Optional[str] = None) -> bool`
+- `class Installer(_InstallerInternal)`
+  - methods: user_plugin_dir, is_installed, install, uninstall
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/job.py` — One-shot batch pipeline for the marmoset_rpc bridge.
-- `run_batch(calls: List[Call], host: str = '127.0.0.1', port: int = 8765, stop_on_error: bool = False) -> List[Result]`
+- `class BatchJob`
+  - methods: run_batch
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py` — Main-thread marshalling for ops that touch Toolbag's API.
 - `run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`
@@ -689,14 +500,12 @@ _Generated: 2026-07-19_
 - `autostart()`
 
 ### `mat_utils/marmoset_bridge/parameters.py` — Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
-- `referenced_keys(script_text: str) -> 'set[str]'`
-- `defaults() -> 'dict[str, Any]'`
-- `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `class Parameters`
+  - methods: referenced_keys, defaults, render_context
 
 ### `mat_utils/marmoset_bridge/template_params.py` — Plain default values + literal formatting for Marmoset template tokens.
-- `python_literal(value: Any) -> str`
-- `defaults() -> Dict[str, Any]`
-- `to_context(values: Dict[str, Any]) -> Dict[str, str]`
+- `class TemplateParams`
+  - methods: python_literal, defaults, to_context
 
 ### `mat_utils/marmoset_bridge/templates/bake.py` — Bake high-poly detail into a low-poly target via Marmoset Toolbag.
 - `main()`
@@ -708,10 +517,8 @@ _Generated: 2026-07-19_
 - `main()`
 
 ### `mat_utils/marmoset_bridge/toolbag_log.py` — Marmoset Toolbag log-file resolution, classification, and live tailing.
-- `resolve_toolbag_log_path(toolbag_exe: Optional[str]) -> Optional[str]`
-- `classify_log_line(line: str) -> Optional[Tuple[str, str]]`
-- `dispatch_log_lines(lines, logger) -> None`
-- `start_toolbag_log_tail(log_path: str, start_offset: int, process, logger, poll_interval: float = 0.4, file_wait_timeout: float = 60.0)`
+- `class ToolbagLog`
+  - methods: resolve_toolbag_log_path, classify_log_line, dispatch_log_lines, start_toolbag_log_tail
 
 ### `mat_utils/mat_manifest.py` — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 - `class MatManifest(ptk.HelpMixin)`
@@ -734,32 +541,61 @@ _Generated: 2026-07-19_
   - methods: workspace_dir, source_images_dir, template_name, header_init, lbl_graph_material, lbl_open_templates_dir, cmb002_init, refresh_templates, rename_template_safe, lbl000, lbl001, lbl002, b000, b001, b002
 
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
-- `list_templates() -> List[Path]`
-- `parse_template(template_path: Path) -> Dict[str, Any]`
-- `list_template_modes() -> List[Tuple[str, str]]`
-- `resolve_painter_log_path(painter_exe: Optional[str] = None) -> Optional[str]`
 - `class SubstanceBridge(ptk.HandoffBridge)`
-  - methods: painter_path, painter_log_path, instances, find_live_managed, send
+  - methods: painter_path, painter_log_path, instances, find_live_managed, send, ensure_rpc_plugin, list_templates, parse_template, list_template_modes, resolve_painter_log_path
 
 ### `mat_utils/substance_bridge/connection.py` — Substance 3D Painter connection module.
-- `find_painter_exe() -> Optional[str]`
-- `default_log_path() -> Optional[str]`
 - `class SubstanceConnection(ptk.LoggingMixin)`
-  - methods: open, close, is_alive, attach
+  - methods: open, close, is_alive, attach, find_painter_exe, default_log_path
 
 ### `mat_utils/substance_bridge/parameters.py` — Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
-- `referenced_keys(script_text: str) -> 'set[str]'`
-- `defaults() -> 'dict[str, Any]'`
-- `render_cli_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
-- `render_js_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
+- `class Parameters`
+  - methods: referenced_keys, defaults, render_cli_context, render_js_context
 
 ### `mat_utils/substance_bridge/substance_bridge_slots.py` — Slots for the Substance Painter bridge panel -- mirror of mayatk's
 - `class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`
   - methods: params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
 
-### `mat_utils/substance_bridge/substance_rpc/client.py` — JSON-RPC 2.0 client for a Painter-side Python plugin.
-- `class PainterRpcClient`
-  - methods: url, ping, wait_until_ready, call, eval_js
+### `mat_utils/substance_bridge/substance_rpc/client.py` — HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
+- `class PainterRpcClient(RpcClient)`
+  - methods: wait_until_ready, invoke, eval_js, eval_py, reload_mesh, reload_status, project_info
+
+### `mat_utils/substance_bridge/substance_rpc/installer.py` — Install the substance_rpc plugin into Painter's user plugin folder.
+- `class Installer(_InstallerInternal)`
+  - methods: user_plugin_dir, is_installed, install, uninstall
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py` — Substance 3D Painter RPC plugin -- entry point.
+- `start_plugin()`
+- `close_plugin()`
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py` — Main-thread marshalling for ops that touch Painter's API.
+- `run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`
+- `is_main_thread_marshalling_active()`
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py` — Project-level ops: inspect the open project and reload its mesh.
+- `project_info()`
+- `mesh_reload(mesh_path='', preserve_strokes=True, import_cameras=False)`
+- `mesh_reload_status()`
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py` — Transport-level ops: liveness, discovery, and script evaluation.
+- `ping()`
+- `list_ops()`
+- `version()`
+- `eval_python(script='')`
+- `js_evaluate(script='')`
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py` — Op registry for the substance_rpc plugin.
+- `register(name)`
+- `get(name)`
+- `all_ops()`
+- `describe(name=None)`
+- `clear()`
+
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py` — HTTP JSON-RPC server for the substance_rpc plugin.
+- `start_server(port=None, host='127.0.0.1')`
+- `stop_server()`
+- `is_running()`
+- `autostart()`
 
 ### `mat_utils/texture_baker.py` — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - `class TextureBaker(ptk.LoggingMixin)`
@@ -770,14 +606,8 @@ _Generated: 2026-07-19_
   - methods: header_init, tb_set_texture_directory_init, tb_find_and_copy_textures_init, tb_normalize_paths_init, tb_resolve_missing_textures_init, tbl000_init, setup_formatting, open_source_images, reload_scene_textures, tb_set_texture_directory, tb_find_and_copy_textures, tb_normalize_paths, tb_resolve_missing_textures, select_textures_for_objects, select_broken_paths, select_absolute_paths, row_browse_for_file, select_material, select_file_node, row_show_in_hypershade, delete_file_node, handle_cell_edit, refresh_texture_table, cleanup_scene_callbacks
 
 ### `node_utils/_node_utils.py` — Node / datablock utilities — instancing via shared object data.
-- `get_instances(objects=None)`
-- `replace_with_instances(objects, freeze_transforms=False, center_pivot=False, delete_history=False)`
-- `uninstance(objects)`
-- `get_parent(obj, all=False)`
-- `get_children(obj, recursive=False)`
-- `get_shape(obj)`
-- `reparent(objects, parent, keep_transform=True)`
-- `class NodeUtils`
+- `class NodeUtils(_NodeUtilsInternal)`
+  - methods: get_instances, replace_with_instances, uninstance, get_parent, get_children, get_shape, reparent
 
 ### `node_utils/attributes/channels/_channels.py` — Channels — Blender attribute query / mutation logic.
 - `class Channels`
@@ -813,12 +643,12 @@ _Generated: 2026-07-19_
 
 ### `rig_utils/controls.py` — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - `class ControlNodes`
-- `class Controls`
+- `class Controls(_ControlsInternal)`
   - methods: register_preset, shapes, create
 
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, refresh_export_metadata, create
+  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, delete, delete_rigs, refresh_export_metadata, create
 - `class ShadowRigSlots(ptk.LoggingMixin)`
   - methods: header_init, b001, b002, perform_operation
 
@@ -833,17 +663,16 @@ _Generated: 2026-07-19_
   - methods: get_centerline, get_selected_edges, get_centerline_using_edges
 
 ### `rig_utils/tube_rig.py` — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
-- `register_strategy(cls)`
 - `class TubeRigBundle`
 - `class TubeStrategy(ABC)`
-  - methods: defaults, resolve, build
+  - methods: register, defaults, resolve, build
 - `class SplineIKStrategy(TubeStrategy)`
   - methods: build
 - `class AnchorStrategy(TubeStrategy)`
   - methods: build
 - `class FKChainStrategy(TubeStrategy)`
   - methods: build
-- `class TubeRig(ptk.LoggingMixin)`
+- `class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`
   - methods: collection, resolve_centerline, create_root, create_armature, create_joint_chain, add_twist, attach_spline_rig, build_curve, make_control, hook_curve_controls, constrain_end_with_falloff, build
 - `class TubeRigSlots(ptk.LoggingMixin)`
   - methods: header_init, b000, b001, b002, b003, b004
@@ -855,21 +684,8 @@ _Generated: 2026-07-19_
   - methods: header_init, rig_name, movement_axis, rotation_axis, resolve_selection, set_wheel_height, s000_init, update_rig_name_placeholder, cleanup, wheel_rig, b000
 
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
-- `get_editor_types()`
-- `open_editor(editor, properties_context=None)`
-- `main_window()`
-- `find_editor(editor, window=None)`
-- `close_area(window, area)`
-- `close_editor(editor, window=None)`
-- `dock_editor(editor, edge_size=70, window=None)`
-- `toggle_editor(editor, edge_size=70, window=None)`
-- `toggle_fullscreen_area(editor=None, hide_panels=True, window=None)`
-- `toggle_window_bars(visible=None, window=None)`
-- `menu_exists(menu_idname)`
-- `dispatch_log_link(url, logger=None) -> bool`
-- `call_native_menu(menu_idname)`
-- `popup_message(text, title='Info', icon='INFO')`
-- `class UiUtils`
+- `class UiUtils(_UiUtilsInternal)`
+  - methods: get_editor_types, open_editor, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, dispatch_log_link, call_native_menu, popup_message
 
 ### `ui_utils/blender_bridge_slots_base.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
@@ -894,59 +710,28 @@ _Generated: 2026-07-19_
   - methods: header_init, on_input, on_clear, on_backspace, on_equal, on_convert_units, get_fps, get_current_time, frames_to_sec, sec_to_frames
 
 ### `ui_utils/menu_harvest.py` — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
-- `harvest_menu(idname)`
-- `invoke_operator(op_idname, props=None)`
-- `refill_qmenu(qmenu, idname)`
+- `class MenuHarvest(_MenuHarvestInternal)`
+  - methods: harvest_menu, invoke_operator, refill_qmenu
 
 ### `ui_utils/qt_dock.py` — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - `class QtDock`
   - methods: supported, docked, widget, area, content_region, dock, undock, teardown
 
 ### `ui_utils/style_setter/_style_setter.py` — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
-- `list_styles()`
-- `user_preset_dir(create=False)`
-- `user_preset_path(name)`
-- `is_installed(name)`
-- `install(overwrite=False)`
-- `list_templates()`
-- `apply_template(filepath)`
-- `apply_theme_preset(name)`
-- `set_style(name, install_presets=True, persist=False)`
-- `class StyleSetter`
+- `class StyleSetter(_StyleSetterInternal)`
+  - methods: list_styles, user_preset_dir, user_preset_path, is_installed, install, list_templates, apply_template, apply_theme_preset, set_style
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
-- `move_uvs(objects, du=0.0, dv=0.0)`
-- `transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)`
-- `mirror_uvs(objects, axis='u', per_shell=True, preserve_position=True)`
-- `pin_uvs(objects, pin=True, selected_only=True)`
-- `get_texel_density(objects, map_size)`
-- `set_texel_density(objects, density=1.0, map_size=4096)`
-- `delete_extra_uv_sets(objects)`
-- `cleanup_uv_sets(objects, *, remove_empty=True, keep_only_primary=False, rename_to_map1=True, force_rename=False, prefer_largest_area=True, dry_run=False)`
-- `find_lightmap_uv_set(obj)`
-- `create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True)`
-- `get_uv_coords(objects)`
-- `set_uv_coords(objects, snapshot)`
-- `stack_uv_shells(objects, tolerance=None)`
-- `straighten_uv_shells(objects, mode='LENGTH_AVERAGE')`
-- `derive_auto_seams(objects, angle=66.0, margin=0.0)`
-- `distribute_uv_shells(objects, axis='u')`
-- `straighten_uvs(objects, u=True, v=True, angle=30.0)`
-- `align_uvs(objects, axis='u', mode='avg')`
-- `gather_uv_shells(objects)`
-- `orient_uv_shells(objects, to_edge=False)`
-- `randomize_uv_shells(objects, seed=0)`
-- `class UvUtils`
+- `class UvUtils(_UvUtilsInternal)`
+  - methods: move_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
-- `class RizomUVBridge(ptk.LoggingMixin)`
-  - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send, process_with_rizomuv
+- `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`
+  - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send, process_with_rizomuv, expand_by_materials
 
 ### `uv_utils/rizom_bridge/parameters.py` — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
-- `referenced_keys(script_text: str) -> 'set[str]'`
-- `defaults() -> 'dict[str, Any]'`
-- `render_context(values: 'dict[str, Any]') -> 'dict[str, str]'`
-- `strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str`
+- `class Parameters`
+  - methods: expand_includes, preset_min_version, referenced_keys, defaults, render_context, strip_unsupported
 
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
 - `class RizomBridgeSlots(BridgeSlotsBase)`
@@ -957,25 +742,8 @@ _Generated: 2026-07-19_
   - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
-- `get_world_bbox(obj)`
-- `freeze_transforms(objects, location=True, rotation=False, scale=True, store=True)`
-- `restore_transforms(objects, delete_attrs=True)`
-- `has_stored_transforms(objects)`
-- `scale_connected_edges(objects, scale_factor=1.1)`
-- `drop_to_grid(objects, align='Min', origin=False, center_pivot=False)`
-- `center_pivot(objects, mode='object')`
-- `transfer_pivot(objects, translate=True, rotate=False, scale=False, world_space=True, select_targets_after_transfer=False)`
-- `get_pivot_modes()`
-- `match_scale(source, target, average=True)`
-- `move_to(source, target, pivot='center')`
-- `get_bounding_box(objects, value='', world_space=True)`
-- `get_center_point(objects)`
-- `get_operation_axis_matrix(obj, pivot)`
-- `get_distance(a, b)`
-- `order_by_distance(objects, reference_point=None, reverse=False)`
-- `aim_object_at_point(objects, target_pos, aim_vect=(1, 0, 0), up_vect=(0, 1, 0))`
-- `class XformUtils`
-  - methods: get_pivot_options
+- `class XformUtils(_XformUtilsInternal)`
+  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, get_pivot_options
 
 ### `xform_utils/matrices.py` — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 - `class Matrices`

@@ -10,46 +10,13 @@ workaround needed). Reading the fcurve back uses the public, slot-aware
 already uses internally for the same "Blender 4.4+ layered/slotted actions" reason — reusing
 the public entry point here instead of duplicating that logic).
 """
+
 from contextlib import contextmanager
 from typing import Tuple
 
 import pythontk as ptk
 
 from blendertk.anim_utils.blendshape_animator.validator import Validator
-
-
-@contextmanager
-def preserve_sibling_values(key_id):
-    """Snapshot every *un-driven* key block's ``value`` on ``key_id`` and restore it on exit.
-
-    ``bpy.context.view_layer.update()`` doesn't just settle the depsgraph — if a keyframe was
-    recently inserted anywhere on ``key_id`` (e.g. another :class:`BlendshapeAnimator` session's
-    ``create_keyframes`` on a DIFFERENT master key sharing the same base mesh), it re-applies
-    ANIMATION for every f-curve on that ID at the current frame, silently overwriting any
-    manually-set (not-yet-keyed) sibling value — clobbering a co-authored morph's live preview
-    that never touched the timeline. Driven keys (correctives) are excluded: their value is
-    owned by their driver and must be left to recompute, not pinned to a stale snapshot.
-    """
-    if key_id is None:
-        yield
-        return
-
-    driven_paths = set()
-    anim = key_id.animation_data
-    if anim is not None:
-        driven_paths = {d.data_path for d in anim.drivers}
-
-    snapshot = {
-        kb.name: kb.value
-        for kb in key_id.key_blocks
-        if f'key_blocks["{kb.name}"].value' not in driven_paths
-    }
-    try:
-        yield
-    finally:
-        for kb in key_id.key_blocks:
-            if kb.name in snapshot:
-                kb.value = snapshot[kb.name]
 
 
 class Keyframes(ptk.LoggingMixin):
@@ -81,7 +48,9 @@ class Keyframes(ptk.LoggingMixin):
         if key_id is None:
             return None
         path = f'key_blocks["{self.key_name}"].value'
-        return next((fc for fc in btk.get_fcurves([key_id]) if fc.data_path == path), None)
+        return next(
+            (fc for fc in btk.get_fcurves([key_id]) if fc.data_path == path), None
+        )
 
     def create_keyframes(self, start_frame: int, end_frame: int) -> bool:
         """Create linear keyframe animation on the master key's value, 0.0 -> 1.0."""
@@ -122,7 +91,7 @@ class Keyframes(ptk.LoggingMixin):
         import bpy
 
         kb = self.key_block
-        with preserve_sibling_values(self.key_id):
+        with Keyframes.preserve_sibling_values(self.key_id):
             kb.value = 0.5
             bpy.context.view_layer.update()
             self.logger.info("Shape key test: value set to 0.5")
@@ -139,5 +108,39 @@ class Keyframes(ptk.LoggingMixin):
             raise ValueError("No valid keyframe range found")
         return int(min(keys)), int(max(keys))
 
+    @staticmethod
+    @contextmanager
+    def preserve_sibling_values(key_id):
+        """Snapshot every *un-driven* key block's ``value`` on ``key_id`` and restore it on exit.
 
-__all__ = ["Keyframes", "preserve_sibling_values"]
+        ``bpy.context.view_layer.update()`` doesn't just settle the depsgraph — if a keyframe was
+        recently inserted anywhere on ``key_id`` (e.g. another :class:`BlendshapeAnimator` session's
+        ``create_keyframes`` on a DIFFERENT master key sharing the same base mesh), it re-applies
+        ANIMATION for every f-curve on that ID at the current frame, silently overwriting any
+        manually-set (not-yet-keyed) sibling value — clobbering a co-authored morph's live preview
+        that never touched the timeline. Driven keys (correctives) are excluded: their value is
+        owned by their driver and must be left to recompute, not pinned to a stale snapshot.
+        """
+        if key_id is None:
+            yield
+            return
+
+        driven_paths = set()
+        anim = key_id.animation_data
+        if anim is not None:
+            driven_paths = {d.data_path for d in anim.drivers}
+
+        snapshot = {
+            kb.name: kb.value
+            for kb in key_id.key_blocks
+            if f'key_blocks["{kb.name}"].value' not in driven_paths
+        }
+        try:
+            yield
+        finally:
+            for kb in key_id.key_blocks:
+                if kb.name in snapshot:
+                    kb.value = snapshot[kb.name]
+
+
+__all__ = ["Keyframes"]

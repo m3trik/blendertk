@@ -25,6 +25,7 @@ is the safety net that dual-keys hand-authored opacity before export.
 
 ``import bpy`` is deferred into the call bodies so the module resolves headless / under the .venv.
 """
+
 import pythontk as ptk
 
 
@@ -41,7 +42,9 @@ class RenderOpacity(ptk.LoggingMixin):
         import bpy
 
         if objects is None:
-            return [o for o in (getattr(bpy.context, "selected_objects", None) or []) if o]
+            return [
+                o for o in (getattr(bpy.context, "selected_objects", None) or []) if o
+            ]
         out = []
         for o in objects:
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o
@@ -65,9 +68,9 @@ class RenderOpacity(ptk.LoggingMixin):
     def _fcurve(obj, data_path, index=-1):
         """*obj*'s fcurve for *data_path* (slot-aware via the shared anim_utils helper — Blender
         4.4+/5.x drop the legacy flat ``action.fcurves``)."""
-        from blendertk.anim_utils._anim_utils import get_fcurves
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
-        for fc in get_fcurves([obj]):
+        for fc in AnimUtils.get_fcurves([obj]):
             if fc.data_path == data_path and (index < 0 or fc.array_index == index):
                 return fc
         return None
@@ -75,12 +78,14 @@ class RenderOpacity(ptk.LoggingMixin):
     @staticmethod
     def _remove_fc(obj, fc):
         """Remove fcurve *fc* from *obj*'s action (slot-aware, via the shared anim_utils helper)."""
-        from blendertk.anim_utils._anim_utils import _remove_fcurve
+        from blendertk.anim_utils._anim_utils import AnimUtils
 
         ad = getattr(obj, "animation_data", None)
         if ad and ad.action is not None and fc is not None:
             try:
-                _remove_fcurve(ad.action, getattr(ad, "action_slot", None), fc)
+                AnimUtils._remove_fcurve(
+                    ad.action, getattr(ad, "action_slot", None), fc
+                )
             except (RuntimeError, ReferenceError, ValueError):
                 pass
 
@@ -100,25 +105,28 @@ class RenderOpacity(ptk.LoggingMixin):
         bpy.context.view_layer.update()
         for nt in node_trees:
             ad = getattr(nt, "animation_data", None)
-            for d in (ad.drivers if ad else ()):
+            for d in ad.drivers if ad else ():
                 d.driver.expression = d.driver.expression
 
     # ------------------------------------------------------------------ visibility-key queries
     @classmethod
     def objects_with_visibility_keys(cls, objects) -> list:
         """The subset of *objects* that already have keyframes on render visibility."""
-        return [o for o in cls._resolve(objects) if cls._fcurve(o, cls.VIS_PATH) is not None]
+        return [
+            o for o in cls._resolve(objects) if cls._fcurve(o, cls.VIS_PATH) is not None
+        ]
 
     # ------------------------------------------------------------------ create / remove
     @classmethod
-    def create(cls, objects=None, mode: str = "attribute", delete_visibility_keys: bool = False):
+    def create(
+        cls, objects=None, mode: str = "attribute", delete_visibility_keys: bool = False
+    ):
         """Add the ``opacity`` prop to *objects* and drive each material's Principled Alpha from it.
 
         ``mode`` is accepted for mayatk API parity ("attribute"/"material" behave identically in
         Blender; "remove" delegates to :meth:`remove`). Objects with existing visibility keys are
         skipped with a warning unless *delete_visibility_keys* is True (then their vis keys are cut).
         """
-        import bpy
 
         objects = cls._resolve(objects)
         if not objects:
@@ -149,7 +157,9 @@ class RenderOpacity(ptk.LoggingMixin):
             cls._ensure_opacity_prop(obj, 1.0)
             node_trees.extend(cls._drive_material_alpha(obj))
             results[obj.name] = {"opacity": True}
-        cls._refresh_drivers(node_trees)  # post-build recompile (script-built driver gotcha)
+        cls._refresh_drivers(
+            node_trees
+        )  # post-build recompile (script-built driver gotcha)
         return results
 
     @classmethod
@@ -172,7 +182,9 @@ class RenderOpacity(ptk.LoggingMixin):
             node = _principled_node(mat)
             if node is None:
                 continue
-            if mat.users > 1:  # shared datablock -> per-object copy so opacity is per-object
+            if (
+                mat.users > 1
+            ):  # shared datablock -> per-object copy so opacity is per-object
                 mat = mat.copy()
                 obj.data.materials[i] = mat
                 node = _principled_node(mat)
@@ -214,17 +226,18 @@ class RenderOpacity(ptk.LoggingMixin):
     @classmethod
     def remove(cls, objects=None, mode=None):
         """Remove the opacity prop, its Alpha drivers, and its anim curves from *objects*."""
-        import bpy
         from blendertk.mat_utils._mat_utils import _principled_node
 
         for obj in cls._resolve(objects):
             # Alpha drivers on this object's materials.
-            for mat in (getattr(obj.data, "materials", None) or []):
+            for mat in getattr(obj.data, "materials", None) or []:
                 node = _principled_node(mat) if mat else None
                 if node is None:
                     continue
                 try:
-                    mat.node_tree.driver_remove(node.inputs["Alpha"].path_from_id("default_value"))
+                    mat.node_tree.driver_remove(
+                        node.inputs["Alpha"].path_from_id("default_value")
+                    )
                 except (TypeError, RuntimeError):
                     pass
             # Opacity + mirrored visibility anim curves.
@@ -237,10 +250,12 @@ class RenderOpacity(ptk.LoggingMixin):
     @staticmethod
     def _set_key(obj, data_path, frame, value, interp, index=-1):
         """Set *value* then insert a keyframe at *frame* with the given interpolation."""
-        if data_path.startswith('['):  # custom prop
+        if data_path.startswith("["):  # custom prop
             obj[data_path[2:-2]] = value
         else:
-            setattr(obj, data_path, value if data_path != "hide_render" else bool(value))
+            setattr(
+                obj, data_path, value if data_path != "hide_render" else bool(value)
+            )
         obj.keyframe_insert(data_path=data_path, frame=frame, index=index)
         fc = RenderOpacity._fcurve(obj, data_path, index)
         if fc is not None:
@@ -261,7 +276,15 @@ class RenderOpacity(ptk.LoggingMixin):
         return True if prev is None else prev < 0.5
 
     @classmethod
-    def key_fade(cls, objects=None, start=0, end=15, direction="in", auto_create=True, tangent="LINEAR"):
+    def key_fade(
+        cls,
+        objects=None,
+        start=0,
+        end=15,
+        direction="in",
+        auto_create=True,
+        tangent="LINEAR",
+    ):
         """Key an opacity fade (linear) and mirror it to render visibility (stepped).
 
         ``direction``: ``"in"`` (0→1), ``"out"`` (1→0), or ``"auto"`` (from the last opacity key).
@@ -286,14 +309,22 @@ class RenderOpacity(ptk.LoggingMixin):
         for obj in objects:
             if cls.ATTR_NAME not in obj:
                 continue
-            fade_in = cls._resolve_auto_fade(obj, start) if direction == "auto" else direction == "in"
+            fade_in = (
+                cls._resolve_auto_fade(obj, start)
+                if direction == "auto"
+                else direction == "in"
+            )
             start_val, end_val = (0.0, 1.0) if fade_in else (1.0, 0.0)
 
             cls._set_key(obj, f'["{cls.ATTR_NAME}"]', start, start_val, tangent)
             cls._set_key(obj, f'["{cls.ATTR_NAME}"]', end, end_val, tangent)
             # Visibility mirror: hidden (hide_render=1) when opacity ≤ 0, else visible; stepped.
-            cls._set_key(obj, cls.VIS_PATH, start, 0.0 if start_val > 0 else 1.0, "CONSTANT")
-            cls._set_key(obj, cls.VIS_PATH, end, 0.0 if end_val > 0 else 1.0, "CONSTANT")
+            cls._set_key(
+                obj, cls.VIS_PATH, start, 0.0 if start_val > 0 else 1.0, "CONSTANT"
+            )
+            cls._set_key(
+                obj, cls.VIS_PATH, end, 0.0 if end_val > 0 else 1.0, "CONSTANT"
+            )
             keyed.append((obj.name, "in" if fade_in else "out"))
         return keyed
 
@@ -309,7 +340,13 @@ class RenderOpacity(ptk.LoggingMixin):
                 continue
             cls._remove_fc(obj, cls._fcurve(obj, cls.VIS_PATH))
             for kp in fc.keyframe_points:
-                cls._set_key(obj, cls.VIS_PATH, kp.co[0], 0.0 if kp.co[1] > 0 else 1.0, "CONSTANT")
+                cls._set_key(
+                    obj,
+                    cls.VIS_PATH,
+                    kp.co[0],
+                    0.0 if kp.co[1] > 0 else 1.0,
+                    "CONSTANT",
+                )
 
     @classmethod
     def ensure_connections(cls, objects=None) -> None:
@@ -346,6 +383,9 @@ class RenderOpacity(ptk.LoggingMixin):
                 synced.append(obj.name)
         if needs:
             cls.sync_visibility_from_opacity(needs)
-            cls.logger.info("prepare_for_export: synced visibility on %d object(s): %s",
-                            len(synced), ", ".join(synced))
+            cls.logger.info(
+                "prepare_for_export: synced visibility on %d object(s): %s",
+                len(synced),
+                ", ".join(synced),
+            )
         return synced

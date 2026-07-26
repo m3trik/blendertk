@@ -35,6 +35,7 @@ identically to one picked through us).
 
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
+
 import os
 import glob
 import filecmp
@@ -54,31 +55,9 @@ _PRESET_MENU = "USERPREF_MT_interface_theme_presets"
 
 
 # ---- shipped-template discovery ------------------------------------------------------------
-def list_styles():
-    """Names of the shipped theme presets (e.g. ``["Maya"]``)."""
-    return sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(STYLES_DIR, "*.xml")))
-
-
-def _shipped_xml(name):
-    return os.path.join(STYLES_DIR, f"{name}.xml")
 
 
 # ---- user-preset-dir plumbing (what Blender's dropdown reads from) -------------------------
-def user_preset_dir(create=False):
-    """Blender's per-user ``presets/interface_theme`` dir — the dropdown's writable source."""
-    import bpy
-
-    return bpy.utils.user_resource("SCRIPTS", path=_PRESET_SUBDIR, create=create)
-
-
-def user_preset_path(name):
-    """Path a preset named ``name`` would have in the user preset dir."""
-    return os.path.join(user_preset_dir(), f"{name}.xml")
-
-
-def is_installed(name):
-    """True if ``<name>.xml`` is in the user preset dir (i.e. selectable in the dropdown)."""
-    return os.path.isfile(user_preset_path(name))
 
 
 # Legacy artifacts from the pre-native backup/restore design retired 2026-07-05 (see the package
@@ -91,132 +70,70 @@ _LEGACY_BACKUP_SIDECAR = "Default_Backup.json"
 _LEGACY_DEFAULT_PRESET = "Default.xml"
 
 
-def _is_shipped_copy(path):
-    """True if ``path`` is byte-identical to one of our shipped style XMLs — i.e. it's our stale
-    copy, not a user's own theme that merely shares the name. Silent on ``OSError`` (a file
-    vanishing mid-check just yields False)."""
-    for name in list_styles():
-        shipped = _shipped_xml(name)
+# ---- the full native template set (built-in + user + our injected) -------------------------
+
+
+class _StyleSetterInternal(object):
+    """Internal helpers for StyleSetter."""
+
+    @staticmethod
+    def _shipped_xml(name):
+        return os.path.join(STYLES_DIR, f"{name}.xml")
+
+    @staticmethod
+    def _is_shipped_copy(path):
+        """True if ``path`` is byte-identical to one of our shipped style XMLs — i.e. it's our stale
+        copy, not a user's own theme that merely shares the name. Silent on ``OSError`` (a file
+        vanishing mid-check just yields False)."""
+        for name in StyleSetter.list_styles():
+            shipped = _StyleSetterInternal._shipped_xml(name)
+            try:
+                if os.path.isfile(shipped) and filecmp.cmp(
+                    path, shipped, shallow=False
+                ):
+                    return True
+            except OSError:
+                continue
+        return False
+
+    @staticmethod
+    def _purge_legacy_default_preset():
+        """Remove the retired ``Default`` preset + its ``Default_Backup.json`` sidecar from the user
+        preset dir (see :data:`_LEGACY_DEFAULT_PRESET`).
+
+        The ``.xml`` is removed only when it's a shipped-style copy (:func:`_is_shipped_copy`) — never
+        a user's own theme that merely happens to be named "Default". The ``.json`` sidecar is ours
+        unambiguously (Blender never writes ``.json`` into a preset dir). Best-effort and silent: a
+        missing file or an ``OSError`` just leaves the dropdown as-is."""
+        d = StyleSetter.user_preset_dir()
+        if not d or not os.path.isdir(d):
+            return
+        # (filename, guard) — the guard gates removal of a same-named user theme; None = always ours.
+        for filename, guard in (
+            (_LEGACY_BACKUP_SIDECAR, None),
+            (_LEGACY_DEFAULT_PRESET, _StyleSetterInternal._is_shipped_copy),
+        ):
+            path = os.path.join(d, filename)
+            if not os.path.isfile(path) or (guard and not guard(path)):
+                continue
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _redraw_all():
+        import bpy
+
         try:
-            if os.path.isfile(shipped) and filecmp.cmp(path, shipped, shallow=False):
-                return True
-        except OSError:
-            continue
-    return False
-
-
-def _purge_legacy_default_preset():
-    """Remove the retired ``Default`` preset + its ``Default_Backup.json`` sidecar from the user
-    preset dir (see :data:`_LEGACY_DEFAULT_PRESET`).
-
-    The ``.xml`` is removed only when it's a shipped-style copy (:func:`_is_shipped_copy`) — never
-    a user's own theme that merely happens to be named "Default". The ``.json`` sidecar is ours
-    unambiguously (Blender never writes ``.json`` into a preset dir). Best-effort and silent: a
-    missing file or an ``OSError`` just leaves the dropdown as-is."""
-    d = user_preset_dir()
-    if not d or not os.path.isdir(d):
-        return
-    # (filename, guard) — the guard gates removal of a same-named user theme; None = always ours.
-    for filename, guard in ((_LEGACY_BACKUP_SIDECAR, None), (_LEGACY_DEFAULT_PRESET, _is_shipped_copy)):
-        path = os.path.join(d, filename)
-        if not os.path.isfile(path) or (guard and not guard(path)):
-            continue
-        try:
-            os.remove(path)
-        except OSError:
+            for window in bpy.context.window_manager.windows:
+                for area in window.screen.areas:
+                    area.tag_redraw()
+        except Exception:
             pass
 
 
-def install(overwrite=False):
-    """Copy the shipped theme presets into Blender's user preset dir so they appear in
-    Preferences > Themes > preset dropdown. Idempotent; returns the names copied this call
-    (empty when everything was already installed and ``overwrite`` is False)."""
-    _purge_legacy_default_preset()  # drop the retired 'Default' phantom (pre-2026-07-05 builds)
-    dest = user_preset_dir(create=True)
-    copied = []
-    for name in list_styles():
-        target = os.path.join(dest, f"{name}.xml")
-        if os.path.exists(target) and not overwrite:
-            continue
-        ptk.FileUtils.copy_file(_shipped_xml(name), dest, overwrite=True)
-        copied.append(name)
-    return copied
-
-
-# ---- the full native template set (built-in + user + our injected) -------------------------
-def list_templates():
-    """Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes
-    dropdown sees — Blender's built-ins, the user's own, and our injected ``Maya``.
-    ``display_name`` is Blender's own (``bpy.path.display_name``: underscores → spaces,
-    title-cased), so a combo built from this reads identically to the native dropdown. ``filepath``
-    is the token to hand back to :func:`apply_template`."""
-    import bpy
-
-    out = {}
-    for d in bpy.utils.preset_paths("interface_theme"):
-        if not os.path.isdir(d):
-            continue
-        for f in sorted(os.listdir(d)):
-            if f.endswith(".xml"):
-                stem = os.path.splitext(f)[0]
-                out[bpy.path.display_name(stem)] = os.path.join(d, f)
-    return out
-
-
-def apply_template(filepath):
-    """Apply any native theme preset by its ``.xml`` filepath (the token from :func:`list_templates`)
-    via Blender's ``execute_preset`` — which resets to the factory theme and then applies, so the
-    outcome is deterministic regardless of the current theme."""
-    import bpy
-
-    bpy.ops.script.execute_preset(filepath=filepath, menu_idname=_PRESET_MENU)
-    _redraw_all()
-
-
-def apply_theme_preset(name):
-    """Apply a shipped/installed theme preset by NAME (not path). Uses the installed copy if present,
-    else the shipped file directly; raises ``FileNotFoundError`` for an unknown name."""
-    path = user_preset_path(name) if is_installed(name) else _shipped_xml(name)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"No theme preset named {name!r} (looked in {STYLES_DIR} and the user preset dir).")
-    apply_template(path)
-
-
-def _redraw_all():
-    import bpy
-
-    try:
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                area.tag_redraw()
-    except Exception:
-        pass
-
-
-def set_style(name, install_presets=True, persist=False):
-    """Switch Blender's UI to the named shipped style (e.g. ``"Maya"``) via its native theme preset.
-
-    Installs the shipped presets into the dropdown first (so e.g. "Maya" is pickable there by hand
-    too). Reverting is just picking the user's own (built-in or saved) theme from that same
-    dropdown/combo afterward — Blender's native preset system already preserves it, so there is no
-    bespoke backup step here.
-
-    Parameters:
-        name: A shipped style from :func:`list_styles` (e.g. ``"Maya"``).
-        install_presets: Copy the shipped presets into the dropdown first (default True).
-        persist: Also write Blender's user preferences to disk (``wm.save_userpref``) so the change
-            survives a restart — otherwise it's live-session only.
-    """
-    if install_presets:
-        install()
-    apply_theme_preset(name)
-    if persist:
-        import bpy
-
-        bpy.ops.wm.save_userpref()
-
-
-class StyleSetter:
+class StyleSetter(_StyleSetterInternal):
     """Public namespace for the style-setter helpers (``btk.StyleSetter.set_style("Maya")`` …).
 
     This class is the registered public surface (mirroring how the other blendertk tool classes —
@@ -230,12 +147,112 @@ class StyleSetter:
     same list — Blender's native preset system already covers it, so there is no bespoke backup.
     """
 
-    list_styles = staticmethod(list_styles)
-    list_templates = staticmethod(list_templates)
-    apply_template = staticmethod(apply_template)
-    user_preset_dir = staticmethod(user_preset_dir)
-    user_preset_path = staticmethod(user_preset_path)
-    is_installed = staticmethod(is_installed)
-    install = staticmethod(install)
-    apply_theme_preset = staticmethod(apply_theme_preset)
-    set_style = staticmethod(set_style)
+    @staticmethod
+    def list_styles():
+        """Names of the shipped theme presets (e.g. ``["Maya"]``)."""
+        return sorted(
+            os.path.splitext(os.path.basename(p))[0]
+            for p in glob.glob(os.path.join(STYLES_DIR, "*.xml"))
+        )
+
+    @staticmethod
+    def user_preset_dir(create=False):
+        """Blender's per-user ``presets/interface_theme`` dir — the dropdown's writable source."""
+        import bpy
+
+        return bpy.utils.user_resource("SCRIPTS", path=_PRESET_SUBDIR, create=create)
+
+    @staticmethod
+    def user_preset_path(name):
+        """Path a preset named ``name`` would have in the user preset dir."""
+        return os.path.join(StyleSetter.user_preset_dir(), f"{name}.xml")
+
+    @staticmethod
+    def is_installed(name):
+        """True if ``<name>.xml`` is in the user preset dir (i.e. selectable in the dropdown)."""
+        return os.path.isfile(StyleSetter.user_preset_path(name))
+
+    @staticmethod
+    def install(overwrite=False):
+        """Copy the shipped theme presets into Blender's user preset dir so they appear in
+        Preferences > Themes > preset dropdown. Idempotent; returns the names copied this call
+        (empty when everything was already installed and ``overwrite`` is False)."""
+        _StyleSetterInternal._purge_legacy_default_preset()  # drop the retired 'Default' phantom (pre-2026-07-05 builds)
+        dest = StyleSetter.user_preset_dir(create=True)
+        copied = []
+        for name in StyleSetter.list_styles():
+            target = os.path.join(dest, f"{name}.xml")
+            if os.path.exists(target) and not overwrite:
+                continue
+            ptk.FileUtils.copy_file(
+                _StyleSetterInternal._shipped_xml(name), dest, overwrite=True
+            )
+            copied.append(name)
+        return copied
+
+    @staticmethod
+    def list_templates():
+        """Ordered ``{display_name: filepath}`` of every native ``interface_theme`` preset the Themes
+        dropdown sees — Blender's built-ins, the user's own, and our injected ``Maya``.
+        ``display_name`` is Blender's own (``bpy.path.display_name``: underscores → spaces,
+        title-cased), so a combo built from this reads identically to the native dropdown. ``filepath``
+        is the token to hand back to :func:`apply_template`."""
+        import bpy
+
+        out = {}
+        for d in bpy.utils.preset_paths("interface_theme"):
+            if not os.path.isdir(d):
+                continue
+            for f in sorted(os.listdir(d)):
+                if f.endswith(".xml"):
+                    stem = os.path.splitext(f)[0]
+                    out[bpy.path.display_name(stem)] = os.path.join(d, f)
+        return out
+
+    @staticmethod
+    def apply_template(filepath):
+        """Apply any native theme preset by its ``.xml`` filepath (the token from :func:`list_templates`)
+        via Blender's ``execute_preset`` — which resets to the factory theme and then applies, so the
+        outcome is deterministic regardless of the current theme."""
+        import bpy
+
+        bpy.ops.script.execute_preset(filepath=filepath, menu_idname=_PRESET_MENU)
+        _StyleSetterInternal._redraw_all()
+
+    @staticmethod
+    def apply_theme_preset(name):
+        """Apply a shipped/installed theme preset by NAME (not path). Uses the installed copy if present,
+        else the shipped file directly; raises ``FileNotFoundError`` for an unknown name."""
+        path = (
+            StyleSetter.user_preset_path(name)
+            if StyleSetter.is_installed(name)
+            else _StyleSetterInternal._shipped_xml(name)
+        )
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"No theme preset named {name!r} (looked in {STYLES_DIR} and the user preset dir)."
+            )
+        StyleSetter.apply_template(path)
+
+    @staticmethod
+    def set_style(name, install_presets=True, persist=False):
+        """Switch Blender's UI to the named shipped style (e.g. ``"Maya"``) via its native theme preset.
+
+        Installs the shipped presets into the dropdown first (so e.g. "Maya" is pickable there by hand
+        too). Reverting is just picking the user's own (built-in or saved) theme from that same
+        dropdown/combo afterward — Blender's native preset system already preserves it, so there is no
+        bespoke backup step here.
+
+        Parameters:
+            name: A shipped style from :func:`list_styles` (e.g. ``"Maya"``).
+            install_presets: Copy the shipped presets into the dropdown first (default True).
+            persist: Also write Blender's user preferences to disk (``wm.save_userpref``) so the change
+                survives a restart — otherwise it's live-session only.
+        """
+        if install_presets:
+            StyleSetter.install()
+        StyleSetter.apply_theme_preset(name)
+        if persist:
+            import bpy
+
+            bpy.ops.wm.save_userpref()

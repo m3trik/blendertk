@@ -17,6 +17,7 @@ diverges" rule) — adding a shape stays a one-liner, the extensibility Maya's r
 ``import bpy`` / ``mathutils`` are deferred into ``create`` so importing this module never needs a
 running Blender (the no-import-side-effects rule); the geometry builders are pure and import-safe.
 """
+
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -39,59 +40,74 @@ class ControlNodes:
 # ----------------------------------------------------------------------------
 
 
-def _circle(segments: int = 24) -> List[Polyline]:
-    import math
+class _ControlsInternal(object):
+    """Internal helpers for Controls."""
 
-    pts = [
-        (math.cos(2 * math.pi * i / segments), math.sin(2 * math.pi * i / segments), 0.0)
-        for i in range(segments)
-    ]
-    return [(pts, True)]
+    @staticmethod
+    def _circle(segments: int = 24) -> List[Polyline]:
+        import math
+
+        pts = [
+            (
+                math.cos(2 * math.pi * i / segments),
+                math.sin(2 * math.pi * i / segments),
+                0.0,
+            )
+            for i in range(segments)
+        ]
+        return [(pts, True)]
+
+    @staticmethod
+    def _square() -> List[Polyline]:
+        return [([(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0)], True)]
+
+    @staticmethod
+    def _diamond() -> List[Polyline]:
+        return [([(1, 0, 0), (0, 1, 0), (-1, 0, 0), (0, -1, 0)], True)]
+
+    @staticmethod
+    def _cube() -> List[Polyline]:
+        b = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1)]  # bottom (z=-1)
+        t = [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]  # top (z=+1)
+        verticals = [([b[i], t[i]], False) for i in range(4)]
+        return [(b, True), (t, True), *verticals]
+
+    @staticmethod
+    def _sphere(segments: int = 24) -> List[Polyline]:
+        import math
+
+        rings = []
+        for plane in ("xy", "xz", "yz"):
+            ring = []
+            for i in range(segments):
+                a = 2 * math.pi * i / segments
+                c, s = math.cos(a), math.sin(a)
+                ring.append(
+                    {"xy": (c, s, 0.0), "xz": (c, 0.0, s), "yz": (0.0, c, s)}[plane]
+                )
+            rings.append((ring, True))
+        return rings
+
+    @staticmethod
+    def _arrow() -> List[Polyline]:
+        # An arrow outline pointing +Y (shaft + head), cyclic.
+        return [
+            (
+                [
+                    (-0.3, -1, 0),
+                    (0.3, -1, 0),
+                    (0.3, 0.3, 0),
+                    (0.7, 0.3, 0),
+                    (0.0, 1.0, 0),
+                    (-0.7, 0.3, 0),
+                    (-0.3, 0.3, 0),
+                ],
+                True,
+            )
+        ]
 
 
-def _square() -> List[Polyline]:
-    return [([(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0)], True)]
-
-
-def _diamond() -> List[Polyline]:
-    return [([(1, 0, 0), (0, 1, 0), (-1, 0, 0), (0, -1, 0)], True)]
-
-
-def _cube() -> List[Polyline]:
-    b = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1)]  # bottom (z=-1)
-    t = [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]  # top (z=+1)
-    verticals = [([b[i], t[i]], False) for i in range(4)]
-    return [(b, True), (t, True), *verticals]
-
-
-def _sphere(segments: int = 24) -> List[Polyline]:
-    import math
-
-    rings = []
-    for plane in ("xy", "xz", "yz"):
-        ring = []
-        for i in range(segments):
-            a = 2 * math.pi * i / segments
-            c, s = math.cos(a), math.sin(a)
-            ring.append({"xy": (c, s, 0.0), "xz": (c, 0.0, s), "yz": (0.0, c, s)}[plane])
-        rings.append((ring, True))
-    return rings
-
-
-def _arrow() -> List[Polyline]:
-    # An arrow outline pointing +Y (shaft + head), cyclic.
-    return [
-        (
-            [
-                (-0.3, -1, 0), (0.3, -1, 0), (0.3, 0.3, 0), (0.7, 0.3, 0),
-                (0.0, 1.0, 0), (-0.7, 0.3, 0), (-0.3, 0.3, 0),
-            ],
-            True,
-        )
-    ]
-
-
-class Controls:
+class Controls(_ControlsInternal):
     """Rig control-shape factory (curve-object widgets) — Blender mirror of mayatk's ``Controls``.
 
     ``Controls.create("circle", name="hand_ctrl", size=2, axis="y", color=(1, 1, 0))`` builds a
@@ -100,14 +116,14 @@ class Controls:
     """
 
     _PRESETS = {
-        "circle": _circle,
-        "square": _square,
-        "diamond": _diamond,
-        "cube": _cube,
-        "box": _cube,  # alias (mayatk's "box")
-        "sphere": _sphere,
-        "ball": _sphere,  # alias (mayatk's "ball")
-        "arrow": _arrow,
+        "circle": _ControlsInternal._circle,
+        "square": _ControlsInternal._square,
+        "diamond": _ControlsInternal._diamond,
+        "cube": _ControlsInternal._cube,
+        "box": _ControlsInternal._cube,  # alias (mayatk's "box")
+        "sphere": _ControlsInternal._sphere,
+        "ball": _ControlsInternal._sphere,  # alias (mayatk's "ball")
+        "arrow": _ControlsInternal._arrow,
     }
 
     @classmethod
@@ -188,13 +204,21 @@ class Controls:
         obj = bpy.data.objects.new(name, cu)
         obj.location = location
         if color is not None:
-            obj.color = (color[0], color[1], color[2], color[3] if len(color) > 3 else 1.0)
+            obj.color = (
+                color[0],
+                color[1],
+                color[2],
+                color[3] if len(color) > 3 else 1.0,
+            )
         (collection or bpy.context.collection).objects.link(obj)
 
         grp = None
         if group:
             grp = RigUtils.create_locator(
-                f"{name}_grp", location=location, display_type="ARROWS", collection=collection
+                f"{name}_grp",
+                location=location,
+                display_type="ARROWS",
+                collection=collection,
             )
             # matrix_world is lazy: settle it before parent_keep_transform reads grp.matrix_world,
             # else the offset-group binds an identity parent-inverse and the control doubles its

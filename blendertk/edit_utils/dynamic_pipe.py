@@ -28,9 +28,10 @@ leftover from ``mat_utils/game_shader.ui``, not a `dynamic_pipe`-authored string
 upstream mayatk bug rather than an intentional label; ported verbatim per the parity mandate since
 mayatk is read-only source of truth for this pass — flag for a mayatk-side fix in a follow-up.
 """
+
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import undoable
+from blendertk.core_utils._core_utils import CoreUtils
 
 
 class DynamicPipe(ptk.LoggingMixin):
@@ -114,7 +115,9 @@ class DynamicPipe(ptk.LoggingMixin):
         for pt, handle in zip(spline.points, handles):
             p = self._world_pos(handle)
             pt.co = (p.x, p.y, p.z, 1.0)
-        spline.order_u = min(4, len(handles))  # ≤ point count (else Blender clamps/refuses)
+        spline.order_u = min(
+            4, len(handles)
+        )  # ≤ point count (else Blender clamps/refuses)
         spline.use_endpoint_u = True  # pass through the first/last handle
 
         obj = bpy.data.objects.new("DynamicPipe", cu)
@@ -129,10 +132,10 @@ class DynamicPipe(ptk.LoggingMixin):
         the gotcha-laden no-jump ``matrix_inverse`` formula), the same helper ``TubeRig`` uses for
         its Spline-IK driver curve.
         """
-        from blendertk.edit_utils._edit_utils import hook_curve_point
+        from blendertk.edit_utils._edit_utils import EditUtils
 
         for i, handle in enumerate(handles):
-            hook_curve_point(curve, i, handle, name=f"Hook_{handle.name}")
+            EditUtils.hook_curve_point(curve, i, handle, name=f"Hook_{handle.name}")
 
 
 class DynamicPipeSlots(ptk.LoggingMixin):
@@ -150,10 +153,10 @@ class DynamicPipeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import fmt
+        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 
         widget.set_help_text(
-            fmt(
+            TooltipFormat.fmt(
                 title="Dynamic Pipe",
                 body="Build a pipe-style mesh driven by a chain of handle objects (Empties). Each "
                 "handle hooks one control point of a beveled curve; moving a handle in the "
@@ -189,7 +192,7 @@ class DynamicPipeSlots(ptk.LoggingMixin):
             return
         self._build(handles)
 
-    @undoable
+    @CoreUtils.undoable
     def _build(self, handles):
         """Build the pipe and report the result — the productive half of :meth:`b000`, decorated
         so the whole build collapses into one undo step (mirror of mayatk's

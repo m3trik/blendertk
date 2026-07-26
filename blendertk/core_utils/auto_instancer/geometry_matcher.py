@@ -16,6 +16,7 @@ column-vector. The relative transform is stored as a ``mathutils.Matrix``
 ``rel`` such that placing an instance is ``matrix_world @ rel`` (the
 column-convention equivalent of Maya's ``rel * target_matrix``).
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,26 +29,30 @@ import pythontk as ptk
 logger = logging.getLogger(__name__)
 
 
-def _flat_rm_to_matrix(flat):
-    """Row-major 16-float list -> column-convention ``mathutils.Matrix``."""
-    from mathutils import Matrix
+class _GeometryMatcherInternal(object):
+    """Internal helpers for GeometryMatcher."""
 
-    return Matrix(np.array(flat, dtype=float).reshape(4, 4).T.tolist())
+    @staticmethod
+    def _flat_rm_to_matrix(flat):
+        """Row-major 16-float list -> column-convention ``mathutils.Matrix``."""
+        from mathutils import Matrix
+
+        return Matrix(np.array(flat, dtype=float).reshape(4, 4).T.tolist())
+
+    @staticmethod
+    def _matrix_to_np_rm(matrix) -> np.ndarray:
+        """``mathutils.Matrix`` -> row-major numpy 4x4 (row-vector convention)."""
+        return np.array(matrix, dtype=float).T
+
+    @staticmethod
+    def _mesh(obj):
+        """The object's mesh datablock, or ``None`` for non-mesh objects."""
+        if obj is None or getattr(obj, "type", None) != "MESH":
+            return None
+        return obj.data
 
 
-def _matrix_to_np_rm(matrix) -> np.ndarray:
-    """``mathutils.Matrix`` -> row-major numpy 4x4 (row-vector convention)."""
-    return np.array(matrix, dtype=float).T
-
-
-def _mesh(obj):
-    """The object's mesh datablock, or ``None`` for non-mesh objects."""
-    if obj is None or getattr(obj, "type", None) != "MESH":
-        return None
-    return obj.data
-
-
-class GeometryMatcher:
+class GeometryMatcher(_GeometryMatcherInternal):
     """Handles geometric analysis and comparison."""
 
     # Minimum mean normal dot product for a match to count as shading-
@@ -159,7 +164,7 @@ class GeometryMatcher:
         ``None``. The frame is stabilized so identical geometry always
         yields the same basis (see ``PointCloud.pca_basis``).
         """
-        me = _mesh(obj)
+        me = _GeometryMatcherInternal._mesh(obj)
         if me is None:
             return None
         try:
@@ -169,7 +174,7 @@ class GeometryMatcher:
             flat = ptk.PointCloud.pca_basis(world_pts)
             if flat is None:
                 return None
-            return _flat_rm_to_matrix(flat)
+            return _GeometryMatcherInternal._flat_rm_to_matrix(flat)
         except Exception:
             return None
 
@@ -183,7 +188,7 @@ class GeometryMatcher:
         or ``None`` when *obj* has no mesh. Surface area is deliberately
         absent — it is not scale invariant.
         """
-        me = _mesh(obj)
+        me = _GeometryMatcherInternal._mesh(obj)
         if me is None:
             return None
 
@@ -207,9 +212,7 @@ class GeometryMatcher:
         materials = ()
         if self.require_same_material:
             materials = tuple(
-                sorted(
-                    {s.material.name for s in obj.material_slots if s.material}
-                )
+                sorted({s.material.name for s in obj.material_slots if s.material})
             )
 
         uv_signature = ()
@@ -252,8 +255,8 @@ class GeometryMatcher:
             column-convention ``mathutils.Matrix`` (place an instance via
             ``matrix_world @ rel``), or ``None`` for an identity match.
         """
-        m1 = _mesh(o1)
-        m2 = _mesh(o2)
+        m1 = _GeometryMatcherInternal._mesh(o1)
+        m2 = _GeometryMatcherInternal._mesh(o2)
         if m1 is None or m2 is None:
             return False, None
 
@@ -289,7 +292,7 @@ class GeometryMatcher:
             return False, None
         if matrix_list is None:
             return True, None
-        return True, _flat_rm_to_matrix(matrix_list)
+        return True, _GeometryMatcherInternal._flat_rm_to_matrix(matrix_list)
 
     def _uv_coords(self, me, layer) -> np.ndarray:
         arr = np.empty(len(me.loops) * 2, dtype=np.float32)
@@ -327,8 +330,8 @@ class GeometryMatcher:
 
     def are_meshes_identical_with_transform(self, o1, o2, matrix) -> bool:
         """True when *o1* transformed by *matrix* matches *o2* in parent space."""
-        m1 = _mesh(o1)
-        m2 = _mesh(o2)
+        m1 = _GeometryMatcherInternal._mesh(o1)
+        m2 = _GeometryMatcherInternal._mesh(o2)
         if m1 is None or m2 is None:
             return False
 
@@ -342,9 +345,13 @@ class GeometryMatcher:
             # the NN query on a zero-size array.
             return True
 
-        rel_rm = np.eye(4) if matrix is None else _matrix_to_np_rm(matrix)
-        mat1 = _matrix_to_np_rm(o1.matrix_local)
-        mat2 = _matrix_to_np_rm(o2.matrix_local)
+        rel_rm = (
+            np.eye(4)
+            if matrix is None
+            else _GeometryMatcherInternal._matrix_to_np_rm(matrix)
+        )
+        mat1 = _GeometryMatcherInternal._matrix_to_np_rm(o1.matrix_local)
+        mat2 = _GeometryMatcherInternal._matrix_to_np_rm(o2.matrix_local)
 
         ones = np.ones((len(pts1), 1))
         pts1_parent = np.hstack([pts1, ones]) @ mat1  # (N, 4)
@@ -362,8 +369,8 @@ class GeometryMatcher:
         is_root: bool = False,
     ) -> Tuple[bool, Optional[object]]:
         """Detailed hierarchy comparison. Returns (is_identical, relative_transform)."""
-        has_mesh1 = _mesh(o1) is not None
-        has_mesh2 = _mesh(o2) is not None
+        has_mesh1 = _GeometryMatcherInternal._mesh(o1) is not None
+        has_mesh2 = _GeometryMatcherInternal._mesh(o2) is not None
         if has_mesh1 != has_mesh2:
             return False, None
 
@@ -412,7 +419,7 @@ class GeometryMatcher:
         # Sort children by distance from parent and mesh complexity.
         def get_sort_key(obj):
             dist = obj.matrix_local.to_translation().length
-            me = _mesh(obj)
+            me = _GeometryMatcherInternal._mesh(obj)
             mesh_sig = (
                 (len(me.vertices), len(me.edges), len(me.polygons))
                 if me is not None
@@ -469,9 +476,7 @@ class GeometryMatcher:
                         f"Transform mismatch. Retrying {c1.name} vs {c2.name} "
                         f"independently..."
                     )
-                is_indep_match, indep_mtx = self.are_hierarchies_identical(
-                    c1, c2, None
-                )
+                is_indep_match, indep_mtx = self.are_hierarchies_identical(c1, c2, None)
                 if is_indep_match and indep_mtx is not None:
                     all_compatible = True
                     for p1, p2 in processed_pairs:

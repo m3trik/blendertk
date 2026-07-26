@@ -36,15 +36,12 @@ Divergence from mayatk (by design):
     * **Cross-scene prefs** use the engine's zero-dep JSON store (pythontk user
       config), not QSettings — inherited unchanged from the base.
 """
+
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from pythontk import (
-    ShotStore,
-    cluster_segments_by_gap,
-    boundaries_from_key_entries,
-)
+from pythontk import ShotDetection, ShotStore
 
 _log = logging.getLogger(__name__)
 
@@ -63,141 +60,12 @@ _TRANSFORM_CHANNELS: Tuple[str, ...] = (
     "scale",
 )
 
-__all__ = [
-    "BlenderShotStore",
-    "BlenderScenePersistence",
-    "iter_action_fcurves",
-    "collect_transform_segments",
-    "collect_selected_key_entries",
-]
+__all__ = ["BlenderShotStore", "BlenderScenePersistence"]
 
 
 # ---------------------------------------------------------------------------
 # fcurve acquisition (5.1 slotted-action API)
 # ---------------------------------------------------------------------------
-
-
-def _is_transform_path(data_path: str) -> bool:
-    """True if *data_path* drives an object/bone transform channel."""
-    if data_path in _TRANSFORM_CHANNELS:
-        return True
-    return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
-
-
-def iter_action_fcurves(obj):
-    """Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
-
-    Blender 4.4+ moved fcurves off the flat ``Action.fcurves`` list (removed in
-    5.1) into per-slot channelbags: ``action.layers[*].strips[*].channelbag(slot)``
-    where the slot is ``obj.animation_data.action_slot``.  This is the single
-    place that walks that structure; every acquisition helper below goes through
-    it so the traversal has one definition.
-    """
-    ad = getattr(obj, "animation_data", None)
-    if ad is None or ad.action is None:
-        return
-    act = ad.action
-    slot = getattr(ad, "action_slot", None)
-    layers = getattr(act, "layers", None)
-    if layers is None:
-        return
-    for layer in layers:
-        for strip in layer.strips:
-            try:
-                cb = strip.channelbag(slot) if slot is not None else None
-            except Exception:
-                cb = None
-            if cb is None:
-                continue
-            for fc in cb.fcurves:
-                yield fc
-
-
-def _transform_key_times(obj, value_tol: float = 1e-6) -> List[float]:
-    """Sorted unique key times over *obj*'s **moving** transform fcurves.
-
-    A transform channel whose values never vary (``max - min <= value_tol``
-    across ≥2 keys) is treated as held/flat and skipped — the Blender stand-in
-    for Maya's motion-only segment collection.
-    """
-    times: set = set()
-    for fc in iter_action_fcurves(obj):
-        if not _is_transform_path(fc.data_path):
-            continue
-        kps = fc.keyframe_points
-        n = len(kps)
-        if n == 0:
-            continue
-        if n >= 2:
-            vals = [kp.co[1] for kp in kps]
-            if (max(vals) - min(vals)) <= value_tol:
-                continue  # flat/held channel — no motion
-        for kp in kps:
-            times.add(round(float(kp.co[0]), 6))
-    return sorted(times)
-
-
-def _active_scene(scene=None):
-    """Resolve *scene* (explicit or the context's active scene); ``None`` if headless-empty."""
-    if scene is not None:
-        return scene
-    try:
-        import bpy
-    except ImportError:
-        return None
-    return bpy.context.scene
-
-
-def collect_transform_segments(
-    scene=None, gap_threshold: float = 5.0
-) -> List[Dict[str, Any]]:
-    """Gather per-object animation segments for auto shot detection.
-
-    For every object in *scene* with moving transform animation, its key times
-    are split into runs separated by gaps larger than *gap_threshold*; each run
-    becomes a ``{"start", "end", "obj"}`` segment.  The segments are the plain-data
-    input to :func:`pythontk.cluster_segments_by_gap`, which does the cross-object
-    clustering and ``min_duration`` filtering — this function only reaches the
-    scene; the boundary math stays pure.
-    """
-    scene = _active_scene(scene)
-    if scene is None:
-        return []
-    segments: List[Dict[str, Any]] = []
-    for obj in scene.objects:
-        times = _transform_key_times(obj)
-        if not times:
-            continue
-        run_start = times[0]
-        prev = times[0]
-        for t in times[1:]:
-            if t - prev > gap_threshold:
-                segments.append({"start": run_start, "end": prev, "obj": obj.name})
-                run_start = t
-            prev = t
-        segments.append({"start": run_start, "end": prev, "obj": obj.name})
-    return segments
-
-
-def collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]:
-    """Gather ``(time, value, object)`` triples from currently selected keyframes.
-
-    Every selected keyframe on any fcurve of a scene object is a boundary
-    marker — mirroring Maya's ``regions_from_selected_keys`` (which takes all
-    selected keys, not just transform channels, so custom trigger/marker attrs
-    such as an audio cue drive the shot boundaries).  The triples feed
-    :func:`pythontk.boundaries_from_key_entries`.
-    """
-    scene = _active_scene(scene)
-    if scene is None:
-        return []
-    entries: List[Tuple[float, float, str]] = []
-    for obj in scene.objects:
-        for fc in iter_action_fcurves(obj):
-            for kp in fc.keyframe_points:
-                if kp.select_control_point:
-                    entries.append((float(kp.co[0]), float(kp.co[1]), obj.name))
-    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +176,53 @@ class BlenderScenePersistence:
 # ---------------------------------------------------------------------------
 
 
-class BlenderShotStore(ShotStore):
+class _BlenderShotStoreInternal(object):
+    """Internal helpers for BlenderShotStore."""
+
+    @staticmethod
+    def _is_transform_path(data_path: str) -> bool:
+        """True if *data_path* drives an object/bone transform channel."""
+        if data_path in _TRANSFORM_CHANNELS:
+            return True
+        return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
+
+    @staticmethod
+    def _transform_key_times(obj, value_tol: float = 1e-6) -> List[float]:
+        """Sorted unique key times over *obj*'s **moving** transform fcurves.
+
+        A transform channel whose values never vary (``max - min <= value_tol``
+        across ≥2 keys) is treated as held/flat and skipped — the Blender stand-in
+        for Maya's motion-only segment collection.
+        """
+        times: set = set()
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
+            if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
+                continue
+            kps = fc.keyframe_points
+            n = len(kps)
+            if n == 0:
+                continue
+            if n >= 2:
+                vals = [kp.co[1] for kp in kps]
+                if (max(vals) - min(vals)) <= value_tol:
+                    continue  # flat/held channel — no motion
+            for kp in kps:
+                times.add(round(float(kp.co[0]), 6))
+        return sorted(times)
+
+    @staticmethod
+    def _active_scene(scene=None):
+        """Resolve *scene* (explicit or the context's active scene); ``None`` if headless-empty."""
+        if scene is not None:
+            return scene
+        try:
+            import bpy
+        except ImportError:
+            return None
+        return bpy.context.scene
+
+
+class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
     """:class:`pythontk.ShotStore` with the scene hooks bound to Blender.
 
     Only the DCC-reaching hooks are overridden; every CRUD / observer / planning
@@ -361,8 +275,11 @@ class BlenderShotStore(ShotStore):
         if scene is None:
             return False
         for obj in scene.objects:
-            for fc in iter_action_fcurves(obj):
-                if _is_transform_path(fc.data_path) and len(fc.keyframe_points) > 0:
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                if (
+                    _BlenderShotStoreInternal._is_transform_path(fc.data_path)
+                    and len(fc.keyframe_points) > 0
+                ):
                     return True
         return False
 
@@ -376,14 +293,18 @@ class BlenderShotStore(ShotStore):
         pythontk.
         """
         if self.detection_mode != "auto":
-            entries = collect_selected_key_entries()
-            return boundaries_from_key_entries(
+            entries = BlenderShotStore.collect_selected_key_entries()
+            return ShotDetection.boundaries_from_key_entries(
                 entries,
                 gap_threshold=self.detection_threshold,
                 key_filter=self.detection_mode,
             )
-        segments = collect_transform_segments(gap_threshold=self.detection_threshold)
-        return cluster_segments_by_gap(segments, gap_threshold=self.detection_threshold)
+        segments = BlenderShotStore.collect_transform_segments(
+            gap_threshold=self.detection_threshold
+        )
+        return ShotDetection.cluster_segments_by_gap(
+            segments, gap_threshold=self.detection_threshold
+        )
 
     def assess(self) -> Dict[int, str]:
         """Flag shots whose stored objects no longer exist in the file.
@@ -399,9 +320,88 @@ class BlenderShotStore(ShotStore):
         existing = set(bpy.data.objects.keys())
         return {
             s.shot_id: (
-                "valid"
-                if all(o in existing for o in s.objects)
-                else "missing_object"
+                "valid" if all(o in existing for o in s.objects) else "missing_object"
             )
             for s in self.shots
         }
+
+    @staticmethod
+    def iter_action_fcurves(obj):
+        """Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
+
+        Blender 4.4+ moved fcurves off the flat ``Action.fcurves`` list (removed in
+        5.1) into per-slot channelbags: ``action.layers[*].strips[*].channelbag(slot)``
+        where the slot is ``obj.animation_data.action_slot``.  This is the single
+        place that walks that structure; every acquisition helper below goes through
+        it so the traversal has one definition.
+        """
+        ad = getattr(obj, "animation_data", None)
+        if ad is None or ad.action is None:
+            return
+        act = ad.action
+        slot = getattr(ad, "action_slot", None)
+        layers = getattr(act, "layers", None)
+        if layers is None:
+            return
+        for layer in layers:
+            for strip in layer.strips:
+                try:
+                    cb = strip.channelbag(slot) if slot is not None else None
+                except Exception:
+                    cb = None
+                if cb is None:
+                    continue
+                for fc in cb.fcurves:
+                    yield fc
+
+    @staticmethod
+    def collect_transform_segments(
+        scene=None, gap_threshold: float = 5.0
+    ) -> List[Dict[str, Any]]:
+        """Gather per-object animation segments for auto shot detection.
+
+        For every object in *scene* with moving transform animation, its key times
+        are split into runs separated by gaps larger than *gap_threshold*; each run
+        becomes a ``{"start", "end", "obj"}`` segment.  The segments are the plain-data
+        input to :func:`pythontk.cluster_segments_by_gap`, which does the cross-object
+        clustering and ``min_duration`` filtering — this function only reaches the
+        scene; the boundary math stays pure.
+        """
+        scene = _BlenderShotStoreInternal._active_scene(scene)
+        if scene is None:
+            return []
+        segments: List[Dict[str, Any]] = []
+        for obj in scene.objects:
+            times = _BlenderShotStoreInternal._transform_key_times(obj)
+            if not times:
+                continue
+            run_start = times[0]
+            prev = times[0]
+            for t in times[1:]:
+                if t - prev > gap_threshold:
+                    segments.append({"start": run_start, "end": prev, "obj": obj.name})
+                    run_start = t
+                prev = t
+            segments.append({"start": run_start, "end": prev, "obj": obj.name})
+        return segments
+
+    @staticmethod
+    def collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]:
+        """Gather ``(time, value, object)`` triples from currently selected keyframes.
+
+        Every selected keyframe on any fcurve of a scene object is a boundary
+        marker — mirroring Maya's ``regions_from_selected_keys`` (which takes all
+        selected keys, not just transform channels, so custom trigger/marker attrs
+        such as an audio cue drive the shot boundaries).  The triples feed
+        :func:`pythontk.boundaries_from_key_entries`.
+        """
+        scene = _BlenderShotStoreInternal._active_scene(scene)
+        if scene is None:
+            return []
+        entries: List[Tuple[float, float, str]] = []
+        for obj in scene.objects:
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                for kp in fc.keyframe_points:
+                    if kp.select_control_point:
+                        entries.append((float(kp.co[0]), float(kp.co[1]), obj.name))
+        return entries

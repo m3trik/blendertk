@@ -14,7 +14,12 @@ reverting to the user's own look is just picking their own (built-in or saved) t
 native list ``list_templates()`` already scans, so this suite proves THAT instead of a bespoke
 "Default" entry — see the "reverts to Blender's factory look" check below.
 """
-import sys, os, tempfile, shutil, traceback
+
+import sys
+import os
+import tempfile
+import shutil
+import traceback
 
 # --- redirect ALL Blender preset reads/writes to a sandbox up front (before importing the module
 # or running any preset op) so nothing lands in the user's real config.
@@ -32,7 +37,9 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 try:
@@ -42,61 +49,122 @@ try:
     from blendertk.ui_utils.style_setter._style_setter import StyleSetter
 
     # sanity — we really are sandboxed (guards the whole suite against polluting real config)
-    check("preset dir is sandboxed, not the user's real config", _SANDBOX in ss.user_preset_dir(create=True))
+    check(
+        "preset dir is sandboxed, not the user's real config",
+        _SANDBOX in ss.StyleSetter.user_preset_dir(create=True),
+    )
 
     theme = bpy.context.preferences.themes[0]
     ui = theme.user_interface
 
     # ---- shipped template presence (native XML only — no JSON supplement any more)
-    check("list_styles() ships 'Maya'", "Maya" in ss.list_styles(), str(ss.list_styles()))
-    check("no JSON left in styles/ (pure native)", not any(f.endswith(".json") for f in os.listdir(ss.STYLES_DIR)), str(os.listdir(ss.STYLES_DIR)))
+    check(
+        "list_styles() ships 'Maya'",
+        "Maya" in ss.StyleSetter.list_styles(),
+        str(ss.StyleSetter.list_styles()),
+    )
+    check(
+        "no JSON left in styles/ (pure native)",
+        not any(f.endswith(".json") for f in os.listdir(ss.STYLES_DIR)),
+        str(os.listdir(ss.STYLES_DIR)),
+    )
 
     # ---- install() puts Maya.xml where Blender's native Themes dropdown reads from
-    ss.install()
-    check("install() copies Maya.xml into the user preset dir", ss.is_installed("Maya"))
+    ss.StyleSetter.install()
+    check(
+        "install() copies Maya.xml into the user preset dir",
+        ss.StyleSetter.is_installed("Maya"),
+    )
     scan = []
     for d in bpy.utils.preset_paths("interface_theme"):
         if os.path.isdir(d):
             scan += [f for f in os.listdir(d) if f.endswith(".xml")]
-    check("Maya.xml is visible to the native Themes dropdown scan", "Maya.xml" in scan, str(sorted(set(scan))))
+    check(
+        "Maya.xml is visible to the native Themes dropdown scan",
+        "Maya.xml" in scan,
+        str(sorted(set(scan))),
+    )
 
     # ---- install() purges the retired 'Default' phantom (pre-2026-07-05 backup/restore design):
     # a Default.xml byte-identical to a shipped style + its Default_Backup.json sidecar. A fresh
     # user never had them; an upgrade must drop them so "Default" stops shadowing Maya.
-    preset_dir = ss.user_preset_dir(create=True)
-    shutil.copyfile(ss._shipped_xml("Maya"), os.path.join(preset_dir, "Default.xml"))
+    preset_dir = ss.StyleSetter.user_preset_dir(create=True)
+    shutil.copyfile(
+        ss.StyleSetter._shipped_xml("Maya"), os.path.join(preset_dir, "Default.xml")
+    )
     with open(os.path.join(preset_dir, "Default_Backup.json"), "w") as fh:
         fh.write("{}")
-    ss.install()
-    check("install() removes the stale 'Default.xml' (byte-identical to a shipped style)",
-          not os.path.isfile(os.path.join(preset_dir, "Default.xml")))
-    check("install() removes the legacy 'Default_Backup.json' sidecar",
-          not os.path.isfile(os.path.join(preset_dir, "Default_Backup.json")))
-    check("'Default' phantom no longer surfaces in list_templates()",
-          "Default" not in ss.list_templates(), str(list(ss.list_templates())))
+    ss.StyleSetter.install()
+    check(
+        "install() removes the stale 'Default.xml' (byte-identical to a shipped style)",
+        not os.path.isfile(os.path.join(preset_dir, "Default.xml")),
+    )
+    check(
+        "install() removes the legacy 'Default_Backup.json' sidecar",
+        not os.path.isfile(os.path.join(preset_dir, "Default_Backup.json")),
+    )
+    check(
+        "'Default' phantom no longer surfaces in list_templates()",
+        "Default" not in ss.StyleSetter.list_templates(),
+        str(list(ss.StyleSetter.list_templates())),
+    )
     # a user's OWN theme named 'Default' (NOT byte-identical to a shipped style) must survive
     with open(os.path.join(preset_dir, "Default.xml"), "w") as fh:
         fh.write("<blender><!-- a real user theme --></blender>")
-    ss.install()
-    check("install() preserves a genuine user 'Default' theme (not a shipped-style copy)",
-          os.path.isfile(os.path.join(preset_dir, "Default.xml")))
+    ss.StyleSetter.install()
+    check(
+        "install() preserves a genuine user 'Default' theme (not a shipped-style copy)",
+        os.path.isfile(os.path.join(preset_dir, "Default.xml")),
+    )
     os.remove(os.path.join(preset_dir, "Default.xml"))  # keep it out of the later scans
 
     # ---- list_templates() is the native Themes list: built-ins + user + our injected Maya
-    templates = ss.list_templates()
-    check("list_templates() returns a {display_name: filepath} mapping", isinstance(templates, dict) and all(os.path.isfile(v) for v in templates.values()), str(list(templates)))
-    check("list_templates() includes our injected 'Maya'", "Maya" in templates, str(list(templates)))
-    check("list_templates() includes Blender's built-in themes (e.g. Blender Dark)", any("Blender" in k for k in templates), str(list(templates)))
-    check("StyleSetter has no bespoke backup/restore API (removed — Blender's own built-ins cover reverting)", not any(hasattr(ss, n) for n in ("BACKUP_NAME", "ensure_backup", "backup_current", "restore_default_style", "_backup_stem")))
+    templates = ss.StyleSetter.list_templates()
+    check(
+        "list_templates() returns a {display_name: filepath} mapping",
+        isinstance(templates, dict)
+        and all(os.path.isfile(v) for v in templates.values()),
+        str(list(templates)),
+    )
+    check(
+        "list_templates() includes our injected 'Maya'",
+        "Maya" in templates,
+        str(list(templates)),
+    )
+    check(
+        "list_templates() includes Blender's built-in themes (e.g. Blender Dark)",
+        any("Blender" in k for k in templates),
+        str(list(templates)),
+    )
+    check(
+        "StyleSetter has no bespoke backup/restore API (removed — Blender's own built-ins cover reverting)",
+        not any(
+            hasattr(ss, n)
+            for n in (
+                "BACKUP_NAME",
+                "ensure_backup",
+                "backup_current",
+                "restore_default_style",
+                "_backup_stem",
+            )
+        ),
+    )
 
     # ---- factory baseline, then apply the 'Maya' template BY TOKEN (as the combo does)
     bpy.ops.preferences.reset_default_theme()
     factory_inner = tuple(round(v, 3) for v in ui.wcol_regular.inner)
 
-    ss.apply_template(templates["Maya"])
+    ss.StyleSetter.apply_template(templates["Maya"])
     inner = tuple(round(v, 3) for v in ui.wcol_regular.inner)
-    check("apply_template(Maya) applies the Maya button fill (~0.365 / #5d5d5d)", abs(inner[0] - 0.365) < 0.01, str(inner))
-    check("apply_template(Maya) flattens widget roundness to 0", ui.wcol_regular.roundness == 0.0)
+    check(
+        "apply_template(Maya) applies the Maya button fill (~0.365 / #5d5d5d)",
+        abs(inner[0] - 0.365) < 0.01,
+        str(inner),
+    )
+    check(
+        "apply_template(Maya) flattens widget roundness to 0",
+        ui.wcol_regular.roundness == 0.0,
+    )
     check(
         "apply_template(Maya) applies the Maya viewport LINEAR gradient",
         theme.view_3d.space.gradients.background_type == "LINEAR",
@@ -125,9 +193,13 @@ try:
     # exactly like the native dropdown; no bespoke backup/restore of our own is needed.
     blender_dark = next((k for k in templates if "Dark" in k), None)
     if blender_dark is None:
-        check("a Blender built-in 'Dark' theme is present to revert to", False, str(list(templates)))
+        check(
+            "a Blender built-in 'Dark' theme is present to revert to",
+            False,
+            str(list(templates)),
+        )
     else:
-        ss.apply_template(templates[blender_dark])
+        ss.StyleSetter.apply_template(templates[blender_dark])
         restored = tuple(round(v, 3) for v in ui.wcol_regular.inner)
         check(
             f"apply_template({blender_dark!r}) reverts to Blender's own factory look",
@@ -136,17 +208,24 @@ try:
         )
 
     # ---- the name-based helper still works + guard unknown names
-    ss.set_style("Maya")
-    check("set_style('Maya') still applies via the name-based path", abs(round(ui.wcol_regular.inner[0], 3) - 0.365) < 0.01)
+    ss.StyleSetter.set_style("Maya")
+    check(
+        "set_style('Maya') still applies via the name-based path",
+        abs(round(ui.wcol_regular.inner[0], 3) - 0.365) < 0.01,
+    )
     try:
-        ss.apply_theme_preset("ZZNoSuchTheme")
+        ss.StyleSetter.apply_theme_preset("ZZNoSuchTheme")
         check("apply_theme_preset raises FileNotFoundError for an unknown name", False)
     except FileNotFoundError:
         check("apply_theme_preset raises FileNotFoundError for an unknown name", True)
 
     # ---- public surface: StyleSetter is the registered class (like Bevel/Selection); its helpers
-    # live on the class + as module fns, and are deliberately NOT sprayed into the flat btk.* namespace.
-    check("btk.StyleSetter resolves (the registered public surface)", getattr(btk, "StyleSetter", None) is StyleSetter)
+    # live on the class (fully encapsulated — no module-level functions), and are deliberately NOT
+    # sprayed into the flat btk.* namespace.
+    check(
+        "btk.StyleSetter resolves (the registered public surface)",
+        getattr(btk, "StyleSetter", None) is StyleSetter,
+    )
     for fn in (
         "list_styles",
         "list_templates",
@@ -159,11 +238,17 @@ try:
         "set_style",
     ):
         check(f"StyleSetter.{fn} is callable", callable(getattr(StyleSetter, fn, None)))
-        check(f"module-level {fn} is callable", callable(getattr(ss, fn, None)))
     # the old font-supplement API must be gone (native-only now)
-    check("supplement API removed (apply_supplement gone)", not hasattr(ss, "apply_supplement") and not hasattr(StyleSetter, "apply_supplement"))
+    check(
+        "supplement API removed (apply_supplement gone)",
+        not hasattr(ss, "apply_supplement")
+        and not hasattr(StyleSetter, "apply_supplement"),
+    )
     # the generic helper names must NOT leak into the flat btk.* namespace (collision hygiene)
-    check("generic helpers are NOT dumped into btk.* (e.g. btk.install absent)", not hasattr(btk, "install") and not hasattr(btk, "is_installed"))
+    check(
+        "generic helpers are NOT dumped into btk.* (e.g. btk.install absent)",
+        not hasattr(btk, "install") and not hasattr(btk, "is_installed"),
+    )
 
 except Exception:
     traceback.print_exc()
@@ -173,4 +258,6 @@ finally:
 
 print("\n".join(lines))
 ok = all(l.startswith("OK") for l in lines) and lines
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+print(
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+)

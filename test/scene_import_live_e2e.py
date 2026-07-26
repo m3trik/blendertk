@@ -35,6 +35,7 @@ fidelity trap the conversion must survive:
   set Blender's importer ignores ("material link ... ignored" — the live user
   report), so the template must translate them like the standardSurface family.
 """
+
 import os
 import shutil
 import sys
@@ -53,7 +54,9 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 # Generation script run under mayapy. {proj} / {abs_tex} substituted via .format.
@@ -235,9 +238,11 @@ try:
     src = os.path.join(proj, "scenes", "e2e_scene.ma")
 
     mayapy = btk.MayaSceneImport().require_mayapy()  # raises if no Maya install
-    ptk.run_script_to_artifact(
-        mayapy, _GEN_SCENE.format(proj=proj, abs_tex=abs_tex),
-        artifact=src, timeout=600,
+    ptk.ScriptRunner.run_script_to_artifact(
+        mayapy,
+        _GEN_SCENE.format(proj=proj, abs_tex=abs_tex),
+        artifact=src,
+        timeout=600,
     )
     check("textured project scene generated", os.path.getsize(src) > 1000)
 
@@ -245,6 +250,7 @@ try:
     bpy.ops.object.delete()
 
     import time
+
     t0 = time.time()
     imported = btk.import_maya_scene(src, timeout=600)
     first_duration = time.time() - t0
@@ -257,13 +263,19 @@ try:
     # One source material through two shading groups must arrive as ONE
     # material, not per-SG "_fbxsafe" duplicates (live production report).
     ss_mats = [m.name for m in bpy.data.materials if "e2e_ss" in m.name]
-    check("shared material translated once (no per-SG duplicates)",
-          len(ss_mats) == 1, f"{sorted(ss_mats)}")
+    check(
+        "shared material translated once (no per-SG duplicates)",
+        len(ss_mats) == 1,
+        f"{sorted(ss_mats)}",
+    )
     cube_verts = next((v for n, v in meshes.items() if "cube" in n), None)
     # 2x1x1-subdiv cube = 12 verts; the LIVE extrude adds 4 -> Maya must have
     # evaluated the history chain during conversion (a .ma parser never could).
-    check("live construction history evaluated (12+4 verts)", cube_verts == 16,
-          f"{cube_verts}")
+    check(
+        "live construction history evaluated (12+4 verts)",
+        cube_verts == 16,
+        f"{cube_verts}",
+    )
 
     for tag, why in (
         ("e2e_cube", "phong + absolute path (classic-model baseline)"),
@@ -272,38 +284,50 @@ try:
         ("e2e_stingray", "StingrayPBS (Maya|TEX_* property set Blender ignores)"),
     ):
         obj = next((o for n, o in objs.items() if tag in n), None)
-        check(f"{tag} texture arrived — {why}",
-              obj is not None and textured(obj))
+        check(f"{tag} texture arrived — {why}", obj is not None and textured(obj))
 
     stingray = next((o for n, o in objs.items() if "e2e_stingray" in n), None)
-    check("e2e_stingray normal map arrived (manifest rebuild)",
-          stingray is not None and usable_images(stingray) >= 2,
-          f"{usable_images(stingray) if stingray else 0} image(s)")
+    check(
+        "e2e_stingray normal map arrived (manifest rebuild)",
+        stingray is not None and usable_images(stingray) >= 2,
+        f"{usable_images(stingray) if stingray else 0} image(s)",
+    )
     # The packed map can ONLY arrive via the manifest + create_pbr_material path:
     # a linked Principled Metallic input proves the packed chain was wired.
-    check("e2e_stingray packed Metallic_Smoothness wired — Principled Metallic linked",
-          stingray is not None and metallic_linked(stingray)
-          and usable_images(stingray) >= 3,
-          f"{usable_images(stingray) if stingray else 0} image(s)")
+    check(
+        "e2e_stingray packed Metallic_Smoothness wired — Principled Metallic linked",
+        stingray is not None
+        and metallic_linked(stingray)
+        and usable_images(stingray) >= 3,
+        f"{usable_images(stingray) if stingray else 0} image(s)",
+    )
     # Multi-material integrity: the rebuild must swap only the Stingray SLOT --
     # the phong half of the mesh keeps its material and texture.
-    slot_mats = ([s.material for s in stingray.material_slots if s.material]
-                 if stingray else [])
+    slot_mats = (
+        [s.material for s in stingray.material_slots if s.material] if stingray else []
+    )
     phong_side = [m for m in slot_mats if not mat_metallic_linked(m)]
-    check("e2e_stingray multi-material: phong slot survived the slot-swap",
-          len(slot_mats) == 2 and len(phong_side) == 1
-          and any(getattr(n, "image", None) and _img_ok(n.image)
-                  for n in phong_side[0].node_tree.nodes),
-          f"{len(slot_mats)} slot(s)")
+    check(
+        "e2e_stingray multi-material: phong slot survived the slot-swap",
+        len(slot_mats) == 2
+        and len(phong_side) == 1
+        and any(
+            getattr(n, "image", None) and _img_ok(n.image)
+            for n in phong_side[0].node_tree.nodes
+        ),
+        f"{len(slot_mats)} slot(s)",
+    )
 
     # Conversion cache: an identical second import must skip the Maya launch
     # (its cost is Blender's FBX import only).
     t0 = time.time()
     imported2 = btk.import_maya_scene(src, timeout=600)
     second_duration = time.time() - t0
-    check("conversion cache: second import skips the Maya launch",
-          len(imported2) == len(imported) and second_duration < first_duration * 0.5,
-          f"{first_duration:.1f}s -> {second_duration:.1f}s")
+    check(
+        "conversion cache: second import skips the Maya launch",
+        len(imported2) == len(imported) and second_duration < first_duration * 0.5,
+        f"{first_duration:.1f}s -> {second_duration:.1f}s",
+    )
 
     # ---- via="usd" route: the SAME trap scene through the USD intermediate --
     # A/B against the FBX legs above: materials must arrive NATIVELY (registry
@@ -312,12 +336,13 @@ try:
     bpy.ops.object.delete()
     imported_usd = btk.import_maya_scene(src, via="usd", use_cache=False, timeout=600)
     objs_u = {o.name: o for o in imported_usd if o.type == "MESH"}
-    check("USD route: all five meshes imported", len(objs_u) == 5,
-          f"{sorted(objs_u)}")
+    check("USD route: all five meshes imported", len(objs_u) == 5, f"{sorted(objs_u)}")
     cube_u = next((o for n, o in objs_u.items() if "cube" in n), None)
-    check("USD route: live construction history evaluated (12+4 verts)",
-          cube_u is not None and len(cube_u.data.vertices) == 16,
-          f"{len(cube_u.data.vertices) if cube_u else 0}")
+    check(
+        "USD route: live construction history evaluated (12+4 verts)",
+        cube_u is not None and len(cube_u.data.vertices) == 16,
+        f"{len(cube_u.data.vertices) if cube_u else 0}",
+    )
     for tag, why in (
         ("e2e_cube", "phong exports via the registry"),
         ("e2e_sphere", "standardSurface exports NATIVELY (no translation)"),
@@ -325,16 +350,21 @@ try:
         ("e2e_stingray", "ShaderFX translated to standardSurface"),
     ):
         obj = next((o for n, o in objs_u.items() if tag in n), None)
-        check(f"USD route: {tag} texture arrived — {why}",
-              obj is not None and textured(obj))
+        check(
+            f"USD route: {tag} texture arrived — {why}",
+            obj is not None and textured(obj),
+        )
     sting_u = next((o for n, o in objs_u.items() if "e2e_stingray" in n), None)
-    check("USD route: stingray packed metallic wired NATIVELY (no manifest)",
-          sting_u is not None and metallic_linked(sting_u))
+    check(
+        "USD route: stingray packed metallic wired NATIVELY (no manifest)",
+        sting_u is not None and metallic_linked(sting_u),
+    )
 
     # Cached payloads persist BY DESIGN (detached policy, stale-swept);
     # anything else with the scratch prefix is a leak.
     leftovers = [
-        f for f in os.listdir(os.environ.get("TEMP", "/tmp"))
+        f
+        for f in os.listdir(os.environ.get("TEMP", "/tmp"))
         if f.startswith("maya_to_btk_") and not f.startswith("maya_to_btk_cache_")
     ]
     check("no temp payload leftovers", not leftovers, f"{leftovers}")
@@ -345,6 +375,7 @@ except Exception as e:
 finally:
     shutil.rmtree(TEMP, ignore_errors=True)
     import glob as _glob
+
     for cached in _glob.glob(
         os.path.join(os.environ.get("TEMP", "/tmp"), "maya_to_btk_cache_*")
     ):

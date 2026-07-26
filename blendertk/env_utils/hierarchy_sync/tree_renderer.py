@@ -11,6 +11,7 @@ than a direct ``qtpy`` import, matching the rest of the ported blendertk Slots l
 Divergence from mayatk: no per-item type icon (mayatk's ``NodeIcons`` has no Blender
 counterpart — not built here, YAGNI until a tool actually needs Blender object-type icons).
 """
+
 from pathlib import Path
 from typing import Any, Dict
 
@@ -42,7 +43,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
         """Populate the current scene hierarchy tree (objects not linked from the reference
         library)."""
         if getattr(self._ctrl, "_importing_reference", False):
-            self.logger.debug("Skipping current scene tree refresh during reference import")
+            self.logger.debug(
+                "Skipping current scene tree refresh during reference import"
+            )
             return
 
         try:
@@ -72,8 +75,12 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 font = open_item.font(0)
                 font.setUnderline(True)
                 open_item.setFont(0, font)
-                open_item.setForeground(0, self._ctrl.sb.QtGui.QBrush(self._ctrl.sb.QtGui.QColor("#6699CC")))
-                open_item.setData(0, self._ctrl.sb.QtCore.Qt.UserRole, "open_scene_placeholder")
+                open_item.setForeground(
+                    0, self._ctrl.sb.QtGui.QBrush(self._ctrl.sb.QtGui.QColor("#6699CC"))
+                )
+                open_item.setData(
+                    0, self._ctrl.sb.QtCore.Qt.UserRole, "open_scene_placeholder"
+                )
                 self.logger.debug("No objects found in current scene.")
                 return
 
@@ -90,7 +97,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
             tree_widget.setHeaderLabels(["Current Scene"])
             tree_widget.create_item([f"Error: {str(e)}"])
 
-    def populate_reference_tree(self, tree_widget, objects, reference_name="Reference Scene"):
+    def populate_reference_tree(
+        self, tree_widget, objects, reference_name="Reference Scene"
+    ):
         """Populate the reference hierarchy tree with pre-fetched objects.
 
         Business logic (cache invalidation, library link) is handled by
@@ -125,10 +134,14 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
         font = info_item.font(0)
         font.setUnderline(True)
         info_item.setFont(0, font)
-        info_item.setForeground(0, self._ctrl.sb.QtGui.QBrush(self._ctrl.sb.QtGui.QColor("#6699CC")))
+        info_item.setForeground(
+            0, self._ctrl.sb.QtGui.QBrush(self._ctrl.sb.QtGui.QColor("#6699CC"))
+        )
         info_item.setData(0, self._ctrl.sb.QtCore.Qt.UserRole, "browse_placeholder")
 
-    def show_reference_error(self, tree_widget, reference_name="Reference Scene", message="File Not Found"):
+    def show_reference_error(
+        self, tree_widget, reference_name="Reference Scene", message="File Not Found"
+    ):
         """Show an error or status message in the reference tree."""
         tree_widget.clear()
         tree_widget.setHeaderLabels([reference_name])
@@ -141,7 +154,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 tree_widget.create_item([f"No {tree_type} objects"])
                 return
 
-            object_items, root_objects = tree_utils.build_hierarchy_structure(objects)
+            object_items, root_objects = (
+                tree_utils.TreePathMatcher.build_hierarchy_structure(objects)
+            )
 
             if not object_items:
                 tree_widget.create_item(["No Objects"])
@@ -165,7 +180,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 display_name = obj_info["short_name"]
                 item_data = [display_name, obj_info["type"]]
 
-                tree_item = tree_widget.create_item(item_data, obj_info["object"], parent_widget_item)
+                tree_item = tree_widget.create_item(
+                    item_data, obj_info["object"], parent_widget_item
+                )
 
                 try:
                     tree_item._raw_name = obj_info["short_name"]
@@ -173,11 +190,17 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                     pass
 
                 if tree_type == "reference":
-                    tree_item.setToolTip(0, f"Full Name: {obj_key}\nType: {obj_info['type']}")
+                    tree_item.setToolTip(
+                        0, f"Full Name: {obj_key}\nType: {obj_info['type']}"
+                    )
 
                 created_items[obj_key] = tree_item
 
-                children = [key for key, info in object_items.items() if info["parent"] == obj_key]
+                children = [
+                    key
+                    for key, info in object_items.items()
+                    if info["parent"] == obj_key
+                ]
                 for child_key in sorted(children):
                     create_item_recursive(child_key, tree_item)
 
@@ -188,7 +211,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
 
             tree_widget.expandToDepth(0)
 
-            self.logger.debug(f"Populated {tree_type} tree with {len(objects)} objects in hierarchy.")
+            self.logger.debug(
+                f"Populated {tree_type} tree with {len(objects)} objects in hierarchy."
+            )
 
         except Exception as e:
             self.logger.error(f"Error populating {tree_type} tree with hierarchy: {e}")
@@ -200,7 +225,12 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
 
     # Desaturated diff colors — derived via Palette.diff().
     DIFF_COLORS = ptk.Palette.diff().alias(
-        {"missing": "removed", "extra": "added", "fuzzy": "changed", "reparented": "moved"}
+        {
+            "missing": "removed",
+            "extra": "added",
+            "fuzzy": "changed",
+            "reparented": "moved",
+        }
     )
 
     def apply_difference_formatting(self, tree001, tree000):
@@ -219,8 +249,12 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
             cur_by_full, cur_by_last = tree_matcher.build_tree_index(tree001)
             ref_by_full, ref_by_last = tree_matcher.build_tree_index(tree000)
 
-            self.format_tree_differences(tree001, "current", tree_matcher, cur_by_full, cur_by_last)
-            self.format_tree_differences(tree000, "reference", tree_matcher, ref_by_full, ref_by_last)
+            self.format_tree_differences(
+                tree001, "current", tree_matcher, cur_by_full, cur_by_last
+            )
+            self.format_tree_differences(
+                tree000, "reference", tree_matcher, ref_by_full, ref_by_last
+            )
 
         except Exception as e:
             self.logger.error(f"Error applying difference formatting: {e}")
@@ -260,7 +294,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
         except Exception as e:
             self.logger.debug(f"Error clearing tree colors: {e}")
 
-    def format_tree_differences(self, tree_widget, tree_type, tree_matcher, by_full, by_last):
+    def format_tree_differences(
+        self, tree_widget, tree_type, tree_matcher, by_full, by_last
+    ):
         """Format a specific tree widget based on differences.
 
         Uses ``TreePathMatcher`` indices for accurate path-based item lookup instead of naive
@@ -270,9 +306,13 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
             return
 
         def _find_item(path):
-            candidates, strategy = tree_matcher.find_path_matches(path, by_full, by_last, strict=False)
+            candidates, strategy = tree_matcher.find_path_matches(
+                path, by_full, by_last, strict=False
+            )
             if candidates:
-                self.logger.debug(f"[DIFF-FMT] {tree_type}: '{path}' -> found via {strategy}")
+                self.logger.debug(
+                    f"[DIFF-FMT] {tree_type}: '{path}' -> found via {strategy}"
+                )
             else:
                 self.logger.debug(f"[DIFF-FMT] {tree_type}: '{path}' -> NOT FOUND")
             return candidates[0] if candidates else None
@@ -289,7 +329,9 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 for extra_path in self._ctrl._current_diff_result.get("extra", []):
                     item = _find_item(extra_path)
                     if item:
-                        self._apply_diff_color(item, "extra", f"Extra — not in reference\n{extra_path}")
+                        self._apply_diff_color(
+                            item, "extra", f"Extra — not in reference\n{extra_path}"
+                        )
                         _expand_parents(item)
 
                 for reparented in self._ctrl._current_diff_result.get("reparented", []):
@@ -298,14 +340,20 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                     if current_path:
                         item = _find_item(current_path)
                         if item:
-                            self._apply_diff_color(item, "reparented", f"Reparented — was at:\n{ref_path}")
+                            self._apply_diff_color(
+                                item, "reparented", f"Reparented — was at:\n{ref_path}"
+                            )
                             _expand_parents(item)
 
             elif tree_type == "reference":
                 for missing_path in self._ctrl._current_diff_result.get("missing", []):
                     item = _find_item(missing_path)
                     if item:
-                        self._apply_diff_color(item, "missing", f"Missing — not in current scene\n{missing_path}")
+                        self._apply_diff_color(
+                            item,
+                            "missing",
+                            f"Missing — not in current scene\n{missing_path}",
+                        )
                         _expand_parents(item)
 
                 for reparented in self._ctrl._current_diff_result.get("reparented", []):
@@ -314,7 +362,11 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                     if ref_path:
                         item = _find_item(ref_path)
                         if item:
-                            self._apply_diff_color(item, "reparented", f"Reparented — now at:\n{current_path}")
+                            self._apply_diff_color(
+                                item,
+                                "reparented",
+                                f"Reparented — now at:\n{current_path}",
+                            )
                             _expand_parents(item)
 
             for fuzzy_match in self._ctrl._current_diff_result.get("fuzzy_matches", []):
@@ -324,13 +376,21 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 if tree_type == "current" and current_name:
                     item = _find_item(current_name)
                     if item:
-                        self._apply_diff_color(item, "fuzzy", f"Fuzzy match — reference name:\n{target_name}")
+                        self._apply_diff_color(
+                            item,
+                            "fuzzy",
+                            f"Fuzzy match — reference name:\n{target_name}",
+                        )
                         _expand_parents(item)
 
                 elif tree_type == "reference" and target_name:
                     item = _find_item(target_name)
                     if item:
-                        self._apply_diff_color(item, "fuzzy", f"Fuzzy match — current name:\n{current_name}")
+                        self._apply_diff_color(
+                            item,
+                            "fuzzy",
+                            f"Fuzzy match — current name:\n{current_name}",
+                        )
                         _expand_parents(item)
 
         except Exception as e:
@@ -422,9 +482,14 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
         Handles pipe-separated hierarchy paths by extracting the leaf name.
         """
         try:
-            leaf_name = object_name.rsplit("|", 1)[-1] if "|" in object_name else object_name
+            leaf_name = (
+                object_name.rsplit("|", 1)[-1] if "|" in object_name else object_name
+            )
             items = tree_widget.findItems(
-                leaf_name, self._ctrl.sb.QtCore.Qt.MatchExactly | self._ctrl.sb.QtCore.Qt.MatchRecursive, 0
+                leaf_name,
+                self._ctrl.sb.QtCore.Qt.MatchExactly
+                | self._ctrl.sb.QtCore.Qt.MatchRecursive,
+                0,
             )
             return items[0] if items else None
         except Exception as e:
@@ -441,7 +506,7 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
 
     def get_selected_object_names(self, tree_widget):
         """Extract object names from selected tree widget items."""
-        return tree_utils.get_selected_object_names(tree_widget)
+        return tree_utils.TreePathMatcher.get_selected_object_names(tree_widget)
 
     # ------------------------------------------------------------------ #
     # Selection persistence
