@@ -688,8 +688,10 @@ try:
             import blendertk.env_utils.maya_bridge._scene_import as _rm_si
 
             _rm_calls = []
-            _rm_orig_import = _rm_si.import_maya_scene
-            _rm_si.import_maya_scene = lambda p, **k: (_rm_calls.append(p) or [object()])
+            _rm_orig_import = _rm_si.MayaSceneImport.import_scene
+            _rm_si.MayaSceneImport.import_scene = lambda self, p, **k: (
+                _rm_calls.append(p) or [object()]
+            )
             # Faking a live Blender is needed only to pass the import guard; stub _refresh +
             # message_box too so nothing else reaches into bpy under the .venv.
             rm._has_bpy = lambda: True
@@ -700,7 +702,7 @@ try:
                 _fpath = rm._row_path(_fr)
                 rm._import_foreign_paths([_fpath])
                 check(
-                    "reference_manager 'Import (convert)' routes the Maya scene to btk.import_maya_scene",
+                    "reference_manager 'Import (convert)' routes the Maya scene to MayaSceneImport.import_scene",
                     _rm_calls == [_fpath],
                     f"{_rm_calls}",
                 )
@@ -709,8 +711,8 @@ try:
                 import blendertk as _rm_btk
 
                 _rm_baked, _rm_linked = [], []
-                _rm_orig_bake = _rm_si.bake_maya_scene
-                _rm_si.bake_maya_scene = lambda p, **k: (
+                _rm_orig_bake = _rm_si.MayaSceneImport.bake_scene
+                _rm_si.MayaSceneImport.bake_scene = lambda self, p, **k: (
                     _rm_baked.append(p) or (p + ".baked.blend")
                 )
                 _rm_orig_link = _rm_btk.link_blend_file
@@ -730,11 +732,11 @@ try:
                         f"baked={_rm_baked} linked={_rm_linked}",
                     )
                 finally:
-                    _rm_si.bake_maya_scene = _rm_orig_bake
+                    _rm_si.MayaSceneImport.bake_scene = _rm_orig_bake
                     _rm_btk.link_blend_file = _rm_orig_link
                     del rm._library_for_path, rm._current_scene_path
             finally:
-                _rm_si.import_maya_scene = _rm_orig_import
+                _rm_si.MayaSceneImport.import_scene = _rm_orig_import
                 del rm._has_bpy, rm._refresh, rm.sb.message_box
         finally:
             rm_ui.txt000.clear()

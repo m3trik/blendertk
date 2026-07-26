@@ -937,25 +937,4 @@ class MayaSceneImport(ptk.LoggingMixin):
         return sorted(os.path.normpath(p) for p in found)
 
 
-def import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]:
-    """Import a Maya scene (.ma/.mb) into the current Blender scene.
-
-    Convenience wrapper over :meth:`MayaSceneImport.import_scene` -- launches a fresh
-    headless Maya to convert the scene to FBX, imports the FBX, and cleans up.
-    Returns the objects created. Requires a local Maya install.
-    """
-    return MayaSceneImport().import_scene(src_path, **kwargs)
-
-
-def bake_maya_scene(src_path: str, **kwargs: Any) -> str:
-    """Bake a foreign scene (.ma/.mb/.fbx) to a cached .blend and return its path.
-
-    Convenience wrapper over :meth:`MayaSceneImport.bake_scene` -- the linkable
-    counterpart of :func:`import_maya_scene`: pass the result to
-    :func:`blendertk.link_blend_file` to REFERENCE a foreign scene instead of importing
-    it. A ``.ma``/``.mb`` source requires a local Maya install; an ``.fbx`` does not.
-    """
-    return MayaSceneImport().bake_scene(src_path, **kwargs)
-
-
-__all__ = ["MayaSceneImport", "import_maya_scene", "bake_maya_scene"]
+__all__ = ["MayaSceneImport"]

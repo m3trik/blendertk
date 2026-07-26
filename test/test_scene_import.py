@@ -36,7 +36,6 @@ try:
     from blendertk.env_utils.maya_bridge import _maya_bridge as mb
     from blendertk.env_utils.maya_bridge._scene_import import (
         MayaSceneImport,
-        import_maya_scene,
         _IMPORT_TEMPLATE,
     )
 
@@ -594,9 +593,6 @@ try:
     # ---- public surface --------------------------------------------------------
     import blendertk as btk
 
-    check(
-        "btk.import_maya_scene registered", btk.import_maya_scene is import_maya_scene
-    )
     check("btk.MayaSceneImport registered", btk.MayaSceneImport is MayaSceneImport)
 
 except Exception as e:

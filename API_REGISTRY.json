@@ -3291,17 +3291,7 @@
     {
       "relpath": "core_utils/auto_instancer/_auto_instancer.py",
       "summary": "Scene auto-instancer: convert geometrically identical meshes to instances.",
-      "functions": [
-        {
-          "name": "auto_instance",
-          "qualname": "auto_instance",
-          "kind": "function",
-          "signature": "(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
-          "summary": "Find geometrically identical meshes and convert them to instances.",
-          "line": 1187,
-          "deprecated": false
-        }
-      ],
+      "functions": [],
       "classes": [
         {
           "name": "InstanceCandidate",
@@ -3442,6 +3432,15 @@
               "signature": "(self, objects: Optional[Sequence[object]] = None, check_hierarchy: Optional[bool] = None) -> List[InstanceGroup]",
               "summary": "Find groups of identical objects.",
               "line": 667,
+              "deprecated": false
+            },
+            {
+              "name": "run_once",
+              "qualname": "AutoInstancer.run_once",
+              "kind": "classmethod",
+              "signature": "(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
+              "summary": "One-shot: build an ``AutoInstancer`` from ``config`` and run it.",
+              "line": 1187,
               "deprecated": false
             }
           ]
@@ -7582,26 +7581,7 @@
     {
       "relpath": "env_utils/maya_bridge/_scene_import.py",
       "summary": "Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.",
-      "functions": [
-        {
-          "name": "import_maya_scene",
-          "qualname": "import_maya_scene",
-          "kind": "function",
-          "signature": "(src_path: str, **kwargs: Any) -> List[Any]",
-          "summary": "Import a Maya scene (.ma/.mb) into the current Blender scene.",
-          "line": 940,
-          "deprecated": false
-        },
-        {
-          "name": "bake_maya_scene",
-          "qualname": "bake_maya_scene",
-          "kind": "function",
-          "signature": "(src_path: str, **kwargs: Any) -> str",
-          "summary": "Bake a foreign scene (.ma/.mb/.fbx) to a cached .blend and return its path.",
-          "line": 950,
-          "deprecated": false
-        }
-      ],
+      "functions": [],
       "classes": [
         {
           "name": "MayaSceneImport",

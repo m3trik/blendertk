@@ -32,9 +32,9 @@ DEFAULT_INCLUDE = {
     "core_utils._core_utils": "*",
     "core_utils.preview": ["Preview"],
     # Auto-instancer — mirror of mayatk's ``core_utils.auto_instancer``
-    # (``btk.auto_instance`` ↔ ``mtk.auto_instance``); matching math and
-    # assembly clustering are shared via pythontk (PointCloud/AssemblySorter).
-    "core_utils.auto_instancer._auto_instancer": ["AutoInstancer", "auto_instance"],
+    # (``btk.AutoInstancer`` ↔ ``mtk.AutoInstancer``; one-shot via ``.run_once``);
+    # matching math and assembly clustering are shared via pythontk (PointCloud/AssemblySorter).
+    "core_utils.auto_instancer._auto_instancer": "AutoInstancer",
     # Event-subscription manager — mirror of mayatk's ``core_utils.script_job_manager`` over
     # ``bpy.app.handlers`` (``btk.ScriptJobManager`` ↔ ``mtk.ScriptJobManager``).
     "core_utils.script_job_manager": ["ScriptJobManager"],
@@ -105,11 +105,7 @@ DEFAULT_INCLUDE = {
     # Pull direction — import a Maya scene (.ma/.mb) via a headless-Maya FBX
     # round-trip. btk-only by design (Maya opens its own scenes natively);
     # ledgered in tentacle/docs/parity_map.py.
-    "env_utils.maya_bridge._scene_import": [
-        "MayaSceneImport",
-        "import_maya_scene",
-        "bake_maya_scene",
-    ],
+    "env_utils.maya_bridge._scene_import": "MayaSceneImport",
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
     "env_utils.unity_bridge._unity_bridge": [

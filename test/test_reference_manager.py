@@ -251,7 +251,7 @@ try:
 
     # --- Include Types / foreign classification (mirror of mayatk's, inverted) ----------------
     from blendertk.env_utils.maya_bridge._scene_import import (
-        MayaSceneImport, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, bake_maya_scene,
+        MayaSceneImport, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX,
     )
 
     check("_is_foreign classifies ma/mb/fbx foreign, blend native",
@@ -296,7 +296,7 @@ try:
     fbx_src = os.path.join(tmp, "kit_export.fbx")
     bpy.ops.export_scene.fbx(filepath=fbx_src, use_selection=False)
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    baked = bake_maya_scene(fbx_src, use_cache=False)
+    baked = MayaSceneImport().bake_scene(fbx_src, use_cache=False)
     try:
         check("bake_maya_scene(.fbx) produces a .blend", os.path.isfile(baked) and baked.lower().endswith(".blend"), baked)
         check("bake sidecar points back at the .fbx source",
