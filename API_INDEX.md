@@ -141,12 +141,11 @@ _Generated: 2026-07-26_
   - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, get_areas, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
-- `auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`
 - `class InstanceCandidate`
   - methods: obj, exists
 - `class InstanceGroup`
 - `class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal)`
-  - methods: default_summary, format_summary, tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups
+  - methods: default_summary, format_summary, tolerance, scale_tolerance, require_same_material, check_uvs, combine_assemblies, search_radius_mult, verbose, run, find_instance_groups, run_once
 
 ### `core_utils/auto_instancer/assembly_reconstructor.py` — Logic for separating and reassembling mesh assemblies (bpy adapter).
 - `class AssemblyReconstructor(_AssemblyReconstructorInternal)`
@@ -335,8 +334,6 @@ _Generated: 2026-07-26_
   - methods: maya_path, params_defaults, render_context, list_templates, template_modes, list_template_modes
 
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
-- `import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`
-- `bake_maya_scene(src_path: str, **kwargs: Any) -> str`
 - `class MayaSceneImport(ptk.LoggingMixin)`
   - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
 

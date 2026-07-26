@@ -694,7 +694,6 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
 Scene auto-instancer: convert geometrically identical meshes to instances.
 
-- [`auto_instance(objects: Optional[Sequence[object]] = None, tolerance: float = 0.001, scale_tolerance: Optional[float] = None, require_same_material: Union[bool, int] = True, check_uvs: bool = False, check_hierarchy: bool = False, separate_combined: bool = False, combine_assemblies: bool = True, combine_non_instanced: bool = True, combine_by_material: bool = True, combine_by_distance: bool = True, combine_distance_threshold: float = 10000.0, search_radius_mult: float = 1.5, is_static: bool = True, needs_individual: bool = False, will_be_lightmapped: bool = False, can_gpu_instance: bool = True, verbose: bool = True, log_level: str = 'WARNING', return_summary: bool = False) -> Union[List[object], Tuple[List[object], Dict[str, object]]]`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L1187) — Find geometrically identical meshes and convert them to instances.
 - **[`class InstanceCandidate`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L54)** — Holds information about an object candidate for instancing.
   - `InstanceCandidate.obj(self)` *(property)*
   - `InstanceCandidate.exists(self) -> bool`
@@ -711,6 +710,7 @@ Scene auto-instancer: convert geometrically identical meshes to instances.
   - `AutoInstancer.verbose(self)` *(property)*
   - `AutoInstancer.run(self, objects: Optional[Sequence[object]] = None) -> List[object]` — Discover and instance matching meshes.
   - `AutoInstancer.find_instance_groups(self, objects: Optional[Sequence[object]] = None, check_hierarchy: Optional[bool] = None) -> List[InstanceGroup]` — Find groups of identical objects.
+  - `AutoInstancer.run_once(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]` *(class)* — One-shot: build an ``AutoInstancer`` from ``config`` and run it.
 
 <a id="core_utils--auto_instancer--assembly_reconstructor"></a>
 ### `core_utils/auto_instancer/assembly_reconstructor.py`
@@ -1372,8 +1372,6 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
 
-- [`import_maya_scene(src_path: str, **kwargs: Any) -> List[Any]`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L940) — Import a Maya scene (.ma/.mb) into the current Blender scene.
-- [`bake_maya_scene(src_path: str, **kwargs: Any) -> str`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L950) — Bake a foreign scene (.ma/.mb/.fbx) to a cached .blend and return its path.
 - **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L144)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.

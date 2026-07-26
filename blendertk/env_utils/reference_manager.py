@@ -1578,12 +1578,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return  # user cancelled
         import shutil
 
-        from blendertk.env_utils.maya_bridge._scene_import import bake_maya_scene
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         app = self.sb.QtWidgets.QApplication
         app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
         try:
-            baked = bake_maya_scene(path, smart_bake=smart_bake)
+            baked = MayaSceneImport().bake_scene(path, smart_bake=smart_bake)
         except FileNotFoundError as e:
             self.sb.message_box(f"Can't open — Maya not found:<br>{e}")
             return
@@ -1693,7 +1693,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
         Folded into the row menu's 'Unlink and Import' (see :meth:`unlink_import_selected`) as
         the make-local counterpart for a not-yet-linked foreign row. A ``.ma``/``.mb`` goes
-        through ``btk.import_maya_scene`` — a
+        through ``btk.MayaSceneImport.import_scene`` — a
         fresh mayapy converts it to FBX, which is imported and cleaned up (the same bridge
         the Scene menu's 'Import Maya Scene' uses); that takes tens of seconds (mayapy start
         + license), so a wait cursor covers it and a missing Maya install surfaces as a clear
@@ -1706,12 +1706,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.sb.message_box("Importing a foreign scene needs a running Blender.")
             return
         from blendertk.env_utils.fbx_utils import FbxUtils
-        from blendertk.env_utils.maya_bridge._scene_import import import_maya_scene
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         def _import(path, smart_bake):
             if os.path.splitext(path)[1].lower() == ".fbx":
                 return FbxUtils.import_fbx(path)
-            return import_maya_scene(path, smart_bake=smart_bake)
+            return MayaSceneImport().import_scene(path, smart_bake=smart_bake)
 
         # Resolve bake-vs-raw per scene (may prompt) BEFORE the wait cursor. An .fbx
         # skips the prompt ("auto" is inert for it); a cancelled scene is dropped.
@@ -1763,7 +1763,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if not self._has_bpy():
             self.sb.message_box("Referencing a foreign scene needs a running Blender.")
             return False
-        from blendertk.env_utils.maya_bridge._scene_import import bake_maya_scene
+        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         # Resolve bake-vs-raw per scene (may prompt) BEFORE the wait cursor; a
         # cancelled scene is dropped from the batch.
@@ -1782,7 +1782,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             for path, smart_bake in plan:
                 try:
                     linked += btk.link_blend_file(
-                        bake_maya_scene(path, smart_bake=smart_bake), link=True
+                        MayaSceneImport().bake_scene(path, smart_bake=smart_bake), link=True
                     )
                 except FileNotFoundError as e:
                     self.sb.message_box(f"Can't reference — Maya not found:<br>{e}")

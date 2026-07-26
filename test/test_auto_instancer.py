@@ -104,7 +104,7 @@ try:
     b = wedge("W2", (5, 0, 0))
     c = wedge("W3", (0, 7, 0))
     before = {o.name: world_verts(o) for o in (a, b, c)}
-    created = btk.auto_instance([a, b, c], combine_non_instanced=False, verbose=False)
+    created = btk.AutoInstancer.run_once([a, b, c], combine_non_instanced=False, verbose=False)
     check("leaf: run returned 3 (proto + 2)", len(created) == 3, f"n={len(created)}")
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     check("leaf: one shared datablock x3", sorted(users.values()) == [3], f"{dict(users)}")
@@ -117,7 +117,7 @@ try:
     a = wedge("R1", (0, 0, 0))
     b = wedge("R2", (6, 2, 1), bake=rot)
     before = {o.name: world_verts(o) for o in (a, b)}
-    created = btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    created = btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     check("rotated: instanced", sorted(users.values()) == [2], f"{dict(users)}")
     worst = max(max_nn(world_verts(o), before[o.name]) for o in (a, b))
@@ -130,12 +130,12 @@ try:
     b = wedge("S2", (8, 0, 0), bake=Matrix.Scale(0.6, 4))
     before = {o.name: world_verts(o) for o in (a, b)}
     # strict mode keeps them distinct...
-    btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     check("scaled: strict mode keeps distinct", sorted(users.values()) == [1, 1],
           f"{dict(users)}")
     # ...scale mode instances with the scale on the transform
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [a, b], scale_tolerance=1.0, combine_non_instanced=False, verbose=False
     )
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
@@ -151,11 +151,11 @@ try:
     mat_b = bpy.data.materials.new("MatB")
     a = cube("M1", (0, 0, 0), mat=mat_a)
     b = cube("M2", (5, 0, 0), mat=mat_b)
-    btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     check("materials: require_same_material blocks", sorted(users.values()) == [1, 1],
           f"{dict(users)}")
-    btk.auto_instance(
+    btk.AutoInstancer.run_once(
         [a, b], require_same_material=False, combine_non_instanced=False, verbose=False
     )
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
@@ -187,7 +187,7 @@ try:
         bpy.ops.object.join()
     combined = sources[0]
     combined.name = "original_combined_mesh"
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [combined],
         separate_combined=True,
         combine_assemblies=False,
@@ -220,7 +220,7 @@ try:
     u0 = cube("u0", (0, 10, 0), size=1.0, mat=mat_a)   # unique micro leftovers
     u1 = cube("u1", (5, 10, 0), size=1.5, mat=mat_a)
     u2 = cube("u2", (10, 10, 0), size=2.5, mat=mat_b)
-    created = btk.auto_instance([s0, s1, u0, u1, u2], verbose=False)
+    created = btk.AutoInstancer.run_once([s0, s1, u0, u1, u2], verbose=False)
     users = Counter(o.data.name for o in bpy.data.objects if o.type == "MESH")
     sphere_shared = 2 in users.values()
     check("remainder: spheres instanced", sphere_shared, f"{dict(users)}")
@@ -247,7 +247,7 @@ try:
         bpy.ops.object.join()
     combined = parts[0]
     combined.name = "fused_units"
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [combined],
         separate_combined=True,
         combine_assemblies=True,
@@ -280,7 +280,7 @@ try:
 
     r1, a1, b1 = unit("one", (0, 0, 0))
     r2, a2, b2 = unit("two", (15, 0, 0))
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [r1, a1, b1, r2, a2, b2],
         check_hierarchy=True,
         combine_non_instanced=False,
@@ -307,7 +307,7 @@ try:
     deco.matrix_world = w
     bpy.context.view_layer.update()
     deco_world_before = np.array(deco.matrix_world)
-    btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     bpy.context.view_layer.update()
     check("children: member's child keeps world pose through rel fold",
           np.allclose(np.array(deco.matrix_world), deco_world_before, atol=1e-5),
@@ -324,7 +324,7 @@ try:
     tag.matrix_world = wp
     b = wedge("P2", (8, 0, 0))
     bpy.context.view_layer.update()
-    btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     bpy.context.view_layer.update()  # matrix_world is stale after reparent
     b_children = list(b.children)
     check("proto children: member gains a linked-duplicate child",
@@ -337,7 +337,7 @@ try:
               np.allclose(rel_off, (0, 0, 3), atol=1e-4), f"{rel_off}")
     # A repeat run must be a no-op — the member is already an instance of
     # the prototype, so its replicated child must NOT accumulate.
-    btk.auto_instance([a, b], combine_non_instanced=False, verbose=False)
+    btk.AutoInstancer.run_once([a, b], combine_non_instanced=False, verbose=False)
     check("proto children: repeat run does not duplicate the replica",
           len(list(b.children)) == 1, f"n={len(list(b.children))}")
 
@@ -353,7 +353,7 @@ try:
     loose = cube("loose", (0, 6, 0), size=1.2, mat=mat_a)
     loose2 = cube("loose2", (3, 6, 0), size=1.7, mat=mat_a)
     bpy.context.view_layer.update()
-    btk.auto_instance([s0, s1, child, loose, loose2], verbose=False)
+    btk.AutoInstancer.run_once([s0, s1, child, loose, loose2], verbose=False)
     still = bpy.data.objects.get("keep_me")
     check("remainder: converted member's child survives the combine",
           still is not None and still.parent is not None
@@ -375,7 +375,7 @@ try:
     world_before = np.array(orphanable.matrix_world)
     # No instancing possible (unique sizes) -> both cubes go to the combine;
     # l1 is joined away and its Empty child must keep its world pose.
-    btk.auto_instance([l0, l1], verbose=False)
+    btk.AutoInstancer.run_once([l0, l1], verbose=False)
     bpy.context.view_layer.update()
     still = bpy.data.objects.get("orphanable")
     check("join: child of joined-away source survives with world pose",
@@ -390,7 +390,7 @@ try:
     flat = cube("flat", (0, 8, 0))
     flat.scale = (1.0, 1.0, 0.0)  # singular matrix_world
     bpy.context.view_layer.update()
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [a, b, flat],
         separate_combined=True,
         combine_non_instanced=False,
@@ -419,7 +419,7 @@ try:
     empty_mesh_unit("a", (0, 0, 0))
     empty_mesh_unit("b", (10, 0, 0))
     objs = list(bpy.data.objects)
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         objs, check_hierarchy=True, combine_non_instanced=False, verbose=False
     )
     users = Counter(
@@ -447,7 +447,7 @@ try:
         bpy.ops.object.join()
     fused = parts[0]
     fused.name = "two_types"
-    created = btk.auto_instance(
+    created = btk.AutoInstancer.run_once(
         [fused],
         separate_combined=True,
         combine_assemblies=False,
@@ -527,7 +527,7 @@ try:
     reset()
     bpy.ops.mesh.primitive_uv_sphere_add(location=(0, 0, 0)); d0 = bpy.context.active_object; d0.name = "Dense0"
     bpy.ops.mesh.primitive_uv_sphere_add(location=(5, 0, 0)); d1 = bpy.context.active_object; d1.name = "Dense1"
-    _, summ = btk.auto_instance([d0, d1], combine_non_instanced=False, verbose=False, return_summary=True)
+    _, summ = btk.AutoInstancer.run_once([d0, d1], combine_non_instanced=False, verbose=False, return_summary=True)
     check("summary: dense duplicates instanced",
           summ["matched_groups"] == 1 and summ["instanced_groups"] == 1
           and summ["instances_created"] == 1 and summ["simple_groups"] == 0, f"{summ}")
@@ -535,7 +535,7 @@ try:
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); t0 = bpy.context.active_object; t0.name = "Tiny0"
     bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0)); t1 = bpy.context.active_object; t1.name = "Tiny1"
-    created, summ = btk.auto_instance([t0, t1], combine_non_instanced=True, verbose=False, return_summary=True)
+    created, summ = btk.AutoInstancer.run_once([t0, t1], combine_non_instanced=True, verbose=False, return_summary=True)
     check("summary: micro duplicates flagged too-simple (combined, not instanced)",
           summ["matched_groups"] == 1 and summ["simple_groups"] == 1
           and summ["instanced_groups"] == 0
@@ -546,7 +546,7 @@ try:
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); u0 = bpy.context.active_object; u0.name = "Uq0"
     bpy.ops.mesh.primitive_uv_sphere_add(location=(3, 0, 0)); u1 = bpy.context.active_object; u1.name = "Uq1"
-    _, summ = btk.auto_instance([u0, u1], combine_non_instanced=False, verbose=False, return_summary=True)
+    _, summ = btk.AutoInstancer.run_once([u0, u1], combine_non_instanced=False, verbose=False, return_summary=True)
     check("summary: no matches reported as such",
           summ["matched_groups"] == 0
           and "no geometrically identical meshes were found"
@@ -555,7 +555,7 @@ try:
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); solo = bpy.context.active_object
     check("summary: return_summary defaults off (bare list, backward compatible)",
-          isinstance(btk.auto_instance([solo], verbose=False), list))
+          isinstance(btk.AutoInstancer.run_once([solo], verbose=False), list))
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
