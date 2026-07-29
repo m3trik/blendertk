@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-07-26",
+  "generated_at": "2026-07-29",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -9387,7 +9387,7 @@
         {
           "name": "MatUpdater",
           "summary": "Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.",
-          "line": 317,
+          "line": 311,
           "bases": [
             "ptk.LoggingMixin",
             "_MatUtilsInternal"
@@ -9399,7 +9399,7 @@
               "kind": "classmethod",
               "signature": "(cls, materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Reprocess the textures of ``materials`` and repath their image nodes to the results.",
-              "line": 335,
+              "line": 329,
               "deprecated": false
             }
           ]
@@ -9407,7 +9407,7 @@
         {
           "name": "MatUtils",
           "summary": "Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).",
-          "line": 512,
+          "line": 506,
           "bases": [
             "_MatUtilsInternal"
           ],
@@ -9418,7 +9418,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Unique materials assigned to the given object(s), in slot order.",
-              "line": 516,
+              "line": 510,
               "deprecated": false
             },
             {
@@ -9427,7 +9427,7 @@
               "kind": "staticmethod",
               "signature": "(mat_type='standard', name='')",
               "summary": "Create a new material (mirror of ``mtk.MatUtils.create_mat``).",
-              "line": 526,
+              "line": 520,
               "deprecated": false
             },
             {
@@ -9436,7 +9436,7 @@
               "kind": "staticmethod",
               "signature": "(objects, material)",
               "summary": "Assign ``material`` to the given object(s) — whole-object assignment (all slots).",
-              "line": 548,
+              "line": 542,
               "deprecated": false
             },
             {
@@ -9445,7 +9445,7 @@
               "kind": "staticmethod",
               "signature": "(material, objects=None)",
               "summary": "Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).",
-              "line": 562,
+              "line": 556,
               "deprecated": false
             },
             {
@@ -9454,7 +9454,7 @@
               "kind": "staticmethod",
               "signature": "(material, add=False)",
               "summary": "Select every scene object using ``material`` (optionally adding to the selection).",
-              "line": 577,
+              "line": 571,
               "deprecated": false
             },
             {
@@ -9463,7 +9463,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).",
-              "line": 600,
+              "line": 594,
               "deprecated": false
             },
             {
@@ -9472,7 +9472,7 @@
               "kind": "staticmethod",
               "signature": "(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)",
               "summary": "Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.",
-              "line": 612,
+              "line": 606,
               "deprecated": false
             },
             {
@@ -9481,7 +9481,7 @@
               "kind": "staticmethod",
               "signature": "(mat)",
               "summary": "True iff ``mat`` is assigned to at least one object (mirror of ``mtk.is_mat_assigned`` —",
-              "line": 639,
+              "line": 633,
               "deprecated": false
             },
             {
@@ -9490,7 +9490,7 @@
               "kind": "staticmethod",
               "signature": "(mat, size=(20, 20), fallback_to_blank=True)",
               "summary": "A ``QIcon`` filled with ``mat``'s viewport display color — mirror of",
-              "line": 646,
+              "line": 640,
               "deprecated": false
             },
             {
@@ -9499,7 +9499,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None, absolute=True)",
               "summary": "Unique texture file paths in scope — mirror of ``mtk.MatUtils.get_texture_paths``.",
-              "line": 667,
+              "line": 661,
               "deprecated": false
             },
             {
@@ -9508,7 +9508,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, materials=None)",
               "summary": "Image metadata for the textures in scope — mirror of ``mtk.MatUtils.get_texture_info``.",
-              "line": 683,
+              "line": 677,
               "deprecated": false
             },
             {
@@ -9517,7 +9517,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)",
               "summary": "Aggregate per-material info (name, type, textures + image metadata) — mirror of",
-              "line": 707,
+              "line": 701,
               "deprecated": false
             },
             {
@@ -9526,7 +9526,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 774,
+              "line": 768,
               "deprecated": false
             },
             {
@@ -9535,7 +9535,7 @@
               "kind": "staticmethod",
               "signature": "(info_list)",
               "summary": "Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).",
-              "line": 779,
+              "line": 773,
               "deprecated": false
             },
             {
@@ -9544,7 +9544,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None)",
               "summary": "Groups of materials that reference the *same* set of texture files — mirror of",
-              "line": 784,
+              "line": 778,
               "deprecated": false
             },
             {
@@ -9553,7 +9553,7 @@
               "kind": "staticmethod",
               "signature": "(duplicate_groups, delete=True)",
               "summary": "Reassign every object using a duplicate to the group's first (canonical) material, then",
-              "line": 806,
+              "line": 800,
               "deprecated": false
             },
             {
@@ -9562,7 +9562,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.",
-              "line": 831,
+              "line": 825,
               "deprecated": false
             },
             {
@@ -9571,7 +9571,7 @@
               "kind": "staticmethod",
               "signature": "(materials, mode=None)",
               "summary": "Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's",
-              "line": 850,
+              "line": 844,
               "deprecated": false
             },
             {
@@ -9580,7 +9580,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Every FILE-backed image datablock as a record for the Texture Path Editor:",
-              "line": 874,
+              "line": 868,
               "deprecated": false
             },
             {
@@ -9589,7 +9589,7 @@
               "kind": "staticmethod",
               "signature": "(image, new_path, reload=True)",
               "summary": "Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture",
-              "line": 898,
+              "line": 892,
               "deprecated": false
             },
             {
@@ -9598,7 +9598,7 @@
               "kind": "staticmethod",
               "signature": "(abspath, blenddir=None)",
               "summary": "Convert an absolute path to a Blender ``//``-relative path when it falls under the saved",
-              "line": 915,
+              "line": 909,
               "deprecated": false
             },
             {
@@ -9607,7 +9607,7 @@
               "kind": "staticmethod",
               "signature": "(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)",
               "summary": "Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture",
-              "line": 942,
+              "line": 936,
               "deprecated": false
             },
             {
@@ -9616,7 +9616,7 @@
               "kind": "staticmethod",
               "signature": "(mode='relative', project_dir=None, images=None)",
               "summary": "Normalize FILE image paths — mirror of the Texture Path Editor's 'Normalize Paths'.",
-              "line": 1036,
+              "line": 1030,
               "deprecated": false
             },
             {
@@ -9625,7 +9625,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "``{image-name: [material names]}`` for every FILE image referenced by a material's shader",
-              "line": 1103,
+              "line": 1097,
               "deprecated": false
             },
             {
@@ -9634,7 +9634,7 @@
               "kind": "staticmethod",
               "signature": "(paths)",
               "summary": "Scene materials whose shader graph references an image at one of ``paths`` (matched by",
-              "line": 1120,
+              "line": 1114,
               "deprecated": false
             },
             {
@@ -9643,7 +9643,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, force_update=False, dry_run=False)",
               "summary": "Assign each texture image its correct color space by map type — the Blender counterpart of",
-              "line": 1141,
+              "line": 1135,
               "deprecated": false
             },
             {
@@ -9652,7 +9652,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, target_dir=None, mode='rewrite')",
               "summary": "Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture",
-              "line": 1189,
+              "line": 1183,
               "deprecated": false
             },
             {
@@ -9661,7 +9661,7 @@
               "kind": "staticmethod",
               "signature": "(images=None, search_dir=None, dest_dir=None, mode='copy')",
               "summary": "Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),",
-              "line": 1219,
+              "line": 1213,
               "deprecated": false
             },
             {
@@ -9670,7 +9670,7 @@
               "kind": "staticmethod",
               "signature": "(records=None)",
               "summary": "Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).",
-              "line": 1262,
+              "line": 1256,
               "deprecated": false
             },
             {
@@ -9679,7 +9679,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The available Principled-BSDF template names (mirror of Maya's Shader Templates list).",
-              "line": 1285,
+              "line": 1279,
               "deprecated": false
             },
             {
@@ -9688,7 +9688,7 @@
               "kind": "staticmethod",
               "signature": "(material, template)",
               "summary": "Apply a Principled-BSDF template preset to ``material``'s shader.",
-              "line": 1290,
+              "line": 1284,
               "deprecated": false
             },
             {
@@ -9697,7 +9697,7 @@
               "kind": "staticmethod",
               "signature": "(template, name=None)",
               "summary": "Create a new node-based material configured from a Principled-BSDF ``template`` — mirror of",
-              "line": 1305,
+              "line": 1299,
               "deprecated": false
             },
             {
@@ -9706,7 +9706,7 @@
               "kind": "staticmethod",
               "signature": "(material)",
               "summary": "Capture a material's shader node graph as a portable, JSON-safe dict — the Blender analogue of",
-              "line": 1313,
+              "line": 1307,
               "deprecated": false
             },
             {
@@ -9715,7 +9715,7 @@
               "kind": "staticmethod",
               "signature": "(data, name=None, textures=None)",
               "summary": "Rebuild a material from a :func:`serialize_material` dict — the Blender analogue of mayatk's",
-              "line": 1369,
+              "line": 1363,
               "deprecated": false
             },
             {
@@ -9724,7 +9724,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL')",
               "summary": "Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's",
-              "line": 1456,
+              "line": 1450,
               "deprecated": false
             },
             {
@@ -9733,7 +9733,7 @@
               "kind": "staticmethod",
               "signature": "(textures, name=None, normal_direction='OpenGL', prefix='', suffix='')",
               "summary": "Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.",
-              "line": 1728,
+              "line": 1722,
               "deprecated": false
             },
             {
@@ -9742,7 +9742,7 @@
               "kind": "staticmethod",
               "signature": "(materials=None, config=None, verbose=False, progress_callback=None)",
               "summary": "Module-level alias for :meth:`MatUpdater.update_materials` (``btk.update_materials``).",
-              "line": 1781,
+              "line": 1775,
               "deprecated": false
             }
           ]
