@@ -142,7 +142,7 @@ _Generated: 2026-07-29_
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, get_view3d_context, window_context_override
+  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
