@@ -35,4 +35,4 @@ where = ["."]
 include = ["blendertk*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.ui", "*.xml", "*.json", "*.txt", "*.md", "*.bat"]
+"*" = ["*.ui", "*.xml", "*.json", "*.txt", "*.md", "*.bat", "*.lua"]
