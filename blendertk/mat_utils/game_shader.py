@@ -68,8 +68,6 @@ class GameShaderSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add(
             self.sb.registered_widgets.Label,
             setObjectName="lbl_graph_material",
@@ -77,7 +75,7 @@ class GameShaderSlots(ptk.LoggingMixin):
             setToolTip="Open the created material in the Shader Editor.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Game Shader",
                 body="Auto-build a Principled-BSDF material from a set of PBR texture files — "
                 "each map is classified by filename and wired into the right input with the "

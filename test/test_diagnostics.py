@@ -91,6 +91,22 @@ try:
         f"{tuple(child.matrix_world.to_3x3().col[0])}",
     )
 
+    # ---- get_non_orthogonal: the public detection primitive (mtk mirror) -----
+    check(
+        "get_non_orthogonal flags the sheared child",
+        TransformDiagnostics.get_non_orthogonal([child, parent]) == [child],
+    )
+    detail = TransformDiagnostics.get_non_orthogonal([child], detailed=True)
+    check(
+        "detailed reports skew + inherited cause",
+        detail[child]["cause"] == "inherited" and detail[child]["skew"] > 0.0,
+        f"{detail.get(child)}",
+    )
+    check(
+        "get_non_orthogonal accepts object names",
+        TransformDiagnostics.get_non_orthogonal([child.name]) == [child],
+    )
+
     # ---- dry_run reports without changing -----------------------------------
     would = TransformDiagnostics.fix_non_orthogonal_axes([child], dry_run=True)
     check("dry_run flags the sheared child", child in would)
@@ -145,6 +161,84 @@ try:
         "fix on a clean (orthogonal) object is a no-op",
         TransformDiagnostics.fix_non_orthogonal_axes([ortho]) == [],
     )
+
+    # ---- driven transforms: skipped by default, fixed with break_connections
+    def sheared_driven(name):
+        p = bpy.data.objects.new(f"{name}Parent", None)
+        bpy.context.scene.collection.objects.link(p)
+        p.scale = (2.0, 1.0, 0.5)
+        p.rotation_euler = Euler((0.0, 0.0, math.radians(45)), "XYZ")
+        bpy.ops.mesh.primitive_cube_add()
+        c = bpy.context.active_object
+        c.name = name
+        c.parent = p
+        c.rotation_euler = Euler((0.0, 0.0, math.radians(30)), "XYZ")
+        drv = c.driver_add("rotation_euler", 2).driver  # driver on rot z
+        drv.expression = "0.5236"  # 30 degrees, static
+        bpy.context.view_layer.update()
+        return c
+
+    reset()
+    driven = sheared_driven("DrivenChild")
+    detail = TransformDiagnostics.get_non_orthogonal([driven], detailed=True)
+    check(
+        "detailed reports the transform driver",
+        detail[driven]["driven"] == ["driver:rotation_euler"],
+        f"{detail[driven].get('driven')}",
+    )
+    check(
+        "driven object skipped by default",
+        TransformDiagnostics.fix_non_orthogonal_axes([driven]) == [],
+    )
+    check("driver survives the skip", bool(driven.animation_data.drivers))
+    check(
+        "dry_run excludes driven too",
+        TransformDiagnostics.fix_non_orthogonal_axes([driven], dry_run=True) == [],
+    )
+    broke = TransformDiagnostics.fix_non_orthogonal_axes(
+        [driven], break_connections=True
+    )
+    bpy.context.view_layer.update()
+    check("break_connections fixes the driven object", driven in broke)
+    check(
+        "break_connections removed the driver",
+        not (driven.animation_data and list(driven.animation_data.drivers)),
+    )
+    check(
+        "skew gone after break-fix",
+        TransformDiagnostics.get_non_orthogonal([driven]) == [],
+    )
+
+    # constraints count as driven too (they re-compose over the baked values)
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    tgt = bpy.context.active_object
+    con_parent = bpy.data.objects.new("ConParent", None)
+    bpy.context.scene.collection.objects.link(con_parent)
+    con_parent.scale = (2.0, 1.0, 0.5)
+    con_parent.rotation_euler = Euler((0.0, 0.0, math.radians(45)), "XYZ")
+    bpy.ops.mesh.primitive_cube_add()
+    constrained = bpy.context.active_object
+    constrained.parent = con_parent
+    constrained.rotation_euler = Euler((0.0, 0.0, math.radians(30)), "XYZ")
+    con = constrained.constraints.new("COPY_LOCATION")
+    con.target = tgt
+    bpy.context.view_layer.update()
+    d2 = TransformDiagnostics.get_non_orthogonal([constrained], detailed=True)
+    check(
+        "constraint reported as driven",
+        d2[constrained]["driven"] == [f"constraint:{con.name}"],
+        f"{d2[constrained].get('driven')}",
+    )
+    check(
+        "constrained object skipped by default",
+        TransformDiagnostics.fix_non_orthogonal_axes([constrained]) == [],
+    )
+    broke2 = TransformDiagnostics.fix_non_orthogonal_axes(
+        [constrained], break_connections=True
+    )
+    check("break_connections fixes constrained object", constrained in broke2)
+    check("constraint removed", len(constrained.constraints) == 0)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

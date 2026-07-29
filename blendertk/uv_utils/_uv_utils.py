@@ -304,8 +304,54 @@ class _UvUtilsInternal(object):
         return a, b
 
 
+    @staticmethod
+    def _mesh_similarity(a, b):
+        """Similarity score (0-1) between two mesh objects from world bounding-box volume +
+        vertex count — mirror of mayatk's ``_calculate_mesh_similarity``."""
+
+        def _bb_volume(o):
+            import mathutils
+
+            cs = [o.matrix_world @ mathutils.Vector(c) for c in o.bound_box]
+            return (
+                (max(c.x for c in cs) - min(c.x for c in cs))
+                * (max(c.y for c in cs) - min(c.y for c in cs))
+                * (max(c.z for c in cs) - min(c.z for c in cs))
+            )
+
+        v1, v2 = _bb_volume(a), _bb_volume(b)
+        n1, n2 = len(a.data.vertices), len(b.data.vertices)
+        volume_similarity = 1 - abs(v1 - v2) / (max(v1, v2) or 1.0)
+        vertex_similarity = 1 - abs(n1 - n2) / (max(n1, n2) or 1)
+        return (volume_similarity + vertex_similarity) / 2
+
+
 class UvUtils(_UvUtilsInternal):
     """Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level)."""
+
+    @staticmethod
+    def calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256):
+        """The texture gutter for a given map size — Blender-side name for the ecosystem rule.
+
+        Delegates to :meth:`pythontk.MathUtils.calculate_uv_padding`, the same primitive
+        mayatk's identically-named helper wraps, so a map packed in one DCC (or
+        round-tripped through RizomUV) keeps its gutter when repacked in the other. No
+        second copy of the rule to drift.
+
+        Parameters:
+            map_size (int): Texture size in pixels (width or height).
+            normalize (bool): Return the padding as a fraction of the tile instead of pixels.
+            factor (int): Divisor setting the gutter. 256 = 1/256 of the tile.
+
+        Returns:
+            (float) Padding in pixels, or normalized to UV units when ``normalize``.
+
+        Note the normalized result is map-size-INVARIANT (``(size/256)/size`` == 1/256):
+        4 px at 1024, 8 px at 2048, 16 px at 4096 — always the same fraction of the tile.
+        """
+        return ptk.MathUtils.calculate_uv_padding(
+            map_size, normalize=normalize, factor=factor
+        )
 
     @staticmethod
     def move_uvs(objects, du=0.0, dv=0.0):
@@ -321,6 +367,138 @@ class UvUtils(_UvUtilsInternal):
 
         for o in EditUtils._meshes(objects):
             _UvUtilsInternal._uv_edit(o, _shift)
+
+    @staticmethod
+    def get_uv_bounds(objects):
+        """The UV-space bounding box of *objects*, as one box over the whole input —
+        mirror of mayatk's ``get_uv_bounds``.
+
+        Parameters:
+            objects: Mesh object(s).
+
+        Returns:
+            tuple: ``(u_min, v_min, u_max, v_max)``, or None when the input
+            resolves to no UVs.
+        """
+        # Running min/max rather than collecting every UV: the move pad calls this
+        # on each arrow press, and a dense mesh would otherwise allocate a tuple
+        # per loop just to reduce it immediately.
+        box = []
+
+        def _read(bm):
+            uvl = bm.loops.layers.uv.active
+            if uvl is None:
+                return
+            for face in bm.faces:
+                for loop in face.loops:
+                    uv = loop[uvl].uv
+                    if box:
+                        box[0] = min(box[0], uv.x)
+                        box[1] = min(box[1], uv.y)
+                        box[2] = max(box[2], uv.x)
+                        box[3] = max(box[3], uv.y)
+                    else:
+                        box[:] = (uv.x, uv.y, uv.x, uv.y)
+
+        for o in EditUtils._meshes(objects):
+            _UvUtilsInternal._uv_read(o, _read)
+
+        return tuple(box) if box else None
+
+    @classmethod
+    def transfer_uvs_to_similar(cls, source, candidates=None, tolerance=0.9):
+        """Transfer UVs from one source mesh to every geometrically similar mesh — mirror of
+        mayatk's ``transfer_uvs_to_similar`` (fan one source out to look-alike targets matched
+        by bounding-box volume + vertex count).
+
+        Linked duplicates of the source are excluded (they share its mesh datablock, so their
+        UVs already match — Blender's analogue of Maya's true instances), and each candidate
+        linked-duplicate group receives one transfer via a single representative (the shared
+        datablock covers the rest). The transfer itself is the native Data-Transfer op with
+        **TOPOLOGY** loop mapping — the Blender analogue of the component-based
+        ``sampleSpace=4`` mtk's transfer uses: the targets are duplicates, so matching by
+        topology (not spatial proximity) survives them being moved apart. Run under
+        ``window_context_override`` so it works headless / from the Qt-pump state.
+
+        Parameters:
+            source: The mesh object whose UVs are copied (must be a single mesh).
+            candidates: Pool to search for similar meshes; None (default) = every scene mesh.
+            tolerance (float): Minimum similarity score (0-1) a candidate must reach.
+
+        Returns:
+            list: the target objects that received the transfer.
+        """
+        import bpy
+
+        src_meshes = EditUtils._meshes(source)
+        if len(src_meshes) != 1:
+            raise ValueError(
+                f"source must resolve to exactly one mesh (got {len(src_meshes)})."
+            )
+        src = src_meshes[0]
+
+        pool = EditUtils._meshes(
+            candidates if candidates is not None else list(bpy.context.scene.objects)
+        )
+        seen_data = {src.data.name}  # source + its linked duplicates are excluded
+        targets = []
+        for t in pool:
+            if t is src or t.data.name in seen_data:
+                continue
+            seen_data.add(t.data.name)  # one representative per linked group
+            if cls._mesh_similarity(src, t) >= tolerance:
+                targets.append(t)
+
+        if targets:
+            saved_active = bpy.context.view_layer.objects.active
+            saved_sel = list(CoreUtils.selected_objects())
+
+            def _deselect_all():
+                # Mode-/window-independent deselect: ``object.select_all`` poll-fails from
+                # the Qt-pump context (same convention as the slots' view-layer loops).
+                for o in bpy.context.view_layer.objects:
+                    o.select_set(False)
+
+            try:
+                with CoreUtils.window_context_override():
+                    _deselect_all()
+                    src.select_set(True)
+                    for t in targets:
+                        t.select_set(True)
+                    bpy.context.view_layer.objects.active = src
+                    bpy.ops.object.data_transfer(
+                        data_type="UV",
+                        loop_mapping="TOPOLOGY",
+                        layers_select_src="ACTIVE",
+                        layers_select_dst="ACTIVE",
+                    )
+            finally:
+                _deselect_all()
+                for o in saved_sel:
+                    try:
+                        o.select_set(True)
+                    except (RuntimeError, ReferenceError):
+                        pass
+                bpy.context.view_layer.objects.active = saved_active
+        return sorted(targets, key=lambda o: o.name)
+
+    @staticmethod
+    def scale_uvs(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0)):
+        """Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space
+        point, default the 0-1 origin) — whole-map scale, e.g. shrinking a packed map into a
+        fraction of its tile anchored at the tile corner (the rizom bridge's UV_AREA math)."""
+        pu, pv = pivot
+
+        def _scale(bm):
+            uvl = bm.loops.layers.uv.verify()
+            for face in bm.faces:
+                for loop in face.loops:
+                    uv = loop[uvl].uv
+                    uv.x = pu + (uv.x - pu) * su
+                    uv.y = pv + (uv.y - pv) * sv
+
+        for o in EditUtils._meshes(objects):
+            _UvUtilsInternal._uv_edit(o, _scale)
 
     @staticmethod
     def transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False):
@@ -768,6 +946,208 @@ class UvUtils(_UvUtilsInternal):
                 except (RuntimeError, ReferenceError):
                     pass
         return done
+
+    @classmethod
+    def auto_unwrap(
+        cls,
+        objects=None,
+        method: str = "hard",
+        map_size: int = 4096,
+        pack: bool = None,
+        orient: bool = True,
+        engine_params: dict = None,
+    ):
+        """Automatically unwrap meshes with an external unwrapping engine.
+
+        A true alternative to Blender's built-in Smart UV Project. Each mesh is
+        exported to OBJ, unwrapped by the chosen engine, and its UVs
+        transferred back — all in one undo step, with each mesh's original UVs
+        snapshotted so a failure leaves that mesh untouched.
+
+        Both engines return the input topology unchanged, so UVs map back
+        loop-for-loop; no triangulation or spatial sampling is involved.
+
+        Parameters:
+            objects: Mesh object(s) to unwrap. None uses the selection. Linked
+                duplicates collapse to one representative (shared mesh data).
+            method (str): ``"hard"`` — Ministry of Flat, for hard-surface /
+                mechanical meshes; topology-aware, artist-like seam placement,
+                and it packs its own result. ``"organic"`` — Boundary First
+                Flattening, for sculpted / scanned / character meshes;
+                conformal flattening with automatic cone singularities. The
+                engine keys ``"mof"`` / ``"bff"`` are accepted directly.
+            map_size (int): Texture size the packing gutter is derived from;
+                also Ministry of Flat's island-spacing resolution.
+            pack (bool): What to do with the engine's UVs afterwards. None
+                (default) picks per engine: Ministry of Flat's own island
+                arrangement is kept and merely scaled into the 0-1 tile (it
+                packs into a rectangle that overruns it), while BFF — which
+                only flattens — gets a full pack. True forces the full repack;
+                False leaves the engine's UVs exactly as produced.
+            orient (bool): Rotate islands for a tighter fit when packing.
+            engine_params (dict): Extra engine settings forwarded to
+                :class:`pythontk.UvUnwrap` (e.g. ``{"separate_hard_edges": True}``
+                for Ministry of Flat, ``{"n_cones": 8}`` for BFF).
+
+        Returns:
+            (AutoUnwrapResult): ``engine``, ``succeeded`` and ``failed``
+            ``(name, reason)`` pairs. Truthy when at least one mesh unwrapped.
+
+        Raises:
+            FileNotFoundError: The engine executable isn't installed. The
+                message carries its download URL.
+            ValueError: No meshes given/selected, or an unknown *method*.
+        """
+        from blendertk.uv_utils._auto_unwrap import _AutoUnwrapInternal
+
+        return _AutoUnwrapInternal.run(
+            cls,
+            objects=objects,
+            method=method,
+            map_size=map_size,
+            pack=pack,
+            orient=orient,
+            engine_params=engine_params,
+        )
+
+    @classmethod
+    def _pack_shells(cls, obj, map_size: int = 4096, orient: bool = True) -> None:
+        """Pack the mesh's UV islands into the 0-1 square without overlap."""
+        import bpy
+
+        margin = cls.calculate_uv_padding(map_size, normalize=True)
+        with CoreUtils.window_context_override():
+            for other in bpy.context.view_layer.objects:
+                other.select_set(False)
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode="EDIT")
+            try:
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.uv.select_all(action="SELECT")
+                bpy.ops.uv.average_islands_scale()
+                bpy.ops.uv.pack_islands(rotate=orient, margin=margin)
+            finally:
+                bpy.ops.object.mode_set(mode="OBJECT")
+
+    @staticmethod
+    def _fit_uvs_to_tile(obj) -> None:
+        """Scale the mesh's UVs as a whole into 0-1, keeping their layout.
+
+        A uniform, aspect-preserving fit — islands keep their relative
+        arrangement and can't gain new overlaps. This is what an externally
+        laid-out result needs: Ministry of Flat packs into a *rectangle* whose
+        extent routinely runs past 1.0 (~1.5 x 1.8 is typical), so its packing
+        is worth keeping but not its scale.
+
+        Data-level (no operator), so it runs headless and needs no UV editor.
+        """
+        layer = obj.data.uv_layers.active
+        if layer is None or not len(layer.data):
+            return
+        count = len(layer.data)
+        buf = [0.0] * (2 * count)
+        layer.data.foreach_get("uv", buf)
+        us, vs = buf[0::2], buf[1::2]
+        min_u, min_v = min(us), min(vs)
+        # One scale for both axes -- islands keep their proportions, so the fit
+        # can't introduce overlap. Mirrors Maya's polyNormalizeUV(collectively,
+        # preserveAspectRatio), which likewise always normalizes.
+        span = max(max(us) - min_u, max(vs) - min_v)
+        if span <= 1e-9:
+            return
+        scale = 1.0 / span
+        for i in range(count):
+            buf[2 * i] = (buf[2 * i] - min_u) * scale
+            buf[2 * i + 1] = (buf[2 * i + 1] - min_v) * scale
+        layer.data.foreach_set("uv", buf)
+        obj.data.update()
+
+    @classmethod
+    def transfer_uvs(cls, source, target, tolerance=0.1, match_by_similarity=True):
+        """Copy the active UV layer from *source* mesh(es) onto *target* mesh(es).
+
+        Mirror of ``mtk.UvUtils.transfer_uvs``. Two tiers, chosen per pair:
+        when the loop counts match the UVs are copied straight across (exact,
+        context-free, and the normal case for a tool that rewrites only UVs);
+        otherwise ``data_transfer`` maps them spatially.
+
+        Parameters:
+            source: Mesh object(s) to read UVs from.
+            target: Mesh object(s) to write UVs to.
+            tolerance (float): Geometric-similarity tolerance, used only when
+                *match_by_similarity* is True.
+            match_by_similarity (bool): When True (default), treat the inputs as
+                unordered groups and pair them by geometric similarity. Set
+                False when the caller already supplies ordered pairs.
+        """
+        from blendertk.edit_utils._edit_utils import EditUtils
+
+        sources, targets = EditUtils._meshes(source), EditUtils._meshes(target)
+        if match_by_similarity:
+            pairs, claimed = [], set()
+            for src in sources:
+                best, best_score = None, tolerance
+                for dst in targets:
+                    if dst.name in claimed:
+                        continue
+                    score = cls._mesh_similarity(src, dst)
+                    if score >= best_score:
+                        best, best_score = dst, score
+                if best is not None:
+                    claimed.add(best.name)
+                    pairs.append((src, best))
+        else:
+            if len(sources) != len(targets):
+                raise ValueError(
+                    "source and target must be the same length when "
+                    f"match_by_similarity=False (got {len(sources)} vs {len(targets)})."
+                )
+            pairs = zip(sources, targets)
+
+        for src, dst in pairs:
+            cls._transfer_uv_pair(src, dst)
+
+    @staticmethod
+    def _transfer_uv_pair(src, dst):
+        """Copy one mesh's active UV layer onto another's."""
+        import bpy
+
+        src_uv = src.data.uv_layers.active
+        if src_uv is None:
+            return
+        dst_uv = dst.data.uv_layers.active or dst.data.uv_layers.new(name=src_uv.name)
+
+        src_data, dst_data = src_uv.data, dst_uv.data
+        count = len(src_data)
+        if count == len(dst_data):
+            # Bulk C-level copy of the flat (u, v, u, v, ...) buffer -- far
+            # faster than per-loop Python assignment on dense meshes, and exact
+            # since topology and loop order match.
+            buf = [0.0] * (2 * count)
+            src_data.foreach_get("uv", buf)
+            dst_data.foreach_set("uv", buf)
+            dst.data.update()
+            return
+
+        with CoreUtils.window_context_override():
+            try:
+                if bpy.context.object and bpy.context.object.mode != "OBJECT":
+                    bpy.ops.object.mode_set(mode="OBJECT")
+            except Exception:  # noqa: BLE001
+                pass
+            bpy.ops.object.select_all(action="DESELECT")
+            dst.select_set(True)
+            src.select_set(True)
+            bpy.context.view_layer.objects.active = src  # active = transfer SOURCE
+            bpy.ops.object.data_transfer(
+                use_reverse_transfer=False,
+                data_type="UV",
+                use_create=True,
+                loop_mapping="POLYINTERP_NEAREST",
+                layers_select_src="ACTIVE",
+                layers_select_dst="ACTIVE",
+            )
 
     @staticmethod
     def get_uv_coords(objects):

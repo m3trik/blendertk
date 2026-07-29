@@ -80,8 +80,6 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         Missing Textures) are uitk ``PushButton`` (``tb_*``) auto-wired by name; their flyout
         contents are populated by the matching ``tb_*_init`` methods below.
         """
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self.refresh_texture_table)
 
@@ -182,7 +180,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         btn_sel_abs.clicked.connect(self.select_absolute_paths)
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Texture Path Editor",
                 body="Inspect and fix image texture paths. Path commands operate on selected "
                 "rows if any, otherwise on all images in the file.",

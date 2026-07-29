@@ -223,8 +223,6 @@ class ImageTracerSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # TODO(blender-parity): chk000 (Use Blue Pencil) / blue_pencil_button (Open Blue Pencil) —
         # Maya's Blue Pencil is a grease-annotation plugin with no Blender analogue; tracing
         # Grease Pencil strokes into curves would need real new architecture (deferred — see the
@@ -246,7 +244,7 @@ class ImageTracerSlots(ptk.LoggingMixin):
             setToolTip="Blender has no Blue Pencil tool to open.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Image Tracer",
                 body="Trace contours from a raster image into editable curves, then optionally "
                 "fill them into a mesh. Nested contours become holes automatically (Blender's 2D "

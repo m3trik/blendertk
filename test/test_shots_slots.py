@@ -159,4 +159,11 @@ if __name__ == "__main__":
     result = runner.run(
         unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
     )
-    print(f"===RESULT: {'PASS' if result.wasSuccessful() else 'FAIL'}===")
+    # Report the tally in the harness's (ok/attempted) form -- without it the
+    # suite counts for zero checks in run_tests.py's totals. Skips are neither
+    # passes nor failures, so they leave the ratio entirely (a fully skipped
+    # suite reports 0/0, exactly what it contributed).
+    _attempted = result.testsRun - len(result.skipped)
+    _ok = _attempted - len(result.failures) - len(result.errors)
+    _tally = f"{_ok}/{_attempted}" if _attempted else "skipped"
+    print(f"===RESULT: {'PASS' if result.wasSuccessful() else 'FAIL'}=== ({_tally})")

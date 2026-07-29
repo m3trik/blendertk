@@ -53,8 +53,6 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add(
             "QCheckBox",
             setText="Group Result",
@@ -64,7 +62,7 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
         )
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Image to Plane",
                 body="Creates textured planes from image files — one "
                 "plane per image, sized to its aspect ratio and assigned a "

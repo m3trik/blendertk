@@ -92,6 +92,41 @@ class _EditUtilsInternal(object):
             _EditUtilsInternal._bmesh_edit(o, fn)
 
     @staticmethod
+    def _cut_offsets(amount, span, distribution="linear", weight_bias=0.5, weight_curve=2.0):
+        """Signed axis offsets (from the pivot) for ``amount`` cuts across ``span`` — mirror of
+        ``mtk``'s ``_cut_offsets``. Each cut lands at ``(f - 0.5) * span`` where ``f`` is a
+        :class:`pythontk.ProgressionCurves` curve evaluated on a symmetric ``t`` in ``[0, 1]``:
+        ``"linear"`` yields the historical even fill; non-linear modes warp interior density
+        toward one end while endpoints stay at ``±span/2``."""
+        if amount <= 0:
+            return []
+        curve_fn = ptk.ProgressionCurves.get_curve_function(distribution)
+        offsets = []
+        for i in range(amount):
+            t = i / (amount - 1) if amount > 1 else 0.5
+            f = curve_fn(t, weight_curve, weight_bias)
+            offsets.append((f - 0.5) * span)
+        return offsets
+
+    @staticmethod
+    def _face_shells(bm):
+        """Yield each shell (edge-connected face island) of ``bm`` as a list of faces."""
+        seen = set()
+        for f in bm.faces:
+            if f.index in seen:
+                continue
+            shell, stack = [], [f]
+            while stack:
+                cur = stack.pop()
+                if cur.index in seen:
+                    continue
+                seen.add(cur.index)
+                shell.append(cur)
+                for e in cur.edges:
+                    stack.extend(lf for lf in e.link_faces if lf.index not in seen)
+            yield shell
+
+    @staticmethod
     def _edit_mesh_each(meshes, fn):
         """Run ``fn(bm, obj) -> int`` against each mesh's **live edit** bmesh, entering/restoring the
         OBJECT↔EDIT round-trip as needed (multi-object edit) and flushing edits per mesh. Returns the
@@ -243,17 +278,22 @@ class _EditUtilsInternal(object):
         return p, n  # "center" (or unknown -> bbox center)
 
     @staticmethod
-    def _local_reflection(obj, point, normal):
-        """The world reflection across plane ``(point, normal)`` expressed in ``obj``-local coords
-        (exact under any object matrix, including non-uniform scale)."""
+    def _world_reflection(point, normal):
+        """World-space reflection matrix across the plane ``(point, normal)``."""
         from mathutils import Matrix
 
-        m = obj.matrix_world
-        refl_w = (
+        return (
             Matrix.Translation(point)
             @ Matrix.Scale(-1.0, 4, normal)
             @ Matrix.Translation(-point)
         )
+
+    @staticmethod
+    def _local_reflection(obj, point, normal):
+        """The world reflection across plane ``(point, normal)`` expressed in ``obj``-local coords
+        (exact under any object matrix, including non-uniform scale)."""
+        m = obj.matrix_world
+        refl_w = _EditUtilsInternal._world_reflection(point, normal)
         return m.inverted() @ refl_w @ m
 
     @staticmethod
@@ -868,6 +908,65 @@ class EditUtils(_EditUtilsInternal):
 
     @staticmethod
     @CoreUtils._object_mode
+    def propagate_normals(objects, reverse=False):
+        """Maya ``polyNormal`` Propagate (normalMode 1) / Reverse-and-Propagate (mode 4):
+        every shell containing a selected face becomes consistent with the selected face's
+        original orientation (``reverse=True`` → with its *reversed* orientation). Shells with
+        no selected face are untouched (Maya parity: the selection seeds the direction)."""
+        import bmesh
+
+        def _f(bm):
+            for shell in _EditUtilsInternal._face_shells(bm):
+                seed = next((f for f in shell if f.select), None)
+                if seed is None:
+                    continue
+                want = seed.normal.copy()
+                if reverse:
+                    want.negate()
+                bmesh.ops.recalc_face_normals(bm, faces=shell)
+                if seed.normal.dot(want) < 0:
+                    bmesh.ops.reverse_faces(bm, faces=shell)
+
+        _EditUtilsInternal._bmesh_each(objects, _f)
+
+    @staticmethod
+    @CoreUtils._object_mode
+    def conform_normals(objects):
+        """Maya ``polyNormal`` Conform (normalMode 2): make every face normal in each object
+        consistent, agreeing with the original majority direction — recalc consistency, then
+        flip everything back if the recalc inverted more than half the faces."""
+        import bmesh
+
+        def _f(bm):
+            before = {f.index: f.normal.copy() for f in bm.faces}
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            flipped = sum(1 for f in bm.faces if f.normal.dot(before[f.index]) < 0)
+            if flipped * 2 > len(bm.faces):
+                bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+
+        _EditUtilsInternal._bmesh_each(objects, _f)
+
+    @staticmethod
+    @CoreUtils._object_mode
+    def extract_reversed_faces(objects):
+        """Maya ``polyNormal`` Reverse-and-Extract (normalMode 3): duplicate the selected
+        faces in place and reverse the duplicates — double-sided geometry from a one-sided
+        selection. No-op for meshes with no face selection."""
+        import bmesh
+
+        def _f(bm):
+            faces = [f for f in bm.faces if f.select]
+            if not faces:
+                return
+            dup = bmesh.ops.duplicate(bm, geom=faces)
+            bmesh.ops.reverse_faces(
+                bm, faces=[g for g in dup["geom"] if isinstance(g, bmesh.types.BMFace)]
+            )
+
+        _EditUtilsInternal._bmesh_each(objects, _f)
+
+    @staticmethod
+    @CoreUtils._object_mode
     def clean_geometry(
         objects,
         *,
@@ -961,7 +1060,6 @@ class EditUtils(_EditUtilsInternal):
         pivot="object",
         merge_mode=1,
         delete_original=False,
-        uninstance=False,
         merge_threshold=0.001,
         center_pivot=True,
     ):
@@ -971,7 +1069,10 @@ class EditUtils(_EditUtilsInternal):
         (``<name>_mirror``); ``0`` mirrored into the same mesh, seam left unwelded;
         ``1`` same mesh with seam verts welded (``merge_threshold``).
         ``delete_original`` (merge_mode ``-1`` only): remove the source object afterwards.
-        ``uninstance``: make shared mesh data single-user first. The bounding-box *center*
+        Shared (linked) mesh data is **always** made single-user first — mirroring in place
+        would otherwise rewrite every linked duplicate's geometry, and there is no way to
+        surface that in a UI; edit the shared datablock directly if you want that. The
+        bounding-box *center*
         pivot (symmetrize) is not handled here — route it through
         :func:`cut_along_axis` ``(delete=True, mirror=True)`` like the Maya slot does.
         ``center_pivot`` (default True): give each result an origin on its own bounding-box
@@ -982,11 +1083,15 @@ class EditUtils(_EditUtilsInternal):
         """
         import bpy
 
+        from blendertk.node_utils._node_utils import NodeUtils
+
         out = []
         to_center = []  # results whose origin should be re-centered on their own bbox
         for obj in _EditUtilsInternal._meshes(objects):
-            if uninstance and obj.data.users > 1:
-                obj.data = obj.data.copy()
+            # Always fork shared data first (see docstring) — via the canonical helper,
+            # which re-checks the object-user count so a pair mirrored together doesn't
+            # copy the datablock twice and orphan the original.
+            NodeUtils.uninstance(obj)
             point, normal = _EditUtilsInternal._plane_frame(obj, axis, pivot)
             refl = _EditUtilsInternal._local_reflection(obj, point, normal)
             if merge_mode < 0:
@@ -1039,12 +1144,46 @@ class EditUtils(_EditUtilsInternal):
 
     @staticmethod
     @CoreUtils._object_mode
+    def mirror_instance(objects, axis="x", pivot="object"):
+        """Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,
+        reflected across the mirror plane — mirror of ``mtk.EditUtils.mirror_instance``.
+
+        The counterpart to :func:`mirror`, which builds new geometry. Here the halves stay live
+        (edit either, both follow) because the reflection lives entirely in the copy's
+        ``matrix_world``, giving it a negative determinant. Blender flips the winding for display,
+        so normals still read outward. Tradeoff: a mirrored linked duplicate can't have its
+        normals corrected per-copy — the mesh datablock is shared. Use :func:`mirror` when the
+        halves must diverge, or when baking to an engine that dislikes negative scale.
+
+        ``axis`` / ``pivot`` take the same vocabulary as :func:`mirror` (the axis sign only picks
+        a side for the bounding-box pivots, never the plane, so it is stripped). Returns the new
+        objects.
+        """
+        out = []
+        for obj in _EditUtilsInternal._meshes(objects):
+            point, normal = _EditUtilsInternal._plane_frame(obj, axis, pivot)
+            new = obj.copy()  # shares obj.data — the linked duplicate
+            new.name = f"{obj.name}_mirror"
+            for coll in obj.users_collection:
+                coll.objects.link(new)
+            new.matrix_world = (
+                _EditUtilsInternal._world_reflection(point, normal) @ obj.matrix_world
+            )
+            out.append(new)
+        return out
+
+    @staticmethod
+    @CoreUtils._object_mode
     def cut_along_axis(
         objects,
         axis="x",
         pivot="center",
         amount=1,
         offset=0.0,
+        spacing=0.0,
+        distribution="linear",
+        weight_bias=0.5,
+        weight_curve=2.0,
         invert=False,
         delete=False,
         mirror=False,
@@ -1053,8 +1192,13 @@ class EditUtils(_EditUtilsInternal):
     ):
         """Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
 
-        ``amount`` evenly spaced cuts (``span/(amount+1)`` apart) centered on the pivot
-        (+ ``offset`` along the signed axis). ``delete`` clears the **+axis** side beyond the
+        ``amount`` cuts distributed across a span centered on the pivot (+ ``offset`` along the
+        signed axis). ``spacing`` sets the span (``0`` = the legacy even-fill of the axis
+        length, ``span/(amount+1)`` apart; ``>0`` fixes the per-cut gap for ``"linear"``);
+        ``distribution`` warps where cuts land within it via the same
+        :class:`pythontk.ProgressionCurves` as ``DuplicateLinear`` — ``weight_bias``
+        (``"weighted"`` only) and ``weight_curve`` (non-linear modes) tune the curve.
+        ``delete`` clears the **+axis** side beyond the
         deepest cut (Maya convention: ``"x"`` deletes the +X half — slots invert the UI sign).
         ``mirror`` (with ``delete``) reflects the surviving half across that cut plane and
         welds the seam — the bounding-box-center *symmetrize* used by the Mirror panel.
@@ -1079,10 +1223,19 @@ class EditUtils(_EditUtilsInternal):
             span = max(dots) - min(dots)
             if span <= 0:
                 continue
-            spacing = span / (amount + 1)
+            # Span from the first to the last cut: an explicit ``spacing`` fixes it,
+            # else the legacy even-fill (identical to the old span/(amount+1) stepping).
+            if spacing and spacing > 0:
+                cut_span = spacing * (amount - 1)
+            elif amount > 1:
+                cut_span = span * (amount - 1) / (amount + 1)
+            else:
+                cut_span = 0.0
             rel = [
-                offset * sign - ((amount - 1) * spacing / 2) + spacing * i
-                for i in range(amount)
+                offset * sign + o
+                for o in _EditUtilsInternal._cut_offsets(
+                    amount, cut_span, distribution, weight_bias, weight_curve
+                )
             ]
 
             def _cut(bm, obj=obj, rel=rel, point=point, normal=normal):
@@ -1460,7 +1613,8 @@ class EditUtils(_EditUtilsInternal):
     @staticmethod
     @CoreUtils._object_mode
     def separate_objects(
-        objects=None, *, by_material=False, rename=False, center_pivots=True
+        objects=None, *, by_material=False, rename=False, center_pivots=True,
+        uninstance=True,
     ):
         """Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
         mirror of mayatk's ``EditUtils.separate_objects`` (``mesh.separate`` LOOSE/MATERIAL). Optionally
@@ -1468,6 +1622,11 @@ class EditUtils(_EditUtilsInternal):
         Returns the newly-created objects (the originals are not included). Headless-testable.
         ``@_object_mode``: the ``select_all``/``mode_set`` dance below poll-fails when called from
         Edit Mode (its siblings ``combine_objects``/``boolean_op`` were guarded; this one wasn't).
+
+        ``uninstance`` (default True, mirroring ``mtk.separate_objects``): make each mesh
+        single-user first. ``mesh.separate`` edits the datablock in place, so separating a
+        linked duplicate silently DELETES the separated faces from every sibling sharing the
+        mesh (verified live, Blender 5.1) — same hazard as Maya's instanced separate.
         """
         import bpy
 
@@ -1476,6 +1635,11 @@ class EditUtils(_EditUtilsInternal):
         )
         if not objs:
             return []
+        if uninstance:
+            # Local import: NodeUtils pulls in xform_utils lazily; keep this edge lazy too.
+            from blendertk.node_utils._node_utils import NodeUtils
+
+            NodeUtils.uninstance(objs)
         sep_type = "MATERIAL" if by_material else "LOOSE"
         new_objects = []
         for obj in objs:
@@ -1514,6 +1678,7 @@ class EditUtils(_EditUtilsInternal):
         group_by_material=False,
         cluster_by_distance=False,
         threshold=10000.0,
+        uninstance=True,
     ):
         """Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``
         (``object.join``). Plain: join everything into the first object's mesh. ``group_by_material``:
@@ -1522,12 +1687,22 @@ class EditUtils(_EditUtilsInternal):
         split by spatial proximity (``threshold`` world units, via the shared
         ``ptk.PointCloud.cluster_by_distance``). Returns the combined object (plain) or the list
         of combined objects (grouped). Headless-safe.
+
+        ``uninstance`` (default True, mirroring ``mtk.combine_objects``): make each mesh
+        single-user first. ``object.join`` builds the result IN the active object's datablock,
+        so a linked duplicate sharing that mesh silently mutates into the combined geometry
+        (verified live, Blender 5.1) — the same sibling-loss hazard as Maya's instanced combine.
         """
         objs = _EditUtilsInternal._meshes(
             objects if objects is not None else CoreUtils.selected_objects()
         )
         if len(objs) < 2:
             return None
+        if uninstance:
+            # Local import: NodeUtils pulls in xform_utils lazily; keep this edge lazy too.
+            from blendertk.node_utils._node_utils import NodeUtils
+
+            NodeUtils.uninstance(objs)
 
         if not group_by_material:
             return _EditUtilsInternal._join_copies(objs, objs[0].name)
@@ -1565,8 +1740,10 @@ class EditUtils(_EditUtilsInternal):
           ``duplicate``      leave the originals in place and extract a COPY.
           ``separate``       move the extracted faces into a NEW object (off = split them off in
                              place via ``mesh.split``, staying within the same mesh; returns []).
-          ``separate_each``  each extracted face becomes its own object (edge-split the extract
-                             into face islands, then split into loose parts).
+          ``separate_each``  each extracted face comes apart on its own — a separate object with
+                             ``separate`` on (edge-split the extract into face islands, then split
+                             into loose parts), or a loose island within the source mesh with
+                             ``separate`` off (mayatk's ``keepFacesTogether=False`` in place).
           ``center_pivot``   give each newly created object its own centered pivot (split geo /
                              multiple objects are centered separately) instead of inheriting the
                              source's off-in-the-corner origin. Only the in-place ``separate=False``
@@ -1594,7 +1771,12 @@ class EditUtils(_EditUtilsInternal):
         if duplicate:  # extract a copy: duplicate the selection in place first
             bpy.ops.mesh.duplicate()
         if not separate:  # detach in place — keep the geometry within the same object
-            bpy.ops.mesh.split()
+            # edge_split disconnects along EVERY selected edge, so the faces come apart from
+            # each other as well as from the body — mayatk's keepFacesTogether=False in place.
+            if separate_each:
+                bpy.ops.mesh.edge_split()
+            else:
+                bpy.ops.mesh.split()
             return []
 
         before = set(bpy.data.objects)

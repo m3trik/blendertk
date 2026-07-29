@@ -148,8 +148,6 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         against the current workspace + scene so the hover shows the real Save dir
         (mirror of mayatk). Side-effect-free: the ``{scene}`` typo is corrected
         locally and surfaced as a note rather than mutating state."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         menu = getattr(getattr(self.ui, "header", None), "menu", None)
         txt = getattr(menu, "txt_subfolder_structure", None) if menu else None
         pattern = txt.text().strip() if txt is not None else ""
@@ -196,7 +194,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
         # Fold the field's help text into the live tooltip (binding replaces the
         # static setToolTip): purpose + what each placeholder means + its value.
-        return TooltipFormat.placeholder_preview(
+        return self.sb.tooltip.placeholder_preview(
             resolve_pattern,
             context,
             title="Folder Structure",
@@ -237,8 +235,6 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         Workspace management (New / Mark As Workspace) and Recursive scanning live on the Root
         Directory field's option box — Maya keeps neither in this header.
         """
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release. Runs on every call
         # (declarative, cheap) and the signal is re-wired idempotently (disconnect-then-connect)
         # because the header QWidget can outlive this slots instance — a bare .connect() on a
@@ -367,7 +363,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         ).clicked.connect(self.remove_all)
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Reference Manager",
                 body="A workspace scene-file manager: browse a project's .blend files, open / save / "
                 "rename / delete them, and link them as references (Blender libraries).",

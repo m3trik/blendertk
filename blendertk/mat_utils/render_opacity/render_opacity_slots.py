@@ -67,15 +67,13 @@ class RenderOpacitySlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add("Separator", setTitle="Options")
         widget.menu.add(
             "QCheckBox",
             setText="Last Selected Only",
             setObjectName="chk_last_selected",
             setChecked=False,
-            setToolTip=TooltipFormat.fmt(
+            setToolTip=self.sb.tooltip.fmt(
                 body="Applies to Create, Key, and Remove operations.",
                 bullets=[
                     "<b>On:</b> Only the active object is processed.",
@@ -88,7 +86,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             setText="Delete Visibility Keys",
             setObjectName="chk_delete_vis_keys",
             setChecked=False,
-            setToolTip=TooltipFormat.fmt(
+            setToolTip=self.sb.tooltip.fmt(
                 bullets=[
                     "<b>On:</b> Existing visibility keyframes are deleted before applying opacity.",
                     "<b>Off:</b> Objects with visibility keys are skipped with a warning.",
@@ -96,7 +94,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             ),
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Render Opacity",
                 body="Add a keyable <b>opacity</b> custom property (0-1) to objects for "
                 "engine-ready transparency control. The <b>Mode</b> combo is kept for parity "
@@ -207,8 +205,6 @@ class RenderOpacitySlots(ptk.LoggingMixin):
 
     def tb000_init(self, widget):
         """Key Render Opacity Init — configure option-box menu."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.option_box.menu.setTitle("Key Render Opacity")
         widget.option_box.menu.add(
             "QSpinBox",
@@ -224,7 +220,7 @@ class RenderOpacitySlots(ptk.LoggingMixin):
             setText="End at Playhead",
             setObjectName="chk000",
             setChecked=True,
-            setToolTip=TooltipFormat.fmt(
+            setToolTip=self.sb.tooltip.fmt(
                 bullets=[
                     "<b>On:</b> Fade ends at the playhead (current−frames → current).",
                     "<b>Off:</b> Fade starts at the playhead (current → current+frames).",
@@ -234,13 +230,16 @@ class RenderOpacitySlots(ptk.LoggingMixin):
         cmb = widget.option_box.menu.add(
             "QComboBox",
             setObjectName="cmb_direction",
-            setToolTip=TooltipFormat.fmt(
+            setToolTip=self.sb.tooltip.fmt(
                 title="Fade Direction",
                 bullets=[
                     "<b>Fade In:</b> Key opacity 0 → 1.",
                     "<b>Fade Out:</b> Key opacity 1 → 0.",
+                    # '<' must be escaped: Qt auto-detects this string as rich
+                    # text, so a bare '<' opens a tag and swallows the rest of
+                    # the bullet up to the next '>'.
                     "<b>Auto:</b> Detect from the previous key — if last value "
-                    "≥ 0.5 → fade out; if < 0.5 or no key → fade in.",
+                    "≥ 0.5 → fade out; if &lt; 0.5 or no key → fade in.",
                 ],
             ),
         )

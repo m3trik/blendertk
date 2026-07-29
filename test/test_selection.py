@@ -730,6 +730,47 @@ try:
     res = btk.Selection.select_by_type("Front-Facing", objs, mode="replace")
     check("Front-Facing (positive signed UV area) -> [Front]", res == [front], f"{res}")
 
+    # ---- SelectionOrder tracker + reorder_objects (2026-07-28 rolled infrastructure) ----
+    reset()
+    a = bpy.data.objects.new("OrdA", None)
+    b = bpy.data.objects.new("OrdB", None)
+    c = bpy.data.objects.new("OrdC", None)
+    for o, loc in ((a, (3, 0, 0)), (b, (1, 0, 0)), (c, (2, 0, 0))):
+        bpy.context.collection.objects.link(o)
+        o.location = loc
+    bpy.context.view_layer.update()
+
+    btk.SelectionOrder.disable()  # clean slate
+    btk.SelectionOrder.enable()
+    # Simulate click order c -> a -> b (select + activate, then drive the handler the way
+    # depsgraph_update_post would).
+    for o in (c, a, b):
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        btk.SelectionOrder._on_depsgraph(bpy.context.scene)
+    got = [o.name for o in btk.SelectionOrder.get()]
+    check("SelectionOrder records click order", got == ["OrdC", "OrdA", "OrdB"], f"{got}")
+    a.select_set(False)
+    btk.SelectionOrder._on_depsgraph(bpy.context.scene)
+    got = [o.name for o in btk.SelectionOrder.get()]
+    check("SelectionOrder drops deselected", got == ["OrdC", "OrdB"], f"{got}")
+
+    ordered = btk.reorder_objects([a, b, c], method="x")
+    check("reorder_objects by x", [o.name for o in ordered] == ["OrdB", "OrdC", "OrdA"],
+          f"{[o.name for o in ordered]}")
+    ordered = btk.reorder_objects([a, b, c], method="name", reverse=True)
+    check("reorder_objects name reversed", [o.name for o in ordered] == ["OrdC", "OrdB", "OrdA"],
+          f"{[o.name for o in ordered]}")
+    ordered = btk.reorder_objects([b, a, c], method="creation_time")
+    check("reorder_objects creation_time (session_uid)",
+          [o.name for o in ordered] == ["OrdA", "OrdB", "OrdC"], f"{[o.name for o in ordered]}")
+
+    btk.SelectionOrder.set_order([b, a])
+    got = [o.name for o in btk.SelectionOrder.get([a, b])]
+    check("set_order writes explicit order", got == ["OrdB", "OrdA"], f"{got}")
+    btk.SelectionOrder.disable()
+    check("disable clears tracking", not btk.SelectionOrder.is_enabled())
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

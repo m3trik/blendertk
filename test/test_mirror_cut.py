@@ -91,11 +91,109 @@ try:
     check("mirror object-pivot uses local axis", min(ys) < -0.9 and max(ys) > 0.9,
           f"y {min(ys):.2f}..{max(ys):.2f}")
 
+    # ---- mirroring a LINKED object: separate mode copies the data explicitly, so the
+    # sibling survives untouched (Maya's polySeparate consumed both — see its changelog);
+    # merge modes edit the shared data in place, so every linked duplicate updates together.
+    reset()
+    o = cube_at(x=2.0)
+    sib = o.copy()  # linked duplicate: shares o.data
+    for coll in o.users_collection:
+        coll.objects.link(sib)
+    sib.location.x += 10.0
+    bpy.context.view_layer.update()
+    sib_verts_before = len(sib.data.vertices)
+
+    created = btk.mirror(o, axis="x", pivot="object", merge_mode=-1)
+    check("mirror -1 on a linked object keeps the sibling", sib.name in bpy.data.objects)
+    check("mirror -1 on a linked object leaves the sibling's geometry alone",
+          len(sib.data.vertices) == sib_verts_before,
+          f"verts {len(sib.data.vertices)} (was {sib_verts_before})")
+    check("mirror -1 gives the new half its own data",
+          created and created[0].data is not sib.data)
+
+    # merge mode: the link is broken first, so the sibling is NOT rewritten in place
+    reset()
+    o = cube_at(x=2.0)
+    sib = o.copy()
+    for coll in o.users_collection:
+        coll.objects.link(sib)
+    sib.location.x += 10.0
+    bpy.context.view_layer.update()
+    sib_verts_before = len(sib.data.vertices)
+    btk.mirror(o, axis="x", pivot="object", merge_mode=0)
+    check("mirror merge breaks the link instead of rewriting the sibling",
+          sib.data is not o.data and len(sib.data.vertices) == sib_verts_before,
+          f"verts={len(sib.data.vertices)} (was {sib_verts_before}) shared={sib.data is o.data}")
+    check("mirror merge still doubled the mirrored object", len(o.data.vertices) > sib_verts_before,
+          f"verts={len(o.data.vertices)}")
+
+    # ---- mirror_instance: LINKED duplicate (shared mesh data) reflected across the plane
+    reset()
+    o = cube_at(x=2.0)  # spans x 1..3
+    n_objs = len(bpy.data.objects)
+    created = btk.mirror_instance(o, axis="x", pivot="world")
+    check("mirror_instance creates one new object", len(bpy.data.objects) == n_objs + 1)
+    m = created[0]
+    check("mirror_instance shares the source mesh data", m.data is o.data)
+    check("mirror_instance names it _mirror", m.name.endswith("_mirror"), m.name)
+    xs = world_xs(m)
+    check("mirror_instance reflected across world X (x in -3..-1)",
+          max(xs) <= -0.99 and min(xs) >= -3.01, f"x range {min(xs):.2f}..{max(xs):.2f}")
+    check("mirror_instance is mirrored (negative determinant)",
+          m.matrix_world.determinant() < 0, f"det={m.matrix_world.determinant():.3f}")
+    check("mirror_instance leaves the source unmirrored",
+          o.matrix_world.determinant() > 0)
+    check("mirror_instance source geometry untouched", abs(min(world_xs(o)) - 1.0) < 1e-5)
+    # editing the shared data must move BOTH halves — that's the point of instancing
+    o.data.vertices[0].co.x += 5.0
+    bpy.context.view_layer.update()
+    check("mirror_instance halves stay linked (edit propagates)",
+          abs(max(world_xs(m)) - (-1.0)) > 1e-3 or abs(min(world_xs(m)) + 3.0) > 1e-3,
+          f"x range {min(world_xs(m)):.2f}..{max(world_xs(m)):.2f}")
+
+    # ---- mirror_instance about the object pivot follows the object's LOCAL axis
+    reset()
+    o = cube_at(x=2.0)
+    o.rotation_euler = (0.0, 0.0, 1.5708)  # local X now points along world Y
+    bpy.context.view_layer.update()
+    m = btk.mirror_instance(o, axis="x", pivot="object")[0]
+    check("mirror_instance object-pivot keeps the copy on the object",
+          (m.matrix_world.translation - o.matrix_world.translation).length < 1e-4,
+          f"delta={(m.matrix_world.translation - o.matrix_world.translation).length:.4f}")
+    check("mirror_instance object-pivot still mirrors", m.matrix_world.determinant() < 0)
+
     # ---- cut_along_axis: amount=2 adds two slices (cube 6 faces -> 6 + 2*4 = 14)
     reset()
     o = cube_at()
     btk.cut_along_axis(o, axis="x", pivot="center", amount=2)
     check("cut amount=2 slices the cube", len(o.data.polygons) == 14, f"f={len(o.data.polygons)}")
+
+    def cut_xs(o, **kwargs):
+        """Distinct x positions the cuts landed at (new verts vs a plain cube's ±1)."""
+        btk.cut_along_axis(o, axis="x", pivot="center", **kwargs)
+        return sorted({round(x, 4) for x in world_xs(o)} - {-1.0, 1.0})
+
+    # legacy default preserved: 3 linear cuts even-fill the axis (span L*(n-1)/(n+1) = 1
+    # for a 2-unit cube -> cuts at -0.5, 0, +0.5) — identical to the old spacing math
+    reset()
+    xs = cut_xs(cube_at(), amount=3)
+    check("cut linear default = legacy even-fill", xs == [-0.5, 0.0, 0.5], str(xs))
+
+    # spacing>0 fixes the per-cut gap: 3 cuts, spacing 0.25 -> -0.25, 0, +0.25
+    reset()
+    xs = cut_xs(cube_at(), amount=3, spacing=0.25)
+    check("cut spacing fixes the gap", xs == [-0.25, 0.0, 0.25], str(xs))
+
+    # non-linear distribution: ease_in keeps endpoints, biases the middle cut off-center
+    reset()
+    xs = cut_xs(cube_at(), amount=3, spacing=0.5, distribution="ease_in")
+    mid = [x for x in xs if abs(x) < 0.49]
+    check(
+        "cut ease_in biases interior cuts (endpoints fixed)",
+        len(xs) == 3 and abs(min(xs) + 0.5) < 1e-3 and abs(max(xs) - 0.5) < 1e-3
+        and mid and mid[0] != 0.0,
+        str(xs),
+    )
 
     # ---- cut delete=True: 'x' deletes the +X half (Maya convention)
     reset()

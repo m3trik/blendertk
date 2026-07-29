@@ -44,6 +44,19 @@ class _XformUtilsInternal(object):
     """Internal helpers for XformUtils."""
 
     @staticmethod
+    def _is_multi_user(obj):
+        """Whether ``obj``'s data is shared with another OBJECT (a linked duplicate).
+
+        Delegates the count to ``NodeUtils``' canonical object-user tally, which
+        deliberately ignores fake users and non-object references that ``data.users``
+        would inflate (they don't block a bake).
+        """
+        from blendertk.node_utils._node_utils import _NodeUtilsInternal
+
+        data = getattr(obj, "data", None)
+        return data is not None and _NodeUtilsInternal._object_users(data) > 1
+
+    @staticmethod
     def _combined_bbox(objects):
         from mathutils import Vector
 
@@ -133,7 +146,14 @@ class XformUtils(_XformUtilsInternal):
     ):
         """Apply (bake) the given transform channels into the object data — Blender's
         ``transform_apply`` (mirror of ``mtk.freeze_transforms``). ``store`` stamps the
-        pre-freeze channels as custom props so :func:`restore_transforms` can un-freeze."""
+        pre-freeze channels as custom props so :func:`restore_transforms` can un-freeze.
+
+        Multi-user (linked) mesh data can't be baked into — the bake would rewrite every
+        linked duplicate's geometry — and ``transform_apply`` aborts the *whole* batch over
+        one such object, so those objects are skipped with a message and the rest of the
+        batch still bakes (matching mayatk's twin). To bake one anyway, break the link first
+        and bake in one step: ``NodeUtils.uninstance(objs, freeze=True)``.
+        """
         import bpy
 
         if not (location or rotation or scale):
@@ -141,6 +161,19 @@ class XformUtils(_XformUtilsInternal):
         objects = [o for o in ptk.make_iterable(objects) if o]
         if not objects:
             return
+
+        shared = [o for o in objects if _XformUtilsInternal._is_multi_user(o)]
+        if shared:
+            names = ", ".join(o.name for o in shared)
+            print(
+                f"XformUtils.freeze_transforms: skipping {len(shared)} multi-user "
+                f"object(s) ({names}) — use NodeUtils.uninstance(objs, freeze=True) "
+                f"to break the link and bake in one step."
+            )
+            objects = [o for o in objects if o not in shared]
+            if not objects:
+                return
+
         bpy.ops.object.select_all(action="DESELECT")
         snapshots = []  # prior bake values (read pre-store) so a failed apply leaves no orphaned bakes
         for o in objects:
@@ -379,6 +412,7 @@ class XformUtils(_XformUtilsInternal):
         rotate=False,
         scale=False,
         world_space=True,
+        mirror="",
         select_targets_after_transfer=False,
     ):
         """Transfer the object **origin** from the first object to the rest — mirror of Maya's
@@ -388,7 +422,10 @@ class XformUtils(_XformUtilsInternal):
         each target's origin moves onto the source's origin *without moving its geometry* (3D-cursor
         → ``ORIGIN_CURSOR``). The ``rotate`` / ``scale`` flags are accepted for signature parity but
         no-op — Blender has no separate rotate/scale pivot. ``world_space`` is implicit (the origin is
-        read in world space). Returns the target objects (selected afterward when requested).
+        read in world space). ``mirror`` ("x"/"y"/"z", default off) reflects the transferred origin
+        across that world axis-plane through the origin before the snap — the position level of
+        mtk's mirror= (orientation-conjugation stays N/A: a point origin has no orientation).
+        Returns the target objects (selected afterward when requested).
         """
         import bpy
 
@@ -405,7 +442,12 @@ class XformUtils(_XformUtilsInternal):
         )  # view-layer read: bpy.context.selected_objects is empty from the Qt-pump context
         try:
             if translate:
-                scene.cursor.location = source.matrix_world.translation
+                pos = list(source.matrix_world.translation)
+                axis = str(mirror).strip().lower()
+                if axis in ("x", "y", "z"):
+                    idx = "xyz".index(axis)
+                    pos[idx] = -pos[idx]
+                scene.cursor.location = pos
                 for t in targets:
                     bpy.ops.object.select_all(action="DESELECT")
                     t.select_set(True)

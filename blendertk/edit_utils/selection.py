@@ -28,6 +28,7 @@ in the flat ``_SELECT_TYPES`` dict this replaces, so keeping them avoids regress
 ``import bpy``/``bmesh`` are deferred into the call bodies (no import side effects).
 """
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.node_utils._node_utils import NodeUtils
 
 
@@ -784,6 +785,110 @@ class Selection:
             category: list(types.keys())
             for category, types in Selection._SELECTION_CONFIG.items()
         }
+
+
+class SelectionOrder:
+    """Ordered **object** selection — rolled infrastructure Blender doesn't ship.
+
+    Blender operators receive an unordered selection set; only component selection records
+    order (``bmesh.select_history``). Maya tools that consume click order (Reorder Selection,
+    ordered transfers, rig chains) therefore had no Blender surface. This tracker maintains
+    one: a ``depsgraph_update_post`` handler diffs the selected set on every update, appending
+    newly-selected names in the order they appear (the active object last — Blender makes the
+    last-clicked object active, so single-click sequences record true click order; a box/lasso
+    multi-select arrives as one batch in arbitrary order, same limit Maya's
+    ``trackSelectionOrder`` has within one drag) and dropping deselected ones.
+
+    Session-scoped (names, not saved with the .blend). ``enable()`` is idempotent;
+    :func:`get` degrades gracefully to the unordered selection while disabled.
+    """
+
+    _order: list = []  # object names, oldest-selected first
+    _enabled = False
+    _handler = None  # the @persistent-wrapped callable actually registered
+
+    @classmethod
+    def enable(cls):
+        """Start tracking (idempotent). Safe to call at startup — the handler is a no-op
+        until selection actually changes. The registered callable is ``@persistent``:
+        non-persistent handlers are cleared on every file load, which would silently kill
+        a startup-armed tracker the first time the user opens a .blend."""
+        import bpy
+        from bpy.app.handlers import persistent
+
+        if cls._enabled:
+            return
+        if cls._handler is None:
+
+            @persistent
+            def _selection_order_update(scene, depsgraph=None):
+                cls._on_depsgraph(scene, depsgraph)
+
+            cls._handler = _selection_order_update
+        cls._order = [o.name for o in CoreUtils.selected_objects()]
+        bpy.app.handlers.depsgraph_update_post.append(cls._handler)
+        cls._enabled = True
+
+    @classmethod
+    def disable(cls):
+        """Stop tracking and clear the recorded order."""
+        import bpy
+
+        try:
+            bpy.app.handlers.depsgraph_update_post.remove(cls._handler)
+        except ValueError:
+            pass
+        cls._enabled = False
+        cls._order = []
+
+    @classmethod
+    def is_enabled(cls):
+        return cls._enabled
+
+    @classmethod
+    def _on_depsgraph(cls, scene, depsgraph=None):
+        import bpy
+
+        view_layer = bpy.context.view_layer
+        if view_layer is None:  # render/undefined handler context — nothing to diff
+            return
+        selected = [o.name for o in view_layer.objects if o.select_get()]
+        selected_set = set(selected)
+        order = [n for n in cls._order if n in selected_set]
+        known = set(order)
+        fresh = [n for n in selected if n not in known]
+        active = view_layer.objects.active
+        # Active last: Blender activates the last-clicked object, so within one update
+        # batch the active is the newest pick.
+        if active is not None and active.name in fresh:
+            fresh = [n for n in fresh if n != active.name] + [active.name]
+        cls._order = order + fresh
+
+    @classmethod
+    def get(cls, objects=None):
+        """The selected objects in recorded selection order (oldest pick first).
+
+        ``objects`` optionally restricts/reorders an explicit set instead of the live
+        selection. While the tracker is disabled, falls back to the unordered selection —
+        callers stay functional, just order-blind (documented degradation, mirroring how
+        Maya behaves with ``trackSelectionOrder`` off)."""
+        import bpy
+
+        pool = list(
+            objects if objects is not None else CoreUtils.selected_objects()
+        )
+        if not cls._enabled:
+            return pool
+        rank = {n: i for i, n in enumerate(cls._order)}
+        return sorted(pool, key=lambda o: rank.get(o.name, len(rank)))
+
+    @classmethod
+    def set_order(cls, objects):
+        """Explicitly record ``objects`` (in the given order) as the selection order — the
+        write half of Maya's 'reselect in new order' (Blender reselection alone can't carry
+        order). Enables tracking so the order persists through subsequent picks."""
+        cls.enable()
+        cls._order = [o.name for o in objects]
 
 
 # --------------------------------------------------------------------------------------------

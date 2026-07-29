@@ -722,10 +722,8 @@ class TubeRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Tube Rig",
                 body="Rig a tube-shaped mesh several ways. The centerline is auto-detected; pick a "
                 "<b>Mode</b> and the options below reconfigure to that rig type.",

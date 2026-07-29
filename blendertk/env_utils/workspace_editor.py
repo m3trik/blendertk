@@ -58,7 +58,6 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
     def header_init(self, widget):
         """Rule add, view toggle, reset/clear, template combo, help text."""
         from uitk.widgets.comboBox import ComboBox
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
         from uitk.managers.preset_manager import PresetManager
         from blendertk.env_utils import _env_utils
 
@@ -112,7 +111,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         )
         self._preset_mgr.wire_combo(combo, placeholder="Templates…")
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Workspace Editor (Project Window)",
                 body="Define a shared Maya/Blender project workspace — the mirror of "
                 "Maya's File ▸ Project Window. File rules map a location (Scenes, "

@@ -273,6 +273,75 @@ try:
         f"v={len(bpy.data.objects['Src'].data.vertices)}",
     )
 
+    # ---- prepare_operation: one-shot precondition, run BEFORE every capture.
+    # The mirror case: forking linked data must happen outside the rollback's view,
+    # or the fresh datablock is purged as "new" and strips the object's mesh.
+    class PrepareOp:
+        def __init__(self):
+            self.prepared = 0
+
+        def prepare_operation(self, objects):
+            self.prepared += 1
+            btk.uninstance(objects)
+
+        def perform_operation(self, objects):
+            btk.mirror(objects, axis="x", pivot="world", merge_mode=0)
+
+    reset()
+    src = cube("Src")
+    linked = src.copy()  # linked duplicate: shares src.data
+    for coll in src.users_collection:
+        coll.objects.link(linked)
+    linked.location.x += 10.0
+    bpy.context.view_layer.update()
+    src_verts, linked_verts = len(src.data.vertices), len(linked.data.vertices)
+
+    op = PrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    src.select_set(True)
+    bpy.context.view_layer.objects.active = src
+
+    chk.setChecked(True)  # enable -> prepare + first preview build
+    check("prepare_operation ran once at enable", op.prepared == 1, f"n={op.prepared}")
+    check("prepare_operation broke the link", src.data is not linked.data)
+    pv.refresh()
+    check("prepare_operation does NOT re-run on refresh", op.prepared == 1, f"n={op.prepared}")
+
+    chk.setChecked(False)  # rollback
+    src_after = bpy.data.objects.get("Src")
+    check("rollback keeps the prepared object's mesh intact",
+          src_after is not None and src_after.data is not None
+          and len(src_after.data.vertices) == src_verts,
+          f"v={len(src_after.data.vertices) if src_after and src_after.data else '<none>'} (was {src_verts})")
+    check("rollback leaves the linked sibling untouched",
+          len(linked.data.vertices) == linked_verts,
+          f"v={len(linked.data.vertices)} (was {linked_verts})")
+
+    # ---- a failing precondition aborts the enable (the op never runs)
+    class BoomPrepareOp:
+        def __init__(self):
+            self.ran = 0
+
+        def prepare_operation(self, objects):
+            raise RuntimeError("precondition failed")
+
+        def perform_operation(self, objects):
+            self.ran += 1
+
+    reset()
+    o = cube("Src")
+    boom = BoomPrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    chk.setChecked(True)
+    check("failing prepare_operation aborts the enable", not chk.isChecked())
+    check("failing prepare_operation prevents the operation", boom.ran == 0, f"n={boom.ran}")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

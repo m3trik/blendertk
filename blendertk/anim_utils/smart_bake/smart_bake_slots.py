@@ -11,8 +11,10 @@ carries no back-dependency on tentacle; discovered by ``BlenderUiHandler``
 (``marking_menu.show("smart_bake")``).
 
 Divergence from mayatk's panel (mirrors the engine's own scope cuts — see ``_smart_bake.py``):
-no Bake-Inherited-Visibility checkbox (architecturally absent on Blender — there is no
-inherited-visibility bake pass to expose). ``Mute Sources`` / ``Delete Sources`` map 1:1 onto the
+no Bake-Inherited-Visibility checkbox (architecturally absent on Blender — collection hide
+flags, the only inherited-visibility mechanism, are not animatable at all, so there is no
+inherited-visibility bake pass to expose; verified live 5.1, 2026-07-28).
+``Mute Sources`` / ``Delete Sources`` map 1:1 onto the
 engine's own ``use_override`` / ``delete_sources`` keywords — mayatk's separate
 ``chk_override_layer``/``chk_mute_drivers`` collapse into these two, since Blender's bake has no
 base-layer-conversion mode to give a standalone "mute the driver instead of the layer" meaning
@@ -120,8 +122,6 @@ class SmartBakeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget) -> None:
         """Configure header menu, refresh button, and help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self._refresh_session_state)
         widget.menu.add(
@@ -131,7 +131,7 @@ class SmartBakeSlots(ptk.LoggingMixin):
             setToolTip="Reset every field in this panel to its default value.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Smart Bake",
                 body="Analyzes the scene for constraints, IK, drivers, and driven shape-key "
                 "weights, then bakes only the objects/bones that are actually driven — "

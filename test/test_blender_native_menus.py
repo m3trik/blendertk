@@ -48,6 +48,7 @@ except Exception:
 try:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     from uitk.widgets.mainWindow import MainWindow
+    from blendertk.ui_utils import menu_harvest
     from blendertk.ui_utils.blender_native_menus import BlenderNativeMenus
 
     handler = BlenderNativeMenus()
@@ -59,8 +60,13 @@ try:
         than restating it; only the bpy-side harvest is mocked (a non-zero row
         count is what makes get_menu keep and return the wrapper).
         """
-        with mock.patch(
-            "blendertk.ui_utils.menu_harvest.refill_qmenu", return_value=5
+        # Patch the CLASS attribute: refill_qmenu is a MenuHarvest staticmethod,
+        # and production calls it as `menu_harvest.MenuHarvest.refill_qmenu`
+        # (blender_native_menus.py). A module-level target resolves only at
+        # runtime, so the stale flat-function name survived the class migration
+        # and failed here rather than at collection.
+        with mock.patch.object(
+            menu_harvest.MenuHarvest, "refill_qmenu", return_value=5
         ):
             widget = handler.get_menu(name)
         return widget.objectName() if widget is not None else None

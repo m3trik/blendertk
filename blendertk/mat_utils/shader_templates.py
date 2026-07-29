@@ -91,8 +91,6 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------ header menu
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.setTitle("Shader Templates")
         widget.menu.add(
             self.sb.registered_widgets.Label,
@@ -107,7 +105,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
             setToolTip="Open the last restored material in the Shader Editor.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Shader Templates",
                 body="Save and restore shader networks as reusable templates. Templates live "
                 "in blendertk's shared user-preset store.",

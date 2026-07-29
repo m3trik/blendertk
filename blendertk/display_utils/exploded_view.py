@@ -62,12 +62,10 @@ class ExplodedViewSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Exploded View",
                 body="Spread selected objects outward from their shared center to inspect "
                 "interior parts. Each object's pre-explode location is stamped as a custom "

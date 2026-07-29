@@ -22,7 +22,7 @@ import math
 import os
 import re
 from collections import defaultdict
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 import pythontk as ptk
 
@@ -101,33 +101,66 @@ class _TaskDataMixin:
 
         return os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
 
+    @staticmethod
+    def _scene():
+        """The active scene, resolved through the package's context accessor.
+
+        Routed via ``CoreUtils._active_view_layer`` (whose ``id_data`` is the
+        owning scene) rather than read straight off ``bpy.context``: the panel
+        runs from tentacle's Qt event-pump timer, a context where
+        ``bpy.context.window`` is ``None`` and parts of the context are unset.
+        That accessor is the one place in blendertk that knows the fallback
+        chain, so scene reads here inherit it instead of re-deriving it. It
+        falls back to ``bpy.context.scene`` itself, so this is never worse than
+        the direct read -- unlike ``selected_objects`` / ``active_object``,
+        which are *proven* empty in that context (``test_core_utils.py``).
+        """
+        import bpy
+
+        vl = CoreUtils._active_view_layer()
+        return vl.id_data if vl is not None else bpy.context.scene
+
 
 class _TaskActionsMixin(_TaskDataMixin):
-    """Export-prep tasks (mutate scene state; ``set_*`` tasks pair with a ``revert_*``)."""
+    """Export-prep tasks (mutate scene state).
+
+    A ``set_*`` task either pairs with a ``revert_*`` (undone when ``run_tasks``
+    returns) or, when the FBX *write* itself reads the mutation, returns ``None``
+    and stages its restore via ``TaskFactory.stage_deferred_restore``.
+    """
 
     def set_linear_unit(self, value):
-        """Temporarily set the scene's unit system + scale for export. Returns the prior
-        ``(system, scale_length)`` for :meth:`revert_linear_unit`."""
-        import bpy
+        """Set the scene's unit system + scale for the duration of the export.
 
-        settings = bpy.context.scene.unit_settings
+        **Staged, not ``set_``/``revert_``-paired.** Blender's FBX exporter reads
+        ``scene.unit_settings.scale_length`` when it *writes* (``apply_unit_scale``
+        is on by default), while the ``revert_<x>`` pair the TaskFactory wires up
+        fires when ``run_tasks`` returns -- *before* the write (see
+        ``TaskFactory._get_revert_method``: only mutations the export doesn't read
+        may revert that way). Pairing this task therefore undid the unit change
+        before it could take effect, making the task inert. The restore rides
+        ``TaskFactory.stage_deferred_restore`` instead, so the unit survives the
+        write and is undone immediately after it.
+
+        Returns ``None`` unconditionally -- a non-None result is what would
+        re-arm the too-early revert.
+        """
+        if not value:
+            return None
+        settings = self._scene().unit_settings
         original = (settings.system, settings.scale_length)
-        if value:
-            system, scale = value
-            settings.system = system
-            settings.scale_length = scale
-            self.logger.debug(
-                f"Changed scene units to {system} (scale_length={scale})."
-            )
-        return original
 
-    def revert_linear_unit(self, original):
-        """Revert to the unit system + scale recorded by :meth:`set_linear_unit`."""
-        import bpy
+        def restore():
+            reverting = self._scene().unit_settings
+            reverting.system, reverting.scale_length = original
+            self.logger.debug(f"Reverted scene units to {original}.")
 
-        settings = bpy.context.scene.unit_settings
-        settings.system, settings.scale_length = original
-        self.logger.debug(f"Reverted scene units to {original}.")
+        self.stage_deferred_restore("linear_unit", restore)
+        system, scale = value
+        settings.system = system
+        settings.scale_length = scale
+        self.logger.debug(f"Changed scene units to {system} (scale_length={scale}).")
+        return None
 
     def exclude_hdr(self, enabled):
         """No-op by design: Blender's World/Environment-Texture network is not a scene object
@@ -297,8 +330,13 @@ class _TaskActionsMixin(_TaskDataMixin):
         Blender's FBX exporter bakes over the *scene's* frame range (``bake_anim=True`` in
         ``_scene_exporter.py`` -- there is no separate "bake complex start/end" knob the way
         Maya's FBX plugin exposes via MEL), so the analogue of mayatk's auto-range task is to
-        set the scene's own range for the export and revert it after. Runs last in the
-        animation phase (TASK_ORDER) so it captures the final, post-processing extent.
+        set the scene's own range for the export. Runs last in the animation phase
+        (TASK_ORDER) so it captures the final, post-processing extent.
+
+        **Staged, not ``set_``/``revert_``-paired** -- for the same reason as
+        :meth:`set_linear_unit`: the range is read by the *write*, and the paired
+        revert fires before it. Returns ``None`` so that pairing stays disarmed;
+        the restore rides ``stage_deferred_restore`` instead.
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
 
@@ -307,21 +345,10 @@ class _TaskActionsMixin(_TaskDataMixin):
             self.logger.debug("No keyframes found. Skipping frame range setting.")
             return None
 
-        import bpy
-
-        scene = bpy.context.scene
-        original = (scene.frame_start, scene.frame_end)
         start, end = math.floor(rng[0]), math.ceil(rng[1])
-        scene.frame_start, scene.frame_end = int(start), int(end)
+        self._set_frame_range(start, end)
         self.logger.info(f"Set animation range to start: {int(start)}, end: {int(end)}")
-        return original
-
-    def revert_bake_animation_range(self, original):
-        """Revert the scene's frame range recorded by :meth:`set_bake_animation_range`."""
-        import bpy
-
-        bpy.context.scene.frame_start, bpy.context.scene.frame_end = original
-        self.logger.debug(f"Reverted animation range to {original}.")
+        return None
 
     def export_data_node(self):
         """Include the shared ``data_export`` carrier in the export (default on).
@@ -368,7 +395,72 @@ class _TaskActionsMixin(_TaskDataMixin):
         if carrier not in (self.objects or []):
             self.objects = list(self.objects or []) + [carrier]
             self.logger.info("data_export carrier added to the export set.")
+
+        # Keyed-weight curve proxies: Blender's FBX exporter can't ship
+        # custom-property animation, so EmissiveGroups stages one transient
+        # Empty per keyed group whose scale.x carries the weight curve (the
+        # Blender half of mayatk's _KNOWN_PRODUCERS export hook). They must
+        # exist THROUGH the FBX write and vanish after, which the task-revert
+        # engine can't express (reverts run before the write) — hence the
+        # deferred restore.
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        proxies = EmissiveGroups.create_export_curve_proxies()
+        if proxies:
+            self.objects = list(self.objects or []) + proxies
+            self.stage_deferred_restore(
+                "emissive_curve_proxies",
+                EmissiveGroups.remove_export_curve_proxies,
+            )
+            self._cover_frame_range(proxies)
+
         self._log_data_node_summary()
+
+    def _set_frame_range(self, start, end) -> None:
+        """Set the scene's frame range for the export, staging its restore.
+
+        Deferred rather than ``revert_``-paired (the FBX writer reads the range
+        *at* the write); ``stage_deferred_restore`` keys on ``frame_range`` so a
+        later widen builds on the first caller's original.
+        """
+        scene = self._scene()
+        original = (scene.frame_start, scene.frame_end)
+
+        def restore():
+            reverting = self._scene()
+            reverting.frame_start, reverting.frame_end = original
+            self.logger.debug(f"Reverted animation range to {original}.")
+
+        self.stage_deferred_restore("frame_range", restore)
+        scene.frame_start, scene.frame_end = int(start), int(end)
+
+    def _cover_frame_range(self, objects) -> None:
+        """Widen the scene's frame range so *objects*' keys all fall inside it.
+
+        Blender bakes animation over the SCENE range, so a curve keyed outside
+        it ships flattened to its extrapolated value.  The weight-curve proxies
+        are staged in :meth:`export_data_node` -- after
+        :meth:`set_bake_animation_range` has already computed its extent, and
+        that task is a user-toggleable checkbox that may be off entirely -- so
+        the range they need is claimed here rather than inferred there.  Only
+        ever widens (never clips someone else's range), and rides the same
+        staged restore.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        rng = AnimUtils._key_range(AnimUtils.get_fcurves(objects))
+        if rng is None:
+            return
+        scene = self._scene()
+        start = min(scene.frame_start, math.floor(rng[0]))
+        end = max(scene.frame_end, math.ceil(rng[1]))
+        if (start, end) == (scene.frame_start, scene.frame_end):
+            return
+        self._set_frame_range(start, end)
+        self.logger.info(
+            f"Widened the export frame range to {int(start)}-{int(end)} so the "
+            "staged keyed-weight curves bake in full."
+        )
 
     def _log_data_node_summary(self):
         """Log what metadata actually shipped on ``data_export``.
@@ -423,9 +515,7 @@ class _TaskChecksMixin(_TaskDataMixin):
         target = ptk.VidUtils.FRAME_RATES.get(target_key)
         if target is None:
             return True, []
-        import bpy
-
-        scene = bpy.context.scene
+        scene = self._scene()
         actual = scene.render.fps / scene.render.fps_base
         if abs(actual - target) > 1e-3:
             return False, [

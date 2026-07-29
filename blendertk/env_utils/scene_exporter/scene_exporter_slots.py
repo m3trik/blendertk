@@ -80,8 +80,6 @@ class SceneExporterSlots(SceneExporter):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add_presets = True
         widget.menu.presets.preset_dir = "blendertk/scene_exporter"
         widget.menu.presets.scope = "window"
@@ -102,7 +100,7 @@ class SceneExporterSlots(SceneExporter):
             setToolTip="Set the log level.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Scene Exporter",
                 body="Batch-export scene objects to FBX (or GLB) using configurable "
                 "task pipelines.",

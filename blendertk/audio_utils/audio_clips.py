@@ -93,10 +93,8 @@ class AudioClipsSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Help text only — no header menu items apply (see module docstring)."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Audio Clips",
                 body="Scene-wide sound clips as native Video Sequence Editor strips — "
                 "add/remove/trim them and keep the scene frame range in sync.",

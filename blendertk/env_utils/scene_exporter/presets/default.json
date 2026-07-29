@@ -4,6 +4,8 @@
     "embed_textures": true,
     "path_mode": "COPY",
     "bake_anim": true,
+    "bake_anim_use_nla_strips": false,
+    "bake_anim_use_all_actions": false,
     "use_custom_props": true,
     "object_types": ["EMPTY", "ARMATURE", "MESH"]
 }

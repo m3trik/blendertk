@@ -57,6 +57,11 @@ DEFAULT_INCLUDE = {
     # DataNodes lives in its own module (mirror of mayatk's ``node_utils.data_nodes``).
     "node_utils.data_nodes": "*",
     "cam_utils._cam_utils": "*",
+    # Per-camera visibility sets — rolled engine for Maya's camera-sets isolate commands
+    # (SetExclusiveToCamera family); class-only, use btk.CameraVisibility.<fn>.
+    "cam_utils.camera_visibility": [
+        "CameraVisibility",
+    ],
     "uv_utils._uv_utils": "*",
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
@@ -176,6 +181,10 @@ DEFAULT_INCLUDE = {
     "mat_utils.mat_manifest": [
         "MatManifest",
     ],
+    # Emissive Groups — engine + co-located panel (``EmissiveGroupsSlots`` is
+    # discovered by BlenderUiHandler, not registered). Mirror of mayatk's
+    # ``mat_utils.emissive_groups``.
+    "mat_utils.emissive_groups": ["EmissiveGroups"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
     # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
     "mat_utils.marmoset_bridge._marmoset_bridge": [
@@ -232,8 +241,11 @@ DEFAULT_INCLUDE = {
     # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
     # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"
     # list in ``tentacle/slots/*/selection.py``.
+    # SelectionOrder: rolled ordered-object-selection tracker (Blender records no object
+    # click order natively) — backs Reorder Selection + any order-consuming tool.
     "edit_utils.selection": [
         "Selection",
+        "SelectionOrder",
     ],
     # Array-duplication tools — one self-contained module per pattern (engine + co-located
     # panel Slots), mirroring mayatk's duplicate_linear / _radial / _grid split. Class-only

@@ -1092,8 +1092,6 @@ class HierarchySyncSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Initialize the header widget."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add(
             "QCheckBox",
             setText="Dry Run Mode",
@@ -1118,7 +1116,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
         widget.menu.chk_hide_ignored.toggled.connect(self._on_hide_ignored_toggled)
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Hierarchy Sync",
                 body="Compare, diff, and synchronise the scene hierarchy against a reference "
                 ".blend file.",

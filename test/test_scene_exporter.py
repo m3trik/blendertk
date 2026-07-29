@@ -290,6 +290,157 @@ try:
         f"result={result}",
     )
 
+    # ---- keyed-weight curve proxies: staged through the write, gone after --------------------
+    # The Blender transport for Emissive Groups' keyable weights: export_data_node
+    # stages one transient Empty per keyed group (scale.x carries the weight
+    # curve — Blender's FBX exporter can't ship custom-property animation), the
+    # proxy rides the write, and perform_export's finally removes it. Prove the
+    # full pipeline: FBX carries the animated proxy AND the scene is left clean.
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+    from blendertk.anim_utils._anim_utils import AnimUtils
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    kw = bpy.context.active_object
+    kw.name = "KeyedWeightCube"
+    EmissiveGroups.add_group("glow", {"KeyedWeightCube": [0]})
+    EmissiveGroups.make_weights_keyable(["glow"])
+    EmissiveGroups.key_weight("glow", value=1.0, frame=1)
+    EmissiveGroups.key_weight("glow", value=0.0, frame=10)
+
+    exp6 = SceneExporter()
+    result = exp6.perform_export(
+        export_dir=out_dir,
+        objects=[kw],
+        output_name="keyed_weight_test",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    keyed_file = os.path.join(out_dir, "keyed_weight_test.fbx")
+    check(
+        "perform_export with a keyed weight writes the FBX",
+        result is True and os.path.isfile(keyed_file),
+        f"result={result}",
+    )
+    check(
+        "no curve proxy survives in the scene after the export",
+        not any(o.get(EmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
+        f"{[o.name for o in bpy.data.objects if o.get(EmissiveGroups.PROXY_MARKER)]}",
+    )
+
+    reset_scene()
+    imported = FbxUtils.import_fbx(keyed_file, use_custom_props=True)
+    iproxy = next(
+        (o for o in imported if o.name.startswith("emissiveGroup_glow")), None
+    )
+    ifc = next(
+        (
+            f
+            for f in AnimUtils.get_fcurves([iproxy] if iproxy else [])
+            if f.data_path == "scale" and f.array_index == 0
+        ),
+        None,
+    )
+    # Asserted on the curve's SHAPE (starts on, reaches off) rather than on
+    # absolute frames: the FBX round-trip rebases a take by one frame, so
+    # pinning evaluate(<authored frame>) would be testing Blender's importer.
+    ivals = [k.co[1] for k in ifc.keyframe_points] if ifc else []
+    check(
+        "keyed weight animation rides the FBX on the proxy's scale.x",
+        iproxy is not None
+        and ivals
+        and abs(ivals[0] - 1.0) < 0.01
+        and abs(min(ivals) - 0.0) < 0.01,
+        f"proxy={iproxy and iproxy.name} first={ivals[:1]} min={min(ivals) if ivals else None}",
+    )
+    icarrier = next(
+        (o for o in imported if o.name.startswith(DataNodes.EXPORT)), None
+    )
+    manifest_raw = icarrier.get("emissive_groups") if icarrier else None
+    check(
+        "manifest attr record rides beside the proxy (what Unity joins on)",
+        bool(manifest_raw) and '"attr": "emissiveGroup_glow"' in manifest_raw,
+        f"{manifest_raw!r}",
+    )
+
+    # ---- weight curves keyed OUTSIDE the scene range still ship --------------------------
+    # Blender bakes animation over the SCENE frame range, so a proxy keyed past
+    # scene.frame_end would export flattened to its extrapolated value. The
+    # proxies are staged after set_bake_animation_range has run (and that task is
+    # a user checkbox that may be off, as here), so export_data_node widens the
+    # range itself — and the widen must be undone with the rest of the staged
+    # state once the file is on disk.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    kw2 = bpy.context.active_object
+    kw2.name = "LateKeyedCube"
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 250
+    EmissiveGroups.add_group("late", {"LateKeyedCube": [0]})
+    EmissiveGroups.make_weights_keyable(["late"])
+    EmissiveGroups.key_weight("late", value=1.0, frame=300)
+    EmissiveGroups.key_weight("late", value=0.0, frame=320)
+
+    exp7 = SceneExporter()
+    result = exp7.perform_export(
+        export_dir=out_dir,
+        objects=[kw2],
+        output_name="late_keyed_test",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    late_file = os.path.join(out_dir, "late_keyed_test.fbx")
+    check(
+        "perform_export with out-of-range keyed weights writes the FBX",
+        result is True and os.path.isfile(late_file),
+        f"result={result}",
+    )
+    check(
+        "the widened frame range is restored after the write",
+        (scene.frame_start, scene.frame_end) == (1, 250),
+        f"actual=({scene.frame_start},{scene.frame_end})",
+    )
+
+    reset_scene()
+    imported = FbxUtils.import_fbx(late_file, use_custom_props=True)
+    lproxy = next(
+        (o for o in imported if o.name.startswith("emissiveGroup_late")), None
+    )
+    lfc = next(
+        (
+            f
+            for f in AnimUtils.get_fcurves([lproxy] if lproxy else [])
+            if f.data_path == "scale" and f.array_index == 0
+        ),
+        None,
+    )
+    # Without the widen the single scene-range take stops at 250, the 300-320
+    # ramp never gets sampled, and every baked value is the extrapolated 1.0 —
+    # so `min(...) == 0.0` is precisely the regression guard.
+    lvals = [k.co[1] for k in lfc.keyframe_points] if lfc else []
+    check(
+        "keys past scene.frame_end are baked in full, not flattened",
+        lproxy is not None
+        and lvals
+        and abs(lvals[0] - 1.0) < 0.01
+        and abs(min(lvals) - 0.0) < 0.01,
+        f"proxy={lproxy and lproxy.name} first={lvals[:1]} min={min(lvals) if lvals else None}",
+    )
+    # Per-action takes are named "<object>|<action>" and are each rebased to
+    # frame 1; the single scene-range take is named "…|Scene". Read off the
+    # IMPORTED objects (bpy.data.actions still holds authoring leftovers).
+    take_names = {
+        o.animation_data.action.name
+        for o in imported
+        if o.animation_data and o.animation_data.action
+    }
+    check(
+        "the weight curve rides ONE scene-range take with the rest of the export "
+        "(per-action takes would rebase it to frame 1, silently misaligning it)",
+        len(take_names) == 1 and next(iter(take_names)).endswith("|Scene"),
+        f"takes={sorted(take_names)}",
+    )
+
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
 
