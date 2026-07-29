@@ -74,12 +74,35 @@ _VERSION_SUFFIX_RE = re.compile(r"_v\d+$", re.IGNORECASE)
 # in ``fbx_utils.py`` pins mesh-only ``object_types``, so both must be overridden here or
 # the ``export_data_node`` task ships an FBX with no metadata. ``object_types`` is stored
 # as a list (JSON presets can't hold a set); ``FbxUtils.export`` coerces it.
+#
+# ``bake_anim_use_nla_strips`` / ``bake_anim_use_all_actions`` are pinned OFF for
+# a reason that is invisible until you read ``export_fbx_bin.fbx_animations``:
+# with EITHER left at Blender's default (both are ``True``) the exporter writes
+# one FBX take *per action*, each baked over that action's own frame range and
+# **start-zeroed** (``fbx_animations_do(..., start_zero=True)``), and — the line
+# that makes it a correctness bug rather than a preference —
+#
+#     # Global (containing everything) animstack, only if not exporting NLA
+#     # strips and/or all actions.
+#     if not ...bake_anim_use_nla_strips and not ...bake_anim_use_all_actions:
+#         add_anim(..., scene.frame_start, scene.frame_end, False)
+#
+# skips the scene-range take entirely. So the shipped FBX had NO take covering
+# the scene range: ``set_bake_animation_range`` could not affect the file at all,
+# and independently-authored curves (a mesh's action and EmissiveGroups' staged
+# weight-curve proxies) landed in SEPARATE takes, each rebased to frame 1 —
+# i.e. silently time-misaligned with each other in the engine. One scene-range
+# take is also what mayatk's FBX path produces (FBXExportBakeComplexStart/End),
+# so this is the parity-correct setting; per-shot takes are the opt-in job of
+# the ``apply_declared_takes`` task, not an accident of the defaults.
 _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "mesh_smooth_type": "FACE",
     "use_tspace": True,
     "embed_textures": True,
     "path_mode": "COPY",
     "bake_anim": True,
+    "bake_anim_use_nla_strips": False,
+    "bake_anim_use_all_actions": False,
     "use_custom_props": True,
     "object_types": ["EMPTY", "ARMATURE", "MESH"],
 }
@@ -154,8 +177,6 @@ class SceneExporter(ptk.LoggingMixin):
         """Perform the export operation, including initialization and task management."""
         import bpy
 
-        from blendertk.env_utils.fbx_utils import FbxUtils
-
         start_time = time.time()
         self.logger.info("Starting export process ...")
 
@@ -213,29 +234,62 @@ class SceneExporter(ptk.LoggingMixin):
         # unconditionally so a prior run's loaded preset never leaks into one with none picked.
         self.load_fbx_export_preset(self.preset_name)
 
-        export_succeeded = False
-        if tasks:
-            tasks_successful = self.task_manager.run_tasks(tasks)
-            if not tasks_successful:
+        # Everything from here on can stage export-transient state (scene units,
+        # the bake frame range, EmissiveGroups' keyed-weight curve proxies) that
+        # must survive the FBX write and be undone right after it. The outer
+        # ``finally`` is what guarantees "right after it" on EVERY exit —
+        # a failed check, an aborted task, an empty export set, or a raising
+        # write — so a bad run can never leave staged state in the user's scene.
+        try:
+            if tasks:
+                tasks_successful = self.task_manager.run_tasks(tasks)
+                if not tasks_successful:
+                    return False
+
+            if export_visible:
+                # "visible"/"all": the task pipeline's object set is authoritative.
+                export_objects = list(self.task_manager.objects or [])
+            else:
+                # "selected": export the resolved selection captured at init time (already
+                # filtered by the caller's ``objects_to_export()``, e.g. excluding the
+                # data_internal carrier), then fold in any objects the task pipeline added to
+                # the export set — otherwise they'd silently never ship. Re-querying the live
+                # selection here instead would bypass that filtering and re-admit anything it
+                # deliberately excluded by name.
+                current = set(initialized_objs)
+                extras = [
+                    o for o in (self.task_manager.objects or []) if o not in current
+                ]
+                export_objects = list(current) + extras
+
+            if not export_objects:
+                self.logger.error("No objects to export.")
                 return False
 
-        if export_visible:
-            # "visible"/"all": the task pipeline's object set is authoritative.
-            export_objects = list(self.task_manager.objects or [])
-        else:
-            # "selected": export the resolved selection captured at init time (already filtered
-            # by the caller's ``objects_to_export()``, e.g. excluding the data_internal carrier),
-            # then fold in any objects the task pipeline added to the export set — otherwise
-            # they'd silently never ship. Re-querying the live selection here instead would
-            # bypass that filtering and re-admit anything it deliberately excluded by name.
-            current = set(initialized_objs)
-            extras = [o for o in (self.task_manager.objects or []) if o not in current]
-            export_objects = list(current) + extras
+            return self._write_export(
+                export_objects, glb_only, create_glb_enabled, start_time
+            )
+        finally:
+            self.task_manager.run_deferred_restores()
+            # Closed here rather than around the write: a failed check or an
+            # aborted task returns before the write and used to leak the handler
+            # (and with it the open .log file).
+            if self.create_log_file:
+                self.close_file_handlers()
 
-        if not export_objects:
-            self.logger.error("No objects to export.")
-            return False
+    def _write_export(
+        self,
+        export_objects: List,
+        glb_only: bool,
+        create_glb_enabled: bool,
+        start_time: float,
+    ) -> bool:
+        """Write the FBX (and any GLB deliverable) for an already-prepared export
+        set. Split out of :meth:`perform_export` so the staged-state cleanup can
+        wrap the whole task+write span in one ``finally`` without nesting."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
 
+        export_succeeded = False
         glb_tempdir = None
         try:
             if glb_only:
@@ -293,8 +347,6 @@ class SceneExporter(ptk.LoggingMixin):
         finally:
             if glb_tempdir:
                 shutil.rmtree(glb_tempdir, ignore_errors=True)
-            if self.create_log_file:
-                self.close_file_handlers()
 
         if not export_succeeded:
             return False

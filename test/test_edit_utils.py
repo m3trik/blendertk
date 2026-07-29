@@ -270,6 +270,117 @@ try:
         f"dot={p.normal.dot(p.center):.2f}",
     )
 
+    # propagate_normals (Maya polyNormal Propagate): shell adopts the SELECTED face's
+    # orientation. Cube flipped inward except one outward seed face -> whole cube outward.
+    def _outward(o):
+        return sum(1 for p in o.data.polygons if p.normal.dot(p.center) > 0)
+
+    def _select_faces(o, indices):
+        # primitive_*_add leaves the WHOLE mesh selected — clear all flags first so
+        # selected_only ops see exactly the requested faces.
+        for d in (o.data.vertices, o.data.edges, o.data.polygons):
+            for el in d:
+                el.select = False
+        for i in indices:
+            o.data.polygons[i].select = True
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    btk.recalculate_normals(o, inside=True)
+    _select_faces(o, [0])
+    btk.flip_normals(o, selected_only=True)  # seed face back outward
+    _select_faces(o, [0])
+    btk.propagate_normals(o)
+    check("propagate -> shell follows outward seed", _outward(o) == 6, f"outward={_outward(o)}/6")
+    _select_faces(o, [0])
+    btk.propagate_normals(o, reverse=True)
+    check(
+        "propagate reverse -> shell flips against seed",
+        _outward(o) == 0,
+        f"outward={_outward(o)}/6",
+    )
+
+    # conform_normals (Maya polyNormal Conform): consistency, original majority wins.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    _select_faces(o, [0, 1])  # minority (2/6) flipped inward
+    btk.flip_normals(o, selected_only=True)
+    btk.conform_normals(o)
+    check("conform, outward majority -> all outward", _outward(o) == 6, f"outward={_outward(o)}/6")
+    _select_faces(o, [0, 1, 2, 3])  # now flip a 4/6 MAJORITY inward
+    btk.flip_normals(o, selected_only=True)
+    btk.conform_normals(o)
+    check("conform, inward majority -> all inward", _outward(o) == 0, f"outward={_outward(o)}/6")
+
+    # uninstance=True (default) protects linked-duplicate siblings from combine/separate —
+    # both hazards verified real: join builds into the active's shared datablock, separate
+    # deletes the separated faces from every sibling.
+    def _linked_pair(name):
+        bpy.ops.mesh.primitive_cube_add()
+        src = bpy.context.active_object
+        src.name = name
+        sib = bpy.data.objects.new(name + "_sib", src.data)
+        bpy.context.collection.objects.link(sib)
+        return src, sib
+
+    reset()
+    a, a_sib = _linked_pair("CombA")
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    b = bpy.context.active_object
+    btk.combine_objects([a, b])
+    check(
+        "combine uninstance protects linked sibling",
+        len(a_sib.data.polygons) == 6,
+        f"sibling faces={len(a_sib.data.polygons)}",
+    )
+
+    def _two_shell_pair(name):
+        # two disjoint cubes in ONE mesh (12 faces, 2 loose shells) + a linked sibling
+        me = bpy.data.meshes.new(name + "_m")
+        bm2 = bmesh.new()
+        bmesh.ops.create_cube(bm2, size=1.0)
+        r = bmesh.ops.create_cube(bm2, size=1.0)
+        bmesh.ops.translate(bm2, verts=r["verts"], vec=(5, 0, 0))
+        bm2.to_mesh(me)
+        bm2.free()
+        src = bpy.data.objects.new(name, me)
+        sib = bpy.data.objects.new(name + "_sib", me)
+        bpy.context.collection.objects.link(src)
+        bpy.context.collection.objects.link(sib)
+        return src, sib
+
+    reset()
+    c, c_sib = _two_shell_pair("SepC")
+    btk.separate_objects(c)  # LOOSE: source splits, sibling must keep both shells
+    check(
+        "separate uninstance protects linked sibling",
+        len(c_sib.data.polygons) == 12,
+        f"sibling faces={len(c_sib.data.polygons)}",
+    )
+    reset()
+    d, d_sib = _two_shell_pair("SepD")
+    btk.separate_objects(d, uninstance=False)
+    check(
+        "separate uninstance=False edits the shared datablock (documented hazard)",
+        len(d_sib.data.polygons) < 12,
+        f"sibling faces={len(d_sib.data.polygons)}",
+    )
+
+    # extract_reversed_faces (Maya polyNormal Reverse and Extract): reversed duplicate.
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    _select_faces(o, [0])
+    btk.extract_reversed_faces(o)
+    ns = [p.normal.copy() for p in o.data.polygons]
+    check(
+        "extract_reversed duplicates + reverses",
+        len(ns) == 2 and (ns[0] + ns[1]).length < 1e-4,
+        f"faces={len(ns)}",
+    )
+
     # clean_geometry: merge doubles + remove loose vert
     reset()
     bm = bmesh.new()
@@ -1297,6 +1408,74 @@ try:
         "detach_components separate=False -> original keeps all 6 faces",
         faces(o) == 6,
         f"n={faces(o)}",
+    )
+
+    def islands(o):
+        """Number of connected vertex islands in ``o``'s mesh (loose parts)."""
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        seen, count = set(), 0
+        for v in bm.verts:
+            if v in seen:
+                continue
+            count += 1
+            stack, seen = [v], seen | {v}
+            while stack:
+                for e in stack.pop().link_edges:
+                    for w in (e.verts[0], e.verts[1]):
+                        if w not in seen:
+                            seen.add(w)
+                            stack.append(w)
+        bm.free()
+        return count
+
+    def select_adjacent_pair(o):
+        """Select face 0 plus a face sharing an edge with it (so 'kept together' and 'per
+        face' give different island counts — an opposite pair is already 2 islands)."""
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bm.faces.ensure_lookup_table()
+        neighbor = next(
+            f.index
+            for e in bm.faces[0].edges
+            for f in e.link_faces
+            if f.index != bm.faces[0].index
+        )
+        bm.free()
+        select_faces(o, [0, neighbor])
+
+    # separate=False + separate_each: mirrors Maya's keepFacesTogether=False — the faces are
+    # chipped apart from EACH OTHER in place (one loose island per face), not just split off
+    # as a single connected patch. Regression: this path returned early from mesh.split and
+    # ignored separate_each entirely, so the checkbox silently did nothing.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    select_adjacent_pair(o)
+    btk.detach_components(duplicate=False, separate=False, separate_each=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "detach_components in place, faces together -> body + 1 patch",
+        islands(o) == 2,
+        f"islands={islands(o)}",
+    )
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    select_adjacent_pair(o)
+    new = btk.detach_components(duplicate=False, separate=False, separate_each=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "detach_components in place, separate_each -> body + one island per face",
+        islands(o) == 3,
+        f"islands={islands(o)}",
+    )
+    check(
+        "detach_components in place, separate_each -> still one object, 6 faces",
+        new == [] and faces(o) == 6,
+        f"new={len(new)} n={faces(o)}",
     )
 
     # center_pivot (default): each detached object's origin lands on its own bbox center,

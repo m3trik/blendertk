@@ -68,11 +68,16 @@ class MirrorSlots(ptk.LoggingMixin):
         # checked state is settled before perform_operation re-reads the axis on a pivot change.
         self.ui.cmb000.currentIndexChanged.connect(self._sync_axis_sign_enabled)
 
+        # Instance output shares the source's mesh data, so the geometry-level options
+        # (merge / delete half / uninstance) have nothing to act on. Same connect-before-
+        # preview ordering rationale as the axis sign.
+        self.ui.chk007.toggled.connect(self._sync_instance_mode)
+
         # Connect combos and checkboxes to preview refresh function
         self.sb.connect_multi(
             self.ui, "cmb000-1", "currentIndexChanged", self.preview.refresh
         )
-        self.sb.connect_multi(self.ui, "chk001-6", "clicked", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "chk001-7", "clicked", self.preview.refresh)
 
         # NOTE (blender-parity): mayatk also refreshes the preview when the Maya viewport
         # pivot changes live (PivotWatcher, built on Maya's scriptJob event bus). Blender has
@@ -88,6 +93,7 @@ class MirrorSlots(ptk.LoggingMixin):
         # Settle the '-' toggle's enabled state for the initial (default / restored) pivot
         # before the user interacts.
         self._sync_axis_sign_enabled()
+        self._sync_instance_mode()
 
     def _disable_unsupported_merge_mode(self) -> None:
         """Disable the "Merge:  Extrude" item (cmb001 index 3) — it needs a bmesh
@@ -109,12 +115,10 @@ class MirrorSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Mirror",
                 body="Mirror selected meshes across an axis, optionally merging "
                 "seam vertices or keeping the mirrored half as its own object.",
@@ -144,7 +148,16 @@ class MirrorSlots(ptk.LoggingMixin):
                         [
                             "<b>Manip</b> pivot follows Blender's Transform Pivot Point "
                             "setting (3D Cursor / Bounding Box / Active Element / …).",
-                            "<b>Un-Instance</b> — make shared mesh data single-user first.",
+                            "<b>Instance</b> — output a linked duplicate instead of new "
+                            "geometry: the mirrored half shares the source's mesh data, "
+                            "so editing either half updates both. Merge Mode, Delete "
+                            "Original and Un-Instance don't apply, and the Bounding Box "
+                            "(center) pivot can't be used (it cuts geometry). Best for "
+                            "modeling: the linked half carries a negative scale, which "
+                            "game engines handle unevenly — bake it (Un-Instance, then "
+                            "apply scale) before export, or mirror with Instance off.",
+                            "Shared mesh data is made single-user automatically — "
+                            "mirroring it in place would rewrite every linked duplicate.",
                             "<b>Delete Original</b> — with Merge OFF, remove the source "
                             "object once the mirrored copy exists.",
                         ],
@@ -152,6 +165,21 @@ class MirrorSlots(ptk.LoggingMixin):
                 ],
             )
         )
+
+    def prepare_operation(self, objects):
+        """Break linked-data sharing once, before the preview snapshots are taken.
+
+        Mirroring geometry can never leave data shared (it would rewrite every linked
+        duplicate), but forking inside ``perform_operation`` means every previewed run
+        re-forks and the snapshot captures the wrong state. Doing it here — once, at
+        enable — keeps the snapshot/restore cycle clean. Mirror of the Maya slot, where
+        the same pattern was measured to leave objects shapeless on cancel.
+
+        Instance OUTPUT is exempt: it only adds a linked duplicate of the source, so the
+        source's existing links are none of its business.
+        """
+        if not self.ui.chk007.isChecked():
+            NodeUtils.uninstance(objects)
 
     def perform_operation(self, objects):
         # Read values from UI
@@ -164,15 +192,32 @@ class MirrorSlots(ptk.LoggingMixin):
             raise ValueError("Select an axis (X / Y / Z) to mirror across.")
 
         pivot_index = self.ui.cmb000.currentIndex()
-        uninstance = self.ui.chk005.isChecked()
+
+        # Instance output: the mirrored half is a linked duplicate of the source's mesh
+        # data, reflected purely in its matrix_world. Symmetrize (bounding-box center)
+        # cuts and rebuilds geometry, so the two are incompatible — say so instead of
+        # silently falling through to the geometry path.
+        if self.ui.chk007.isChecked():
+            if pivot_index == 3:
+                raise ValueError(
+                    "Instance output can't symmetrize — the Bounding Box (center) "
+                    "pivot cuts geometry. Pick another pivot, or uncheck Instance."
+                )
+            EditUtils.mirror_instance(
+                objects, axis=axis, pivot=self._resolve_pivot(pivot_index, axis)
+            )
+            return
 
         # Bounding Box (center): reflecting the whole object across its own center just
         # overlaps it, so this pivot SYMMETRIZES instead — cut at the center, keep one half,
         # and mirror it across the cut plane. invert=True makes the UI's "+X" keep the +X half
         # (the btk cut_along_axis convention deletes the signed-axis side, mirroring Maya).
         if pivot_index == 3:
-            if uninstance:
-                NodeUtils.uninstance(objects)
+            # Symmetrize cuts and rebuilds the mesh, so shared data would take every
+            # linked duplicate with it — break the link first, always. (The mirror
+            # engine does the same internally; cut_along_axis is a general cutting op,
+            # so the panel owns the decision here.)
+            NodeUtils.uninstance(objects)
             EditUtils.cut_along_axis(
                 objects,
                 axis=axis,
@@ -194,7 +239,6 @@ class MirrorSlots(ptk.LoggingMixin):
             axis=axis,
             pivot=pivot,
             merge_mode=merge_mode,
-            uninstance=uninstance,
             delete_original=self.ui.chk006.isChecked(),
         )
 
@@ -208,6 +252,16 @@ class MirrorSlots(ptk.LoggingMixin):
         toggle is disabled.
         """
         return pivot_index in (3, 4)
+
+    def _sync_instance_mode(self, *args) -> None:
+        """Gray out the geometry-only options while Instance output is on.
+
+        A linked duplicate shares the source's mesh data, so there is nothing to merge,
+        no second half to delete, and breaking the link is self-contradictory.
+        """
+        geometry_mode = not self.ui.chk007.isChecked()
+        for widget in (self.ui.cmb001, self.ui.chk006):
+            widget.setEnabled(geometry_mode)
 
     def _sync_axis_sign_enabled(self, *args) -> None:
         """Enable the '-' toggle only where the sign matters; uncheck it when disabling so

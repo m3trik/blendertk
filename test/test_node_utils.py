@@ -1,7 +1,7 @@
 """blendertk.node_utils headless test — instancing via shared object data (no viewport).
 Run: blender --background --factory-startup --python blendertk/test/test_node_utils.py
 """
-import sys, os, traceback
+import sys, os, math, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)            # blendertk/
@@ -78,6 +78,90 @@ try:
     check("freeze flag leaves target B in place (world x=4)",
           abs(B.matrix_world.translation.x - 4.0) < 1e-3, f"x={B.matrix_world.translation.x:.3f}")
     check("freeze flag -> B still shares A data", B.data is A.data)
+
+    # retain_bbox_scale: target's size lives in its GEOMETRY (scale channels stay 1), so
+    # adopting the source's smaller data would shrink it -> rescale back to its own bbox size.
+    def world_size_x(o):
+        bpy.context.view_layer.update()  # bound_box/matrix_world are lazily evaluated
+        mn, mx = btk.get_world_bbox(o)
+        return (mx - mn).x
+
+    reset()
+    A = cube("A", (0, 0, 0))                       # 2 units (default cube)
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:                      # 6 units, scale channels still 1
+        v.co *= 3.0
+    bpy.context.view_layer.update()
+    btk.replace_with_instances([A, B])             # off (default): B takes A's size
+    check("retain_bbox_scale off -> B shrinks to source size",
+          abs(world_size_x(B) - world_size_x(A)) < 1e-3, f"x={world_size_x(B):.3f}")
+
+    reset()
+    A = cube("A", (0, 0, 0))
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:
+        v.co *= 3.0
+    bpy.context.view_layer.update()
+    want = world_size_x(B)
+    btk.replace_with_instances([A, B], retain_bbox_scale=True)
+    check("retain_bbox_scale -> B keeps its own world bbox size",
+          abs(world_size_x(B) - want) < 1e-3, f"x={world_size_x(B):.3f} want={want:.3f}")
+    check("retain_bbox_scale -> B still shares A data", B.data is A.data)
+    check("retain_bbox_scale -> uniform scale factor",
+          abs(B.scale.x - B.scale.y) < 1e-6 and abs(B.scale.x - B.scale.z) < 1e-6,
+          f"scale={tuple(round(v, 4) for v in B.scale)}")
+
+    # retain_bbox_per_axis: fits each axis independently, measured in the LOCAL frame -> a
+    # ROTATED target still lands on its own proportions (a world-axis ratio would not).
+    reset()
+    A = cube("A", (0, 0, 0))                       # 2 x 2 x 2
+    B = cube("B", (10, 0, 0))
+    for v in B.data.vertices:                      # 2 x 4 x 8, baked into the mesh
+        v.co.y *= 2.0
+        v.co.z *= 4.0
+    B.rotation_euler = (0.0, math.radians(45.0), 0.0)
+    bpy.context.view_layer.update()
+    want_world = [round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])]
+    btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=True)
+    bpy.context.view_layer.update()
+    got_world = [round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])]
+    check("retain_bbox_per_axis -> rotated target keeps its world bbox",
+          all(abs(g - w) < 1e-3 for g, w in zip(got_world, want_world)),
+          f"got={got_world} want={want_world}")
+    check("retain_bbox_per_axis -> non-uniform local scale 1:2:4",
+          abs(B.scale.y / B.scale.x - 2.0) < 1e-3 and abs(B.scale.z / B.scale.x - 4.0) < 1e-3,
+          f"scale={tuple(round(v, 4) for v in B.scale)}")
+
+    # a mirrored target (negative scale) stays mirrored: bbox extents are unsigned, so the
+    # ratio is always positive and the sign of each channel survives the fit untouched.
+    for per_axis in (False, True):
+        reset()
+        A = cube("A", (0, 0, 0))                   # 2 units
+        B = cube("B", (10, 0, 0))
+        for v in B.data.vertices:
+            v.co *= 3.0                            # 6 units
+        B.scale.x = -1.0                           # mirrored
+        bpy.context.view_layer.update()
+        btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=per_axis)
+        check(f"retain_bbox_scale(per_axis={per_axis}) -> mirror preserved",
+              B.scale.x < 0 and B.scale.y > 0 and B.scale.z > 0,
+              f"scale={tuple(round(v, 4) for v in B.scale)}")
+        check(f"retain_bbox_scale(per_axis={per_axis}) -> mirrored target keeps its size",
+              abs(world_size_x(B) - 6.0) < 1e-3, f"x={world_size_x(B):.3f}")
+        check(f"retain_bbox_scale(per_axis={per_axis}) -> source not mirrored", A.scale.x > 0)
+
+    # a degenerate axis (flat target vs. solid source) has no reproducible ratio -> left alone
+    reset()
+    A = cube("A", (0, 0, 0))
+    bpy.ops.mesh.primitive_plane_add(location=(10, 0, 0))   # 2 x 2 x 0
+    B = bpy.context.active_object; B.name = "B"
+    for v in B.data.vertices:
+        v.co *= 3.0                                          # 6 x 6 x 0
+    bpy.context.view_layer.update()
+    btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=True)
+    check("retain_bbox_per_axis -> flat axis keeps scale 1 (no collapse)",
+          abs(B.scale.x - 3.0) < 1e-3 and abs(B.scale.y - 3.0) < 1e-3 and abs(B.scale.z - 1.0) < 1e-3,
+          f"scale={tuple(round(v, 4) for v in B.scale)}")
 
     # regression: fake-user mesh with a single object is NOT reported as an instance
     reset()

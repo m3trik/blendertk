@@ -22,11 +22,6 @@ from typing import List, Optional, Union
 
 import pythontk as ptk
 
-try:  # UI-only helper; keep the headless import clean if uitk is absent
-    from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-except Exception:
-    TooltipFormat = None
-
 
 _NOT_AVAILABLE = (
     "Not available in Blender: this codebase ships no Arnold-for-Blender integration "
@@ -101,16 +96,15 @@ class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin):
     # ------------------------------------------------------------------ header
     def header_init(self, widget) -> None:
         """Configure the help text (no menu actions -- the panel is inert)."""
-        if TooltipFormat is not None:
-            widget.set_help_text(
-                TooltipFormat.fmt(
-                    title="Arnold Preview Shader",
-                    body="Not available in Blender.",
-                    sections=[
-                        ("Why", [_NOT_AVAILABLE]),
-                    ],
-                )
+        widget.set_help_text(
+            self.sb.tooltip.fmt(
+                title="Arnold Preview Shader",
+                body="Not available in Blender.",
+                sections=[
+                    ("Why", [_NOT_AVAILABLE]),
+                ],
             )
+        )
 
     # -------------------------------------------------------------------- combo
     def cmb000_init(self, widget) -> None:

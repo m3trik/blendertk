@@ -330,8 +330,6 @@ class WheelRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header menu with mode toggle and instructions."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add("Separator", setTitle="Mode")
         # Local vs World Space is a two-valued mode, not a modifier — a combobox
         # names both states; extend with a third space here without a relayout.
@@ -354,7 +352,7 @@ class WheelRigSlots(ptk.LoggingMixin):
         cmb_space.currentTextChanged.connect(self._on_space_changed)
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Wheel Rig",
                 body="Drive wheel rotation from a control's linear movement. "
                 "Wheel diameter (Wheel Height) and travel axis determine the "
@@ -364,7 +362,7 @@ class WheelRigSlots(ptk.LoggingMixin):
                         "Selection order",
                         [
                             "Select one or more <b>wheel</b> objects.",
-                            f"{TooltipFormat.kbd('Shift')}-select the <b>driver / control</b> "
+                            f"{self.sb.tooltip.kbd('Shift')}-select the <b>driver / control</b> "
                             "object LAST so it becomes the <b>active</b> object.",
                             "Click <b>Rig Rotation</b>.",
                         ],

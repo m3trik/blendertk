@@ -40,9 +40,35 @@ class TelescopeRig(ptk.LoggingMixin):
         super().__init__()
         self.set_log_level(log_level)
 
+    @classmethod
+    def _resolve_axis(cls, aim_axis):
+        """Resolve an axis token ("y", "-z", …) to Damped-Track enums, the driven scale index,
+        and the per-channel scale-lock tuple — mirror of mayatk's ``_resolve_axis`` (Maya
+        resolves aim/up vectors + scale attr names; Blender's Damped Track owns the up handling,
+        so the track enums stand in for the vectors).
+
+        Returns:
+            (track, reverse_track, scale_index, lock_scale) — ``track`` aims a segment at the
+            end handle along the signed axis, ``reverse_track`` aims the end back at the base,
+            ``scale_index`` is the along-strut scale channel the driver animates, and
+            ``lock_scale`` locks the two off-axis channels so the stack can't shear.
+        """
+        token = str(aim_axis).strip().lower()
+        sign = -1 if token.startswith("-") else 1
+        letter = token.lstrip("+-")
+        if letter not in ("x", "y", "z"):
+            raise ValueError(
+                f"aim_axis must be one of x, y, z (optionally signed); got {aim_axis!r}."
+            )
+        pos, neg = f"TRACK_{letter.upper()}", f"TRACK_NEGATIVE_{letter.upper()}"
+        track, reverse_track = (pos, neg) if sign > 0 else (neg, pos)
+        scale_index = "xyz".index(letter)
+        lock_scale = tuple(i != scale_index for i in range(3))
+        return track, reverse_track, scale_index, lock_scale
+
     @CoreUtils.undo_checkpoint
     def setup_telescope_rig(
-        self, base_locator, end_locator, segments, collapsed_distance=1.0
+        self, base_locator, end_locator, segments, collapsed_distance=1.0, aim_axis="y"
     ):
         """Wire a telescoping rig between two handles.
 
@@ -55,13 +81,16 @@ class TelescopeRig(ptk.LoggingMixin):
                 base handle. Blender uses a *continuous* linear scale driver
                 (``distance / initial_distance``) rather than Maya's two-key driven curve, so the
                 collapsed scale falls out of the ratio automatically.
+            aim_axis (str): The segments' long axis — "x", "y", or "z", optionally signed
+                ("-y" …). The rig aims every segment along it, drives that axis' scale, and
+                locks the other two scale channels (mirror of mayatk's ``aim_axis``).
 
         Returns:
             list: the segment objects that were rigged.
 
         Raises:
-            ValueError: If the base/end handles are invalid, coincident, or fewer than two
-                segments are provided.
+            ValueError: If the base/end handles are invalid, coincident, fewer than two
+                segments are provided, or ``aim_axis`` is not a signed x/y/z token.
         """
         import bpy
 
@@ -86,6 +115,8 @@ class TelescopeRig(ptk.LoggingMixin):
             self.logger.error("At least two segments must be provided.")
             raise ValueError("At least two segments must be provided.")
 
+        track, reverse_track, scale_index, lock_scale = self._resolve_axis(aim_axis)
+
         bpy.context.view_layer.update()
         base_pos = base.matrix_world.translation.copy()
         end_pos = end.matrix_world.translation.copy()
@@ -95,8 +126,8 @@ class TelescopeRig(ptk.LoggingMixin):
 
         def constrain_locators():
             # Handles aim at each other so the chain keeps a consistent up-axis.
-            RigUtils.damped_track(base, end, "TRACK_Y")
-            RigUtils.damped_track(end, base, "TRACK_NEGATIVE_Y")
+            RigUtils.damped_track(base, end, track)
+            RigUtils.damped_track(end, base, reverse_track)
             self.logger.info("Locators constrained.")
 
         def constrain_segments():
@@ -107,23 +138,23 @@ class TelescopeRig(ptk.LoggingMixin):
                 RigUtils.copy_location(seg, base, 1.0)
                 if frac > 0.0:
                     RigUtils.copy_location(seg, end, frac)
-                # Aim along the chain (the end tube aims back so its +Y stays chain-aligned).
+                # Aim along the chain (the end tube aims back so its aim axis stays chain-aligned).
                 if k < k_last:
-                    RigUtils.damped_track(seg, end, "TRACK_Y")
+                    RigUtils.damped_track(seg, end, track)
                 else:
-                    RigUtils.damped_track(seg, base, "TRACK_NEGATIVE_Y")
+                    RigUtils.damped_track(seg, base, reverse_track)
             self.logger.info("Segments constrained.")
 
         def set_driven_keys():
-            # Middle segments telescope: scale.y tracks the live base->end distance (Blender's
-            # continuous-driver analogue of Maya's two-key driven curve).
+            # Middle segments telescope: the aim axis' scale tracks the live base->end distance
+            # (Blender's continuous-driver analogue of Maya's two-key driven curve).
             k_last = len(segs) - 1
             for k, seg in enumerate(segs):
                 if 0 < k < k_last:
                     RigUtils.add_distance_driver(
                         seg,
                         "scale",
-                        1,
+                        scale_index,
                         base,
                         end,
                         expression=f"dist / {initial_distance!r}",
@@ -131,13 +162,13 @@ class TelescopeRig(ptk.LoggingMixin):
             self.logger.info("Driven keys set.")
 
         def lock_segment_attributes():
-            # Location & rotation are constraint-driven; only scale.y telescopes.
+            # Location & rotation are constraint-driven; only the aim axis' scale telescopes.
             for seg in segs:
                 RigUtils.lock_channels(
                     seg,
                     location=(True, True, True),
                     rotation=(True, True, True),
-                    scale=(True, False, True),
+                    scale=lock_scale,
                 )
 
         constrain_locators()
@@ -191,10 +222,8 @@ class TelescopeRigSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Telescope Rig",
                 body="Build a telescoping segment chain where segments extend "
                 "and retract between a base and end handle, driven by their "
@@ -255,6 +284,7 @@ class TelescopeRigSlots(ptk.LoggingMixin):
         segments = others[:-1]
 
         collapsed_dist = self.ui.spin_collapsed.value()
+        aim_axis = ("x", "y", "z")[self.ui.cmb_axis.currentIndex()]
 
         try:
             rig = TelescopeRig()
@@ -272,13 +302,17 @@ class TelescopeRigSlots(ptk.LoggingMixin):
             end_link = self.logger.log_link(end.name, "select", node=end.name)
             self.logger.info(f"Base detected: {base_link}")
             self.logger.info(f"End detected: {end_link}")
-            self.logger.info(f"Segments detected: <hl>{len(segments)}</hl>")
+            self.logger.info(
+                f"Segments detected: <hl>{len(segments)}</hl> "
+                f"(aim axis: <hl>{aim_axis.upper()}</hl>)"
+            )
 
             rig.setup_telescope_rig(
                 base_locator=base,
                 end_locator=end,
                 segments=segments,
                 collapsed_distance=collapsed_dist,
+                aim_axis=aim_axis,
             )
         except Exception as e:
             self.logger.error(f"Error setting up rig: {str(e)}")

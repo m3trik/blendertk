@@ -43,6 +43,20 @@ class ShellXformSlots(ptk.LoggingMixin):
         "b026": "arrow_right",
     }
 
+    # Move-pad scope -> step in UV units, carried as the combo item's *data* so
+    # the label and the step it means cannot drift apart. `None` = derived at
+    # click time from the selection's own UV bounds.
+    _MOVE_SCOPES = {
+        "Tile": 1.0,
+        "Half Tile": 0.5,
+        "Quarter Tile": 0.25,
+        "Selection Bounds": None,
+    }
+
+    # A UV extent at or below this is treated as collapsed: dividing by it would
+    # blow the grid math up, so the arrow falls back to a whole tile.
+    _MIN_EXTENT = 1e-6
+
     def __init__(self, switchboard, log_level: str = "WARNING"):
         super().__init__()
         self.logger.setLevel(log_level)
@@ -67,8 +81,6 @@ class ShellXformSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Header menu — Open UV Editor + panel help."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.menu.add(
@@ -79,14 +91,16 @@ class ShellXformSlots(ptk.LoggingMixin):
         )
         widget.menu.open_uv_editor.clicked.connect(self.open_uv_editor)
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Shell Xform",
                 body="Move, flip, rotate, and straighten / mirror / distribute "
                 "the selected UV shells.",
                 steps=[
                     "Select mesh object(s).",
-                    "<b>Move</b> nudges the selection's UVs by whole tiles "
-                    "(set how many with <i>Step</i>).",
+                    "<b>Move</b> nudges the selection's UVs by one <i>scope</i> — "
+                    "a whole tile, a fraction of one, or the selection's own "
+                    "size. The grid button (▦) snaps the result onto that "
+                    "scope's grid instead of offsetting relatively.",
                     "<b>Flip / Rotate</b> mirrors or spins the UV maps about "
                     "their center (rotation amount = the angle field).",
                     "<b>Straighten / Mirror / Distribute</b> each expose their "
@@ -103,25 +117,98 @@ class ShellXformSlots(ptk.LoggingMixin):
         return objects
 
     # ------------------------------------------------------------------ move to UV space (b023-b026)
+    def cmb_move_scope_init(self, widget):
+        """Move scope — how far one arrow press travels, plus the snap toggle.
+
+        Items are built from ``_MOVE_SCOPES`` with the step as item data, so the
+        step is read straight off the current item — a label edited in one place
+        can no longer mean a different distance somewhere else. Snap rides along
+        as an option-box toggle rather than a fifth item, because it composes
+        with every scope instead of replacing one.
+        """
+        if widget.is_initialized:
+            return
+        from uitk.widgets.optionBox.options.toggle import ToggleOption
+
+        widget.add(self._MOVE_SCOPES)
+        widget.option_box.set_toggle(
+            icon="grid",
+            tooltip_on="Snap: on. Arrows land the selection on the scope's grid.",
+            tooltip_off="Snap: off. Arrows offset by the scope, keeping any sub-tile drift.",
+            initial=False,
+            settings_key="shell_xform_move_snap",
+        )
+        # Cache the option here (the toggle owns its own persistence, so this is
+        # the restored state) — the move path then reads it without reaching back
+        # into the option-box internals, which keeps `_move` importable and
+        # drivable under headless Blender, where there is no Qt binding.
+        self._snap_toggle = widget.option_box.find_option(ToggleOption)
+
+    def _snap_enabled(self) -> bool:
+        """State of the move-scope option-box snap toggle."""
+        toggle = getattr(self, "_snap_toggle", None)
+        return bool(toggle and toggle.is_on)
+
+    def _move_step(self, bounds) -> tuple:
+        """Per-axis ``(step_u, step_v)`` for the current scope.
+
+        The step comes from the current item's data; ``None`` means "derive it
+        from the selection", which is what *bounds* — a ``(u_min, v_min, u_max,
+        v_max)`` tuple — is for. A degenerate extent (a shell collapsed on one
+        axis) falls back to a whole tile so the arrow still does something.
+        """
+        step = self.ui.cmb_move_scope.currentData()
+        if step is not None:
+            return (step, step)
+
+        u_min, v_min, u_max, v_max = bounds
+        width, height = u_max - u_min, v_max - v_min
+        return (
+            width if width > self._MIN_EXTENT else 1.0,
+            height if height > self._MIN_EXTENT else 1.0,
+        )
+
+    def _move(self, du: int, dv: int):
+        """Nudge the selected UVs one move-scope step along ``(du, dv)``."""
+        objects = self._mesh_selection()
+        if not objects:
+            return
+
+        bounds = btk.get_uv_bounds(objects)
+        if bounds is None:
+            self.sb.message_box("<b>No UVs found.</b><br>Select a mesh with UVs.")
+            return
+
+        step_u, step_v = self._move_step(bounds)
+        snap = self._snap_enabled()
+        # Snap anchors on the selection's lower-left corner, so "up" means the
+        # shell's bottom edge lands on the next grid line — what the eye expects.
+        u_min, v_min = bounds[0], bounds[1]
+        btk.move_uvs(
+            objects,
+            du=ptk.MathUtils.step_offset(u_min, step_u, du, snap=snap),
+            dv=ptk.MathUtils.step_offset(v_min, step_v, dv, snap=snap),
+        )
+
     @CoreUtils.undoable
     def b023(self):
         """Move To UV Space: Left"""
-        btk.move_uvs(CoreUtils.selected_objects(), du=-1.0)
+        self._move(-1, 0)
 
     @CoreUtils.undoable
     def b024(self):
         """Move To UV Space: Down"""
-        btk.move_uvs(CoreUtils.selected_objects(), dv=-1.0)
+        self._move(0, -1)
 
     @CoreUtils.undoable
     def b025(self):
         """Move To UV Space: Up"""
-        btk.move_uvs(CoreUtils.selected_objects(), dv=1.0)
+        self._move(0, 1)
 
     @CoreUtils.undoable
     def b026(self):
         """Move To UV Space: Right"""
-        btk.move_uvs(CoreUtils.selected_objects(), du=1.0)
+        self._move(1, 0)
 
     # ------------------------------------------------------------------ flip / rotate (b034-b037)
     @CoreUtils.undoable

@@ -243,8 +243,6 @@ class HdrManagerSlots(ptk.LoggingMixin):
 
     def header_init(self, widget) -> None:
         """Configure header menu and refresh button."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self._refresh_and_sync_combo)
         widget.menu.add("Separator", setTitle="HDR Folder")
@@ -271,7 +269,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
             setToolTip="Remove the world HDRI environment (Environment Texture / Mapping nodes).",
         ).clicked.connect(self.clear_network)
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="HDR Manager",
                 body="Manage the scene's world HDR environment lighting "
                 "(Environment Texture + Mapping + Background world-shader network).",

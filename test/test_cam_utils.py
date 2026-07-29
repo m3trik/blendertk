@@ -176,6 +176,61 @@ try:
     except RuntimeError:
         check("navigate_view refuses in --background", True)
 
+    # ---- CameraVisibility: per-camera exclusive/hidden sets (2026-07-28 rolled engine) ----
+    reset()
+    cam_data = bpy.data.cameras.new("VisCam")
+    cam = bpy.data.objects.new("VisCam", cam_data)
+    bpy.context.collection.objects.link(cam)
+    bpy.context.scene.camera = cam
+    cubes = []
+    for i in range(3):
+        bpy.ops.mesh.primitive_cube_add(location=(i * 3, 0, 0))
+        cubes.append(bpy.context.active_object)
+        cubes[-1].name = f"VisCube{i}"
+    light = bpy.data.objects.new("VisLight", bpy.data.lights.new("VisLight", "POINT"))
+    bpy.context.collection.objects.link(light)
+
+    CV = btk.CameraVisibility
+    CV.set_exclusive(cam, [cubes[0]])
+    check("exclusive: only the set member stays visible",
+          not cubes[0].hide_viewport and cubes[1].hide_viewport and cubes[2].hide_viewport,
+          f"hides={[c.hide_viewport for c in cubes]}")
+    check("exclusive: helper objects (light) not implicitly hidden", not light.hide_viewport)
+    CV.remove_all(cam)
+    check("remove_all restores visibility", not any(c.hide_viewport for c in cubes),
+          f"hides={[c.hide_viewport for c in cubes]}")
+
+    CV.set_hidden(cam, [cubes[1]])
+    check("hidden set hides its member only",
+          cubes[1].hide_viewport and not cubes[0].hide_viewport and not cubes[2].hide_viewport)
+    CV.remove_from_hidden(cam, [cubes[1]])
+    check("remove_from_hidden restores", not cubes[1].hide_viewport)
+
+    # a user-hidden object is not clobbered by apply/restore
+    cubes[2].hide_viewport = True
+    CV.set_hidden(cam, [cubes[0]])
+    CV.remove_all(cam)
+    check("user-hidden object untouched by the stash round-trip", cubes[2].hide_viewport)
+    cubes[2].hide_viewport = False
+
+    # camera switch: the second camera's (empty) sets take over on apply
+    cam2 = bpy.data.objects.new("VisCam2", bpy.data.cameras.new("VisCam2"))
+    bpy.context.collection.objects.link(cam2)
+    CV.set_exclusive(cam, [cubes[0]])
+    bpy.context.scene.camera = cam2
+    CV.apply()  # what enable_auto's msgbus notify does on switch
+    check("camera switch releases the old camera's isolation",
+          not any(c.hide_viewport for c in cubes), f"hides={[c.hide_viewport for c in cubes]}")
+    bpy.context.scene.camera = cam
+    CV.apply()
+    check("switching back re-applies its sets",
+          not cubes[0].hide_viewport and cubes[1].hide_viewport)
+    exc, hid = CV.get_sets(cam)
+    check("get_sets reads the stored names", exc == ["VisCube0"] and hid == [], f"{exc}/{hid}")
+    CV.remove_all_for_all()
+    check("remove_all_for_all clears every camera",
+          CV.get_sets(cam) == ([], []) and not any(c.hide_viewport for c in cubes))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

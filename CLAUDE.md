@@ -81,9 +81,8 @@ Headless smoke / unit tests require the Blender runtime (`bpy`):
   --python o:\Cloud\Code\_scripts\blendertk\test\blender_smoke_test.py
 ```
 
-All suites at once: `powershell -File blendertk/test/Run-Tests.ps1` (aggregates the
-`===RESULT===` sentinels; each suite gets its own fresh instance).
-
-(Pure-logic helpers with no `bpy` dependency may also run under the workspace `.venv`.)
+All suites: `python blendertk/test/run_tests.py` — fresh instance per suite, aggregates
+`===RESULT===` + `OK`/`FAIL` counts, badges full runs. `Run-Tests.ps1` wraps it.
+(Pure-logic helpers with no `bpy` dep may also run under the workspace `.venv`.)
 
 See [CHANGELOG.md](CHANGELOG.md) for history.

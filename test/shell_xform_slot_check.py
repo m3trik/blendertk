@@ -171,6 +171,66 @@ try:
     cx, cy = sum(U) / len(U), sum(V) / len(V)
     check("slot randomize_shells offsets the shell", (abs(cx - 0.25) + abs(cy - 0.25)) > 1e-4, f"centroid=({cx:.3f},{cy:.3f})")
 
+    # ---- move pad (b023-b026): scope combobox + snap toggle
+    # The .ui ships no static item list — `cmb_move_scope_init` builds the combo
+    # from this table with the step as item data. Its shape is therefore the
+    # panel's item list; exactly one scope must carry the derive-from-selection
+    # sentinel, or `_move_step` would read `bounds` for a fixed-step scope.
+    # (The Qt-side population itself is checked in mayatk/test/shell_xform_ui_check.py.)
+    SCOPES = ShellXformSlots._MOVE_SCOPES
+    check("_MOVE_SCOPES item list", list(SCOPES) == ["Tile", "Half Tile", "Quarter Tile", "Selection Bounds"], f"{list(SCOPES)}")
+    check("_MOVE_SCOPES has one derived scope", [k for k, v in SCOPES.items() if v is None] == ["Selection Bounds"])
+    check("_MOVE_SCOPES fixed steps are positive", all(v > 0 for v in SCOPES.values() if v is not None))
+
+    # `_move` reads the scope text and the cached snap toggle, both stubbed here —
+    # no Qt in headless Blender, which is why `_snap_enabled` must not import it.
+    def set_move_scope(text, snap=False):
+        # Item data comes from the real `_MOVE_SCOPES` table (what
+        # `cmb_move_scope_init` populates the combo from), so a renamed scope
+        # raises here rather than silently testing a stale label.
+        data = ShellXformSlots._MOVE_SCOPES[text]
+        slot.ui = NS(cmb_move_scope=NS(currentText=lambda: text, currentData=lambda: data))
+        slot._snap_toggle = NS(is_on=snap)
+
+    # Scope = the distance one press travels. Shell sits at V [0.5, 0.9].
+    for scope, expected in (("Tile", 1.0), ("Half Tile", 0.5), ("Quarter Tile", 0.25)):
+        reset(); o = one_quad(QUAD); set_move_scope(scope)
+        slot.b025()  # up
+        check(f"slot b025 scope={scope} -> V +{expected}",
+              all(abs(v - e) < 1e-5 for v, e in zip(sorted(vs(o)), sorted(x + expected for x in (0.5, 0.5, 0.9, 0.9)))),
+              f"V={sorted(round(v,3) for v in vs(o))}")
+
+    # Opposite arrows must cancel exactly (guards a sign/axis swap).
+    reset(); o = one_quad(QUAD); set_move_scope("Half Tile")
+    slot.b023(); slot.b026()  # left then right
+    check("slot b023+b026 cancel", all(abs(u - e) < 1e-5 for u, e in zip(sorted(us(o)), sorted((0.2, 0.2, 0.6, 0.6)))), f"U={sorted(round(u,3) for u in us(o))}")
+    slot.b024(); slot.b025()  # down then up
+    check("slot b024+b025 cancel", all(abs(v - e) < 1e-5 for v, e in zip(sorted(vs(o)), sorted((0.5, 0.5, 0.9, 0.9)))), f"V={sorted(round(v,3) for v in vs(o))}")
+
+    # Selection Bounds: the step is the shell's own size (0.4 x 0.4 here), so one
+    # press puts the shell edge-to-edge with where it was.
+    reset(); o = one_quad(QUAD); set_move_scope("Selection Bounds")
+    slot.b026()  # right, by the 0.4-wide bounds
+    check("slot b026 scope=Selection Bounds -> U +0.4 (own width)",
+          all(abs(u - e) < 1e-5 for u, e in zip(sorted(us(o)), sorted(x + 0.4 for x in (0.2, 0.2, 0.6, 0.6)))),
+          f"U={sorted(round(u,3) for u in us(o))}")
+
+    # Snap ON: the user's case — an off-grid shell (V min 0.5) moving up on a
+    # Half Tile grid lands its bottom edge on the next half line (0.5 -> 1.0),
+    # not at 0.5 + 0.5 with the drift carried along.
+    reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
+    set_move_scope("Half Tile", snap=True)
+    slot.b025()
+    check("slot b025 snap=on -> V min lands on the 0.5 grid", abs(min(vs(o)) - 1.0) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+    slot.b024()  # back down: returns to the grid line below
+    check("slot b024 snap=on -> V min back to 0.5", abs(min(vs(o)) - 0.5) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+
+    # Snap OFF on the same shell keeps the 0.1 drift.
+    reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
+    set_move_scope("Half Tile", snap=False)
+    slot.b025()
+    check("slot b025 snap=off keeps sub-tile drift", abs(min(vs(o)) - 1.1) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

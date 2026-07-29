@@ -232,10 +232,8 @@ class DuplicateLinearSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Duplicate Linear",
                 body="Duplicate selected objects along a linear path with "
                 "per-copy translate, rotate, and scale offsets.",

@@ -103,6 +103,26 @@ class Preview:
             )
             self._set_checked(False)
             return
+        # Optional one-shot precondition: anything the operation needs in place that
+        # must not participate in rollback. Mirror uses it to break linked-data sharing
+        # once, instead of forking inside every previewed run (mirror of mayatk's
+        # Preview.prepare_operation hook).
+        #
+        # Runs BEFORE every capture below, which is load-bearing here: `_prior_data`
+        # is the set of datablocks that already existed, and anything outside it is
+        # purged as "new" on rollback. Forking after that snapshot would mark the new
+        # datablock for deletion and strip the object's mesh. Capturing after also
+        # means an aborted enable leaves no half-populated state. Failure aborts the
+        # enable -- if the precondition can't be met, previewing isn't safe.
+        prepare = getattr(self.operation, "prepare_operation", None)
+        if callable(prepare):
+            try:
+                prepare(objects)
+            except Exception as e:
+                self.message_func(f"<strong>{type(e).__name__}</strong><br>{e}")
+                self._set_checked(False)
+                return
+
         self._captured = [o.name for o in objects]
         active = bpy.context.view_layer.objects.active
         self._active = active.name if active else None

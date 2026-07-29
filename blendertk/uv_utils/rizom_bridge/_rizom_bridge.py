@@ -723,60 +723,24 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
     def _transfer_uv_pair(self, src, dst):
         """Copy the active UV layer from *src* (imported) onto *dst* (original).
 
-        Fast path: a direct per-loop copy — exact and context-free, valid because RizomUV rewrites
-        only UVs so *src* is topologically identical to *dst* (equal loop count + order through the
-        FBX round-trip). Fallback: ``data_transfer`` with spatial loop-mapping if the loop counts
-        ever diverge (e.g. an FBX exporter that splits vertices by smoothing).
+        Delegates to :meth:`blendertk.UvUtils.transfer_uvs`, which owns the
+        exact-copy / spatial-fallback pair logic shared with the auto-unwrap
+        round-trip; this wrapper only adds the bridge's logging.
         """
-        src_uv = src.data.uv_layers.active
-        if src_uv is None:
+        from blendertk.uv_utils._uv_utils import UvUtils
+
+        if src.data.uv_layers.active is None:
             self.logger.warning(
                 f"{src.name} has no active UV layer; nothing to transfer."
             )
             return
-        dst_uv = dst.data.uv_layers.active or dst.data.uv_layers.new(name=src_uv.name)
-
-        src_data, dst_data = src_uv.data, dst_uv.data
-        n = len(src_data)
-        if n == len(dst_data):
-            # Bulk C-level copy of the flat (u, v, u, v, ...) buffer -- far faster than a per-loop
-            # Python assignment on dense meshes, and exact since topology + loop order match.
-            buf = [0.0] * (2 * n)
-            src_data.foreach_get("uv", buf)
-            dst_data.foreach_set("uv", buf)
-            dst.data.update()
-            return
-
-        self.logger.warning(
-            f"Loop-count mismatch ({len(src_data)} vs {len(dst_data)}) for "
-            f"{src.name} -> {dst.name}; falling back to spatial data_transfer."
-        )
-        self._data_transfer_uv(src, dst)
-
-    def _data_transfer_uv(self, src, dst):
-        """Best-effort spatial UV transfer via ``bpy.ops.object.data_transfer`` (active=source)."""
-        import bpy
-
-        with CoreUtils.window_context_override():
-            try:
-                if bpy.context.object and bpy.context.object.mode != "OBJECT":
-                    bpy.ops.object.mode_set(mode="OBJECT")
-            except Exception:  # noqa: BLE001
-                pass
-            bpy.ops.object.select_all(action="DESELECT")
-            dst.select_set(True)
-            src.select_set(True)
-            bpy.context.view_layer.objects.active = (
-                src  # active object is the transfer SOURCE
+        src_loops, dst_loops = len(src.data.loops), len(dst.data.loops)
+        if src_loops != dst_loops:
+            self.logger.warning(
+                f"Loop-count mismatch ({src_loops} vs {dst_loops}) for "
+                f"{src.name} -> {dst.name}; falling back to spatial data_transfer."
             )
-            bpy.ops.object.data_transfer(
-                use_reverse_transfer=False,
-                data_type="UV",
-                use_create=True,
-                loop_mapping="POLYINTERP_NEAREST",
-                layers_select_src="ACTIVE",
-                layers_select_dst="ACTIVE",
-            )
+        UvUtils.transfer_uvs(src, dst, match_by_similarity=False)
 
     # ------------------------------------------------------------------
     # script resolution / construction (DCC-agnostic — mirror of mayatk)

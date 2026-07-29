@@ -309,12 +309,10 @@ class ColorIdSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text and preset combobox."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Color ID",
                 body="Color-code scene objects across three channels: an ID "
                 "<b>Material</b>, the <b>Object Color</b> (viewport tint), and "
@@ -333,7 +331,7 @@ class ColorIdSlots(ptk.LoggingMixin):
                         "Notes",
                         [
                             f"<b>Reset</b> clears assignments on the selection (or every "
-                            f"object with {TooltipFormat.kbd('Ctrl')}-click).",
+                            f"object with {self.sb.tooltip.kbd('Ctrl')}-click).",
                             "Object Color shows in the viewport's <b>Object</b> color "
                             "shading mode (Solid display ▸ Color ▸ Object).",
                             "<b>Material</b> assigns a flat ID material (replaces the "

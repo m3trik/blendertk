@@ -36,7 +36,9 @@ try:
     except ModuleNotFoundError as e:
         if "qtpy" in str(e) or "PySide" in str(e):
             print("SKIP: needs a Qt binding (run under the workspace venv, not headless Blender).")
-            print("===RESULT: PASS===")
+            # Tag the sentinel so the harness reports SKIP rather than counting
+            # this as a green suite that silently contributed zero checks.
+            print("===RESULT: PASS=== (skipped)")
             raise SystemExit(0)
         raise
 
@@ -96,6 +98,31 @@ try:
     check("2022.2: FBX={UseUVSetNames=true} flag on the ZomLoad/ZomSave lines (above the gate)",
           "FBX={UseUVSetNames=true}" in zom_lines(full22))
 
+    # ---- pack gutter is DERIVED, not a user knob ---------------------------------
+    # Island spacing / tile margin come off the shared UV-padding rule so a Rizom
+    # round-trip and an in-Blender repack agree on the gutter.
+    from blendertk.uv_utils._uv_utils import UvUtils
+
+    pad = UvUtils.calculate_uv_padding(1024, normalize=True)
+    check("gutter tokens are not UI knobs",
+          not any(k in P.PARAMS for k in P.DERIVED_KEYS), str(P.DERIVED_KEYS))
+    derived = P.Parameters.derived_values({"PACK_RESOLUTION": 1024})
+    check("derived spacing == normalized padding", derived["PACK_SPACING"] == pad)
+    check("derived margin == half the spacing", derived["PACK_MARGIN"] == pad / 2)
+    check("padding is map-size-invariant",
+          P.Parameters.derived_values({"PACK_RESOLUTION": 4096})["PACK_SPACING"] == pad)
+    stale = P.Parameters.render_context(
+        {"PACK_RESOLUTION": 1024, "PACK_SPACING": 0.5, "PACK_MARGIN": 0.5}
+    )
+    check("stale preset values lose to the derived gutter",
+          float(stale["PACK_SPACING"]) == pad and float(stale["PACK_MARGIN"]) == pad / 2)
+    check("2022: gutter substituted into the pack block",
+          f"MarginSize={pad / 2}" in full22 and f"PaddingSize={pad}" in full22)
+    # "PaddingSize=" (with the assignment) — pack_block.lua's header comment names the
+    # field, so a bare substring scan would false-positive.
+    check("2020.1: gutter uses the pre-rename SpacingSize field",
+          f"SpacingSize={pad}" in full20 and "PaddingSize=" not in full20)
+
     # ---- param overrides flow into the script ------------------------------------
     full_ovr = b._construct_full_script(pack)  # defaults
     b._params = {"RECURSION_DEPTH": 5}
@@ -115,7 +142,10 @@ except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
 
-ok = all(line.startswith("OK") for line in lines)
+ok = all(line.startswith("OK") for line in lines) and bool(lines)
 for line in lines:
     print(line)
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")
+# Carry the tally: without it the suite counts for zero checks in run_tests.py's
+# totals, and a run that asserted nothing reads as green.
+_ok = sum(1 for line in lines if line.startswith("OK"))
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({_ok}/{len(lines)})")

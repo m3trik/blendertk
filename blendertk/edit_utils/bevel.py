@@ -127,10 +127,8 @@ class BevelSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Bevel",
                 body="Add chamfer bevels to selected polygon edges.",
                 steps=[

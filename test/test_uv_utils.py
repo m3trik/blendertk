@@ -59,6 +59,84 @@ try:
         f"minv={uv_bounds(o)[2]:.2f}",
     )
 
+    # get_uv_bounds: agrees with the local probe, in (u_min, v_min, u_max, v_max)
+    # order (mirrors mayatk). The Shell Xform snap mode leans on this pairing —
+    # the bounds must describe exactly what move_uvs then shifts.
+    min_u, max_u, min_v, max_v = uv_bounds(o)
+    bounds = btk.get_uv_bounds(o)
+    check(
+        "get_uv_bounds -> (u_min, v_min, u_max, v_max)",
+        bounds is not None
+        and max(abs(a - b) for a, b in zip(bounds, (min_u, min_v, max_u, max_v)))
+        < 1e-4,
+        f"{bounds} vs {(min_u, min_v, max_u, max_v)}",
+    )
+    before = btk.get_uv_bounds(o)
+    btk.move_uvs(o, du=0.25, dv=-0.75)
+    after = btk.get_uv_bounds(o)
+    check(
+        "get_uv_bounds tracks a move exactly",
+        abs(after[0] - (before[0] + 0.25)) < 1e-4
+        and abs(after[1] - (before[1] - 0.75)) < 1e-4,
+        f"{before} -> {after}",
+    )
+
+    # No mesh / no UVs -> None, not a crash (the panel shows a message box).
+    check("get_uv_bounds on an empty selection -> None", btk.get_uv_bounds([]) is None)
+
+    # scale_uvs: half-U about the origin -> 0..1 map becomes 0..0.5 in u, v untouched
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    btk.scale_uvs(o, su=0.5)
+    bmin_u, bmax_u, bmin_v, bmax_v = uv_bounds(o)
+    check(
+        "scale_uvs su=0.5 about origin -> u 0..0.5, v 0..1",
+        abs(bmax_u - 0.5) < 1e-4 and abs(bmax_v - 1.0) < 1e-4,
+        f"u max={bmax_u:.3f} v max={bmax_v:.3f}",
+    )
+    # scale_uvs about a non-origin pivot: quarter coverage anchored at tile corner (2,3)
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    btk.move_uvs(o, du=2.0, dv=3.0)  # map now 2..3 / 3..4 (tile 2,3)
+    btk.scale_uvs(o, su=0.5, sv=0.5, pivot=(2.0, 3.0))
+    bmin_u, bmax_u, bmin_v, bmax_v = uv_bounds(o)
+    check(
+        "scale_uvs quarter about tile corner -> anchored at (2,3), half extents",
+        abs(bmin_u - 2.0) < 1e-4 and abs(bmax_u - 2.5) < 1e-4 and abs(bmax_v - 3.5) < 1e-4,
+        f"u {bmin_u:.3f}..{bmax_u:.3f} v {bmin_v:.3f}..{bmax_v:.3f}",
+    )
+
+    # transfer_uvs_to_similar: fan the source's UVs to look-alike meshes; linked
+    # duplicates of the source skipped, dissimilar meshes rejected by tolerance.
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    src = bpy.context.active_object
+    src.name = "uvsrc"
+    btk.move_uvs(src, du=3.0)  # distinctive source UVs (u 3..4)
+    bpy.ops.mesh.primitive_plane_add(location=(3, 0, 0))
+    twin = bpy.context.active_object  # similar (same plane) -> receives
+    linked = bpy.data.objects.new("uvsrc_linked", src.data)  # shares datablock -> skipped
+    bpy.context.collection.objects.link(linked)
+    bpy.ops.mesh.primitive_ico_sphere_add(location=(9, 9, 9))  # dissimilar -> rejected
+    ball = bpy.context.active_object
+    targets = btk.transfer_uvs_to_similar(src, tolerance=0.9)
+    check(
+        "transfer_uvs_to_similar picks the twin only",
+        targets == [twin],
+        f"targets={[t.name for t in targets]}",
+    )
+    check(
+        "transfer_uvs_to_similar copied the UVs",
+        abs(uv_bounds(twin)[0] - 3.0) < 1e-4,
+        f"twin min_u={uv_bounds(twin)[0]:.3f}",
+    )
+    check("transfer_uvs_to_similar left the dissimilar mesh alone", uv_bounds(ball)[0] < 1.0)
+    # explicit candidate pool (Similar in Selection scope)
+    targets2 = btk.transfer_uvs_to_similar(src, [ball], tolerance=0.9)
+    check("explicit pool rejects dissimilar candidate", targets2 == [], str(targets2))
+
     # move_uvs edit mode: live bmesh update
     reset()
     bpy.ops.mesh.primitive_plane_add()
@@ -592,6 +670,139 @@ try:
         "randomize_uv_shells applies an offset that varies by seed",
         (abs(c1[0] - 0.25) + abs(c1[1] - 0.25)) > 1e-4 and c1 != c3,
         f"seed7={tuple(round(x, 3) for x in c1)} seed99={tuple(round(x, 3) for x in c3)}",
+    )
+
+    # ---------------------------------------------------------------- transfer_uvs
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    src = bpy.context.active_object
+    src.name = "xfer_src"
+    btk.move_uvs(src, du=0.3)
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
+    dst = bpy.context.active_object
+    dst.name = "xfer_dst"
+    btk.UvUtils.transfer_uvs(src, dst, match_by_similarity=False)
+    check(
+        "transfer_uvs copies UVs exactly when topology matches",
+        abs(uv_bounds(dst)[0] - uv_bounds(src)[0]) < 1e-5,
+        f"src minu={uv_bounds(src)[0]:.3f} dst minu={uv_bounds(dst)[0]:.3f}",
+    )
+
+    # ---------------------------------------------------------- _fit_uvs_to_tile
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    big = bpy.context.active_object
+    btk.scale_uvs(big, su=1.8, sv=1.8)
+    check("fit precondition: UVs overrun the tile", uv_bounds(big)[1] > 1.0)
+    btk.UvUtils._fit_uvs_to_tile(big)
+    b = uv_bounds(big)
+    check(
+        "_fit_uvs_to_tile scales UVs back inside 0-1",
+        b[0] >= -1e-4 and b[1] <= 1.0001 and b[2] >= -1e-4 and b[3] <= 1.0001,
+        f"bounds={tuple(round(x, 3) for x in b)}",
+    )
+
+    # ------------------------------------------------------------------ auto_unwrap
+    from blendertk.uv_utils import _auto_unwrap
+
+    def stub_engine(obj_in, engine_key, **params):
+        """Stand in for Ministry of Flat / BFF: shift every UV by a known amount."""
+        obj_out = obj_in.replace(".obj", "_out.obj")
+        with open(obj_in, encoding="utf-8") as f_in, open(
+            obj_out, "w", encoding="utf-8"
+        ) as f_out:
+            for line in f_in:
+                if line.startswith("vt "):
+                    _, u, v = line.split()[:3]
+                    line = f"vt {float(u) + 0.25:.6f} {float(v):.6f}" + chr(10)
+                f_out.write(line)
+        stub_engine.seen = dict(engine=engine_key, params=params)
+        return obj_out
+
+    _auto_unwrap._AutoUnwrapInternal._engine_unwrap = staticmethod(stub_engine)
+    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(lambda key: "stub.exe")
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    target = bpy.context.active_object
+    target.name = "auto_cube"
+    before = uv_bounds(target)
+    result = btk.UvUtils.auto_unwrap(target, method="hard", pack=False)
+    check(
+        "auto_unwrap applies the engine's UVs to the original",
+        bool(result) and abs(uv_bounds(target)[0] - (before[0] + 0.25)) < 1e-4,
+        f"{before[0]:.3f} -> {uv_bounds(target)[0]:.3f} failed={result.failed}",
+    )
+    check("auto_unwrap 'hard' selects Ministry of Flat", stub_engine.seen["engine"] == "mof")
+    check(
+        "auto_unwrap forwards map_size as the MoF resolution",
+        stub_engine.seen["params"].get("resolution") == 4096,
+        str(stub_engine.seen["params"]),
+    )
+    check(
+        "auto_unwrap leaves no imported objects behind",
+        len([o for o in bpy.data.objects]) == 1,
+        f"objects={[o.name for o in bpy.data.objects]}",
+    )
+    check(
+        "auto_unwrap preserves topology (no triangulation)",
+        len(target.data.polygons) == 6,
+        f"faces={len(target.data.polygons)}",
+    )
+
+    reset()
+    bpy.ops.mesh.primitive_uv_sphere_add()
+    organic = bpy.context.active_object
+    btk.UvUtils.auto_unwrap(organic, method="organic", pack=False)
+    check("auto_unwrap 'organic' selects BFF", stub_engine.seen["engine"] == "bff")
+
+    # engine missing -> raises before the scene is touched
+    def missing(_key):
+        raise FileNotFoundError("Ministry of Flat not found: https://example/download")
+
+    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(missing)
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    untouched = bpy.context.active_object
+    pristine = uv_bounds(untouched)
+    raised = ""
+    try:
+        btk.UvUtils.auto_unwrap(untouched, method="hard")
+    except FileNotFoundError as err:
+        raised = str(err)
+    check(
+        "auto_unwrap raises with a download URL when the engine is missing",
+        "https://" in raised and uv_bounds(untouched) == pristine,
+        raised[:60],
+    )
+
+    # per-object failure is isolated and rolled back
+    def flaky(obj_in, engine_key, **params):
+        verts = sum(1 for line in open(obj_in, encoding="utf-8") if line.startswith("v "))
+        if verts > 8:
+            raise RuntimeError("engine exploded")
+        return stub_engine(obj_in, engine_key, **params)
+
+    _auto_unwrap._AutoUnwrapInternal._engine_unwrap = staticmethod(flaky)
+    _auto_unwrap._AutoUnwrapInternal._check_engine = staticmethod(lambda key: "stub.exe")
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    good = bpy.context.active_object
+    good.name = "good_cube"
+    bpy.ops.mesh.primitive_uv_sphere_add(location=(5, 0, 0))
+    doomed = bpy.context.active_object
+    doomed.name = "doomed_sphere"
+    doomed_before = uv_bounds(doomed)
+    res = btk.UvUtils.auto_unwrap([good, doomed], method="hard", pack=False)
+    check(
+        "auto_unwrap isolates a per-object failure",
+        len(res.succeeded) == 1 and len(res.failed) == 1,
+        f"ok={res.succeeded} failed={[f[0] for f in res.failed]}",
+    )
+    check(
+        "auto_unwrap restores the failed mesh's UVs",
+        all(abs(a - b) < 1e-4 for a, b in zip(uv_bounds(doomed), doomed_before)),
+        f"{tuple(round(x,3) for x in doomed_before)} -> {tuple(round(x,3) for x in uv_bounds(doomed))}",
     )
 
 except Exception as e:

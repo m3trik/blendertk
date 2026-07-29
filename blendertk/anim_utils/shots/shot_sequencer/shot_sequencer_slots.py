@@ -1654,7 +1654,6 @@ class ShotSequencerSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Build the header menu controls (mirror of mayatk's sequencer header)."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
         from uitk.widgets.widgetComboBox import WidgetComboBox
 
         widget.menu.add(
@@ -1680,7 +1679,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         cmb_scope = widget.menu.add(
             WidgetComboBox,
             setObjectName="cmb_track_order",
-            setToolTip=TooltipFormat.fmt(
+            setToolTip=self.sb.tooltip.fmt(
                 title="Track Order",
                 bullets=[
                     "<b>Visible:</b> Show objects from visible shots only.",
@@ -1744,7 +1743,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             setToolTip="Open shared shot generation, gap, and editing settings.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Shot Sequencer",
                 body="Visual timeline editor for per-shot animation with ripple editing, gap management, and markers.",
                 sections=[
@@ -1780,19 +1779,19 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                         "Keyboard",
                         [
                             (
-                                TooltipFormat.kbd(_KB_LEFT)
+                                self.sb.tooltip.kbd(_KB_LEFT)
                                 + " / "
-                                + TooltipFormat.kbd(_KB_RIGHT)
+                                + self.sb.tooltip.kbd(_KB_RIGHT)
                                 + " — prev / next key &nbsp;·&nbsp; "
-                                + TooltipFormat.kbd("Shift", _KB_LEFT)
+                                + self.sb.tooltip.kbd("Shift", _KB_LEFT)
                                 + " / "
-                                + TooltipFormat.kbd("Shift", _KB_RIGHT)
+                                + self.sb.tooltip.kbd("Shift", _KB_RIGHT)
                                 + " — step ±1 frame"
                             ),
                             (
-                                TooltipFormat.kbd("Ctrl", "Z")
+                                self.sb.tooltip.kbd("Ctrl", "Z")
                                 + " — undo &nbsp;·&nbsp; "
-                                + TooltipFormat.kbd("Del")
+                                + self.sb.tooltip.kbd("Del")
                                 + " — delete keys"
                             ),
                         ],

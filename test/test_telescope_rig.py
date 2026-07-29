@@ -87,6 +87,39 @@ try:
     check("collapsed_distance recorded on base", base.get("telescope_collapsed_distance") == 1.0,
           f"val={base.get('telescope_collapsed_distance')}")
 
+    # ---- aim_axis="x": chain along X drives scale.x and locks y/z (2026-07-28 port) ----
+    reset()
+    base = empty("base", (0, 0, 0))
+    end = empty("end", (10, 0, 0))
+    segs = [empty(f"xseg{i}", (5, 5, 5)) for i in range(3)]
+    TelescopeRig().setup_telescope_rig(base, end, segs, aim_axis="x")
+    ad = segs[1].animation_data
+    check(
+        "aim_axis=x -> middle drives scale.x",
+        bool(ad and any(d.data_path == "scale" and d.array_index == 0 for d in ad.drivers)),
+    )
+    check(
+        "aim_axis=x -> base tracks TRACK_X",
+        any(c.type == "DAMPED_TRACK" and c.track_axis == "TRACK_X" for c in base.constraints),
+    )
+    check(
+        "aim_axis=x -> off-axis scale locked, x free",
+        tuple(segs[1].lock_scale) == (False, True, True),
+        str(tuple(segs[1].lock_scale)),
+    )
+    end.location = (5, 0, 0)
+    bpy.context.view_layer.update()
+    check(
+        "aim_axis=x -> scale.x collapses to 0.5",
+        approx(eval_obj(segs[1]).scale.x, 0.5, 2e-3),
+        f"scale.x={eval_obj(segs[1]).scale.x:.4f}",
+    )
+    try:
+        TelescopeRig().setup_telescope_rig(base, end, segs, aim_axis="w")
+        check("rejects bad aim_axis", False)
+    except ValueError:
+        check("rejects bad aim_axis", True)
+
     # ---- guards ----
     reset()
     try:
@@ -107,6 +140,7 @@ try:
         def __init__(self):
             self.btn_build = type("B", (), {"clicked": _Sig()})()
             self.spin_collapsed = type("S", (), {"value": staticmethod(lambda: 1.0)})()
+            self.cmb_axis = type("C", (), {"currentIndex": staticmethod(lambda: 1)})()  # Y
             self.txt003 = type("T", (), {"append": staticmethod(lambda *a, **k: None)})()
 
     class _SB:

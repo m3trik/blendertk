@@ -190,12 +190,10 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
 
     def header_init(self, widget) -> None:
         """Configure header buttons + about menu."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.config_buttons("menu", "minimize", "hide")
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Blendshape Animator",
                 body="Build a morph between two meshes as a shape key, add in-between "
                 "(tween) shapes for custom curve control, edit them, and apply the edits "

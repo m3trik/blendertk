@@ -836,10 +836,8 @@ class ShotsSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Shots",
                 body="Generation settings, shot properties, and gap control shared by the Shot Manifest and Shot Sequencer.",
                 sections=[

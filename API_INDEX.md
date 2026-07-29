@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-07-26_
+_Generated: 2026-07-29_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
@@ -136,9 +136,13 @@ _Generated: 2026-07-26_
 - `class CamUtils(_CamUtilsInternal)`
   - methods: adjust_camera_clipping, navigate_view
 
+### `cam_utils/camera_visibility.py` — Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isolate
+- `class CameraVisibility`
+  - methods: set_exclusive, set_hidden, remove_from_exclusive, remove_from_hidden, remove_all, remove_all_for_all, get_sets, apply, restore, enable_auto, disable_auto
+
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, get_areas, get_view3d_context, window_context_override
+  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -167,7 +171,7 @@ _Generated: 2026-07-26_
 
 ### `core_utils/diagnostics/transform_diag.py` — Transform diagnostics — the Blender counterpart of mayatk's
 - `class TransformDiagnostics(_TransformDiagnosticsInternal)`
-  - methods: fix_non_orthogonal_axes
+  - methods: get_non_orthogonal, fix_non_orthogonal_axes
 
 ### `core_utils/preview.py` — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - `class Preview`
@@ -197,7 +201,7 @@ _Generated: 2026-07-26_
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, clean_geometry, crease_edges, mirror, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
+  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
 ### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - `class Bevel`
@@ -221,7 +225,7 @@ _Generated: 2026-07-26_
 
 ### `edit_utils/cut_on_axis.py` — Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
 - `class CutOnAxisSlots(ptk.LoggingMixin)`
-  - methods: header_init, perform_operation
+  - methods: header_init, toggle_weight_ui, perform_operation
 
 ### `edit_utils/duplicate_grid.py` — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - `class DuplicateGrid`
@@ -263,7 +267,7 @@ _Generated: 2026-07-26_
 
 ### `edit_utils/mirror.py` — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 - `class MirrorSlots(ptk.LoggingMixin)`
-  - methods: header_init, perform_operation
+  - methods: header_init, prepare_operation, perform_operation
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(ptk.HelpMixin)`
@@ -276,6 +280,8 @@ _Generated: 2026-07-26_
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`
   - methods: loop_multi_select, select_by_type, select_children, select_hierarchy_above, select_hierarchy_below, convert_to, select_face_path, select_vertex_perimeter, select_edge_perimeter, select_face_perimeter, select_border_edges, select_shell_border, select_uv_shell, select_uv_shell_border, select_uv_perimeter, select_uv_edge_loop, get_available_selection_types, get_selection_categories
+- `class SelectionOrder`
+  - methods: enable, disable, is_enabled, get, set_order
 
 ### `edit_utils/snap.py` — Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 - `class SnapSlots(ptk.LoggingMixin)`
@@ -429,6 +435,12 @@ _Generated: 2026-07-26_
   - methods: add, remove, rebuild, get_bridge, has_bridge
 - `class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, cmb000_init
+
+### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
+- `class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`
+  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, refresh_export_metadata
+- `class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`
+  - methods: header_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
 
 ### `mat_utils/game_shader.py` — Game Shader tool panel — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShaderSlots(ptk.LoggingMixin)`
@@ -620,7 +632,7 @@ _Generated: 2026-07-26_
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
-  - methods: add_spline, create_curve, duplicate_curve, create_plane, curve_to_mesh
+  - methods: add_spline, create_curve, duplicate_curve, create_plane, curve_to_mesh, straighten_curve, bend_curve, curl_curve, scale_curvature, rebuild_curve, extend_curve
 
 ### `nurbs_utils/curve_to_tube.py` — Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 - `class CurveToTube(ptk.LoggingMixin)`
@@ -718,9 +730,12 @@ _Generated: 2026-07-26_
 - `class StyleSetter(_StyleSetterInternal)`
   - methods: list_styles, user_preset_dir, user_preset_path, is_installed, install, list_templates, apply_template, apply_theme_preset, set_style
 
+### `uv_utils/_auto_unwrap.py` — External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
+- `class AutoUnwrapResult`
+
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: move_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`
@@ -728,7 +743,7 @@ _Generated: 2026-07-26_
 
 ### `uv_utils/rizom_bridge/parameters.py` — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - `class Parameters`
-  - methods: expand_includes, preset_min_version, referenced_keys, defaults, render_context, strip_unsupported
+  - methods: expand_includes, preset_min_version, referenced_keys, defaults, derived_values, render_context, strip_unsupported
 
 ### `uv_utils/rizom_bridge/rizom_bridge_slots.py` — Slots for the RizomUV bridge panel.
 - `class RizomBridgeSlots(BridgeSlotsBase)`
@@ -736,7 +751,7 @@ _Generated: 2026-07-26_
 
 ### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
 - `class ShellXformSlots(ptk.LoggingMixin)`
-  - methods: header_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
+  - methods: header_init, cmb_move_scope_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`

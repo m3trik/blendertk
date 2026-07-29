@@ -269,10 +269,8 @@ class CurveToTubeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Curve to Tube",
                 body="Sweep a circular profile along selected curves to build a tube, output as "
                 "a smooth NURBS-style beveled curve or a polygon mesh.",

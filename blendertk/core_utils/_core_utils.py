@@ -771,6 +771,81 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return vl.objects.active if vl is not None else None
 
     @staticmethod
+    def reorder_objects(objects=None, method="name", reverse=False):
+        """Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``
+        (``name`` / ``hierarchy`` / ``x``/``y``/``z`` / ``distance`` / ``volume`` /
+        ``vertex_count`` / ``random`` / ``creation_time``).
+
+        ``creation_time`` sorts by ``Object.session_uid`` — Blender keeps no creation
+        timestamp, but the session uid increases monotonically per created datablock, so
+        within a session it IS creation order (documented divergence: it resets across
+        sessions, where Maya reads persistent node order). Returns the sorted list; feed it
+        to ``SelectionOrder.set_order`` to make the new order selection-visible.
+        """
+        import random as _random
+
+        from mathutils import Vector
+
+        objs = [
+            o
+            for o in (
+                ptk.make_iterable(objects)
+                if objects is not None
+                else CoreUtils.selected_objects()
+            )
+            if o is not None
+        ]
+        if not objs:
+            return []
+
+        def _depth(o):
+            d, cur = 0, o.parent
+            while cur is not None:
+                d, cur = d + 1, cur.parent
+            return d
+
+        def _bb_volume(o):
+            if getattr(o, "bound_box", None) is None:
+                return 0.0
+            cs = [o.matrix_world @ Vector(c) for c in o.bound_box]
+            return (
+                (max(c.x for c in cs) - min(c.x for c in cs))
+                * (max(c.y for c in cs) - min(c.y for c in cs))
+                * (max(c.z for c in cs) - min(c.z for c in cs))
+            )
+
+        def _vertex_count(o):
+            data = getattr(o, "data", None)
+            if data is None:
+                return 0
+            if hasattr(data, "vertices"):
+                return len(data.vertices)
+            if hasattr(data, "splines"):  # curves: control-point count
+                return sum(
+                    len(sp.points) or len(sp.bezier_points) for sp in data.splines
+                )
+            return 0
+
+        keys = {
+            "name": lambda o: o.name,
+            "hierarchy": _depth,
+            "x": lambda o: o.matrix_world.translation.x,
+            "y": lambda o: o.matrix_world.translation.y,
+            "z": lambda o: o.matrix_world.translation.z,
+            "distance": lambda o: o.matrix_world.translation.length,
+            "volume": _bb_volume,
+            "vertex_count": _vertex_count,
+            "creation_time": lambda o: o.session_uid,
+        }
+        if method == "random":
+            objs = list(objs)
+            _random.shuffle(objs)
+            result = objs
+        else:
+            result = sorted(objs, key=keys.get(method, keys["name"]))
+        return list(reversed(result)) if reverse else result
+
+    @staticmethod
     def get_areas(area_type):
         """All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
         window, resolved through the window manager — NOT ``bpy.context.screen``, which is a

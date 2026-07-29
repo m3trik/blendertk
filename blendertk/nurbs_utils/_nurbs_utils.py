@@ -162,6 +162,223 @@ class NurbsUtils(ptk.LoggingMixin):
                 bpy.data.curves.remove(cu_data)
         return mesh_obj
 
+    # ------------------------------------------------------------------ CV deformation family
+    # Rolled equivalents of Maya's Modify/Edit Curves commands (BendCurves / CurlCurves /
+    # ScaleCurvature / StraightenCurves / RebuildCurve / ExtendCurve) — pure control-point math
+    # on POLY/NURBS splines (Bézier splines are skipped: their handle model needs its own
+    # authoring pass). A SIMPLE_DEFORM-modifier route was probed 2026-07-11 and refuted
+    # (silently no-ops unless deform_axis ⊥ the curve plane); CV math has no such trap.
+
+    @staticmethod
+    def _curve_splines(objects):
+        """Yield ``(spline, points)`` for every editable POLY/NURBS spline in the curve
+        objects — ``points`` as a list of ``mathutils.Vector`` (xyz, local space)."""
+        from mathutils import Vector
+
+        for o in ptk.make_iterable(objects):
+            if o is None or getattr(o, "type", None) != "CURVE":
+                continue
+            for sp in o.data.splines:
+                if sp.type not in ("POLY", "NURBS") or len(sp.points) < 2:
+                    continue
+                yield sp, [Vector(p.co[:3]) for p in sp.points]
+
+    @staticmethod
+    def _arc_params(pts):
+        """Cumulative chord-length parameters ``t`` in [0, 1] per point (0 at the start)."""
+        acc, total = [0.0], 0.0
+        for a, b in zip(pts, pts[1:]):
+            total += (b - a).length
+            acc.append(total)
+        return [a / total if total > 0 else 0.0 for a in acc]
+
+    @staticmethod
+    def _write_pts(spline, pts):
+        for sp_pt, p in zip(spline.points, pts):
+            sp_pt.co = (p.x, p.y, p.z, sp_pt.co[3])
+
+    @classmethod
+    def straighten_curve(cls, objects, straightness=1.0, preserve_length=True):
+        """Interpolate control points toward the start→end line (Maya ``StraightenCurves``:
+        ``straightness`` 0..1). ``preserve_length`` distributes the line targets by cumulative
+        arc length (the curve keeps its length as it straightens) instead of by chord fraction.
+        """
+        for sp, pts in cls._curve_splines(objects):
+            start, end = pts[0], pts[-1]
+            direction = end - start
+            if direction.length < 1e-9:
+                continue
+            t = cls._arc_params(pts)
+            if preserve_length:
+                arc_total = sum((b - a).length for a, b in zip(pts, pts[1:]))
+                targets = [
+                    start + direction.normalized() * (ti * arc_total) for ti in t
+                ]
+            else:
+                targets = [start + direction * ti for ti in t]
+            cls._write_pts(
+                sp, [p.lerp(q, straightness) for p, q in zip(pts, targets)]
+            )
+        return objects
+
+    @classmethod
+    def bend_curve(cls, objects, angle=45.0, axis="z"):
+        """Bend each curve into a circular arc of ``angle`` degrees around the local
+        ``axis`` (Maya ``BendCurves``' magnitude, as an explicit angle). Arc-length exact:
+        each point's chord position maps onto a circle whose arc runs the same distance
+        (radius = length / angle), and its deviation from the chord rotates with the local
+        tangent — a straight curve becomes a true arc of unchanged length."""
+        import math
+
+        from mathutils import Matrix, Vector
+
+        total_angle = math.radians(angle)
+        if abs(total_angle) < 1e-9:
+            return objects
+        axis_v = Vector(
+            {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}[str(axis).lower()]
+        )
+        for sp, pts in cls._curve_splines(objects):
+            start, end = pts[0], pts[-1]
+            direction = end - start
+            if direction.length < 1e-9:
+                continue
+            d = direction.normalized()
+            n = axis_v.cross(d)
+            if n.length < 1e-9:  # axis parallel to the curve — nothing to bend around
+                continue
+            n.normalize()
+            t = cls._arc_params(pts)
+            length = direction.length
+            radius = length / total_angle
+            out = []
+            for p, ti in zip(pts, t):
+                theta = total_angle * ti
+                base = (
+                    start
+                    + d * (radius * math.sin(theta))
+                    + n * (radius * (1.0 - math.cos(theta)))
+                )
+                deviation = p - (start + d * (ti * length))
+                out.append(base + (Matrix.Rotation(theta, 3, axis_v) @ deviation))
+            cls._write_pts(sp, out)
+        return objects
+
+    @classmethod
+    def curl_curve(cls, objects, angle=270.0, frequency=1.0, axis="z"):
+        """Curl each curve — like :func:`bend_curve` but with an accelerating rotation
+        (``angle * frequency * t²``), spiraling the far end in on itself (Maya
+        ``CurlCurves``' amount/frequency)."""
+        import math
+
+        from mathutils import Matrix, Vector
+
+        axis_v = Vector(
+            {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}[str(axis).lower()]
+        )
+        for sp, pts in cls._curve_splines(objects):
+            t = cls._arc_params(pts)
+            start = pts[0]
+            out = [
+                start
+                + (
+                    Matrix.Rotation(
+                        math.radians(angle) * frequency * ti * ti, 3, axis_v
+                    )
+                    @ (p - start)
+                )
+                for p, ti in zip(pts, t)
+            ]
+            cls._write_pts(sp, out)
+        return objects
+
+    @classmethod
+    def scale_curvature(cls, objects, factor=1.5):
+        """Scale each control point's deviation from the start→end chord by ``factor``
+        (Maya ``ScaleCurvature``): >1 exaggerates the curve's bow, <1 flattens it
+        (0 collapses onto the chord)."""
+        for sp, pts in cls._curve_splines(objects):
+            start, end = pts[0], pts[-1]
+            t = cls._arc_params(pts)
+            chord = [start + (end - start) * ti for ti in t]
+            cls._write_pts(
+                sp, [c + (p - c) * factor for p, c in zip(pts, chord)]
+            )
+        return objects
+
+    @classmethod
+    def rebuild_curve(cls, objects, spans=8):
+        """Redistribute each spline's control points uniformly by arc length with a new
+        count of ``spans + 1`` (Maya ``RebuildCurve``'s uniform rebuild, at the
+        control-polygon level — the spline's own NURBS basis re-smooths the result; exact
+        for POLY splines). Spline points can't be removed in place, so each spline is
+        replaced by a fresh one carrying its type/settings."""
+
+        def _resample(pts, n):
+            arc = [0.0]
+            for a, b in zip(pts, pts[1:]):
+                arc.append(arc[-1] + (b - a).length)
+            total = arc[-1]
+            if total <= 0:
+                return None
+            out, seg = [], 0
+            for i in range(n):
+                target = total * i / (n - 1)
+                while seg < len(arc) - 2 and arc[seg + 1] < target:
+                    seg += 1
+                span_len = arc[seg + 1] - arc[seg]
+                f = (target - arc[seg]) / span_len if span_len > 0 else 0.0
+                out.append(pts[seg].lerp(pts[seg + 1], f))
+            return out
+
+        from mathutils import Vector
+
+        n = max(2, int(spans) + 1)
+        for o in ptk.make_iterable(objects):
+            if o is None or getattr(o, "type", None) != "CURVE":
+                continue
+            cu = o.data
+            # Two-phase by INDEX: removing a spline can invalidate other held spline
+            # references, so gather every target's rebuild data first, then remove+recreate
+            # with a fresh lookup per index (descending, so earlier indices stay valid).
+            # Rebuilt splines re-append at the collection's end — spline order is cosmetic.
+            jobs = []
+            for i, sp in enumerate(cu.splines):
+                if sp.type not in ("POLY", "NURBS") or len(sp.points) < 2:
+                    continue
+                new_pts = _resample([Vector(p.co[:3]) for p in sp.points], n)
+                if new_pts is not None:
+                    jobs.append((i, sp.type, sp.use_cyclic_u, sp.order_u, new_pts))
+            for i, kind, cyclic, order, new_pts in sorted(jobs, reverse=True):
+                cu.splines.remove(cu.splines[i])
+                fresh = cu.splines.new(kind)
+                fresh.points.add(n - 1)
+                for sp_pt, p in zip(fresh.points, new_pts):
+                    sp_pt.co = (p.x, p.y, p.z, 1.0)
+                if kind == "NURBS":
+                    fresh.order_u = min(order, n)
+                    fresh.use_endpoint_u = True
+                fresh.use_cyclic_u = cyclic
+        return objects
+
+    @classmethod
+    def extend_curve(cls, objects, distance=1.0, from_start=False):
+        """Extend each spline by one control point continuing its end tangent for
+        ``distance`` (Maya ``ExtendCurve``'s linear extend; ``from_start`` extends the
+        other end)."""
+        for sp, pts in cls._curve_splines(objects):
+            if from_start:
+                tangent = (pts[0] - pts[1]).normalized()
+                new_pt = pts[0] + tangent * distance
+                out = [new_pt] + pts
+            else:
+                tangent = (pts[-1] - pts[-2]).normalized()
+                new_pt = pts[-1] + tangent * distance
+                out = pts + [new_pt]
+            sp.points.add(1)
+            cls._write_pts(sp, out)
+        return objects
+
 
 # -----------------------------------------------------------------------------
 

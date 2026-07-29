@@ -1,3 +1,5 @@
+[![Tests](https://img.shields.io/badge/Tests-2879%20passed-brightgreen.svg)](../test/)
+
 # blendertk
 
 Blender 4.x+ utilities backing the [tentacle](https://github.com/m3trik/tentacle) Blender slots — the Blender counterpart to [mayatk](https://github.com/m3trik/mayatk).

@@ -75,8 +75,6 @@ class MatUpdaterSlots(MatUpdater):
     def header_init(self, widget):
         """Format global options in the header menu (mirror of the Maya panel's, minus the
         Maya-only File Management transfer mode — see the TODO at its wiring point)."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Selection Mode
         widget.menu.add(
             "QComboBox",
@@ -215,7 +213,7 @@ class MatUpdaterSlots(MatUpdater):
             setToolTip="Optional: Folder (under Output Folder) to move original files into.",
         )
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Material Updater",
                 body="Batch-process scene materials and their textures — "
                 "format conversion, max-size enforcement, mask scaling, and "

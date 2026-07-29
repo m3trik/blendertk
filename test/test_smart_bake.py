@@ -1518,7 +1518,7 @@ def _run_task_manager_wiring_checks():
         )
         check("post-bake tie/snap keep keys on whole frames", whole)
 
-        original_range = tm2.set_bake_animation_range()
+        result = tm2.set_bake_animation_range()
         scene = bpy.context.scene
         frames_all = [
             k.co.x for fc in AnimUtils.get_fcurves([target]) for k in fc.keyframe_points
@@ -1529,15 +1529,29 @@ def _run_task_manager_wiring_checks():
             (scene.frame_start, scene.frame_end) == expected,
             f"actual=({scene.frame_start},{scene.frame_end}) expected={expected}",
         )
+        # Regression guard: the FBX writer bakes over the SCENE range, and the
+        # TaskFactory's set_/revert_ pair fires when run_tasks returns — BEFORE
+        # the write. Returning a prior value here re-armed that pairing and made
+        # the whole task inert (the FBX shipped at the original range).
         check(
-            "set_bake_animation_range returns the prior range",
-            original_range == (1, 250),
+            "set_bake_animation_range returns None (too-early revert stays disarmed)",
+            result is None,
+            f"returned {result!r}",
+        )
+        check(
+            "the range restore is staged as a deferred restore instead",
+            "frame_range" in tm2._deferred_restores,
+            f"staged={sorted(tm2._deferred_restores)}",
         )
 
-        tm2.revert_bake_animation_range(original_range)
+        tm2.run_deferred_restores()
         check(
-            "revert_bake_animation_range restores the scene range",
+            "run_deferred_restores restores the scene range",
             (scene.frame_start, scene.frame_end) == (1, 250),
+        )
+        check(
+            "the staged-restore ledger is empty afterwards",
+            not tm2._deferred_restores,
         )
 
         restore_result = SmartBake.restore(tm2._bake_session_id)
@@ -1569,6 +1583,26 @@ def _run_task_manager_wiring_checks():
             }
         )
         check("run_tasks full pipeline returns True", ok is True)
+        # The whole point of the staging seam: run_tasks has returned (so every
+        # set_/revert_ pair has already fired) yet the frame range the FBX
+        # writer will read is STILL the one the task set.
+        scene3 = bpy.context.scene
+        frames3 = [
+            k.co.x
+            for fc in AnimUtils.get_fcurves(tm3.objects)
+            for k in fc.keyframe_points
+        ]
+        expected3 = (int(min(frames3)), int(max(frames3)))
+        check(
+            "scene range set by the task survives run_tasks (reaches the write)",
+            (scene3.frame_start, scene3.frame_end) == expected3,
+            f"actual=({scene3.frame_start},{scene3.frame_end}) expected={expected3}",
+        )
+        tm3.run_deferred_restores()
+        check(
+            "…and is restored once the post-write cleanups run",
+            (scene3.frame_start, scene3.frame_end) == (1, 250),
+        )
         check(
             "_optimize_keys_enabled set before smart_bake runs",
             tm3._optimize_keys_enabled is True,

@@ -957,12 +957,8 @@ class LightmapBakerSlots(ptk.LoggingMixin):
             setObjectName="open_output",
             setToolTip="Open the folder the lightmaps were written to.",
         )
-        try:
-            from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-        except ImportError:
-            return
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Lightmap Baker",
                 body="Bake Blender scene lighting (Cycles) into a texture per object for game "
                 "engines (Unity-first) and wire it up in one step — no manual export prep.",

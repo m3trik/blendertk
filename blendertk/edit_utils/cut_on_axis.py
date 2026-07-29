@@ -29,11 +29,31 @@ class CutOnAxisSlots(ptk.LoggingMixin):
     ``mirror.py`` uses. Live preview via :class:`blendertk.Preview` (snapshot/restore).
     """
 
+    # Interpolation modes offered for the cut distribution — mirrors mayatk's
+    # CutOnAxisSlots.INTERPOLATION_MODES verbatim (same curated, monotonic subset of
+    # ptk.ProgressionCurves). Same TODO(DRY) as mayatk: the label->mode metadata's single
+    # home is ptk.ProgressionCurves — consolidate in a dedicated cross-package pass.
+    INTERPOLATION_MODES = [
+        ("Linear", "linear"),
+        ("Ease In", "ease_in"),
+        ("Ease Out", "ease_out"),
+        ("Ease In-Out", "ease_in_out"),
+        ("Exponential", "exponential"),
+        ("Smooth Step", "smooth_step"),
+        ("Weighted", "weighted"),
+    ]
+
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.cut_on_axis
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[cut_on_axis] ")
+
+        # Populate the interpolation combobox (distribution of cuts across the span).
+        # Populate before add_reset_buttons so the default is captured.
+        self.ui.cmb001.clear()
+        self.ui.cmb001.add(self.INTERPOLATION_MODES, prefix="Interpolation:")
+        self.ui.cmb001.setAsCurrent("linear")
 
         # Per-field reset buttons must precede connect_multi/Preview (wrap-first
         # optimization — see add_reset_buttons docstring).
@@ -47,10 +67,16 @@ class CutOnAxisSlots(ptk.LoggingMixin):
             undo_message="Cut On Axis",
         )
 
-        # Connect sliders and checkboxes to preview refresh function
+        # Connect sliders and checkboxes to preview refresh function.
+        # s000 Amount, s001 Offset, s002 Spacing, s003 Weight Bias, s004 Weight Curve.
         self.sb.connect_multi(self.ui, "chk001-6", "clicked", self.preview.refresh)
-        self.sb.connect_multi(self.ui, "s000-1", "valueChanged", self.preview.refresh)
+        self.sb.connect_multi(self.ui, "s000-4", "valueChanged", self.preview.refresh)
         self.ui.cmb000.currentIndexChanged.connect(self.preview.refresh)
+        self.ui.cmb001.currentIndexChanged.connect(self.preview.refresh)
+        self.ui.cmb001.currentIndexChanged.connect(self.toggle_weight_ui)
+
+        # Initialize the weight-field enabled state for the default mode.
+        self.toggle_weight_ui()
 
         # TODO(blender-parity): mayatk refreshes the preview on viewport pivot changes
         # (selection / tool / manipulator drag release) via mayatk.xform_utils.PivotWatcher.
@@ -59,12 +85,10 @@ class CutOnAxisSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         # Gesture-scoped window: pin button + auto-hide on key_show release.
         widget.config_buttons("menu", "collapse", "pin")
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Cut on Axis",
                 body="Slice selected meshes along an axis, then optionally "
                 "delete or mirror the cut half.",
@@ -92,11 +116,27 @@ class CutOnAxisSlots(ptk.LoggingMixin):
             )
         )
 
+    def toggle_weight_ui(self):
+        """Enable the weight fields only for the modes that consume them.
+
+        Mirrors mayatk's CutOnAxisSlots.toggle_weight_ui: 'linear'/'smooth_step' use
+        neither; 'weighted' uses both bias and curve; every other mode uses the curve only.
+        """
+        mode = self.ui.cmb001.currentData()
+        uses_curve = mode not in ("linear", "smooth_step")
+        uses_bias = mode == "weighted"
+        self.ui.s003.setEnabled(uses_bias)  # Weight Bias
+        self.ui.s004.setEnabled(uses_curve)  # Weight Curve
+
     def perform_operation(self, objects):
         axis = self.sb.get_axis_from_checkboxes("chk001-4", self.ui)
         pivot_index = self.ui.cmb000.currentIndex()
         cuts = self.ui.s000.value()
         cut_offset = self.ui.s001.value()
+        cut_spacing = self.ui.s002.value()
+        distribution = self.ui.cmb001.currentData()
+        weight_bias = self.ui.s003.value()
+        weight_curve = self.ui.s004.value()
         delete = self.ui.chk005.isChecked()
         mirror = self.ui.chk006.isChecked()
 
@@ -109,6 +149,10 @@ class CutOnAxisSlots(ptk.LoggingMixin):
             pivot=pivot,
             amount=cuts,
             offset=cut_offset,
+            spacing=cut_spacing,
+            distribution=distribution,
+            weight_bias=weight_bias,
+            weight_curve=weight_curve,
             delete=delete,
             mirror=mirror,
         )

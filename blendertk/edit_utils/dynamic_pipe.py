@@ -153,10 +153,8 @@ class DynamicPipeSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Dynamic Pipe",
                 body="Build a pipe-style mesh driven by a chain of handle objects (Empties). Each "
                 "handle hooks one control point of a beveled curve; moving a handle in the "

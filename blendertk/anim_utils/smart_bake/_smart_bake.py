@@ -27,10 +27,15 @@ Divergence from mayatk (by design, not a gap to fill in later):
       already covers it uniformly. Analyzing an ``ARMATURE`` walks ``pose.bones[*].constraints``
       in addition to the object's own ``.constraints``.
     * No inherited-visibility bake pass. Maya's FBX exporter needs an ancestor-visibility bake
-      hack because it does not evaluate inherited DAG visibility; Blender's
-      ``hide_viewport``/``hide_render`` are not inherited/multiplied down a parent chain the way
-      Maya's is, and ``AnimUtils.set_visibility_keys`` already covers direct visibility keying.
-      This is a permanent scope cut, matching the precedent set porting ``hierarchy_sync``.
+      hack because it does not evaluate inherited DAG visibility. Blender has no equivalent
+      *animated* inheritance source at all: ``hide_viewport``/``hide_render`` are not inherited
+      down a parent chain, and while collection visibility IS inherited (``Object.visible_get()``
+      resolves it), ``Collection.hide_viewport``/``hide_render`` are **not animatable** —
+      ``is_animatable=False``; both ``keyframe_insert`` and ``driver_add`` refuse (verified live,
+      Blender 5.1, 2026-07-28 — this closes the question the 2026-07-28 parity audit re-opened).
+      The only animatable visibility in Blender is the object's OWN hide flags, which
+      ``AnimUtils.set_visibility_keys`` already covers. Permanent scope cut, matching the
+      precedent set porting ``hierarchy_sync``.
     * Name-based references, not UUIDs. See ``bake_session.py``'s module docstring — object
       names are force-unique within ``bpy.data.objects`` and survive save/reopen, unlike
       Blender's process-local ``session_uid``.

@@ -70,6 +70,76 @@ try:
     check("freeze -> location.x == 0", approx(A.location.x, 0.0), f"x={A.location.x:.3f}")
     check("freeze -> scale.x == 1", approx(A.scale.x, 1.0), f"s={A.scale.x:.3f}")
 
+    # 4b. multi-user (linked) data: transform_apply aborts the WHOLE batch over one such
+    # object, so freeze must skip it by default -- and still bake the rest of the batch.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    src = bpy.context.active_object; src.name = "src"
+    linked = btk.mirror_instance(src, axis="x", pivot=(3.0, 0.0, 0.0))[0]
+    bpy.ops.mesh.primitive_cube_add(location=(0, 6, 0))
+    solo = bpy.context.active_object; solo.name = "solo"
+    solo.scale = (2, 2, 2); bpy.context.view_layer.update()
+    src_x_before = round(min((src.matrix_world @ v.co).x for v in src.data.vertices), 4)
+
+    btk.freeze_transforms([linked, solo], location=False, rotation=False, scale=True)
+    check("freeze skips multi-user data (scale kept)", abs(abs(linked.scale.x) - 1.0) < 1e-4,
+          f"scale={tuple(round(v, 3) for v in linked.scale)}")
+    check("freeze leaves the shared source geometry alone",
+          approx(min((src.matrix_world @ v.co).x for v in src.data.vertices), src_x_before))
+    check("freeze still bakes the rest of the batch (solo)", approx(solo.scale.x, 1.0),
+          f"s={solo.scale.x:.3f}")
+    check("freeze skip keeps the data shared", linked.data is src.data)
+
+    # 4c. uninstance(freeze=True) breaks the link AND bakes in one step -> engine-safe
+    # geometry (positive scale, own mesh) with both halves still in place. Breaking the
+    # link alone leaves the negative scale on the transform, which is the whole problem.
+    linked_min_before = round(min((linked.matrix_world @ v.co).x for v in linked.data.vertices), 3)
+    linked_max_before = round(max((linked.matrix_world @ v.co).x for v in linked.data.vertices), 3)
+    check("uninstance alone leaves the transform untouched", min(linked.scale) < 0,
+          f"scale={tuple(round(v, 3) for v in linked.scale)}")
+    btk.uninstance(linked, freeze=True)
+    bpy.context.view_layer.update()
+    check("uninstance(freeze=True) forks the data", linked.data is not src.data)
+    check("uninstance(freeze=True) bakes the scale away",
+          all(approx(v, 1.0) for v in linked.scale), f"scale={tuple(round(v, 3) for v in linked.scale)}")
+    check("uninstance(freeze=True) keeps the geometry in place",
+          approx(min((linked.matrix_world @ v.co).x for v in linked.data.vertices), linked_min_before)
+          and approx(max((linked.matrix_world @ v.co).x for v in linked.data.vertices), linked_max_before),
+          f"x={min((linked.matrix_world @ v.co).x for v in linked.data.vertices):.3f}.."
+          f"{max((linked.matrix_world @ v.co).x for v in linked.data.vertices):.3f}")
+    check("uninstance(freeze=True) leaves the source geometry alone",
+          approx(min((src.matrix_world @ v.co).x for v in src.data.vertices), src_x_before))
+
+    # already-unique object: the bake must still run (the caller asked for it)
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    solo = bpy.context.active_object
+    solo.scale = (2, 2, 2); bpy.context.view_layer.update()
+    btk.uninstance(solo, freeze=True)
+    check("uninstance(freeze=True) bakes an already-unique object too",
+          all(approx(v, 1.0) for v in solo.scale), f"scale={tuple(round(v, 3) for v in solo.scale)}")
+
+    # 4d. BOTH siblings of a linked pair in one batch: forking each in turn would copy
+    # the shared datablock twice and leave the original at zero users (an orphan mesh).
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    a = bpy.context.active_object; a.name = "pair_a"
+    b = btk.mirror_instance(a, axis="x", pivot=(3.0, 0.0, 0.0))[0]
+    shared_data = a.data
+    meshes_before = len(bpy.data.meshes)
+    bpy.context.view_layer.update()
+
+    btk.uninstance([a, b], freeze=True)
+    bpy.context.view_layer.update()
+    check("uninstance(freeze=True) on both siblings -> data no longer shared",
+          a.data is not b.data)
+    check("uninstance(freeze=True) on both siblings -> no orphaned datablock",
+          len(bpy.data.meshes) == meshes_before + 1 and shared_data.users > 0,
+          f"meshes={len(bpy.data.meshes)} (was {meshes_before}), orig users={shared_data.users}")
+    check("uninstance(freeze=True) on both siblings -> both baked",
+          all(approx(v, 1.0) for v in a.scale) and all(approx(v, 1.0) for v in b.scale),
+          f"a={tuple(round(v,3) for v in a.scale)} b={tuple(round(v,3) for v in b.scale)}")
+
     # 5. center_pivot: origin at (5,0,0), mesh shifted +3 -> object-mode origin -> bbox center x=8
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0)); c = bpy.context.active_object
@@ -242,6 +312,16 @@ try:
           f"x={round(tgt.matrix_world.translation.x, 2)}")
     check("transfer_pivot preserves geometry", drift < 1e-5, f"drift={drift:.2e}")
     check("transfer_pivot needs 2+ objects (no-op)", btk.transfer_pivot([src]) == [])
+
+    # mirror="x" reflects the transferred origin across the world YZ plane (src at x=7 -> -7)
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.ops.mesh.primitive_cube_add(location=(0, 3, 0)); tgt2 = bpy.context.active_object
+    v_before = tuple(tgt2.matrix_world @ tgt2.data.vertices[0].co)
+    btk.transfer_pivot([src, tgt2], translate=True, mirror="x")
+    drift = max(abs(p - q) for p, q in zip(v_before, tuple(tgt2.matrix_world @ tgt2.data.vertices[0].co)))
+    check("transfer_pivot mirror=x reflects origin", approx(tgt2.matrix_world.translation.x, -7.0),
+          f"x={round(tgt2.matrix_world.translation.x, 2)}")
+    check("transfer_pivot mirror preserves geometry", drift < 1e-5, f"drift={drift:.2e}")
 
     # 10. spatial queries: get_bounding_box / get_center_point / get_distance /
     #     order_by_distance / aim_object_at_point

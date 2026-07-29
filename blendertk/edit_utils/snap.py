@@ -52,10 +52,8 @@ class SnapSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Snap",
                 body="Snap vertices to other vertices, surfaces, or the world grid. Each button "
                 "has an option box (▸) for its per-tool parameters.",

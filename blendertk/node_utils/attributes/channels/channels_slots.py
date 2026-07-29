@@ -352,8 +352,6 @@ class ChannelsSlots:
 
     def header_init(self, widget):
         """Populate the header menu (Qt-only; editor shortcuts defer ``bpy`` to click time)."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.menu.add("Separator", setTitle="Create")
         widget.menu.add(
             "QPushButton",
@@ -434,7 +432,7 @@ class ChannelsSlots:
         widget.menu.hdr_graph.clicked.connect(lambda: self._open_editor("Graph Editor"))
 
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Channels",
                 body="Inspect, edit, lock, and key a Blender object's channels — its transform "
                 "(location / rotation / scale) and custom properties — in a spreadsheet-style table.",

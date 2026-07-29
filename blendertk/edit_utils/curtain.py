@@ -411,10 +411,8 @@ class CurtainSlots(ptk.LoggingMixin):
 
     def header_init(self, widget):
         """Configure header help text (the preset combo lives in the panel)."""
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         widget.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Curtain",
                 body="Drape a pleated cloth curtain from a <b>rail</b> — a "
                 "selected curve object, edit-mode mesh edge loop, or chain of "

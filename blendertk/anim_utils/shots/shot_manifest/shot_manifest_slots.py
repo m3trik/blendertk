@@ -998,8 +998,6 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         Generation settings (threshold, mode) now live in the shared
         ``shots.ui`` panel, opened via the Settings button.
         """
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
-
         menu = self.ui.header.menu
         menu.setTitle("Shot Manifest:")
 
@@ -1044,7 +1042,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         )
 
         self.ui.header.set_help_text(
-            TooltipFormat.fmt(
+            self.sb.tooltip.fmt(
                 title="Shot Manifest",
                 body="Build and validate shots from a CSV file or by generating from scene animation.",
                 sections=[
