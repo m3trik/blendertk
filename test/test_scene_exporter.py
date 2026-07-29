@@ -254,6 +254,24 @@ try:
         f"result={result} exists={os.path.isfile(carrier_file)}",
     )
 
+    # The scene-data sidecar records what shipped: decoded carrier channels +
+    # exported hierarchy paths (engine-side `_write_scene_data_sidecar`).
+    from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
+
+    sc_data = SceneDataSidecar.read_data(carrier_file) or {}
+    sc_md = sc_data.get("lightmap_metadata")
+    check(
+        "scene-data sidecar written beside the FBX with the decoded channel",
+        isinstance(sc_md, dict) and sc_md.get("version") == 1,
+        f"{sc_data!r}",
+    )
+    sc_paths = SceneDataSidecar.read_manifest(carrier_file) or set()
+    check(
+        "sidecar hierarchy section covers the export set",
+        "CarrierExportCube" in sc_paths,
+        f"{sorted(sc_paths)}",
+    )
+
     reset_scene()
     imported = FbxUtils.import_fbx(carrier_file, use_custom_props=True)
     imported_carrier = next(
@@ -288,6 +306,21 @@ try:
         "export_data_node no-ops cleanly when the scene has no carrier",
         result is True and os.path.isfile(os.path.join(out_dir, "no_carrier_test.fbx")),
         f"result={result}",
+    )
+    check(
+        "metadata-free export leaves no sidecar",
+        SceneDataSidecar.read_manifest(os.path.join(out_dir, "no_carrier_test.fbx"))
+        is None,
+    )
+    # Carrier present in the scene but NOT in the export set → its channels
+    # did not ship, so nothing is recorded (and with nothing else to record,
+    # no sidecar at all).
+    DataNodes.set_export_string("test_channel", json.dumps({"v": 1}))
+    exp5._write_scene_data_sidecar([lone])
+    check(
+        "carrier outside the export set records no data",
+        SceneDataSidecar.read_manifest(os.path.join(out_dir, "no_carrier_test.fbx"))
+        is None,
     )
 
     # ---- keyed-weight curve proxies: staged through the write, gone after --------------------
@@ -439,6 +472,57 @@ try:
         "(per-action takes would rebase it to frame 1, silently misaligning it)",
         len(take_names) == 1 and next(iter(take_names)).endswith("|Scene"),
         f"takes={sorted(take_names)}",
+    )
+
+    # ---- check_valid_paths is scoped to the textures that actually ship ------------------
+    # Bug (mirrored from mayatk): the check walked EVERY FILE image datablock in the
+    # .blend, so it failed the export over the World/HDR environment texture and over
+    # zero-user images orphaned by a duplicate-material cleanup — neither of which the
+    # FBX ever carries. Scope is now `_get_export_images()` (the images feeding the
+    # materials assigned to `self.objects`); linked libraries stay whole-file.
+    reset_scene()
+    for img in list(bpy.data.images):
+        if img.source == "FILE":
+            bpy.data.images.remove(img)
+
+    tex_dir = os.path.join(tmp, "textures")
+    os.makedirs(tex_dir, exist_ok=True)
+    good_tex = os.path.join(tex_dir, "assigned.png")
+    with open(good_tex, "wb") as fh:
+        fh.write(b"PNGDATA")
+
+    bpy.ops.mesh.primitive_cube_add()
+    tex_cube = bpy.context.active_object
+    tex_cube.name = "PathScopeCube"
+    mat = bpy.data.materials.new("PathScopeMat")
+    mat.use_nodes = True
+    tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex_node.image = bpy.data.images.load(good_tex)
+    tex_cube.data.materials.append(mat)
+
+    # An unassigned image with a broken path — the Blender analogue of Maya's
+    # skydome HDR / orphaned file node.
+    stray = bpy.data.images.new("stray_env_hdr", 1, 1)
+    stray.source = "FILE"
+    stray.filepath = os.path.join(tex_dir, "machine_shop_8k.hdr")
+
+    tm_paths = SceneExporter().task_manager
+    tm_paths.objects = [tex_cube]
+    passed, msgs = tm_paths.check_valid_paths(True)
+    check(
+        "check_valid_paths ignores images outside the export materials",
+        passed is True,
+        f"msgs={msgs}",
+    )
+
+    # ... but a genuinely missing map on an export material still fails.
+    tex_node.image.filepath = os.path.join(tex_dir, "gone.png")
+    tm_paths._cached_materials = None
+    passed, msgs = tm_paths.check_valid_paths(True)
+    check(
+        "check_valid_paths still fails on a missing EXPORT texture",
+        passed is False and any("gone" in m or tex_node.image.name in m for m in msgs),
+        f"msgs={msgs}",
     )
 
     shutil.rmtree(tmp, ignore_errors=True)

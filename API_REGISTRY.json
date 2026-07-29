@@ -6994,174 +6994,6 @@
       ]
     },
     {
-      "relpath": "env_utils/hierarchy_sync/hierarchy_sidecar.py",
-      "summary": "Hierarchy sidecar manifest management — mirror of mayatk's",
-      "functions": [],
-      "classes": [
-        {
-          "name": "HierarchySidecar",
-          "summary": "Manages hierarchy sidecar files stored alongside export files.",
-          "line": 25,
-          "bases": [],
-          "members": [
-            {
-              "name": "base_stem",
-              "qualname": "HierarchySidecar.base_stem",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str) -> str",
-              "summary": "Return the export stem with any trailing ``_vNN`` suffix stripped.",
-              "line": 46,
-              "deprecated": false
-            },
-            {
-              "name": "manifest_path_for",
-              "qualname": "HierarchySidecar.manifest_path_for",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
-              "summary": "Return the sidecar manifest path for an export file.",
-              "line": 52,
-              "deprecated": false
-            },
-            {
-              "name": "diff_report_path_for",
-              "qualname": "HierarchySidecar.diff_report_path_for",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
-              "summary": "Return the sidecar diff report path for an export file.",
-              "line": 70,
-              "deprecated": false
-            },
-            {
-              "name": "find_legacy_manifest",
-              "qualname": "HierarchySidecar.find_legacy_manifest",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str) -> Optional[str]",
-              "summary": "Return the path of a legacy per-version sidecar to migrate from.",
-              "line": 85,
-              "deprecated": false
-            },
-            {
-              "name": "ensure_base_name",
-              "qualname": "HierarchySidecar.ensure_base_name",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str) -> Optional[str]",
-              "summary": "Migrate a legacy per-version manifest to the base-stem name.",
-              "line": 110,
-              "deprecated": false
-            },
-            {
-              "name": "rename",
-              "qualname": "HierarchySidecar.rename",
-              "kind": "classmethod",
-              "signature": "(cls, old_export_path: str, new_export_path: str) -> list",
-              "summary": "Rename sidecar files to match a renamed export file.",
-              "line": 132,
-              "deprecated": false
-            },
-            {
-              "name": "build_clean_path_set",
-              "qualname": "HierarchySidecar.build_clean_path_set",
-              "kind": "staticmethod",
-              "signature": "(paths) -> set",
-              "summary": "Dedup a set of hierarchy path strings.",
-              "line": 174,
-              "deprecated": false
-            },
-            {
-              "name": "expand_to_descendants",
-              "qualname": "HierarchySidecar.expand_to_descendants",
-              "kind": "staticmethod",
-              "signature": "(objects) -> list",
-              "summary": "Return hierarchy paths for *objects* plus all their descendants.",
-              "line": 184,
-              "deprecated": false
-            },
-            {
-              "name": "get_top_level",
-              "qualname": "HierarchySidecar.get_top_level",
-              "kind": "staticmethod",
-              "signature": "(paths) -> list",
-              "summary": "Return only paths whose ancestor is *not* also in the set.",
-              "line": 201,
-              "deprecated": false
-            },
-            {
-              "name": "detect_reparenting",
-              "qualname": "HierarchySidecar.detect_reparenting",
-              "kind": "staticmethod",
-              "signature": "(missing: list, extra: list) -> list",
-              "summary": "Detect nodes that were reparented rather than added/removed.",
-              "line": 213,
-              "deprecated": false
-            },
-            {
-              "name": "write_manifest",
-              "qualname": "HierarchySidecar.write_manifest",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, paths, *, base_stem: bool = False) -> Optional[str]",
-              "summary": "Write *paths* to the sidecar manifest for *export_path*.",
-              "line": 252,
-              "deprecated": false
-            },
-            {
-              "name": "read_manifest",
-              "qualname": "HierarchySidecar.read_manifest",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]",
-              "summary": "Read the manifest for *export_path*.",
-              "line": 317,
-              "deprecated": false
-            },
-            {
-              "name": "count_descendants",
-              "qualname": "HierarchySidecar.count_descendants",
-              "kind": "staticmethod",
-              "signature": "(top_path: str, all_paths) -> int",
-              "summary": "Count *top_path* plus its descendants in *all_paths*.",
-              "line": 338,
-              "deprecated": false
-            },
-            {
-              "name": "write_diff_report",
-              "qualname": "HierarchySidecar.write_diff_report",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]",
-              "summary": "Write a human-readable diff report to the sidecar text file.",
-              "line": 359,
-              "deprecated": false
-            },
-            {
-              "name": "clean_stale_diff",
-              "qualname": "HierarchySidecar.clean_stale_diff",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> None",
-              "summary": "Remove a stale diff report left over from a previous failure.",
-              "line": 423,
-              "deprecated": false
-            },
-            {
-              "name": "build_full_path_set",
-              "qualname": "HierarchySidecar.build_full_path_set",
-              "kind": "classmethod",
-              "signature": "(cls, objects) -> set",
-              "summary": "Expand *objects* to descendants, then dedup.",
-              "line": 437,
-              "deprecated": false
-            },
-            {
-              "name": "compare",
-              "qualname": "HierarchySidecar.compare",
-              "kind": "classmethod",
-              "signature": "(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]",
-              "summary": "Compare *current_paths* against the stored manifest.",
-              "line": 442,
-              "deprecated": false
-            }
-          ]
-        }
-      ]
-    },
-    {
       "relpath": "env_utils/hierarchy_sync/hierarchy_sync_slots.py",
       "summary": "Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.",
       "functions": [],
@@ -7524,6 +7356,192 @@
               "signature": "(self, tree_widget)",
               "summary": "Count total items in a tree widget.",
               "line": 2368,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "env_utils/hierarchy_sync/scene_data_sidecar.py",
+      "summary": "Scene-data sidecar manifest management — mirror of mayatk's",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SceneDataSidecar",
+          "summary": "Manages scene-data sidecar files stored alongside export files.",
+          "line": 55,
+          "bases": [],
+          "members": [
+            {
+              "name": "base_stem",
+              "qualname": "SceneDataSidecar.base_stem",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str) -> str",
+              "summary": "Return the export stem with any trailing ``_vNN`` suffix stripped.",
+              "line": 82,
+              "deprecated": false
+            },
+            {
+              "name": "manifest_path_for",
+              "qualname": "SceneDataSidecar.manifest_path_for",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
+              "summary": "Return the sidecar manifest path for an export file.",
+              "line": 96,
+              "deprecated": false
+            },
+            {
+              "name": "diff_report_path_for",
+              "qualname": "SceneDataSidecar.diff_report_path_for",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
+              "summary": "Return the sidecar diff report path for an export file.",
+              "line": 120,
+              "deprecated": false
+            },
+            {
+              "name": "find_legacy_manifest",
+              "qualname": "SceneDataSidecar.find_legacy_manifest",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str) -> Optional[str]",
+              "summary": "Return the path of a legacy per-version sidecar to migrate from.",
+              "line": 131,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_base_name",
+              "qualname": "SceneDataSidecar.ensure_base_name",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str) -> Optional[str]",
+              "summary": "Migrate a legacy per-version manifest to the base-stem name.",
+              "line": 180,
+              "deprecated": false
+            },
+            {
+              "name": "migrate_legacy",
+              "qualname": "SceneDataSidecar.migrate_legacy",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]",
+              "summary": "Idempotently bring on-disk sidecars up to the current naming.",
+              "line": 203,
+              "deprecated": false
+            },
+            {
+              "name": "rename",
+              "qualname": "SceneDataSidecar.rename",
+              "kind": "classmethod",
+              "signature": "(cls, old_export_path: str, new_export_path: str) -> list",
+              "summary": "Rename sidecar files to match a renamed export file.",
+              "line": 226,
+              "deprecated": false
+            },
+            {
+              "name": "build_clean_path_set",
+              "qualname": "SceneDataSidecar.build_clean_path_set",
+              "kind": "staticmethod",
+              "signature": "(paths) -> set",
+              "summary": "Dedup a set of hierarchy path strings.",
+              "line": 273,
+              "deprecated": false
+            },
+            {
+              "name": "expand_to_descendants",
+              "qualname": "SceneDataSidecar.expand_to_descendants",
+              "kind": "staticmethod",
+              "signature": "(objects) -> list",
+              "summary": "Return hierarchy paths for *objects* plus all their descendants.",
+              "line": 283,
+              "deprecated": false
+            },
+            {
+              "name": "get_top_level",
+              "qualname": "SceneDataSidecar.get_top_level",
+              "kind": "staticmethod",
+              "signature": "(paths) -> list",
+              "summary": "Return only paths whose ancestor is *not* also in the set.",
+              "line": 300,
+              "deprecated": false
+            },
+            {
+              "name": "detect_reparenting",
+              "qualname": "SceneDataSidecar.detect_reparenting",
+              "kind": "staticmethod",
+              "signature": "(missing: list, extra: list) -> list",
+              "summary": "Detect nodes that were reparented rather than added/removed.",
+              "line": 312,
+              "deprecated": false
+            },
+            {
+              "name": "write_manifest",
+              "qualname": "SceneDataSidecar.write_manifest",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, paths, *, data: Optional[dict] = None, base_stem: bool = False) -> Optional[str]",
+              "summary": "Write the sidecar manifest for *export_path*.",
+              "line": 362,
+              "deprecated": false
+            },
+            {
+              "name": "read_manifest",
+              "qualname": "SceneDataSidecar.read_manifest",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]",
+              "summary": "Read the hierarchy paths from the manifest for *export_path*.",
+              "line": 451,
+              "deprecated": false
+            },
+            {
+              "name": "read_data",
+              "qualname": "SceneDataSidecar.read_data",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[dict]",
+              "summary": "Read the ``data_export`` snapshot from the manifest for *export_path*.",
+              "line": 471,
+              "deprecated": false
+            },
+            {
+              "name": "count_descendants",
+              "qualname": "SceneDataSidecar.count_descendants",
+              "kind": "staticmethod",
+              "signature": "(top_path: str, all_paths) -> int",
+              "summary": "Count *top_path* plus its descendants in *all_paths*.",
+              "line": 493,
+              "deprecated": false
+            },
+            {
+              "name": "write_diff_report",
+              "qualname": "SceneDataSidecar.write_diff_report",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]",
+              "summary": "Write a human-readable diff report to the sidecar text file.",
+              "line": 514,
+              "deprecated": false
+            },
+            {
+              "name": "clean_stale_diff",
+              "qualname": "SceneDataSidecar.clean_stale_diff",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, *, base_stem: bool = False) -> None",
+              "summary": "Remove a stale diff report left over from a previous failure.",
+              "line": 578,
+              "deprecated": false
+            },
+            {
+              "name": "build_full_path_set",
+              "qualname": "SceneDataSidecar.build_full_path_set",
+              "kind": "classmethod",
+              "signature": "(cls, objects) -> set",
+              "summary": "Expand *objects* to descendants, then dedup.",
+              "line": 592,
+              "deprecated": false
+            },
+            {
+              "name": "compare",
+              "qualname": "SceneDataSidecar.compare",
+              "kind": "classmethod",
+              "signature": "(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]",
+              "summary": "Compare *current_paths* against the stored hierarchy baseline.",
+              "line": 597,
               "deprecated": false
             }
           ]
@@ -8387,7 +8405,7 @@
         {
           "name": "SceneExporter",
           "summary": "",
-          "line": 111,
+          "line": 106,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -8398,7 +8416,7 @@
               "kind": "method",
               "signature": "(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: str = 'WARNING', hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, bool]]",
               "summary": "Perform the export operation, including initialization and task management.",
-              "line": 162,
+              "line": 157,
               "deprecated": false
             },
             {
@@ -8407,7 +8425,7 @@
               "kind": "method",
               "signature": "(self, version_format: str = '') -> str",
               "summary": "Generate the full export file path.",
-              "line": 393,
+              "line": 451,
               "deprecated": false
             },
             {
@@ -8416,7 +8434,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> str",
               "summary": "Format the export name using a regex pattern and replacement (e.g.",
-              "line": 522,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -8425,7 +8443,7 @@
               "kind": "method",
               "signature": "(self, export_path: str) -> str",
               "summary": "Generate the log file path based on the export path.",
-              "line": 540,
+              "line": 598,
               "deprecated": false
             },
             {
@@ -8434,7 +8452,7 @@
               "kind": "method",
               "signature": "(self, log_file_path: str)",
               "summary": "Setup file logging to log actions during export.",
-              "line": 545,
+              "line": 603,
               "deprecated": false
             },
             {
@@ -8443,7 +8461,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Close and remove file handlers after logging is complete.",
-              "line": 561,
+              "line": 619,
               "deprecated": false
             },
             {
@@ -8452,7 +8470,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "All FBX export-option preset names (built-in + user;",
-              "line": 585,
+              "line": 643,
               "deprecated": false
             },
             {
@@ -8461,7 +8479,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "Writable directory FBX export-option presets are saved to (the \"Open Preset",
-              "line": 591,
+              "line": 649,
               "deprecated": false
             },
             {
@@ -8470,7 +8488,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Optional[str]",
               "summary": "Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it",
-              "line": 597,
+              "line": 655,
               "deprecated": false
             },
             {
@@ -8479,7 +8497,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, options: Optional[Dict[str, Any]] = None) -> str",
               "summary": "Save *options* (default: :data:`_DEFAULT_FBX_OPTIONS`) as user preset *name*.",
-              "line": 605,
+              "line": 663,
               "deprecated": false
             },
             {
@@ -8488,7 +8506,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete the *user* FBX export-option preset *name* (built-ins are read-only).",
-              "line": 616,
+              "line": 674,
               "deprecated": false
             },
             {
@@ -8497,7 +8515,7 @@
               "kind": "method",
               "signature": "(self, name: Optional[str] = None, verify: bool = False) -> Optional[dict]",
               "summary": "Load a named FBX export-option preset so the next :meth:`perform_export` call",
-              "line": 621,
+              "line": 679,
               "deprecated": false
             },
             {
@@ -8506,7 +8524,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "Return (and log) the FBX export kwargs the next :meth:`perform_export` call will",
-              "line": 656,
+              "line": 714,
               "deprecated": false
             }
           ]
@@ -8700,7 +8718,7 @@
         {
           "name": "TaskManager",
           "summary": "Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's",
-          "line": 767,
+          "line": 786,
           "bases": [
             "TaskFactory",
             "_TaskActionsMixin",
@@ -8713,7 +8731,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 839,
+              "line": 858,
               "deprecated": false
             },
             {
@@ -8722,7 +8740,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the task definitions for the UI.",
-              "line": 849,
+              "line": 868,
               "deprecated": false
             },
             {
@@ -8731,7 +8749,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the check definitions for the UI.",
-              "line": 993,
+              "line": 1014,
               "deprecated": false
             },
             {
@@ -8740,7 +8758,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return all definitions combined for backward compatibility.",
-              "line": 1107,
+              "line": 1133,
               "deprecated": false
             }
           ]
@@ -8896,7 +8914,7 @@
         {
           "name": "Parameters",
           "summary": "Parameters — module namespace.",
-          "line": 135,
+          "line": 160,
           "bases": [],
           "members": [
             {
@@ -8905,7 +8923,7 @@
               "kind": "staticmethod",
               "signature": "(script_text: str) -> 'set[str]'",
               "summary": "Registered keys present in *script_text* (delegates to uitk.bridge).",
-              "line": 144,
+              "line": 169,
               "deprecated": false
             },
             {
@@ -8914,7 +8932,7 @@
               "kind": "staticmethod",
               "signature": "() -> 'dict[str, Any]'",
               "summary": "Return ``{key: default}`` for every registered parameter.",
-              "line": 149,
+              "line": 174,
               "deprecated": false
             },
             {
@@ -8923,7 +8941,7 @@
               "kind": "staticmethod",
               "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
               "summary": "Format *values* for substitution (kept for API parity;",
-              "line": 154,
+              "line": 179,
               "deprecated": false
             }
           ]
@@ -8949,7 +8967,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 103,
+              "line": 111,
               "deprecated": false
             },
             {
@@ -8958,7 +8976,7 @@
               "kind": "property",
               "signature": "(self) -> Path",
               "summary": "",
-              "line": 107,
+              "line": 115,
               "deprecated": false
             },
             {
@@ -8966,8 +8984,8 @@
               "qualname": "UnityBridgeSlots.make_bridge",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Build the engine, offering to install the optional unitytk if absent.",
-              "line": 112,
+              "summary": "Build the engine, or ``None`` when the optional unitytk is absent.",
+              "line": 120,
               "deprecated": false
             },
             {
@@ -8976,7 +8994,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 123,
+              "line": 133,
               "deprecated": false
             },
             {
@@ -8985,7 +9003,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 129,
+              "line": 139,
               "deprecated": false
             },
             {
@@ -8993,8 +9011,8 @@
               "qualname": "UnityBridgeSlots.b000",
               "kind": "method",
               "signature": "(self)",
-              "summary": "Export per the chosen Scope and copy the FBX into the Unity project.",
-              "line": 252,
+              "summary": "Run the selected template: export-and-copy, or script management.",
+              "line": 341,
               "deprecated": false
             }
           ]
@@ -14874,11 +14892,11 @@
               "deprecated": false
             },
             {
-              "name": "apply_styles",
-              "qualname": "BlenderUiHandler.apply_styles",
+              "name": "default_persistence",
+              "qualname": "BlenderUiHandler.default_persistence",
               "kind": "method",
-              "signature": "(self, ui, style=None)",
-              "summary": "Give blendertk-sourced tool panels a hide button instead of a pin.",
+              "signature": "(self, ui) -> str",
+              "summary": "blendertk-sourced tool panels stay open by default (hide, not pin).",
               "line": 246,
               "deprecated": false
             }
@@ -15429,7 +15447,7 @@
         {
           "name": "UvUtils",
           "summary": "Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).",
-          "line": 329,
+          "line": 335,
           "bases": [
             "_UvUtilsInternal"
           ],
@@ -15440,7 +15458,7 @@
               "kind": "staticmethod",
               "signature": "(map_size: int, normalize: bool = False, factor: int = 256)",
               "summary": "The texture gutter for a given map size — Blender-side name for the ecosystem rule.",
-              "line": 333,
+              "line": 339,
               "deprecated": false
             },
             {
@@ -15449,7 +15467,7 @@
               "kind": "staticmethod",
               "signature": "(objects, du=0.0, dv=0.0)",
               "summary": "Translate the UVs of the given mesh object(s) by ``(du, dv)`` — \"move to UV space\"",
-              "line": 357,
+              "line": 363,
               "deprecated": false
             },
             {
@@ -15458,7 +15476,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "The UV-space bounding box of *objects*, as one box over the whole input —",
-              "line": 372,
+              "line": 378,
               "deprecated": false
             },
             {
@@ -15467,7 +15485,7 @@
               "kind": "classmethod",
               "signature": "(cls, source, candidates=None, tolerance=0.9)",
               "summary": "Transfer UVs from one source mesh to every geometrically similar mesh — mirror of",
-              "line": 409,
+              "line": 415,
               "deprecated": false
             },
             {
@@ -15476,7 +15494,7 @@
               "kind": "staticmethod",
               "signature": "(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0))",
               "summary": "Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space",
-              "line": 486,
+              "line": 492,
               "deprecated": false
             },
             {
@@ -15485,7 +15503,7 @@
               "kind": "staticmethod",
               "signature": "(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)",
               "summary": "Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).",
-              "line": 504,
+              "line": 510,
               "deprecated": false
             },
             {
@@ -15494,7 +15512,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', per_shell=True, preserve_position=True)",
               "summary": "Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.",
-              "line": 560,
+              "line": 566,
               "deprecated": false
             },
             {
@@ -15503,7 +15521,7 @@
               "kind": "staticmethod",
               "signature": "(objects, pin=True, selected_only=True)",
               "summary": "Pin/unpin UVs (bmesh ``pin_uv``).",
-              "line": 671,
+              "line": 677,
               "deprecated": false
             },
             {
@@ -15512,7 +15530,7 @@
               "kind": "staticmethod",
               "signature": "(objects, map_size)",
               "summary": "Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —",
-              "line": 687,
+              "line": 693,
               "deprecated": false
             },
             {
@@ -15521,7 +15539,7 @@
               "kind": "staticmethod",
               "signature": "(objects, density=1.0, map_size=4096)",
               "summary": "Scale each object's UVs (about its own UV bbox center) to the target texel density —",
-              "line": 711,
+              "line": 717,
               "deprecated": false
             },
             {
@@ -15530,7 +15548,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Remove all but the first UV map on the given mesh object(s) — \"Cleanup UV Sets\".",
-              "line": 735,
+              "line": 741,
               "deprecated": false
             },
             {
@@ -15539,7 +15557,7 @@
               "kind": "staticmethod",
               "signature": "(objects, *, remove_empty=True, keep_only_primary=False, rename_to_map1=True, force_rename=False, prefer_largest_area=True, dry_run=False)",
               "summary": "Standardize / clean up the UV sets (``uv_layers``) of the given mesh object(s).",
-              "line": 743,
+              "line": 749,
               "deprecated": false
             },
             {
@@ -15548,7 +15566,7 @@
               "kind": "staticmethod",
               "signature": "(obj)",
               "summary": "Name of *obj*'s existing lightmap UV layer, or ``None`` (mirror of",
-              "line": 859,
+              "line": 865,
               "deprecated": false
             },
             {
@@ -15557,7 +15575,7 @@
               "kind": "staticmethod",
               "signature": "(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True)",
               "summary": "Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).",
-              "line": 880,
+              "line": 886,
               "deprecated": false
             },
             {
@@ -15566,7 +15584,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, method: str = 'hard', map_size: int = 4096, pack: bool = None, orient: bool = True, engine_params: dict = None)",
               "summary": "Automatically unwrap meshes with an external unwrapping engine.",
-              "line": 951,
+              "line": 957,
               "deprecated": false
             },
             {
@@ -15575,7 +15593,7 @@
               "kind": "classmethod",
               "signature": "(cls, source, target, tolerance=0.1, match_by_similarity=True)",
               "summary": "Copy the active UV layer from *source* mesh(es) onto *target* mesh(es).",
-              "line": 1067,
+              "line": 1073,
               "deprecated": false
             },
             {
@@ -15584,7 +15602,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in",
-              "line": 1153,
+              "line": 1159,
               "deprecated": false
             },
             {
@@ -15593,7 +15611,7 @@
               "kind": "staticmethod",
               "signature": "(objects, snapshot)",
               "summary": "Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the",
-              "line": 1175,
+              "line": 1181,
               "deprecated": false
             },
             {
@@ -15602,7 +15620,7 @@
               "kind": "staticmethod",
               "signature": "(objects, tolerance=None)",
               "summary": "Stack UV islands on top of each other.",
-              "line": 1199,
+              "line": 1205,
               "deprecated": false
             },
             {
@@ -15611,7 +15629,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode='LENGTH_AVERAGE')",
               "summary": "Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via",
-              "line": 1255,
+              "line": 1261,
               "deprecated": false
             },
             {
@@ -15620,7 +15638,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=66.0, margin=0.0)",
               "summary": "Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's",
-              "line": 1318,
+              "line": 1324,
               "deprecated": false
             },
             {
@@ -15629,7 +15647,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u')",
               "summary": "Distribute UV islands evenly along ``axis`` (``\"u\"`` or ``\"v\"``) — the first and",
-              "line": 1361,
+              "line": 1367,
               "deprecated": false
             },
             {
@@ -15638,7 +15656,7 @@
               "kind": "staticmethod",
               "signature": "(objects, u=True, v=True, angle=30.0)",
               "summary": "Straighten the selected UV edges — edges within ``angle`` degrees of horizontal",
-              "line": 1403,
+              "line": 1409,
               "deprecated": false
             },
             {
@@ -15647,7 +15665,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', mode='avg')",
               "summary": "Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and",
-              "line": 1460,
+              "line": 1466,
               "deprecated": false
             },
             {
@@ -15656,7 +15674,16 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:",
-              "line": 1517,
+              "line": 1523,
+              "deprecated": false
+            },
+            {
+              "name": "gather_to_udim",
+              "qualname": "UvUtils.gather_to_udim",
+              "kind": "staticmethod",
+              "signature": "(objects, udim=None, map_size=4096)",
+              "summary": "Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's",
+              "line": 1549,
               "deprecated": false
             },
             {
@@ -15665,7 +15692,7 @@
               "kind": "staticmethod",
               "signature": "(objects, to_edge=False)",
               "summary": "Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /",
-              "line": 1543,
+              "line": 1611,
               "deprecated": false
             },
             {
@@ -15674,7 +15701,7 @@
               "kind": "staticmethod",
               "signature": "(objects, seed=0)",
               "summary": "Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell",
-              "line": 1560,
+              "line": 1628,
               "deprecated": false
             }
           ]
@@ -15939,7 +15966,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Header menu — Open UV Editor + panel help.",
-              "line": 82,
+              "line": 87,
               "deprecated": false
             },
             {
@@ -15948,7 +15975,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Move scope — how far one arrow press travels, plus the snap toggle.",
-              "line": 120,
+              "line": 129,
               "deprecated": false
             },
             {
@@ -15957,7 +15984,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Left",
-              "line": 194,
+              "line": 218,
               "deprecated": false
             },
             {
@@ -15966,7 +15993,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Down",
-              "line": 199,
+              "line": 223,
               "deprecated": false
             },
             {
@@ -15975,7 +16002,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Up",
-              "line": 204,
+              "line": 228,
               "deprecated": false
             },
             {
@@ -15984,7 +16011,16 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move To UV Space: Right",
-              "line": 209,
+              "line": 233,
+              "deprecated": false
+            },
+            {
+              "name": "gather_to_udim",
+              "qualname": "ShellXformSlots.gather_to_udim",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Move shells sitting outside the selection's UDIM tile into it.",
+              "line": 238,
               "deprecated": false
             },
             {
@@ -15993,7 +16029,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Flip U: mirror the selection's UV maps horizontally about their bbox center.",
-              "line": 215,
+              "line": 260,
               "deprecated": false
             },
             {
@@ -16002,7 +16038,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Flip V: mirror the selection's UV maps vertically about their bbox center.",
-              "line": 222,
+              "line": 267,
               "deprecated": false
             },
             {
@@ -16011,7 +16047,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rotate the selection's UV maps counter-clockwise by the s041 angle.",
-              "line": 229,
+              "line": 274,
               "deprecated": false
             },
             {
@@ -16020,7 +16056,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Rotate the selection's UV maps clockwise by the s041 angle.",
-              "line": 236,
+              "line": 281,
               "deprecated": false
             },
             {
@@ -16029,7 +16065,7 @@
               "kind": "method",
               "signature": "(self, value, widget)",
               "summary": "Rotate Angle — passive input; read by the Rotate buttons (b036/b037).",
-              "line": 242,
+              "line": 287,
               "deprecated": false
             },
             {
@@ -16038,7 +16074,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 246,
+              "line": 291,
               "deprecated": false
             },
             {
@@ -16047,7 +16083,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Straighten UV (selected UV edges within the angle threshold snap flat;",
-              "line": 281,
+              "line": 326,
               "deprecated": false
             },
             {
@@ -16056,7 +16092,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 301,
+              "line": 346,
               "deprecated": false
             },
             {
@@ -16065,7 +16101,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Distribute (space the targeted UV shells evenly along U or V).",
-              "line": 318,
+              "line": 363,
               "deprecated": false
             },
             {
@@ -16074,7 +16110,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "",
-              "line": 329,
+              "line": 374,
               "deprecated": false
             },
             {
@@ -16083,7 +16119,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Mirror UVs (footprint-preserving reassignment by default;",
-              "line": 366,
+              "line": 411,
               "deprecated": false
             },
             {
@@ -16092,7 +16128,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their minimum U (left).",
-              "line": 393,
+              "line": 438,
               "deprecated": false
             },
             {
@@ -16101,7 +16137,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their average U (center).",
-              "line": 398,
+              "line": 443,
               "deprecated": false
             },
             {
@@ -16110,7 +16146,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their maximum U (right).",
-              "line": 403,
+              "line": 448,
               "deprecated": false
             },
             {
@@ -16119,7 +16155,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their minimum V (bottom).",
-              "line": 408,
+              "line": 453,
               "deprecated": false
             },
             {
@@ -16128,7 +16164,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their average V (center).",
-              "line": 413,
+              "line": 458,
               "deprecated": false
             },
             {
@@ -16137,7 +16173,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Align the selected UVs to their maximum V (top).",
-              "line": 418,
+              "line": 463,
               "deprecated": false
             },
             {
@@ -16146,7 +16182,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Linearly align the selected UVs between their two end points.",
-              "line": 423,
+              "line": 468,
               "deprecated": false
             },
             {
@@ -16155,7 +16191,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Orient each shell to run parallel with its nearest U/V axis (Align Rotation).",
-              "line": 431,
+              "line": 476,
               "deprecated": false
             },
             {
@@ -16164,7 +16200,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Orient the shell so its selected edge runs along U or V.",
-              "line": 439,
+              "line": 484,
               "deprecated": false
             },
             {
@@ -16173,7 +16209,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Gather the selected shells together toward the 0-1 UV space.",
-              "line": 448,
+              "line": 493,
               "deprecated": false
             },
             {
@@ -16182,7 +16218,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Randomly offset the selected shells.",
-              "line": 456,
+              "line": 501,
               "deprecated": false
             },
             {
@@ -16191,7 +16227,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open Blender's UV Editor.",
-              "line": 468,
+              "line": 513,
               "deprecated": false
             }
           ]

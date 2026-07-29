@@ -317,15 +317,15 @@ _Generated: 2026-07-29_
 - `class ObjectSwapper(ptk.LoggingMixin)`
   - methods: pull_objects_from_reference
 
-### `env_utils/hierarchy_sync/hierarchy_sidecar.py` — Hierarchy sidecar manifest management — mirror of mayatk's
-- `class HierarchySidecar`
-  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, count_descendants, write_diff_report, clean_stale_diff, build_full_path_set, compare
-
 ### `env_utils/hierarchy_sync/hierarchy_sync_slots.py` — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 - `class HierarchySyncController(ptk.LoggingMixin)`
   - methods: workspace, reference_path, analyze_hierarchies, repair_hierarchies, pull_objects, select_objects, populate_reference_tree, refresh_trees, is_path_ignored, clear_ignored_paths, log_diff_results, get_recent_reference_scenes, save_recent_reference_scene
 - `class HierarchySyncSlots(ptk.LoggingMixin)`
   - methods: header_init, tree000_init, tree001_init, cmb_diff_options_init, cmb_pull_options_init, tb002_init, tb003_init, tb001, tb002, tb003, b003, b005, b006, b007, b008, b009, b011, b012, b013, b014, b015, b016, b018, b017, count_tree_items
+
+### `env_utils/hierarchy_sync/scene_data_sidecar.py` — Scene-data sidecar manifest management — mirror of mayatk's
+- `class SceneDataSidecar`
+  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, migrate_legacy, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, read_data, count_descendants, write_diff_report, clean_stale_diff, build_full_path_set, compare
 
 ### `env_utils/hierarchy_sync/tree_renderer.py` — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 - `class HierarchyTreeRenderer(ptk.LoggingMixin)`
@@ -706,7 +706,7 @@ _Generated: 2026-07-29_
 
 ### `ui_utils/blender_ui_handler.py`
 - `class BlenderUiHandler(UiHandler)`
-  - methods: instance, can_resolve, show, apply_styles
+  - methods: instance, can_resolve, show, default_persistence
 
 ### `ui_utils/blender_window.py` — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - `class BlenderWindow`
@@ -735,7 +735,7 @@ _Generated: 2026-07-29_
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`
@@ -751,7 +751,7 @@ _Generated: 2026-07-29_
 
 ### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
 - `class ShellXformSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb_move_scope_init, b023, b024, b025, b026, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
+  - methods: header_init, cmb_move_scope_init, b023, b024, b025, b026, gather_to_udim, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`

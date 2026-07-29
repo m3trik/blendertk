@@ -132,6 +132,7 @@ DEFAULT_INCLUDE = {
     "env_utils.hierarchy_sync._hierarchy_sync": [
         "HierarchySync",
     ],
+    "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
     # Lightmap Baker — engine + co-located panel. The ``LightmapBakerSlots`` class is
     # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.

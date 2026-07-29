@@ -190,10 +190,16 @@ class _UvUtilsInternal(object):
         return list(groups.values())
 
     @staticmethod
-    def _island_bbox_center(island, uv_layer):
+    def _island_bounds(island, uv_layer):
+        """The island's UV bounding box as ``(u_min, v_min, u_max, v_max)``."""
         us = [loop[uv_layer].uv.x for f in island for loop in f.loops]
         vs = [loop[uv_layer].uv.y for f in island for loop in f.loops]
-        return (min(us) + max(us)) / 2.0, (min(vs) + max(vs)) / 2.0
+        return (min(us), min(vs), max(us), max(vs))
+
+    @staticmethod
+    def _island_bbox_center(island, uv_layer):
+        u_min, v_min, u_max, v_max = _UvUtilsInternal._island_bounds(island, uv_layer)
+        return (u_min + u_max) / 2.0, (v_min + v_max) / 2.0
 
     @staticmethod
     def _move_island(island, uv_layer, du, dv):
@@ -1538,6 +1544,68 @@ class UvUtils(_UvUtilsInternal):
 
             _UvUtilsInternal._uv_edit(o, _gather)
         return moved
+
+    @staticmethod
+    def gather_to_udim(objects, udim=None, map_size=4096):
+        """Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's
+        ``UvUtils.gather_to_udim``, and the cheap alternative to a repack: each stray island keeps
+        its sub-tile position via a whole-tile translation (an island straddling the tile's border
+        gets the minimal pull-in instead), clamped inside the tile's border padding
+        (:meth:`pythontk.MathUtils.uv_tile_margin` — the same margin the packers use). Islands
+        already inside the tile do not move; overlaps with resident islands are accepted.
+
+        ``udim=None`` targets the tile most of the input's islands already occupy (majority vote by
+        island-bbox center), so the majority stays put. EDIT mode targets selection-touched islands,
+        object mode every island. Returns the number of islands moved, or None when the input
+        resolves to no UVs.
+        """
+        meshes = EditUtils._meshes(objects)
+
+        if udim is not None:
+            tile = ptk.MathUtils.udim_to_tile(udim)
+        else:
+            # Vote pass, run only when the target isn't given: it reads bounds
+            # only, because in object mode the bmesh is freed when the callback
+            # returns — island references must not escape it, so just the tile
+            # crosses the pass boundary and islands are re-walked to apply.
+            bounds = []
+            for o in meshes:
+
+                def _read_bounds(bm, obj=o):
+                    uvl = bm.loops.layers.uv.active
+                    if uvl is None:
+                        return
+                    bounds.extend(
+                        _UvUtilsInternal._island_bounds(island, uvl)
+                        for island in _UvUtilsInternal._target_islands(obj, bm, uvl)
+                    )
+
+                _UvUtilsInternal._uv_read(o, _read_bounds)
+
+            tile = ptk.MathUtils.majority_tile(bounds)
+            if tile is None:
+                return None
+
+        margin = ptk.MathUtils.uv_tile_margin(map_size)
+        seen = moved = 0
+        for o in meshes:
+
+            def _gather(bm, obj=o):
+                nonlocal seen, moved
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                for island in _UvUtilsInternal._target_islands(obj, bm, uvl):
+                    seen += 1
+                    du, dv = ptk.MathUtils.fit_into_tile(
+                        _UvUtilsInternal._island_bounds(island, uvl), tile, margin
+                    )
+                    if du or dv:
+                        _UvUtilsInternal._move_island(island, uvl, du, dv)
+                        moved += 1
+
+            _UvUtilsInternal._uv_edit(o, _gather)
+        return moved if seen else None
 
     @staticmethod
     def orient_uv_shells(objects, to_edge=False):

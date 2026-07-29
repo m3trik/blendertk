@@ -56,12 +56,7 @@ from typing import List, Dict, Optional, Callable, Union, Any
 import pythontk as ptk
 
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
-
-
-# Blender-native re-implementation of mayatk's ``HierarchySidecar.VERSION_SUFFIX_RE`` (that class
-# lives in the unported ``hierarchy_sync`` subsystem) -- used only for the version-format
-# validation warning in :meth:`SceneExporter._apply_versioning`.
-_VERSION_SUFFIX_RE = re.compile(r"_v\d+$", re.IGNORECASE)
+from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
 # Built-in default FBX options (also shipped as the "default" built-in preset -- see
 # presets/default.json): embedded textures so nothing ships missing; baked animation since
@@ -212,6 +207,10 @@ class SceneExporter(ptk.LoggingMixin):
 
         tasks = dict(tasks) if tasks else {}
         version_format = tasks.pop("version", "") or ""
+        # Non-empty => sidecar paths route through the version base-stem so all
+        # versions of a series share one scene-data sidecar (mirror of mayatk's
+        # ``task_manager._version_format`` flag).
+        self._version_format = version_format
         output_format = (tasks.pop("output_format", "") or "").lower()
         if not output_format:
             output_format = "fbx"
@@ -308,6 +307,11 @@ class SceneExporter(ptk.LoggingMixin):
             )
             export_succeeded = True
 
+            # Write the scene-data sidecar (hierarchy baseline + data_export
+            # snapshot). Keyed off the logical export path (output dir + stem),
+            # independent of where the FBX was actually written.
+            self._write_scene_data_sidecar(export_objects)
+
             deliverable_path = self.export_path
             if glb_only:
                 glb_path = self._create_glb(fbx_path=fbx_write_path, announce=False)
@@ -352,6 +356,60 @@ class SceneExporter(ptk.LoggingMixin):
             return False
 
         return True
+
+    def _data_export_snapshot(self, export_objects: List) -> dict:
+        """Decoded copy of every ``data_export`` channel, as shipped in the FBX.
+
+        Empty dict when the carrier is absent, empty, or not part of
+        *export_objects* — the carrier is a hidden Empty, so it only ships
+        when the ``export_data_node`` task folded it into the export set,
+        and the record must only claim what actually shipped.  Never raises
+        — the record must not break the export it records.
+        """
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            carrier = DataNodes.get_export_node(create=False)
+            if carrier is None or carrier not in export_objects:
+                return {}
+            return DataNodes.dump(decode=True).get(DataNodes.EXPORT) or {}
+        except Exception:
+            self.logger.debug("data_export snapshot skipped.", exc_info=True)
+            return {}
+
+    def _write_scene_data_sidecar(self, export_objects: List) -> None:
+        """Write the sidecar JSON recording what shipped in the export.
+
+        Mirror of mayatk's ``TaskManager.write_scene_data_sidecar``, kept on
+        the engine here for the same reason as :meth:`_create_glb` —
+        blendertk's ``TaskManager`` carries no ``export_path`` of its own.
+        The hierarchy section is maintained when a manifest already exists
+        (the exporter-side hierarchy *check* isn't ported yet, so unlike
+        mayatk there is no check-ran trigger); the data section is recorded
+        whenever the ``data_export`` carrier shipped content.  A
+        metadata-free export leaves no sidecar.  Best-effort: the record
+        must never break the export it records.
+        """
+        export_path = getattr(self, "export_path", None)
+        if not export_path or not export_objects:
+            return
+        try:
+            sk = {"base_stem": bool(getattr(self, "_version_format", ""))}
+            SceneDataSidecar.migrate_legacy(export_path, **sk)
+            manifest_path = SceneDataSidecar.manifest_path_for(export_path, **sk)
+
+            data = self._data_export_snapshot(export_objects)
+            if not data and not os.path.exists(manifest_path):
+                return
+
+            paths = SceneDataSidecar.build_full_path_set(export_objects)
+            if (
+                SceneDataSidecar.write_manifest(export_path, paths, data=data, **sk)
+                is None
+            ):
+                self.logger.debug("Could not write scene-data sidecar")
+        except Exception:
+            self.logger.debug("scene-data sidecar write skipped.", exc_info=True)
 
     def _create_glb(
         self, fbx_path: Optional[str] = None, announce: bool = True
@@ -500,7 +558,7 @@ class SceneExporter(ptk.LoggingMixin):
         try:
             test_name = internal_format.format_map(_Dummy(stem="test", n=1, ext=ext))
             test_stem = os.path.splitext(test_name)[0]
-            if not _VERSION_SUFFIX_RE.search(test_stem):
+            if not SceneDataSidecar.VERSION_SUFFIX_RE.search(test_stem):
                 self.logger.warning(
                     f"Version format {template!r} produces names not matching '_v<N>'."
                 )
