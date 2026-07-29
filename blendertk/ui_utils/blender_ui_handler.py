@@ -243,19 +243,17 @@ class BlenderUiHandler(UiHandler):
         widget.fit_to_window()
         return window
 
-    def apply_styles(self, ui, style=None):
-        """Give blendertk-sourced tool panels a hide button instead of a pin.
+    def default_persistence(self, ui) -> str:
+        """blendertk-sourced tool panels stay open by default (hide, not pin).
 
-        Matches MayaUiHandler: a tool panel popped from a marking-menu button is
-        transient, so the default ``pin`` button is swapped for ``hide``.
+        Mirrors MayaUiHandler: a panel popped from a marking-menu button is
+        doing work the user came for, so it shouldn't vanish when they leave
+        the menu. A *default* only — the UI Browser's global setting and its
+        per-window overrides both outrank it.
         """
-        import copy
-
-        style = copy.deepcopy(style or self.DEFAULT_STYLE)
         try:
             if ui.has_tags(["blendertk"]):
-                style["header_buttons"] = ("menu", "collapse", "hide")
+                return self.PERSISTENCE_STICKY
         except AttributeError:
             pass
-        # Pass the pre-built style so the base skips its own deepcopy.
-        super().apply_styles(ui, style=style)
+        return super().default_persistence(ui)

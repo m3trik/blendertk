@@ -25,6 +25,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
     import bmesh
+    import pythontk as ptk
     import blendertk as btk
 
     def reset():
@@ -336,6 +337,109 @@ try:
     before = uv_point_set(o)
     btk.mirror_uvs(o, axis="v", per_shell=True, preserve_position=True)
     check("mirror_uvs axis=v preserves the footprint too", uv_point_set(o) == before)
+
+    # gather_to_udim: strays come back to the tile keeping their sub-tile position, inset
+    # by the shared border margin; residents don't move. Mirror of mayatk's twin.
+    margin = ptk.MathUtils.uv_tile_margin(4096)
+
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    before = uv_bounds(o)
+    btk.move_uvs(o, du=3.0, dv=2.0)
+    moved = btk.gather_to_udim(o, udim=1001)
+    check(
+        "gather_to_udim pulls a stray island back, sub-tile position kept",
+        moved == 1 and all(abs(a - b) < 1e-4 for a, b in zip(before, uv_bounds(o))),
+        f"moved={moved} {before} -> {uv_bounds(o)}",
+    )
+
+    resident = uv_bounds(o)
+    moved = btk.gather_to_udim(o, udim=1001)
+    check(
+        "gather_to_udim leaves a resident island alone",
+        moved == 0 and all(abs(a - b) < 1e-4 for a, b in zip(resident, uv_bounds(o))),
+        f"moved={moved} {uv_bounds(o)}",
+    )
+
+    btk.gather_to_udim(o, udim=1013)  # tile (2, 1)
+    min_u, max_u, min_v, max_v = uv_bounds(o)
+    check(
+        "gather_to_udim targets an explicit UDIM",
+        2.0 <= min_u and max_u <= 3.0 and 1.0 <= min_v and max_v <= 2.0,
+        f"u {min_u:.3f}..{max_u:.3f} v {min_v:.3f}..{max_v:.3f}",
+    )
+
+    # An island overhanging the tile is pulled in to the PADDED border, not the border.
+    # Half-scale first: an island spanning the tile exactly is oversize for the inset
+    # tile and gets centered instead (see fit_into_tile), which is a different rule.
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    o = bpy.context.active_object
+    btk.scale_uvs(o, su=0.5, sv=0.5)
+    b = uv_bounds(o)
+    btk.move_uvs(o, du=1.0 - b[1] + 0.05, dv=1.0 - b[3] + 0.05)  # overhang top-right
+    btk.gather_to_udim(o, udim=1001)
+    min_u, max_u, min_v, max_v = uv_bounds(o)
+    check(
+        "gather_to_udim clamps to the padded tile border",
+        abs(max_u - (1.0 - margin)) < 1e-5 and abs(max_v - (1.0 - margin)) < 1e-5,
+        f"max_u={max_u:.6f} max_v={max_v:.6f} margin={margin:.6f}",
+    )
+
+    # No explicit UDIM -> the tile most islands already occupy wins; the majority stays put.
+    reset()
+    residents = []
+    for _ in range(2):
+        bpy.ops.mesh.primitive_plane_add()
+        r = bpy.context.active_object
+        btk.move_uvs(r, du=1.0)  # tile (1, 0)
+        residents.append(r)
+    bpy.ops.mesh.primitive_plane_add()
+    stray = bpy.context.active_object
+    btk.move_uvs(stray, du=4.0, dv=3.0)
+    resident_before = [uv_bounds(r) for r in residents]
+    moved = btk.gather_to_udim(residents + [stray])
+    min_u, max_u, min_v, max_v = uv_bounds(stray)
+    check(
+        "gather_to_udim votes for the majority tile",
+        moved == 1
+        and 1.0 <= min_u
+        and max_u <= 2.0
+        and max_v <= 1.0
+        and all(
+            abs(a - b) < 1e-4
+            for before_r, r in zip(resident_before, residents)
+            for a, b in zip(before_r, uv_bounds(r))
+        ),
+        f"moved={moved} stray u {min_u:.3f}..{max_u:.3f} v {min_v:.3f}..{max_v:.3f}",
+    )
+
+    check("gather_to_udim on an empty selection -> None", btk.gather_to_udim([]) is None)
+
+    # A partial selection moves the WHOLE island, never a fragment of it (the Maya twin
+    # had to opt into `whole_shells=True` for this; here `_target_islands` gives it).
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=4, y_subdivisions=4)
+    o = bpy.context.active_object
+    btk.move_uvs(o, du=3.0, dv=2.0)
+    before = uv_bounds(o)
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    o.data.polygons[0].select = True  # one face of a single-island grid
+    bpy.ops.object.mode_set(mode="EDIT")
+    btk.gather_to_udim(o, udim=1001)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    after = uv_bounds(o)
+    check(
+        "gather_to_udim moves the whole island from a partial selection",
+        abs((after[1] - after[0]) - (before[1] - before[0])) < 1e-4
+        and abs((after[3] - after[2]) - (before[3] - before[2])) < 1e-4,
+        f"extent {before[1]-before[0]:.3f} -> {after[1]-after[0]:.3f}",
+    )
 
     # pin_uvs: object mode pins all; unpin clears
     reset()

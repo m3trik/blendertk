@@ -217,19 +217,60 @@ try:
 
     # Snap ON: the user's case — an off-grid shell (V min 0.5) moving up on a
     # Half Tile grid lands its bottom edge on the next half line (0.5 -> 1.0),
-    # not at 0.5 + 0.5 with the drift carried along.
+    # not at 0.5 + 0.5 with the drift carried along. It lands one border margin
+    # INSIDE the line, not on it — a shell flush against a tile seam bleeds
+    # across it at render time.
+    margin = slot._border_margin()
     reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
     set_move_scope("Half Tile", snap=True)
     slot.b025()
-    check("slot b025 snap=on -> V min lands on the 0.5 grid", abs(min(vs(o)) - 1.0) < 1e-5, f"Vmin={min(vs(o)):.4f}")
-    slot.b024()  # back down: returns to the grid line below
-    check("slot b024 snap=on -> V min back to 0.5", abs(min(vs(o)) - 0.5) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+    check("slot b025 snap=on -> V min lands on the padded 0.5 grid", abs(min(vs(o)) - (1.0 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f} margin={margin:.6f}")
+    slot.b024()  # back down: a full step, not stranded on the margin it just added
+    check("slot b024 snap=on -> V min back to the padded 0.5", abs(min(vs(o)) - (0.5 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f}")
 
     # Snap OFF on the same shell keeps the 0.1 drift.
     reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
     set_move_scope("Half Tile", snap=False)
     slot.b025()
     check("slot b025 snap=off keeps sub-tile drift", abs(min(vs(o)) - 1.1) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+
+    # Snapping stays reversible from a padded position: padding the RESULT instead of
+    # the anchor would strand the reverse press on the margin it just added (dead arrow).
+    reset(); o = one_quad(QUAD); set_move_scope("Tile", snap=True)
+    slot.b025()
+    landed = min(vs(o))
+    check("slot b025 snap=on lands one margin above the line", abs((landed % 1.0) - margin) < 1e-5, f"Vmin={landed:.6f}")
+    slot.b025()
+    check("a second press moves a full tile", abs(min(vs(o)) - (landed + 1.0)) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+    slot.b024()
+    check("the reverse press returns exactly", abs(min(vs(o)) - landed) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+
+    # ---- gather_to_udim: the Gather button is wired to the engine and acts on the selection.
+    # Two residents define the target tile (the majority vote), so only the stray travels —
+    # with a lone shell there is by definition no stray, and the button correctly no-ops.
+    reset()
+    residents = [
+        one_quad([(0.2, 0.2), (0.6, 0.2), (0.6, 0.6), (0.2, 0.6)], name="R1"),
+        one_quad([(0.3, 0.3), (0.7, 0.3), (0.7, 0.7), (0.3, 0.7)], name="R2"),
+    ]
+    stray = one_quad([(3.2, 2.2), (3.6, 2.2), (3.6, 2.6), (3.2, 2.6)], name="S")
+    for r in residents:
+        r.select_set(True)
+    resident_before = [(min(us(r)), min(vs(r))) for r in residents]
+    slot.gather_to_udim()
+    check("slot gather_to_udim pulls the stray shell into the majority tile",
+          abs(min(us(stray)) - 0.2) < 1e-5 and abs(min(vs(stray)) - 0.2) < 1e-5,
+          f"U min={min(us(stray)):.4f} V min={min(vs(stray)):.4f}")
+    check("slot gather_to_udim leaves the residents put",
+          all(abs(min(us(r)) - bu) < 1e-5 and abs(min(vs(r)) - bv) < 1e-5
+              for r, (bu, bv) in zip(residents, resident_before)),
+          f"{[(round(min(us(r)),3), round(min(vs(r)),3)) for r in residents]}")
+
+    reset()
+    messages = []
+    slot.sb = NS(message_box=lambda *a, **k: messages.append(a))
+    slot.gather_to_udim()  # nothing selected
+    check("slot gather_to_udim with nothing selected warns", bool(messages), f"messages={len(messages)}")
 
 except Exception:
     traceback.print_exc()

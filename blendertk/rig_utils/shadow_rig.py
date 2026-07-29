@@ -977,7 +977,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
                     "<i>fadeHeight</i> / <i>scaleInfluence</i> live on the plane's Custom "
                     "Properties.",
                     "Unity plug-and-play: deploy unitytk's C# templates once "
-                    "(<i>unitytk.TemplateDeployer.deploy_all</i>), export via the Scene Exporter, and "
+                    "(<i>unitytk.TemplateDeployer.deploy_package</i>), export via the Scene Exporter, and "
                     "copy the silhouette PNG into Assets — the import sets up the "
                     "unlit-transparent material and shadow flags automatically. Other "
                     "engines: assign an unlit/transparent shader with the PNG by hand. The "

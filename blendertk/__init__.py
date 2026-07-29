@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.36"
+__version__ = "0.5.39"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -132,6 +132,7 @@ DEFAULT_INCLUDE = {
     "env_utils.hierarchy_sync._hierarchy_sync": [
         "HierarchySync",
     ],
+    "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
     # Lightmap Baker — engine + co-located panel. The ``LightmapBakerSlots`` class is
     # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.

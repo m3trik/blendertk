@@ -286,6 +286,36 @@ try:
                 "b000.isEnabled()",
             )
 
+    # 2b. The "blendertk" -> hide rule is a DEFAULT declared through
+    #     UiHandler.default_persistence, not a hardcoded header_buttons swap in
+    #     apply_styles. That distinction is the whole point: a hardcoded set is a
+    #     value the UI Browser's window-persistence override has no way to outrank
+    #     (which is why the setting had no effect on marking-menu panels).
+    from uitk.handlers.ui_handler import UiHandler as _UiHandler
+
+    check(
+        "blendertk-tagged panels default to sticky (hide button)",
+        handler.default_persistence(sb.get_ui("mirror")) == _UiHandler.PERSISTENCE_STICKY,
+    )
+    check(
+        "BlenderUiHandler does not override apply_styles",
+        BlenderUiHandler.apply_styles is _UiHandler.apply_styles,
+        "a hardcoded header_buttons swap would outrank the user's stored choice",
+    )
+    check(
+        "a UI Browser override outranks the blendertk default",
+        handler.resolve_persistence(
+            sb.get_ui("mirror"), "mirror", context_default=None
+        )
+        == _UiHandler.PERSISTENCE_STICKY
+        and (
+            handler.set_persistence_override("mirror", _UiHandler.PERSISTENCE_TRANSIENT)
+            or handler.resolve_persistence(sb.get_ui("mirror"), "mirror")
+        )
+        == _UiHandler.PERSISTENCE_TRANSIENT,
+    )
+    handler.set_persistence_override("mirror", None)  # leave the store clean
+
     # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
     # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
     # default). The offscreen load skips header_init (see the channels note below), so drive it
@@ -778,12 +808,21 @@ try:
         and _ub_defaults.get("UNITY_VERSION") == "",
         f"{_ub_defaults}",
     )
+    # One *delivery* mode (Copy to Project) plus the panel-native script-management
+    # mode — the mayatk twin carries exactly the same pair. The retired Unity Studio /
+    # existing-project delivery modes must stay gone.
     check(
-        "unity_bridge single delivery mode ('Copy to Project', no Unity Studio)",
+        "unity_bridge delivery modes match mayatk (Copy to Project + Manage Scripts)",
         _UBS.MODE_COPY == "copy_to_assets"
-        and _UBS.MODE_LABELS == {_UBS.MODE_COPY: "Copy to Project"}
+        and _UBS.MODE_MANAGE == "manage_scripts"
+        and _UBS.MODE_LABELS
+        == {
+            _UBS.MODE_COPY: "Copy to Project",
+            _UBS.MODE_MANAGE: "Manage Unity Scripts",
+        }
         and not hasattr(_UBS, "MODE_STUDIO")
         and not hasattr(_UBS, "MODE_EXISTING"),
+        f"{_UBS.MODE_LABELS}",
     )
 
     # Macro Manager: the bespoke panel was retired — the UI is now the unified uitk

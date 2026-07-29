@@ -9,7 +9,8 @@ engine (the pythontk single source of truth, 100% DCC-agnostic).
 ~26 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
 group uses :mod:`blendertk.anim_utils.smart_bake`; ``export_data_node`` rides the ported
 :class:`blendertk.node_utils.data_nodes.DataNodes` carrier). The remaining ~2 depend on
-integrations blendertk doesn't have yet (the exporter-side ``hierarchy_sync`` wiring; the
+integrations blendertk doesn't have yet (the exporter-side hierarchy diff *check* — the
+scene-data sidecar itself IS written, by the engine (``_write_scene_data_sidecar``); the
 Shots export-view/FBX-take projection — the Shots subsystem itself is ported) and are declared
 in :attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
 placeholders (the widget shows in the panel, 1:1 with mayatk's label/position, greyed out with a
@@ -32,8 +33,9 @@ from blendertk.core_utils._core_utils import CoreUtils
 
 
 _NEEDS_HIERARCHY_MANAGER = (
-    "Not available yet: needs blendertk's hierarchy_sync port (unstarted). "
-    "TODO(blender-parity)."
+    "Not available yet: the scene-data sidecar (diff baseline + data_export "
+    "snapshot) is written on export, but the exporter-side hierarchy diff "
+    "check isn't wired yet. TODO(blender-parity)."
 )
 _NEEDS_SHOTS = (
     "Not available yet: the Shots subsystem is ported, but the export-view / "
@@ -675,14 +677,31 @@ class _TaskChecksMixin(_TaskDataMixin):
         return True, []
 
     def check_valid_paths(self, enabled) -> tuple:
-        """Every FILE image and linked library in the .blend resolves on disk (whole-file scope,
-        matching Maya's version -- not limited to the export object set)."""
+        """Every export texture and every linked library resolves on disk.
+
+        Image scope is ``_get_export_images`` — the datablocks feeding the
+        materials assigned to ``self.objects`` — not every FILE image in the
+        .blend (mirrors mayatk's ``check_valid_paths``).  Whole-file scope
+        flagged maps that never ship: the World/Environment-Texture HDR (never
+        part of the object export set at all) and the zero-user images left
+        behind after a duplicate-material cleanup.  Linked libraries stay
+        whole-file — they are the analogue of Maya's scene references, not of a
+        texture.
+        """
         if not enabled:
             return True, []
         from blendertk.env_utils._env_utils import EnvUtils
         from blendertk.mat_utils._mat_utils import MatUtils
 
-        missing = [r["name"] for r in MatUtils.get_image_records() if not r["exists"]]
+        # Filter get_image_records() by the export set rather than re-deriving
+        # "is a FILE image whose abspath exists" — that predicate belongs to
+        # get_image_records, and a second copy of it here would be free to drift.
+        export_images = set(self._get_export_images())
+        missing = [
+            r["name"]
+            for r in MatUtils.get_image_records()
+            if r["image"] in export_images and not r["exists"]
+        ]
         missing += [r["name"] for r in EnvUtils.list_libraries() if not r["exists"]]
         if missing:
             shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
@@ -967,7 +986,9 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                     "embedded metadata (e.g. the Lightmap Baker's "
                     "lightmap_metadata) ships in the FBX as user properties.\n"
                     "The mesh-only export modes would otherwise omit it.  "
-                    "No-ops when the scene has no carrier."
+                    "No-ops when the scene has no carrier.\nA readable copy of "
+                    "the shipped channels is also written to the export's "
+                    ".scene_data.json sidecar."
                 ),
                 "setChecked": True,
             },
@@ -1072,7 +1093,12 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "check_valid_paths": {
                 "widget_type": "QCheckBox",
                 "setText": "Check For Valid Paths.",
-                "setToolTip": "Check if all file paths (textures, linked libraries) exist on disk.",
+                "setToolTip": (
+                    "Check that every texture feeding the export materials — plus "
+                    "every linked library — resolves on disk.\nImages that won't "
+                    "ship (the World/HDR environment texture, images left orphaned "
+                    "by a duplicate-material cleanup) are not reported."
+                ),
                 "setChecked": True,
             },
             "check_texture_file_size": {
