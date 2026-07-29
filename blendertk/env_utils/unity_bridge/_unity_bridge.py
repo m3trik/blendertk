@@ -30,7 +30,14 @@ from typing import List, Optional, Tuple
 
 import pythontk as ptk
 
-from unitytk import CopyToAssetsDeliverer
+try:
+    from unitytk import CopyToAssetsDeliverer
+except ImportError as error:  # optional dependency -- Unity users only
+    raise ImportError(
+        "The Unity Bridge needs the optional 'unitytk' package, which is not "
+        "installed. Install it with:  pip install blendertk[unity]\n"
+        "(Every other blendertk feature works without it.)"
+    ) from error
 
 from blendertk.env_utils.handoff_export import BlenderExportMixin
 
