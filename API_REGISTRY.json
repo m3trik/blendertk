@@ -3239,7 +3239,7 @@
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 166,
+          "line": 231,
           "bases": [
             "ptk.CoreUtils",
             "_CoreUtilsInternal"
@@ -3251,7 +3251,7 @@
               "kind": "staticmethod",
               "signature": "(name: str) -> str",
               "summary": "Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).",
-              "line": 176,
+              "line": 241,
               "deprecated": false
             },
             {
@@ -3260,7 +3260,7 @@
               "kind": "staticmethod",
               "signature": "(name: str = '')",
               "summary": "Collapse every change made inside the block into ONE Blender undo step.",
-              "line": 187,
+              "line": 252,
               "deprecated": false
             },
             {
@@ -3269,7 +3269,7 @@
               "kind": "staticmethod",
               "signature": "(fn)",
               "summary": "Wrap ``fn`` so its changes collapse into a single Blender undo step.",
-              "line": 230,
+              "line": 295,
               "deprecated": false
             },
             {
@@ -3278,7 +3278,7 @@
               "kind": "staticmethod",
               "signature": "(fn)",
               "summary": "Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).",
-              "line": 250,
+              "line": 315,
               "deprecated": false
             },
             {
@@ -3287,7 +3287,16 @@
               "kind": "staticmethod",
               "signature": "(key=None)",
               "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
-              "line": 273,
+              "line": 338,
+              "deprecated": false
+            },
+            {
+              "name": "ensure_packages",
+              "qualname": "CoreUtils.ensure_packages",
+              "kind": "staticmethod",
+              "signature": "(packages, add_to_path=True)",
+              "summary": "Make arbitrary pip packages importable in Blender's Python.",
+              "line": 370,
               "deprecated": false
             },
             {
@@ -3296,7 +3305,7 @@
               "kind": "staticmethod",
               "signature": "(packages=None, add_to_path=True)",
               "summary": "Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).",
-              "line": 305,
+              "line": 393,
               "deprecated": false
             },
             {
@@ -3305,7 +3314,7 @@
               "kind": "staticmethod",
               "signature": "(index=None)",
               "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-              "line": 393,
+              "line": 422,
               "deprecated": false
             },
             {
@@ -3314,7 +3323,7 @@
               "kind": "staticmethod",
               "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
               "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-              "line": 411,
+              "line": 440,
               "deprecated": false
             },
             {
@@ -3323,7 +3332,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-              "line": 443,
+              "line": 472,
               "deprecated": false
             },
             {
@@ -3332,7 +3341,7 @@
               "kind": "staticmethod",
               "signature": "(info)",
               "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-              "line": 495,
+              "line": 524,
               "deprecated": false
             },
             {
@@ -3341,7 +3350,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, adaptive=True, sections=None)",
               "summary": "Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,",
-              "line": 529,
+              "line": 558,
               "deprecated": false
             },
             {
@@ -3350,7 +3359,7 @@
               "kind": "staticmethod",
               "signature": "(quiet=False)",
               "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-              "line": 692,
+              "line": 721,
               "deprecated": false
             },
             {
@@ -3359,7 +3368,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 743,
+              "line": 772,
               "deprecated": false
             },
             {
@@ -3368,7 +3377,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 762,
+              "line": 791,
               "deprecated": false
             },
             {
@@ -3377,7 +3386,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 774,
+              "line": 803,
               "deprecated": false
             },
             {
@@ -3386,7 +3395,7 @@
               "kind": "staticmethod",
               "signature": "(area_type)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 849,
+              "line": 878,
               "deprecated": false
             },
             {
@@ -3395,7 +3404,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 869,
+              "line": 898,
               "deprecated": false
             },
             {
@@ -3404,7 +3413,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 899,
+              "line": 928,
               "deprecated": false
             }
           ]
@@ -8842,7 +8851,7 @@
         {
           "name": "UnityBridge",
           "summary": "Export the Blender selection and copy it into a Unity project's ``Assets/``.",
-          "line": 52,
+          "line": 44,
           "bases": [
             "BlenderExportMixin",
             "ptk.HandoffBridge"
@@ -8854,7 +8863,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 68,
+              "line": 74,
               "deprecated": false
             },
             {
@@ -8863,16 +8872,16 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 71,
+              "line": 77,
               "deprecated": false
             },
             {
               "name": "list_delivery_modes",
               "qualname": "UnityBridge.list_delivery_modes",
-              "kind": "staticmethod",
-              "signature": "() -> List[Tuple[str, str]]",
+              "kind": "classmethod",
+              "signature": "(cls) -> List[Tuple[str, str]]",
               "summary": "``[(mode_stem, \"\"), ...]`` for the panel's delivery combo.",
-              "line": 88,
+              "line": 94,
               "deprecated": false
             }
           ]
@@ -8956,8 +8965,8 @@
               "name": "make_bridge",
               "qualname": "UnityBridgeSlots.make_bridge",
               "kind": "method",
-              "signature": "(self) -> UnityBridge",
-              "summary": "",
+              "signature": "(self)",
+              "summary": "Build the engine, offering to install the optional unitytk if absent.",
               "line": 112,
               "deprecated": false
             },
@@ -8967,7 +8976,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 115,
+              "line": 123,
               "deprecated": false
             },
             {
@@ -8976,7 +8985,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 121,
+              "line": 129,
               "deprecated": false
             },
             {
@@ -8985,7 +8994,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Export per the chosen Scope and copy the FBX into the Unity project.",
-              "line": 244,
+              "line": 252,
               "deprecated": false
             }
           ]

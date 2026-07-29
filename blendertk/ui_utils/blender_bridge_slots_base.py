@@ -28,3 +28,15 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
     def default_output_dir(self) -> str:
         """The saved ``.blend`` file's directory, or ``""`` if unsaved."""
         return CoreUtils.get_env_info("workspace") or ""
+
+    def _install_optional_package(self, spec: str) -> None:
+        """Install an optional package where Blender will actually import it.
+
+        Overrides the base's ``pip install --user``: Blender's bundled
+        interpreter does not put the user-site on ``sys.path``, so a ``--user``
+        install would succeed and still be unimportable. Routes through
+        :meth:`CoreUtils.ensure_packages`, which installs into Blender's
+        per-version user-modules dir (already on ``sys.path``) using the
+        bundled interpreter, and adds it to ``sys.path`` for this session.
+        """
+        CoreUtils.ensure_packages({spec: spec.replace("-", "_")})

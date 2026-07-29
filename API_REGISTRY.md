@@ -691,12 +691,13 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L166)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L231)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
   - `CoreUtils.undoable(fn)` *(static)* — Wrap ``fn`` so its changes collapse into a single Blender undo step.
   - `CoreUtils.undo_checkpoint(fn)` *(static)* — Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
   - `CoreUtils.get_env_info(key=None)` *(static)* — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
+  - `CoreUtils.ensure_packages(packages, add_to_path=True)` *(static)* — Make arbitrary pip packages importable in Blender's Python.
   - `CoreUtils.ensure_image_deps(packages=None, add_to_path=True)` *(static)* — Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
   - `CoreUtils.get_recent_files(index=None)` *(static)* — Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
   - `CoreUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')` *(static)* — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
@@ -1582,10 +1583,10 @@ Blender script-output console — the blendertk analogue of mayatk's ``ScriptCon
 
 Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 
-- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L52)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
+- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L44)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
   - `UnityBridge.list_template_modes(self)`
   - `UnityBridge.params_defaults(self)`
-  - `UnityBridge.list_delivery_modes() -> List[Tuple[str, str]]` *(static)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
+  - `UnityBridge.list_delivery_modes(cls) -> List[Tuple[str, str]]` *(class)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
 
 <a id="env_utils--unity_bridge--parameters"></a>
 ### `env_utils/unity_bridge/parameters.py`
@@ -1605,7 +1606,7 @@ Slots for the Unity bridge panel -- mirror of mayatk's
 - **[`class UnityBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L36)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `UnityBridgeSlots.params_module(self)` *(property)*
   - `UnityBridgeSlots.template_dir(self) -> Path` *(property)*
-  - `UnityBridgeSlots.make_bridge(self) -> UnityBridge`
+  - `UnityBridgeSlots.make_bridge(self)` — Build the engine, offering to install the optional unitytk if absent.
   - `UnityBridgeSlots.list_template_modes(self)`
   - `UnityBridgeSlots.default_output_dir(self) -> str`
   - `UnityBridgeSlots.b000(self)` — Export per the chosen Scope and copy the FBX into the Unity project.

@@ -97,6 +97,71 @@ class _CoreUtilsInternal(object):
         return sys.executable
 
     @staticmethod
+    def _ensure_packages(pkgs, add_to_path=True):
+        """Install any of ``{pip_spec: import_name}`` that is not importable.
+
+        Blender's provisioning policy, package-agnostic: install into the
+        per-version *user-modules* dir (already on ``sys.path``) driven against
+        Blender's **bundled** interpreter, then re-resolve importability.
+        Backs both :meth:`CoreUtils.ensure_packages` and the Pillow-specific
+        :meth:`CoreUtils.ensure_image_deps`.
+        """
+        import sys
+        import importlib
+        import importlib.util
+
+        def _available():
+            names = []
+            for imp in pkgs.values():
+                try:
+                    if importlib.util.find_spec(imp) is not None:
+                        names.append(imp)
+                except (ImportError, ValueError):
+                    pass
+            return names
+
+        available = _available()
+        missing = [spec for spec, imp in pkgs.items() if imp not in available]
+        if not missing:
+            return available
+
+        try:
+            import bpy
+        except Exception:
+            # Not in Blender — the caller's interpreter must supply these.
+            return available
+
+        try:
+            install_dir = bpy.utils.user_resource(
+                "SCRIPTS", path="modules", create=True
+            )
+        except Exception:
+            install_dir = ""
+        if not install_dir:
+            return available
+
+        pm = ptk.PackageManager(python_path=_CoreUtilsInternal._blender_python_exe())
+        for spec in missing:
+            try:
+                pm.pip(f'install --target "{install_dir}" {spec}')
+            except Exception as error:
+                # Do NOT trust pip's exit code here: a ``--target`` install emits a non-zero
+                # "dependency resolver" ERROR when the *base* env has an unrelated conflict (e.g. an
+                # editable extapps that wants qtpy) even though the requested wheel installed fine. The
+                # actual install is reported by the importability re-check below, so this is debug-level.
+                import logging
+
+                logging.getLogger(__name__).debug(
+                    f"[ensure_packages] pip note for {spec!r}: {error}"
+                )
+
+        # Trust the import, not the exit code: add the target dir and re-resolve.
+        if add_to_path and install_dir not in sys.path:
+            sys.path.insert(0, install_dir)
+        importlib.invalidate_caches()
+        return _available()
+
+    @staticmethod
     def _rebind_pil_globals():
         """Re-bind PIL globals in pythontk's already-imported image modules.
 
@@ -302,6 +367,29 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return info.get(key) if key is not None else info
 
     @staticmethod
+    def ensure_packages(packages, add_to_path=True):
+        """Make arbitrary pip packages importable in Blender's Python.
+
+        The general form of :meth:`ensure_image_deps` — same provisioning policy
+        (install into Blender's per-version *user-modules* dir, which is already
+        on ``sys.path``, driven against Blender's **bundled** interpreter), with
+        no assumption about what is being installed. Used for any optional
+        distribution a panel needs in-session, e.g. ``unitytk`` behind the Unity
+        Bridge.
+
+        Args:
+            packages: ``{pip_spec: import_name}`` to ensure.
+            add_to_path: Prepend the install dir to ``sys.path`` (default True).
+
+        Returns:
+            list[str]: the import names importable after the call.
+
+        Idempotent and Blender-gated: a no-op outside Blender, or when
+        everything already imports. Never raises.
+        """
+        return _CoreUtilsInternal._ensure_packages(packages, add_to_path)
+
+    @staticmethod
     def ensure_image_deps(packages=None, add_to_path=True):
         """Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).
 
@@ -324,68 +412,9 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         Idempotent and Blender-gated: a no-op outside Blender, or when everything already imports.
         Never raises — a failed install logs a warning and the caller falls back to its own handling.
         """
-        import sys
-        import importlib
-        import importlib.util
-
         pkgs = dict(packages) if packages is not None else {"Pillow": "PIL"}
-
-        def _available():
-            names = []
-            for imp in pkgs.values():
-                try:
-                    if importlib.util.find_spec(imp) is not None:
-                        names.append(imp)
-                except (ImportError, ValueError):
-                    pass
-            return names
-
-        available = _available()
-        missing = [spec for spec, imp in pkgs.items() if imp not in available]
-        if not missing:
-            if (
-                "PIL" in available
-            ):  # already importable — make sure pythontk's globals saw it
-                _CoreUtilsInternal._rebind_pil_globals()
-            return available
-
-        try:
-            import bpy
-        except Exception:
-            return (
-                available  # not in Blender — the caller's interpreter must supply these
-            )
-
-        try:
-            install_dir = bpy.utils.user_resource(
-                "SCRIPTS", path="modules", create=True
-            )
-        except Exception:
-            install_dir = ""
-        if not install_dir:
-            return available
-
-        pm = ptk.PackageManager(python_path=_CoreUtilsInternal._blender_python_exe())
-        for spec in missing:
-            try:
-                pm.pip(f'install --target "{install_dir}" {spec}')
-            except Exception as error:
-                # Do NOT trust pip's exit code here: a ``--target`` install emits a non-zero
-                # "dependency resolver" ERROR when the *base* env has an unrelated conflict (e.g. an
-                # editable extapps that wants qtpy) even though the requested wheel installed fine. The
-                # actual install is reported by the importability re-check below, so this is debug-level.
-                import logging
-
-                logging.getLogger(__name__).debug(
-                    f"[ensure_image_deps] pip note for {spec!r}: {error}"
-                )
-
-        # Trust the import, not the exit code: add the target dir and re-resolve what's now available.
-        if add_to_path and install_dir not in sys.path:
-            sys.path.insert(0, install_dir)
-        importlib.invalidate_caches()
-        result = _available()
-        if "PIL" in result:
+        result = _CoreUtilsInternal._ensure_packages(pkgs, add_to_path)
+        if "PIL" in result:  # make sure pythontk's globals saw the new import
             _CoreUtilsInternal._rebind_pil_globals()
         return result
 
