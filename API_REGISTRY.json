@@ -8842,7 +8842,7 @@
         {
           "name": "UnityBridge",
           "summary": "Export the Blender selection and copy it into a Unity project's ``Assets/``.",
-          "line": 45,
+          "line": 52,
           "bases": [
             "BlenderExportMixin",
             "ptk.HandoffBridge"
@@ -8854,7 +8854,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 61,
+              "line": 68,
               "deprecated": false
             },
             {
@@ -8863,7 +8863,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 64,
+              "line": 71,
               "deprecated": false
             },
             {
@@ -8872,7 +8872,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Tuple[str, str]]",
               "summary": "``[(mode_stem, \"\"), ...]`` for the panel's delivery combo.",
-              "line": 81,
+              "line": 88,
               "deprecated": false
             }
           ]

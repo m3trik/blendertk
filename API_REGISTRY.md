@@ -1582,7 +1582,7 @@ Blender script-output console — the blendertk analogue of mayatk's ``ScriptCon
 
 Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 
-- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L45)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
+- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L52)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
   - `UnityBridge.list_template_modes(self)`
   - `UnityBridge.params_defaults(self)`
   - `UnityBridge.list_delivery_modes() -> List[Tuple[str, str]]` *(static)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
