@@ -134,7 +134,7 @@ _Generated: 2026-07-31_
 
 ### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 - `class CamUtils(_CamUtilsInternal)`
-  - methods: adjust_camera_clipping, navigate_view
+  - methods: adjust_camera_clipping, get_view_state, set_view_state, fit_camera_clipping, navigate_view
 
 ### `cam_utils/camera_visibility.py` — Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isolate
 - `class CameraVisibility`
@@ -428,7 +428,7 @@ _Generated: 2026-07-31_
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
   - methods: update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -735,7 +735,7 @@ _Generated: 2026-07-31_
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`
