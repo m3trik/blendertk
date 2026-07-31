@@ -36,6 +36,9 @@ import pythontk as ptk
 
 from blendertk.edit_utils._edit_utils import EditUtils
 
+# Viewport view-state snapshot/restore + clip fitting behind m_frame's step cycle.
+from blendertk.cam_utils._cam_utils import CamUtils
+
 # Read selection/active through the view-layer (window-independent): the macros run from the Qt
 # event-pump timer context where bpy.context.selected_objects / active_object are empty (their
 # screen-context requires bpy.context.window, which is None there). See _core_utils.selected_objects.
@@ -222,21 +225,89 @@ class DisplayMacros(_ViewportMixin):
         else:
             EditUtils.set_subdivision(objs, viewport_levels=1)
 
+    FRAME_STEP_TIMEOUT = 2.0  # seconds a deeper framing step stays reachable
+
     @classmethod
-    def m_frame(cls):
-        """Frame the selection (or the whole scene when nothing is selected)."""
-        ov = cls._view3d_override()
-        if ov is None:
+    def m_frame(cls, steps: int = 2, adjust_clipping: bool = True) -> None:
+        """Frame the selection at the ideal working distance; press again to step in.
+
+        The first press frames the selection the way you'd want it to work on it (components while
+        in Edit Mode); with nothing selected it frames the whole scene. Each further press within
+        ``FRAME_STEP_TIMEOUT`` seconds steps *into* the selection, and the press after the last step
+        returns the view exactly where it started.
+
+        Pausing collapses the cycle: once the timer lapses, the next press just goes back — so
+        framing once and working for a while still leaves the key as a plain there-and-back toggle.
+        Selecting something else restarts the cycle instead of stepping deeper; after a pause that
+        also re-homes it to the view you are leaving, so "back" never teleports you to a stale one.
+
+        Parameters:
+            steps (int): Framing steps before the cycle returns home, i.e. the toggle has
+                ``steps + 1`` states. ``1`` gives frame / restore; the default ``2`` adds a closer
+                step. More steps start the cycle a little further out so the extra presses have
+                somewhere to go.
+            adjust_clipping (bool): Widen the viewport's clip planes as needed so the framed
+                selection is never drawn clipped (with slack to orbit and pan around it). The
+                original planes come back with the view on the final press.
+        """
+        _win, _area, space = cls._find_view3d()
+        ov = cls._view3d_override()  # None when there is no viewport / no WINDOW region
+        if space is None or ov is None:
             return
+
+        objects = CoreUtils.selected_objects()
         active = CoreUtils.active_object()
-        framing_selection = bool(CoreUtils.selected_objects()) or (
-            active is not None and active.mode == "EDIT"
+        in_edit = active is not None and active.mode == "EDIT"
+        framing_selection = bool(objects) or in_edit
+
+        toggle = ptk.StepToggle.get("btk_m_frame")
+        # A cheap selection signature: framing something else restarts the cycle rather than
+        # stepping deeper into what the user just left.
+        context = (
+            in_edit,
+            len(objects),
+            objects[0].name if objects else "",
+            active.name if active is not None else "",
         )
-        with ov:
-            if framing_selection:
-                bpy.ops.view3d.view_selected()
-            else:
-                bpy.ops.view3d.view_all()
+        state = toggle.advance(
+            steps=steps, context=context, timeout=cls.FRAME_STEP_TIMEOUT
+        )
+
+        if state == 0:  # cycle complete -> back where the user started
+            CamUtils.set_view_state(toggle.payload)
+            toggle.payload = None
+            return
+
+        if toggle.began_cycle:  # remember the view to come back to
+            toggle.payload = CamUtils.get_view_state(space)
+
+        # Suppress smooth view for the framing op: it animates the view over the following
+        # ~200 ms, so the step dolly below would read (and then fight) a half-way distance.
+        prefs = bpy.context.preferences
+        smooth_view, was_dirty = prefs.view.smooth_view, prefs.is_dirty
+        prefs.view.smooth_view = 0
+        try:
+            with ov:
+                if framing_selection:
+                    bpy.ops.view3d.view_selected()
+                else:
+                    bpy.ops.view3d.view_all()
+        finally:
+            prefs.view.smooth_view = smooth_view
+            try:  # don't leave the prefs flagged for auto-save over a transient tweak
+                prefs.is_dirty = was_dirty
+            except AttributeError:
+                pass
+
+        # The framing op lands on the ideal distance (mayatk's per-element fit factor); the step
+        # ramp then dollies in — a larger fit factor there is a shorter view distance here.
+        rv3d = getattr(space, "region_3d", None)
+        scale = ptk.StepToggle.scales(steps)[state - 1]
+        if rv3d is not None and scale != 1.0:
+            rv3d.view_distance = max(rv3d.view_distance / scale, 1e-4)
+
+        if adjust_clipping:
+            CamUtils.fit_camera_clipping(objects or None, space=space)
 
 
 class EditMacros(_ViewportMixin):

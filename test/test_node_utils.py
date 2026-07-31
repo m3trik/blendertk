@@ -58,6 +58,73 @@ try:
     # uninstancing a single-user object is a no-op
     check("uninstance single-user D -> []", btk.uninstance([D]) == [])
 
+    # --- preserved_instances: instancing survives a destructive op (mirror of
+    # mtk.NodeUtils.preserved_instances) ---
+    def make_group(prefix, n=3):
+        objs = [cube(f"{prefix}0", (0, 0, 0))]
+        for i in range(1, n):
+            o = cube(f"{prefix}{i}", (0, 0, 0))
+            o.data = objs[0].data
+            objs.append(o)
+        for i, o in enumerate(objs):
+            o.location = (3.0 * (i + 1), 1.0 * (i + 1), -2.0 * (i + 1))
+            o.rotation_euler[2] = math.radians(20.0 * (i + 1))
+            s = 1.0 + 0.15 * (i + 1)
+            o.scale = (s, s, s)
+        bpy.context.view_layer.update()
+        return objs
+
+    def world_verts(o):
+        return [(o.matrix_world @ v.co).copy() for v in o.data.vertices]
+
+    def verts_close(a, b, tol=1e-4):
+        return all((x - y).length < tol for x, y in zip(a, b))
+
+    reset()
+    g = make_group("pg")
+    before = {o.name: world_verts(o) for o in g}
+    with btk.NodeUtils._preserved_instances(g) as ctx:
+        check("preserved_instances -> yields one master", len(ctx.objects) == 1)
+        check("preserved_instances -> master fork is unique",
+          sum(1 for o in bpy.data.objects if o.data is ctx.objects[0].data) == 1)
+        btk.freeze_transforms(ctx.objects, location=True, rotation=True, scale=True)
+    bpy.context.view_layer.update()
+    check("preserved_instances -> group re-shared (3 users)",
+          sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3)
+    check("preserved_instances -> world geometry preserved",
+          all(verts_close(before[o.name], world_verts(o)) for o in g))
+    check("preserved_instances -> master frozen to identity",
+          all(abs(v) < 1e-4 for v in g[0].location)
+          and all(abs(v - 1.0) < 1e-4 for v in g[0].scale))
+    check("preserved_instances -> map routes siblings to master",
+          ctx.map[g[1]] is g[0] and ctx.map[g[2]] is g[0])
+
+    # exception mid-block: restore still runs (data re-shared, geometry intact)
+    reset()
+    g = make_group("px")
+    before = {o.name: world_verts(o) for o in g}
+    try:
+        with btk.NodeUtils._preserved_instances(g):
+            raise RuntimeError("interrupted mid-operation")
+    except RuntimeError:
+        pass
+    bpy.context.view_layer.update()
+    check("preserved_instances exception -> group re-shared",
+          sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3)
+    check("preserved_instances exception -> world geometry preserved",
+          all(verts_close(before[o.name], world_verts(o)) for o in g))
+
+    # driven sibling -> whole group skipped, scene untouched
+    reset()
+    g = make_group("pd", n=2)
+    con = g[1].constraints.new("COPY_LOCATION")
+    con.target = g[0]
+    with btk.NodeUtils._preserved_instances(g) as ctx:
+        check("preserved_instances driven sibling -> no operables", ctx.objects == [])
+        check("preserved_instances driven sibling -> skip reported", len(ctx.skipped) == 2)
+    check("preserved_instances driven sibling -> data still shared",
+          g[0].data is g[1].data)
+
     # center_pivot flag honored (source origin moves to bbox center) — smoke that it doesn't raise
     reset()
     A = cube("A", (5, 0, 0))

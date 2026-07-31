@@ -568,6 +568,30 @@ class MatUtils(_MatUtilsInternal):
         ]
 
     @staticmethod
+    def find_unassigned(objects=None):
+        """Objects carrying no material — the complement of :meth:`find_by_mat_id`.
+
+        Mirror of ``mtk.find_unassigned``. Blender has a real "no material" state
+        (Maya's mirror also has to fold in default-shaded geometry, since new meshes
+        there join ``initialShadingGroup``): an object qualifies when it has no
+        material slots at all, or every slot it has is empty. Objects that can't
+        hold materials (empties, lights, cameras) are not reported — they aren't
+        unshaded geometry.
+
+        ``objects=None`` scans the whole file; otherwise restricts to the given
+        objects. Object-level by design, matching ``find_by_mat_id``.
+        """
+        import bpy
+
+        pool = ptk.make_iterable(objects) if objects is not None else bpy.data.objects
+        return [
+            o
+            for o in pool
+            if hasattr(getattr(o, "data", None), "materials")
+            and not any(s.material for s in getattr(o, "material_slots", []))
+        ]
+
+    @staticmethod
     def select_by_material(material, add=False):
         """Select every scene object using ``material`` (optionally adding to the selection).
 

@@ -1,51 +1,20 @@
 # blendertk — API Changes
 
-_Diff vs prior baseline. Generated 2026-07-29._
+_Diff vs prior baseline. Generated 2026-07-31._
 
-## Removed (19)
+## Added (5)
 
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar` — was `(class)`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.base_stem` — was `(cls, export_path: str) -> str`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.build_clean_path_set` — was `(paths) -> set`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.build_full_path_set` — was `(cls, objects) -> set`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.clean_stale_diff` — was `(cls, export_path: str, *, base_stem: bool = False) -> None`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.compare` — was `(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.count_descendants` — was `(top_path: str, all_paths) -> int`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.detect_reparenting` — was `(missing: list, extra: list) -> list`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.diff_report_path_for` — was `(cls, export_path: str, *, base_stem: bool = False) -> str`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.ensure_base_name` — was `(cls, export_path: str) -> Optional[str]`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.expand_to_descendants` — was `(objects) -> list`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.find_legacy_manifest` — was `(cls, export_path: str) -> Optional[str]`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.get_top_level` — was `(paths) -> list`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.manifest_path_for` — was `(cls, export_path: str, *, base_stem: bool = False) -> str`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.read_manifest` — was `(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.rename` — was `(cls, old_export_path: str, new_export_path: str) -> list`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.write_diff_report` — was `(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]`
-- `env_utils/hierarchy_sync/hierarchy_sidecar.py::HierarchySidecar.write_manifest` — was `(cls, export_path: str, paths, *, base_stem: bool = False) -> Optional[str]`
-- `ui_utils/blender_ui_handler.py::BlenderUiHandler.apply_styles` — was `(self, ui, style=None)`
+- `cam_utils/_cam_utils.py::CamUtils.fit_camera_clipping(objects=None, space=None, buffer=0.25)`
+- `cam_utils/_cam_utils.py::CamUtils.get_view_state(space=None)`
+- `cam_utils/_cam_utils.py::CamUtils.set_view_state(state)`
+- `mat_utils/_mat_utils.py::MatUtils.find_unassigned(objects=None)`
+- `uv_utils/_uv_utils.py::UvUtils.get_neighbor_shell_bounds(objects)`
 
-## Added (23)
+## Signature changed (2)
 
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar(class)`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.base_stem(cls, export_path: str) -> str`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.build_clean_path_set(paths) -> set`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.build_full_path_set(cls, objects) -> set`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.clean_stale_diff(cls, export_path: str, *, base_stem: bool = False) -> None`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.compare(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.count_descendants(top_path: str, all_paths) -> int`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.detect_reparenting(missing: list, extra: list) -> list`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.ensure_base_name(cls, export_path: str) -> Optional[str]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.expand_to_descendants(objects) -> list`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.find_legacy_manifest(cls, export_path: str) -> Optional[str]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.get_top_level(paths) -> list`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.manifest_path_for(cls, export_path: str, *, base_stem: bool = False) -> str`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.migrate_legacy(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.read_data(cls, export_path: str, *, base_stem: bool = False) -> Optional[dict]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.read_manifest(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.rename(cls, old_export_path: str, new_export_path: str) -> list`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.write_diff_report(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]`
-- `env_utils/hierarchy_sync/scene_data_sidecar.py::SceneDataSidecar.write_manifest(cls, export_path: str, paths, *, data: Optional[dict] = None, base_stem: bool = False) -> Optional[str]`
-- `ui_utils/blender_ui_handler.py::BlenderUiHandler.default_persistence(self, ui) -> str`
-- `uv_utils/_uv_utils.py::UvUtils.gather_to_udim(objects, udim=None, map_size=4096)`
-- `uv_utils/shell_xform.py::ShellXformSlots.gather_to_udim(self)`
+- `edit_utils/macros.py::DisplayMacros.m_frame`
+  - was: `(cls)`
+  - now: `(cls, steps: int = 2, adjust_clipping: bool = True) -> None`
+- `xform_utils/_xform_utils.py::XformUtils.freeze_transforms`
+  - was: `(objects, location=True, rotation=False, scale=True, store=True)`
+  - now: `(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')`

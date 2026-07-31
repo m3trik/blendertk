@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-07-29_
+_Generated: 2026-07-31_
 
 ## Index
 
@@ -664,8 +664,11 @@ Audio Clips — scene-wide sound-strip management over Blender's Video Sequence 
 
 Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 
-- **[`class CamUtils(_CamUtilsInternal)`](blendertk/blendertk/cam_utils/_cam_utils.py#L264)** — Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).
+- **[`class CamUtils(_CamUtilsInternal)`](blendertk/blendertk/cam_utils/_cam_utils.py#L335)** — Namespace mirror of mayatk's ``CamUtils`` (helper also exposed module-level).
   - `CamUtils.adjust_camera_clipping(camera=None, near_clip=None, far_clip=None)` *(static)* — Adjust near/far clip planes of camera object(s) — mirror of ``mtk.adjust_camera_clipping``.
+  - `CamUtils.get_view_state(space=None)` *(static)* — Snapshot the 3D viewport's placement and clipping, for a later restore.
+  - `CamUtils.set_view_state(state)` *(static)* — Restore a snapshot taken by :meth:`get_view_state`.
+  - `CamUtils.fit_camera_clipping(objects=None, space=None, buffer=0.25)` *(static)* — Widen the clip planes the view uses until ``objects`` can't be clipped by them.
   - `CamUtils.navigate_view(mode='ORBIT')` *(static)* — Arm an interactive Maya-style viewport-navigation tool: **LMB-drag** to Orbit/Dolly/Track/
 
 <a id="cam_utils--camera_visibility"></a>
@@ -1031,7 +1034,7 @@ Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 
 Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 
-- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L88)**
+- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L91)**
   - `DisplayMacros.m_back_face_culling(cls)` *(class)* — Toggle Back-Face Culling in the viewport.
   - `DisplayMacros.m_isolate_selected(cls)` *(class)* — Isolate the current selection (toggle Local View).
   - `DisplayMacros.m_wireframe(cls)` *(class)* — Cycle the wireframe-on-shaded overlay: Off -> Full -> Reduced (mirrors Maya's
@@ -1041,25 +1044,25 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `DisplayMacros.m_grid_and_image_planes(cls)` *(class)* — Toggle the floor grid and reference image-empties together (the grid leads).
   - `DisplayMacros.m_cycle_display_state(cls)` *(class)* — Cycle the selected objects' draw type: Textured -> Wireframe -> Bounds (driven by the
   - `DisplayMacros.m_smooth_preview(cls)` *(class)* — Toggle a live Subdivision-Surface preview on the selected meshes.
-  - `DisplayMacros.m_frame(cls)` *(class)* — Frame the selection (or the whole scene when nothing is selected).
-- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L242)**
+  - `DisplayMacros.m_frame(cls, steps: int = 2, adjust_clipping: bool = True) -> None` *(class)* — Frame the selection at the ideal working distance;
+- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L313)**
   - `EditMacros.m_multi_component()` *(static)* — Multi-component selection — enable vertex+edge+face select together (edit mode).
   - `EditMacros.m_paste_and_rename(cls)` *(class)* — Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L289)**
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L360)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L342)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L413)**
   - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L385)**
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L456)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L411)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L482)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1088,7 +1091,7 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1096)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1167)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--mirror"></a>
 ### `edit_utils/mirror.py`
@@ -1410,7 +1413,7 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
 
-- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L144)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L154)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
   - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
@@ -1424,7 +1427,7 @@ Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
   - `MayaSceneImport.bake_scene(self, src_path: str, *, use_cache: bool = True, timeout: float = 600, smart_bake: Union[bool, str] = 'auto', **script_opts: Any) -> str` — Bake *src_path* to a cached ``.blend`` and return its path — the link path.
   - `MayaSceneImport.bake_source(baked_path: str) -> Optional[str]` *(static)* — The foreign scene *baked_path* was baked from, or None if it is not a bake.
   - `MayaSceneImport.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
-  - `MayaSceneImport.scene_has_complex_animation(src_path: str) -> bool` *(static)* — Cheap pre-conversion probe: does the ``.ma`` declare *driven* animation the
+  - `MayaSceneImport.scene_has_complex_animation(src_path: str) -> bool` *(static)* — Cheap pre-conversion probe: does the scene declare *driven* animation the
   - `MayaSceneImport.find_scenes(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]` *(static)* — Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.
 
 <a id="env_utils--maya_bridge--maya_bridge_slots"></a>
@@ -1464,18 +1467,18 @@ Import an FBX headlessly and save it as a ``.blend`` so a foreign scene can be L
 
 Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 
-- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L275) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
-- [`write_manifest(entries, visibility, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L337) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L443)
+- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L306) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
+- [`write_manifest(entries, visibility, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L370) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L496)
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
 
 Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 
-- [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L143) — Swap ShaderFX game shaders for standardSurface on their shading groups.
-- [`export_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L177) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L220)
+- [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L168) — Swap ShaderFX game shaders for standardSurface on their shading groups.
+- [`export_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L202) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L245)
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
@@ -1720,6 +1723,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
   - `MatUtils.find_by_mat_id(material, objects=None)` *(static)* — Objects using ``material`` (mirror of ``mtk.find_by_mat_id`` at the object level).
+  - `MatUtils.find_unassigned(objects=None)` *(static)* — Objects carrying no material — the complement of :meth:`find_by_mat_id`.
   - `MatUtils.select_by_material(material, add=False)` *(static)* — Select every scene object using ``material`` (optionally adding to the selection).
   - `MatUtils.reload_textures()` *(static)* — Reload every image datablock from disk (mirror of ``mtk.MatUtils.reload_textures``).
   - `MatUtils.get_scene_mats(inc=None, exc=None, sort=False, as_dict=False, exclude_defaults=True, **filter_kwargs)` *(static)* — Scene materials with flexible name filtering — mirror of ``mtk.MatUtils.get_scene_mats``.
@@ -2280,7 +2284,7 @@ Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 
 Node / datablock utilities — instancing via shared object data.
 
-- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L40)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
+- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L87)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
   - `NodeUtils.get_instances(objects=None)` *(static)* — Return objects that share their data with another object (Maya-style instances).
   - `NodeUtils.replace_with_instances(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)` *(static)* — Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked
   - `NodeUtils.uninstance(objects, freeze=False)` *(static)* — Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
@@ -2704,6 +2708,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
   - `UvUtils.get_uv_bounds(objects)` *(static)* — The UV-space bounding box of *objects*, as one box over the whole input —
+  - `UvUtils.get_neighbor_shell_bounds(objects)` *(static)* — Per-island UV boxes that share *objects*' UV space, excluding their own —
   - `UvUtils.transfer_uvs_to_similar(cls, source, candidates=None, tolerance=0.9)` *(class)* — Transfer UVs from one source mesh to every geometrically similar mesh — mirror of
   - `UvUtils.scale_uvs(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0))` *(static)* — Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space
   - `UvUtils.transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)` *(static)* — Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).
@@ -2735,7 +2740,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 
 RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
-- **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L99)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
+- **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L97)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
   - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
   - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
@@ -2779,7 +2784,7 @@ Dedicated UV shell-transform panel (Blender).
 
 - **[`class ShellXformSlots(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/shell_xform.py#L29)** — Switchboard slots for the Shell Xform panel (``shell_xform.ui``).
   - `ShellXformSlots.header_init(self, widget)` — Header menu — Open UV Editor + panel help.
-  - `ShellXformSlots.cmb_move_scope_init(self, widget)` — Move scope — how far one arrow press travels, plus the snap toggle.
+  - `ShellXformSlots.cmb_move_scope_init(self, widget)` — Move scope — how far one arrow press travels, plus the snap button.
   - `ShellXformSlots.b023(self)` — Move To UV Space: Left
   - `ShellXformSlots.b024(self)` — Move To UV Space: Down
   - `ShellXformSlots.b025(self)` — Move To UV Space: Up
@@ -2816,7 +2821,7 @@ Transform utilities — object-level transform ops (world bbox, freeze, drop-to-
 
 - **[`class XformUtils(_XformUtilsInternal)`](blendertk/blendertk/xform_utils/_xform_utils.py#L129)** — Namespace mirror of mayatk's ``XformUtils`` (helpers also exposed module-level).
   - `XformUtils.get_world_bbox(obj)` *(static)* — Return ``(min, max)`` ``Vector``s of ``obj``'s bounding box in world space.
-  - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True)` *(static)* — Apply (bake) the given transform channels into the object data — Blender's
+  - `XformUtils.freeze_transforms(objects, location=True, rotation=False, scale=True, store=True, instance_strategy='skip')` *(static)* — Apply (bake) the given transform channels into the object data — Blender's
   - `XformUtils.restore_transforms(objects, delete_attrs=True, channels=None, traverse=False)` *(static)* — Un-freeze: compose the stored pre-freeze channels back into the local transform
   - `XformUtils.has_stored_transforms(objects)` *(static)* — Map each object → whether it carries pre-freeze bake data (mirror of
   - `XformUtils.scale_connected_edges(objects, scale_factor=1.1)` *(static)* — Scale each CONNECTED set of selected edges about that set's own centroid — mirror

@@ -272,6 +272,118 @@ try:
         for p in (ma_constraint, ma_sdk, ma_vis, ma_static, ma_plainkey):
             os.remove(p)
 
+    # .mb probe: node type names are stored as plain byte strings in the binary,
+    # so a chunked token scan gives .mb the same bake-vs-raw signal .ma gets
+    # (previously a blind False). Heuristic by contract: a false positive only
+    # costs an unnecessary bake attempt (the Maya-side probe re-decides).
+    def _write_mb(name, payload):
+        p = os.path.join(tempfile.gettempdir(), name)
+        with open(p, "wb") as f:
+            f.write(payload)
+        return p
+
+    mb_con = _write_mb(
+        "btk_cx_con.mb", b"\x00\x01FOR4junk parentConstraint junk\x02"
+    )
+    mb_vis = _write_mb("btk_cx_vis.mb", b"FOR4 animCurveTU LOC_parent_visibility")
+    mb_plain = _write_mb(
+        "btk_cx_plain.mb", b"FOR4 transform mesh animCurveTL cube_translateX"
+    )
+    try:
+        check("mb scan: constraint token -> complex", scan(mb_con) is True)
+        check("mb scan: visibility-curve token -> complex", scan(mb_vis) is True)
+        check("mb scan: plain keys/static tokens -> not complex", scan(mb_plain) is False)
+        # A token straddling a chunk boundary must still match (overlap reads).
+        straddle = _write_mb("btk_cx_straddle.mb", b"AAAAA" + b"parentConstraint")
+        try:
+            check(
+                "mb scan: token straddling a chunk boundary matches",
+                MayaSceneImport._mb_declares_drivers(straddle, chunk_size=8) is True,
+            )
+        finally:
+            os.remove(straddle)
+    finally:
+        for p in (mb_con, mb_vis, mb_plain):
+            os.remove(p)
+
+    # ---- robustness: tolerant open + namespace-safe created nodes --------------
+    from types import SimpleNamespace
+
+    from blendertk.env_utils.maya_bridge._scene_import import _IMPORT_TEMPLATE_USD
+
+    usd_txt = _IMPORT_TEMPLATE_USD.read_text()
+    check(
+        "template: tolerant scene open (a LOADED scene with plugin/node errors never aborts)",
+        "def _open_scene" in txt
+        and "sceneName" in txt
+        and "_open_scene(cmds, SRC_PATH)" in txt,
+    )
+    check(
+        "usd template: tolerant scene open",
+        "def _open_scene" in usd_txt and "_open_scene(cmds, SRC_PATH)" in usd_txt,
+    )
+    check(
+        "template: created shader nodes are namespace-safe (colon-free, root-namespace)",
+        "def _ns_safe" in txt and "_ns_safe(mat)" in txt,
+    )
+    check(
+        "usd template: created shader nodes are namespace-safe",
+        "def _ns_safe" in usd_txt and "_ns_safe(mat)" in usd_txt,
+    )
+
+    # Visibility collection: short names are the manifest keys (the Blender-side
+    # match convention), so duplicate short names with DIFFERING curves are
+    # ambiguous -- the replay would land one object's curve on both -- and must
+    # be dropped loudly; identical curves merge fine. Behavioral: the function
+    # is extracted from the template text and run against a stub cmds.
+    fn_src = txt[
+        txt.index("def _collect_baked_visibility") : txt.index("def _run_smart_bake")
+    ]
+    ns_exec = {}
+    exec(compile(fn_src, "_collect_baked_visibility.py", "exec"), ns_exec)
+    _collect = ns_exec["_collect_baked_visibility"]
+
+    class _FakeCmds:
+        def __init__(self, curves):
+            self._curves = curves
+
+        def objExists(self, name):
+            return name in self._curves
+
+        def keyframe(self, name, query=True, timeChange=False, valueChange=False):
+            times, values = self._curves[name]
+            return list(times) if timeChange else list(values)
+
+    _fake_cmds = _FakeCmds(
+        {
+            "cA": ([1.0, 10.0], [1.0, 0.0]),
+            "cB": ([1.0, 10.0], [0.0, 1.0]),  # differs from cA
+            "cC": ([1.0, 10.0], [1.0, 0.0]),  # identical to cA
+            "cS": ([5.0], [0.0]),
+        }
+    )
+    _fake_result = SimpleNamespace(
+        visibility_curves={
+            "|grpA|wheel": "cA",
+            "|grpB|wheel": "cB",  # same short name, different keys -> ambiguous
+            "|solo": "cS",
+            "|grpA|hub": "cA",
+            "|grpB|hub": "cC",  # same short name, identical keys -> kept
+        }
+    )
+    _vis = _collect(_fake_cmds, _fake_result)
+    check(
+        "visibility collect: ambiguous duplicate short name dropped (never one curve on both)",
+        "wheel" not in _vis,
+        str(_vis),
+    )
+    check(
+        "visibility collect: unambiguous + identical-duplicate names kept",
+        _vis.get("solo") == [[5.0, 0.0]]
+        and _vis.get("hub") == [[1.0, 1.0], [10.0, 0.0]],
+        str(_vis),
+    )
+
     for val, lit in (("auto", "'auto'"), (True, "True"), (False, "False")):
         s = eng.render_script(r"C:\s.ma", r"C:\o.fbx", smart_bake=val)
         ok_compile = True

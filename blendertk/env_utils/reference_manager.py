@@ -236,17 +236,14 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         Directory field's option box — Maya keeps neither in this header.
         """
         # Gesture-scoped window: pin button + auto-hide on key_show release. Runs on every call
-        # (declarative, cheap) and the signal is re-wired idempotently (disconnect-then-connect)
-        # because the header QWidget can outlive this slots instance — a bare .connect() on a
-        # second call (a genuine reload, or the offscreen test harness's documented "drive *_init
-        # explicitly" pattern) would leave a stale connection bound to a dead ``self`` alongside
-        # the live one. Mirror of channels' _wire_table_signals.
+        # (declarative, cheap) and the signal is re-wired idempotently because the header QWidget
+        # can outlive this slots instance — a bare .connect() on a second call (a genuine reload,
+        # or the offscreen test harness's documented "drive *_init explicitly" pattern) would
+        # leave a stale connection bound to a dead ``self`` alongside the live one. Goes through
+        # ``_rewire_signal`` (drops only OUR prior connection): a blanket ``disconnect()`` makes
+        # libpyside warn "Failed to disconnect (None) from signal" on the first, unconnected call.
         widget.config_buttons("refresh", "menu", "collapse", "pin")
-        try:
-            widget.refresh_requested.disconnect()
-        except (RuntimeError, TypeError):
-            pass
-        widget.refresh_requested.connect(self._refresh)
+        self._rewire_signal(widget, widget.refresh_requested, self._refresh, "hdr_refresh")
 
         # One-time menu build: repeated calls (see above) must not re-append every Naming /
         # Filter / Include-Types control — the user-reported duplicate header controls. Only the
@@ -667,15 +664,24 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         in its ``__init__``), so re-wiring stores the ``QMetaObject.Connection`` per (widget, key)
         and drops exactly the dead one — the QWidget can outlive this slots instance across a
         reload. Mirror of the mayatk panel.
+
+        The stored connection is dropped through the STATIC ``QObject.disconnect``, which is the
+        API that takes a ``Connection``: the signal-instance form expects a *slot* and, handed a
+        Connection it can't match, emits a ``RuntimeWarning`` ("Failed to disconnect (…) from
+        signal …") instead of raising — a warning no ``except`` can swallow. A Connection also
+        goes falsy the moment it breaks (PySide drops the binding when the receiving slots
+        instance is collected), so a dead one is skipped outright.
         """
+        from qtpy import QtCore
+
         conns = getattr(widget, "_rm_signal_conns", None)
         if conns is None:
             conns = {}
             widget._rm_signal_conns = conns
         old = conns.get(key)
-        if old is not None:
+        if old:
             try:
-                signal.disconnect(old)
+                QtCore.QObject.disconnect(old)
             except (RuntimeError, TypeError):
                 pass
         conns[key] = signal.connect(slot)

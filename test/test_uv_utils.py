@@ -85,6 +85,46 @@ try:
     # No mesh / no UVs -> None, not a crash (the panel shows a message box).
     check("get_uv_bounds on an empty selection -> None", btk.get_uv_bounds([]) is None)
 
+    # get_neighbor_shell_bounds: shells sharing the input's UV space, minus its own.
+    # Backs the move pad's "snap to shell" mode.
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    near = bpy.context.active_object  # UVs 0..1
+    bpy.ops.mesh.primitive_plane_add()
+    far = bpy.context.active_object
+    btk.move_uvs(far, du=3.0)  # UVs 3..4
+
+    near_sees = btk.get_neighbor_shell_bounds(near)
+    check(
+        "get_neighbor_shell_bounds -> only the other mesh",
+        len(near_sees) == 1 and abs(near_sees[0][0] - 3.0) < 1e-4,
+        f"{near_sees}",
+    )
+    far_sees = btk.get_neighbor_shell_bounds(far)
+    check(
+        "and symmetrically from the other side",
+        len(far_sees) == 1 and abs(far_sees[0][0]) < 1e-4,
+        f"{far_sees}",
+    )
+    check(
+        "a mesh alone in its UV layer has no neighbours",
+        btk.get_neighbor_shell_bounds([near, far]) == [],
+    )
+    # UV-layer scoping: a different active layer name is a different UV space.
+    far.data.uv_layers.active.name = "lightmap"
+    check(
+        "a differently-named active UV layer is not a neighbour",
+        btk.get_neighbor_shell_bounds(near) == [],
+        f"{btk.get_neighbor_shell_bounds(near)}",
+    )
+    far.data.uv_layers.active.name = "UVMap"
+    check(
+        "renamed back onto the shared layer, it counts again",
+        len(btk.get_neighbor_shell_bounds(near)) == 1,
+    )
+    check("get_neighbor_shell_bounds on an empty selection -> []",
+          btk.get_neighbor_shell_bounds([]) == [])
+
     # scale_uvs: half-U about the origin -> 0..1 map becomes 0..0.5 in u, v untouched
     reset()
     bpy.ops.mesh.primitive_plane_add()

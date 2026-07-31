@@ -66,9 +66,12 @@ _BAKE_LAUNCH_ARGS = ("--background", "--factory-startup", "--python")
 USD_EXTENSIONS = ptk.USD_EXTENSIONS
 
 # Maya driver node types whose animation the plain FBX round trip would lose or
-# mangle — the ASCII-scene mirror of the conversion template's Maya-side
+# mangle — the scene-scan mirror of the conversion template's Maya-side
 # ``_detect_complex_anim`` probe (which can't be imported here: it lives in the
-# dependency-free mayapy template). Kept in step with it by hand.
+# dependency-free mayapy template). Kept in step with it by hand. Consumed two
+# ways by :meth:`MayaSceneImport.scene_has_complex_animation`: as ``createNode``
+# line types in a ``.ma``, and as byte tokens in a ``.mb`` (node type names are
+# stored as plain strings in the binary IFF blocks).
 _DRIVER_NODE_TYPES = frozenset(
     {
         "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
@@ -77,6 +80,13 @@ _DRIVER_NODE_TYPES = frozenset(
         "expression", "ikHandle", "motionPath",
         "animCurveUL", "animCurveUA", "animCurveUU",  # set-driven keys
     }
+)
+
+# The ``.mb`` byte-scan tokens: every driver type plus the auto-named
+# ``<node>_visibility`` curve (keyed visibility — the ``.ma`` scan's
+# ``animCurveTU`` signal, spelled as the curve NAME the binary also stores).
+_MB_DRIVER_TOKENS = tuple(t.encode("ascii") for t in sorted(_DRIVER_NODE_TYPES)) + (
+    b"_visibility",
 )
 
 
@@ -250,7 +260,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         **script_opts: Any,
     ) -> "ptk.ScriptRunResult":
         """Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking)."""
-        src = os.path.abspath(os.path.expandvars(str(src_path)))
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if not os.path.isfile(src):
             raise FileNotFoundError(f"Maya scene not found: {src}")
         if not src.lower().endswith(SUPPORTED_EXTENSIONS):
@@ -396,7 +406,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         # Surface the option into the cache key + the Maya-side render context.
         script_opts["smart_bake"] = smart_bake
 
-        src = os.path.abspath(os.path.expandvars(str(src_path)))
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if os.path.splitext(src)[1].lower() in USD_EXTENSIONS:
             # USD fast path: native import, no headless-Maya round-trip at all.
             from blendertk.env_utils.usd import UsdUtils
@@ -731,7 +741,7 @@ class MayaSceneImport(ptk.LoggingMixin):
 
     def bake(self, fbx_path: str, out_path: str, *, timeout: float = 600) -> Any:
         """Bake *fbx_path* into the .blend at *out_path* in a fresh headless Blender."""
-        fbx = os.path.abspath(os.path.expandvars(str(fbx_path)))
+        fbx = os.path.abspath(os.path.expanduser(os.path.expandvars(str(fbx_path))))
         if not os.path.isfile(fbx):
             raise FileNotFoundError(f"FBX not found: {fbx}")
         blender_exe = self.require_blender()
@@ -796,7 +806,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             str: Path to the cached ``.blend`` — pass it to
             :func:`blendertk.link_blend_file`.
         """
-        src = os.path.abspath(os.path.expandvars(str(src_path)))
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         ext = os.path.splitext(src)[1].lower()
         if ext not in BAKE_SOURCE_EXTENSIONS:
             raise ValueError(
@@ -876,23 +886,25 @@ class MayaSceneImport(ptk.LoggingMixin):
     # ------------------------------------------------------------------ discovery (browser API)
     @staticmethod
     def scene_has_complex_animation(src_path: str) -> bool:
-        """Cheap pre-conversion probe: does the ``.ma`` declare *driven* animation the
+        """Cheap pre-conversion probe: does the scene declare *driven* animation the
         plain FBX round trip would lose (constraints, set-driven keys, expressions,
         IK, motion paths, or keyed visibility)? Lets a browser prompt bake-vs-raw
         WITHOUT launching Maya.
 
-        A text scan of the ASCII scene, mirroring the node-type signals of the
-        conversion template's Maya-side :func:`_detect_complex_anim` (the
-        authoritative check, run during the actual bake). Early-exits on the first
-        driver node. Returns ``False`` for ``.fbx`` (already baked — no Maya drivers)
-        and ``.mb`` (binary — not text-scannable; the caller then falls back to the
-        ``"auto"`` default, which still bakes if the Maya side detects driven
-        animation)."""
-        if (
-            os.path.splitext(str(src_path))[1].lower() != ".ma"
-            or not os.path.isfile(src_path)
-        ):
+        A ``.ma`` gets a ``createNode``-line scan mirroring the node-type signals
+        of the conversion template's Maya-side :func:`_detect_complex_anim` (the
+        authoritative check, run during the actual bake); a ``.mb`` gets a chunked
+        byte scan for the same type names (stored as plain strings in the binary
+        IFF blocks) — a heuristic whose rare false positive (the token appearing
+        in string data) only costs an unnecessary bake attempt, never a wrong
+        result, because the Maya-side probe re-decides authoritatively under
+        ``"auto"``. Both early-exit on the first hit. Returns ``False`` for
+        ``.fbx`` (already baked — no Maya drivers)."""
+        ext = os.path.splitext(str(src_path))[1].lower()
+        if ext not in SUPPORTED_EXTENSIONS or not os.path.isfile(src_path):
             return False
+        if ext == ".mb":
+            return MayaSceneImport._mb_declares_drivers(src_path)
         try:
             with open(src_path, "r", encoding="utf-8", errors="ignore") as fh:
                 for line in fh:
@@ -910,6 +922,28 @@ class MayaSceneImport(ptk.LoggingMixin):
         except OSError:
             return False
         return False
+
+    @staticmethod
+    def _mb_declares_drivers(src_path: str, chunk_size: int = 1 << 20) -> bool:
+        """Chunked byte scan of a ``.mb`` for :data:`_MB_DRIVER_TOKENS`.
+
+        Overlapping reads so a token straddling a chunk boundary still matches;
+        early-exits on the first hit, so the common driven scene reads only its
+        head. Bounded memory on multi-GB scenes."""
+        overlap = max(len(t) for t in _MB_DRIVER_TOKENS) - 1
+        try:
+            with open(src_path, "rb") as fh:
+                tail = b""
+                while True:
+                    chunk = fh.read(chunk_size)
+                    if not chunk:
+                        return False
+                    window = tail + chunk
+                    if any(token in window for token in _MB_DRIVER_TOKENS):
+                        return True
+                    tail = window[-overlap:]
+        except OSError:
+            return False
 
     @staticmethod
     def find_scenes(

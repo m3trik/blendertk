@@ -47,6 +47,25 @@ try:
     check("select_by_material selects + activates", sel == [b] and b.select_set is not None
           and bpy.context.view_layer.objects.active is b)
 
+    # find_unassigned: the complement of find_by_mat_id (mirror of mtk.find_unassigned)
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0)); bare = bpy.context.active_object
+    bare.name = "Bare"
+    unassigned = btk.find_unassigned()
+    check("find_unassigned finds the material-less object", unassigned == [bare],
+          f"{[o.name for o in unassigned]}")
+    check("find_unassigned excludes assigned objects",
+          not ({a, b} & set(btk.find_unassigned())))
+    bare.data.materials.append(None)  # an EMPTY slot is still "no material"
+    check("find_unassigned counts an empty slot as unassigned",
+          btk.find_unassigned() == [bare], f"{[o.name for o in btk.find_unassigned()]}")
+    check("find_unassigned scopes to the given objects",
+          btk.find_unassigned(objects=[a]) == [], f"{btk.find_unassigned(objects=[a])}")
+    bpy.ops.object.empty_add(location=(9, 0, 0))
+    check("find_unassigned ignores objects that can't hold materials",
+          btk.find_unassigned() == [bare], f"{[o.name for o in btk.find_unassigned()]}")
+    check("find_unassigned is the complement of find_by_mat_id",
+          not (set(btk.find_by_mat_id(m1)) & set(btk.find_unassigned())))
+
     # ---- mat_utils: Maya-mirror surface (scene mats / info / cleanup) -------
     # get_scene_mats: list / dict / sort / name filter
     names = {m.name for m in btk.get_scene_mats()}

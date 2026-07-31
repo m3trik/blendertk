@@ -70,6 +70,17 @@ STINGRAY_TEX_SLOTS = (
 )
 
 
+def _ns_safe(name):
+    """*name* with namespace colons flattened (``ns:mat`` -> ``ns_mat``).
+
+    Nodes we CREATE must live at the root namespace under a colon-free name:
+    a referenced scene's materials are namespaced (``loadReferenceDepth="all"``),
+    and a colon in the exported node name is at the mercy of the FBX exporter's
+    mangling -- the Blender-side slot match then silently misses. A flat name
+    round-trips verbatim."""
+    return name.replace(":", "_")
+
+
 def _plug_source(cmds, attr):
     """Return the source plug connected into *attr*, or None."""
     try:
@@ -162,7 +173,9 @@ def _translate_stingray(cmds, mat, phong):
     if normal_src and use("use_normal_map"):
         # Classic-model normal maps ride via a tangent-space bump2d chain.
         file_node = normal_src.split(".")[0]
-        bump = cmds.shadingNode("bump2d", asUtility=True, name=f"{mat}_fbxsafe_bump")
+        bump = cmds.shadingNode(
+            "bump2d", asUtility=True, name=f"{_ns_safe(mat)}_fbxsafe_bump"
+        )
         cmds.setAttr(f"{bump}.bumpInterp", 1)  # tangent-space normals
         try:
             cmds.connectAttr(f"{file_node}.outAlpha", f"{bump}.bumpValue", force=True)
@@ -208,6 +221,24 @@ def _resolve_workspace(cmds, scene_path):
         if parent == directory:
             return None
         directory = parent
+
+
+def _open_scene(cmds, path):
+    """Open *path*, tolerating the RuntimeError noise of a scene that LOADED but
+    reported errors -- missing renderer plugins, unknown nodes, deprecated
+    requires lines (routine for production scenes on a vanilla mayapy). The
+    content is in memory either way; aborting the whole conversion over it
+    costs the user an import that would have worked. A failed open -- nothing
+    loaded -- still raises."""
+    try:
+        cmds.file(path, open=True, force=True, ignoreVersion=True,
+                  loadReferenceDepth="all")
+    except RuntimeError as error:
+        opened = cmds.file(query=True, sceneName=True) or ""
+        if os.path.normcase(os.path.abspath(opened)) != os.path.normcase(
+                os.path.abspath(path)):
+            raise
+        print("scene opened with load errors (tolerated): {}".format(error))
 
 
 def _resolved_file(cmds, file_node):
@@ -311,7 +342,9 @@ def fbx_safe_materials(cmds):
                 translate = _translate_stingray
             else:
                 continue
-            phong = cmds.shadingNode("phong", asShader=True, name=f"{mat}_fbxsafe")
+            phong = cmds.shadingNode(
+                "phong", asShader=True, name=f"{_ns_safe(mat)}_fbxsafe"
+            )
             translate(cmds, mat, phong)
             cmds.connectAttr(f"{phong}.outColor", f"{sg}.surfaceShader", force=True)
             entry = {
@@ -391,17 +424,37 @@ def _collect_baked_visibility(cmds, result):
     sidecar the bake / import replays as ``hide_render`` / ``hide_viewport`` keys.
     ``SmartBake`` keys effective inherited visibility onto each mesh's own
     ``.visibility`` on the base layer and reports the curves in
-    ``result.visibility_curves``; that is exactly what needs to reach Blender."""
+    ``result.visibility_curves``; that is exactly what needs to reach Blender.
+
+    Short names are the map's keys (the Blender-side match convention), so two
+    baked objects sharing a short name are ambiguous: the replay would land ONE
+    object's curve on BOTH. Identical curves merge fine; differing ones are
+    dropped for that name with a warning -- no keys beats wrong keys, and never
+    silently (the manifest's named-warning rule)."""
     vis = {}
+    first_source = {}  # short name -> first contributing long name
     for obj_long, curve in (getattr(result, "visibility_curves", None) or {}).items():
         if not (curve and cmds.objExists(curve)):
             continue
         times = cmds.keyframe(curve, query=True, timeChange=True) or []
         values = cmds.keyframe(curve, query=True, valueChange=True) or []
         keys = [[t, v] for t, v in zip(times, values)]
-        if keys:
-            vis[obj_long.split("|")[-1].split(":")[-1]] = keys
-    return vis
+        if not keys:
+            continue
+        short = obj_long.split("|")[-1].split(":")[-1]
+        if short in vis:
+            if vis[short] is not None and vis[short] != keys:
+                print(
+                    "smart_bake: visibility for duplicate short name {!r} is "
+                    "ambiguous ({} vs {}) -- dropped for both.".format(
+                        short, first_source[short], obj_long
+                    )
+                )
+                vis[short] = None  # tombstone: later same-name curves stay dropped
+            continue
+        vis[short] = keys
+        first_source[short] = obj_long
+    return {short: keys for short, keys in vis.items() if keys is not None}
 
 
 def _run_smart_bake(cmds):
@@ -449,9 +502,7 @@ def main():
 
     workspace = _resolve_workspace(cmds, SRC_PATH)
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
-    cmds.file(
-        SRC_PATH, open=True, force=True, ignoreVersion=True, loadReferenceDepth="all"
-    )
+    _open_scene(cmds, SRC_PATH)
     # Optional pre-pass: convert driven animation to keys before export (see module
     # docstring). ``True`` forces the attempt; ``"auto"`` gates on the cheap probe.
     visibility = {}

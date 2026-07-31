@@ -140,6 +140,56 @@ try:
           all(approx(v, 1.0) for v in a.scale) and all(approx(v, 1.0) for v in b.scale),
           f"a={tuple(round(v,3) for v in a.scale)} b={tuple(round(v,3) for v in b.scale)}")
 
+    # 4e. instance_strategy on freeze (mirror of mtk.freeze_transforms):
+    # "preserve" keeps the link + world geometry; "uninstance" breaks + bakes all;
+    # a bogus value raises.
+    def linked_pair(prefix):
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+        p = bpy.context.active_object; p.name = f"{prefix}_p"
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+        q = bpy.context.active_object; q.name = f"{prefix}_q"
+        q.data = p.data
+        p.location, q.location = (3, 1, 0), (6, 2, 0)
+        p.scale = q.scale = (1.5, 1.5, 1.5)
+        bpy.context.view_layer.update()
+        return p, q
+
+    def wverts(o):
+        return [(o.matrix_world @ v.co).copy() for v in o.data.vertices]
+
+    reset()
+    p, q = linked_pair("fis")
+    pre_p, pre_q = wverts(p), wverts(q)
+    btk.freeze_transforms([p, q], location=True, rotation=False, scale=True,
+                          instance_strategy="preserve")
+    bpy.context.view_layer.update()
+    check("freeze preserve -> data still shared", p.data is q.data)
+    check("freeze preserve -> master baked",
+          approx(p.location.x, 0.0) and approx(p.scale.x, 1.0),
+          f"loc={p.location.x:.3f} scale={p.scale.x:.3f}")
+    check("freeze preserve -> world geometry preserved",
+          all((x - y).length < 1e-4 for x, y in zip(pre_p, wverts(p)))
+          and all((x - y).length < 1e-4 for x, y in zip(pre_q, wverts(q))))
+
+    reset()
+    p, q = linked_pair("fiu")
+    pre_q = wverts(q)
+    btk.freeze_transforms([p, q], location=True, rotation=False, scale=True,
+                          instance_strategy="uninstance")
+    bpy.context.view_layer.update()
+    check("freeze uninstance -> data forked", p.data is not q.data)
+    check("freeze uninstance -> both baked",
+          approx(p.scale.x, 1.0) and approx(q.scale.x, 1.0)
+          and approx(p.location.x, 0.0) and approx(q.location.x, 0.0))
+    check("freeze uninstance -> world geometry preserved",
+          all((x - y).length < 1e-4 for x, y in zip(pre_q, wverts(q))))
+
+    try:
+        btk.freeze_transforms([p], instance_strategy="bogus")
+        check("freeze bogus instance_strategy raises", False)
+    except ValueError:
+        check("freeze bogus instance_strategy raises", True)
+
     # 5. center_pivot: origin at (5,0,0), mesh shifted +3 -> object-mode origin -> bbox center x=8
     reset()
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0)); c = bpy.context.active_object

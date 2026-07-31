@@ -7,6 +7,10 @@ Clip adjustment operates on camera object ``.data`` (no VIEW_3D context) → **h
 as is the pure mouse-delta→view math backing the nav tools (``_orbit_rotation`` etc.); only the
 modal nav *invoke* needs an interactive VIEW_3D. ``import bpy`` / ``mathutils`` are deferred into
 the call bodies (no import side effects).
+
+The viewport-state trio (``get_view_state`` / ``set_view_state`` / ``fit_camera_clipping``) backs
+framing tools and works on the **RegionView3D / SpaceView3D** instead — the view the user actually
+orbits — so those need a 3D viewport (present, though not interactive, in ``--background``).
 """
 
 import pythontk as ptk
@@ -56,7 +60,6 @@ class _CamUtilsInternal(object):
     def _scene_bbox_corners():
         """The 8 world-space corners of the combined bbox of visible mesh objects (or all meshes)."""
         import bpy
-        from mathutils import Vector
         import blendertk as btk
 
         geo = btk.get_visible_geometry()
@@ -64,9 +67,62 @@ class _CamUtilsInternal(object):
             # Fall back to every mesh in the current scene (not bpy.data.objects — that would also
             # sweep in objects belonging to other scenes / unlinked orphans).
             geo = [o for o in bpy.context.scene.objects if o.type == "MESH"]
-        if not geo:
+        return _CamUtilsInternal._object_bbox_corners(geo)
+
+    @staticmethod
+    def _active_view3d(space=None):
+        """``(space, region_3d)`` of the 3D viewport to act on — the active area when the caller is
+        already in one (like Maya's focused panel), else the first 3D viewport. Pass an explicit
+        ``space`` to pin a specific viewport. ``(None, None)`` when there is no 3D view."""
+        import bpy
+
+        if space is None:
+            ctx = bpy.context
+            area = getattr(ctx, "area", None)
+            if area is not None and area.type == "VIEW_3D":
+                space = area.spaces.active
+            else:
+                for win in ctx.window_manager.windows:
+                    for a in win.screen.areas:
+                        if a.type == "VIEW_3D":
+                            space = a.spaces.active
+                            break
+                    if space is not None:
+                        break
+        if space is None:
+            return None, None
+        return space, getattr(space, "region_3d", None)
+
+    @staticmethod
+    def _view_eye(rv3d):
+        """``(eye, forward)`` in world space for the view ``rv3d`` currently shows.
+
+        Built from ``view_location``/``view_rotation``/``view_distance`` (the state the viewport
+        *stores*, and what the nav math here drives) — not ``view_matrix``, which is only refreshed
+        at draw time. While locked to a camera those fields describe the last free view, so the
+        scene camera's own transform is used instead.
+        """
+        import bpy
+        from mathutils import Vector
+
+        camera = bpy.context.scene.camera
+        if rv3d.view_perspective == "CAMERA" and camera is not None:
+            matrix = camera.matrix_world
+            return matrix.translation.copy(), (
+                matrix.to_quaternion() @ Vector((0.0, 0.0, -1.0))
+            )
+        forward = rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))
+        return rv3d.view_location - forward * rv3d.view_distance, forward
+
+    @staticmethod
+    def _object_bbox_corners(objects):
+        """The 8 world-space corners of the combined bbox of ``objects`` (or None when empty)."""
+        from mathutils import Vector
+        import blendertk as btk
+
+        boxes = [btk.get_world_bbox(o) for o in objects if hasattr(o, "matrix_world")]
+        if not boxes:
             return None
-        boxes = [btk.get_world_bbox(o) for o in geo]
         mn = Vector(tuple(min(b[0][i] for b in boxes) for i in range(3)))
         mx = Vector(tuple(max(b[1][i] for b in boxes) for i in range(3)))
         return [
@@ -75,6 +131,21 @@ class _CamUtilsInternal(object):
             for y in (mn.y, mx.y)
             for z in (mn.z, mx.z)
         ]
+
+    @staticmethod
+    def _widened_clip(current_start, current_end, start_target, end_target):
+        """``(start, end)`` widened to contain the targets, or None if they already do.
+
+        The relative tolerance matters: clip planes are stored as 32-bit floats, so comparing a
+        freshly computed double against the read-back value exactly would "change" them forever.
+        """
+        new_start = min(current_start, start_target)
+        new_end = max(current_end, end_target)
+        if ptk.are_similar(
+            new_start, current_start, max(1e-6, abs(current_start) * 1e-5)
+        ) and ptk.are_similar(new_end, current_end, max(1e-6, abs(current_end) * 1e-5)):
+            return None
+        return new_start, new_end
 
     @staticmethod
     def _resolve_clip(value, max_dist, *, near):
@@ -291,6 +362,140 @@ class CamUtils(_CamUtilsInternal):
                 val = _CamUtilsInternal._resolve_clip(far_clip, max_dist, near=False)
                 if val is not None:
                     data.clip_end = val
+
+    @staticmethod
+    def get_view_state(space=None):
+        """Snapshot the 3D viewport's placement and clipping, for a later restore.
+
+        The counterpart of :meth:`set_view_state` — together they let a framing tool return the
+        user to exactly the view they had before it moved them. Mirror of ``mtk.get_view_state``
+        (Maya snapshots the camera transform; Blender the RegionView3D the viewport orbits with).
+
+        Parameters:
+            space: An explicit ``SpaceView3D``. None -> the active 3D viewport.
+
+        Returns:
+            dict or None: Opaque state, or None when there is no 3D viewport.
+        """
+        import bpy
+
+        space, rv3d = _CamUtilsInternal._active_view3d(space)
+        if rv3d is None:
+            return None
+        state = {
+            "space": space,
+            "view_location": rv3d.view_location.copy(),
+            "view_rotation": rv3d.view_rotation.copy(),
+            "view_distance": rv3d.view_distance,
+            "view_perspective": rv3d.view_perspective,
+            "clip_start": space.clip_start,
+            "clip_end": space.clip_end,
+        }
+        # In camera view the *camera's* lens does the clipping, so fit_camera_clipping widens that
+        # too — carry it in the snapshot or the widening would outlive the view it was made for.
+        camera = bpy.context.scene.camera
+        if camera is not None and camera.type == "CAMERA":
+            state["camera"] = camera
+            state["camera_clip_start"] = camera.data.clip_start
+            state["camera_clip_end"] = camera.data.clip_end
+        return state
+
+    @staticmethod
+    def set_view_state(state):
+        """Restore a snapshot taken by :meth:`get_view_state`.
+
+        Parameters:
+            state (dict): A :meth:`get_view_state` result.
+
+        Returns:
+            bool: True when the view was restored (False if the viewport is gone).
+        """
+        if not state:
+            return False
+        space = state.get("space")
+        try:  # the viewport may have been closed since the snapshot
+            rv3d = getattr(space, "region_3d", None)
+        except ReferenceError:
+            return False
+        if rv3d is None:
+            return False
+        rv3d.view_perspective = state["view_perspective"]
+        rv3d.view_location = state["view_location"]
+        rv3d.view_rotation = state["view_rotation"]
+        rv3d.view_distance = state["view_distance"]
+        space.clip_start = state["clip_start"]
+        space.clip_end = state["clip_end"]
+
+        camera = state.get("camera")
+        if camera is not None:
+            try:
+                camera.data.clip_start = state["camera_clip_start"]
+                camera.data.clip_end = state["camera_clip_end"]
+            except ReferenceError:  # camera deleted since the snapshot
+                pass
+        return True
+
+    @staticmethod
+    def fit_camera_clipping(objects=None, space=None, buffer=0.25):
+        """Widen the clip planes the view uses until ``objects`` can't be clipped by them.
+
+        Where :meth:`adjust_camera_clipping` sets a *camera's* planes from the whole scene, this
+        fits what the user is actually looking through — the viewport's own planes, or the scene
+        camera's lens while the view is locked to it — to what is being framed, and only ever
+        *widens*, so it is safe to call on every framing. Mirror of ``mtk.fit_camera_clipping``.
+
+        Parameters:
+            objects: What must stay unclipped. None -> the current selection, else visible geometry.
+            space: An explicit ``SpaceView3D``. None -> the active 3D viewport.
+            buffer (float): Slack either side, as a fraction of the objects' bounding-box diagonal —
+                headroom to dolly / orbit around them before anything clips.
+
+        Returns:
+            tuple or None: The applied ``(start, end)``, or None when nothing needed changing (or no
+            viewport / geometry resolved).
+        """
+        import bpy
+        import blendertk as btk
+
+        space, rv3d = _CamUtilsInternal._active_view3d(space)
+        if rv3d is None:
+            return None
+
+        if objects is None:
+            objects = btk.selected_objects() or btk.get_visible_geometry()
+        corners = _CamUtilsInternal._object_bbox_corners(ptk.make_iterable(objects))
+        if not corners:
+            return None
+
+        # Depth of every bbox corner along the view axis. Derived from view_location /
+        # view_rotation / view_distance rather than rv3d.view_matrix: the matrix is only
+        # recomputed at draw time, so right after a framing op (or a scripted view move) it is
+        # still the *previous* view and the fit would be measured from the wrong eye.
+        eye, forward = _CamUtilsInternal._view_eye(rv3d)
+        depths = [(c - eye).dot(forward) for c in corners]
+        diagonal = (corners[-1] - corners[0]).length
+        # Slack scales with the objects' size, floored against how far away they are so a small
+        # or degenerate selection still gets usable headroom at any zoom.
+        pad = max(diagonal, max(depths) * 0.1, 1e-4) * buffer
+
+        end_target = max(depths) + pad
+        # Floor the near plane to keep depth-buffer precision usable even when the view sits inside
+        # the bounding box (negative near depth).
+        start_target = max(min(depths) - pad, end_target / 1e5, 1e-5)
+
+        # Widen whichever surface actually clips, against ITS own current planes: locked to a
+        # camera that is the lens, otherwise the viewport's own planes. (Measuring the camera
+        # against the viewport's values would drag an unrelated default onto the lens.)
+        camera = bpy.context.scene.camera if rv3d.view_perspective == "CAMERA" else None
+        in_lens = camera is not None and camera.type == "CAMERA"
+        target = camera.data if in_lens else space
+        widened = _CamUtilsInternal._widened_clip(
+            target.clip_start, target.clip_end, start_target, end_target
+        )
+        if widened is None:
+            return None
+        target.clip_start, target.clip_end = widened
+        return widened
 
     @staticmethod
     def navigate_view(mode="ORBIT"):
