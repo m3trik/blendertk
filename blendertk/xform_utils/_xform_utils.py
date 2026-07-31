@@ -142,17 +142,29 @@ class XformUtils(_XformUtilsInternal):
     @staticmethod
     @CoreUtils._object_mode
     def freeze_transforms(
-        objects, location=True, rotation=False, scale=True, store=True
+        objects,
+        location=True,
+        rotation=False,
+        scale=True,
+        store=True,
+        instance_strategy="skip",
     ):
         """Apply (bake) the given transform channels into the object data — Blender's
         ``transform_apply`` (mirror of ``mtk.freeze_transforms``). ``store`` stamps the
         pre-freeze channels as custom props so :func:`restore_transforms` can un-freeze.
 
-        Multi-user (linked) mesh data can't be baked into — the bake would rewrite every
-        linked duplicate's geometry — and ``transform_apply`` aborts the *whole* batch over
-        one such object, so those objects are skipped with a message and the rest of the
-        batch still bakes (matching mayatk's twin). To bake one anyway, break the link first
-        and bake in one step: ``NodeUtils.uninstance(objs, freeze=True)``.
+        ``instance_strategy`` decides what happens to multi-user (linked) objects —
+        a bake into shared data would rewrite every linked duplicate's geometry, and
+        ``transform_apply`` refuses it outright:
+
+        - ``"skip"`` (default): skipped in place with a message; the rest of the
+          batch still bakes (matching mayatk's twin).
+        - ``"preserve"``: each group's first targeted member is baked via
+          ``NodeUtils._preserved_instances`` — data sharing and every member's
+          world geometry survive; sibling matrices are rewritten with the
+          compensating delta (so only the operated member ends identity).
+        - ``"uninstance"``: break the links first (``NodeUtils.uninstance``),
+          then bake every object normally.
         """
         import bpy
 
@@ -161,6 +173,35 @@ class XformUtils(_XformUtilsInternal):
         objects = [o for o in ptk.make_iterable(objects) if o]
         if not objects:
             return
+
+        inst_strategy = (instance_strategy or "skip").lower()
+        valid_inst_strategies = {"skip", "preserve", "uninstance"}
+        if inst_strategy not in valid_inst_strategies:
+            raise ValueError(
+                f"Invalid instance_strategy '{instance_strategy}'. "
+                f"Valid options: {sorted(valid_inst_strategies)}"
+            )
+
+        if inst_strategy != "skip":
+            multi = [o for o in objects if _XformUtilsInternal._is_multi_user(o)]
+            if multi:
+                # Local import: node_utils imports XformUtils for its freeze
+                # option, so a module-level import here would be circular.
+                from blendertk.node_utils._node_utils import NodeUtils
+
+                if inst_strategy == "uninstance":
+                    NodeUtils.uninstance(multi)
+                else:  # preserve — re-enter with each group's master forked;
+                    # the CM restores siblings (compensated) on exit.
+                    with NodeUtils._preserved_instances(objects, quiet=False) as ctx:
+                        return XformUtils.freeze_transforms(
+                            ctx.objects,
+                            location=location,
+                            rotation=rotation,
+                            scale=scale,
+                            store=store,
+                            instance_strategy="skip",
+                        )
 
         shared = [o for o in objects if _XformUtilsInternal._is_multi_user(o)]
         if shared:

@@ -36,8 +36,6 @@ Blender. RizomUV is Windows-only.
 import os
 import re
 import subprocess
-import tempfile
-import time
 from pathlib import Path
 
 import pythontk as ptk
@@ -119,6 +117,8 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         self.timeout = timeout
         self._export_path = None
         self._script_path = None
+        self._temp = None  # Round-trip temp store (see _temp_store)
+        self._lua_path = None  # Store-allocated path the generated Lua is written to
         # Mapping of exported (unique-suffixed) copy name -> original bpy object.
         self._export_name_map = {}
         # Per-run placeholder overrides (set by process_with_rizomuv).
@@ -167,10 +167,45 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         return version
 
     @property
+    def _temp_store(self) -> "ptk.TempArtifacts":
+        """Lifecycle owner of the round-trip's temp FBX + Lua script (mirrors mayatk).
+
+        Both used to be FIXED tempdir names (``rizomuv_exported.fbx`` / ``riz_uv_script.lua``) --
+        the *same* two the Maya bridge used, so the twin panels raced each other for one script
+        file. RizomUV keeps re-reading the ``-cfi`` script *after* launch (the mtime-watch
+        behaviour the send flow designs around), so whichever run got overwritten mid-flight
+        exited 0 without ever reaching ``ZomSave`` (reproduced; a user-reported failure).
+
+        ``"scoped"`` is this flow's exact shape: the run blocks until RizomUV exits, so a clean
+        run deletes both payloads while a **failure keeps them** -- what makes the no-save error's
+        "open the script in RizomUV's Script Editor" advice actionable. Allocation also age-sweeps
+        same-prefix leftovers, so crashed runs can't accumulate.
+        """
+        if self._temp is None:
+            self._temp = ptk.TempArtifacts("rizom_roundtrip", policy="scoped")
+        return self._temp
+
+    def _release_temp_payloads(self) -> None:
+        """Delete this run's temp payloads and forget the paths they used.
+
+        Forgetting matters: ``cleanup`` *untracks* what it removed, so a second run through the
+        same bridge (the panel keeps one per session) would rewrite the same now-untracked paths
+        and never clean them again. Only store-allocated paths are dropped -- an explicitly
+        assigned ``export_path`` was never tracked, so it is never removed nor forgotten.
+        """
+        if self._temp is None:
+            return
+        removed = self._temp.cleanup()
+        for attr in ("_export_path", "_lua_path"):
+            path = getattr(self, attr)
+            if path is not None and str(path) in removed:
+                setattr(self, attr, None)
+
+    @property
     def export_path(self):
         """Lazy temp FBX path for the round-trip (POSIX string)."""
         if self._export_path is None:
-            self._export_path = Path(tempfile.gettempdir()) / "rizomuv_exported.fbx"
+            self._export_path = Path(self._temp_store.path(extension=".fbx"))
         return self._export_path.as_posix()
 
     @export_path.setter
@@ -258,7 +293,12 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         """Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
 
         Per-send unique FBX + Lua paths so a second send doesn't clobber a still-open earlier
-        session (RizomUV's ``-cfi`` watches the script). Returns the written Lua script path."""
+        session (RizomUV's ``-cfi`` watches the script). Both come from ``ptk.TempArtifacts`` with
+        the ``detached`` policy — the honest one here: the session may outlive us and never signals
+        completion, so nothing may delete these; allocation age-sweeps the same prefix instead,
+        which is what keeps a send-per-click habit from filling the temp dir forever. (The
+        round-trip uses the same primitive with ``scoped`` — see :meth:`_temp_store`.) Returns the
+        written Lua script path."""
         if not objects:
             raise ValueError("No objects specified for sending.")
         exe = self.rizom_path
@@ -266,8 +306,11 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             raise RuntimeError(
                 "RizomUV executable not found. Install RizomUV (Rizom Lab) or set rizom_path."
             )
-        tag = f"{time.time_ns():x}"
-        fbx_path = os.path.join(tempfile.gettempdir(), f"riz_send_{tag}.fbx")
+        # One store, two payloads: they share a tag prefix and a sweep scope, and the store's
+        # monotonic tag can't repeat -- ``time.time_ns()`` alone can, its Windows resolution
+        # (~15ms) being coarser than two back-to-back sends.
+        send_store = ptk.TempArtifacts("riz_send", policy="detached")
+        fbx_path = send_store.path(extension=".fbx")
         btk.FbxUtils.export_selection_fbx(filepath=fbx_path, objects=objects)
 
         script = self.build_send_script(
@@ -278,7 +321,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             load_uvw_props=load_uvw_props,
             load_textures=load_textures,
         )
-        script_path = os.path.join(tempfile.gettempdir(), f"riz_send_{tag}.lua")
+        script_path = send_store.path(extension=".lua")
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
 
@@ -391,6 +434,11 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             self._transfer_uvs_and_cleanup(imported, originals)
 
         self._announce_handoff(preset or "script", len(originals))
+
+        # The FBX has been consumed and its UVs are on the originals, so both payloads can go. A
+        # raise above skips this on purpose: the scoped policy keeps them so a failure stays
+        # debuggable -- the no-save error tells the user to open that very script in RizomUV.
+        self._release_temp_payloads()
 
     def _select_names_lua(self, select_objects) -> str:
         """Render *select_objects* as a Lua table of exported group names.
@@ -596,10 +644,43 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             )
         post_mtime, post_size = export_file.stat().st_mtime, export_file.stat().st_size
         if post_mtime == pre_mtime and post_size == pre_size:
-            raise RuntimeError(
-                "RizomUV exited cleanly but did not modify the FBX. The Lua script likely errored "
-                "before reaching ZomSave -- enable debug logging to see the Lua traceback."
-            )
+            raise RuntimeError(self._no_save_diagnosis(full_script_content))
+
+    def _no_save_diagnosis(self, expected_script: str) -> str:
+        """Explain a clean RizomUV exit that never reached ``ZomSave``.
+
+        RizomUV writes nothing to stdout/stderr in ``-cfi`` mode, so there is no Lua traceback to
+        enable -- the script itself is the only evidence. The first thing worth ruling out is a
+        mid-run overwrite of that script (see :meth:`_process_tag`), so compare what's on disk
+        against what we handed RizomUV instead of guessing.
+        """
+        # Both rendered OS-native: ``export_path`` is a POSIX string (Rizom's Lua wants forward
+        # slashes) and ``_script_path`` a Path, so quoting them as-is mixed separators in one
+        # message the user has to act on.
+        lines = [
+            "RizomUV exited cleanly but never wrote the FBX -- the Lua script stopped before "
+            "ZomSave.",
+            f"Script: {Path(self._script_path)}",
+            f"FBX:    {Path(self.export_path)}",
+        ]
+        try:
+            on_disk = Path(self._script_path).read_text(encoding="utf-8")
+        except OSError as e:
+            lines.append(f"The script file is no longer readable: {e}")
+        else:
+            if on_disk != expected_script:
+                lines.append(
+                    "The script on disk no longer matches what the bridge wrote -- another "
+                    "process replaced it while RizomUV was running (RizomUV re-reads the -cfi "
+                    "file after launch). Run one bridge at a time."
+                )
+        lines.append(
+            "RizomUV prints no diagnostics in -cfi mode, so no amount of debug logging will "
+            "surface the failing Lua line -- open the script above in RizomUV's Script Editor "
+            "and run it there. Degenerate input UVs (every coordinate collapsed onto one point) "
+            "are one known trigger."
+        )
+        return "\n".join(lines)
 
     def _import_objects(self):
         """Import the RizomUV-processed FBX; return ALL new objects.
@@ -816,11 +897,17 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         return full_script
 
     def _prepare_script_file(self, script_contents) -> Path:
-        """Save the Lua script for RizomUV; store + return its Path (kept a Path for script_path)."""
-        script_path = Path(tempfile.gettempdir(), "riz_uv_script.lua")
-        script_path.write_text(script_contents, encoding="utf-8")
-        self._script_path = script_path
-        return script_path
+        """Save the Lua script for RizomUV; store + return its Path (kept a Path for script_path).
+
+        One store-allocated path per bridge, reused across the two writes a run makes (the raw
+        preset via the ``script_path`` setter, then the wrapped script): the second must *replace*
+        the first, and RizomUV is handed the path only after both have happened.
+        """
+        if self._lua_path is None:
+            self._lua_path = Path(self._temp_store.path(extension=".lua"))
+        self._lua_path.write_text(script_contents, encoding="utf-8")
+        self._script_path = self._lua_path
+        return self._lua_path
 
     def _announce_handoff(self, preset: str, count: int) -> None:
         """Log the round-trip success summary (parallel to the send announce)."""

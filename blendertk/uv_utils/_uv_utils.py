@@ -411,6 +411,77 @@ class UvUtils(_UvUtilsInternal):
 
         return tuple(box) if box else None
 
+    @staticmethod
+    def get_neighbor_shell_bounds(objects):
+        """Per-island UV boxes that share *objects*' UV space, excluding their own —
+        mirror of mayatk's ``get_neighbor_shell_bounds``.
+
+        The pool is every mesh whose **active UV layer name** matches the input's:
+        that name is what makes two meshes share one UV space, so a mesh on a
+        different layer (a lightmap channel, say) is not a neighbour even where
+        its UVs occupy the same numbers. Visibility is deliberately not consulted
+        — a hidden mesh still owns its place in the layout.
+
+        Unlike the Maya twin this excludes **every** island of the input objects,
+        not just the selected ones: :func:`move_uvs` shifts an object's whole UV
+        map, so all of its islands travel together and none can be parked
+        against.
+
+        Parameters:
+            objects: Mesh object(s) — the UVs that are about to move.
+
+        Returns:
+            list: ``(u_min, v_min, u_max, v_max)`` per neighbouring island,
+            unordered. Empty when the input is alone in its UV layer.
+        """
+        import bpy
+
+        moving = EditUtils._meshes(objects)
+        if not moving:
+            return []
+
+        uv_names = set()
+        for o in moving:
+            layer = o.data.uv_layers.active
+            if layer is not None:
+                uv_names.add(layer.name)
+        if not uv_names:
+            return []
+
+        moving_data = {o.data for o in moving}
+        boxes = []
+        for obj in bpy.data.objects:
+            if obj.type != "MESH" or obj.data in moving_data:
+                continue
+            layer = obj.data.uv_layers.active
+            if layer is None or layer.name not in uv_names:
+                continue
+
+            def _read(bm, out=boxes):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                for island in _UvUtilsInternal._uv_islands(bm, uvl):
+                    box = None
+                    for face in island:
+                        for loop in face.loops:
+                            uv = loop[uvl].uv
+                            box = (
+                                (
+                                    min(box[0], uv.x),
+                                    min(box[1], uv.y),
+                                    max(box[2], uv.x),
+                                    max(box[3], uv.y),
+                                )
+                                if box
+                                else (uv.x, uv.y, uv.x, uv.y)
+                            )
+                    if box:
+                        out.append(box)
+
+            _UvUtilsInternal._uv_read(obj, _read)
+        return boxes
+
     @classmethod
     def transfer_uvs_to_similar(cls, source, candidates=None, tolerance=0.9):
         """Transfer UVs from one source mesh to every geometrically similar mesh — mirror of

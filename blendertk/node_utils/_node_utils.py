@@ -11,7 +11,31 @@ These operate on ``bpy.data`` object/datablock references (no VIEW_3D context) �
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
 
+import contextlib
+from dataclasses import dataclass, field
+
 import pythontk as ptk
+
+
+@dataclass
+class _PreservedInstances:
+    """Handle yielded by :meth:`NodeUtils._preserved_instances`.
+
+    ``objects`` is the operable set — one master per linked-data group plus
+    every non-instanced input.  ``map`` resolves each input member to the
+    object that carries it through the block (its group's master, or
+    itself).  ``skipped``/``restored``/``errors`` report what the context
+    manager did; the last two are populated on exit.
+    """
+
+    objects: list = field(default_factory=list)
+    map: dict = field(default_factory=dict)
+    #: master -> all group members (master first).
+    groups: dict = field(default_factory=dict)
+    #: targeted member -> reason it could not be preserved.
+    skipped: dict = field(default_factory=dict)
+    restored: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
 
 
 class _NodeUtilsInternal(object):
@@ -24,6 +48,29 @@ class _NodeUtilsInternal(object):
         import bpy
 
         return sum(1 for o in bpy.data.objects if o.data is data)
+
+    @staticmethod
+    def _transforms_driven(obj) -> bool:
+        """True when something re-writes *obj*'s transform after we would set
+        it: transform drivers / action fcurves, or an unmuted constraint.
+        Compact yes/no twin of ``transform_diag._driving_connections`` (which
+        returns per-connection tags for its diagnosis dict)."""
+        paths = (
+            "location",
+            "rotation_euler",
+            "rotation_quaternion",
+            "rotation_axis_angle",
+            "scale",
+        )
+        anim = getattr(obj, "animation_data", None)
+        if anim:
+            if any(d.data_path in paths for d in (anim.drivers or [])):
+                return True
+            if anim.action and any(
+                f.data_path in paths for f in anim.action.fcurves
+            ):
+                return True
+        return any(not c.mute for c in getattr(obj, "constraints", []))
 
     @staticmethod
     def _local_bbox_size(obj):
@@ -179,6 +226,178 @@ class NodeUtils(_NodeUtilsInternal):
                 processed, location=False, rotation=False, scale=True
             )
         return result
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _preserved_instances(objects, quiet=True):
+        """Context manager: keep linked-data instancing intact across a
+        destructive op.
+
+        Blender-only: Maya's twin was withdrawn because forking + re-linking
+        a shape there renumbers ``instObjGroups`` and breaks per-instance
+        shading (``mtk.XformUtils.freeze_instanced_group`` bakes in place
+        instead). Blender re-points ``obj.data``, which has no such
+        side effect, so the context-manager shape is safe here — it stays
+        private since there is no Maya counterpart to mirror.
+
+        For each linked-data group among *objects*, the first targeted member
+        (the *master*) gets a unique copy of the shared datablock and is
+        yielded for the wrapped operation; its siblings keep the original
+        data, untouched.  On exit — including when the block raises — every
+        sibling re-adopts the master's post-op data and its world matrix is
+        compensated by the master's baked delta (``B = post_world⁻¹ @
+        pre_world``; sibling ``W → W @ B⁻¹``), so both the data sharing and
+        every member's world-space geometry are preserved.  Restore is
+        per-group best-effort: one failed group never strands the rest, and
+        errors are aggregated on the handle.
+
+        Contract for the wrapped operation: any change it makes to the
+        master's world matrix must be baked into the master's data (the
+        ``transform_apply`` contract); pure data edits need no compensation
+        and get none (``B ≈ I``).  Moving a master without baking is outside
+        the contract.  Sibling channels are rewritten by the compensation;
+        stored bake history (``freeze_transforms(store=True)``) on siblings
+        is not updated.
+
+        Groups that cannot be preserved are skipped up front — reported on
+        the handle, their members untouched: library-linked objects/data,
+        and siblings whose transforms are driven (drivers, action fcurves,
+        unmuted constraints).
+
+        Yields:
+            _PreservedInstances: ``objects`` (the operable set), ``map``,
+            ``groups``, ``skipped``; ``restored``/``errors`` fill on exit.
+
+        Example:
+            with btk.NodeUtils._preserved_instances(sel) as ctx:
+                btk.freeze_transforms(ctx.objects, scale=True)
+        """
+        import bpy
+        from collections import Counter
+
+        ctx = _PreservedInstances()
+        targets = [o for o in ptk.make_iterable(objects) if o is not None]
+        targets_set = set(id(o) for o in targets)
+
+        scene_objs = [
+            o for o in bpy.data.objects if getattr(o, "data", None) is not None
+        ]
+        counts = Counter(o.data for o in scene_objs)
+
+        def _skip(members, reason):
+            for m in members:
+                assigned.add(id(m))
+                if id(m) in targets_set:
+                    ctx.skipped[m] = reason
+                    if not quiet:
+                        print(
+                            f"preserved_instances: skipping '{m.name}' — {reason}"
+                        )
+
+        assigned = set()
+        groups = []
+        bpy.context.view_layer.update()  # settle matrix_world before capture
+
+        for t in targets:
+            if id(t) in assigned:
+                continue
+            data = getattr(t, "data", None)
+            if data is None or counts.get(data, 0) <= 1:
+                assigned.add(id(t))
+                ctx.objects.append(t)
+                ctx.map[t] = t
+                continue
+
+            siblings = sorted(
+                (o for o in scene_objs if o.data is data and o is not t),
+                key=lambda o: o.name,
+            )
+            members = [t] + siblings
+
+            if any(o.library is not None for o in members) or (
+                data.library is not None
+            ):
+                _skip(members, "library-linked data in group")
+                continue
+            driven = [m for m in siblings if _NodeUtilsInternal._transforms_driven(m)]
+            if driven:
+                _skip(members, f"driven sibling channels ({driven[0].name})")
+                continue
+
+            groups.append(
+                {
+                    "master": t,
+                    "old_data": data,
+                    "pre_world": t.matrix_world.copy(),
+                    "siblings": siblings,
+                    "sib_world": {o: o.matrix_world.copy() for o in siblings},
+                }
+            )
+            assigned.update(id(m) for m in members)
+            ctx.objects.append(t)
+            ctx.groups[t] = members
+            for m in members:
+                ctx.map[m] = t
+
+        # Fork each master's datablock — the only pre-op mutation.
+        for rec in groups:
+            rec["master"].data = rec["old_data"].copy()
+
+        try:
+            yield ctx
+        finally:
+            bpy.context.view_layer.update()
+            for rec in groups:
+                try:
+                    NodeUtils._restore_instance_group(rec, ctx)
+                except Exception as e:
+                    ctx.errors.append(
+                        f"restore failed for group '{rec['master']}': {e}"
+                    )
+                    if not quiet:
+                        print(
+                            "preserved_instances: restore failed for "
+                            f"'{rec['master']}': {e}"
+                        )
+            bpy.context.view_layer.update()
+
+    @staticmethod
+    def _restore_instance_group(rec, ctx) -> None:
+        """Re-link one group's siblings to the master's post-op data and
+        compensate their world matrices.  See :meth:`preserved_instances`."""
+        import bpy
+        from mathutils import Matrix
+
+        master = rec["master"]
+        try:
+            master.name  # raises ReferenceError if the op deleted it
+        except ReferenceError:
+            raise RuntimeError("master no longer exists")
+
+        B = master.matrix_world.inverted() @ rec["pre_world"]
+        b_identity = (
+            max(abs(v) for row in (B - Matrix.Identity(4)) for v in row) < 1e-9
+        )
+
+        for o in rec["siblings"]:
+            try:
+                o.data = master.data
+                if not b_identity:
+                    o.matrix_world = rec["sib_world"][o] @ B.inverted()
+                ctx.restored.append(o)
+            except ReferenceError:
+                ctx.errors.append("a sibling disappeared during the operation")
+
+        # The original datablock is orphaned once every sibling re-adopted
+        # the fork — drop it and let the fork take over its name.
+        old = rec["old_data"]
+        try:
+            old_name = old.name
+            if old.users == 0:
+                bpy.data.batch_remove((old,))
+                master.data.name = old_name
+        except ReferenceError:
+            pass
 
     @staticmethod
     def get_parent(obj, all=False):

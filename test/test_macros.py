@@ -194,6 +194,85 @@ try:
     except Exception as e:
         check("viewport macros no-op safely headless", False, repr(e))
 
+    # 10c. m_frame — the timed step cycle: frame, step in, then back to the starting view.
+    # ``view3d.view_selected`` no-ops under --background (no drawable region), so the framing
+    # itself is a live-GUI check; what's verified here is the step ramp, the restore bookkeeping
+    # and the clip fitting — all of which drive the view state directly.
+    reset_scene()
+    import pythontk as ptk
+
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    first_cube = bpy.context.active_object
+    first_cube.select_set(True)
+    _win, _area, space = M._find_view3d()
+    if space is None:
+        check("m_frame: VIEW_3D available", False, "no 3D viewport headless")
+    else:
+        rv3d = space.region_3d
+        ptk.StepToggle.clear("btk_m_frame")
+        start_loc, start_dist = rv3d.view_location.copy(), rv3d.view_distance
+
+        M.m_frame()  # press 1 — frame it
+        framed = rv3d.view_distance
+        M.m_frame()  # press 2 — step in
+        check("m_frame steps closer on the second press", rv3d.view_distance < framed,
+              f"{framed} -> {rv3d.view_distance}")
+        M.m_frame()  # press 3 — home
+        check("m_frame returns to the view it started from",
+              abs(rv3d.view_distance - start_dist) < 1e-3
+              and (rv3d.view_location - start_loc).length < 1e-3,
+              f"dist={rv3d.view_distance} vs {start_dist}")
+
+        ptk.StepToggle.clear("btk_m_frame")
+        M.m_frame(steps=1)
+        single = rv3d.view_distance
+        # steps=1 lands on the raw ideal; a 2-step cycle starts a little further out.
+        check("more steps start the cycle further out", single < framed,
+              f"1-step={single} vs 2-step first press={framed}")
+        M.m_frame(steps=1)
+        check("steps=1 is a plain frame/restore toggle",
+              abs(rv3d.view_distance - start_dist) < 1e-3, f"dist={rv3d.view_distance}")
+
+        # Selecting something else restarts the cycle instead of stepping deeper / going back.
+        ptk.StepToggle.clear("btk_m_frame")
+        bpy.ops.mesh.primitive_cube_add(location=(20, 0, 0))  # deselects the first cube
+        other = bpy.context.active_object
+        bpy.ops.object.select_all(action="DESELECT")
+        first_cube.select_set(True)
+        M.m_frame()
+        first_press = rv3d.view_distance
+        bpy.ops.object.select_all(action="DESELECT")
+        other.select_set(True)
+        M.m_frame()
+        # Step 1 again (the ramp's first factor re-applied), NOT step 2 and not home.
+        expected_dist = first_press / ptk.StepToggle.scales(2)[0]
+        check("re-selecting restarts the cycle at step 1",
+              abs(rv3d.view_distance - expected_dist) < 1e-3,
+              f"dist={rv3d.view_distance} expected={expected_dist}")
+
+        # Clipping is fitted to the framed object, and comes back with the view.
+        # (Aim the view at the object by hand — view_selected can't do it headless.)
+        from mathutils import Quaternion
+
+        ptk.StepToggle.clear("btk_m_frame")
+        rv3d.view_rotation = Quaternion()  # look down -Z
+        rv3d.view_location, rv3d.view_distance = other.location.copy(), 5.0
+        space.clip_start, space.clip_end = 0.1, 0.5  # far plane cuts everything off
+        M.m_frame()
+        check("m_frame widens clipping so the framed object isn't clipped",
+              space.clip_end > 0.5, f"end={space.clip_end}")
+        M.m_frame()
+        M.m_frame()  # home
+        check("returning home restores the original clipping",
+              abs(space.clip_end - 0.5) < 1e-3, f"end={space.clip_end}")
+
+        ptk.StepToggle.clear("btk_m_frame")
+        space.clip_start, space.clip_end = 0.01, 1000.0
+        M.m_frame(adjust_clipping=False)
+        check("adjust_clipping=False leaves the planes alone",
+              abs(space.clip_end - 1000.0) < 1e-3, f"end={space.clip_end}")
+        ptk.StepToggle.clear("btk_m_frame")
+
     # 10d. m_grid toggles the floor grid (+ its axis lines) and RETURNS the applied state;
     # m_grid_and_image_planes drives that SAME toggle — the grid leads and the image-empties
     # follow it. mayatk's counterpart used to let the image planes lead, with cmds.grid called

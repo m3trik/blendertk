@@ -176,6 +176,93 @@ try:
     except RuntimeError:
         check("navigate_view refuses in --background", True)
 
+    # ---- viewport view state + selection-fitted clipping (backs the m_frame step cycle) ----
+    # --background keeps one window with the default screen, so a VIEW_3D resolves here too.
+    reset()
+    space, rv3d = CamUtils._active_view3d()
+    if rv3d is None:
+        check("VIEW_3D available headless", False, "no 3D viewport in --background")
+    else:
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))  # corners +/-1
+        cube = bpy.context.active_object
+
+        # view state round-trip: snapshot, move the view, restore.
+        rv3d.view_location = Vector((1.0, 2.0, 3.0))
+        rv3d.view_distance = 12.0
+        space.clip_start, space.clip_end = 0.5, 500.0
+        state = btk.get_view_state()
+        rv3d.view_location = Vector((50.0, 50.0, 50.0))
+        rv3d.view_distance = 99.0
+        space.clip_start, space.clip_end = 10.0, 20.0
+        check("set_view_state restores the view", btk.set_view_state(state))
+        check(
+            "view location/distance restored",
+            approx(rv3d.view_location.x, 1.0) and approx(rv3d.view_distance, 12.0),
+            f"loc={tuple(round(c,2) for c in rv3d.view_location)} dist={rv3d.view_distance}",
+        )
+        check(
+            "clip planes restored",
+            approx(space.clip_start, 0.5) and approx(space.clip_end, 500.0),
+            f"{space.clip_start}/{space.clip_end}",
+        )
+        check("set_view_state(None) is a no-op", btk.set_view_state(None) is False)
+
+        # clip fitting: only ever widens, and only when something would clip.
+        rv3d.view_location = Vector((0.0, 0.0, 0.0))
+        rv3d.view_rotation = Quaternion()  # looking down -Z from +Z
+        rv3d.view_distance = 50.0  # eye 50 units out -> cube spans depth 49..51
+        space.clip_start, space.clip_end = 0.1, 10.0
+        fitted = btk.fit_camera_clipping([cube])
+        check(
+            "fit widens the far plane past the framed object",
+            fitted is not None and space.clip_end > 51.0,
+            f"fitted={fitted} end={space.clip_end}",
+        )
+        check("fit leaves an already-wide near plane alone", approx(space.clip_start, 0.1))
+        check(
+            "fit is a no-op once nothing clips",
+            btk.fit_camera_clipping([cube]) is None,
+            f"{space.clip_start}/{space.clip_end}",
+        )
+        space.clip_start = 50.0  # near plane now cuts into the cube (depth 49..51)
+        fitted = btk.fit_camera_clipping([cube])
+        check(
+            "fit pulls the near plane in front of the object",
+            fitted is not None and space.clip_start < 49.0,
+            f"start={space.clip_start}",
+        )
+        check("fit without geometry is a no-op", btk.fit_camera_clipping([]) is None)
+        space.clip_start, space.clip_end = 0.1, 1000.0
+
+        # Locked to a camera, the *lens* does the clipping — the fit has to widen that too, and
+        # the snapshot has to carry it or the widening outlives the view it was made for.
+        fit_cam = bpy.data.objects.new("FitCam", bpy.data.cameras.new("FitCam"))
+        bpy.context.collection.objects.link(fit_cam)
+        bpy.context.scene.camera = fit_cam
+        fit_cam.location = (0.0, 0.0, 50.0)  # default rotation looks down -Z
+        bpy.context.view_layer.update()  # matrix_world is stale until the depsgraph re-evaluates
+        fit_cam.data.clip_start, fit_cam.data.clip_end = 0.1, 10.0
+        rv3d.view_perspective = "CAMERA"
+        cam_state = btk.get_view_state()
+        btk.fit_camera_clipping([cube])
+        check(
+            "camera view: the fit widens the camera's lens clipping to the object's depth",
+            51.0 < fit_cam.data.clip_end < 60.0,  # cube spans depth 49..51, plus the buffer
+            f"end={fit_cam.data.clip_end}",
+        )
+        check(
+            "camera view: the viewport's own planes are left alone",
+            approx(space.clip_end, 1000.0),
+            f"space end={space.clip_end}",
+        )
+        btk.set_view_state(cam_state)
+        check(
+            "camera view: the restore returns the lens clipping",
+            approx(fit_cam.data.clip_end, 10.0),
+            f"end={fit_cam.data.clip_end}",
+        )
+        rv3d.view_perspective = "PERSP"
+
     # ---- CameraVisibility: per-camera exclusive/hidden sets (2026-07-28 rolled engine) ----
     reset()
     cam_data = bpy.data.cameras.new("VisCam")

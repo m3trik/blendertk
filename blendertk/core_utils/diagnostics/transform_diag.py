@@ -161,6 +161,11 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
         ``break_connections=True`` to remove those drivers/fcurves/constraints and fix anyway
         (the analogue of Maya's opt-in disconnect).
 
+        **Instanced (linked-data) objects need no special handling here** — unlike Maya's
+        twin, which bakes shear into geometry and therefore takes an ``instance_strategy``,
+        this fix writes only the object's transform channels and never touches shared data,
+        so linked duplicates are fixed in place with their instancing intact.
+
         Args:
             objects: objects (datablocks or names) to check; ``None`` uses the current selection.
             dry_run: when True, only report which objects would be fixed (no changes).

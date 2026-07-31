@@ -136,6 +136,45 @@ try:
     check("self-managed ZomLoad/ZomSave script passes through (no double wrapper)",
           passthru.count("ZomLoad") == 1 and "ZomQuit" not in passthru)
 
+    # ---- round-trip temp payloads are unique per bridge ---------------------------
+    # Regression: the FBX and the -cfi Lua were fixed tempdir names -- the SAME two the
+    # Maya bridge used, so the twin panels raced for one script file. RizomUV re-reads
+    # the script after launch, so a mid-run overwrite made it exit 0 without reaching
+    # ZomSave. Lifecycle is now ptk.TempArtifacts (unique tag per allocation).
+    from pathlib import Path as _Path
+
+    one = RizomUVBridge(rizom_path="not-used.exe")
+    two = RizomUVBridge(rizom_path="not-used.exe")
+    for br in (one, two):
+        br.script_path = 'ZomSelect({PrimType="Edge"})'
+    check("two bridges get different round-trip FBX paths", one.export_path != two.export_path,
+          one.export_path)
+    check("two bridges get different round-trip Lua paths", one.script_path != two.script_path,
+          one.script_path)
+    check("payloads are prefix-scoped for the stale sweep",
+          all(_Path(p).name.startswith("rizom_roundtrip_")
+              for p in (one.export_path, one.script_path)))
+
+    # ---- the no-save error diagnoses a clobber instead of promising a traceback ---
+    script_text = _Path(one.script_path).read_text(encoding="utf-8")
+    intact = one._no_save_diagnosis(script_text)
+    clobbered = one._no_save_diagnosis(script_text + "-- not what we wrote\n")
+    check("no-save error names the script path", str(_Path(one.script_path)) in intact)
+    check("no-save error names the FBX path", str(_Path(one.export_path)) in intact)
+    check("intact script -> no clobber claim", "no longer matches" not in intact)
+    check("changed script -> clobber reported", "no longer matches" in clobbered)
+    check("no-save error drops the impossible traceback advice",
+          "enable debug logging" not in intact)
+
+    # ---- a reused bridge re-allocates, or run 2's payloads leak untracked ---------
+    first_lua = one.script_path
+    one._release_temp_payloads()
+    check("clean run removes the Lua payload", not _Path(first_lua).exists())
+    one.script_path = 'ZomSelect({PrimType="Edge"})'
+    check("a second run allocates a fresh Lua path", one.script_path != first_lua)
+    one._release_temp_payloads()
+    two._release_temp_payloads()
+
 except SystemExit:
     raise
 except Exception as e:

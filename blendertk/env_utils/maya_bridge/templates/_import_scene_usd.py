@@ -38,6 +38,13 @@ INCLUDE_ANIMATION = __INCLUDE_ANIMATION__
 STINGRAY_SHADER_TYPES = ("StingrayPBS", "ShaderfxShader")
 
 
+def _ns_safe(name):
+    """*name* with namespace colons flattened (``ns:mat`` -> ``ns_mat``) -- nodes
+    we CREATE live at the root namespace under a colon-free name (the FBX
+    template's rule; referenced scenes arrive namespaced)."""
+    return name.replace(":", "_")
+
+
 def _plug_source(cmds, attr):
     """Return the source plug connected into *attr*, or None."""
     try:
@@ -79,6 +86,22 @@ def _resolve_workspace(cmds, scene_path):
         directory = parent
 
 
+def _open_scene(cmds, path):
+    """Open *path*, tolerating the RuntimeError noise of a scene that LOADED but
+    reported errors -- missing renderer plugins, unknown nodes (routine for
+    production scenes on a vanilla mayapy; the FBX template's rule). A failed
+    open -- nothing loaded -- still raises."""
+    try:
+        cmds.file(path, open=True, force=True, ignoreVersion=True,
+                  loadReferenceDepth="all")
+    except RuntimeError as error:
+        opened = cmds.file(query=True, sceneName=True) or ""
+        if os.path.normcase(os.path.abspath(opened)) != os.path.normcase(
+                os.path.abspath(path)):
+            raise
+        print("scene opened with load errors (tolerated): {}".format(error))
+
+
 def _translate_stingray_to_ss(cmds, mat, ss):
     """StingrayPBS -> standardSurface: every PBR slot gets a NATIVE USD home.
 
@@ -102,7 +125,9 @@ def _translate_stingray_to_ss(cmds, mat, ss):
         # Tangent-space bump2d chain -- the pattern the registry exporter
         # recognizes and writes as a UsdUVTexture normal input.
         file_node = normal_src.split(".")[0]
-        bump = cmds.shadingNode("bump2d", asUtility=True, name=f"{mat}_usdsafe_bump")
+        bump = cmds.shadingNode(
+            "bump2d", asUtility=True, name=f"{_ns_safe(mat)}_usdsafe_bump"
+        )
         cmds.setAttr(f"{bump}.bumpInterp", 1)  # tangent-space normals
         try:
             cmds.connectAttr(f"{file_node}.outAlpha", f"{bump}.bumpValue", force=True)
@@ -163,7 +188,7 @@ def usd_safe_materials(cmds):
             if cmds.nodeType(mat) not in STINGRAY_SHADER_TYPES:
                 continue
             ss = cmds.shadingNode(
-                "standardSurface", asShader=True, name=f"{mat}_usdsafe"
+                "standardSurface", asShader=True, name=f"{_ns_safe(mat)}_usdsafe"
             )
             _translate_stingray_to_ss(cmds, mat, ss)
             cmds.connectAttr(f"{ss}.outColor", f"{sg}.surfaceShader", force=True)
@@ -225,9 +250,7 @@ def main():
 
     workspace = _resolve_workspace(cmds, SRC_PATH)
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
-    cmds.file(
-        SRC_PATH, open=True, force=True, ignoreVersion=True, loadReferenceDepth="all"
-    )
+    _open_scene(cmds, SRC_PATH)
     usd_safe_materials(cmds)
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")

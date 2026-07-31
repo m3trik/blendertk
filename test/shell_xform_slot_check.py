@@ -184,13 +184,14 @@ try:
 
     # `_move` reads the scope text and the cached snap toggle, both stubbed here —
     # no Qt in headless Blender, which is why `_snap_enabled` must not import it.
-    def set_move_scope(text, snap=False):
+    def set_move_scope(text, snap=ShellXformSlots._SNAP_OFF):
         # Item data comes from the real `_MOVE_SCOPES` table (what
         # `cmb_move_scope_init` populates the combo from), so a renamed scope
-        # raises here rather than silently testing a stale label.
+        # raises here rather than silently testing a stale label. `snap` is a
+        # `_SNAP_*` index, matching the tri-state button's cycle position.
         data = ShellXformSlots._MOVE_SCOPES[text]
         slot.ui = NS(cmb_move_scope=NS(currentText=lambda: text, currentData=lambda: data))
-        slot._snap_toggle = NS(is_on=snap)
+        slot._snap_action = NS(current_state=snap)
 
     # Scope = the distance one press travels. Shell sits at V [0.5, 0.9].
     for scope, expected in (("Tile", 1.0), ("Half Tile", 0.5), ("Quarter Tile", 0.25)):
@@ -222,28 +223,99 @@ try:
     # across it at render time.
     margin = slot._border_margin()
     reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
-    set_move_scope("Half Tile", snap=True)
+    set_move_scope("Half Tile", snap=ShellXformSlots._SNAP_GRID)
     slot.b025()
-    check("slot b025 snap=on -> V min lands on the padded 0.5 grid", abs(min(vs(o)) - (1.0 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f} margin={margin:.6f}")
+    check("slot b025 snap=grid -> V min lands on the padded 0.5 grid", abs(min(vs(o)) - (1.0 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f} margin={margin:.6f}")
     slot.b024()  # back down: a full step, not stranded on the margin it just added
-    check("slot b024 snap=on -> V min back to the padded 0.5", abs(min(vs(o)) - (0.5 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f}")
+    check("slot b024 snap=grid -> V min back to the padded 0.5", abs(min(vs(o)) - (0.5 + margin)) < 1e-5, f"Vmin={min(vs(o)):.4f}")
 
     # Snap OFF on the same shell keeps the 0.1 drift.
     reset(); o = one_quad([(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)])
-    set_move_scope("Half Tile", snap=False)
+    set_move_scope("Half Tile", snap=ShellXformSlots._SNAP_OFF)
     slot.b025()
     check("slot b025 snap=off keeps sub-tile drift", abs(min(vs(o)) - 1.1) < 1e-5, f"Vmin={min(vs(o)):.4f}")
 
     # Snapping stays reversible from a padded position: padding the RESULT instead of
     # the anchor would strand the reverse press on the margin it just added (dead arrow).
-    reset(); o = one_quad(QUAD); set_move_scope("Tile", snap=True)
+    reset(); o = one_quad(QUAD); set_move_scope("Tile", snap=ShellXformSlots._SNAP_GRID)
     slot.b025()
     landed = min(vs(o))
-    check("slot b025 snap=on lands one margin above the line", abs((landed % 1.0) - margin) < 1e-5, f"Vmin={landed:.6f}")
+    check("slot b025 snap=grid lands one margin above the line", abs((landed % 1.0) - margin) < 1e-5, f"Vmin={landed:.6f}")
     slot.b025()
     check("a second press moves a full tile", abs(min(vs(o)) - (landed + 1.0)) < 1e-5, f"Vmin={min(vs(o)):.6f}")
     slot.b024()
     check("the reverse press returns exactly", abs(min(vs(o)) - landed) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+
+    # ---- snap=shell: park against the next neighbouring island instead of the grid.
+    # Blender's move_uvs shifts an object's whole UV map, so the blocker pool is the
+    # OTHER meshes on the same UV layer name (see get_neighbor_shell_bounds).
+    reset()
+    neighbor = one_quad([(0.2, 3.0), (0.6, 3.0), (0.6, 3.4), (0.2, 3.4)], name="N")
+    o = one_quad(QUAD, name="M")  # V 0.5 .. 0.9, selected last so it is the mover
+    neighbor.select_set(False)
+    set_move_scope("Tile", snap=ShellXformSlots._SNAP_SHELL)
+    slot.b025()
+    check("slot b025 snap=shell parks one margin under the neighbour",
+          abs(max(vs(o)) - (3.0 - margin)) < 1e-5, f"Vmax={max(vs(o)):.6f} target={3.0 - margin:.6f}")
+    check("the neighbour did not move", abs(min(vs(neighbor)) - 3.0) < 1e-5, f"{min(vs(neighbor)):.6f}")
+    slot.b025()
+    check("a second press clears the neighbour rather than sitting still",
+          abs(min(vs(o)) - (3.4 + margin)) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+
+    # The neighbour sets the distance, so the scope is irrelevant in this mode.
+    landings = []
+    for scope in ("Tile", "Quarter Tile", "Selection Bounds"):
+        reset()
+        one_quad([(0.2, 3.0), (0.6, 3.0), (0.6, 3.4), (0.2, 3.4)], name="N").select_set(False)
+        o = one_quad(QUAD, name="M")
+        set_move_scope(scope, snap=ShellXformSlots._SNAP_SHELL)
+        slot.b025()
+        landings.append(round(max(vs(o)), 6))
+    check("snap=shell ignores the scope", len(set(landings)) == 1, f"{landings}")
+
+    # No neighbour ahead must still move — a dead arrow reads as a bug. Uses an
+    # OFF-grid shell (V 0.6) so the fallback has to take a real step: QUAD sits
+    # at V 0.5, already on the half-tile line, where a padded snap correctly
+    # moves only by the margin and would prove nothing.
+    OFF_GRID = [(0.2, 0.6), (0.6, 0.6), (0.6, 0.8), (0.2, 0.8)]
+    reset(); o = one_quad(OFF_GRID, name="M")
+    set_move_scope("Half Tile", snap=ShellXformSlots._SNAP_SHELL)
+    check("alone in its UV layer -> no blockers", btk.get_neighbor_shell_bounds([o]) == [])
+    slot.b025()
+    check("snap=shell falls back to the padded grid with no neighbour",
+          abs(min(vs(o)) - (1.0 + margin)) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+
+    # A neighbour out of the travel lane is not in the way.
+    reset()
+    one_quad([(3.2, 3.0), (3.6, 3.0), (3.6, 3.4), (3.2, 3.4)], name="N").select_set(False)
+    o = one_quad(OFF_GRID, name="M")
+    set_move_scope("Half Tile", snap=ShellXformSlots._SNAP_SHELL)
+    slot.b025()
+    check("a neighbour beside the lane is ignored (grid fallback)",
+          abs(min(vs(o)) - (1.0 + margin)) < 1e-5, f"Vmin={min(vs(o)):.6f}")
+
+    # UV-set scoping: a mesh on a differently-named layer shares no UV space.
+    reset()
+    other = one_quad([(0.2, 3.0), (0.6, 3.0), (0.6, 3.4), (0.2, 3.4)], name="N")
+    other.select_set(False)
+    other.data.uv_layers.active.name = "lightmap"
+    o = one_quad(QUAD, name="M")
+    check("a differently-named UV layer is not a neighbour",
+          btk.get_neighbor_shell_bounds([o]) == [], f"{btk.get_neighbor_shell_bounds([o])}")
+    other.data.uv_layers.active.name = "UVMap"
+    check("renamed back, it counts again", len(btk.get_neighbor_shell_bounds([o])) == 1)
+
+    # ---- tri-state snap button: index IS the mode, states must be distinct
+    states = slot._snap_states()
+    check("_snap_states has three states in _SNAP_* order", len(states) == 3
+          and (ShellXformSlots._SNAP_OFF, ShellXformSlots._SNAP_GRID, ShellXformSlots._SNAP_SHELL) == (0, 1, 2))
+    check("every state is tinted, all three distinct",
+          all(s.get("color") for s in states) and len({s["color"] for s in states}) == 3,
+          f"{[s.get('color') for s in states]}")
+    check("shell snap has its own icon",
+          states[ShellXformSlots._SNAP_SHELL]["icon"] != states[ShellXformSlots._SNAP_GRID]["icon"])
+    slot._snap_action = None
+    check("_snap_mode defaults off with no button", slot._snap_mode() == ShellXformSlots._SNAP_OFF)
 
     # ---- gather_to_udim: the Gather button is wired to the engine and acts on the selection.
     # Two residents define the target tile (the majority vote), so only the stray travels —
