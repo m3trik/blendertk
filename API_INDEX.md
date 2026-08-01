@@ -384,7 +384,7 @@ _Generated: 2026-08-01_
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
-  - methods: objects, task_definitions, check_definitions, definitions
+  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_absolute_paths, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
 
 ### `env_utils/script_output.py` — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 - `class ScriptConsole`
