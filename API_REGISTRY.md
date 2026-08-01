@@ -1569,32 +1569,6 @@ Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
   - `TaskManager.definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return all definitions combined for backward compatibility.
-  - `TaskManager.set_linear_unit(self, value)` — Set the scene's unit system + scale for the duration of the export.
-  - `TaskManager.exclude_hdr(self, enabled)` — No-op by design: Blender's World/Environment-Texture network is not a scene object
-  - `TaskManager.ignore_groups(self, value)` — Remove objects under any top-level object named in the comma-separated ``value``
-  - `TaskManager.reassign_duplicate_materials(self)` — Reassign every object using a duplicate material to the group's canonical material.
-  - `TaskManager.convert_to_relative_paths(self)` — Copy external textures into the project's textures folder, then convert their paths
-  - `TaskManager.resolve_invalid_texture_paths(self)` — Attempt to resolve missing texture paths by searching the .blend's directory.
-  - `TaskManager.smart_bake(self)` — Pre-bake constrained/driven objects before export.
-  - `TaskManager.optimize_keys(self)` — Remove redundant animation keys from all exported objects.
-  - `TaskManager.tie_all_keyframes(self)` — Tie (bookend) keyframes at the union keyed extent across all exported objects.
-  - `TaskManager.snap_keys_to_frame(self)` — Snap all keyframes to the nearest whole frame.
-  - `TaskManager.set_bake_animation_range(self)` — Set the scene's playback range to the exported objects' keyframe extent.
-  - `TaskManager.export_data_node(self)` — Include the shared ``data_export`` carrier in the export (default on).
-  - `TaskManager.check_framerate(self, target_key) -> tuple`
-  - `TaskManager.check_referenced_objects(self, enabled) -> tuple`
-  - `TaskManager.check_geometry_lod_suffix(self, enabled) -> tuple` — Informational only -- always succeeds (mirrors mayatk's contract).
-  - `TaskManager.check_duplicate_locator_names(self, enabled) -> tuple` — Empties sharing a base name once Blender's auto ``.001``-style suffix is stripped --
-  - `TaskManager.check_root_default_transforms(self, enabled) -> tuple` — Root groups (an Empty with children) should sit at identity transform.
-  - `TaskManager.check_hidden_geometry(self, enabled) -> tuple`
-  - `TaskManager.check_overlapping_duplicate_mesh(self, enabled) -> tuple`
-  - `TaskManager.check_objects_below_floor(self, enabled, tolerance: float = 0.5) -> tuple` — Blender is Z-up natively (Maya's version checks Y).
-  - `TaskManager.check_duplicate_materials(self, enabled) -> tuple`
-  - `TaskManager.check_absolute_paths(self, enabled) -> tuple` — Export textures store ``//``-relative paths.
-  - `TaskManager.check_valid_paths(self, enabled) -> tuple` — Every export texture and every linked library resolves on disk.
-  - `TaskManager.check_texture_file_size(self, max_mb) -> tuple` — No export texture exceeds ``max_mb`` on disk.
-  - `TaskManager.check_untied_keyframes(self, enabled) -> tuple` — Verify every animated channel has a bookend key at its object's own keyed extent
-  - `TaskManager.check_floating_point_keys(self, enabled) -> tuple` — Detect keyframes that don't sit on a whole frame.
 
 <a id="env_utils--script_output"></a>
 ### `env_utils/script_output.py`
