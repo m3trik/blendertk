@@ -290,6 +290,17 @@ try:
           parsed[DataNodes.EXPORT]["wire"] == "abc"
           and parsed[DataNodes.INTERNAL]["app_state"] == {"open": True}
           and parsed[DataNodes.INTERNAL]["audio_clip_voice"] == 1)
+    # --- set_*_string clear/create return contract (mayatk parity) ---
+    reset()
+    check("clear with no carrier -> None (never creates)",
+          DataNodes.set_export_string("probe", "") is None
+          and DataNodes.get_export_node(create=False) is None)
+    DataNodes.set_export_string("wire", "abc")
+    check("clear a key the carrier doesn't hold -> None (nothing to clear)",
+          DataNodes.set_export_string("probe", "") is None)
+    check("clear an existing key -> carrier name; value reads back as None",
+          DataNodes.set_export_string("wire", "") == DataNodes.EXPORT
+          and DataNodes.get_export_string("wire") is None)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

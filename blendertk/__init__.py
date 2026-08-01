@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.42"
+__version__ = "0.5.45"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -140,6 +140,16 @@ DEFAULT_INCLUDE = {
         "LightmapBaker",
     ],
     "ui_utils._ui_utils": "*",
+    # Switchboard launchable-entry handler + the native-menu driver — mirrors mayatk's
+    # ``ui_utils.maya_ui_handler`` / ``ui_utils.maya_native_menus`` (``btk.BlenderUiHandler``
+    # ↔ ``mtk.MayaUiHandler``), so the tentacle host composes both DCCs the same way
+    # instead of deep-importing one and namespacing the other.
+    "ui_utils.blender_ui_handler": [
+        "BlenderUiHandler",
+    ],
+    "ui_utils.blender_native_menus": [
+        "BlenderNativeMenus",
+    ],
     # Native-window helpers (win32) for hosting Qt widgets around a Blender window: the
     # child-embed primitives behind ``QtDock`` and the owned-top-level ``set_owner`` mode.
     # No bpy dependency (callers pass the region object). Exposed as a class to keep the

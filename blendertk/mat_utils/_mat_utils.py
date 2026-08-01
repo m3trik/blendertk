@@ -10,6 +10,7 @@ call bodies (no import side effects). The material/texture *report* formatting i
 Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
+import hashlib
 import os
 import random
 
@@ -27,37 +28,314 @@ class _MatUtilsInternal:
 
     @staticmethod
     def _material_image_nodes(mat):
-        """``(node, image)`` pairs for the image-texture nodes of ``mat``'s node tree."""
+        """``(node, image)`` pairs for the TOP-LEVEL image-texture nodes of ``mat``'s
+        node tree. Group-nested textures are invisible here — a consumer that must see
+        them (the duplicate-material passes) walks :meth:`_iter_image_nodes` instead."""
         nt = getattr(mat, "node_tree", None)
         if not nt:
             return []
         return [(n, n.image) for n in nt.nodes if n.type == "TEX_IMAGE" and n.image]
 
     @staticmethod
+    def _iter_image_nodes(node_tree, _chain=(), _visited=()):
+        """Yield ``(group_chain, node)`` for every bound TEX_IMAGE node in *node_tree*,
+        recursing into node groups. ``group_chain`` is the tuple of GROUP nodes walked
+        through (outermost first — the socket-path prefix); ``_visited`` holds the node
+        trees already on the current chain so a (theoretically impossible, Blender
+        refuses to author it) recursive group can't loop the walk."""
+        for n in node_tree.nodes:
+            if n.type == "TEX_IMAGE" and n.image:
+                yield _chain, n
+            elif (
+                n.type == "GROUP"
+                and getattr(n, "node_tree", None)
+                and n.node_tree not in _visited
+            ):
+                yield from _MatUtilsInternal._iter_image_nodes(
+                    n.node_tree, _chain + (n,), _visited + (n.node_tree,)
+                )
+
+    @staticmethod
+    def _surface_shader_node(mat):
+        """The node feeding the material output's ``Surface`` input (active output
+        preferred), or ``None`` — the node whose type/settings define what the material
+        *is* (duplicate verification compares materials at this node)."""
+        nt = getattr(mat, "node_tree", None)
+        if not nt:
+            return None
+        outs = [n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"]
+        out = next((n for n in outs if getattr(n, "is_active_output", False)), None)
+        out = out or (outs[0] if outs else None)
+        surf = out.inputs.get("Surface") if out else None
+        if surf is not None and surf.is_linked:
+            return surf.links[0].from_node
+        return None
+
+    @staticmethod
     def _mat_surface_type(mat):
         """A human-readable material 'type' for the report — the surface shader node's label
         (e.g. ``Principled BSDF``), the Blender analogue of Maya's ``cmds.nodeType``. Falls back
         to ``"Material"``."""
+        node = _MatUtilsInternal._surface_shader_node(mat)
+        return node.bl_label if node is not None else "Material"
+
+    @staticmethod
+    def _texture_socket_targets(surface, tex_node, chain):
+        """Names of the *surface shader* inputs (``'Base Color'``, ``'Roughness'``, …)
+        that ``tex_node`` ultimately feeds — the walk follows links downstream through
+        utility nodes and across node-group boundaries (``chain`` is the tuple of GROUP
+        nodes ``tex_node`` sits inside, outermost first, as yielded by
+        :meth:`_iter_image_nodes`). A texture reaching the material output directly
+        records that output socket's name instead. Empty set when the walk never
+        reaches either (the caller maps that to ``'_unresolved'``)."""
+        targets = set()
+        frontier = [(sock, tuple(chain)) for sock in tex_node.outputs]
+        seen = set()
+        while frontier:
+            sock, chain_ = frontier.pop()
+            key = (
+                sock.id_data.name if sock.id_data else "",
+                sock.node.name,
+                sock.identifier,
+                tuple(g.name for g in chain_),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            for link in sock.links:
+                tn, ts = link.to_node, link.to_socket
+                if tn.type == "GROUP_OUTPUT":
+                    if chain_:  # surface back out through the containing group node
+                        gnode = chain_[-1]
+                        gsock = next(
+                            (s for s in gnode.outputs if s.name == ts.name), None
+                        )
+                        if gsock is not None:
+                            frontier.append((gsock, chain_[:-1]))
+                elif tn.type == "GROUP" and getattr(tn, "node_tree", None):
+                    # dive into the group via the matching Group Input socket(s)
+                    for n in tn.node_tree.nodes:
+                        if n.type == "GROUP_INPUT":
+                            isock = next(
+                                (s for s in n.outputs if s.name == ts.name), None
+                            )
+                            if isock is not None:
+                                frontier.append((isock, chain_ + (tn,)))
+                elif not chain_ and surface is not None and tn == surface:
+                    targets.add(ts.name)
+                elif not chain_ and tn.type == "OUTPUT_MATERIAL":
+                    targets.add(ts.name)
+                else:
+                    frontier.extend((s, chain_) for s in tn.outputs)
+        return targets
+
+    @staticmethod
+    def _placement_signature(tex_node):
+        """UV-placement signature of whatever feeds *tex_node*'s ``Vector`` input — the
+        Blender analogue of mayatk's place2dTexture signature. Two nodes reading the same
+        image with different tiling/offset produce visually different materials; this is
+        what lets the duplicate verifier tell a shared atlas apart from a true duplicate.
+
+        ``()`` when the Vector input is unlinked (two bare nodes match). A
+        ``ShaderNodeMapping`` contributes its rounded Location/Rotation/Scale input
+        values; any other feed contributes its node idname (conservative: an
+        unrecognized rig only matches the same rig)."""
+        vec = tex_node.inputs.get("Vector") if hasattr(tex_node, "inputs") else None
+        if vec is None or not vec.is_linked:
+            return ()
+        src = vec.links[0].from_node
+        if getattr(src, "bl_idname", "") != "ShaderNodeMapping":
+            return (getattr(src, "bl_idname", "unknown"),)
+        sig = []
+        for name in ("Location", "Rotation", "Scale"):
+            inp = src.inputs.get(name)
+            try:
+                sig.append(tuple(round(float(v), 5) for v in inp.default_value))
+            except Exception:
+                sig.append(None)
+        return tuple(sig)
+
+    @staticmethod
+    def _texture_content_id(path):
+        """``(size, partial-hash)`` identity of the file behind *path* (mirror of
+        mayatk's ``_texture_content_id``): first + last 64 KB hashed — enough to tell
+        same-named different-content textures apart without reading multi-hundred-MB
+        maps whole. ``<UDIM>`` collapses to the 1001 probe tile. ``None`` when the file
+        doesn't resolve on disk."""
+        if not path:
+            return None
+        probe = path.replace("<UDIM>", "1001") if "<UDIM>" in path else path
+        try:
+            size = os.path.getsize(probe)
+            h = hashlib.md5()
+            with open(probe, "rb") as f:
+                h.update(f.read(65536))
+                if size > 131072:
+                    f.seek(-65536, os.SEEK_END)
+                    h.update(f.read(65536))
+            return (size, h.hexdigest())
+        except OSError:
+            return None
+
+    @classmethod
+    def _textures_identical(cls, path_a, path_b):
+        """True when two resolved texture paths denote the same image CONTENT: the same
+        normalized path, or two on-disk files whose ``(size, partial-hash)`` ids match —
+        the consolidation case (external copy vs project copy) the loose basename
+        fingerprint exists for, minus its false positives."""
+        if cls._norm(path_a) == cls._norm(path_b):
+            return True
+        id_a = cls._texture_content_id(path_a)
+        return id_a is not None and id_a == cls._texture_content_id(path_b)
+
+    @staticmethod
+    def _material_texture_slots(mat, strict=False):
+        """``(surface_node, {(socket, texture_id): [TEX_IMAGE node, …]})`` — the shared
+        collection pass behind the duplicate-material fingerprint and verification.
+        Texture nodes are gathered through nested node groups
+        (:meth:`_iter_image_nodes`) and each is attributed to the surface-shader
+        input(s) it feeds (:meth:`_texture_socket_targets`; ``'_unresolved'`` when the
+        walk fails). The non-strict texture id is the lowercased basename stem; strict
+        is the full lowercased path (library-aware via :meth:`_abspath`)."""
+        surface = _MatUtilsInternal._surface_shader_node(mat)
         nt = getattr(mat, "node_tree", None)
-        if nt:
-            out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
-            surf = out.inputs.get("Surface") if out else None
-            if surf is not None and surf.is_linked:
-                return surf.links[0].from_node.bl_label
-        return "Material"
+        slots = {}
+        if not nt:
+            return surface, slots
+        for chain, node in _MatUtilsInternal._iter_image_nodes(nt):
+            path = _MatUtilsInternal._abspath(node.image)
+            if not path:
+                continue
+            tex_id = (
+                path.lower()
+                if strict
+                else os.path.splitext(os.path.basename(path))[0].lower()
+            )
+            sockets = _MatUtilsInternal._texture_socket_targets(surface, node, chain)
+            for socket in sockets or {"_unresolved"}:
+                slots.setdefault((socket, tex_id), []).append(node)
+        return surface, slots
+
+    @classmethod
+    def _materials_are_verified_duplicates(cls, surf_a, surf_b, slots_a, slots_b):
+        """Pairwise proof that two fingerprint-matched materials are truly
+        interchangeable (mirror of mayatk's ``_materials_are_verified_duplicates``):
+        same surface shader node type, equal *unlinked* surface-shader input values,
+        and per matched ``(socket, texture)`` slot identical color space, placement
+        (Mapping-node Location/Rotation/Scale) and image CONTENT.
+
+        The fingerprint is a cheap GROUPING heuristic; this gate is what makes feeding
+        the result to :meth:`MatUtils.reassign_duplicate_materials`' destructive merge
+        safe. Conservative by design: anything that can't be positively verified fails
+        the pair."""
+        # 1. Same surface shader node type (e.g. both ShaderNodeBsdfPrincipled).
+        if surf_a is None or surf_b is None:
+            return False
+        if surf_a.bl_idname != surf_b.bl_idname:
+            return False
+
+        # 2. Equal UNLINKED input default_values on the surface shader (tolerance
+        #    1e-5). Linked inputs are skipped — the texture slots own those — but a
+        #    linked-vs-unlinked mismatch means the graphs genuinely differ.
+        inputs_b = {i.identifier: i for i in surf_b.inputs}
+        for inp_a in surf_a.inputs:
+            inp_b = inputs_b.get(inp_a.identifier)
+            if inp_b is None or inp_a.is_linked != inp_b.is_linked:
+                return False
+            if inp_a.is_linked:
+                continue
+            try:
+                va, vb = inp_a.default_value, inp_b.default_value
+            except AttributeError:
+                continue  # shader-type sockets carry no default
+            if hasattr(va, "__len__") and not isinstance(va, str):
+                if len(va) != len(vb) or any(
+                    abs(float(x) - float(y)) > 1e-5 for x, y in zip(va, vb)
+                ):
+                    return False
+            elif isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                if abs(va - vb) > 1e-5:
+                    return False
+            elif va != vb:
+                return False
+
+        # 3. Per-slot texture verification: color space, placement, content.
+        if set(slots_a) != set(slots_b):
+            return False
+
+        def profile(nodes):
+            out = []
+            for n in nodes:
+                img = n.image
+                out.append(
+                    (
+                        cls._udim_first_tile_path(img),
+                        getattr(img.colorspace_settings, "name", None),
+                        cls._placement_signature(n),
+                    )
+                )
+            return sorted(out, key=repr)
+
+        for slot, nodes_a in slots_a.items():
+            nodes_b = slots_b[slot]
+            if len(nodes_a) != len(nodes_b):
+                return False
+            for (pa, ca, sa), (pb, cb, sb) in zip(profile(nodes_a), profile(nodes_b)):
+                if sa != sb or ca != cb or not cls._textures_identical(pa, pb):
+                    return False
+        return True
 
     @staticmethod
     def _abspath(img):
-        """Absolute, normalized path of an image datablock's file (or '' when unset)."""
+        """Absolute, normalized path of an image datablock's file (or '' when unset).
+
+        Resolved **library-aware**: a datablock linked from a library .blend stores its
+        ``//`` path relative to the LIBRARY file, not the current .blend, so
+        ``bpy.path.abspath`` must be given ``library=img.library`` — without it every
+        linked image resolved (wrongly) against the open file, so ``check_valid_paths``
+        misreported linked textures and duplicate-fingerprint/size consumers probed the
+        wrong file. ``library`` is ``None`` for local datablocks (a no-op).
+        """
         import bpy
 
         fp = getattr(img, "filepath", "") or ""
         if not fp:
             return ""
         try:
-            return os.path.normpath(bpy.path.abspath(fp))
+            return os.path.normpath(
+                bpy.path.abspath(fp, library=getattr(img, "library", None))
+            )
         except Exception:
             return os.path.normpath(fp)
+
+    @staticmethod
+    def _udim_first_tile_path(img):
+        """Existence-probe path for a TILED (UDIM) image: the stored path with the
+        ``<UDIM>`` token collapsed to the image's first declared tile number (1001
+        fallback) — the same first-tile probe mayatk's ``resolve_path`` applies.
+        Non-tiled paths pass through unchanged; '' when the image has no path."""
+        ap = _MatUtilsInternal._abspath(img)
+        if not ap or "<UDIM>" not in ap:
+            return ap
+        tiles = getattr(img, "tiles", None)
+        number = tiles[0].number if tiles and len(tiles) else 1001
+        return ap.replace("<UDIM>", str(number))
+
+    @staticmethod
+    def _udim_tile_paths(img):
+        """Existing on-disk tile files of a TILED (UDIM) image — the ``<UDIM>`` token
+        globbed as a 4-digit tile number (library-aware via :meth:`_abspath`). A
+        non-tiled path returns itself when it exists. Empty list when nothing is on
+        disk."""
+        import glob
+
+        ap = _MatUtilsInternal._abspath(img)
+        if not ap:
+            return []
+        if "<UDIM>" not in ap:
+            return [ap] if os.path.isfile(ap) else []
+        pattern = glob.escape(ap).replace(glob.escape("<UDIM>"), "[0-9][0-9][0-9][0-9]")
+        return sorted(glob.glob(pattern))
 
     @staticmethod
     def _image_meta(img):
@@ -799,32 +1077,82 @@ class MatUtils(_MatUtilsInternal):
         return ptk.MatReport.format_texture_info_html(info_list)
 
     @staticmethod
-    def find_materials_with_duplicate_textures(materials=None):
-        """Groups of materials that reference the *same* set of texture files — mirror of
-        ``mtk.MatUtils.find_materials_with_duplicate_textures``. Materials with no textures are
-        skipped. ``materials=None`` scans every scene material (the default); pass an explicit list
-        to scope the scan (e.g. scene_exporter's export-object set via ``get_mats(objects)``).
-        Returns a list of duplicate groups (each 2+ materials)."""
-        groups = {}
-        for mat in materials if materials is not None else MatUtils.get_scene_mats():
-            sig = tuple(
-                sorted(
-                    {
-                        _MatUtilsInternal._abspath(img)
-                        for _n, img in _MatUtilsInternal._material_image_nodes(mat)
-                        if _MatUtilsInternal._abspath(img)
-                    }
-                )
+    def find_materials_with_duplicate_textures(materials=None, strict=False, verify=True):
+        """Groups of materials that are texture-level duplicates — mirror of
+        ``mtk.MatUtils.find_materials_with_duplicate_textures`` (two-phase).
+
+        **Phase 1** groups CANDIDATES by a cheap fingerprint: ``(surface shader idname,
+        {(surface socket, texture id)})``. Texture nodes are collected through nested
+        node groups, and each is attributed to the surface-shader input it feeds
+        (``'Base Color'``, ``'Roughness'``, …; ``'_unresolved'`` when the walk fails) —
+        so the same detail/normal map shared across two *different* materials, or on
+        different channels, no longer matches. The non-strict texture id is the
+        lowercased basename stem (nets the consolidation case: external copy vs project
+        copy of one texture); ``strict`` fingerprints on the full lowercased path.
+
+        **Phase 2** (``verify=True``, the default) pairwise-verifies every candidate
+        against its group's keeper before it is reported: same surface shader node
+        type, equal unlinked surface-shader input values (tolerance 1e-5), and per
+        ``(socket, texture)`` slot identical color space, mapping
+        (``ShaderNodeMapping`` Location/Rotation/Scale), and image CONTENT (same
+        datablock/path, or size + partial hash when the stored paths differ). Anything
+        unverifiable is NOT a duplicate — the verification is what makes the result
+        safe to feed :meth:`reassign_duplicate_materials`' destructive merge.
+
+        ``materials=None`` scans every scene material (the default); pass an explicit
+        list to scope the scan (e.g. scene_exporter's export-object set via
+        ``get_mats(objects)``). Materials with no textures are skipped. Returns a list
+        of duplicate groups (each 2+ materials, keeper first — shortest name wins)."""
+        mats = materials if materials is not None else MatUtils.get_scene_mats()
+        fingerprints = {}
+        surface_by_mat = {}
+        slots_by_mat = {}
+        for mat in mats:
+            surface, slots = _MatUtilsInternal._material_texture_slots(
+                mat, strict=strict
             )
-            if sig:
-                groups.setdefault(sig, []).append(mat)
-        return [g for g in groups.values() if len(g) > 1]
+            if not slots:
+                continue
+            surface_by_mat[mat] = surface
+            slots_by_mat[mat] = slots
+            fp = (
+                surface.bl_idname if surface is not None else None,
+                frozenset(slots),
+            )
+            fingerprints.setdefault(fp, []).append(mat)
+
+        groups = []
+        for candidates in fingerprints.values():
+            if len(candidates) < 2:
+                continue
+            candidates.sort(key=lambda m: (len(m.name), m.name))
+            keeper, dups = candidates[0], candidates[1:]
+            if verify:
+                dups = [
+                    d
+                    for d in dups
+                    if _MatUtilsInternal._materials_are_verified_duplicates(
+                        surface_by_mat[keeper],
+                        surface_by_mat[d],
+                        slots_by_mat[keeper],
+                        slots_by_mat[d],
+                    )
+                ]
+            if dups:
+                groups.append([keeper] + dups)
+        return groups
 
     @staticmethod
-    def reassign_duplicate_materials(duplicate_groups, delete=True):
+    def reassign_duplicate_materials(duplicate_groups, delete=True, verify=True):
         """Reassign every object using a duplicate to the group's first (canonical) material, then
         optionally delete the now-orphaned duplicates — mirror of
-        ``mtk.MatUtils.reassign_duplicate_materials``. Returns the number of slots reassigned."""
+        ``mtk.MatUtils.reassign_duplicate_materials``. Returns the number of slots reassigned.
+
+        ``verify`` (default True) re-proves each duplicate against its group's keeper
+        right before the merge (see :meth:`find_materials_with_duplicate_textures`'s
+        phase 2) — the groups may be stale, hand-built, or produced with
+        ``verify=False``, and this method deletes what it merges. Unverified members
+        are skipped. Only pass ``verify=False`` deliberately."""
         import bpy
 
         reassigned = 0
@@ -832,6 +1160,16 @@ class MatUtils(_MatUtilsInternal):
             if len(group) < 2:
                 continue
             keep, dups = group[0], group[1:]
+            if verify:
+                surf_k, slots_k = _MatUtilsInternal._material_texture_slots(keep)
+                verified = []
+                for d in dups:
+                    surf_d, slots_d = _MatUtilsInternal._material_texture_slots(d)
+                    if _MatUtilsInternal._materials_are_verified_duplicates(
+                        surf_k, surf_d, slots_k, slots_d
+                    ):
+                        verified.append(d)
+                dups = verified
             for dup in dups:
                 for obj in MatUtils.find_by_mat_id(dup):
                     for slot in obj.material_slots:

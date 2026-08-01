@@ -33,6 +33,7 @@ class Naming(ptk.HelpMixin):
         ignore_case=False,
         retain_suffix=False,
         valid_suffixes=None,
+        collapse_padding=True,
     ):
         """Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
 
@@ -40,7 +41,9 @@ class Naming(ptk.HelpMixin):
         ``*chars*`` replace-only, ``*chars`` replace-suffix, ``**chars`` append-suffix, ``chars*``
         replace-prefix, ``chars**`` append-prefix. ``fltr`` filters which names match (wildcards or,
         with ``regex``, regex). ``retain_suffix`` re-appends the object's existing type suffix (from
-        ``valid_suffixes``). Returns the new names parallel to ``objects``.
+        ``valid_suffixes``). ``collapse_padding`` collapses the underscore residue strip/replace
+        formatting leaves behind (skipped when ``to`` itself contains ``__``). Returns the new
+        names parallel to ``objects``.
         """
         objects = [o for o in ptk.make_iterable(objects) if o]
         name_to_obj = {
@@ -65,6 +68,14 @@ class Naming(ptk.HelpMixin):
             if retain_suffix:
                 new_name = cls._retain_suffix(old_name, new_name, valid_suffixes)
             new_name = cls.strip_illegal_chars(new_name)
+            # Collapse the separator residue that strip/replace formatting
+            # leaves behind (removing a token from 'a__tok__tokB' yields
+            # 'a____B'). An explicit '__' typed in the pattern is honored.
+            # Mirrors mayatk's Naming.rename.
+            if collapse_padding and "__" not in to:
+                collapsed = ptk.collapse_delimiter_runs(new_name)
+                if collapsed:
+                    new_name = collapsed
             obj = name_to_obj.get(old_name)
             if obj is not None:
                 obj.name = new_name

@@ -228,6 +228,151 @@ try:
 
     shutil.rmtree(tmp, ignore_errors=True)
 
+    # ---- duplicate-material two-phase verification (mirror of mayatk's near-misses) ----
+    # The old fingerprint was the bare SET of texture abspaths: no socket identity, no
+    # shader settings, and node-group textures were invisible. Two materials merely
+    # SHARING one detail/normal map merged — and reassign_duplicate_materials(delete=True)
+    # (default-on exporter task) then DELETED one of them. verify=True (the default)
+    # must reject every near-miss below; only true duplicates merge.
+    reset()
+    dv_tmp = tempfile.mkdtemp(prefix="btk_dupver_")
+    dv_imgs = []
+
+    def dv_load(path):
+        im = bpy.data.images.load(path, check_existing=False)
+        dv_imgs.append(im)
+        return im
+
+    def pbr_mat(name, tex_path, socket="Base Color", mapping=None, colorspace=None):
+        """Fresh Principled material with tex_path wired into *socket* (optionally
+        through a Mapping node with the given Scale)."""
+        mat = btk.create_mat("standard", name=name)
+        nt = mat.node_tree
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = dv_load(tex_path)
+        if colorspace:
+            tex.image.colorspace_settings.name = colorspace
+        bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+        nt.links.new(tex.outputs["Color"], bsdf.inputs[socket])
+        if mapping is not None:
+            mp = nt.nodes.new("ShaderNodeMapping")
+            mp.inputs["Scale"].default_value = mapping
+            nt.links.new(mp.outputs["Vector"], tex.inputs["Vector"])
+        return mat
+
+    def find_pair(groups, x, y):
+        return any(x in g and y in g for g in groups)
+
+    _find = btk.find_materials_with_duplicate_textures
+    shared = os.path.join(dv_tmp, "shared_Normal.png"); make_png(shared)
+
+    # (a) socket identity: same texture feeding DIFFERENT surface inputs != duplicates
+    m_sock_a = pbr_mat("DupSockA", shared, socket="Base Color")
+    m_sock_b = pbr_mat("DupSockB", shared, socket="Roughness")
+    check("same texture on different surface sockets -> NOT duplicates",
+          not find_pair(_find(materials=[m_sock_a, m_sock_b]), m_sock_a, m_sock_b))
+
+    # (b) same texture, different tiling/mapping: fingerprints still group them
+    # (the old false positive) but verification must reject the pair.
+    m_flat = pbr_mat("DupMapA", shared)
+    m_tiled = pbr_mat("DupMapB", shared, mapping=(4.0, 4.0, 1.0))
+    check("verify=False still nets the tiling near-miss (the pre-fix candidate)",
+          find_pair(_find(materials=[m_flat, m_tiled], verify=False), m_flat, m_tiled))
+    check("same texture, different tiling/mapping -> NOT duplicates (verified)",
+          not find_pair(_find(materials=[m_flat, m_tiled]), m_flat, m_tiled))
+
+    # (c) same texture, different unlinked shader settings != duplicates
+    m_set_a = pbr_mat("DupSetA", shared)
+    m_set_b = pbr_mat("DupSetB", shared)
+    next(n for n in m_set_b.node_tree.nodes
+         if n.type == "BSDF_PRINCIPLED").inputs["Metallic"].default_value = 1.0
+    check("same texture, different unlinked shader settings -> NOT duplicates",
+          not find_pair(_find(materials=[m_set_a, m_set_b]), m_set_a, m_set_b))
+
+    # (d) same texture, different color space != duplicates
+    m_cs_a = pbr_mat("DupCsA", shared)
+    m_cs_b = pbr_mat("DupCsB", shared, colorspace="Non-Color")
+    check("same texture, different color space -> NOT duplicates",
+          not find_pair(_find(materials=[m_cs_a, m_cs_b]), m_cs_a, m_cs_b))
+
+    # (e) same basename, different file CONTENT: the loose stem fingerprint nets
+    # them (the consolidation heuristic) but the content id must split them.
+    pA = os.path.join(dv_tmp, "setA", "albedo.png"); make_png(pA)
+    pB = os.path.join(dv_tmp, "setB", "albedo.png")
+    os.makedirs(os.path.dirname(pB), exist_ok=True)
+    genB = bpy.data.images.new("_gen16", 16, 16)  # different pixels -> different bytes
+    genB.filepath_raw = pB; genB.file_format = "PNG"; genB.save()
+    bpy.data.images.remove(genB)
+    m_cnt_a = pbr_mat("DupCntA", pA)
+    m_cnt_b = pbr_mat("DupCntB", pB)
+    check("same-basename fingerprint groups them unverified (consolidation net)",
+          find_pair(_find(materials=[m_cnt_a, m_cnt_b], verify=False), m_cnt_a, m_cnt_b))
+    check("same basename, different file content -> NOT duplicates (verified)",
+          not find_pair(_find(materials=[m_cnt_a, m_cnt_b]), m_cnt_a, m_cnt_b))
+
+    # (f) same basename, IDENTICAL content in another folder -> verified duplicates
+    # (the consolidation case the loose fingerprint exists for).
+    pC = os.path.join(dv_tmp, "setC", "albedo.png")
+    os.makedirs(os.path.dirname(pC), exist_ok=True)
+    shutil.copy2(pA, pC)
+    m_cnt_c = pbr_mat("DupCntC", pC)
+    check("same basename, identical content elsewhere -> verified duplicates",
+          find_pair(_find(materials=[m_cnt_a, m_cnt_c]), m_cnt_a, m_cnt_c))
+
+    # (g) a texture nested inside a node group is SEEN (and its socket resolved
+    # through the group boundary) — previously invisible to the fingerprint.
+    def group_mat(name, tex_path):
+        mat = btk.create_mat("standard", name=name)
+        nt = mat.node_tree
+        g = bpy.data.node_groups.new(f"{name}_grp", "ShaderNodeTree")
+        g.interface.new_socket("Color", in_out="OUTPUT", socket_type="NodeSocketColor")
+        gout = g.nodes.new("NodeGroupOutput")
+        tex = g.nodes.new("ShaderNodeTexImage")
+        tex.image = dv_load(tex_path)
+        g.links.new(tex.outputs["Color"], gout.inputs["Color"])
+        gn = nt.nodes.new("ShaderNodeGroup")
+        gn.node_tree = g
+        bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+        nt.links.new(gn.outputs["Color"], bsdf.inputs["Base Color"])
+        return mat
+
+    m_grp = group_mat("DupGrpA", pA)
+    m_dir = pbr_mat("DupGrpB", pA)
+    check("texture inside a node group is seen (duplicates its direct twin)",
+          find_pair(_find(materials=[m_grp, m_dir]), m_grp, m_dir))
+
+    # (h) true duplicates (same image, same settings) -> found AND merged.
+    bpy.ops.mesh.primitive_cube_add(location=(20, 0, 0)); duo = bpy.context.active_object
+    m_true_a = pbr_mat("DupTrueA", pA)
+    m_true_b = pbr_mat("DupTrueB", pA)
+    btk.assign_mat(duo, m_true_b)
+    true_groups = _find(materials=[m_true_a, m_true_b])
+    check("true duplicates (same image, same settings) are found",
+          find_pair(true_groups, m_true_a, m_true_b),
+          f"{[[m.name for m in g] for g in true_groups]}")
+    n_re = btk.reassign_duplicate_materials(true_groups, delete=True)
+    check("true duplicates merge: object reassigned to keeper, dup deleted",
+          n_re >= 1 and duo.material_slots[0].material is m_true_a
+          and "DupTrueB" not in {m.name for m in bpy.data.materials},
+          f"reassigned={n_re}")
+
+    # (i) reassign's own verify gate: a stale/unverified group must not merge
+    # a tiling near-miss even when handed to it directly.
+    stale = [[m_flat, m_tiled]]
+    check("reassign_duplicate_materials(verify=True) skips an unverified group",
+          btk.reassign_duplicate_materials(stale, delete=True) == 0
+          and m_tiled.name in {m.name for m in bpy.data.materials})
+
+    for _m in (m_sock_a, m_sock_b, m_flat, m_tiled, m_set_a, m_set_b, m_cs_a,
+               m_cs_b, m_cnt_a, m_cnt_b, m_cnt_c, m_grp, m_dir, m_true_a):
+        bpy.data.materials.remove(_m)
+    for _im in dv_imgs:
+        try:
+            bpy.data.images.remove(_im)
+        except Exception:
+            pass
+    shutil.rmtree(dv_tmp, ignore_errors=True)
+
     # ---- shader templates ---------------------------------------------------
     templates = btk.get_shader_templates()
     check("get_shader_templates lists presets", "Metal" in templates and "Glass" in templates)

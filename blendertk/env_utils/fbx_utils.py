@@ -23,8 +23,11 @@ as the selection-only convenience used by the Substance / Marmoset / RizomUV bri
 """
 
 import os
+import logging
 
 import pythontk as ptk
+
+logger = logging.getLogger(__name__)
 
 # Window-independent selection reader + window-supplying override for the Qt event-pump timer
 # context (``bpy.context.window`` is ``None`` there — see ``_core_utils.selected_objects``). Both
@@ -77,8 +80,64 @@ class _FbxUtilsInternal(object):
 class FbxUtils(_FbxUtilsInternal):
     """FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface)."""
 
+    # The declarative list of known metadata producers that stamp the shared
+    # ``data_export`` carrier: name → (module, class, no-arg refresh method).
+    # Mirror of mayatk's ``FbxUtils._KNOWN_PRODUCERS``, minus the session-hook
+    # half: bpy has no before-FBX-export event, so the Scene Exporter's
+    # ``export_data_node`` task is the only refresh dispatch point (producers
+    # additionally publish at authoring time, which is what non-exporter paths
+    # ship). Shots / Audio join here when their ports land. Add new producers
+    # HERE — nothing else needs to change. Resolved lazily; an unimportable
+    # producer is skipped (never blocks an export).
+    _KNOWN_PRODUCERS = {
+        "shadow": (
+            "blendertk.rig_utils.shadow_rig",
+            "ShadowRig",
+            "refresh_export_metadata",
+        ),
+        "emissive_groups": (
+            "blendertk.mat_utils.emissive_groups",
+            "EmissiveGroups",
+            "refresh_export_metadata",
+        ),
+        "lightmap": (
+            "blendertk.light_utils.lightmap_baker.lightmap_baker",
+            "LightmapBaker",
+            "refresh_export_metadata",
+        ),
+    }
+
     @staticmethod
-    def export(filepath=None, objects=None, selection_only=True, **fbx_opts):
+    def run_export_preparers() -> None:
+        """Refresh every known producer's ``data_export`` channel once, right now.
+
+        Each producer is isolated — one failing or unimportable subsystem never
+        blocks the others — and each no-ops (or clears its channel) when it has
+        nothing to write, so scene edits since the last authoring-time publish
+        (a deleted lightmapped mesh, a removed shadow plane) can't ship a stale
+        manifest.  This is the one call an export pipeline needs to make the
+        carrier current — name + behavior mirror of
+        ``mtk.FbxUtils.run_export_preparers``.
+        """
+        import importlib
+
+        for name, (module_path, cls_name, method) in FbxUtils._KNOWN_PRODUCERS.items():
+            try:
+                producer = getattr(importlib.import_module(module_path), cls_name)
+                refresh = getattr(producer, method)
+            except Exception:
+                # Producers are speculative — an uninstalled subsystem is fine.
+                logger.debug("Producer %r unavailable; skipped.", name, exc_info=True)
+                continue
+            try:
+                refresh()
+            except Exception:
+                # But a resolvable producer that fails would silently ship
+                # stale channels — surface it.
+                logger.warning("Producer %r refresh failed.", name, exc_info=True)
+
+    @staticmethod
+    def export(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts):
         """Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
 
         Args:
@@ -89,6 +148,12 @@ class FbxUtils(_FbxUtilsInternal):
                 restored afterward.
             selection_only: ``True`` exports the selection (``use_selection``); ``False`` exports
                 the whole scene.
+            strict: the selection funnel can only ship selectable, visible objects — a
+                hidden member of *objects* silently fails ``select_set`` and one in a
+                view-layer-excluded collection makes it RAISE, so unselectable members
+                are collected instead and logged as a WARNING (count + first names):
+                content loss must never be silent. ``strict=True`` raises
+                ``RuntimeError`` with that list instead of exporting without them.
             **fbx_opts: overrides merged over the defaults, forwarded to
                 ``bpy.ops.export_scene.fbx``.
 
@@ -129,17 +194,42 @@ class FbxUtils(_FbxUtilsInternal):
         # reads ``context.selected_objects`` internally, so a window must be in context for it.
         prior = list(CoreUtils.selected_objects()) if objects is not None else None
         with CoreUtils.window_context_override():
+            dropped = []
             if objects is not None:
                 bpy.ops.object.select_all(action="DESELECT")
                 for o in ptk.make_iterable(objects):
                     obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-                    if obj is not None:
+                    if obj is None:
+                        continue
+                    # An unselectable object must not kill the whole export
+                    # (an excluded-collection member makes select_set RAISE),
+                    # but it will be silently absent from the FBX — a hidden
+                    # object "succeeds" without selecting. Compare requested
+                    # vs actually-selected and surface the difference below.
+                    try:
                         obj.select_set(True)
+                        selected = obj.select_get()
+                    except RuntimeError:
+                        selected = False
+                    if not selected:
+                        dropped.append(obj.name)
 
             # Guard is inside the try so the finally restores the caller's selection even when it
             # raises (e.g. ``objects`` given but all names resolved to nothing — the DESELECT above
             # already cleared the real selection).
             try:
+                if dropped:
+                    shown = ", ".join(dropped[:10]) + (
+                        " …" if len(dropped) > 10 else ""
+                    )
+                    msg = (
+                        f"{len(dropped)} requested object(s) cannot be selected and "
+                        f"will be DROPPED from the FBX (hidden, selection-locked, or "
+                        f"outside the active view layer): {shown}"
+                    )
+                    if strict:
+                        raise RuntimeError(msg)
+                    logger.warning(msg)
                 if selection_only and not CoreUtils.selected_objects():
                     raise RuntimeError("Nothing selected to export.")
                 bpy.ops.export_scene.fbx(filepath=filepath, **opts)
@@ -149,7 +239,11 @@ class FbxUtils(_FbxUtilsInternal):
                     for o in prior:
                         try:
                             o.select_set(True)
-                        except ReferenceError:
+                        except (ReferenceError, RuntimeError):
+                            # deleted since capture, or no longer selectable
+                            # (e.g. its collection was view-layer-excluded) —
+                            # a best-effort restore must not fail the export
+                            # that already succeeded.
                             pass
         return filepath
 
@@ -180,13 +274,17 @@ class FbxUtils(_FbxUtilsInternal):
         return [o for o in bpy.data.objects if o not in before]
 
     @staticmethod
-    def export_selection_fbx(filepath=None, objects=None, **fbx_opts):
+    def export_selection_fbx(filepath=None, objects=None, strict=False, **fbx_opts):
         """Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
 
         The non-interactive counterpart of the scene slot's "Export Selection" — used by the
         Substance / Marmoset / RizomUV bridges to stage the current selection. Thin selection-only
-        alias for :meth:`FbxUtils.export`.
+        alias for :meth:`FbxUtils.export` (``strict`` passes through — see there).
         """
         return FbxUtils.export(
-            filepath=filepath, objects=objects, selection_only=True, **fbx_opts
+            filepath=filepath,
+            objects=objects,
+            selection_only=True,
+            strict=strict,
+            **fbx_opts,
         )

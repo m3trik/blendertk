@@ -33,11 +33,15 @@ Exporter's `_DEFAULT_FBX_OPTIONS` (and its shipped `default` preset):
   of the export.
 
 The Scene Exporter's default-on **"Export Scene Data Node"** task
-(`export_data_node`) then folds the carrier into the export set in every
-export mode, exactly like mayatk's. Unlike mayatk there is **no before-export
-refresh hook** (`bpy.app.handlers` has no FBX-export event), so producers
-publish at authoring time — e.g. the Lightmap Baker writes `lightmap_metadata`
-when a bake commits — and the carrier is already current at export.
+(`export_data_node`) first refreshes every known producer's channel from live
+scene state (`btk.FbxUtils.run_export_preparers`, the mirror of mayatk's
+producer registry — a mesh deleted since the last bake can't ship a stale
+manifest), then folds the carrier into the export set in every export mode,
+exactly like mayatk's. Unlike mayatk there is **no before-export session
+hook** (`bpy.app.handlers` has no FBX-export event), so producers also
+publish at authoring time — e.g. the Lightmap Baker writes
+`lightmap_metadata` when a bake commits — which is what any
+non-Scene-Exporter FBX export ships.
 
 The round-trip (publish → export → re-import → property intact) is pinned by
 `test/test_scene_exporter.py`.
@@ -46,9 +50,13 @@ The round-trip (publish → export → re-import → property intact) is pinned 
 
 | Channel | Producer | Notes |
 |---|---|---|
-| `lightmap_metadata` (on `data_export`) | Lightmap Baker | same JSON schema as mayatk's — one `LightmapMetadataController` reader serves both DCCs |
+| `lightmap_metadata` (on `data_export`) | Lightmap Baker — `refresh_export_metadata` | same JSON schema as mayatk's — one `LightmapMetadataController` reader serves both DCCs |
+| `shadow_metadata` (on `data_export`) | Shadow Rig — `refresh_export_metadata` | same schema as mayatk's — one `ShadowPlaneController` reader |
+| `emissive_groups` (on **both** carriers) | Emissive Groups — `refresh_export_metadata` | registry (authored state) on `data_internal`; manifest on `data_export`, plus per-group keyable `emissiveGroup_<name>` floats whose curves ship via transient scale-proxy Empties (Blender's FBX exporter can't animate custom properties) |
 | `smart_bake_sessions` (on `data_internal`) | SmartBake `BakeSessionStore` | restore manifests; never exported |
 
 Shots (`fbx_takes` / `shot_metadata`) and Audio (`audio_manifest`) are not yet
-ported — the Scene Exporter's "Export Shots as Animation Takes" checkbox stays
-a disabled placeholder until the Shots port lands.
+producing: the Shots *subsystem* is ported but its `publish_export_view` stays
+a no-op, and the audio panel is VSE-only — the Scene Exporter's "Export Shots
+as Animation Takes" checkbox stays a disabled placeholder until the takes port
+lands.
