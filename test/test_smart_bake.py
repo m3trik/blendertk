@@ -1557,6 +1557,122 @@ def _run_task_manager_wiring_checks():
         restore_result = SmartBake.restore(tm2._bake_session_id)
         check("SmartBake.restore cleans up the session", restore_result.success is True)
 
+        # ---- NLA-only / data-level animation awareness (2026-08-01 fix) -------------------
+        # AnimUtils._actions reads only o.animation_data.action, so an action pushed to
+        # an NLA strip (no active action) or shape-key/data-level animation was invisible
+        # to set_bake_animation_range AND to every anim check — while the FBX write bakes
+        # the evaluated scene: wrong bake range + vacuously green checks.
+        reset()
+        nla_obj = cube("WiringNlaCube")
+        nla_obj.location.x = 0.0
+        nla_obj.keyframe_insert(data_path="location", frame=5, index=0)
+        nla_obj.location.x = 4.0
+        nla_obj.keyframe_insert(data_path="location", frame=30, index=0)
+        nla_act = nla_obj.animation_data.action
+        nla_track = nla_obj.animation_data.nla_tracks.new()
+        nla_strip = nla_track.strips.new("WiringStrip", 40, nla_act)
+        nla_obj.animation_data.action = None  # NLA-only: invisible to get_fcurves
+
+        tm5 = SceneExporter(log_level="DEBUG").task_manager
+        tm5.objects = [nla_obj]
+        check(
+            "NLA-only object is invisible to the active-action reader (the gap)",
+            tm5._has_keyframes is False and AnimUtils.get_fcurves([nla_obj]) == [],
+        )
+        extent = AnimUtils.get_animated_extent([nla_obj])
+        check(
+            "get_animated_extent covers the strip extent in scene time",
+            extent == (nla_strip.frame_start, nla_strip.frame_end),
+            f"extent={extent} strip=({nla_strip.frame_start},{nla_strip.frame_end})",
+        )
+        muted_track = nla_obj.animation_data.nla_tracks.new()
+        muted_strip = muted_track.strips.new("WiringStripMuted", 200, nla_act)
+        muted_strip.mute = True
+        check(
+            "muted strips are skipped by the extent",
+            AnimUtils.get_animated_extent([nla_obj]) == extent,
+            f"{AnimUtils.get_animated_extent([nla_obj])}",
+        )
+        tm5.set_bake_animation_range()
+        scene5 = bpy.context.scene
+        check(
+            "set_bake_animation_range covers an NLA-only strip",
+            (scene5.frame_start, scene5.frame_end)
+            == (int(nla_strip.frame_start), int(nla_strip.frame_end)),
+            f"actual=({scene5.frame_start},{scene5.frame_end})",
+        )
+        tm5.run_deferred_restores()
+
+        handler5 = _ListHandler()
+        tm5.logger.addHandler(handler5)
+        passed_u, msgs_u = tm5.check_untied_keyframes(True)
+        passed_f, msgs_f = tm5.check_floating_point_keys(True)
+        warns5 = [
+            m for m in handler5.messages if "NLA/data-level animation present" in m
+        ]
+        check(
+            "anim checks stay green on active actions but WARN once about unseen animation",
+            passed_u is True
+            and msgs_u == []
+            and passed_f is True
+            and msgs_f == []
+            and len(warns5) == 1,
+            f"warns={warns5}",
+        )
+        check(
+            "the warning names the first check that hit it",
+            bool(warns5) and "check_untied_keyframes" in warns5[0],
+            f"{warns5}",
+        )
+        tm5.logger.removeHandler(handler5)
+
+        # shape-key (data-level) animation: same gap, fcurve-range branch
+        reset()
+        sk_obj = cube("WiringShapeKeyCube")
+        sk_obj.shape_key_add(name="Basis")
+        kb = sk_obj.shape_key_add(name="Key1")
+        kb.value = 0.0
+        kb.keyframe_insert("value", frame=2)
+        kb.value = 1.0
+        kb.keyframe_insert("value", frame=77)
+
+        tm6 = SceneExporter(log_level="DEBUG").task_manager
+        tm6.objects = [sk_obj]
+        check(
+            "shape-key-only animation is invisible to the active-action reader",
+            tm6._has_keyframes is False,
+        )
+        extent6 = AnimUtils.get_animated_extent([sk_obj])
+        check(
+            "get_animated_extent covers shape-key (data-level) fcurves",
+            extent6 == (2.0, 77.0),
+            f"{extent6}",
+        )
+        tm6.set_bake_animation_range()
+        check(
+            "set_bake_animation_range covers data-level animation",
+            (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (2, 77),
+            f"({bpy.context.scene.frame_start},{bpy.context.scene.frame_end})",
+        )
+        tm6.run_deferred_restores()
+        check(
+            "has_nla_or_data_animation flags the shape-key action (and not an empty scope)",
+            AnimUtils.has_nla_or_data_animation([sk_obj]) is True
+            and AnimUtils.has_nla_or_data_animation([]) is False,
+        )
+        handler6 = _ListHandler()
+        tm6.logger.addHandler(handler6)
+        tm6.check_framerate("film")  # a real FRAME_RATES key -> the check is ON
+        warns6 = [
+            m for m in handler6.messages if "NLA/data-level animation present" in m
+        ]
+        check(
+            "check_framerate also raises the unseen-animation advisory",
+            len(warns6) == 1 and "check_framerate" in warns6[0],
+            f"warns={warns6}",
+        )
+        tm6.logger.removeHandler(handler6)
+
         # ---- _optimize_keys_enabled forwarding reaches smart_bake() before it logs --------
         reset()
         source2 = empty("WiringSource2")
@@ -1642,6 +1758,137 @@ def _run_task_manager_wiring_checks():
 
         traceback.print_exc()
         check("task_manager wiring harness raised", False, repr(e))
+
+    return lines
+
+
+def _run_exporter_bake_restore_checks():
+    """bpy-driven checks proving ``SceneExporter.perform_export`` restores the
+    smart_bake session in its ``finally`` — on BOTH the success path and the
+    failed-check path.  Regression (2026-08-01 audit): the exporter stored
+    ``_bake_session_id`` but nothing ever consumed it, so every export with
+    Smart Bake on permanently muted the user's constraints/drivers and left
+    the baked Action in place, despite the task's "restorable" contract.
+    Returns ``"OK ..."``/``"FAIL ..."`` lines, same convention as
+    :func:`_run_data_internal_export_exclusion_checks`.
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
+
+    import shutil
+
+    export_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "temp_tests", "exporter_bake_restore"
+    )
+    try:
+        import bpy
+        import bmesh
+
+        from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+        from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
+
+        def reset():
+            for session_id in list(SmartBake.list_sessions()):
+                SmartBake.restore(session_id)
+            if (
+                bpy.context.view_layer.objects.active
+                and bpy.context.view_layer.objects.active.mode != "OBJECT"
+            ):
+                bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.select_all(action="DESELECT")
+            for o in list(bpy.data.objects):
+                bpy.data.objects.remove(o, do_unlink=True)
+            for a in list(bpy.data.actions):
+                bpy.data.actions.remove(a)
+            bpy.context.scene.frame_start = 1
+            bpy.context.scene.frame_end = 250
+
+        def constrained_cube(suffix):
+            source = bpy.data.objects.new(f"RestoreSource{suffix}", None)
+            bpy.context.collection.objects.link(source)
+            source.location.x = 0.0
+            source.keyframe_insert(data_path="location", frame=1, index=0)
+            source.location.x = 4.0
+            source.keyframe_insert(data_path="location", frame=12, index=0)
+            me = bpy.data.meshes.new(f"RestoreTarget{suffix}_mesh")
+            bm = bmesh.new()
+            bmesh.ops.create_cube(bm, size=1.0)
+            bm.to_mesh(me)
+            bm.free()
+            target = bpy.data.objects.new(f"RestoreTarget{suffix}", me)
+            bpy.context.collection.objects.link(target)
+            con = target.constraints.new("COPY_LOCATION")
+            con.target = source
+            return target, con
+
+        os.makedirs(export_dir, exist_ok=True)
+
+        # ---- success path: export completes, then the finally restores ----
+        reset()
+        target, con = constrained_cube("A")
+        exporter = SceneExporter(log_level="DEBUG")
+        ok = exporter.perform_export(
+            export_dir,
+            objects=[target],
+            output_name="bake_restore_wiring",
+            tasks={"smart_bake": True},
+        )
+        check("perform_export succeeds with smart_bake on", ok is True)
+        check(
+            "FBX deliverable written",
+            bool(exporter.export_path) and os.path.isfile(exporter.export_path),
+            str(exporter.export_path),
+        )
+        check("constraint unmuted after export (restore ran)", con.mute is False)
+        check(
+            "baked Action swapped back off the target",
+            target.animation_data is None or target.animation_data.action is None,
+        )
+        check(
+            "session id cleared on the task manager",
+            getattr(exporter.task_manager, "_bake_session_id", None) is None,
+        )
+        check(
+            "no bake session left in the manifest",
+            not list(SmartBake.list_sessions()),
+        )
+
+        # ---- failed-check path: export blocked AFTER the bake — the finally
+        # must still restore (this is the path that used to leak the bake) ----
+        reset()
+        target2, con2 = constrained_cube("B")
+        target2.hide_set(True)  # trips check_hidden_geometry
+        exporter2 = SceneExporter(log_level="DEBUG")
+        ok2 = exporter2.perform_export(
+            export_dir,
+            objects=[target2],
+            output_name="bake_restore_blocked",
+            tasks={"smart_bake": True, "check_hidden_geometry": True},
+        )
+        check("failed check blocks the export", ok2 is False)
+        check(
+            "no deliverable written for the blocked export",
+            not os.path.isfile(os.path.join(export_dir, "bake_restore_blocked.fbx")),
+        )
+        check(
+            "constraint unmuted after BLOCKED export (finally restored)",
+            con2.mute is False,
+        )
+        check(
+            "no bake session left after blocked export",
+            not list(SmartBake.list_sessions()),
+        )
+    except Exception as e:  # pragma: no cover - failure path prints its own traceback
+        import traceback
+
+        traceback.print_exc()
+        check("exporter bake-restore harness raised", False, repr(e))
+    finally:
+        shutil.rmtree(export_dir, ignore_errors=True)
 
     return lines
 
@@ -1833,6 +2080,7 @@ if __name__ == "__main__":
         result_lines += _run_ik_bake_restore_regression_checks()
         result_lines += _run_preserve_outside_and_optimize_checks()
         result_lines += _run_task_manager_wiring_checks()
+        result_lines += _run_exporter_bake_restore_checks()
         result_lines += _run_blend_shape_driver_restore_checks()
         # Saves a REAL .blend under temp_tests/ — run last so its bpy.data.filepath side
         # effect (persists for the rest of this process) can't affect any earlier check.

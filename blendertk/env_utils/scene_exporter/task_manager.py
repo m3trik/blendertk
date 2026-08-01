@@ -339,10 +339,16 @@ class _TaskActionsMixin(_TaskDataMixin):
         :meth:`set_linear_unit`: the range is read by the *write*, and the paired
         revert fires before it. Returns ``None`` so that pairing stays disarmed;
         the restore rides ``stage_deferred_restore`` instead.
+
+        The range is the FULL evaluated extent (``AnimUtils.get_animated_extent``):
+        active-action fcurves UNION non-muted NLA strip extents in scene time UNION
+        data-level / shape-key fcurve ranges. The FBX write bakes the *evaluated*
+        scene, so an NLA-strip-only or shape-key-driven object used to export with
+        a wrong bake range (the active-action reader saw no keys at all).
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
 
-        rng = AnimUtils._key_range(AnimUtils.get_fcurves(self.objects))
+        rng = AnimUtils.get_animated_extent(self.objects)
         if rng is None:
             self.logger.debug("No keyframes found. Skipping frame range setting.")
             return None
@@ -363,12 +369,15 @@ class _TaskActionsMixin(_TaskDataMixin):
         (``use_custom_props`` + Empty-inclusive ``object_types`` — both on by
         default in ``_DEFAULT_FBX_OPTIONS``).
 
-        Mirror of mayatk's ``export_data_node``, minus the producer-refresh
-        step: Blender has no before-export event, so producers publish at
-        authoring time (e.g. the lightmap baker publishes when a bake
-        completes) and the carrier is already current at export.
+        Mirror of mayatk's ``export_data_node``: refreshes every known
+        producer's channel from live scene state first (Blender has no
+        before-export event, so this task is the only refresh dispatch point —
+        producers also publish at authoring time, but scene edits since then
+        would otherwise ship a stale manifest), then folds the carrier in.
         """
         from blendertk.node_utils.data_nodes import DataNodes
+
+        self._refresh_scene_data_node()
 
         carrier = DataNodes.get_export_node(create=False)
         if carrier is None:
@@ -390,9 +399,44 @@ class _TaskActionsMixin(_TaskDataMixin):
                 was_hidden = True
                 carrier.hide_set(False)
         except RuntimeError:  # not in the active view layer
-            pass
+            was_hidden = True
         if was_hidden:
             self.logger.info("data_export carrier was hidden — cleared for export.")
+
+        # The object-level clears above can't help when the carrier's COLLECTION
+        # is hidden or excluded from the view layer (hide_set even RAISES in the
+        # excluded case) — the selection funnel would still drop it, or
+        # select_set would kill the export outright. Link the carrier to the
+        # scene root collection for the duration of the write and unlink it
+        # right after (deferred restore: task reverts fire BEFORE the write).
+        try:
+            still_hidden = not carrier.visible_get()
+        except RuntimeError:  # not in the active view layer at all
+            still_hidden = True
+        if still_hidden:
+            root = self._scene().collection
+            if carrier.name not in root.objects:
+                root.objects.link(carrier)
+
+                def _unlink_carrier(root=root, carrier=carrier):
+                    try:
+                        root.objects.unlink(carrier)
+                    except RuntimeError:
+                        pass
+
+                self.stage_deferred_restore("data_export_root_link", _unlink_carrier)
+                vl = CoreUtils._active_view_layer()
+                if vl is not None:
+                    vl.update()  # visible_get/select_set read the evaluated layer
+                try:  # now reachable through the root — re-clear per-view-layer hiding
+                    carrier.hide_set(False)
+                except RuntimeError:
+                    pass
+                self.logger.info(
+                    "data_export carrier's collection is hidden/excluded — linked "
+                    "the carrier to the scene root collection for the write "
+                    "(unlinked after)."
+                )
 
         if carrier not in (self.objects or []):
             self.objects = list(self.objects or []) + [carrier]
@@ -417,6 +461,23 @@ class _TaskActionsMixin(_TaskDataMixin):
             self._cover_frame_range(proxies)
 
         self._log_data_node_summary()
+
+    def _refresh_scene_data_node(self):
+        """Refresh ``data_export`` channels from the live metadata producers.
+
+        Delegates to :meth:`FbxUtils.run_export_preparers` — the single
+        producer registry, so a new metadata system ships without touching the
+        exporter.  Each producer no-ops (or clears its channel) when it has
+        nothing to write and is isolated so an absent or erroring subsystem
+        never blocks the export.  Mirror of mayatk's
+        ``_refresh_scene_data_node``.
+        """
+        try:
+            from blendertk.env_utils.fbx_utils import FbxUtils
+
+            FbxUtils.run_export_preparers()
+        except Exception:
+            self.logger.debug("data_export refresh skipped.", exc_info=True)
 
     def _set_frame_range(self, start, end) -> None:
         """Set the scene's frame range for the export, staging its restore.
@@ -511,11 +572,35 @@ class _TaskActionsMixin(_TaskDataMixin):
 class _TaskChecksMixin(_TaskDataMixin):
     """Validation checks -- each returns ``(passed: bool, messages: list[str])``."""
 
+    def _warn_unseen_animation(self, check_name: str) -> None:
+        """One WARNING per run when the export objects carry NLA-strip or data-level
+        (object data / shape-key) animation the active-action anim checks cannot see.
+
+        Those checks keep their pass/fail semantics on active object actions — NLA
+        strip actions may be shared/library-linked and carry their own frame mapping,
+        so extending the *edit* tasks to them is deliberately off the table — but the
+        FBX write bakes the evaluated scene, so a silently-green check over animation
+        it never validated is a lie. The flag is reset per run in
+        :meth:`TaskManager._execute_tasks_and_checks`."""
+        if getattr(self, "_unseen_anim_warned", False):
+            return
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        if AnimUtils.has_nla_or_data_animation(self.objects or []):
+            self._unseen_anim_warned = True
+            self.logger.warning(
+                "NLA/data-level animation present — "
+                f"{check_name} only validates active object actions."
+            )
+
     def check_framerate(self, target_key) -> tuple:
-        if not target_key or not self._has_keyframes:
+        if not target_key:
             return True, []
         target = ptk.VidUtils.FRAME_RATES.get(target_key)
         if target is None:
+            return True, []
+        self._warn_unseen_animation("check_framerate")
+        if not self._has_keyframes:
             return True, []
         scene = self._scene()
         actual = scene.render.fps / scene.render.fps_base
@@ -609,8 +694,13 @@ class _TaskChecksMixin(_TaskDataMixin):
         ]
         if hidden:
             shown = ", ".join(hidden[:10]) + (" …" if len(hidden) > 10 else "")
+            # Opposite consequence to the Maya mirror: the export funnel is
+            # selection-based (use_selection=True) and hidden objects can't be
+            # selected, so hidden meshes are silently DROPPED from the FBX —
+            # they do not ship hidden.
             return False, [
-                f"{len(hidden)} hidden mesh object(s) will be exported: {shown}"
+                f"{len(hidden)} hidden mesh object(s) would be silently OMITTED "
+                f"from the export: {shown}"
             ]
         return True, []
 
@@ -663,12 +753,20 @@ class _TaskChecksMixin(_TaskDataMixin):
         return True, []
 
     def check_absolute_paths(self, enabled) -> tuple:
+        """Export textures store ``//``-relative paths.
+
+        PACKED images are exempt: the FBX embeds them from memory, so they ship
+        regardless of the stored path's form — flagging their (often stale,
+        absolute) bookkeeping path blocked exports over a path that never
+        travels.
+        """
         if not enabled:
             return True, []
         absolute = [
             img.name
             for img in self._get_export_images()
-            if (getattr(img, "filepath", "") or "")
+            if not getattr(img, "packed_file", None)
+            and (getattr(img, "filepath", "") or "")
             and not img.filepath.startswith("//")
         ]
         if absolute:
@@ -687,21 +785,37 @@ class _TaskChecksMixin(_TaskDataMixin):
         behind after a duplicate-material cleanup.  Linked libraries stay
         whole-file — they are the analogue of Maya's scene references, not of a
         texture.
+
+        Storage-aware (mirrors mayatk's ``resolve_path`` semantics):
+
+        * PACKED images are treated as valid — the FBX embeds them from memory,
+          so a stale disk path is irrelevant (it used to fail the export over a
+          file that never ships).
+        * TILED (UDIM) images never appear in ``get_image_records`` (FILE-only),
+          so a deleted tile set used to pass unseen.  They are validated here by
+          probing the first declared tile on disk (``<UDIM>`` collapsed via
+          ``tiles[0].number``, 1001 fallback — the same probe-tile collapse
+          mayatk applies).
         """
         if not enabled:
             return True, []
         from blendertk.env_utils._env_utils import EnvUtils
-        from blendertk.mat_utils._mat_utils import MatUtils
+        from blendertk.mat_utils._mat_utils import MatUtils, _MatUtilsInternal
 
         # Filter get_image_records() by the export set rather than re-deriving
         # "is a FILE image whose abspath exists" — that predicate belongs to
         # get_image_records, and a second copy of it here would be free to drift.
-        export_images = set(self._get_export_images())
-        missing = [
-            r["name"]
-            for r in MatUtils.get_image_records()
-            if r["image"] in export_images and not r["exists"]
-        ]
+        records = {r["image"]: r for r in MatUtils.get_image_records()}
+        missing = []
+        for img in self._get_export_images():
+            if getattr(img, "packed_file", None):
+                continue  # ships embedded from memory regardless of the stored path
+            if getattr(img, "source", "") == "TILED":
+                probe = _MatUtilsInternal._udim_first_tile_path(img)
+                if not (probe and os.path.isfile(probe)):
+                    missing.append(img.name)
+            elif img in records and not records[img]["exists"]:
+                missing.append(records[img]["name"])
         missing += [r["name"] for r in EnvUtils.list_libraries() if not r["exists"]]
         if missing:
             shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
@@ -709,17 +823,51 @@ class _TaskChecksMixin(_TaskDataMixin):
         return True, []
 
     def check_texture_file_size(self, max_mb) -> tuple:
+        """No export texture exceeds ``max_mb`` on disk.
+
+        Iterates the export image *datablocks* (not bare paths) so storage is
+        respected:
+
+        * PACKED images are skipped — they ship embedded from memory, so the
+          on-disk copy (if any) is not what exports.
+        * TILED (UDIM) images are size-probed at their **largest existing
+          tile** (the ``<UDIM>`` token globbed on disk).  Previously
+          ``os.path.getsize`` on the raw token path raised ``OSError`` into a
+          silent ``continue``, letting entire multi-GB tile sets through the
+          gate unmeasured (mayatk collapses the token to a probe tile the same
+          way).
+        """
         if not max_mb:
             return True, []
-        from blendertk.mat_utils._mat_utils import MatUtils
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
-        paths = MatUtils.get_texture_paths(objects=self.objects, absolute=True)
         oversized = []
-        for p in paths:
-            try:
-                size_mb = os.path.getsize(p) / (1024 * 1024)
-            except OSError:
+        seen = set()
+        for img in self._get_export_images():
+            if getattr(img, "packed_file", None):
+                continue  # ships embedded from memory; the disk copy is not what exports
+            if getattr(img, "source", "") == "TILED":
+                sizes = []
+                for t in _MatUtilsInternal._udim_tile_paths(img):
+                    try:
+                        sizes.append((os.path.getsize(t), t))
+                    except OSError:
+                        continue
+                if not sizes:
+                    continue  # no tiles on disk — check_valid_paths' domain
+                size, p = max(sizes)
+            else:
+                p = _MatUtilsInternal._abspath(img)
+                if not p:
+                    continue
+                try:
+                    size = os.path.getsize(p)
+                except OSError:
+                    continue  # missing file — check_valid_paths' domain
+            if p in seen:
                 continue
+            seen.add(p)
+            size_mb = size / (1024 * 1024)
             if size_mb > max_mb:
                 oversized.append(f"{os.path.basename(p)} ({size_mb:.1f} MB)")
         if oversized:
@@ -730,7 +878,10 @@ class _TaskChecksMixin(_TaskDataMixin):
     def check_untied_keyframes(self, enabled) -> tuple:
         """Verify every animated channel has a bookend key at its object's own keyed extent
         (the inverse of what ``tie_all_keyframes`` fixes)."""
-        if not enabled or not self._has_keyframes:
+        if not enabled:
+            return True, []
+        self._warn_unseen_animation("check_untied_keyframes")
+        if not self._has_keyframes:
             return True, []
 
         from blendertk.anim_utils._anim_utils import AnimUtils
@@ -760,7 +911,10 @@ class _TaskChecksMixin(_TaskDataMixin):
 
     def check_floating_point_keys(self, enabled) -> tuple:
         """Detect keyframes that don't sit on a whole frame."""
-        if not enabled or not self._has_keyframes:
+        if not enabled:
+            return True, []
+        self._warn_unseen_animation("check_floating_point_keys")
+        if not self._has_keyframes:
             return True, []
 
         from blendertk.anim_utils._anim_utils import AnimUtils
@@ -846,12 +1000,16 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         self.logger = logger
         self._objects = None
         self._cached_materials = None
+        self._unseen_anim_warned = False
 
     def _execute_tasks_and_checks(self, tasks_only, checks_only):
         # smart_bake's completion log mentions the follow-on optimize_keys
         # task; the generic TaskFactory knows nothing about either, so the
         # flag is set here, in the consumer that reads it.
         self._optimize_keys_enabled = bool(tasks_only.get("optimize_keys", False))
+        # The NLA/data-level-animation advisory fires once per run, not once
+        # per check (see _warn_unseen_animation).
+        self._unseen_anim_warned = False
         return super()._execute_tasks_and_checks(tasks_only, checks_only)
 
     @property
@@ -1059,7 +1217,12 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "check_hidden_geometry": {
                 "widget_type": "QCheckBox",
                 "setText": "Check For Hidden Geometry.",
-                "setToolTip": "Check for hidden geometry that will be exported.",
+                "setToolTip": (
+                    "Check for hidden geometry in the export set.\nThe export "
+                    "is selection-based, so hidden meshes are silently DROPPED "
+                    "from the FBX — this check catches that content loss "
+                    "before the write."
+                ),
                 "setChecked": True,
             },
             "check_overlapping_duplicate_mesh": {

@@ -93,6 +93,40 @@ class _AnimUtilsInternal(object):
         return AnimUtils.get_fcurves(objects)
 
     @staticmethod
+    def _animation_data_owners(o):
+        """``(level, animation_data)`` pairs for every place *o* can hang animation:
+        the object itself, its data block (mesh/camera/light properties), and its
+        data's shape keys. ``level`` is ``"object"`` / ``"data"`` / ``"shape_keys"`` —
+        only the ``"object"`` level is visible to :meth:`AnimUtils.get_fcurves`."""
+        out = []
+        ad = getattr(o, "animation_data", None)
+        if ad is not None:
+            out.append(("object", ad))
+        data = getattr(o, "data", None)
+        dad = getattr(data, "animation_data", None) if data is not None else None
+        if dad is not None:
+            out.append(("data", dad))
+        sk = getattr(data, "shape_keys", None) if data is not None else None
+        sad = getattr(sk, "animation_data", None) if sk is not None else None
+        if sad is not None:
+            out.append(("shape_keys", sad))
+        return out
+
+    @staticmethod
+    def _nla_strip_frames(anim_data):
+        """Scene-time frame extents (``strip.frame_start``/``frame_end``) of every
+        non-muted strip on every non-muted NLA track of *anim_data*."""
+        frames = []
+        for track in getattr(anim_data, "nla_tracks", None) or []:
+            if track.mute:
+                continue
+            for strip in track.strips:
+                if strip.mute:
+                    continue
+                frames.extend((strip.frame_start, strip.frame_end))
+        return frames
+
+    @staticmethod
     def _key_range(fcurves):
         """(min, max) key frame across ``fcurves``, or None when keyless."""
         frames = [k.co.x for fc in fcurves for k in fc.keyframe_points]
@@ -323,6 +357,53 @@ class AnimUtils(_AnimUtilsInternal):
             for action, slot in _AnimUtilsInternal._actions(objects)
             for fc in _AnimUtilsInternal._slot_fcurves(action, slot)
         ]
+
+    @staticmethod
+    def get_animated_extent(objects):
+        """``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.
+
+        Unions, per object:
+
+        * active-action fcurve key ranges at every animation level — the object
+          itself, its data block, and its data's shape keys (only the object level is
+          visible to :meth:`get_fcurves`);
+        * the scene-time extents of every non-muted NLA strip on every non-muted
+          track (``strip.frame_start``/``frame_end`` — strips carry their own frame
+          mapping, so their placed extent IS their scene-time footprint).
+
+        This is the range an exporter's bake must cover: the FBX write bakes the
+        *evaluated* scene, so NLA-strip-only or shape-key/data-level animation that
+        the active-action readers can't see still ships — previously with a wrong
+        bake range. Used by scene_exporter's ``set_bake_animation_range``.
+        """
+        frames = []
+        for o in ptk.make_iterable(objects):
+            for _level, ad in _AnimUtilsInternal._animation_data_owners(o):
+                action = getattr(ad, "action", None)
+                if action is not None:
+                    rng = _AnimUtilsInternal._key_range(
+                        _AnimUtilsInternal._slot_fcurves(
+                            action, getattr(ad, "action_slot", None)
+                        )
+                    )
+                    if rng is not None:
+                        frames.extend(rng)
+                frames.extend(_AnimUtilsInternal._nla_strip_frames(ad))
+        return (min(frames), max(frames)) if frames else None
+
+    @staticmethod
+    def has_nla_or_data_animation(objects):
+        """True when *objects* carry animation :meth:`get_fcurves` cannot see:
+        non-muted NLA strips (at any animation level), or actions on the data /
+        shape-key levels. The exporter's active-action anim checks use this to WARN
+        instead of staying vacuously green over animation they never validated."""
+        for o in ptk.make_iterable(objects):
+            for level, ad in _AnimUtilsInternal._animation_data_owners(o):
+                if _AnimUtilsInternal._nla_strip_frames(ad):
+                    return True
+                if level != "object" and getattr(ad, "action", None) is not None:
+                    return True
+        return False
 
     @staticmethod
     def scene_has_animation():

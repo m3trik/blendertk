@@ -226,8 +226,22 @@ try:
     cube = bpy.context.active_object
     cube.name = "CarrierExportCube"
 
-    payload = json.dumps({"version": 1, "objects": [{"name": "CarrierExportCube"}]})
-    DataNodes.set_export_string("lightmap_metadata", payload)
+    # Author a REAL lightmap marker and publish through the producer, exactly
+    # like a bake commit: export_data_node now refreshes every producer
+    # (FbxUtils.run_export_preparers), so a hand-stamped channel with no scene
+    # state behind it would be correctly regenerated away as stale.
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+    cube[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+        {"map": "CarrierExportCube_Lightmap.exr", "intensity": 1.0}
+    )
+    LightmapBaker.refresh_export_metadata()
+    payload = DataNodes.get_export_string("lightmap_metadata")
+    check(
+        "authoring-time publish stamps the carrier from the marker",
+        isinstance(payload, str) and "CarrierExportCube" in payload,
+        f"{payload!r}",
+    )
     check(
         "ensure_export/get_export_node agree on the carrier (mayatk API parity)",
         DataNodes.ensure_export() is DataNodes.get_export_node(create=False),
@@ -523,6 +537,348 @@ try:
         "check_valid_paths still fails on a missing EXPORT texture",
         passed is False and any("gone" in m or tex_node.image.name in m for m in msgs),
         f"msgs={msgs}",
+    )
+
+    # ---- packed + UDIM images in the texture checks (mirrors mayatk's semantics) ----------
+    # Bugs: a PACKED image with a stale disk path failed check_valid_paths (and its absolute
+    # path form failed check_absolute_paths) even though the FBX embeds it from memory; a
+    # TILED (UDIM) image was invisible to check_valid_paths entirely (get_image_records is
+    # FILE-only), so a deleted tile set passed.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    pu_cube = bpy.context.active_object
+    pu_cube.name = "PackedUdimCube"
+    pu_mat = bpy.data.materials.new("PackedUdimMat")
+    pu_mat.use_nodes = True
+    pu_cube.data.materials.append(pu_mat)
+
+    # A real PNG on disk, loaded then PACKED, then its disk copy deleted and the stored
+    # path left absolute-and-stale — the embedded bytes are what ship, not the path.
+    packed_src = os.path.join(tex_dir, "packed_src.png")
+    gen = bpy.data.images.new("packed_gen", 4, 4)
+    gen.filepath_raw = packed_src
+    gen.file_format = "PNG"
+    gen.save()
+    bpy.data.images.remove(gen)
+    packed_img = bpy.data.images.load(packed_src)
+    packed_img.pack()
+    os.remove(packed_src)
+    packed_img.filepath = os.path.join(tex_dir, "stale_dir", "packed_src.png")
+    pu_mat.node_tree.nodes.new("ShaderNodeTexImage").image = packed_img
+
+    tm_pu = SceneExporter().task_manager
+    tm_pu.objects = [pu_cube]
+    passed, msgs = tm_pu.check_valid_paths(True)
+    check(
+        "check_valid_paths passes a PACKED image with a stale disk path",
+        passed is True,
+        f"msgs={msgs}",
+    )
+    passed, msgs = tm_pu.check_absolute_paths(True)
+    check(
+        "check_absolute_paths skips a PACKED image (ships embedded)",
+        passed is True,
+        f"msgs={msgs}",
+    )
+
+    # A TILED (UDIM) image whose tile set does not exist on disk must now FAIL ...
+    udim_missing = bpy.data.images.new("udim_missing", 4, 4, tiled=True)
+    udim_missing.filepath = os.path.join(tex_dir, "udim_missing.<UDIM>.png")
+    pu_mat.node_tree.nodes.new("ShaderNodeTexImage").image = udim_missing
+    passed, msgs = tm_pu.check_valid_paths(True)
+    check(
+        "check_valid_paths fails a TILED image with no tiles on disk",
+        passed is False and any("udim_missing" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    # ... and pass once its first declared tile (1001) exists.
+    with open(os.path.join(tex_dir, "udim_missing.1001.png"), "wb") as fh:
+        fh.write(b"PNGDATA")
+    passed, msgs = tm_pu.check_valid_paths(True)
+    check(
+        "check_valid_paths passes a TILED image whose first tile exists",
+        passed is True,
+        f"msgs={msgs}",
+    )
+
+    # ---- UDIM size gate: getsize on the raw <UDIM> token path raised OSError into a
+    # silent continue, so multi-GB tile sets passed unmeasured. The largest existing
+    # tile is now the probe.
+    udim_big = bpy.data.images.new("udim_big", 4, 4, tiled=True)
+    udim_big.filepath = os.path.join(tex_dir, "udim_big.<UDIM>.png")
+    pu_mat.node_tree.nodes.new("ShaderNodeTexImage").image = udim_big
+    with open(os.path.join(tex_dir, "udim_big.1001.png"), "wb") as fh:
+        fh.write(b"\0" * 1024)  # 1 KB — under the gate
+    with open(os.path.join(tex_dir, "udim_big.1002.png"), "wb") as fh:
+        fh.write(b"\0" * (2 * 1024 * 1024))  # 2 MB — the tile that must be probed
+    passed, msgs = tm_pu.check_texture_file_size(1)  # 1 MB gate
+    check(
+        "check_texture_file_size probes the largest existing UDIM tile",
+        passed is False and any("udim_big.1002" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    passed, msgs = tm_pu.check_texture_file_size(4)
+    check(
+        "UDIM tile set under the gate still passes the size check",
+        passed is True,
+        f"msgs={msgs}",
+    )
+
+    # Drop this section's datablocks so the later embed-texture FBX writes don't
+    # trip over the deliberately-stale packed/UDIM images (log noise only).
+    reset_scene()
+    bpy.data.materials.remove(pu_mat)
+    for _img in (packed_img, udim_missing, udim_big):
+        bpy.data.images.remove(_img)
+
+    # ---- GLB-only ordering: a failed FBX→GLB conversion must NOT roll the scene-data
+    # sidecar (hierarchy-diff baseline) forward — no deliverable, no record. ------------------
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    gcube = bpy.context.active_object
+    gcube.name = "GlbOrderCube"
+    gcube[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+        {"map": "GlbOrderCube_Lightmap.exr", "intensity": 1.0}
+    )
+    LightmapBaker.refresh_export_metadata()
+
+    glb_dir = os.path.join(tmp, "glb_order")
+    os.makedirs(glb_dir, exist_ok=True)
+    exp8 = SceneExporter()
+    # Deterministic conversion failure (ptk.MeshConvert is environment-dependent).
+    exp8._create_glb = lambda fbx_path=None, announce=True: None
+    result = exp8.perform_export(
+        export_dir=glb_dir,
+        objects=[gcube],
+        output_name="glb_order_fail",
+        export_visible=True,
+        tasks={"export_data_node": True, "output_format": "glb"},
+    )
+    check(
+        "glb-only export reports failure when the conversion produces no file",
+        result is False
+        and not os.path.exists(os.path.join(glb_dir, "glb_order_fail.glb")),
+        f"result={result}",
+    )
+    check(
+        "failed glb-only conversion leaves NO scene-data sidecar",
+        SceneDataSidecar.read_manifest(os.path.join(glb_dir, "glb_order_fail.fbx"))
+        is None,
+    )
+
+    # ... and with a working conversion the deliverable lands AND the sidecar is written.
+    def _fake_glb(fbx_path=None, announce=True):
+        p = os.path.splitext(fbx_path)[0] + ".glb"
+        with open(p, "wb") as fh:
+            fh.write(b"GLBDATA")
+        return p
+
+    exp9 = SceneExporter()
+    exp9._create_glb = _fake_glb
+    result = exp9.perform_export(
+        export_dir=glb_dir,
+        objects=[gcube],
+        output_name="glb_order_ok",
+        export_visible=True,
+        tasks={"export_data_node": True, "output_format": "glb"},
+    )
+    check(
+        "glb-only export succeeds once the conversion yields a file",
+        result is True and os.path.isfile(os.path.join(glb_dir, "glb_order_ok.glb")),
+        f"result={result}",
+    )
+    check(
+        "sidecar IS written once the glb deliverable is confirmed",
+        "GlbOrderCube"
+        in (
+            SceneDataSidecar.read_manifest(os.path.join(glb_dir, "glb_order_ok.fbx"))
+            or set()
+        ),
+    )
+
+    # ---- export funnel: unselectable objects are surfaced, never silently lost ------------
+    # FbxUtils.export selects with use_selection=True: a HIDDEN object silently fails
+    # select_set (dropped from the FBX with no trace), and one in a view-layer-EXCLUDED
+    # collection made select_set RAISE and kill the whole export. The funnel now collects
+    # both, logs a WARNING naming them (strict=True raises instead), and still ships the
+    # selectable rest.
+    import logging
+
+    class _ListHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    fun_vis = bpy.context.active_object
+    fun_vis.name = "FunnelVisible"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    fun_hidden = bpy.context.active_object
+    fun_hidden.name = "FunnelHidden"
+    fun_hidden.hide_set(True)
+    bpy.ops.mesh.primitive_cube_add(location=(6, 0, 0))
+    fun_excl = bpy.context.active_object
+    fun_excl.name = "FunnelExcluded"
+    excl_coll = bpy.data.collections.new("FunnelExclColl")
+    bpy.context.scene.collection.children.link(excl_coll)
+    for c in list(fun_excl.users_collection):
+        c.objects.unlink(fun_excl)
+    excl_coll.objects.link(fun_excl)
+    bpy.context.view_layer.layer_collection.children["FunnelExclColl"].exclude = True
+
+    fbx_logger = logging.getLogger("blendertk.env_utils.fbx_utils")
+    fh = _ListHandler()
+    fbx_logger.addHandler(fh)
+    funnel_file = os.path.join(tmp, "funnel_guard.fbx")
+    try:
+        written = FbxUtils.export(
+            filepath=funnel_file, objects=[fun_vis, fun_hidden, fun_excl]
+        )
+        funnel_ok = os.path.isfile(written)
+    except RuntimeError as e:
+        funnel_ok = False
+        written = repr(e)
+    finally:
+        fbx_logger.removeHandler(fh)
+    drop_warns = [m for m in fh.messages if "DROPPED from the FBX" in m]
+    check(
+        "an excluded-collection member no longer kills the export (file written)",
+        funnel_ok,
+        f"{written}",
+    )
+    check(
+        "the funnel WARNS with count + names of the dropped members",
+        len(drop_warns) == 1
+        and "2 requested object(s)" in drop_warns[0]
+        and "FunnelHidden" in drop_warns[0]
+        and "FunnelExcluded" in drop_warns[0],
+        f"{drop_warns}",
+    )
+
+    reset_scene()
+    funnel_imported = FbxUtils.import_fbx(funnel_file)
+    check(
+        "only the selectable member ships in the FBX",
+        {o.name.split(".")[0] for o in funnel_imported} == {"FunnelVisible"},
+        f"{[o.name for o in funnel_imported]}",
+    )
+
+    # strict=True: the same drop list raises instead of exporting without them.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    st_vis = bpy.context.active_object
+    st_vis.name = "StrictVisible"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    st_hidden = bpy.context.active_object
+    st_hidden.name = "StrictHidden"
+    st_hidden.hide_set(True)
+    try:
+        FbxUtils.export(
+            filepath=os.path.join(tmp, "funnel_strict.fbx"),
+            objects=[st_vis, st_hidden],
+            strict=True,
+        )
+        check("strict=True raises on dropped members", False)
+    except RuntimeError as e:
+        check(
+            "strict=True raises on dropped members (naming them)",
+            "StrictHidden" in str(e),
+            f"{e}",
+        )
+
+    # ---- SceneExporter pre-filters the export set (primary signal, INFO log) --------------
+    # With check_hidden_geometry off (no checks in this run) a hidden mesh used to reach
+    # the funnel and vanish silently; the engine now drops it up front and says so.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    pf_vis = bpy.context.active_object
+    pf_vis.name = "PrefilterVisible"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    pf_hidden = bpy.context.active_object
+    pf_hidden.name = "PrefilterHidden"
+    pf_hidden.hide_set(True)
+
+    pf_handler = _ListHandler()
+    exp_pf = SceneExporter()
+    result = exp_pf.perform_export(
+        export_dir=out_dir,
+        objects=[pf_vis, pf_hidden],
+        output_name="prefilter_test",
+        export_visible=True,
+        log_level="INFO",
+        log_handler=pf_handler,
+    )
+    pf_msgs = [m for m in pf_handler.messages if "cannot ship" in m]
+    check(
+        "perform_export succeeds while pre-filtering the hidden member",
+        result is True and os.path.isfile(os.path.join(out_dir, "prefilter_test.fbx")),
+        f"result={result}",
+    )
+    check(
+        "the pre-filter logs an INFO naming what was dropped",
+        len(pf_msgs) == 1 and "PrefilterHidden" in pf_msgs[0],
+        f"{pf_msgs}",
+    )
+    reset_scene()
+    pf_imported = FbxUtils.import_fbx(os.path.join(out_dir, "prefilter_test.fbx"))
+    check(
+        "the hidden member is absent from the written FBX",
+        {o.name.split(".")[0] for o in pf_imported} == {"PrefilterVisible"},
+        f"{[o.name for o in pf_imported]}",
+    )
+
+    # ---- data_export carrier in a hidden/EXCLUDED collection still ships ------------------
+    # hide_set/hide_select clears can't help when the carrier's COLLECTION is excluded
+    # from the view layer (hide_set even raises there): export_data_node now links the
+    # carrier to the scene root collection for the write and unlinks it right after
+    # (deferred restore).
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    cc_cube = bpy.context.active_object
+    cc_cube.name = "CarrierCollCube"
+    cc_carrier = DataNodes.ensure_export()
+    DataNodes.set_export_string("hidden_coll_probe", json.dumps({"v": 42}))
+    hid_coll = bpy.data.collections.new("CarrierHiddenColl")
+    bpy.context.scene.collection.children.link(hid_coll)
+    for c in list(cc_carrier.users_collection):
+        c.objects.unlink(cc_carrier)
+    hid_coll.objects.link(cc_carrier)
+    bpy.context.view_layer.layer_collection.children["CarrierHiddenColl"].exclude = True
+
+    exp_cc = SceneExporter()
+    result = exp_cc.perform_export(
+        export_dir=out_dir,
+        objects=[cc_cube],
+        output_name="carrier_coll_test",
+        export_visible=True,
+        tasks={"export_data_node": True},
+    )
+    cc_file = os.path.join(out_dir, "carrier_coll_test.fbx")
+    check(
+        "perform_export succeeds with the carrier in an excluded collection",
+        result is True and os.path.isfile(cc_file),
+        f"result={result}",
+    )
+    check(
+        "the transient root-collection link is removed after run_deferred_restores",
+        cc_carrier.name not in bpy.context.scene.collection.objects
+        and cc_carrier.name in hid_coll.objects,
+        f"root={list(bpy.context.scene.collection.objects.keys())}",
+    )
+    reset_scene()
+    cc_imported = FbxUtils.import_fbx(cc_file, use_custom_props=True)
+    cc_imp_carrier = next(
+        (o for o in cc_imported if o.name.startswith(DataNodes.EXPORT)), None
+    )
+    check(
+        "the carrier from the excluded collection ships in the FBX with its channel",
+        cc_imp_carrier is not None
+        and cc_imp_carrier.get("hidden_coll_probe") == json.dumps({"v": 42}),
+        f"imported={[o.name for o in cc_imported]}",
     )
 
     shutil.rmtree(tmp, ignore_errors=True)

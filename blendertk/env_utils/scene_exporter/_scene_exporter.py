@@ -243,6 +243,16 @@ class SceneExporter(ptk.LoggingMixin):
             if tasks:
                 tasks_successful = self.task_manager.run_tasks(tasks)
                 if not tasks_successful:
+                    # Checks run AFTER tasks, and tasks mutate the scene with
+                    # no automatic rollback — a blocked export must say so
+                    # instead of leaving the mutation silent. (The smart_bake
+                    # session IS restored, in the finally below.)
+                    self.logger.warning(
+                        "Export blocked by failed checks, but export tasks "
+                        "already ran — task edits (material cleanup, key "
+                        "snapping/tying, texture path rewrites, …) remain in "
+                        "the scene. Undo or revert if that is not what you want."
+                    )
                     return False
 
             if export_visible:
@@ -261,6 +271,13 @@ class SceneExporter(ptk.LoggingMixin):
                 ]
                 export_objects = list(current) + extras
 
+            # The FBX funnel is selection-based (use_selection + select_set) and
+            # can only ship selectable, visible objects — pre-filter here with a
+            # visible INFO log so the funnel's own dropped-object WARNING stays a
+            # backstop, not the primary signal. check_hidden_geometry (default
+            # on) remains the gate that FAILS the export over hidden meshes.
+            export_objects = self._filter_exportable(export_objects)
+
             if not export_objects:
                 self.logger.error("No objects to export.")
                 return False
@@ -270,11 +287,66 @@ class SceneExporter(ptk.LoggingMixin):
             )
         finally:
             self.task_manager.run_deferred_restores()
+            # Restore the pre-bake scene state recorded by smart_bake's session
+            # manifest (swap the original actions back, unmute constraints and
+            # drivers) — mirror of mayatk's finally-block restore.  Without
+            # this, every export with Smart Bake on permanently muted the
+            # user's constraint/driver network and left the baked Action in
+            # place, despite the task's "restorable" contract.
+            _session = getattr(self.task_manager, "_bake_session_id", None)
+            if _session:
+                try:
+                    from blendertk.anim_utils.smart_bake._smart_bake import (
+                        SmartBake,
+                    )
+
+                    restore = SmartBake.restore(_session)
+                    if restore.success:
+                        self.logger.info(
+                            f"Restored pre-bake scene state (session '{_session}')."
+                        )
+                    else:
+                        # The session stays in the manifest until a restore
+                        # completes, so a manual retry is possible.
+                        self.logger.warning(
+                            f"SmartBake restore failed for session '{_session}' "
+                            "— constraints/drivers may still be muted; retry "
+                            f"with SmartBake.restore('{_session}')."
+                        )
+                except Exception as e:
+                    # Never mask an export exception from inside finally.
+                    self.logger.error(f"SmartBake restore failed: {e}")
+                self.task_manager._bake_session_id = None
             # Closed here rather than around the write: a failed check or an
             # aborted task returns before the write and used to leak the handler
             # (and with it the open .log file).
             if self.create_log_file:
                 self.close_file_handlers()
+
+    def _filter_exportable(self, objects: List) -> List:
+        """Drop objects the selection-based FBX funnel cannot ship — hidden,
+        selection-locked (``hide_select``), or outside the active view layer (an
+        excluded collection makes ``select_set`` raise). Mirrors the
+        ``exclude_hdr``/``ignore_groups`` pattern: the exclusion is logged (INFO,
+        naming what was dropped) rather than silent. ``check_hidden_geometry`` is
+        what *fails* an export over hidden meshes; this filter keeps the write
+        honest when that check is off or the members aren't meshes."""
+        exportable, dropped = [], []
+        for o in objects:
+            try:
+                ok = (not getattr(o, "hide_select", False)) and o.visible_get()
+            except RuntimeError:  # not in the active view layer
+                ok = False
+            (exportable if ok else dropped).append(o)
+        if dropped:
+            shown = ", ".join(o.name for o in dropped[:10]) + (
+                " …" if len(dropped) > 10 else ""
+            )
+            self.logger.info(
+                f"Excluding {len(dropped)} hidden/unselectable object(s) the "
+                f"selection-based FBX funnel cannot ship: {shown}"
+            )
+        return exportable
 
     def _write_export(
         self,
@@ -307,11 +379,6 @@ class SceneExporter(ptk.LoggingMixin):
             )
             export_succeeded = True
 
-            # Write the scene-data sidecar (hierarchy baseline + data_export
-            # snapshot). Keyed off the logical export path (output dir + stem),
-            # independent of where the FBX was actually written.
-            self._write_scene_data_sidecar(export_objects)
-
             deliverable_path = self.export_path
             if glb_only:
                 glb_path = self._create_glb(fbx_path=fbx_write_path, announce=False)
@@ -324,6 +391,16 @@ class SceneExporter(ptk.LoggingMixin):
                 deliverable_path = os.path.splitext(self.export_path)[0] + ".glb"
                 shutil.move(glb_path, deliverable_path)
                 self.logger.success(f"GLB created: {deliverable_path}")
+
+            # Write the scene-data sidecar (hierarchy baseline + data_export
+            # snapshot) only now that the deliverable is confirmed on disk —
+            # in glb-only mode the FBX is a temp intermediate, and writing the
+            # sidecar before the FBX→GLB conversion rolled the hierarchy-diff
+            # baseline forward on a failed conversion that produced no
+            # deliverable at all (same ordering bug mayatk had). Keyed off the
+            # logical export path (output dir + stem), independent of where
+            # the FBX was actually written.
+            self._write_scene_data_sidecar(export_objects)
 
             elapsed = time.time() - start_time
             export_info_lines = [

@@ -78,6 +78,16 @@ try:
     Naming.rename([o], "Box", retain_suffix=True, valid_suffixes=["_GEO"])
     check("rename retain_suffix", o.name == "Box_GEO", o.name)
 
+    # ---- rename: strip collapses separator residue (mayatk parity) ----------------------------
+    reset()
+    o = empty("vdat__uninst_tmp__uninst_tmpShape702")
+    Naming.rename([o], "", fltr="*uninst_tmp*")
+    check("rename strip collapses residue", o.name == "vdat_Shape702", o.name)
+    reset()
+    o = empty("PlainCube")
+    Naming.rename([o], "foo__bar")
+    check("rename explicit __ preserved", o.name == "foo__bar", o.name)
+
     # ---- set_case -----------------------------------------------------------------------------
     reset()
     o = empty("cube")

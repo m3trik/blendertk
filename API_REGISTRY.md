@@ -178,8 +178,10 @@ _Generated: 2026-08-01_
 
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
-- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L315)** — Namespace mirror (helpers also exposed module-level).
+- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L349)** — Namespace mirror (helpers also exposed module-level).
   - `AnimUtils.get_fcurves(objects)` *(static)* — All fcurves across the given objects' actions (slot-aware;
+  - `AnimUtils.get_animated_extent(objects)` *(static)* — ``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.
+  - `AnimUtils.has_nla_or_data_animation(objects)` *(static)* — True when *objects* carry animation :meth:`get_fcurves` cannot see:
   - `AnimUtils.scene_has_animation()` *(static)* — True if the blend file contains any action carrying fcurves (keyed motion).
   - `AnimUtils.set_current_frame(time=None, update=True, relative=False, snap_mode=None, invert_snap=False)` *(static)* — Set the scene's current frame, with optional relative offset and clean-number snapping —
   - `AnimUtils.shift_keys(objects, offset)` *(static)* — Shift every key of the given objects by ``offset`` frames.
@@ -1109,7 +1111,7 @@ Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 
 - **[`class Naming(ptk.HelpMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L23)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
-  - `Naming.rename(cls, objects, to, fltr='', regex=False, ignore_case=False, retain_suffix=False, valid_suffixes=None)` *(class)* — Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
+  - `Naming.rename(cls, objects, to, fltr='', regex=False, ignore_case=False, retain_suffix=False, valid_suffixes=None, collapse_padding=True)` *(class)* — Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
   - `Naming.generate_unique_name(cls, base_name, suffix='_', padding=3)` *(class)* — A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of
   - `Naming.strip_illegal_chars(input_data, replace_with='_')` *(static)* — Replace characters outside ``[A-Za-z0-9_]`` (engine-export-safe naming).
   - `Naming.strip_chars(cls, objects, num_chars=1, trailing=False)` *(class)* — Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —
@@ -1249,10 +1251,11 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L77)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
-  - `FbxUtils.export(filepath=None, objects=None, selection_only=True, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L80)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+  - `FbxUtils.run_export_preparers() -> None` *(static)* — Refresh every known producer's ``data_export`` channel once, right now.
+  - `FbxUtils.export(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
   - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
-  - `FbxUtils.export_selection_fbx(filepath=None, objects=None, **fbx_opts)` *(static)* — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
+  - `FbxUtils.export_selection_fbx(filepath=None, objects=None, strict=False, **fbx_opts)` *(static)* — Export the selection (or ``objects``) to an FBX file for an external-app hand-off.
 
 <a id="env_utils--handoff_export"></a>
 ### `env_utils/handoff_export.py`
@@ -1561,11 +1564,37 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L786)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L940)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
   - `TaskManager.definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return all definitions combined for backward compatibility.
+  - `TaskManager.set_linear_unit(self, value)` — Set the scene's unit system + scale for the duration of the export.
+  - `TaskManager.exclude_hdr(self, enabled)` — No-op by design: Blender's World/Environment-Texture network is not a scene object
+  - `TaskManager.ignore_groups(self, value)` — Remove objects under any top-level object named in the comma-separated ``value``
+  - `TaskManager.reassign_duplicate_materials(self)` — Reassign every object using a duplicate material to the group's canonical material.
+  - `TaskManager.convert_to_relative_paths(self)` — Copy external textures into the project's textures folder, then convert their paths
+  - `TaskManager.resolve_invalid_texture_paths(self)` — Attempt to resolve missing texture paths by searching the .blend's directory.
+  - `TaskManager.smart_bake(self)` — Pre-bake constrained/driven objects before export.
+  - `TaskManager.optimize_keys(self)` — Remove redundant animation keys from all exported objects.
+  - `TaskManager.tie_all_keyframes(self)` — Tie (bookend) keyframes at the union keyed extent across all exported objects.
+  - `TaskManager.snap_keys_to_frame(self)` — Snap all keyframes to the nearest whole frame.
+  - `TaskManager.set_bake_animation_range(self)` — Set the scene's playback range to the exported objects' keyframe extent.
+  - `TaskManager.export_data_node(self)` — Include the shared ``data_export`` carrier in the export (default on).
+  - `TaskManager.check_framerate(self, target_key) -> tuple`
+  - `TaskManager.check_referenced_objects(self, enabled) -> tuple`
+  - `TaskManager.check_geometry_lod_suffix(self, enabled) -> tuple` — Informational only -- always succeeds (mirrors mayatk's contract).
+  - `TaskManager.check_duplicate_locator_names(self, enabled) -> tuple` — Empties sharing a base name once Blender's auto ``.001``-style suffix is stripped --
+  - `TaskManager.check_root_default_transforms(self, enabled) -> tuple` — Root groups (an Empty with children) should sit at identity transform.
+  - `TaskManager.check_hidden_geometry(self, enabled) -> tuple`
+  - `TaskManager.check_overlapping_duplicate_mesh(self, enabled) -> tuple`
+  - `TaskManager.check_objects_below_floor(self, enabled, tolerance: float = 0.5) -> tuple` — Blender is Z-up natively (Maya's version checks Y).
+  - `TaskManager.check_duplicate_materials(self, enabled) -> tuple`
+  - `TaskManager.check_absolute_paths(self, enabled) -> tuple` — Export textures store ``//``-relative paths.
+  - `TaskManager.check_valid_paths(self, enabled) -> tuple` — Every export texture and every linked library resolves on disk.
+  - `TaskManager.check_texture_file_size(self, max_mb) -> tuple` — No export texture exceeds ``max_mb`` on disk.
+  - `TaskManager.check_untied_keyframes(self, enabled) -> tuple` — Verify every animated channel has a bookend key at its object's own keyed extent
+  - `TaskManager.check_floating_point_keys(self, enabled) -> tuple` — Detect keyframes that don't sit on a whole frame.
 
 <a id="env_utils--script_output"></a>
 ### `env_utils/script_output.py`
@@ -1694,11 +1723,12 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.bake_separated(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]` — Bake a **lighting-only** irradiance lightmap per object (the default path).
   - `LightmapBaker.commit_lightmap(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]` — Record a lighting-only bake for the engine (changes nothing about the material/UVs).
   - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap') -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
+  - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any atlas UV remap, drop the markers, republish.
   - `LightmapBaker.commit_unlit(self, mapping: Dict[str, str]) -> Dict[str, str]` — Make the fused bake each object's live appearance (non-destructive).
   - `LightmapBaker.revert_unlit(self, objects=None) -> List[str]` — Undo :meth:`commit_unlit` -- restore the source material slots + drop the marker.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo any lightmap wiring -- fused commit and/or lighting-only marker.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L873)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L884)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
@@ -1716,9 +1746,9 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L311)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L589)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L506)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L784)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -1734,8 +1764,8 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.get_mat_info(materials=None, objects=None, optimize_check=False, progress_callback=None, exclude_defaults=False, exclude_unassigned=False, include_textures=True, include_image_metadata=True, **optimize_kwargs)` *(static)* — Aggregate per-material info (name, type, textures + image metadata) — mirror of
   - `MatUtils.format_mat_info_html(records)` *(static)* — Render :func:`get_mat_info` output as styled HTML (delegates to ``pythontk.MatReport``).
   - `MatUtils.format_texture_info_html(info_list)` *(static)* — Render :func:`get_texture_info` output as styled HTML (delegates to ``pythontk.MatReport``).
-  - `MatUtils.find_materials_with_duplicate_textures(materials=None)` *(static)* — Groups of materials that reference the *same* set of texture files — mirror of
-  - `MatUtils.reassign_duplicate_materials(duplicate_groups, delete=True)` *(static)* — Reassign every object using a duplicate to the group's first (canonical) material, then
+  - `MatUtils.find_materials_with_duplicate_textures(materials=None, strict=False, verify=True)` *(static)* — Groups of materials that are texture-level duplicates — mirror of
+  - `MatUtils.reassign_duplicate_materials(duplicate_groups, delete=True, verify=True)` *(static)* — Reassign every object using a duplicate to the group's first (canonical) material, then
   - `MatUtils.delete_unused_materials()` *(static)* — Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.
   - `MatUtils.graph_materials(materials, mode=None)` *(static)* — Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's
   - `MatUtils.get_image_records()` *(static)* — Every FILE-backed image datablock as a record for the Texture Path Editor:

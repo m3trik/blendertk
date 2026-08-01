@@ -58,6 +58,8 @@ class DataNodes:
             obj[key] = value
         elif key in obj.keys():
             obj[key] = ""
+        else:
+            return None  # carrier exists, but no such key — nothing to clear
         return obj.name
 
     @staticmethod

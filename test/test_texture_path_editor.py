@@ -113,6 +113,39 @@ try:
     n = btk.normalize_texture_paths("absolute")
     check("normalize_texture_paths(absolute) runs", isinstance(n, int))
 
+    # 8. _abspath is LIBRARY-aware — an image linked from a library .blend stores its
+    # ``//`` path relative to the LIBRARY file, not the current .blend, so resolving it
+    # without ``library=img.library`` yields a wrong path (false "missing" in
+    # check_valid_paths / get_image_records, wrong duplicate fingerprints).
+    # Build a library .blend whose image uses a library-relative path, then link it
+    # into a fresh UNSAVED main file (the worst case: '//' has nothing local to
+    # resolve against). NOTE: this check re-reads factory settings, so it must stay LAST.
+    lib_dir = os.path.join(tmp, "lib")
+    lib_tex = write_png(os.path.join(lib_dir, "textures", "lib_tex.png"), name="libgen")
+    lib_img = bpy.data.images.load(lib_tex)
+    lib_img.name = "LibLinkedTex"
+    lib_img.use_fake_user = True  # zero users — must survive the library save
+    lib_blend = os.path.join(lib_dir, "lib.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=lib_blend)
+    lib_img.filepath = "//textures/lib_tex.png"  # canonical library-relative form
+    bpy.ops.wm.save_mainfile()
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    with bpy.data.libraries.load(lib_blend, link=True) as (_from, _to):
+        _to.images = ["LibLinkedTex"]
+    linked = next((i for i in bpy.data.images if i.library), None)
+    check("image links from the library with a //-relative path",
+          linked is not None and (linked.filepath or "").startswith("//"),
+          f"{(linked and linked.filepath)!r}")
+    resolved = _abspath(linked) if linked else ""
+    check("_abspath resolves a LINKED image against its LIBRARY, not the open .blend",
+          bool(resolved) and os.path.normpath(resolved) == os.path.normpath(lib_tex)
+          and os.path.exists(resolved),
+          f"resolved={resolved!r} expected={lib_tex!r}")
+    rec = next((r for r in btk.get_image_records() if r["image"] is linked), None)
+    check("get_image_records marks the linked texture as existing on disk",
+          bool(rec and rec["exists"]), f"{rec}")
+
 except Exception as e:
     traceback.print_exc()
     check("test raised", False, repr(e))
