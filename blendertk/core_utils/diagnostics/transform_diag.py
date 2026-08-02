@@ -20,6 +20,7 @@ analogue of Maya's freeze. ``import bpy`` is deferred into the call body.
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.xform_utils._xform_utils import XformUtils
 
 
 class _TransformDiagnosticsInternal(object):
@@ -213,6 +214,13 @@ class TransformDiagnostics(_TransformDiagnosticsInternal):
                 bpy.ops.object.select_all(action="DESELECT")
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
+                # Both ops below rewrite the local transform without going
+                # through freeze_transforms, so they carry no store step of
+                # their own — stamp the bake history here to keep the
+                # freeze/unfreeze contract intact, exactly as the mayatk twin
+                # does. Unlike Maya's rotate/scale-only freeze these write the
+                # WHOLE local transform, so all three channels are recorded.
+                XformUtils.store_transforms(obj)
                 if obj.parent is not None:
                     # decompose world -> Loc·Rot·Scale (drops shear), keep visual transform
                     bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")

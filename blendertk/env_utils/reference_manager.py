@@ -878,12 +878,15 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
     def _confirm_discard_unsaved(self, verb="open"):
         """True if it's OK to replace the current scene — no unsaved changes, or the user
-        confirmed discarding them. .venv-safe: without bpy there is nothing to lose."""
+        confirmed discarding them. .venv-safe: without bpy there is nothing to lose.
+
+        Asks the engine rather than reading ``bpy.data.is_dirty`` directly: the flag follows the
+        undo stack, so one viewport click marks a brand-new empty scene dirty and this prompt
+        fired with nothing to lose (see ``btk.scene_has_unsaved_changes``).
+        """
         if not self._has_bpy():
             return True
-        import bpy
-
-        if not getattr(bpy.data, "is_dirty", False):
+        if not btk.scene_has_unsaved_changes():
             return True
         return (
             self.sb.message_box(

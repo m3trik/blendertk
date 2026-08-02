@@ -79,6 +79,23 @@ try:
         "unified template exposes both scene-behavior options",
         "__FRAME_VIEW__" in import_txt and "__CLEAR_SCENE__" in import_txt,
     )
+    # Post-import repairs (regressions: sent hierarchies arrived as locators; real
+    # production materials arrived gray). The Maya-side execution is pinned by
+    # mayatk's suite + live probe; here we pin the template's wiring.
+    check(
+        "import template: parent Empties -> plain groups (locator strip)",
+        "restore_empty_groups" in import_txt and "exactType=\"locator\"" in import_txt,
+    )
+    check(
+        "import template: manifest rebuild through mayatk's paired applier",
+        "_apply_texture_manifest" in import_txt
+        and ".manifest.json" in import_txt
+        and "keeping the FBX-carried materials" in import_txt,
+    )
+    check(
+        "import template: deterministic import (reset + add mode, new-node diff)",
+        "FBXResetImport" in import_txt and "returnNewNodes=True" in import_txt,
+    )
 
     # ---- MEL command builder (Qt-free) --------------------------------------
     mel = MayaBridge._build_mel_command(r"C:\tmp\btk_to_maya.py")
@@ -159,6 +176,101 @@ try:
         )
     finally:
         btk.FbxUtils.export_selection_fbx = orig_export
+
+    # ---- texture-manifest sidecar (bpy; the send half of the materials fix) --
+    reset()
+    tex_path = os.path.join(tempfile.gettempdir(), "btk_mb_BaseColor.png")
+    img = bpy.data.images.new("btk_mb_BaseColor", 8, 8)
+    img.filepath_raw = tex_path
+    img.file_format = "PNG"
+    img.save()
+
+    # Textured mat: image routed through a Mix node — the case Blender's FBX
+    # exporter carries NOTHING for (only near-direct socket wiring rides).
+    mat = bpy.data.materials.new("MB_textured")
+    mat.use_nodes = True
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    tex_node = mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex_node.image = bpy.data.images.load(tex_path)
+    mix = mat.node_tree.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mat.node_tree.links.new(tex_node.outputs["Color"], mix.inputs["A"])
+    mat.node_tree.links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    # Packed-only image (no file on disk) -> file-less entry, named warning Maya-side.
+    packed = bpy.data.materials.new("MB_packed")
+    packed.use_nodes = True
+    packed_tex = packed.node_tree.nodes.new("ShaderNodeTexImage")
+    packed_tex.image = bpy.data.images.new("MB_generated", 4, 4)
+    # Untextured mat: flat colors ride the FBX fine -> no entry, but listed in
+    # scene_materials (the rename-on-clash guard).
+    flat = bpy.data.materials.new("MB_flat")
+
+    bpy.ops.mesh.primitive_cube_add()
+    cube_a = bpy.context.active_object
+    cube_a.data.materials.append(mat)
+    bpy.ops.mesh.primitive_cube_add()
+    cube_b = bpy.context.active_object
+    cube_b.data.materials.append(mat)  # shared datablock -> ONE entry, two objects
+    cube_b.data.materials.append(packed)
+    cube_b.data.materials.append(flat)
+
+    manifest_fbx = os.path.join(tempfile.gettempdir(), "btk_mb_manifest.fbx")
+    manifest_path = manifest_fbx + ".manifest.json"
+    if os.path.isfile(manifest_path):
+        os.remove(manifest_path)
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_texture_manifest(
+        [cube_a, cube_b], manifest_fbx
+    )
+    import json
+
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    entries = {e["name"]: e for e in manifest["materials"]}
+    check(
+        "manifest: one entry per textured material (flat skipped)",
+        set(entries) == {"MB_textured", "MB_packed"},
+        f"{sorted(entries)}",
+    )
+    check(
+        "manifest: shared material merges both user objects",
+        sorted(entries["MB_textured"]["objects"]) == sorted([cube_a.name, cube_b.name])
+        and entries["MB_textured"]["files"] == [os.path.abspath(tex_path)],
+        f"{entries['MB_textured']}",
+    )
+    check(
+        "manifest: packed-only image -> file-less entry (named warning, not silence)",
+        entries["MB_packed"]["files"] == [],
+    )
+    check(
+        "manifest: scene_materials lists the untextured sibling (clash guard)",
+        "MB_flat" in manifest["scene_materials"],
+        f"{manifest['scene_materials']}",
+    )
+    os.remove(manifest_path)
+    os.remove(tex_path)
+
+    # ---- launch env: Blender-private OCIO stripped, foreign inherited --------
+    blender_root = os.path.dirname(bpy.app.binary_path)
+    bundled = os.path.join(blender_root, "dummy", "config.ocio")
+    prior = os.environ.pop("OCIO", None)
+    try:
+        os.environ["OCIO"] = bundled
+        env = MayaBridge._launch_env()
+        check(
+            "launch env: OCIO inside Blender's install is stripped",
+            env is not None and "OCIO" not in env,
+        )
+        os.environ["OCIO"] = os.path.join(tempfile.gettempdir(), "studio.ocio")
+        check(
+            "launch env: foreign OCIO -> inherit unchanged (None)",
+            MayaBridge._launch_env() is None,
+        )
+        del os.environ["OCIO"]
+        check("launch env: no OCIO -> inherit unchanged (None)", MayaBridge._launch_env() is None)
+    finally:
+        os.environ.pop("OCIO", None)
+        if prior is not None:
+            os.environ["OCIO"] = prior
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

@@ -240,6 +240,35 @@ try:
     check("break_connections fixes constrained object", constrained in broke2)
     check("constraint removed", len(constrained.constraints) == 0)
 
+    # ---- the fix must stamp bake history (mayatk parity: its twin stores too).
+    # parent_clear / visual_transform_apply rewrite the local transform without
+    # going through freeze_transforms, so without an explicit stamp an axis fix
+    # is irreversible.
+    import blendertk as btk
+
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.object.empty_add(location=(0, 0, 0))
+    parent = bpy.context.active_object
+    parent.scale = (2.0, 1.0, 1.0)
+    parent.rotation_euler = (0.0, 0.0, 0.7)
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    child = bpy.context.active_object
+    child.parent = parent
+    child.rotation_euler = (0.0, 0.0, 0.4)
+    bpy.context.view_layer.update()
+
+    check(
+        "sheared child detected",
+        child in TransformDiagnostics.get_non_orthogonal([child]),
+    )
+    TransformDiagnostics.fix_non_orthogonal_axes([child])
+    check(
+        "axis fix stamps bake history",
+        btk.XformUtils.get_stored_transforms(child) is not None,
+        "un-freeze cannot reverse an unstamped axis fix",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

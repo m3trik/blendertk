@@ -47,8 +47,17 @@ class BlenderExportMixin:
         """Blender ``export_scene.fbx`` options derived from the bridge params.
 
         Bridges that need a different surface override this.
+
+        ``object_types`` widens ``fbx_utils._EXPORT_DEFAULTS`` for the DCC-to-DCC hand-off:
+        Blender's exporter drops every excluded type and re-roots its children, so the set
+        must cover everything whose absence is SILENT loss on the far side — ``EMPTY``
+        (the scene graph; Maya groups), ``ARMATURE`` (skin deformation — the mirror of
+        mayatk's ``FBXExportSkins``), ``OTHER`` (curve / text / metaball geometry, which
+        the exporter meshes on the way out). Cameras and lights stay out: the hand-off
+        ships assets, and the far side has its own.
         """
         return dict(
+            object_types={"MESH", "EMPTY", "ARMATURE", "OTHER"},
             embed_textures=bool(params.get("EMBED_TEXTURES", True)),
             path_mode=("COPY" if params.get("EMBED_TEXTURES", True) else "AUTO"),
             use_triangles=bool(params.get("TRIANGULATE", False)),

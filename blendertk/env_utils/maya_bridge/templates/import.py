@@ -8,13 +8,33 @@ The single Maya-side recipe for the bridge. Two booleans pick the variant the ar
 - ``CLEAR_SCENE`` -- open a new (empty) Maya scene first (clean-slate hand-off).
 - ``FRAME_VIEW``  -- after import, select the new top-level objects and frame them (viewFit).
 
-With both off this is a plain additive import into the current scene; both on clears then frames."""
+With both off this is a plain additive import into the current scene; both on clears then frames.
+
+Post-import repairs (both best-effort -- a repair must never cost the user the import):
+
+- **Parent Empties -> plain groups.** Blender Empties travel as FBX nulls and Maya's importer
+  gives every null a locator shape, so a sent group hierarchy arrived as locators (live
+  production report). An Empty WITH children is a Maya group (locator shape dropped); a
+  childless Empty stays a locator (it marks a point). Dependency-free copy, kept in step by
+  hand with ``mayatk.BlenderSceneImport._restore_empty_groups`` (the pull direction's engine).
+- **Native material rebuild.** Blender's FBX exporter only carries images wired (almost)
+  directly into Principled sockets -- packed ORM/MSAO through SeparateColor, AO multiplies and
+  node-group plumbing export as NOTHING, so real production materials arrived gray. MayaBridge
+  now writes the same ``.manifest.json`` sidecar the pull direction uses (each material's
+  ORIGINAL image files), and this script replays it through the ONE existing applier,
+  ``mayatk.BlenderSceneImport._apply_texture_manifest`` (the established template->paired-engine
+  contract; see both ``_bake_scene.py`` templates). Without mayatk on the target Maya the FBX's
+  classic-model materials are kept, with a console line saying so.
+"""
 
 # Bridge metadata -- consumed by MayaBridge before substitution.
 BRIDGE_MODES = ("send_to",)
 
 # Export settings applied Blender-side before launch (read by MayaBridge; echoed here so the panel
 # exposes them): materials=__INCLUDE_MATERIALS__ embed_textures=__EMBED_TEXTURES__ apply_unit_scale=__APPLY_UNIT_SCALE__ include_animation=__INCLUDE_ANIMATION__ triangulate=__TRIANGULATE__
+import os
+import traceback
+
 import maya.cmds as cmds
 import maya.mel as mel
 
@@ -23,21 +43,85 @@ CLEAR_SCENE = __CLEAR_SCENE__
 FRAME_VIEW = __FRAME_VIEW__
 
 
+def import_fbx():
+    """Import the payload deterministically; return the nodes it created.
+
+    The FBX plugin's import options are global and sticky (the user's last
+    interactive import shapes this one), and the factory "merge" mode can
+    RETARGET animation onto same-named nodes already in the scene -- reset,
+    then pin "add". Mirror of the pull engine's ``_import_fbx``; best-effort
+    per command so a plugin build missing one can't block the import.
+    """
+    for command in ("FBXResetImport", 'FBXImportMode -v add'):
+        try:
+            mel.eval(command)
+        except Exception:
+            print("FBX import option skipped (unsupported by this plugin): " + command)
+    return (
+        cmds.file(FBX_PATH, i=True, type="FBX", ignoreVersion=True, returnNewNodes=True)
+        or []
+    )
+
+
+def restore_empty_groups(new_nodes):
+    """Drop the locator shape from every imported parent Empty (see module docstring).
+
+    Scoped to *new_nodes* so a pre-existing user locator is never touched; skips
+    transforms with any non-locator shape. Kept in step by hand with
+    ``mayatk.BlenderSceneImport._restore_empty_groups``.
+    """
+    for shape in cmds.ls(new_nodes, exactType="locator", long=True) or []:
+        transform = (cmds.listRelatives(shape, parent=True, fullPath=True) or [None])[0]
+        if not transform:
+            continue
+        shapes = cmds.listRelatives(transform, shapes=True, fullPath=True) or []
+        if len(shapes) != 1:
+            continue
+        if cmds.listRelatives(transform, children=True, type="transform", fullPath=True):
+            cmds.delete(shape)
+
+
+def rebuild_materials(new_nodes):
+    """Replay the sidecar manifest through mayatk's applier (see module docstring)."""
+    manifest = FBX_PATH + ".manifest.json"
+    if not os.path.isfile(manifest):
+        return
+    try:
+        from mayatk.env_utils.blender_bridge._scene_import import BlenderSceneImport
+    except Exception as error:
+        print(
+            "mayatk unavailable ({}); keeping the FBX-carried materials.".format(error)
+        )
+        return
+    try:
+        BlenderSceneImport(log_level="WARNING")._apply_texture_manifest(
+            manifest, new_nodes
+        )
+    except Exception:
+        print("Texture-manifest rebuild failed; keeping FBX materials:")
+        traceback.print_exc()
+
+
 def main():
     if CLEAR_SCENE:
         cmds.file(new=True, force=True)
     if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
         cmds.loadPlugin("fbxmaya")
 
-    before = set(cmds.ls(assemblies=True) or [])
-    mel.eval('FBXImport -f "{}"'.format(FBX_PATH))
+    new_nodes = import_fbx()
+    restore_empty_groups(new_nodes)
+    rebuild_materials(new_nodes)
 
     if not FRAME_VIEW:
         return
 
-    new = [n for n in (cmds.ls(assemblies=True) or []) if n not in before]
-    if new:
-        cmds.select(new, replace=True)
+    tops = [
+        n
+        for n in (cmds.ls(new_nodes, assemblies=True) or [])
+        if cmds.objExists(n)
+    ]
+    if tops:
+        cmds.select(tops, replace=True)
     try:
         cmds.viewFit()
     except Exception:

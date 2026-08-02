@@ -342,6 +342,46 @@ try:
     check("failing prepare_operation aborts the enable", not chk.isChecked())
     check("failing prepare_operation prevents the operation", boom.ran == 0, f"n={boom.ran}")
 
+    # ---- restore_func: called once when a rollback DISCARDS the preview
+    #      (un-check / failure), never on enable/refresh/commit — the hook for
+    #      out-of-snapshot state (shared-carrier props, files on disk).
+    restores = []
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)
+    pv.refresh()
+    check("restore_func not called on enable/refresh", not restores, f"n={len(restores)}")
+    chk.setChecked(False)
+    check("restore_func called once on discard", len(restores) == 1, f"n={len(restores)}")
+    chk.setChecked(False)  # already off — no rollback, no restore
+    check("restore_func not re-called when already off", len(restores) == 1, f"n={len(restores)}")
+
+    restores.clear()
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)
+    btn.click()  # commit keeps the result — nothing to restore
+    check("restore_func not called on commit", not restores, f"n={len(restores)}")
+
+    restores.clear()
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(FailerOp(), chk, btn,
+                     restore_func=lambda: restores.append(1),
+                     message_func=msgs.append)
+    chk.setChecked(True)  # op raises -> self-disable path
+    check("restore_func called on the failure-disable path", len(restores) == 1,
+          f"n={len(restores)}")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

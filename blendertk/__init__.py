@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.45"
+__version__ = "0.5.48"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -196,6 +196,11 @@ DEFAULT_INCLUDE = {
     # discovered by BlenderUiHandler, not registered). Mirror of mayatk's
     # ``mat_utils.emissive_groups``.
     "mat_utils.emissive_groups": ["EmissiveGroups"],
+    # Game Shader — the workflow-profile / map-pipeline / reporting layer around
+    # ``MatUtils.create_pbr_material`` (``GameShaderSlots`` panel discovered by the handler, not
+    # registered). Mirror of mayatk's ``mat_utils.game_shader`` (``btk.GameShader`` ↔
+    # ``mtk.GameShader``, both exposing ``create_network``).
+    "mat_utils.game_shader": ["GameShader"],
     # Marmoset Bridge — mirror of mayatk's ``mat_utils.marmoset_bridge._marmoset_bridge``
     # (``MarmosetBridgeSlots`` panel discovered by the handler, not registered).
     "mat_utils.marmoset_bridge._marmoset_bridge": [

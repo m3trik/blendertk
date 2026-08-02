@@ -78,6 +78,73 @@ try:
           sum(1 for o in created_all if o.type == "MESH") == 2,
           f"{[o.name for o in created_all]}")
 
+    # ---- the default export set preserves PARENTING -------------------------
+    # Regression: ``_EXPORT_DEFAULTS`` pinned ``object_types={"MESH"}``, and Blender's FBX
+    # exporter drops every excluded type and RE-ROOTS its children — so every bridge
+    # hand-off (Maya / Unity) arrived with the scene graph flattened to parentless meshes.
+    reset()
+    grp = bpy.data.objects.new("HierGrp", None)  # EMPTY == Maya group
+    sub = bpy.data.objects.new("HierSub", None)
+    for empty in (grp, sub):
+        bpy.context.scene.collection.objects.link(empty)
+    sub.parent = grp
+    bpy.ops.mesh.primitive_cube_add()
+    leaf = bpy.context.active_object
+    leaf.name = "HierLeaf"
+    leaf.parent = sub
+
+    hier_out = os.path.join(tmp, "hierarchy.fbx")
+    FbxUtils.export(filepath=hier_out, objects=[grp, sub, leaf])
+    reset()
+    FbxUtils.import_fbx(hier_out)
+    parents = {o.name: (o.parent.name if o.parent else None) for o in bpy.data.objects}
+    check(
+        "default export set carries the Empties (hierarchy) through the round trip",
+        parents.get("HierLeaf") == "HierSub" and parents.get("HierSub") == "HierGrp",
+        f"{parents}",
+    )
+
+    # The DCC hand-off (Maya + Unity bridges) widens that set: an armature dropped from a
+    # bridge FBX is silent skin loss on the far side (mirror of mayatk's FBXExportSkins).
+    # Driven through the mixin's real producer, not just its option dict — the set has to
+    # survive ``export_scene.fbx``'s enum validation AND carry the hierarchy.
+    from blendertk.env_utils.handoff_export import BlenderExportMixin
+
+    handoff_types = BlenderExportMixin()._fbx_options({}).get("object_types", set())
+    check(
+        "BlenderExportMixin hand-off options carry EMPTY + ARMATURE",
+        {"EMPTY", "ARMATURE"} <= set(handoff_types),
+        f"{sorted(handoff_types)}",
+    )
+
+    reset()
+    rig_grp = bpy.data.objects.new("RigGrp", None)
+    bpy.context.scene.collection.objects.link(rig_grp)
+    bpy.ops.object.armature_add()
+    arm = bpy.context.active_object
+    arm.name = "RigArm"
+    arm.parent = rig_grp
+    bpy.ops.mesh.primitive_cube_add()
+    skinned = bpy.context.active_object
+    skinned.name = "RigMesh"
+    skinned.parent = arm
+
+    handoff_out = os.path.join(tmp, "handoff.fbx")
+    BlenderExportMixin()._export_fbx(
+        [rig_grp, arm, skinned], handoff_out, {"EMBED_TEXTURES": False}
+    )
+    reset()
+    FbxUtils.import_fbx(handoff_out)
+    kinds = {o.name: o.type for o in bpy.data.objects}
+    hier = {o.name: (o.parent.name if o.parent else None) for o in bpy.data.objects}
+    check(
+        "hand-off export carries the armature and its hierarchy",
+        "ARMATURE" in kinds.values()
+        and hier.get("RigArm") == "RigGrp"
+        and hier.get("RigMesh") == "RigArm",
+        f"{kinds} {hier}",
+    )
+
     # ---- Scene Exporter contract: the exact kwargs the tentacle slot passes -
     # (object_types set incl. CAMERA/LIGHT/ARMATURE, use_tspace, embed/path_mode).
     reset()

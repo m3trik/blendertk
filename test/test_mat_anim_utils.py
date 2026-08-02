@@ -607,13 +607,26 @@ try:
           and qb.inputs["Roughness"].links[0].from_node.type == "INVERT"
           and qb.inputs["Base Color"].links[0].from_node.type == "MIX_RGB")
 
-    # Packed-map priority: ORM supersedes MSAO + Metallic_Smoothness (only ORM's image loads)
-    pmat = btk.create_pbr_material(
-        [gs_png("ORM"), gs_png("MaskMap"), gs_png("MetallicSmoothness")], name="GSPrio"
-    )
+    # Packed-map redundancy is decided by the SHARED ptk.MapFactory.filter_redundant_maps (the
+    # registry's precedence rules), NOT a local priority chain — so Blender and Maya can't drift.
+    # Per those rules MSAO supersedes Metallic_Smoothness, while ORM and MSAO are *different*
+    # channel layouts and neither supersedes the other. (The previous local chain here had ORM
+    # pop MSAO, which was a blendertk-only invention that diverged from mayatk.)
+    pfiles = [gs_png("ORM"), gs_png("MaskMap"), gs_png("MetallicSmoothness")]
+    pplan = btk.MatUtils.resolve_pbr_plan(pfiles)
+    check("packed redundancy follows the shared registry: MSAO supersedes MetallicSmoothness",
+          set(pplan["dropped"]) == {"Metallic_Smoothness"}
+          and set(pplan["by_type"]) == {"ORM", "MSAO"},
+          f"kept={sorted(pplan['by_type'])} dropped={sorted(pplan['dropped'])}")
+    pmat = btk.create_pbr_material(pfiles, name="GSPrio")
     n_imgs = sum(1 for n in pmat.node_tree.nodes if n.type == "TEX_IMAGE")
-    check("packed-map priority: ORM drops MSAO + MetallicSmoothness (1 image loaded)",
-          n_imgs == 1, f"images={n_imgs}")
+    check("packed redundancy: superseded MetallicSmoothness image is never loaded",
+          n_imgs == 2, f"images={n_imgs}")
+    # ORM and MSAO both carry an AO channel and both survive; the AO multiply must not stack
+    # (two chained MULTIPLY nodes would darken the albedo twice).
+    n_mix = sum(1 for n in pmat.node_tree.nodes if n.type == "MIX_RGB")
+    check("two surviving packed maps apply AO exactly once (no stacked MULTIPLY)",
+          n_mix == 1, f"mix_nodes={n_mix}")
 
     # Batch: a set of files spanning two texture sets -> two materials
     def gs_set_png(setname, mapname):
@@ -637,6 +650,126 @@ try:
 
     check("create_pbr_material no classifiable textures -> None",
           btk.create_pbr_material([os.path.join(gs_tmp, "random_noise.png")]) is None)
+
+    # ---- game shader: resolve_pbr_plan (shared conflict resolution) ----------
+    # The plan is the SSoT both create_pbr_material and GameShader's report read; the redundancy
+    # call is ptk.MapFactory.filter_redundant_maps, not a hardcoded priority chain.
+    noise = os.path.join(gs_tmp, "random_noise.png"); make_png(noise)
+    plan = btk.MatUtils.resolve_pbr_plan([gs_png("BaseColor"), gs_png("Normal"), noise])
+    check("resolve_pbr_plan returns the documented shape",
+          set(plan) == {"by_type", "dropped", "extracted", "unknown", "unhandled", "wired"},
+          f"{sorted(plan)}")
+    check("resolve_pbr_plan classifies known maps + collects unclassified ones",
+          set(plan["by_type"]) == {"Base_Color", "Normal"} and plan["unknown"] == [noise],
+          f"{sorted(plan['by_type'])} / {plan['unknown']}")
+
+    # A classified map with no Principled input is REPORTED (mayatk's "no matching slot" row),
+    # not silently dropped from the plan.
+    plan_un = btk.MatUtils.resolve_pbr_plan([gs_png("BaseColor"), gs_png("Thickness")])
+    check("resolve_pbr_plan flags a classified-but-unwirable map as unhandled",
+          set(plan_un["unhandled"]) == {"Thickness"}, f"{plan_un['unhandled']}")
+
+    # An MRAO supersedes loose Metallic/Roughness in the shared registry's precedence rules, so
+    # the wiring MUST consume it — otherwise the loose maps are dropped and nothing replaces them.
+    mr_files = [gs_png("BaseColor"), gs_png("MRAO"), gs_png("Metallic"), gs_png("Roughness")]
+    mr_plan = btk.MatUtils.resolve_pbr_plan(mr_files)
+    check("MRAO supersedes loose Metallic/Roughness (shared precedence rules)",
+          set(mr_plan["dropped"]) == {"Metallic", "Roughness"} and "MRAO" in mr_plan["by_type"],
+          f"kept={sorted(mr_plan['by_type'])} dropped={sorted(mr_plan['dropped'])}")
+    mrmat = btk.create_pbr_material(mr_files, name="GSMRAO")
+    mrb = next(n for n in mrmat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    check("MRAO is WIRED, so superseding the loose maps loses nothing",
+          mrb.inputs["Metallic"].is_linked and mrb.inputs["Roughness"].is_linked
+          and mrb.inputs["Metallic"].links[0].from_node.type == "SEPARATE_COLOR"
+          and mrb.inputs["Base Color"].links[0].from_node.type == "MIX_RGB",
+          f"metallic={mrb.inputs['Metallic'].is_linked} rough={mrb.inputs['Roughness'].is_linked}")
+
+    # A kept-but-shadowed map must NOT be reported as connected (the silent-drop guard):
+    # Height loses Normal to the real normal map, Glossiness loses Roughness to the real one.
+    sh_plan = btk.MatUtils.resolve_pbr_plan(
+        [gs_png("BaseColor"), gs_png("Normal"), gs_png("Height"),
+         gs_png("Roughness"), gs_png("Glossiness")])
+    btk.create_pbr_material([], name="GSShadow", plan=sh_plan)
+    check("create_pbr_material reports the map types it actually wired",
+          "wired" in sh_plan and {"Base_Color", "Normal", "Roughness"} <= sh_plan["wired"],
+          f"wired={sorted(sh_plan.get('wired', ()))}")
+    check("shadowed maps (Height under Normal, Glossiness under Roughness) are NOT 'wired'",
+          not ({"Height", "Glossiness"} & sh_plan["wired"])
+          and {"Height", "Glossiness"} <= set(sh_plan["by_type"]),
+          f"wired={sorted(sh_plan['wired'])}")
+
+    # An explicit direction tag in the FILENAME outranks the normal_direction argument: a
+    # Normal_OpenGL map must never be green-flipped just because the caller asked for DirectX.
+    def _normal_chain(mat):
+        b = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+        nm = b.inputs["Normal"].links[0].from_node
+        return nm.inputs["Color"].links[0].from_node.type
+
+    ogl = btk.create_pbr_material([gs_png("Normal_OpenGL")], name="GSNrmOGL",
+                                  normal_direction="DirectX")
+    check("explicit Normal_OpenGL is NOT flipped even when DirectX is requested",
+          _normal_chain(ogl) == "TEX_IMAGE", f"{_normal_chain(ogl)}")
+    dx = btk.create_pbr_material([gs_png("Normal_DirectX")], name="GSNrmDX",
+                                 normal_direction="OpenGL")
+    check("explicit Normal_DirectX IS flipped even when OpenGL is requested",
+          _normal_chain(dx) == "COMBINE_COLOR", f"{_normal_chain(dx)}")
+    amb = btk.create_pbr_material([gs_png("Normal")], name="GSNrmAmb",
+                                  normal_direction="DirectX")
+    check("ambiguous Normal follows the requested direction",
+          _normal_chain(amb) == "COMBINE_COLOR", f"{_normal_chain(amb)}")
+
+    # config=None keeps the legacy 'packed wins' direction the old hardcoded block had.
+    plan_pk = btk.MatUtils.resolve_pbr_plan(
+        [gs_png("ORM"), gs_png("Metallic"), gs_png("Roughness")])
+    check("resolve_pbr_plan config=None -> packed ORM supersedes its loose components",
+          set(plan_pk["by_type"]) == {"ORM"} and set(plan_pk["dropped"]) == {"Metallic", "Roughness"},
+          f"kept={sorted(plan_pk['by_type'])} dropped={sorted(plan_pk['dropped'])}")
+
+    # ---- game shader: GameShader.create_network (the mayatk-mirroring engine) -
+    gs = btk.GameShader()
+    prog = []
+    gs_files = [gs_png(m) for m in ("BaseColor", "Normal", "Roughness", "Metallic")]
+    gmat = gs.create_network(gs_files, name="GSNet",
+                            progress_callback=lambda p, m: prog.append(p))
+    check("GameShader.create_network builds one named material",
+          getattr(gmat, "name", None) == "GSNet")
+    check("GameShader.create_network drives progress_callback to 100",
+          prog and prog[-1] == 100, f"{prog}")
+    check("GameShader.create_network mirrors mtk.GameShader's entry point",
+          callable(getattr(btk.GameShader, "create_network", None)))
+
+    # No name -> group by set -> one material per set (mayatk: group_by_set = not bool(name))
+    gs_batch = gs.create_network([gs_set_png("stone", "BaseColor"), gs_set_png("stone", "Normal"),
+                                  gs_set_png("metal", "BaseColor")])
+    check("GameShader.create_network batches unnamed input into one material per set",
+          isinstance(gs_batch, list) and len(gs_batch) == 2
+          and {m.name for m in gs_batch if m} == {"stone", "metal"},
+          f"{[getattr(m, 'name', m) for m in (gs_batch or [])]}")
+
+    check("GameShader.create_network no textures -> None",
+          gs.create_network([]) is None)
+
+    # Affix is applied idempotently to the resolved set name (mayatk parity).
+    gs_pre = gs.create_network([gs_set_png("slate", "BaseColor")], prefix="MAT_")
+    check("GameShader.create_network applies a prefix to the resolved name",
+          getattr(gs_pre, "name", "") == "MAT_slate", f"{getattr(gs_pre, 'name', gs_pre)}")
+
+    # The map-writing pipeline (the capability the disabled Output Template / Ext combos gated):
+    # a workflow profile PACKS new maps and wires the packed result. Needs an image library.
+    if "PIL" in btk.ensure_image_deps():
+        packed = gs.create_network(
+            [gs_set_png("ore", m) for m in
+             ("BaseColor", "Normal", "Roughness", "Metallic", "AmbientOcclusion")],
+            name="GSPacked", config="Unreal Engine")
+        loaded = {n.image.name for n in packed.node_tree.nodes
+                  if n.type == "TEX_IMAGE"} if packed else set()
+        check("GameShader.create_network workflow profile generates + wires a packed ORM",
+              any("ORM" in n for n in loaded), f"{sorted(loaded)}")
+        check("GameShader.create_network packed profile drops the loose components it packed",
+              not any(("Roughness" in n or "Metallic" in n or "Occlusion" in n) for n in loaded),
+              f"{sorted(loaded)}")
+    else:
+        lines.append("OK   GameShader workflow-profile packing SKIPPED (no PIL in this Blender)")
 
     shutil.rmtree(gs_tmp, ignore_errors=True)
 

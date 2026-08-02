@@ -34,11 +34,16 @@ logger = logging.getLogger(__name__)
 # import Qt-free / bpy-deferred, so importing this module never needs a running Blender.
 from blendertk.core_utils._core_utils import CoreUtils
 
-# Bridge/export defaults: mesh-only, modifiers applied, selection-only — the safe hand-off set
-# (the same defaults the bridges relied on when this lived in ``core_utils``).
+# Bridge/export defaults: geometry + hierarchy, modifiers applied, selection-only — the safe
+# hand-off set (the same defaults the bridges relied on when this lived in ``core_utils``).
+# ``EMPTY`` is load-bearing, NOT decoration: Blender's FBX exporter drops every object whose
+# type is excluded and RE-ROOTS its children, so a mesh-only set silently flattens the whole
+# scene graph (Blender Empties are Maya's groups) — verified live, a grp>sub>mesh chain arrives
+# in Maya/Unity as two parentless meshes. Bridges that want less (Substance / Marmoset) narrow
+# this explicitly; DCC hand-offs widen it (see ``BlenderExportMixin._fbx_options``).
 _EXPORT_DEFAULTS = {
     "use_selection": True,
-    "object_types": {"MESH"},
+    "object_types": {"MESH", "EMPTY"},
     "use_mesh_modifiers": True,
     "mesh_smooth_type": "FACE",
     "bake_anim": False,

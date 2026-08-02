@@ -123,12 +123,11 @@ class _StyleSetterInternal(object):
 
     @staticmethod
     def _redraw_all():
-        import bpy
+        """Repaint every editor after a theme swap (all area types, not just the viewport)."""
+        from blendertk.core_utils._core_utils import CoreUtils
 
         try:
-            for window in bpy.context.window_manager.windows:
-                for area in window.screen.areas:
-                    area.tag_redraw()
+            CoreUtils.tag_redraw()
         except Exception:
             pass
 

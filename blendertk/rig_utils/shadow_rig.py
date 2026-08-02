@@ -55,10 +55,12 @@ opacity fade is shader-side (viewport only): FBX carries the plane's baked trans
 animation — mirror of the Maya note.
 
 **Engine hand-off.** ``refresh_export_metadata`` publishes a ``shadow_metadata`` JSON channel onto
-the shared ``data_export`` carrier (``btk.DataNodes``; at create/bake — blendertk producers publish
-at authoring time, there is no before-FBX-export hook). The Scene Exporter's ``export_data_node``
-task ships it; unitytk's ``ShadowPlaneController.cs`` joins records to the imported planes by
-GameObject name and finishes the Unity setup automatically (mirror of the lightmap channel).
+the shared ``data_export`` carrier (``btk.DataNodes``) at authoring time (create/bake/delete), and
+is registered in ``FbxUtils._KNOWN_PRODUCERS`` so the Scene Exporter re-refreshes it at export
+time (non-exporter export paths ship the authoring-time state — bpy has no before-FBX-export
+event). The exporter's ``export_data_node`` task ships it; unitytk's ``ShadowPlaneController.cs``
+joins records to the imported planes by GameObject name and finishes the Unity setup automatically
+(mirror of the lightmap channel).
 
 ``import bpy`` / ``numpy`` are deferred into the call bodies and the Qt-only ``uitk`` helper into its
 method, so the module resolves headless and loads under the workspace ``.venv``.
@@ -102,11 +104,25 @@ class ShadowRig(ptk.LoggingMixin):
         self.material = None
         self.image = None
         self.texture_path = None
+        self.group = None
         self.plane_size = 1.0
         self.object_height = 0.0
 
-        # Naming base — first target, or "combined" for a multi-target shadow (Maya parity).
-        self._base = self.targets[0].name if len(self.targets) == 1 else "combined"
+        # Naming base — first target, or "combined" for a multi-target shadow —
+        # uniquified against existing rigs (Maya parity): every rig object,
+        # material, image, and texture file is named off this base, and a
+        # collision (two multi-target "combined" rigs, or re-creating a
+        # target's rig) would hijack the older rig's material — create_material
+        # rebuilds the reused node tree, killing that rig's opacity driver —
+        # and overwrite its silhouette PNG.
+        import bpy
+
+        base = self.targets[0].name if len(self.targets) == 1 else "combined"
+        i, unique = 0, base
+        while bpy.data.objects.get(f"{unique}_shadow_grp") is not None:
+            i += 1
+            unique = f"{base}{i}"
+        self._base = unique
 
     # ------------------------------------------------------------------ handles
     def create_contact_locator(self):
@@ -338,9 +354,14 @@ class ShadowRig(ptk.LoggingMixin):
         """``(min_xyz, max_xyz)`` world AABB over the targets **and their descendant geometry**
         (Maya's ``exactWorldBoundingBox`` includes descendants regardless of the silhouette's
         recursive flag — so a group/empty parent gets a footprint from its mesh children, not the
-        empty's meaningless unit ``bound_box``)."""
+        empty's meaningless unit ``bound_box``). Measured on the EVALUATED depsgraph: Maya's
+        bbox is post-deformation and the silhouette gather already reads evaluated meshes, so a
+        modifier (array/mirror/subsurf) must widen the footprint and contact the same way it
+        widens the silhouette."""
+        import bpy
         from mathutils import Vector
 
+        deps = bpy.context.evaluated_depsgraph_get()
         objs = []
         for o in self.targets:
             objs.append(o)
@@ -351,8 +372,9 @@ class ShadowRig(ptk.LoggingMixin):
                 o is None or o.type == "EMPTY"
             ):  # an empty's bound_box is a unit cube → skip
                 continue
-            for corner in o.bound_box:
-                pts.append(o.matrix_world @ Vector(corner))
+            ev = o.evaluated_get(deps)
+            for corner in ev.bound_box:
+                pts.append(ev.matrix_world @ Vector(corner))
         if not pts:
             return (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
         lo = tuple(min(p[i] for p in pts) for i in range(3))
@@ -667,6 +689,12 @@ class ShadowRig(ptk.LoggingMixin):
         planes = cls.find_shadow_planes(planes)
         baked = []
         for p in planes:
+            if p.library or p.override_library:
+                # A linked/overridden rig's drivers can't be stripped from
+                # here — bake in the source file instead of half-baking this
+                # one (mirror of mayatk's referenced-plane skip).
+                cls.logger.warning(f"Skipping linked shadow plane: {p.name}")
+                continue
             if not (p.animation_data and p.animation_data.drivers):
                 continue  # already baked / hand-keyed
             cls._bake_plane(p, start, end)
@@ -707,6 +735,12 @@ class ShadowRig(ptk.LoggingMixin):
         planes = cls.find_shadow_planes(planes)
         deleted = []
         for p in planes:
+            if p.library or p.override_library:
+                # Linked/overridden datablocks can't be torn down from here —
+                # delete the rig in its source file (mirror of mayatk's
+                # referenced-plane skip).
+                cls.logger.warning(f"Skipping linked shadow plane: {p.name}")
+                continue
             name = p.name
             # dict.fromkeys de-dups: the same material in two mesh slots would
             # otherwise appear twice, and the second pass through the removal
@@ -812,10 +846,11 @@ class ShadowRig(ptk.LoggingMixin):
     @classmethod
     def refresh_export_metadata(cls):
         """Republish the ``shadow_metadata`` channel on the ``data_export`` carrier
-        from the file's shadow planes (mirror of mayatk's producer; blendertk
-        convention publishes at authoring time — create/bake — since Blender has no
-        before-FBX-export hook). Payload joins Unity-side by GameObject name
-        (unitytk's ``ShadowPlaneController.cs``):
+        from the file's shadow planes (mirror of mayatk's producer). Published at
+        authoring time — create/bake/delete — and re-run at export time by the
+        Scene Exporter via ``FbxUtils._KNOWN_PRODUCERS`` (non-exporter export
+        paths ship the authoring-time state). Payload joins Unity-side by
+        GameObject name (unitytk's ``ShadowPlaneController.cs``):
 
         ``{"version": 1, "planes": [{"name", "texture", "intensity"}]}``
 
@@ -859,26 +894,58 @@ class ShadowRig(ptk.LoggingMixin):
         mode="stretch",
         ground_height=0.0,
     ):
-        """Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``)."""
+        """Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``).
+
+        Note: a failed build rolls itself back — every datablock created up to
+        the failure (including a source empty this call created) and any
+        half-written texture are removed before the exception re-raises
+        (mirror of mayatk's node-diff rollback).
+        """
+        import bpy
+
         rig = cls(targets=targets, ground_height=ground_height, mode=mode)
         if not rig.targets:
             raise ValueError("Shadow Rig needs at least one target object.")
-        rig.get_or_create_shadow_source(position=light_pos, source_name=source_name)
-        rig.create_contact_locator()
-        rig.create_shadow_plane()
-        # ID-pointer prop: delete_rigs' rename-proof handle on the contact
-        # empty (the Blender analogue of mayatk's message-attr manifest).
-        rig.shadow_plane["shadowContact"] = rig.contact
-        rig.create_silhouette_texture(size=texture_res, axis=axis, recursive=recursive)
-        rig.create_material()
-        rig.setup_drivers()
+        pre = {
+            coll: {d.name for d in getattr(bpy.data, coll)}
+            for coll in ("objects", "meshes", "materials", "images")
+        }
+        try:
+            rig.get_or_create_shadow_source(position=light_pos, source_name=source_name)
+            rig.create_contact_locator()
+            rig.create_shadow_plane()
+            # ID-pointer prop: delete_rigs' rename-proof handle on the contact
+            # empty (the Blender analogue of mayatk's message-attr manifest).
+            rig.shadow_plane["shadowContact"] = rig.contact
+            rig.create_silhouette_texture(
+                size=texture_res, axis=axis, recursive=recursive
+            )
+            rig.create_material()
+            rig.setup_drivers()
+            rig.group = RigUtils.create_group(
+                f"{rig._base}_shadow_grp", children=[rig.shadow_plane]
+            )
+        except Exception:
+            # Roll back the partial build — a failed create() must not leave
+            # orphan datablocks (or a half-written texture) behind. Objects
+            # first, so dependent datablocks drop to zero users; a datablock
+            # a reused-name path merely mutated is pre-existing and stays.
+            for coll in ("objects", "meshes", "materials", "images"):
+                data = getattr(bpy.data, coll)
+                for d in [d for d in data if d.name not in pre[coll]]:
+                    try:
+                        data.remove(d)
+                    except (ReferenceError, RuntimeError):
+                        pass  # already cascaded away
+            if rig.texture_path and os.path.exists(rig.texture_path):
+                try:
+                    os.remove(rig.texture_path)
+                except OSError:
+                    pass
+            raise
 
-        grp = RigUtils.create_group(
-            f"{rig._base}_shadow_grp", children=[rig.shadow_plane]
-        )
-        rig.group = grp
         # Publish the engine hand-off record onto the data_export carrier
-        # (blendertk producers publish at authoring time — no pre-export hook).
+        # (authoring-time publish; the Scene Exporter re-refreshes at export).
         cls.refresh_export_metadata()
         rig.logger.success(
             f"Shadow rig '{rig._base}' ({mode}) — plane {rig.shadow_plane.name}, "
@@ -907,8 +974,17 @@ class ShadowRigSlots(ptk.LoggingMixin):
 
         from blendertk.core_utils.preview import Preview
 
+        # Preview's object-level rollback can't restore a mutated custom prop
+        # on a PRE-EXISTING data_export carrier, nor un-write the silhouette
+        # PNG — restore_func repairs both on cancel (the Maya slots' analogue
+        # is contract.record_modification + contract.add_file).
+        self._preview_texture = None
         self.preview = Preview(
-            self, self.ui.chk_preview, self.ui.b000, message_func=self.sb.message_box
+            self,
+            self.ui.chk_preview,
+            self.ui.b000,
+            restore_func=self._restore_after_preview,
+            message_func=self.sb.message_box,
         )
         # Any option change re-bakes the previewed rig (mirror of the Maya panel).
         self.ui.cmb_mode.currentIndexChanged.connect(self.preview.refresh)
@@ -1108,6 +1184,31 @@ class ShadowRigSlots(ptk.LoggingMixin):
             )
         )
 
+    def _restore_after_preview(self):
+        """Repair what Preview's rollback can't after a canceled preview: a
+        pre-existing ``data_export`` carrier keeps the mutated
+        ``shadow_metadata`` prop (republish scans the restored file state),
+        and the previewed silhouette PNG is orphaned on disk (removed unless
+        a surviving plane — e.g. a committed rig — still references it)."""
+        ShadowRig.refresh_export_metadata()
+        tex, self._preview_texture = self._preview_texture, None
+        if tex and os.path.exists(tex):
+            # normcase: bpy.path.abspath and our own join can differ in slash
+            # style/case on Windows — a miss here would delete a live texture.
+            live = {
+                os.path.normcase(os.path.normpath(t))
+                for t in (
+                    ShadowRig._plane_texture_path(p)
+                    for p in ShadowRig.find_shadow_planes()
+                )
+                if t
+            }
+            if os.path.normcase(os.path.normpath(tex)) not in live:
+                try:
+                    os.remove(tex)
+                except OSError:
+                    pass  # locked/read-only — scene state is already repaired
+
     def b001(self):
         """Reset to Defaults — restore all UI widgets to their default values."""
         self.ui.state.reset_all()
@@ -1152,7 +1253,7 @@ class ShadowRigSlots(ptk.LoggingMixin):
         axis = self._AXIS_MAP.get(self.ui.cmb000.currentIndex(), "auto")
         mode = self._MODE_MAP.get(self.ui.cmb_mode.currentIndex(), "stretch")
 
-        ShadowRig.create(
+        rig = ShadowRig.create(
             targets,
             texture_res=resolution,
             axis=axis,
@@ -1160,6 +1261,8 @@ class ShadowRigSlots(ptk.LoggingMixin):
             recursive=recursive,
             mode=mode,
         )
+        # Tracked for _restore_after_preview (a canceled preview removes it).
+        self._preview_texture = rig.texture_path
 
 
 # -----------------------------------------------------------------------------

@@ -11,6 +11,7 @@ Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
 import hashlib
+import logging
 import os
 import random
 
@@ -387,13 +388,13 @@ class _MatUtilsInternal:
         return mt, base
 
     @staticmethod
-    def _resolve_by_map_type(target_orig_stem, cand_meta, stem_index):
+    def _resolve_by_map_type(target_orig_stem, cand_meta):
         """Map-type-aware fuzzy resolve (mayatk's 'Texture' strategy): restrict candidates to files of
         the SAME map type (AO/Normal/Roughness/…), then fuzzy-match the map-stripped base name — so an
-        ``_AO`` is never repathed to a ``_Normal``. Returns a path or None.
+        ``_AO`` is never repathed to a ``_Normal``. Returns a candidate key or None.
 
         ``cand_meta`` is the pre-computed ``[(stem_key_lower, base_lower, map_type), …]`` for the
-        search index (``stem_key_lower`` indexes ``stem_index``).
+        search index; the returned key indexes the caller's ``stem_index``.
         """
         target_map, target_base = _MatUtilsInternal._map_type_and_base(target_orig_stem)
         if not target_map:
@@ -410,7 +411,56 @@ class _MatUtilsInternal:
         )
         if status != "unique":
             return None
-        return stem_index.get(same_keys[same_bases.index(match)])
+        return same_keys[same_bases.index(match)]
+
+    @staticmethod
+    def _resolve_replacement(
+        base, index, stem_index, cand_meta, stems, use_stem, use_fuzzy
+    ):
+        """Run the Resolve-Missing strategy cascade for one missing texture ``base`` (a basename).
+
+        Returns ``(path, ambiguous)``. ``ambiguous`` is True when a tier matched a key that holds
+        MORE THAN ONE file on disk: mayatk warns "'{match}' resolves to N files, skipped" and stops
+        there rather than falling through to a looser tier, because binding to an arbitrary one of
+        them is the same wrong-texture hazard the copy/move collision policy refuses. The index
+        values are therefore path LISTS, not first-wins single paths.
+
+        Tiers, safest first (mirrors mayatk's Stem → Texture → Fuzzy cascade, each stopping at the
+        first hit): exact basename+extension (always on) → ``use_stem`` same stem any extension →
+        ``cand_meta`` map-type-aware fuzzy → ``use_fuzzy`` loose stem match.
+        """
+        target_orig_stem = os.path.splitext(base)[0]
+        target_stem = target_orig_stem.lower()
+
+        def hit(paths, tier):
+            """``(path, ambiguous)`` for one tier: the single path behind the key, else a warning."""
+            if not paths:
+                return None, False
+            if len(paths) > 1:
+                logging.getLogger(__name__).warning(
+                    f"'{base}': {tier} match resolves to {len(paths)} files "
+                    f"({', '.join(sorted(paths)[:3])}); skipped to avoid a wrong-file rebind."
+                )
+                return None, True
+            return paths[0], False
+
+        found, ambiguous = hit(index.get(base.lower()), "exact")
+        if not found and not ambiguous and use_stem:
+            found, ambiguous = hit(stem_index.get(target_stem), "stem")
+        if not found and not ambiguous and cand_meta:
+            key = _MatUtilsInternal._resolve_by_map_type(target_orig_stem, cand_meta)
+            if key:
+                found, ambiguous = hit(stem_index.get(key), "texture")
+        if not found and not ambiguous and use_fuzzy and stems:
+            match, _score, status, _strat = ptk.FuzzyMatcher.find_with_fallbacks(
+                target_stem,
+                stems,
+                strategies=["substring", "ratio"],
+                score_threshold=0.6,
+            )
+            if status == "unique":
+                found, ambiguous = hit(stem_index.get(match), "fuzzy")
+        return found, ambiguous
 
     @staticmethod
     def _resolve_images(images):
@@ -440,7 +490,6 @@ class _MatUtilsInternal:
                               rebind to the wrong texture (and never destroy the external).
             ``"error"``     — the disk op failed.
         """
-        import logging
         import shutil
 
         if os.path.normpath(src) == os.path.normpath(dst):
@@ -520,6 +569,20 @@ class _MatUtilsInternal:
         """Case/sep-insensitive key for filesystem path comparison."""
         return os.path.normcase(os.path.normpath(os.path.abspath(p)))
 
+    @staticmethod
+    def _is_within(path, base):
+        """True when ``path`` IS ``base`` or lives underneath it.
+
+        Folds case/separators through :meth:`_norm` first. ``os.path.commonpath`` — which the
+        texture-path helpers used to call directly — compares case-SENSITIVELY, so on Windows a
+        ``C:\\Proj`` blend dir and a ``c:\\proj\\…`` texture path compared unequal and the texture
+        was (wrongly) treated as external. Cross-drive pairs answer False rather than raising.
+        """
+        if not (path and base):
+            return False
+        p, b = _MatUtilsInternal._norm(path), _MatUtilsInternal._norm(base)
+        return p == b or p.startswith(b.rstrip(os.sep) + os.sep)
+
 
 # ---------------------------------------------------------------------------------------------
 # Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
@@ -585,6 +648,34 @@ _PBR_DIRECT = {
     "Subsurface_Scattering": ("Subsurface Weight", False),
 }
 
+# Every map-type key :meth:`MatUtils.create_pbr_material` knows how to consume. A texture that
+# classifies to a type OUTSIDE this set has no Principled input to land on, so it is *reported*
+# rather than silently ignored — the mirror of mayatk's "shader has no matching slot" row. Keep
+# in sync with the wiring sections of ``create_pbr_material``.
+_PBR_HANDLED = frozenset(
+    {
+        "Base_Color",
+        "Diffuse",
+        "Albedo_Transparency",
+        "Opacity",
+        *_PBR_DIRECT,
+        "Glossiness",
+        "Smoothness",
+        "Normal",
+        "Normal_OpenGL",
+        "Normal_DirectX",
+        "Bump",
+        "Height",
+        "Emissive",
+        "Ambient_Occlusion",
+        "Metallic_Smoothness",
+        "MSAO",
+        "ORM",
+        "MRAO",
+        "Displacement",
+    }
+)
+
 
 class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
     """Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
@@ -622,7 +713,6 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         Returns:
             dict: ``{material_name: {"updated": int, "skipped": int, "files": [str, ...]}}``.
         """
-        import logging
         import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
@@ -1268,9 +1358,20 @@ class MatUtils(_MatUtilsInternal):
         return True
 
     @staticmethod
-    def to_project_relative(abspath, blenddir=None):
-        """Convert an absolute path to a Blender ``//``-relative path when it falls under the saved
-        .blend's own directory; otherwise return the normalized absolute path unchanged.
+    def to_project_relative(abspath, blenddir=None, project_root=None):
+        """Convert an absolute path to a Blender ``//``-relative path when it falls inside the
+        project; otherwise return the normalized absolute path unchanged.
+
+        A ``//`` path is always resolved against the .blend itself, so ``blenddir`` is what the
+        result is computed *from* — but *containment* is tested against the workspace **root**
+        (``EnvUtils.workspace_root()``), not the .blend's own folder. In the standard project layout
+        (``<root>/scenes/x.blend`` beside ``<root>/sourceimages/``) the textures sit outside the
+        .blend's folder, so testing containment there refused to relativize the very paths this panel
+        manages: Normalize Paths became a silent no-op, and its copy/move modes relocated the files
+        into sourceimages but left the path absolute. An ascending ``//../sourceimages/tex.png`` is
+        valid Blender and is exactly what mayatk's sourceimages-relative rewrite corresponds to.
+        The .blend's own folder always stays in scope, so a workspace pinned elsewhere can never
+        un-relativize a texture sitting next to the .blend.
 
         The Blender analogue of mayatk's Texture Path Editor ``_project_relative_converter`` (which
         rewrites a path relative to *sourceimages* when it lands inside that folder). Shared by every
@@ -1278,21 +1379,29 @@ class MatUtils(_MatUtilsInternal):
         :func:`find_and_copy_textures`, :func:`resolve_missing_textures`, and the ``"relative"`` mode
         of :func:`normalize_texture_paths` — so a repathed image always ends up relative when possible,
         the same way every one of mayatk's equivalent commands does.
+
+        ``blenddir`` / ``project_root`` are resolved from the session when omitted; pass both to keep
+        the call pure (bpy-free), which is how the headless tests exercise it.
         """
+        ap = os.path.normpath(abspath)
         if blenddir is None:
             import bpy
 
             blenddir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
-        ap = os.path.normpath(abspath)
-        if not blenddir:
+        if not blenddir:  # unsaved .blend — '//' has nothing to resolve against
             return ap
-        blenddir_norm = os.path.normpath(blenddir)
+        blenddir = os.path.normpath(blenddir)
+        if project_root is None:
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            project_root = EnvUtils.workspace_root()
+        within = _MatUtilsInternal._is_within
+        if not (within(ap, project_root) or within(ap, blenddir)):
+            return ap
         try:
-            if os.path.commonpath([ap, blenddir_norm]) != blenddir_norm:
-                return ap
-        except ValueError:  # different drive — can't be relative
+            return "//" + os.path.relpath(ap, blenddir).replace("\\", "/")
+        except ValueError:  # different drive — can't be expressed relative to the .blend
             return ap
-        return "//" + os.path.relpath(ap, blenddir_norm).replace("\\", "/")
 
     @staticmethod
     def resolve_missing_textures(
@@ -1318,8 +1427,11 @@ class MatUtils(_MatUtilsInternal):
 
         if not (search_dir and os.path.isdir(search_dir)):
             return 0
-        index = {}  # lowercase basename (with ext) -> first (shallowest) path found
-        stem_index = {}  # lowercase stem (no ext) -> path (for the stem + fuzzy tiers)
+        # Values are path LISTS, not first-wins single paths: a key holding more than one file is
+        # ambiguous, and _resolve_replacement refuses it the way mayatk does rather than binding to
+        # whichever copy the walk happened to reach first.
+        index = {}  # lowercase basename (with ext) -> [paths]
+        stem_index = {}  # lowercase stem (no ext) -> [paths] (for the stem + fuzzy tiers)
         orig_stems = {}  # lowercase stem -> original-case stem (for case-sensitive map-type resolve)
         walker = (
             os.walk(search_dir)
@@ -1338,10 +1450,11 @@ class MatUtils(_MatUtilsInternal):
         )
         for root, _dirs, files in walker:
             for f in files:
-                index.setdefault(f.lower(), os.path.join(root, f))
+                path = os.path.join(root, f)
+                index.setdefault(f.lower(), []).append(path)
                 stem_orig = os.path.splitext(f)[0]
                 key = stem_orig.lower()
-                stem_index.setdefault(key, os.path.join(root, f))
+                stem_index.setdefault(key, []).append(path)
                 orig_stems.setdefault(key, stem_orig)
         stems = list(stem_index.keys())
         # Per-candidate (stem_key_lower, base_lower, map_type) — built once, only for the texture tier.
@@ -1361,24 +1474,15 @@ class MatUtils(_MatUtilsInternal):
             base = bpy.path.basename(getattr(img, "filepath", "") or "")
             if not base:
                 continue
-            target_orig_stem = os.path.splitext(base)[0]
-            target_stem = target_orig_stem.lower()
-            found = index.get(base.lower())  # exact name + extension
-            if not found and stem:
-                found = stem_index.get(target_stem)  # same name, any extension
-            if not found and cand_meta:
-                found = _MatUtilsInternal._resolve_by_map_type(
-                    target_orig_stem, cand_meta, stem_index
-                )  # same map type
-            if not found and fuzzy and stems:
-                match, _score, status, _strat = ptk.FuzzyMatcher.find_with_fallbacks(
-                    target_stem,
-                    stems,
-                    strategies=["substring", "ratio"],
-                    score_threshold=0.6,
-                )
-                if status == "unique":
-                    found = stem_index.get(match)
+            found, _ambiguous = _MatUtilsInternal._resolve_replacement(
+                base,
+                index,
+                stem_index,
+                cand_meta,
+                stems,
+                use_stem=stem,
+                use_fuzzy=fuzzy,
+            )
             if found:
                 img.filepath = MatUtils.to_project_relative(found)
                 try:
@@ -1423,18 +1527,18 @@ class MatUtils(_MatUtilsInternal):
                 ap = _MatUtilsInternal._abspath(img)
                 if not (ap and os.path.exists(ap)):
                     continue
-                try:
-                    inside = os.path.commonpath([ap, project_dir]) == os.path.normpath(
-                        project_dir
-                    )
-                except ValueError:  # different drive
-                    inside = False
-                if inside:
+                if _MatUtilsInternal._is_within(ap, project_dir):
                     continue
                 dst = os.path.join(project_dir, os.path.basename(ap))
                 if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
                     continue  # different-size collision — don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
+                # The file moved out from under the datablock; re-read it so the buffer matches the
+                # new path (the other three relocate ops already do this).
+                try:
+                    img.reload()
+                except RuntimeError:
+                    pass
                 changed += 1
             return changed
 
@@ -1560,10 +1664,13 @@ class MatUtils(_MatUtilsInternal):
             if not old:
                 continue
             dst = os.path.join(target_dir, os.path.basename(ap or old))
+            new = MatUtils.to_project_relative(dst)
+            if new == old:
+                continue  # already there — nothing to relocate or rewrite (mirrors mayatk)
             if mode in ("copy", "move") and ap and os.path.exists(ap):
                 if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
                     continue  # leave the image on its current (valid) path
-            img.filepath = MatUtils.to_project_relative(dst)
+            img.filepath = new
             try:
                 img.reload()
             except RuntimeError:
@@ -1592,17 +1699,28 @@ class MatUtils(_MatUtilsInternal):
                 wanted.setdefault(base, img)
         if not wanted:
             return 0
-        found = {}  # basename -> source path (shallowest wins)
+        # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive walk
+        # routinely turns up versioned / archived / cloud-conflict copies of the same filename, and
+        # taking whichever the walk reached first binds to an arbitrary stale one.
+        found = {}
         for root, _dirs, files in os.walk(search_dir):
             for f in files:
                 key = f.lower()
-                if key in wanted:
-                    found.setdefault(key, os.path.join(root, f))
+                if key not in wanted:
+                    continue
+                path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    mtime = 0.0
+                current = found.get(key)
+                if current is None or mtime > current[0]:
+                    found[key] = (mtime, path)
         if not found:
             return 0
         os.makedirs(dest_dir, exist_ok=True)
         count = 0
-        for key, src in found.items():
+        for key, (_mtime, src) in found.items():
             dst = os.path.join(dest_dir, os.path.basename(src))
             if _MatUtilsInternal._safe_relocate(src, dst, mode) in ("skip", "error"):
                 continue  # different-size collision — don't clobber / wrong-rebind
@@ -1809,7 +1927,73 @@ class MatUtils(_MatUtilsInternal):
         return mat
 
     @staticmethod
-    def create_pbr_material(textures, name=None, normal_direction="OpenGL"):
+    def resolve_pbr_plan(textures, config=None):
+        """Classify ``textures`` and reduce them to ONE source per Principled input.
+
+        The redundancy call is delegated to the SHARED ``ptk.MapFactory.filter_redundant_maps``
+        — the same SSoT mayatk's ``GameShader._resolve_map_conflicts`` uses — so the packed-vs-
+        loose decision can't drift between the two DCCs. That matters beyond tidiness: the shared
+        filter is *lossless*. Where the old hardcoded priority here (``ORM`` pops ``MSAO`` pops
+        ``Metallic_Smoothness``) simply discarded a packed map, the filter first **extracts** any
+        channel no surviving loose map covers into a real file, so e.g. an MSAO sitting beside
+        loose Metallic/Roughness no longer loses its AO channel. Extraction needs an image library
+        (:func:`blendertk.ensure_image_deps`); without one the filter keeps the packed map instead
+        — also lossless.
+
+        With ``config=None`` the filter's legacy "packed always wins" branch applies, which is
+        exactly the behavior the old hardcoded block had — so direct callers that pass no config
+        are unaffected.
+
+        Args:
+            textures: texture file paths. First file per map type wins; non-files are skipped.
+            config: resolved workflow config (``ptk.MapRegistry().resolve_config``). Decides
+                whether a packed map is a wanted output (keep) or redundant (drop/extract).
+
+        Returns:
+            dict with keys:
+                ``by_type``    — ``{map_type: path}``, one survivor per type (the wiring plan).
+                ``dropped``    — ``{map_type: (path, reason)}`` superseded, for reporting.
+                ``extracted``  — ``{map_type: path}`` channels recovered from a dropped packed map.
+                ``unknown``    — ``[path]`` files that classified to no map type.
+                ``unhandled``  — ``{map_type: path}`` classified but with no Principled input.
+                ``wired``      — empty here; :meth:`create_pbr_material` fills it with the map
+                types it actually connected. A kept map can still go unconnected when another
+                already drives its input (Height beside a Normal), so callers reporting per-map
+                outcomes must read this, not ``by_type``.
+        """
+        by_type, unknown = {}, []
+        for tex in ptk.make_iterable(textures):
+            if not (tex and os.path.isfile(tex)):
+                continue
+            map_type = ptk.MapFactory.resolve_map_type(tex, key=True)
+            if map_type:
+                by_type.setdefault(map_type, tex)  # first file per map type wins
+            else:
+                unknown.append(tex)
+
+        dropped, extracted = {}, {}
+        if by_type:
+            before = dict(by_type)  # filter_redundant_maps deletes dropped keys in place
+            report = ptk.MapFactory.filter_redundant_maps(by_type, config=config)
+            for map_type, reason in report.get("dropped", {}).items():
+                dropped[map_type] = (before.get(map_type), reason)
+            for map_type, path in report.get("extracted", {}).items():
+                extracted[map_type] = path
+                by_type.setdefault(map_type, path)
+
+        return {
+            "by_type": by_type,
+            "dropped": dropped,
+            "extracted": extracted,
+            "unknown": unknown,
+            "unhandled": {k: v for k, v in by_type.items() if k not in _PBR_HANDLED},
+            "wired": set(),  # filled in by create_pbr_material; see the docstring
+        }
+
+    @staticmethod
+    def create_pbr_material(
+        textures, name=None, normal_direction="OpenGL", config=None, plan=None
+    ):
         """Build a Principled-BSDF material from a set of PBR texture files — Blender mirror of mayatk's
         ``GameShader.create_network`` (the auto-wire-a-shader-from-textures tool, distinct from the
         Shader Templates *parameter* presets).
@@ -1822,8 +2006,14 @@ class MatUtils(_MatUtilsInternal):
         output, and the **combined game-engine maps** the Maya tool also handles —
         ``Albedo_Transparency`` (RGB→Base Color, A→Alpha), ``Metallic_Smoothness`` (RGB→Metallic,
         A→invert→Roughness), the Unity HDRP mask ``MSAO`` (R→Metallic, G→AO, A→invert→Roughness), and the
-        packed ``ORM`` split (R→AO, G→Roughness, B→Metallic). Needs **no image library** (node setup
-        only — Blender loads the images), so it runs in Blender's Python as-is.
+        packed ``ORM`` (R→AO, G→Roughness, B→Metallic) / ``MRAO`` (R→Metallic, G→Roughness, B→AO)
+        splits. The wiring itself needs **no image
+        library** (Blender loads the images), so it runs in Blender's Python as-is; only the
+        optional channel *extraction* in :meth:`resolve_pbr_plan` wants one, and degrades cleanly.
+
+        This is the node-graph primitive. For the full tool — workflow profiles, map preparation
+        (format conversion / packing), batching and per-map reporting — use
+        :meth:`blendertk.GameShader.create_network`, which composes this.
 
         For a folder that holds **several** texture sets, use :func:`create_pbr_materials` (the batch
         orchestrator); this builds a single material (first file per map type wins).
@@ -1834,29 +2024,24 @@ class MatUtils(_MatUtilsInternal):
             name: material name. Defaults to the texture set's base name.
             normal_direction: ``"OpenGL"`` (default) wires the normal directly; ``"DirectX"`` flips the
                 green channel first.
+            config: resolved workflow config passed through to :meth:`resolve_pbr_plan`, which
+                decides packed-vs-loose redundancy. ``None`` keeps the legacy "packed wins".
+            plan: a pre-computed :meth:`resolve_pbr_plan` result to wire. Lets a caller that
+                already resolved the plan (``GameShader.create_network``, which reports on it)
+                reuse it instead of resolving twice — channel extraction writes files, so
+                resolving twice would redo that work. A ``"wired"`` set of the map types
+                actually connected is written back into it for the caller's report.
 
         Returns:
             the created material, or None if no texture classified.
         """
         import bpy
 
-        by_type = {}
-        for tex in ptk.make_iterable(textures):
-            if not (tex and os.path.isfile(tex)):
-                continue
-            mt = ptk.MapFactory.resolve_map_type(tex, key=True)
-            if mt:
-                by_type.setdefault(mt, tex)  # first file per map type wins
+        if plan is None:
+            plan = MatUtils.resolve_pbr_plan(textures, config=config)
+        by_type = plan["by_type"]
         if not by_type:
             return None
-
-        # Packed-map priority (mirror mayatk's _create_single_network): a fuller combined map
-        # supersedes the narrower ones so they don't fight over Metallic/Roughness/AO.
-        if "ORM" in by_type:
-            by_type.pop("MSAO", None)
-            by_type.pop("Metallic_Smoothness", None)
-        elif "MSAO" in by_type:
-            by_type.pop("Metallic_Smoothness", None)
 
         if not name:
             sets = ptk.MapFactory.group_textures_by_set(list(by_type.values()))
@@ -1872,12 +2057,22 @@ class MatUtils(_MatUtilsInternal):
 
         state = {"y": 600}
 
+        # What actually got wired, for the caller's report. A section that another input already
+        # owns is skipped WITHOUT loading its image (Height when a Normal map exists, Glossiness
+        # when a real Roughness map exists), so "an image node was created for it" is an exact
+        # proxy for "it was connected" — no per-site bookkeeping to drift out of sync.
+        # (Paths are unique per map type: `by_type` keeps the first file per type.)
+        path_to_type = {path: map_type for map_type, path in by_type.items()}
+        wired = plan.setdefault("wired", set())
+
         def _img(path, non_color):
             node = nt.nodes.new("ShaderNodeTexImage")
             node.image = bpy.data.images.load(path, check_existing=True)
             node.image.colorspace_settings.name = "Non-Color" if non_color else "sRGB"
             node.location = (-900, state["y"])
             state["y"] -= 300
+            if path in path_to_type:
+                wired.add(path_to_type[path])
             return node
 
         def _set_input(input_name, socket):
@@ -1886,7 +2081,17 @@ class MatUtils(_MatUtilsInternal):
                 nt.links.new(socket, target)
 
         def _multiply_into_base(ao_socket):
-            """AO has no Principled input — multiply it into Base Color (named-socket MixRGB)."""
+            """AO has no Principled input — multiply it into Base Color (named-socket MixRGB).
+
+            First AO source wins. This chains onto whatever already drives Base Color, so a
+            second call would stack a second MULTIPLY and darken the albedo twice — reachable
+            whenever two packed maps that each carry an AO channel survive together (the
+            registry's precedence rules let ORM and MSAO coexist: different channel layouts,
+            neither supersedes the other).
+            """
+            if state.get("ao_applied"):
+                return
+            state["ao_applied"] = True
             mix = nt.nodes.new("ShaderNodeMixRGB")
             mix.blend_type = "MULTIPLY"
             mix.inputs["Fac"].default_value = 1.0
@@ -1969,8 +2174,12 @@ class MatUtils(_MatUtilsInternal):
         has_normal = normal_key is not None
         if has_normal:
             normal_color = _img(by_type[normal_key], non_color=True).outputs["Color"]
-            is_directx = (
-                normal_key == "Normal_DirectX" or normal_direction.lower() == "directx"
+            # An explicit tag in the FILENAME outranks the caller's setting: a map classified as
+            # Normal_OpenGL is already OpenGL and must never be flipped just because the panel's
+            # combo says DirectX (that would invert a correct map). The combo only decides the
+            # ambiguous "Normal" case.
+            is_directx = normal_key == "Normal_DirectX" or (
+                normal_key == "Normal" and normal_direction.lower() == "directx"
             )
             if is_directx:
                 sep = nt.nodes.new("ShaderNodeSeparateColor")
@@ -2068,6 +2277,24 @@ class MatUtils(_MatUtilsInternal):
             if "Ambient_Occlusion" not in by_type:
                 _multiply_into_base(orm.outputs["Red"])
 
+        # --- Packed MRAO (R=Metallic, G=Roughness, B=AO) → Separate Color --------
+        # Not optional: the registry's precedence rules let MRAO supersede loose
+        # Metallic/Roughness/AO/Smoothness/Glossiness, so without a consumer here a set carrying
+        # an MRAO would drop its loose maps and wire nothing in their place.
+        if "MRAO" in by_type:
+            mrao = nt.nodes.new("ShaderNodeSeparateColor")
+            mrao.location = (-500, -700)
+            nt.links.new(
+                _img(by_type["MRAO"], non_color=True).outputs["Color"],
+                mrao.inputs["Color"],
+            )
+            if "Metallic" not in by_type:
+                _set_input("Metallic", mrao.outputs["Red"])
+            if not has_roughness_src:
+                _set_input("Roughness", mrao.outputs["Green"])
+            if "Ambient_Occlusion" not in by_type:
+                _multiply_into_base(mrao.outputs["Blue"])
+
         # --- Displacement → material output --------------------------------------
         if "Displacement" in by_type and output is not None:
             disp = nt.nodes.new("ShaderNodeDisplacement")
@@ -2082,7 +2309,7 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def create_pbr_materials(
-        textures, name=None, normal_direction="OpenGL", prefix="", suffix=""
+        textures, name=None, normal_direction="OpenGL", prefix="", suffix="", config=None
     ):
         """Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
 
@@ -2102,6 +2329,8 @@ class MatUtils(_MatUtilsInternal):
                 :func:`create_pbr_material`.
             prefix/suffix: stripped from set keys so an affixed filename (``Mat_brick_Albedo``)
                 still groups with its set.
+            config: resolved workflow config forwarded per set to :func:`create_pbr_material`
+                (packed-vs-loose redundancy). ``None`` keeps the legacy "packed wins".
 
         Returns:
             dict ``{set_name: material | None}`` (``None`` for a set with no classifiable map);
@@ -2122,13 +2351,19 @@ class MatUtils(_MatUtilsInternal):
             final = _final(name)
             return {
                 final: MatUtils.create_pbr_material(
-                    paths, name=final, normal_direction=normal_direction
+                    paths,
+                    name=final,
+                    normal_direction=normal_direction,
+                    config=config,
                 )
             }
         sets = ptk.MapFactory.group_textures_by_set(paths, prefix=prefix, suffix=suffix)
         return {
             _final(set_name): MatUtils.create_pbr_material(
-                files, name=_final(set_name), normal_direction=normal_direction
+                files,
+                name=_final(set_name),
+                normal_direction=normal_direction,
+                config=config,
             )
             for set_name, files in sets.items()
         }

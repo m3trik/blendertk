@@ -10,7 +10,8 @@ Blender has no native project system, so this panel IS the manager; Maya needs n
 - **Project Root** — a single path field. Browsing/typing an existing workspace loads its
   rules and pins it as the current workspace (no separate Set-Project button); a fresh path
   shows the active template, and the project (marker + folders) is created — and pinned —
-  the moment a rule is edited. Option-box icons: browse + open in file browser.
+  by **Create Project** or implicitly on the first rule edit. Option-box icons: browse +
+  open in file browser.
 - **Rule table** — RULE ▸ LOCATION (LOCATION stretches to fill; the icon columns stay
   pinned right) plus per-row icon actions (reset the rule to its template default / remove
   it — ``TableWidget.actions`` columns). Every committed cell edit, add, remove, reset, or
@@ -19,12 +20,13 @@ Blender has no native project system, so this panel IS the manager; Maya needs n
 - **Nice Names ↔ File Rules view** (Maya's Edit ▸ View toggle, header menu) — rows show
   Maya's own Project Window labels (``ptk.RULE_NICE_NAMES``, same order) or the raw rule
   keys; raw view makes the rule column editable.
-- **Header menu** — Add New File Rule, the view toggle, Reset/Clear Settings (Maya's Edit
-  menu verbs, applied immediately), and the **template combo**: the canonical
-  ``uitk.PresetManager.wire_combo`` selector (Refresh/Save icons + Rename/Open/Delete menu)
-  over the same ``ptk.PresetStore`` the headless ``btk.workspace_template_*`` API reads —
-  the ACTIVE template is what every subsequent new workspace is built from
-  (``btk.create_workspace`` and fresh paths here).
+- **Header menu** — Create Project, Add New File Rule, the view toggle, Reset/Clear
+  Settings (Maya's Edit menu verbs, applied immediately), and the **template combo**: the
+  canonical ``uitk.PresetManager.wire_combo`` selector (Refresh/Save icons +
+  Rename/Open/Delete menu) over ``ptk.WorkspaceTemplates`` — the *shared*, unnamespaced
+  store both DCCs read, so a template saved here is equally what ``mtk.create_workspace``
+  builds a Maya project from. The ACTIVE template is what every subsequent new workspace is
+  built from (``btk.create_workspace`` and fresh paths here).
 
 The panel opens persistent (a header **hide** button, not a gesture ``pin``), so it stays
 open while the user works.
@@ -53,6 +55,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         self._nice_view = True  # Maya's default: View in Nice names
         self._updating = False  # suppress write-through during programmatic populates
         self._preset_mgr = None  # uitk PresetManager over the workspace-template store
+        self._root_gen = 0  # root-field debounce generation (see _on_root_changed)
 
     # ------------------------------------------------------------------ header
     def header_init(self, widget):
@@ -63,13 +66,23 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
 
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self._load)
+        widget.menu.add("Separator", setTitle="Project:")
+        widget.menu.add(
+            "QPushButton",
+            setText="Create Project",
+            setObjectName="btn_create",
+            setToolTip="Build the project at the current root now — marker + the active\n"
+            "template's rule folders (Maya's File ▸ Project Window ▸ New). Editing\n"
+            "any rule does this implicitly; this is the explicit verb.",
+        ).clicked.connect(self.create_project)
         widget.menu.add("Separator", setTitle="File Rules:")
         widget.menu.add(
             "QPushButton",
             setText="Add New File Rule",
             setObjectName="btn_add_rule",
             setToolTip="Append an empty rule row (Maya's Custom Data Locations ▸ Add new\n"
-            "file rule); it saves once both cells are filled in.",
+            "file rule); it saves once both cells are filled in. Added in Nice Names\n"
+            "view, a known label (e.g. 'Render Data') resolves to its rule key.",
         ).clicked.connect(self.add_rule)
         widget.menu.add(
             "QCheckBox",
@@ -122,21 +135,54 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
                     "Set the <b>Project Root</b> (▸ browses; an existing workspace "
                     "loads its rules and becomes the current workspace, a fresh path "
                     "shows the active template).",
+                    "<b>Create Project</b> (header menu) builds it — marker + rule "
+                    "folders. Editing any rule on a fresh path does the same "
+                    "implicitly.",
                     "Edit the rule table (<b>double-click</b> a location cell; the row "
-                    "icons reset a rule to its template default or remove it). The "
-                    "first edit on a fresh path creates the project.",
+                    "icons reset a rule to its template default or remove it).",
                     "The header menu adds rules, toggles Nice Names ↔ File Rules, "
                     "and resets/clears the rules.",
                     "The <b>Templates</b> combo saves/loads named rule sets; the "
-                    "active one defines how every new workspace is built.",
+                    "active one defines how every new workspace is built — in "
+                    "<i>both</i> DCCs (Maya reads the same store).",
                 ],
             )
         )
 
     # ------------------------------------------------------------------ fields
+    @staticmethod
+    def _rewire(widget, signal_name, handler):
+        """Bind *handler* to ``widget.<signal_name>`` as its only subscriber.
+
+        These widgets outlive this Slots instance — a UI reload leaves
+        ``is_initialized`` stamped on the persisted QWidget — so the connects run
+        on EVERY ``_init`` or a rebuilt panel's edits stay bound to a dead
+        ``self`` and silently no-op (the channels-panel precedent).
+
+        The previous handler is remembered ON THE WIDGET, not looked up from
+        ``self``: the binding to drop belongs to the *old* instance, which
+        ``signal.disconnect(self.<method>)`` would never match. Tracking it by
+        reference also avoids the blanket ``disconnect()`` that makes PySide warn
+        against a signal with nothing attached (every first call).
+        """
+        conns = getattr(widget, "_ws_editor_conns", None)
+        if conns is None:
+            conns = {}
+            widget._ws_editor_conns = conns
+        signal = getattr(widget, signal_name)
+        previous = conns.get(signal_name)
+        if previous is not None:
+            try:
+                signal.disconnect(previous)
+            except (RuntimeError, TypeError):
+                pass  # already gone with the old instance
+        signal.connect(handler)
+        conns[signal_name] = handler
+
     def txt000_init(self, widget):
         """Project Root — one full path (browse + open-folder option-box actions)."""
         if not getattr(widget, "is_initialized", False):
+            widget.refresh_on_show = True
             widget.option_box.browse(
                 mode="directory",
                 title="Select Project Root",
@@ -154,11 +200,17 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
             last = ws.root
         if last and not widget.text():
             widget.setText(last)
-        widget.textChanged.connect(self._on_root_changed)
-        widget.returnPressed.connect(self._load)
+        # Debounced, not per-keystroke: retargeting reloads the rule table AND pins
+        # the session's current workspace, so a raw textChanged would do both for
+        # every partial path that happens to exist while the user types. Enter
+        # commits immediately. (textChanged rather than editingFinished because the
+        # browse action sets the text programmatically, which emits only the former.)
+        self._rewire(widget, "textChanged", self._on_root_changed)
+        self._rewire(widget, "returnPressed", self._on_root_committed)
 
     def tbl000_init(self, widget):
         if not getattr(widget, "is_initialized", False):
+            widget.refresh_on_show = True
             widget.actions.add(
                 column=2,
                 states={
@@ -179,7 +231,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
                     }
                 },
             )
-            widget.itemChanged.connect(self._on_item_changed)
+        self._rewire(widget, "itemChanged", self._on_item_changed)
         self._load()
 
     # ------------------------------------------------------------------ root resolution
@@ -188,14 +240,32 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         widget = getattr(self.ui, "txt000", None)
         return widget.text().strip() if widget is not None else ""
 
-    def _on_root_changed(self, text):
-        path = (text or "").strip()
+    def _on_root_changed(self, _text=None):
+        """Root-field edit — retarget once the typing settles.
+
+        A real debounce, not a plain defer: ``defer_with_timer`` is a
+        ``QTimer.singleShot``, so every keystroke would still fire its own
+        deferred call — one per partial path for anyone typing slower than the
+        delay. The generation stamp lets all but the last one no-op.
+        """
+        self._root_gen += 1
+        gen = self._root_gen
+        self.sb.defer_with_timer(lambda: self._on_root_settled(gen), ms=500)
+
+    def _on_root_settled(self, gen):
+        if gen == self._root_gen:  # nothing typed since — this edit is the final one
+            self._on_root_committed()
+
+    def _on_root_committed(self):
+        """A committed root path (Enter / browse / settled typing) retargets the panel."""
+        self._root_gen += 1  # Enter supersedes any debounce still in flight
+        path = self._root()
         self.ui.settings.setValue("workspace_root", path)
         ws = ptk.Workspace.load(path) if path else None
         if ws is not None and ws.is_marked:
             self._load()
             self._set_current(path)  # selecting an existing project root pins it
-        elif self._loaded_rules:
+        elif self._loaded_rules or not path:
             # Retargeted from an existing project to an unbuilt path: show a fresh
             # template-seeded definition (nothing written until a rule is edited).
             self._loaded_rules = {}
@@ -280,6 +350,26 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         table.actions.set(row, 2, "reset")
         table.actions.set(row, 3, "remove")
 
+    @staticmethod
+    def _key_for_label(text):
+        """The rule key a user-typed nice-name *text* stands for, else the text itself.
+
+        A row added while in Nice Names view has no UserRole key, so its cell text IS
+        the key candidate — and the user is looking at labels, so they type one
+        ("Render Data"). Without this reverse lookup that label was written verbatim
+        as the rule name (``workspace -fr "Render Data" …``), which Maya does not
+        recognize. Matched case-insensitively; an unknown label is a custom rule and
+        passes through unchanged.
+        """
+        text = str(text or "").strip()
+        if not text:
+            return ""
+        folded = text.casefold()
+        for key, label in ptk.RULE_NICE_NAMES.items():
+            if label.casefold() == folded:
+                return key
+        return text
+
     def _key_at(self, row):
         """The raw rule key of *row* — from UserRole in nice-name view (labels aren't
         keys), from the cell text in file-rules view (where the key column is editable)."""
@@ -289,7 +379,9 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         if item is None:
             return ""
         if self._nice_view:
-            key = item.data(QtCore.Qt.UserRole) or item.text()
+            key = item.data(QtCore.Qt.UserRole)
+            if not key:  # a row added in this view — the text is a label, not a key
+                return self._key_for_label(item.text())
         else:
             key = item.text()
         return str(key or "").strip()
@@ -402,12 +494,34 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
         self._write()
 
     # ------------------------------------------------------------------ project actions
+    def create_project(self):
+        """Build the project at the current root — marker + the active template's rule
+        folders (Maya's File ▸ Project Window ▸ New). Idempotent on an existing project:
+        its own rules win, so this never clobbers one."""
+        root = self._root()
+        if not root:
+            self.ui.footer.setStatusText("Set a project root first.")
+            return
+        try:
+            ws = btk.create_workspace(root)
+        except OSError as e:
+            self.sb.message_box(str(e))
+            return
+        if ws is None:
+            return
+        self._set_current(root)
+        self._load()
+        self.ui.footer.setStatusText(
+            f"Created {os.path.basename(os.path.normpath(root))}"
+        )
+
     def open_folder(self):
         """Open the project root in the system file browser."""
         root = self._root()
         if not (root and os.path.isdir(root)):
             self.sb.message_box(
-                "The project doesn't exist yet — edit a rule to create it."
+                "The project doesn't exist yet — use <b>Create Project</b> (header "
+                "menu), or edit a rule to build it implicitly."
             )
             return
         try:
