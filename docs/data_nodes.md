@@ -28,9 +28,10 @@ Exporter's `_DEFAULT_FBX_OPTIONS` (and its shipped `default` preset):
 
 - `use_custom_props=True` — Blender's FBX exporter drops custom properties
   unless asked (`bpy.ops.export_scene.fbx` defaults it off).
-- `object_types` including `"EMPTY"` — the bridge-oriented `FbxUtils` defaults
-  are mesh-only; without the override the carrier Empty itself is filtered out
-  of the export.
+- `object_types` including `"EMPTY"` — anything the set leaves out is dropped from
+  the FBX (and its children re-rooted), so without `"EMPTY"` the carrier Empty itself
+  is filtered out of the export. Pinned here rather than inherited from the
+  bridge-oriented `FbxUtils` defaults: the carrier is a hard requirement of this task.
 
 The Scene Exporter's default-on **"Export Scene Data Node"** task
 (`export_data_node`) first refreshes every known producer's channel from live

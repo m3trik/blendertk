@@ -20,7 +20,9 @@ def check(name, cond, detail=""):
 tmp = tempfile.mkdtemp(prefix="tpe_test_")
 try:
     import bpy
+    import pythontk as ptk
     import blendertk as btk
+    from blendertk.env_utils._env_utils import EnvUtils
     from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
     _abspath = _MatUtilsInternal._abspath  # helper moved onto the internal base
@@ -112,6 +114,96 @@ try:
     # 7. normalize_texture_paths(absolute) — make the path absolute.
     n = btk.normalize_texture_paths("absolute")
     check("normalize_texture_paths(absolute) runs", isinstance(n, int))
+
+    # 7b. to_project_relative is PURE given both roots — the containment test is against the
+    # workspace ROOT, not the .blend's folder. In the standard layout (<root>/scenes/x.blend beside
+    # <root>/sourceimages/) the old blenddir-only test refused every texture the panel manages, so
+    # Normalize Paths silently did nothing and its copy/move modes left the path absolute.
+    rel = btk.to_project_relative(
+        os.path.join(tmp, "proj", "sourceimages", "t.png"),
+        blenddir=os.path.join(tmp, "proj", "scenes"),
+        project_root=os.path.join(tmp, "proj"),
+    )
+    check("to_project_relative relativizes across the project root", rel == "//../sourceimages/t.png", rel)
+    flat = btk.to_project_relative(
+        os.path.join(tmp, "proj", "sourceimages", "t.png"),
+        blenddir=os.path.join(tmp, "proj"),
+        project_root=os.path.join(tmp, "proj"),
+    )
+    check("to_project_relative still handles the flat layout", flat == "//sourceimages/t.png", flat)
+    # Case-folding: os.path.commonpath compares case-sensitively, so a differently-cased blend dir
+    # used to leave the path absolute on Windows.
+    cased = btk.to_project_relative(
+        os.path.join(tmp, "proj", "sourceimages", "t.png"),
+        blenddir=os.path.join(tmp, "proj").upper(),
+        project_root=os.path.join(tmp, "proj").upper(),
+    )
+    check("to_project_relative folds path case", cased == "//sourceimages/t.png", cased)
+    outside = btk.to_project_relative(
+        os.path.join(tmp, "elsewhere", "t.png"),
+        blenddir=os.path.join(tmp, "proj", "scenes"),
+        project_root=os.path.join(tmp, "proj"),
+    )
+    check("to_project_relative leaves out-of-project paths absolute", not outside.startswith("//"), outside)
+
+    # 7c. Normalize Paths end-to-end in the layout that broke: .blend saved in <root>/scenes,
+    # texture in <root>/sourceimages -> the path must come back '//'-relative.
+    reset()
+    proj = os.path.join(tmp, "wsproj")
+    # Mark <proj> as a workspace (workspace.mel) so it — not the .blend's own scenes/ folder —
+    # is the resolved project root; that marker is what makes the layout a project rather than
+    # a loose folder, and it is the same marker mayatk reads.
+    ptk.Workspace.create(proj)
+    si_dir = os.path.join(proj, "sourceimages")
+    si_tex = write_png(os.path.join(si_dir, "brick_DIFF.png"))
+    os.makedirs(os.path.join(proj, "scenes"), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(proj, "scenes", "shot.blend"))
+    check("workspace root resolves to the project, not the .blend folder",
+          EnvUtils.workspace_root() == os.path.normpath(proj),
+          f"{EnvUtils.workspace_root()!r} vs {proj!r}")
+    img3 = bpy.data.images.load(si_tex)
+    img3.filepath = si_tex  # absolute, outside the .blend's own folder
+    n = btk.normalize_texture_paths("relative", images=[img3])
+    check("normalize(relative) rewrites a sourceimages path in a project layout",
+          n == 1 and img3.filepath.startswith("//"), f"n={n} filepath={img3.filepath!r}")
+    check("normalized path still resolves on disk", os.path.exists(_abspath(img3)), _abspath(img3))
+
+    # 7d. Normalize Paths / copy — an EXTERNAL texture is brought into the project AND ends up
+    # relative (it used to be copied in but left with an absolute path).
+    ext_tex = write_png(os.path.join(tmp, "external", "steel_DIFF.png"))
+    img4 = bpy.data.images.load(ext_tex)
+    moved = btk.normalize_texture_paths("copy", project_dir=si_dir, images=[img4])
+    check("normalize(copy) relocates the external texture",
+          moved == 1 and os.path.exists(os.path.join(si_dir, "steel_DIFF.png")))
+    check("normalize(copy) leaves the path relative, not absolute",
+          img4.filepath.startswith("//"), f"{img4.filepath!r}")
+
+    # 7e. Ambiguity guard — the same basename in two folders must NOT auto-resolve (mayatk skips
+    # with a warning rather than binding to whichever copy the walk reached first).
+    amb_dir = os.path.join(tmp, "ambiguous")
+    write_png(os.path.join(amb_dir, "a", "amb_DIFF.png"))
+    write_png(os.path.join(amb_dir, "b", "amb_DIFF.png"))
+    img5 = bpy.data.images.load(write_png(os.path.join(tmp, "ambsrc", "amb_DIFF.png")))
+    img5.filepath = os.path.join(tmp, "gone", "amb_DIFF.png")  # missing
+    n_amb = btk.resolve_missing_textures(amb_dir, stem=True, texture=True, fuzzy=True)
+    check("resolve_missing_textures refuses an ambiguous multi-hit", n_amb == 0, f"n={n_amb}")
+
+    # 7f. Find & Copy picks the NEWEST duplicate, not the shallowest (mayatk's dedup rule).
+    reset()
+    dup_root = os.path.join(tmp, "dups")
+    shallow = write_png(os.path.join(dup_root, "dup_DIFF.png"))
+    deep = write_png(os.path.join(dup_root, "nested", "dup_DIFF.png"))
+    os.utime(shallow, (1_000_000, 1_000_000))  # shallow = OLD
+    os.utime(deep, (2_000_000, 2_000_000))  # nested = NEW
+    img6 = bpy.data.images.load(shallow)
+    img6.filepath = os.path.join(tmp, "gone", "dup_DIFF.png")
+    dup_dest = os.path.join(tmp, "dup_dest")
+    n = btk.find_and_copy_textures([img6], dup_root, dup_dest, mode="copy")
+    picked = os.path.join(dup_dest, "dup_DIFF.png")
+    check("find_and_copy_textures copies a match", n == 1 and os.path.exists(picked))
+    check("find_and_copy_textures picks the newest duplicate",
+          abs(os.path.getmtime(picked) - os.path.getmtime(deep)) < 1.0,
+          f"picked={os.path.getmtime(picked)} deep={os.path.getmtime(deep)} shallow={os.path.getmtime(shallow)}")
 
     # 8. _abspath is LIBRARY-aware — an image linked from a library .blend stores its
     # ``//`` path relative to the LIBRARY file, not the current .blend, so resolving it

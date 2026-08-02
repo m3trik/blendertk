@@ -495,10 +495,29 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ scope
     def _get_scope_images(self):
-        """(images, label) — selected rows' images if any, else every FILE image."""
-        selected = self._images_from_selection(None)
-        if selected:
-            return selected, f"{len(selected)} selected row(s)"
+        """(images, label) — selected rows' images if any, else every FILE image.
+
+        A row selection that resolves to NO live image (rows gone stale after a rename/delete)
+        returns empty rather than falling through to every texture in the file — mirrors mayatk's
+        ``_get_scope_nodes``, which distinguishes "nothing selected" from "selection with no valid
+        nodes" so a broken selection is never silently escalated to scene-wide scope.
+        """
+        table = getattr(self.ui, "tbl000", None)
+        selection = (
+            table.get_selection(
+                columns=self._ROW_SELECTION_COLUMNS, include_current=True
+            )
+            if table is not None
+            else None
+        )
+        if selection:
+            selected = self._images_from_selection(selection)
+            if selected:
+                return selected, f"{len(selected)} selected row(s)"
+            self.logger.warning(
+                "Selected row(s) contain no valid images; nothing to do."
+            )
+            return [], "selected (no valid images)"
         images = [r["image"] for r in btk.get_image_records()]
         return images, f"all {len(images)} texture(s)"
 
@@ -538,10 +557,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 "Save the .blend first — there is no project folder yet."
             )
             return
-        try:
-            os.startfile(path)  # noqa: S606 — Windows-only convenience (matches the Maya slot)
-        except (AttributeError, OSError):
-            self.sb.message_box(f"Textures folder:<br><hl>{path}</hl>")
+        if not os.path.isdir(path):
+            # resolve_dir falls back to a `textures` name that need not exist yet.
+            self.sb.message_box(f"Textures directory not found:<br><hl>{path}</hl>")
+            return
+        # ptk's cross-platform opener — the same helper the Maya slot uses (os.startfile is
+        # Windows-only, and blendertk already depends on pythontk).
+        ptk.FileUtils.open_explorer(path)
 
     def reload_scene_textures(self):
         """Force Blender to re-read every image from disk."""
@@ -572,7 +594,8 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             "move": "move files",
         }.get(mode, mode)
         target_dir = self.sb.dir_dialog(
-            title=f"Set Texture Directory — {mode_hint} — {scope_label}"
+            title=f"Set Texture Directory — {mode_hint} — {scope_label}",
+            start_dir=self._resolve_source_images_path(),
         )
         if not target_dir:
             return
@@ -648,7 +671,8 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             )
             return
         search_dir = self.sb.dir_dialog(
-            title="Resolve Missing Textures — pick a search folder"
+            title="Resolve Missing Textures — pick a search folder",
+            start_dir=self._resolve_source_images_path(),
         )
         if not search_dir:
             return
@@ -767,6 +791,14 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             self.sb.message_box("Browse for File: select a single row.")
             return
         img = images[0]
+        # Open on the texture's own folder when it resolves, else the project's textures folder
+        # (mirrors the Maya slot's start_dir fallback chain).
+        current_dir = os.path.dirname(self._resolve_path(img.filepath) or "")
+        start_dir = (
+            current_dir
+            if current_dir and os.path.isdir(current_dir)
+            else self._resolve_source_images_path()
+        )
         chosen = self.sb.file_dialog(
             file_types=[
                 "*.png",
@@ -781,6 +813,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 "*.*",
             ],
             title=f"Select texture file for {img.name}",
+            start_dir=start_dir,
             filter_description="Texture Files",
             allow_multiple=False,
         )
@@ -919,12 +952,16 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             )
 
     def _do_find_and_copy_workflow(self, images, relocate_mode="copy"):
+        start_dir = self._resolve_source_images_path()
         source_dir = self.sb.dir_dialog(
-            title="Find & Copy — pick a folder to search recursively"
+            title="Find & Copy — pick a folder to search recursively",
+            start_dir=start_dir,
         )
         if not source_dir:
             return
-        dest_dir = self.sb.dir_dialog(title="Find & Copy — pick the destination folder")
+        dest_dir = self.sb.dir_dialog(
+            title="Find & Copy — pick the destination folder", start_dir=start_dir
+        )
         if not dest_dir:
             return
         record = self._snapshot_for_tracking(images)

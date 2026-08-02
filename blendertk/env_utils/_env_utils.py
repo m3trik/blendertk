@@ -29,16 +29,19 @@ _current_workspace_root = None  # session pin (Blender has no native `workspace 
 
 
 # --- workspace templates (named file-rule sets for building NEW workspaces) -----------------
-# ptk.PresetStore-backed, saved from the Workspace Editor. The ACTIVE template is what
-# `create_workspace` seeds from when no rules are given — saved templates literally define how
-# each subsequent new workspace is built (Maya's Project Window analogue, made persistent).
-_TEMPLATE_STORE = None
+# The store itself is `ptk.WorkspaceTemplates` — unnamespaced and shared with mayatk, because a
+# workspace.mel is a shared project: a template saved from the Workspace Editor is equally what
+# `mtk.create_workspace` builds from. The `btk.*_workspace_template*` names below are the thin
+# mirror surface (twins of `mtk.*`), not a second store.
 
 
 # ----------------------------------------------------------------- reference display modes
 # Per-reference display override (Maya's overrideEnabled/overrideDisplayType tri-state) → Blender's
 # per-object display_type + hide_select on the objects/instances belonging to a linked library.
 _DISPLAY_MODES = ("off", "reference", "template")
+# Object types Blender's default document ships with — a scene holding only these (and no linked
+# libraries) is not work worth guarding. See EnvUtils.scene_has_content.
+_DEFAULT_DOC_OBJECT_TYPES = frozenset({"CAMERA", "LIGHT"})
 
 
 class _EnvUtilsInternal(object):
@@ -69,12 +72,18 @@ class _EnvUtilsInternal(object):
 
     @staticmethod
     def _workspace_template_store():
-        global _TEMPLATE_STORE
-        if _TEMPLATE_STORE is None:
-            _TEMPLATE_STORE = ptk.PresetStore(
-                "workspace_templates", package="blendertk"
-            )
-        return _TEMPLATE_STORE
+        """The shared ``ptk.WorkspaceTemplates`` preset store — what the Workspace Editor's
+        template combo is wired to (mayatk reads the same one)."""
+        return ptk.WorkspaceTemplates.store()
+
+    @staticmethod
+    def _is_unsaved_work(is_dirty, is_saved, has_content):
+        """Decide whether replacing the open file would lose work, from the three facts
+        :meth:`EnvUtils.scene_has_unsaved_changes` gathers (kept pure so it is testable headless,
+        where the dirty flag can neither be set nor cleared)."""
+        if not is_dirty:
+            return False
+        return bool(is_saved or has_content)
 
     @staticmethod
     def _library_objects(lib):
@@ -296,13 +305,7 @@ class EnvUtils(_EnvUtilsInternal):
                 path = bpy.data.filepath
             except ImportError:  # headless .venv — no bpy, no open file
                 path = ""
-        if not path:
-            return None
-        ws = ptk.Workspace.find_containing(path)
-        if ws is not None:
-            return ws
-        d = path if os.path.isdir(path) else os.path.dirname(os.path.abspath(path))
-        return ptk.Workspace.load(d) if os.path.isdir(d) else None
+        return ptk.Workspace.for_path(path)
 
     @staticmethod
     def workspace_root(path=None):
@@ -345,43 +348,36 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     def list_workspace_templates():
-        """Saved workspace-template names (the Workspace Editor's Save Template entries)."""
-        return _EnvUtilsInternal._workspace_template_store().list()
+        """Saved workspace-template names (the Workspace Editor's Save Template entries) —
+        the store is shared with mayatk, so Maya-saved templates list here too."""
+        return ptk.WorkspaceTemplates.list()
 
     @staticmethod
     def workspace_template_rules(name=None):
         """File rules for building a NEW workspace: the *name*d (default: active / last-saved)
         template, falling back to the standard ``ptk.DEFAULT_FILE_RULES``. Seeds
         :func:`create_workspace` and the Workspace Editor's fresh-path definition."""
-        store = _EnvUtilsInternal._workspace_template_store()
-        name = name or store.active
-        if name:
-            try:
-                rules = store.load(name)
-            except (KeyError, ValueError):
-                rules = None
-            if isinstance(rules, dict):
-                # Templates saved from the Workspace Editor's preset combo (uitk
-                # PresetManager) carry a "_meta" version block — not a rule.
-                rules = {str(k): str(v) for k, v in rules.items() if k != "_meta"}
-                if rules:
-                    return rules
-        return dict(ptk.DEFAULT_FILE_RULES)
+        return ptk.WorkspaceTemplates.rules(name)
 
     @staticmethod
-    def save_workspace_template(name, rules):
+    def save_workspace_template(name, rules=None):
         """Save *rules* as workspace template *name* and make it the active default for new
-        workspaces. Returns the saved name."""
-        store = _EnvUtilsInternal._workspace_template_store()
-        store.save(name, dict(rules))
-        store.active = name
-        return name
+        workspaces. ``rules=None`` captures the CURRENT workspace's own rules — publishing a
+        hand-tuned project layout as the studio template. Returns the saved name."""
+        if rules is None:
+            ws = EnvUtils.current_workspace()
+            rules = dict(ws.rules) if ws is not None else {}
+            if not rules:
+                raise ValueError(
+                    "No file rules to save — the current workspace has no workspace.mel rules."
+                )
+        return ptk.WorkspaceTemplates.save(name, rules)
 
     @staticmethod
     def delete_workspace_template(name):
         """Delete the user template *name* (the store keeps the active pointer consistent).
         True when a file was removed."""
-        return _EnvUtilsInternal._workspace_template_store().delete(name)
+        return ptk.WorkspaceTemplates.delete(name)
 
     @staticmethod
     def create_workspace(root, rules=None, create_dirs=True):
@@ -400,26 +396,14 @@ class EnvUtils(_EnvUtilsInternal):
         """Mark ``root`` (default: the current workspace folder) as a shared Maya/Blender project
         by writing a ``workspace.mel`` that describes the layout it ALREADY has — scene rule ``.``
         when .blend files sit at the root, ``sourceImages`` → ``textures`` when that's the existing
-        texture folder. Creates no subfolders and never clobbers an existing marker's rules."""
+        texture folder. Creates no subfolders and never clobbers an existing marker's rules.
+
+        Twin of ``mtk.promote_workspace``; the layout heuristics live in
+        ``ptk.Workspace.promote`` so both DCCs describe the same folder identically."""
         if root is None:
             ws = EnvUtils.current_workspace()
             root = ws.root if ws else ""
-        if not (root and os.path.isdir(root)):
-            return None
-        rules = dict(ptk.DEFAULT_FILE_RULES)
-
-        def _has(sub):
-            return os.path.isdir(os.path.join(root, sub))
-
-        try:
-            flat = any(f.lower().endswith(".blend") for f in os.listdir(root))
-        except OSError:
-            flat = False
-        if flat and not _has("scenes"):
-            rules["scene"] = rules["mayaAscii"] = rules["mayaBinary"] = "."
-        if _has("textures") and not _has("sourceimages"):
-            rules["sourceImages"] = "textures"
-        return ptk.Workspace.create(root, rules=rules, create_dirs=False)
+        return ptk.Workspace.promote(root, scene_exts=(".blend",))
 
     @staticmethod
     def find_workspaces(root_dir, recursive=False):
@@ -469,6 +453,45 @@ class EnvUtils(_EnvUtilsInternal):
             return True
         except RuntimeError:
             return False
+
+    @staticmethod
+    def scene_has_content():
+        """True if the open file holds authored data — anything beyond Blender's *default
+        document*: an empty scene, or the startup file's bare camera + light.
+
+        Deliberately conservative — only object-less-but-for-a-camera/light scenes read as
+        empty, so a startup cube the user has been modeling on still counts as content. Linked
+        libraries count too (an unsaved scene assembled out of references is work), as do text
+        datablocks — an unsaved script in the Text Editor is the one authored thing that leaves
+        no object behind (nothing in blendertk creates one, so this can't self-trigger).
+        """
+        import bpy
+
+        if len(bpy.data.libraries) or len(bpy.data.texts):
+            return True
+        return any(o.type not in _DEFAULT_DOC_OBJECT_TYPES for o in bpy.data.objects)
+
+    @staticmethod
+    def scene_has_unsaved_changes():
+        """True if replacing the open file (open / close / new) would lose work.
+
+        ``bpy.data.is_dirty`` alone is **not** that test. Blender derives it from the undo
+        stack, so a single click in the viewport flips it on a brand-new, never-saved, empty
+        scene (verified live in 5.1: one ``ed.undo_push`` in a VIEW_3D context is enough) — any
+        'unsaved changes' guard built straight on the flag then prompts with nothing to lose.
+        A never-saved file therefore only counts when it actually holds something
+        (:meth:`scene_has_content`); a file that exists on disk trusts the flag.
+
+        Maya's counterpart needs no such correction — ``cmds.file(q=True, modified=True)``
+        tracks real edits — so this is a Blender-only helper, not a parity gap.
+        """
+        import bpy
+
+        return EnvUtils._is_unsaved_work(
+            bool(getattr(bpy.data, "is_dirty", False)),
+            bool(getattr(bpy.data, "is_saved", False)),
+            EnvUtils.scene_has_content(),
+        )
 
     @staticmethod
     def format_scene_name(name, case=None, suffix=""):

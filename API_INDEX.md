@@ -142,7 +142,7 @@ _Generated: 2026-08-02_
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, get_view3d_context, window_context_override
+  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -187,13 +187,17 @@ _Generated: 2026-08-02_
 
 ### `display_utils/color_id.py` — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - `class ColorId`
-  - methods: assign_id_material, set_object_color, set_vertex_color, apply_color, get_object_color, get_material_color, get_average_vertex_color, color_difference, get_objects_by_color, reset_colors, reset_vertex_colors
+  - methods: assign_id_material, set_object_color, set_vertex_color, set_outliner_color, get_outliner_color, reset_outliner_colors, collection_tag_colors, nearest_collection_tag, add_to_color_set, get_color_set_color, remove_from_color_sets, apply_color, show_channels, has_object_color, get_object_color, get_material_color, get_average_vertex_color, color_difference, get_objects_by_color, reset_colors, reset_vertex_colors
 - `class ColorIdSlots(ptk.LoggingMixin)`
   - methods: header_init, selected_objects, selected_button, target_color, b000, b001, b002, b003
 
 ### `display_utils/exploded_view.py` — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
 - `class ExplodedViewSlots(ptk.LoggingMixin)`
   - methods: header_init, b000, b001, b002, b003
+
+### `display_utils/outliner_tint.py` — Per-object **outliner text colour** for Blender — the true analogue of Maya's
+- `class OutlinerTint(_OutlinerTintInternal)`
+  - methods: set_color, get_color, clear, tinted_objects, is_supported, status, is_enabled, enable, disable
 
 ### `edit_utils/_curtain_drape.py` — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - `class CurtainDrape(_CurtainDrapeInternal)`
@@ -293,7 +297,7 @@ _Generated: 2026-08-02_
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, format_scene_name, save_scene_as, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, format_scene_name, save_scene_as, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - `class BlenderConnection`
@@ -368,6 +372,9 @@ _Generated: 2026-08-02_
 - `main()`
 
 ### `env_utils/maya_bridge/templates/import.py` — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
+- `import_fbx()`
+- `restore_empty_groups(new_nodes)`
+- `rebuild_materials(new_nodes)`
 - `main()`
 
 ### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
@@ -408,7 +415,7 @@ _Generated: 2026-08-02_
 
 ### `env_utils/workspace_editor.py` — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 - `class WorkspaceEditorSlots(ptk.LoggingMixin)`
-  - methods: header_init, txt000_init, tbl000_init, add_rule, reset_row, remove_row, reset_rules, clear_rules, open_folder
+  - methods: header_init, txt000_init, tbl000_init, add_rule, reset_row, remove_row, reset_rules, clear_rules, create_project, open_folder
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
@@ -428,7 +435,7 @@ _Generated: 2026-08-02_
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
   - methods: update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -442,9 +449,11 @@ _Generated: 2026-08-02_
 - `class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
 
-### `mat_utils/game_shader.py` — Game Shader tool panel — auto-build a Principled-BSDF material from a set of PBR textures.
-- `class GameShaderSlots(ptk.LoggingMixin)`
-  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, txt002_init, b000
+### `mat_utils/game_shader.py` — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
+- `class GameShader(ptk.LoggingMixin, _GameShaderInternal)`
+  - methods: create_network
+- `class GameShaderSlots(GameShader)`
+  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, output_extension, cmb002_init, cmb003_init, txt002_init, b000
 
 ### `mat_utils/image_to_plane/_image_to_plane.py` — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - `class ImageToPlane(ptk.LoggingMixin)`
@@ -662,10 +671,12 @@ _Generated: 2026-08-02_
   - methods: header_init, b001, b002, perform_operation
 
 ### `rig_utils/telescope_rig.py` — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
+- `class TelescopeRigBundle`
+  - methods: to_json, from_json
 - `class TelescopeRig(ptk.LoggingMixin)`
-  - methods: setup_telescope_rig
+  - methods: setup_telescope_rig, scene_bundles, find_bundles, teardown
 - `class TelescopeRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, build_rig
+  - methods: header_init, build_rig, remove_rig
 
 ### `rig_utils/tube_path.py` — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.TubePath``.
 - `class TubePath`
@@ -755,7 +766,7 @@ _Generated: 2026-08-02_
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`
-  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, get_pivot_options
+  - methods: get_world_bbox, freeze_transforms, restore_transforms, has_stored_transforms, store_transforms, get_stored_transforms, scale_connected_edges, drop_to_grid, center_pivot, transfer_pivot, get_pivot_modes, match_scale, move_to, get_bounding_box, get_center_point, get_operation_axis_matrix, get_distance, order_by_distance, aim_object_at_point, restore_original_axes, get_pivot_options
 
 ### `xform_utils/matrices.py` — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 - `class Matrices`

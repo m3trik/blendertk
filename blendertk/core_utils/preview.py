@@ -16,7 +16,10 @@ Constraints on ``perform_operation(objects)`` authors:
   - It may mutate or even delete the captured objects (their data, matrix and collection
     links are restored — a deleted source is recreated from its snapshot).
   - It must NOT mutate objects outside the captured selection (their state isn't
-    snapshotted and won't be restored).
+    snapshotted and won't be restored). If the operation unavoidably does (a custom prop
+    on a shared carrier object, a file written to disk), pass ``restore_func`` — called
+    once after the rollback that DISCARDS the preview (un-check or failure; never on
+    commit) so the operation can repair that out-of-snapshot state itself.
   - Raise with a clear message for user-facing failures — the message lands in
     ``message_func`` and the preview switches itself off.
 
@@ -35,6 +38,7 @@ class Preview:
         enable_checkbox,
         commit_button,
         finalize_func=None,
+        restore_func=None,
         message_func=print,
         undo_message=None,
     ):
@@ -42,6 +46,7 @@ class Preview:
         self.enable_checkbox = enable_checkbox
         self.commit_button = commit_button
         self.finalize_func = finalize_func
+        self.restore_func = restore_func
         self.message_func = message_func
         self.undo_message = undo_message or type(operation).__name__
 
@@ -153,6 +158,10 @@ class Preview:
         """Roll back and drop the snapshot (the un-check path)."""
         if self._enabled:
             self._rollback()
+            if self.restore_func:
+                # The preview is being DISCARDED — let the operation repair
+                # state the snapshot can't cover (see the module docstring).
+                self.restore_func()
         self._drop_snapshots()
         self._enabled = False
         self._set_checked(False)

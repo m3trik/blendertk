@@ -375,6 +375,7 @@ try:
 
     # 10. spatial queries: get_bounding_box / get_center_point / get_distance /
     #     order_by_distance / aim_object_at_point
+    import math
     from mathutils import Vector
 
     reset()
@@ -398,6 +399,91 @@ try:
     check("aim_object_at_point points the aim axis at the target",
           aimed == [c0] and approx(zdir.z, 1.0, 0.01),
           f"zdir={tuple(round(v, 2) for v in zdir)}")
+
+    # ---------------------------------------------------------------- bake-history reader
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(1, 2, 3)); g = bpy.context.active_object
+    g.scale = (2, 3, 4); bpy.context.view_layer.update()
+    check("get_stored_transforms is None when unstamped",
+          btk.XformUtils.get_stored_transforms(g) is None)
+    btk.freeze_transforms(g, location=True, rotation=False, scale=True)
+    stored = btk.XformUtils.get_stored_transforms(g)
+    check("get_stored_transforms reads the pre-freeze channels",
+          stored is not None and approx(stored["translate"].x, 1.0)
+          and approx(stored["scale"].y, 3.0), f"{stored}")
+    check("get_stored_transforms fills absent channels with identity",
+          stored is not None and approx(stored["rotate"].angle, 0.0),
+          f"rot={None if stored is None else tuple(round(v, 3) for v in stored['rotate'])}")
+
+    # public store_transforms + prefix isolation (the auto-instancer contract)
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0)); p = bpy.context.active_object
+    btk.XformUtils.store_transforms(p, prefix="canonical")
+    check("store_transforms(prefix) stamps only that prefix",
+          btk.XformUtils.get_stored_transforms(p, "canonical") is not None
+          and btk.XformUtils.get_stored_transforms(p) is None)
+
+    # ---------------------------------------------------------------- 'original' pivot mode
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0)); r = bpy.context.active_object
+    r.rotation_euler = (0.0, 0.0, math.radians(90)); bpy.context.view_layer.update()
+    authored = btk.XformUtils.get_operation_axis_matrix(r, "object").copy()
+    check("'original' falls back to 'object' when unstamped",
+          (btk.XformUtils.get_operation_axis_matrix(r, "original").to_quaternion().rotation_difference(
+              authored.to_quaternion()).angle) < 1e-4)
+    btk.freeze_transforms(r, location=False, rotation=True, scale=False)
+    bpy.context.view_layer.update()
+    live_q = btk.XformUtils.get_operation_axis_matrix(r, "object").to_quaternion()
+    orig_q = btk.XformUtils.get_operation_axis_matrix(r, "original").to_quaternion()
+    check("freeze flattens 'object' to world",
+          live_q.rotation_difference(authored.to_quaternion()).angle > 1e-3)
+    check("'original' rebuilds the pre-freeze frame",
+          orig_q.rotation_difference(authored.to_quaternion()).angle < 1e-3,
+          f"delta={orig_q.rotation_difference(authored.to_quaternion()).angle:.5f}")
+
+    # ------------------------------------------------- origin moves invalidate the T bake
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0)); o = bpy.context.active_object
+    btk.freeze_transforms(o, location=True, rotation=False, scale=False)
+    check("freeze(location) stamps a T bake",
+          btk.XformUtils.get_stored_transforms(o) is not None)
+    btk.center_pivot(o, mode="object")
+    stored_after = btk.XformUtils.get_stored_transforms(o)
+    check("center_pivot drops the stale T bake",
+          stored_after is None or approx(stored_after["translate"].length, 0.0),
+          f"{stored_after}")
+
+    # cursor mode (Maya's Bake Pivot) goes through the same invalidation
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0)); cu = bpy.context.active_object
+    btk.freeze_transforms(cu, location=True, rotation=False, scale=False)
+    bpy.context.scene.cursor.location = (7.0, 0.0, 0.0)
+    btk.center_pivot(cu, mode="cursor")
+    check("center_pivot('cursor') moves the origin to the 3D cursor",
+          approx(cu.location.x, 7.0), f"x={cu.location.x:.3f}")
+    check("center_pivot('cursor') drops the stale T bake",
+          btk.XformUtils.get_stored_transforms(cu) is None)
+    bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+
+    # separate_objects(center_pivots=True) must route through center_pivot, not a raw op.
+    # Needs a genuinely multi-shell mesh: a one-shell object separates into nothing and
+    # the post-process is deliberately skipped ("a no-op shouldn't mutate").
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0)); s0 = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(9, 0, 0)); s1 = bpy.context.active_object
+    bpy.ops.object.select_all(action="DESELECT")
+    s0.select_set(True); s1.select_set(True)
+    bpy.context.view_layer.objects.active = s0
+    bpy.ops.object.join()  # one object, two loose shells
+    bpy.context.view_layer.update()
+    btk.freeze_transforms(s0, location=True, rotation=False, scale=False)
+    check("joined shell carries a T bake before separating",
+          btk.XformUtils.get_stored_transforms(s0) is not None)
+    parts = btk.EditUtils.separate_objects(s0, center_pivots=True)
+    check("separate_objects actually split the shells", len(parts) == 1, f"parts={len(parts)}")
+    check("separate_objects(center_pivots) drops the stale T bake",
+          btk.XformUtils.get_stored_transforms(s0) is None,
+          f"{btk.XformUtils.get_stored_transforms(s0)}")
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

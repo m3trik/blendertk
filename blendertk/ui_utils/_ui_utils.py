@@ -519,6 +519,9 @@ class UiUtils(_UiUtilsInternal):
             ``reveal`` — select *node* and frame it in the 3D viewport (Blender has no scripted
                          Outliner "reveal" like Maya's ``showSelected``; framing the viewport is the
                          closest visible feedback).
+            ``graph``  — open *node* (a MATERIAL name) in the Shader Editor. The Blender analogue
+                         of mayatk's "select the shader node in the Hypershade" link, which is what
+                         a material-building tool (Game Shader) wants its result link to do.
 
         Parameters:
             url:    A ``QUrl`` from ``QTextBrowser.anchorClicked``.
@@ -556,6 +559,19 @@ class UiUtils(_UiUtilsInternal):
         node = params.get("node", [""])[0]
         if not node:
             return False
+
+        # ``graph`` names a MATERIAL, not an object — resolve it against bpy.data.materials
+        # before the object lookup below (which would fail and swallow the link).
+        if action == "graph":
+            import blendertk as btk
+
+            material = bpy.data.materials.get(node)
+            if material is None:
+                if logger:
+                    logger.warning(f"Material not found: {node}")
+                return False
+            btk.graph_materials(material)
+            return True
 
         # bpy.data.objects.get(name) is ambiguous when a linked library object shares the exact same
         # name string as a local one (object names are only unique per-library, not globally) — a

@@ -211,11 +211,85 @@ try:
         "PresetManager _meta block is stripped from template rules",
         btk.workspace_template_rules("gui") == {"scene": "shots"},
     )
+    # The store is ptk.WorkspaceTemplates — UNnamespaced, so mayatk reads the same
+    # templates (a workspace.mel is a shared project; so is the recipe for one).
+    check(
+        "templates live in the shared, unnamespaced store",
+        ptk.WorkspaceTemplates.store().package == ""
+        and ptk.WorkspaceTemplates.rules("studio")
+        == {"scene": "shots", "sourceImages": "tex"},
+        str(ptk.WorkspaceTemplates.store().user_dir),
+    )
     btk.delete_workspace_template("gui")
     btk.delete_workspace_template("studio")
     check(
         "deleted template falls back to the standard set",
         btk.workspace_template_rules() == ptk.DEFAULT_FILE_RULES,
+    )
+
+    # 5c. Workspace Editor rule-key resolution — a row ADDED while the table shows Maya's
+    #     nice names has no stored key, so its typed text is the key candidate. Without the
+    #     reverse lookup the label went into workspace.mel verbatim (workspace -fr "Render
+    #     Data" …), a rule name Maya does not recognize.
+    from blendertk.env_utils.workspace_editor import WorkspaceEditorSlots as _WES
+
+    check(
+        "nice label resolves to its rule key",
+        _WES._key_for_label("Render Data") == "renderData",
+    )
+    check(
+        "nice-label lookup is case-insensitive",
+        _WES._key_for_label("  source images ") == "sourceImages",
+    )
+    check(
+        "an unknown label passes through as a custom rule",
+        _WES._key_for_label("myCustomRule") == "myCustomRule",
+    )
+    check("a raw key is returned unchanged", _WES._key_for_label("scene") == "scene")
+    check("blank stays blank", _WES._key_for_label("   ") == "")
+
+    # 5d. Signal re-wire across a slots rebuild. The tbl000/txt000 QWidgets outlive the
+    #     Slots instance (a UI reload leaves is_initialized stamped on them), so the
+    #     handler bound by a DEAD instance must be replaced, not merely joined — a stale
+    #     _on_item_changed carries that instance's stale removal-diff baseline and would
+    #     delete rules on the next edit. Fake signal: the semantics, not Qt, are the point.
+    class _FakeSignal:
+        def __init__(self):
+            self.handlers = []
+
+        def connect(self, handler):
+            self.handlers.append(handler)
+
+        def disconnect(self, handler):
+            if handler not in self.handlers:
+                raise TypeError("not connected")
+            self.handlers.remove(handler)
+
+    class _FakeWidget:
+        def __init__(self):
+            self.itemChanged = _FakeSignal()
+
+    def _handler_a():
+        pass
+
+    def _handler_b():
+        pass
+
+    fake = _FakeWidget()
+    _WES._rewire(fake, "itemChanged", _handler_a)
+    check(
+        "first wire connects", fake.itemChanged.handlers == [_handler_a]
+    )
+    _WES._rewire(fake, "itemChanged", _handler_b)  # the "rebuilt instance" pass
+    check(
+        "a rebuild replaces the dead instance's handler",
+        fake.itemChanged.handlers == [_handler_b],
+        str(fake.itemChanged.handlers),
+    )
+    _WES._rewire(fake, "itemChanged", _handler_b)  # same instance, re-shown
+    check(
+        "re-running _init never stacks duplicates",
+        fake.itemChanged.handlers == [_handler_b],
     )
 
     # 6. promote_workspace — describes the EXISTING layout instead of imposing the template.

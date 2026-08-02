@@ -1658,11 +1658,14 @@ class EditUtils(_EditUtilsInternal):
             if parts:  # something actually separated — post-process only then (no-op shouldn't mutate)
                 produced = [obj] + parts  # the source keeps one part
                 if center_pivots:
-                    bpy.ops.object.select_all(action="DESELECT")
-                    for p in produced:
-                        p.select_set(True)
-                    bpy.context.view_layer.objects.active = obj
-                    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+                    from blendertk.xform_utils._xform_utils import XformUtils
+
+                    # Through XformUtils, not a raw origin_set: moving the
+                    # origin invalidates any stored freeze-location bake on the
+                    # source (Blender's origin IS the translate reference), and
+                    # only that path drops it. A stale bake would make a later
+                    # Un-Freeze double-apply the translation.
+                    XformUtils.center_pivot(produced, mode="median")
                 if rename:
                     base = obj.name.split(".")[0]
                     for i, p in enumerate(produced):

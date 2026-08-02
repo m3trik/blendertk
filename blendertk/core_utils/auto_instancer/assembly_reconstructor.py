@@ -41,6 +41,12 @@ logger = logging.getLogger(__name__)
 # passes never mistake a user's own ``Assembly_*``-named object for ours.
 ASSEMBLY_TAG_ATTR = "autoInstancerAssembly"
 
+#: Bake-history prefix for the instancer's own re-basing of a local frame.
+#: Deliberately NOT the default prefix the user-facing freeze uses —
+#: canonicalization is the tool's bookkeeping, not a freeze the user asked for,
+#: and composing the two histories would corrupt Un-Freeze. Mirrors mayatk.
+CANONICAL_BAKE_PREFIX = "canonical"
+
 
 class _AssemblyReconstructorInternal(object):
     """Internal helpers for AssemblyReconstructor."""
@@ -206,9 +212,18 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
         obj.data.normals_split_custom_set(local.tolist())
 
     def center_transform_on_geometry(self, obj) -> None:
-        """Move the transform to the center of its geometry without moving it."""
+        """Move the transform to the center of its geometry without moving it.
+
+        Stamps bake history under :data:`CANONICAL_BAKE_PREFIX` first: this
+        re-bases the object's local frame, and without a record the user's
+        authored frame is destroyed unrecoverably. Callers that continue on to
+        rotate the frame (:meth:`canonicalize_transform`) must NOT stamp again
+        — the history is cumulative, so the single pre-mutation snapshot taken
+        here is the whole state a restore needs. Mirrors the mayatk twin.
+        """
         import bpy
         from mathutils import Vector
+        from blendertk.xform_utils._xform_utils import XformUtils
 
         me = GeometryMatcher._mesh(obj)
         if me is None:
@@ -216,6 +231,7 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
         pts = self.matcher._object_points(me)
         if not len(pts):
             return
+        XformUtils.store_transforms(obj, prefix=CANONICAL_BAKE_PREFIX)
         w = np.array(obj.matrix_world, dtype=float)
         world_pts = pts @ w[:3, :3].T + w[:3, 3]
         center = Vector(world_pts.mean(axis=0).tolist())
@@ -233,7 +249,13 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
         bpy.context.view_layer.update()
 
     def canonicalize_transform(self, obj) -> None:
-        """Align the transform's rotation to the geometry's PCA axes."""
+        """Align the transform's rotation to the geometry's PCA axes.
+
+        The pre-canonicalization local frame is recorded by the
+        ``center_transform_on_geometry`` call below (prefix
+        :data:`CANONICAL_BAKE_PREFIX`), so the re-basing stays reversible via
+        ``XformUtils.restore_transforms(obj, prefix=CANONICAL_BAKE_PREFIX)``.
+        """
         import bpy
         from mathutils import Matrix
 

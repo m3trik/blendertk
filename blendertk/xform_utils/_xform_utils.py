@@ -19,7 +19,13 @@ from blendertk.core_utils._core_utils import (
 
 # Custom-prop keys freeze_transforms stamps so restore_transforms can un-freeze
 # (the Blender analogue of mayatk's ``original_{T,R,S}_bake`` attributes).
-_BAKE_T, _BAKE_R, _BAKE_S = "btk_T_bake", "btk_R_bake", "btk_S_bake"
+# ``prefix`` mirrors mayatk's: the default is the user-facing freeze history,
+# and a tool that re-bases a local frame for its own bookkeeping stamps under
+# its own prefix so the two never compose (see the auto-instancer).
+_DEFAULT_BAKE_PREFIX = "btk"
+_BAKE_T, _BAKE_R, _BAKE_S = (
+    f"{_DEFAULT_BAKE_PREFIX}_{channel}_bake" for channel in "TRS"
+)
 
 
 _ORIGIN_MODES = {
@@ -42,6 +48,12 @@ _TRACK_AXIS = {
 
 class _XformUtilsInternal(object):
     """Internal helpers for XformUtils."""
+
+    @staticmethod
+    def _bake_keys(prefix=_DEFAULT_BAKE_PREFIX):
+        """``(T, R, S)`` custom-prop key triple for *prefix* (mirror of
+        mayatk's ``_XformUtilsInternal._bake_attr_names``)."""
+        return f"{prefix}_T_bake", f"{prefix}_R_bake", f"{prefix}_S_bake"
 
     @staticmethod
     def _is_multi_user(obj):
@@ -76,22 +88,39 @@ class _XformUtilsInternal(object):
         return (mn + mx) / 2.0  # bounding-box center
 
     @staticmethod
-    def _store_bakes(obj, location, rotation, scale):
+    def _store_bakes(obj, location, rotation, scale, prefix=_DEFAULT_BAKE_PREFIX):
         """Record the pre-freeze local channels, composing with any existing bake (the
         cumulative freeze/unfreeze contract: repeated freeze+transform cycles compose,
         one restore returns the full history — T adds, R quaternion-composes, S multiplies)."""
         from mathutils import Quaternion, Vector
 
+        bake_t, bake_r, bake_s = _XformUtilsInternal._bake_keys(prefix)
         loc, rot, scl = obj.matrix_basis.decompose()
         if location:
-            prior = Vector(obj.get(_BAKE_T, (0.0, 0.0, 0.0)))
-            obj[_BAKE_T] = list(prior + loc)
+            prior = Vector(obj.get(bake_t, (0.0, 0.0, 0.0)))
+            obj[bake_t] = list(prior + loc)
         if rotation:
-            prior = Quaternion(obj.get(_BAKE_R, (1.0, 0.0, 0.0, 0.0)))
-            obj[_BAKE_R] = list(prior @ rot)
+            prior = Quaternion(obj.get(bake_r, (1.0, 0.0, 0.0, 0.0)))
+            obj[bake_r] = list(prior @ rot)
         if scale:
-            prior = Vector(obj.get(_BAKE_S, (1.0, 1.0, 1.0)))
-            obj[_BAKE_S] = [prior[i] * scl[i] for i in range(3)]
+            prior = Vector(obj.get(bake_s, (1.0, 1.0, 1.0)))
+            obj[bake_s] = [prior[i] * scl[i] for i in range(3)]
+
+    @staticmethod
+    def _invalidate_location_bake(objects, prefix=_DEFAULT_BAKE_PREFIX):
+        """Drop any stored freeze-*location* bake on *objects*.
+
+        Blender's origin IS the translate reference, so ANY origin move
+        (``origin_set`` in all its forms) invalidates a stored location bake —
+        leaving it would make a later ``restore_transforms`` double-apply the
+        translation. Rotation/scale bakes are unaffected. Every origin-moving
+        path must come through here; that is the whole reason it is a helper
+        rather than three lines inlined in ``center_pivot``.
+        """
+        bake_t = _XformUtilsInternal._bake_keys(prefix)[0]
+        for obj in ptk.make_iterable(objects):
+            if obj is not None and bake_t in obj:
+                del obj[bake_t]
 
     @staticmethod
     def _connected_edge_sets(edges):
@@ -165,14 +194,18 @@ class XformUtils(_XformUtilsInternal):
           compensating delta (so only the operated member ends identity).
         - ``"uninstance"``: break the links first (``NodeUtils.uninstance``),
           then bake every object normally.
+
+        Returns the objects actually baked (mirroring :func:`restore_transforms`) —
+        empty when everything was skipped, which is the only way a caller can tell a
+        fully-skipped multi-user batch from a successful one.
         """
         import bpy
 
         if not (location or rotation or scale):
-            return  # nothing to bake (transform_apply with all channels off is a no-op/error)
+            return []  # nothing to bake (transform_apply with all channels off is a no-op/error)
         objects = [o for o in ptk.make_iterable(objects) if o]
         if not objects:
-            return
+            return []
 
         inst_strategy = (instance_strategy or "skip").lower()
         valid_inst_strategies = {"skip", "preserve", "uninstance"}
@@ -213,7 +246,7 @@ class XformUtils(_XformUtilsInternal):
             )
             objects = [o for o in objects if o not in shared]
             if not objects:
-                return
+                return []
 
         bpy.ops.object.select_all(action="DESELECT")
         snapshots = []  # prior bake values (read pre-store) so a failed apply leaves no orphaned bakes
@@ -244,20 +277,29 @@ class XformUtils(_XformUtilsInternal):
                     else:
                         o[k] = prev
             raise
+        return objects
 
     @staticmethod
     @CoreUtils._object_mode
-    def restore_transforms(objects, delete_attrs=True, channels=None, traverse=False):
+    def restore_transforms(
+        objects,
+        delete_attrs=True,
+        channels=None,
+        traverse=False,
+        prefix=_DEFAULT_BAKE_PREFIX,
+    ):
         """Un-freeze: compose the stored pre-freeze channels back into the local transform
         (``new local C = stored C ∘ current C``) and counter-shift the geometry so the world
         position is preserved — mirror of ``mtk.restore_transforms``. Bakes are stamped by
         :func:`freeze_transforms`. ``channels`` optionally restricts the restore to a subset
         of ``{"translate", "rotate", "scale"}`` (unlisted channels keep their bake history for
         later calls); ``traverse`` also restores every descendant, parents first — mirror of
-        ``mtk.restore_transforms(traverse=True)``. Returns the objects restored."""
+        ``mtk.restore_transforms(traverse=True)``. ``prefix`` selects which bake history to
+        consume (default: the user-facing freeze). Returns the objects restored."""
         import bpy
         from mathutils import Matrix, Quaternion, Vector
 
+        bake_t, bake_r, bake_s = _XformUtilsInternal._bake_keys(prefix)
         valid_channels = {"translate", "rotate", "scale"}
         if channels is None:
             target_channels = valid_channels
@@ -291,19 +333,19 @@ class XformUtils(_XformUtilsInternal):
 
         restored = []
         for obj in targets:
-            has_t = _BAKE_T in obj and "translate" in target_channels
-            has_r = _BAKE_R in obj and "rotate" in target_channels
-            has_s = _BAKE_S in obj and "scale" in target_channels
+            has_t = bake_t in obj and "translate" in target_channels
+            has_r = bake_r in obj and "rotate" in target_channels
+            has_s = bake_s in obj and "scale" in target_channels
             if not (has_t or has_r or has_s):
                 continue
             old_basis = obj.matrix_basis.copy()
             loc, rot, scl = old_basis.decompose()
             if has_t:
-                loc = Vector(obj[_BAKE_T]) + loc
+                loc = Vector(obj[bake_t]) + loc
             if has_r:
-                rot = Quaternion(obj[_BAKE_R]) @ rot
+                rot = Quaternion(obj[bake_r]) @ rot
             if has_s:
-                scl = Vector([obj[_BAKE_S][i] * scl[i] for i in range(3)])
+                scl = Vector([obj[bake_s][i] * scl[i] for i in range(3)])
             new_basis = Matrix.LocRotScale(loc, rot, scl)
             if obj.data is not None and hasattr(obj.data, "transform"):
                 obj.data.transform(new_basis.inverted() @ old_basis)
@@ -320,9 +362,9 @@ class XformUtils(_XformUtilsInternal):
                 # Only the consumed channels — unrestored bake history stays
                 # available for future restore calls (the mayatk contract).
                 for consumed, k in (
-                    (has_t, _BAKE_T),
-                    (has_r, _BAKE_R),
-                    (has_s, _BAKE_S),
+                    (has_t, bake_t),
+                    (has_r, bake_r),
+                    (has_s, bake_s),
                 ):
                     if consumed and k in obj:
                         del obj[k]
@@ -331,14 +373,89 @@ class XformUtils(_XformUtilsInternal):
         return restored
 
     @staticmethod
-    def has_stored_transforms(objects):
+    def has_stored_transforms(objects, prefix=_DEFAULT_BAKE_PREFIX):
         """Map each object → whether it carries pre-freeze bake data (mirror of
         ``mtk.XformUtils.has_stored_transforms``). Bakes are stamped by :func:`freeze_transforms`;
         the Channels panel uses this to gate its Unfreeze action."""
+        keys = _XformUtilsInternal._bake_keys(prefix)
         return {
-            o: any(k in o for k in (_BAKE_T, _BAKE_R, _BAKE_S))
+            o: any(k in o for k in keys)
             for o in ptk.make_iterable(objects)
             if o
+        }
+
+    @staticmethod
+    def store_transforms(
+        objects, prefix=_DEFAULT_BAKE_PREFIX, channels=None, traverse=False
+    ):
+        """Capture the current local channels as cumulative bake history — mirror of
+        ``mtk.XformUtils.store_transforms``.
+
+        The stamp side of the freeze/unfreeze contract, exposed for tools that
+        re-base a local frame WITHOUT going through :func:`freeze_transforms`
+        (the axis-orthogonality fixer, the auto-instancer's canonicalization).
+        Without it those rewrites destroy the authored frame unrecoverably.
+        ``channels`` restricts the update to a subset of ``{"translate",
+        "rotate", "scale"}``; ``traverse`` also stamps every descendant.
+        """
+        valid_channels = {"translate", "rotate", "scale"}
+        target = valid_channels if channels is None else set(channels) & valid_channels
+        if not target:
+            return []
+
+        stamped, seen = [], set()
+        for obj in (o for o in ptk.make_iterable(objects) if o):
+            if obj not in seen:
+                stamped.append(obj)
+                seen.add(obj)
+            if traverse:
+                for child in obj.children_recursive:
+                    if child not in seen:
+                        stamped.append(child)
+                        seen.add(child)
+
+        for obj in stamped:
+            _XformUtilsInternal._store_bakes(
+                obj,
+                "translate" in target,
+                "rotate" in target,
+                "scale" in target,
+                prefix=prefix,
+            )
+        return stamped
+
+    @staticmethod
+    def get_stored_transforms(obj, prefix=_DEFAULT_BAKE_PREFIX):
+        """Read one object's stored pre-freeze channels back as plain values —
+        mirror of ``mtk.XformUtils.get_stored_transforms``.
+
+        The read side of the freeze/unfreeze contract: a frozen object reports
+        identity channels, so anything needing its *authored* frame (pivot
+        orientation, mirror/cut axes, instance matching) has to come through
+        here rather than reading ``matrix_world``.
+
+        Returns:
+            (dict/None): ``{"translate": Vector, "rotate": Quaternion,
+            "scale": Vector, "matrix": Matrix}`` — the pre-freeze local
+            transform — or ``None`` when the object carries no bake history.
+            Absent channels read as identity, so the dict is always complete.
+        """
+        from mathutils import Matrix, Quaternion, Vector
+
+        if obj is None:
+            return None
+        bake_t, bake_r, bake_s = _XformUtilsInternal._bake_keys(prefix)
+        if not any(k in obj for k in (bake_t, bake_r, bake_s)):
+            return None
+
+        loc = Vector(obj.get(bake_t, (0.0, 0.0, 0.0)))
+        rot = Quaternion(obj.get(bake_r, (1.0, 0.0, 0.0, 0.0)))
+        scl = Vector(obj.get(bake_s, (1.0, 1.0, 1.0)))
+        return {
+            "translate": loc,
+            "rotate": rot,
+            "scale": scl,
+            "matrix": Matrix.LocRotScale(loc, rot, scl),
         }
 
     @staticmethod
@@ -414,9 +531,14 @@ class XformUtils(_XformUtilsInternal):
         """Move each object's origin (Blender's single pivot) — mirror of Maya's Center Pivot.
 
         ``mode``: ``"object"`` bounding-box center, ``"median"`` / ``"component"`` geometry
-        median, ``"world"`` the world origin (0,0,0). Headless-testable (object operator).
+        median, ``"world"`` the world origin (0,0,0), ``"cursor"`` the current 3D cursor
+        (Maya's Bake Pivot). Headless-testable (object operator).
         ``@_object_mode``: ``select_all``/``origin_set`` need OBJECT mode and a window in
         context — its sibling ``transfer_pivot`` was guarded; this one wasn't.
+
+        This is the ONLY sanctioned origin-move entry point: it drops the stored
+        location bake afterwards (see ``_invalidate_location_bake``), which a
+        direct ``bpy.ops.object.origin_set`` call does not.
         """
         import bpy
 
@@ -427,7 +549,9 @@ class XformUtils(_XformUtilsInternal):
         for o in objects:
             o.select_set(True)
         bpy.context.view_layer.objects.active = objects[0]
-        if mode == "world":
+        if mode == "cursor":
+            bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+        elif mode == "world":
             cursor = bpy.context.scene.cursor.location.copy()
             bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
             try:
@@ -437,12 +561,7 @@ class XformUtils(_XformUtilsInternal):
         else:
             otype, center = _ORIGIN_MODES.get(mode, _ORIGIN_MODES["object"])
             bpy.ops.object.origin_set(type=otype, center=center)
-        # Moving the origin invalidates any stored freeze-*location* bake (Blender's origin is the
-        # translate reference), so drop it — otherwise a later restore_transforms would double-apply
-        # the translation. The rotation/scale bakes are unaffected (origin_set leaves them).
-        for o in objects:
-            if _BAKE_T in o:
-                del o[_BAKE_T]
+        _XformUtilsInternal._invalidate_location_bake(objects)
         bpy.context.view_layer.update()  # refresh matrix_world for downstream reads
 
     @staticmethod
@@ -604,6 +723,12 @@ class XformUtils(_XformUtilsInternal):
 
         ``pivot``:
           - ``"object"`` — the object's own orientation + its origin.
+          - ``"original"`` — the object's PRE-FREEZE orientation, rebuilt from its stored
+            bake history. A freeze zeroes the rotation channel, so a frozen object's local
+            axes ARE the world axes and ``"object"`` silently degrades into ``"world"`` —
+            losing the frame the asset was authored in for every axis-based op. Falls back
+            to ``"object"`` when the object carries no bake history, so it is always safe
+            to pass.
           - ``"world"`` — world axes at the world origin.
           - ``"manip"`` — Blender's analogue of Maya's *manip* pivot (a manipulator position the
             user can freely relocate mid-operation): the 3D cursor
@@ -622,6 +747,15 @@ class XformUtils(_XformUtilsInternal):
 
         if pivot == "object":
             return obj.matrix_world.normalized()
+        if pivot == "original":
+            # Column-vector convention: world = matrix_world @ local. A freeze
+            # folded the old basis into the data, so a point that sat at p
+            # pre-freeze now sits at (stored @ p) in the current local space —
+            # making ``matrix_world @ stored`` the authored-frame -> world map.
+            stored = XformUtils.get_stored_transforms(obj)
+            if stored is None:
+                return obj.matrix_world.normalized()
+            return (obj.matrix_world @ stored["matrix"]).normalized()
         if pivot == "manip":
             import bpy
 
@@ -691,6 +825,49 @@ class XformUtils(_XformUtilsInternal):
             o.matrix_world = Matrix.LocRotScale(loc, quat, scl)
             aimed.append(o)
         return aimed
+
+    @staticmethod
+    def restore_original_axes(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name="Authored"):
+        """Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —
+        mirror of ``mtk.XformUtils.restore_original_axes``.
+
+        The companion to Un-Freeze for when the freeze is wanted but the authored frame is
+        still needed to work in: a frozen object's local axes are the world's, so the gizmo
+        can no longer show the frame the asset was modelled in.
+
+        Maya aims its manipulator pivot; Blender's equivalent knob is a **custom transform
+        orientation** (the same slot ``World-Aligned Pivot`` flips to ``GLOBAL``), so this
+        writes the authored frame into one named *name* and makes it active. Non-destructive:
+        nothing about the object changes. With several objects the LAST wins — one gizmo.
+
+        Returns the object the orientation was built from, or None (no bake history, or no
+        screen context — ``create_orientation`` needs a window, so this no-ops headless).
+        """
+        import bpy
+
+        objects = [o for o in ptk.make_iterable(objects) if o]
+        if not objects:
+            objects = list(CoreUtils.selected_objects())
+        stamped = [
+            o for o in objects if XformUtils.get_stored_transforms(o, prefix) is not None
+        ]
+        if not stamped:
+            return None
+
+        obj = stamped[-1]
+        frame = XformUtils.get_operation_axis_matrix(obj, "original")
+        try:
+            with CoreUtils.window_context_override():
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.transform.create_orientation(
+                    name=name, use=True, overwrite=True
+                )
+                slot = bpy.context.scene.transform_orientation_slots[0]
+                slot.custom_orientation.matrix = frame.to_3x3()
+        except (RuntimeError, AttributeError):
+            # Headless / no screen: create_orientation has no context to run in.
+            return None
+        return obj
 
     @staticmethod
     def get_pivot_options():

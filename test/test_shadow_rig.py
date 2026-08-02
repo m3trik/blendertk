@@ -5,7 +5,10 @@ Verifies the rig BUILDS (source/contact/plane/material/silhouette + keyable prop
 + opacity DRIVERS are wired on the right channels, and they EVALUATE (Z-up: plane stretches toward
 the ground away from the light; orbit rotates about Z with the head pointing away from the light;
 the anchor slides away from the light and the opacity fades as the target rises off the ground),
-and BAKE strips the drivers and lays keyframes. Visual fidelity of the texture/material is not
+and BAKE strips the drivers and lays keyframes. Also the lifecycle guards (Maya parity): a failed
+create ROLLS BACK every datablock it made, re-creating on the same target UNIQUIFIES instead of
+hijacking the first rig's material, footprint/contact measure the EVALUATED depsgraph, and
+bake/delete SKIP linked-library planes. Visual fidelity of the texture/material is not
 asserted (headless) — only its structure, per the parity plan.
 
 Reference values (cube 2x2x2 at origin, light (5,5,10), G=0):
@@ -233,16 +236,98 @@ try:
           approx(recs.get(p.name, {}).get("intensity", -1), 1.0))
 
     # ============================ RE-ENTRANCY + GUARD ============================
+    # Re-creating on the same target must UNIQUIFY the second rig (Maya parity)
+    # rather than hijack the first rig's material/image/PNG.
     reset()
     c = cube("Box")
     bpy.context.view_layer.update()
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=64, mode="orbit")
     p = rig.shadow_plane
-    n_before = len([d for d in p.animation_data.drivers if d.data_path == "location" and d.array_index == 0])
-    ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=64, mode="orbit")
-    p2 = bpy.data.objects.get("Box_shadow") or p
-    n_after = len([d for d in p2.animation_data.drivers if d.data_path == "location" and d.array_index == 0])
-    check("rebuild does not stack drivers", n_before == 1 and n_after == 1, f"{n_before}->{n_after}")
+    rig2 = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=64, mode="orbit")
+    n_first = len([d for d in p.animation_data.drivers if d.data_path == "location" and d.array_index == 0])
+    check("re-create does not stack drivers on the first rig", n_first == 1, f"{n_first}")
+    check("re-create uniquifies the second rig (Maya parity)",
+          rig2.shadow_plane.name == "Box1_shadow"
+          and rig2.material is not rig.material
+          and os.path.basename(rig2.texture_path) == "Box1_shadow.png",
+          f"{rig2.shadow_plane.name} / {rig2.material.name} / {rig2.texture_path}")
+    check("first rig keeps its own opacity driver",
+          drv(rig.material.node_tree, 'nodes["opacity"].outputs[0].default_value', None) is not None)
+    for extra_tex in (rig.texture_path, rig2.texture_path):
+        if extra_tex and os.path.exists(extra_tex):
+            os.remove(extra_tex)
+
+    # ============================ CREATE ROLLBACK ============================
+    # A failed build (mesh-less target: source/contact/plane already built when the
+    # silhouette gather comes up empty) rolls back every datablock it created —
+    # no orphans left behind (mirror of mayatk's node-diff rollback).
+    reset()
+    holder = bpy.data.objects.new("NoMesh", None)  # empty, no mesh descendants
+    bpy.context.collection.objects.link(holder)
+    bpy.context.view_layer.update()
+    before = {
+        "objects": {o.name for o in bpy.data.objects},
+        "meshes": {m.name for m in bpy.data.meshes},
+        "materials": {m.name for m in bpy.data.materials},
+        "images": {i.name for i in bpy.data.images},
+    }
+    try:
+        ShadowRig.create([holder], texture_res=32)
+        check("mesh-less target raises", False)
+    except ValueError:
+        check("mesh-less target raises", True)
+    after = {
+        "objects": {o.name for o in bpy.data.objects},
+        "meshes": {m.name for m in bpy.data.meshes},
+        "materials": {m.name for m in bpy.data.materials},
+        "images": {i.name for i in bpy.data.images},
+    }
+    check("failed create rolls back all datablocks", after == before,
+          f"leaked: { {k: sorted(after[k] - before[k]) for k in after if after[k] != before[k]} }")
+
+    # ============================ EVALUATED (MODIFIER) FOOTPRINT ============================
+    # Footprint + contact must measure the EVALUATED geometry (Maya's
+    # exactWorldBoundingBox is post-deformation, and the silhouette gather is
+    # already evaluated): an Array modifier doubling the cube along X widens the
+    # plane (span 4 -> plane_size 4.4, vs the base mesh's 2.2).
+    reset()
+    c = cube("Box")
+    mod = c.modifiers.new("arr", "ARRAY")
+    mod.count = 2
+    mod.relative_offset_displace = (1.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], texture_res=32, mode="stretch")
+    check("footprint measures evaluated (modifier) geometry",
+          approx(rig.plane_size, 4.4, 0.1), f"plane_size={rig.plane_size:.3f}")
+
+    # ============================ LINKED-LIBRARY GUARD ============================
+    # A LINKED shadow plane can't have its drivers stripped or datablocks removed
+    # from here — bake_planes and delete_rigs must skip it (with a warning)
+    # instead of erroring mid-batch (mirror of mayatk's referenced-plane skip).
+    reset()
+    c = cube("Box")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], texture_res=32, mode="stretch")
+    import tempfile
+    lib_path = os.path.join(tempfile.gettempdir(), "btk_shadow_lib.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=lib_path, copy=True)
+    ShadowRig.delete_rigs(delete_textures=True)  # drop the local rig
+    with bpy.data.libraries.load(lib_path, link=True) as (src, dst):
+        dst.objects = [n for n in src.objects if n == "Box_shadow"]
+    linked = next((o for o in bpy.data.objects
+                   if o.name == "Box_shadow" and o.library), None)
+    check("library plane linked", linked is not None)
+    check("find_shadow_planes sees the linked plane",
+          linked in ShadowRig.find_shadow_planes(),
+          f"{[o.name for o in ShadowRig.find_shadow_planes()]}")
+    check("bake_planes skips the linked plane", ShadowRig.bake_planes() == [])
+    check("delete_rigs skips the linked plane", ShadowRig.delete_rigs() == [])
+    check("linked plane survives the skipped teardown",
+          any(o.name == "Box_shadow" and o.library for o in bpy.data.objects))
+    try:
+        os.remove(lib_path)
+    except OSError:
+        pass
 
     # ---- explicit world-axis silhouette still works (Y/Z-swap path) ----
     reset()

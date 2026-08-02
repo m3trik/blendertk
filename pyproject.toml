@@ -27,7 +27,7 @@ dependencies = [
 # lazily, so `import blendertk` and every non-Unity feature work without it.
 # Install with the extra when you want the bridge:  pip install blendertk[unity]
 [project.optional-dependencies]
-unity = ["unitytk>=0.0.2"]
+unity = ["unitytk>=0.0.8"]
 
 [project.urls]
 Homepage = "https://github.com/m3trik/blendertk"

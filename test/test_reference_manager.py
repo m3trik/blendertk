@@ -176,6 +176,36 @@ try:
     check("new_scene resets to an empty, unsaved scene",
           btk.new_scene() and bpy.data.filepath == "" and len(bpy.data.objects) == 0)
 
+    # 19. Unsaved-work guard. bpy.data.is_dirty follows the UNDO stack, so a single click in the
+    # viewport flips it on a brand-new, never-saved, empty scene (verified live in 5.1 — one
+    # ed.undo_push in a VIEW_3D context is enough), which made the panel's discard prompt fire
+    # with nothing to lose. Not reproducible headless (undo pushes need a real UI context), so the
+    # decision is pinned through the pure predicate plus the real content probe.
+    from blendertk.env_utils._env_utils import EnvUtils as _EU
+    check("dirty + never saved + no content → nothing to lose",
+          _EU._is_unsaved_work(True, False, False) is False)
+    check("dirty + never saved + content → unsaved work",
+          _EU._is_unsaved_work(True, False, True) is True)
+    check("dirty + saved file → unsaved work (flag is meaningful once on disk)",
+          _EU._is_unsaved_work(True, True, False) is True)
+    check("not dirty → never unsaved work",
+          _EU._is_unsaved_work(False, True, True) is False)
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    check("empty scene has no content", not btk.scene_has_content())
+    check("pristine empty scene reports no unsaved changes", not btk.scene_has_unsaved_changes())
+    bpy.ops.object.camera_add()
+    bpy.ops.object.light_add()
+    check("camera + light only is still the default document", not btk.scene_has_content())
+    bpy.ops.mesh.primitive_cube_add()
+    check("a mesh counts as content", btk.scene_has_content())
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.data.texts.new("notes")
+    check("a text datablock counts as content", btk.scene_has_content())
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    btk.link_blend_file(lib_path, link=True)
+    check("a linked library counts as content", btk.scene_has_content())
+
     # --- Slot bulk-operation routing (stub ui/sb; bypass the Qt-heavy __init__) ---------------
     from blendertk.env_utils.reference_manager import ReferenceManagerSlots
 
@@ -234,6 +264,22 @@ try:
     s.reload_all()
     check("slot reload_all with no libraries reports it",
           any("No linked" in m for m in sb.messages), str(sb.messages))
+
+    # The discard guard routes through the engine's corrected test (see check 19) — no prompt when
+    # there is nothing to lose, and it still asks (and honors "No") when there is.
+    _orig_unsaved = btk.scene_has_unsaved_changes
+    try:
+        btk.scene_has_unsaved_changes = lambda: False
+        s, sb = make_slots("No")
+        check("panel: silent when the scene holds nothing to lose",
+              s._confirm_discard_unsaved("open") and not sb.messages, str(sb.messages))
+        btk.scene_has_unsaved_changes = lambda: True
+        s, sb = make_slots("No")
+        declined = s._confirm_discard_unsaved("open")
+        check("panel: prompts and honors 'No' when there IS unsaved work",
+              (not declined) and any("unsaved changes" in m for m in sb.messages), str(sb.messages))
+    finally:
+        btk.scene_has_unsaved_changes = _orig_unsaved
 
     # Folder-structure filter must resolve {scenes} (regression: the filter passed no scenes= to
     # replace_placeholders, so a "{scenes}/…" pattern — now the header default — matched nothing

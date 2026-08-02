@@ -20,6 +20,7 @@ Windows-focused (Maya install layout).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,6 +57,10 @@ _SPEC = ptk.ScriptLaunchSpec(
         MayaBridge._build_mel_command(script_path),
     ],
     payload_prefix="btk_to_maya",
+    # The launched Maya inherits Blender's whole environment; an OCIO var pointing
+    # inside Blender's own install (its bundled v2.5 config) fails Maya's
+    # color-management init on every send. Strip exactly that case at launch time.
+    launch_env=lambda: MayaBridge._launch_env(),
 )
 
 
@@ -95,6 +100,172 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         from blendertk.env_utils.maya_bridge import parameters as _params
 
         return _params.Parameters.render_context(params)
+
+    # ------------------------------------------------------------------ payload
+    def _produce(self, objects, request):
+        """Export the FBX (via the mixin), then sidecar the texture manifest.
+
+        Blender's FBX exporter only carries images wired (almost) directly into
+        Principled sockets -- packed ORM/MSAO through SeparateColor, AO multiplies
+        and node-group plumbing export as NOTHING, so real production materials
+        arrived in Maya gray (live report). The manifest carries each textured
+        material's ORIGINAL image files; the Maya-side ``import`` template replays
+        it through mayatk's existing ``BlenderSceneImport`` applier -- the same
+        sidecar contract the pull direction has always used. Best-effort: a
+        manifest failure must never cost the user the send itself.
+        """
+        payload = super()._produce(objects, request)
+        if bool(request.params.get("INCLUDE_MATERIALS", True)):
+            try:
+                self._write_texture_manifest(objects, payload.primary)
+            except Exception:  # noqa: BLE001
+                self.logger.warning(
+                    "Texture-manifest sidecar failed; Maya keeps the FBX-carried "
+                    "materials.",
+                    exc_info=True,
+                )
+        return payload
+
+    def _write_texture_manifest(self, objects, fbx_path: str) -> None:
+        """Write ``<fbx>.manifest.json`` for *objects* (no-op when nothing is textured).
+
+        Same schema as the pull direction's collector in
+        ``mayatk/env_utils/blender_bridge/templates/_import_scene.py`` (kept in
+        step by hand -- that copy is dependency-free by template contract and runs
+        the whole scene; this one is in-process and scoped to the exported set):
+        one entry per material with its resolved image files, plus
+        ``scene_materials`` naming EVERY material on the set so the Maya side's
+        rename-on-clash matching can't claim an untextured sibling.
+        """
+        import json
+
+        import bpy
+
+        entries: List[Dict[str, Any]] = []
+        by_material: Dict[str, Dict[str, Any]] = {}
+        scene_materials: List[str] = []
+        for obj in objects:
+            obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            if obj is None or obj.type != "MESH":
+                continue
+            for slot in obj.material_slots:
+                mat = slot.material
+                if mat is None:
+                    continue
+                if mat.name not in scene_materials:
+                    scene_materials.append(mat.name)
+                if mat.name in by_material:
+                    entry = by_material[mat.name]
+                    if obj.name not in entry["objects"]:
+                        entry["objects"].append(obj.name)
+                    continue
+                files, image_nodes = self._material_files(mat)
+                if image_nodes == 0:
+                    continue  # flat colors ride the FBX fine
+                entry = {
+                    "name": mat.name,
+                    "shader_type": "principled_bsdf",
+                    "fbx_material": mat.name,
+                    "objects": [obj.name],
+                    "files": files,
+                }
+                by_material[mat.name] = entry
+                # File-less entries are written too: a textured material whose
+                # image paths never resolved (packed-only / broken links) must
+                # surface as a NAMED warning Maya-side, never as gray geometry.
+                entries.append(entry)
+        if not entries:
+            return
+        with open(fbx_path + ".manifest.json", "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "version": 1,
+                    "materials": entries,
+                    "scene_materials": scene_materials,
+                },
+                fh,
+                indent=1,
+            )
+        self.logger.info(
+            f"Texture manifest: {len(entries)} textured material(s) sidecarred."
+        )
+
+    @classmethod
+    def _material_files(cls, mat) -> Tuple[List[str], int]:
+        """``(files, image_node_count)`` -- every image-texture file feeding *mat*.
+
+        Free-form walk of the whole node tree (node groups included): the manifest
+        carries EVERYTHING; classification into map types happens Maya-side via the
+        shared ``ptk.MapFactory`` filename taxonomy.
+        """
+        files: List[str] = []
+        node_count = 0
+
+        def walk(tree, seen):
+            nonlocal node_count
+            if tree is None or tree in seen:
+                return
+            seen.add(tree)
+            for node in tree.nodes:
+                if node.bl_idname == "ShaderNodeTexImage":
+                    if node.image is not None:
+                        node_count += 1
+                    path = cls._resolved_image_file(node.image)
+                    if path and path not in files:
+                        files.append(path)
+                elif node.bl_idname == "ShaderNodeGroup":
+                    walk(node.node_tree, seen)
+
+        walk(mat.node_tree if mat.use_nodes else None, set())
+        return files, node_count
+
+    # Tiled-image filename tokens -> the glob that finds their tiles on disk.
+    _TILE_TOKENS = (("<UDIM>", "[0-9]" * 4), ("<UVTILE>", "u*_v*"))
+
+    @classmethod
+    def _resolved_image_file(cls, image) -> Optional[str]:
+        """Absolute on-disk path of *image*, or None (packed-only / missing / generated).
+
+        UDIM/UVTILE sets flatten to their lowest existing tile -- neither FBX nor
+        the manifest's per-file classification has a tiling concept, and one real
+        tile beats an unresolvable token (mirror of the pull collector's rule).
+        """
+        import glob as _glob
+
+        import bpy
+
+        if image is None:
+            return None
+        try:
+            path = bpy.path.abspath(image.filepath, library=image.library)
+        except Exception:
+            return None
+        if not path:
+            return None
+        path = os.path.abspath(path)
+        for token, pattern in cls._TILE_TOKENS:
+            if token in path:
+                tiles = sorted(
+                    _glob.glob(_glob.escape(path).replace(token, pattern))
+                )
+                return tiles[0] if tiles else None
+        return path if os.path.isfile(path) else None
+
+    # ------------------------------------------------------------------ launch env
+    @staticmethod
+    def _launch_env():
+        """Child env for the launched Maya (see the spec comment); None = inherit.
+
+        Import-safe outside Blender (tests, headless surface resolution): no bpy
+        -> nothing to strip.
+        """
+        try:
+            import bpy
+
+            root = os.path.dirname(bpy.app.binary_path or "")
+        except Exception:
+            return None
+        return ptk.AppLauncher.handoff_env(root or None)
 
     # Back-compat alias for tests that referenced the bound helper.
     @staticmethod

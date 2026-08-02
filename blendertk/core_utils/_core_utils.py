@@ -875,7 +875,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return list(reversed(result)) if reverse else result
 
     @staticmethod
-    def get_areas(area_type):
+    def get_areas(area_type=None):
         """All areas of ``area_type`` (``"VIEW_3D"``, ``"IMAGE_EDITOR"``, …) across every open
         window, resolved through the window manager — NOT ``bpy.context.screen``, which is a
         screen-context member and ``None`` whenever ``bpy.context.window`` is ``None`` (the Qt
@@ -884,6 +884,9 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         window's screen instead (a superset — multi-window setups stay in lockstep, matching the
         all-viewports convention the display toggles already document). Even ``--background`` keeps
         one window with the default screen, so the result is normally non-empty headless too.
+
+        ``area_type=None`` returns every area regardless of type — what an editor-agnostic sweep
+        (a theme restyle, a blanket repaint) needs.
         """
         import bpy
 
@@ -891,8 +894,27 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             area
             for win in bpy.context.window_manager.windows
             for area in win.screen.areas
-            if area.type == area_type
+            if area_type is None or area.type == area_type
         ]
+
+    @classmethod
+    def tag_redraw(cls, area_type=None) -> int:
+        """Queue a redraw of every area of ``area_type`` (all areas when None); returns how many.
+
+        A raw ``bpy.data`` write (``obj.color``, a space's shading knobs, a theme change …) made
+        from the Qt event-pump timer the tentacle slots run in does not repaint on its own —
+        Blender only redraws on its own event loop, so the change sits invisible until the user
+        nudges the editor. Companion to :func:`get_areas` (same window-manager walk, so it is safe
+        where ``bpy.context.screen`` is ``None``).
+
+        Note this is the *panel* redraw path. Inside a **modal operator** the running
+        ``context.area`` is the area being drawn into, and `context.area.tag_redraw()` is both
+        correct and cheaper — don't broaden those to every window.
+        """
+        areas = cls.get_areas(area_type)
+        for area in areas:
+            area.tag_redraw()
+        return len(areas)
 
     @staticmethod
     def get_view3d_context():

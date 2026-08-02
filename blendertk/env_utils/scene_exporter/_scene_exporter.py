@@ -65,10 +65,12 @@ from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidec
 #
 # ``use_custom_props`` + ``object_types`` are what let the shared ``data_export`` Empty's
 # metadata channels (``lightmap_metadata``, ...) ride into the FBX as user properties --
-# Blender defaults custom-property export OFF, and the bridge-oriented ``_EXPORT_DEFAULTS``
-# in ``fbx_utils.py`` pins mesh-only ``object_types``, so both must be overridden here or
-# the ``export_data_node`` task ships an FBX with no metadata. ``object_types`` is stored
-# as a list (JSON presets can't hold a set); ``FbxUtils.export`` coerces it.
+# Blender defaults custom-property export OFF, so it must be overridden here or the
+# ``export_data_node`` task ships an FBX with no metadata. ``object_types`` is pinned
+# EXPLICITLY (not inherited from ``fbx_utils._EXPORT_DEFAULTS``, which also carries
+# ``EMPTY``): the carrier Empty is a hard requirement of this task, not a default worth
+# silently tracking. Stored as a list (JSON presets can't hold a set); ``FbxUtils.export``
+# coerces it.
 #
 # ``bake_anim_use_nla_strips`` / ``bake_anim_use_all_actions`` are pinned OFF for
 # a reason that is invisible until you read ``export_fbx_bin.fbx_animations``:

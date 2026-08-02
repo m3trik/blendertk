@@ -614,6 +614,39 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
             return None
         return hooks[min(hooks)] if index == 0 else hooks[max(hooks)]
 
+    def _clear_end_anchor(self, armature, mesh, bone_name, control=None):
+        """Delete a previous :meth:`constrain_end_with_falloff` result for ONE end — mirror of
+        mayatk's ``TubeRig._clear_end_anchor``, so re-anchoring REPLACES rather than stacks.
+
+        Without this ``RigUtils.add_bone`` uniquifies the colliding name (``…_anchor_end.001``,
+        per its own docstring) and ``RigUtils.child_of`` appends a second CHILD_OF, so a rerun
+        left a dead deform bone painted on the mesh and a control following BOTH anchors.
+
+        Removing the anchor's vertex group needs no weight restoration (unlike Maya's
+        ``removeInfluence``): :meth:`RigUtils.apply_falloff_weights` scaled every other group on
+        an affected vertex by the SAME ``(1 - w)``, so dropping the anchor group leaves the
+        remaining weights in their original proportions and Blender's armature deform
+        normalizes them back — the deform is bit-for-bit the pre-anchor one.
+        """
+        import bpy
+
+        if control is not None:
+            for c in [c for c in control.constraints if c.name.startswith(bone_name)]:
+                control.constraints.remove(c)
+        vg = mesh.vertex_groups.get(bone_name) if mesh else None
+        if vg is not None:
+            mesh.vertex_groups.remove(vg)
+        pb = armature.pose.bones.get(bone_name)
+        if pb is not None:  # pose constraints die with the bone, but be explicit
+            for c in list(pb.constraints):
+                pb.constraints.remove(c)
+        if armature.data.bones.get(bone_name) is not None:
+            with RigUtils._active_mode(armature, "EDIT"):
+                ebones = armature.data.edit_bones
+                eb = ebones.get(bone_name)
+                if eb is not None:
+                    ebones.remove(eb)
+
     def constrain_end_with_falloff(
         self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None
     ):
@@ -635,6 +668,9 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
         behaviour. *bone_index* picks the end (0 = start, -1 = end). Returns the created
         anchor-bone name.
 
+        Re-anchoring the same end REPLACES its previous anchor (:meth:`_clear_end_anchor`),
+        matching mayatk.
+
         Divergence vs Maya: Maya's parentConstraint copies position AND orientation; the Blender port
         copies translation only (``COPY_LOCATION``) to stay bind-time-stable headlessly — anchor
         rotation-follow would need a maintain-offset ``CHILD_OF`` inverse (same family as ``chk_twist``,
@@ -651,27 +687,35 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
         axis = end_tail - end_head
         axis = axis.normalized() if axis.length > 1e-6 else Vector((0.0, 0.0, 1.0))
         length = max((end_tail - end_head).length, 1e-3)
+        # read before the sweep: its EDIT-mode round trip rebuilds the bone collection
+        head_radius = db[constrained].head_radius
         anchor_pos = anchor.matrix_world.translation.copy()
         idx = bone_index % len(bones)
-        end = "start" if idx == 0 else "end"
+        end = "start" if idx == 0 else "end" if idx == len(bones) - 1 else str(idx)
+        bone_name = f"{self.rig_name}_anchor_{end}"
+
+        # Resolve the end control BEFORE the sweep — it is found from the Spline IK
+        # constraint + curve hooks, both independent of the anchor assembly.
+        if control is None and idx in (0, len(bones) - 1):
+            control = self._end_control(armature, bones, 0 if idx == 0 else -1)
+        self._clear_end_anchor(armature, mesh, bone_name, control)
 
         anchor_bone = RigUtils.add_bone(
             armature,
-            f"{self.rig_name}_anchor_{end}",
+            bone_name,
             head=anchor_pos,
             tail=anchor_pos + axis * length,
-            radius=db[constrained].head_radius,
+            radius=head_radius,
             deform=True,
         )
         # the anchor bone tracks the external anchor object; the graft deforms via the matching group.
         RigUtils.add_bone_constraint(
             armature, anchor_bone, "COPY_LOCATION", target=anchor
         )
-        if control is None and idx in (0, len(bones) - 1):
-            control = self._end_control(armature, bones, 0 if idx == 0 else -1)
         if control is not None:
+            # named off the bone so the replace sweep can find it
             RigUtils.child_of(
-                control, anchor
+                control, anchor, name=f"{bone_name}_child_of"
             )  # coherent end-assembly follow (curve hook + bones)
         RigUtils.apply_falloff_weights(
             mesh, anchor_bone, anchor_pos, falloff, profile="linear"

@@ -335,29 +335,37 @@ class RigUtils:
         return c
 
     @staticmethod
-    def copy_location(obj, target, influence=1.0):
-        """Maya pointConstraint → COPY_LOCATION. Stack two (influence 1, then ``frac``) for a lerp."""
-        return RigUtils._constraint(obj, "COPY_LOCATION", target, influence=influence)
+    def copy_location(obj, target, influence=1.0, **props):
+        """Maya pointConstraint → COPY_LOCATION. Stack two (influence 1, then ``frac``) for a lerp.
+
+        Extra constraint props pass through (``use_offset=True`` adds the owner's pre-constraint
+        location, i.e. Maya's ``maintainOffset``; ``name=`` labels it for teardown)."""
+        return RigUtils._constraint(obj, "COPY_LOCATION", target, influence=influence, **props)
 
     @staticmethod
-    def copy_rotation(obj, target, influence=1.0):
+    def copy_rotation(obj, target, influence=1.0, **props):
         """Maya orientConstraint → COPY_ROTATION."""
-        return RigUtils._constraint(obj, "COPY_ROTATION", target, influence=influence)
+        return RigUtils._constraint(obj, "COPY_ROTATION", target, influence=influence, **props)
 
     @staticmethod
-    def damped_track(obj, target, track_axis="TRACK_Y"):
+    def damped_track(obj, target, track_axis="TRACK_Y", **props):
         """Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK."""
-        return RigUtils._constraint(obj, "DAMPED_TRACK", target, track_axis=track_axis)
+        return RigUtils._constraint(obj, "DAMPED_TRACK", target, track_axis=track_axis, **props)
 
     @staticmethod
-    def track_to(obj, target, track_axis="TRACK_Y", up_axis="UP_Z"):
+    def track_to(obj, target, track_axis="TRACK_Y", up_axis="UP_Z", **props):
         """Aim with an up-vector (full Maya aimConstraint) → TRACK_TO."""
-        return RigUtils._constraint(obj, "TRACK_TO", target, track_axis=track_axis, up_axis=up_axis)
+        return RigUtils._constraint(
+            obj, "TRACK_TO", target, track_axis=track_axis, up_axis=up_axis, **props
+        )
 
     @staticmethod
-    def child_of(obj, target, set_inverse=True):
-        """Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose)."""
-        c = RigUtils._constraint(obj, "CHILD_OF", target)
+    def child_of(obj, target, set_inverse=True, **props):
+        """Maya parentConstraint(maintainOffset=True) → CHILD_OF (inverse bound at the current pose).
+
+        Extra props pass through — pass ``use_scale_x/y/z=False`` for a strict Maya
+        ``parentConstraint`` mirror (that constraint drives translate/rotate only)."""
+        c = RigUtils._constraint(obj, "CHILD_OF", target, **props)
         if set_inverse:
             c.inverse_matrix = target.matrix_world.inverted()
         return c

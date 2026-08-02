@@ -427,6 +427,52 @@ try:
         f"end={end_shift:.2f} mid={mid_shift:.2f}",
     )
 
+    # RE-ANCHOR = REPLACE (mirror of mayatk's test_rerun_replaces_previous_end_anchor). Pre-fix
+    # add_bone uniquified the colliding name (…_anchor_end.001) and child_of appended a SECOND
+    # CHILD_OF, so a rerun left a dead deform bone painted on the mesh and made the end follow
+    # both anchors at once.
+    reset()
+    t3 = tube("Reanchor", depth=8.0)
+    r3 = TubeRig(t3, rig_name="ra")
+    arm3, bones3 = r3.create_joint_chain(r3.resolve_centerline(6), radius=0.5)
+    RigUtils.bind_armature(t3, arm3, auto_weights=True)
+    _, mx3 = eval_bounds(t3)
+    a_first = empty("RA_first", (0, 0, mx3.z))
+    a_second = empty("RA_second", (0, 0, mx3.z))
+    bpy.context.view_layer.update()
+
+    b_first = r3.constrain_end_with_falloff(
+        arm3, bones3, a_first, t3, falloff=3.0, bone_index=-1
+    )
+    b_second = r3.constrain_end_with_falloff(
+        arm3, bones3, a_second, t3, falloff=3.0, bone_index=-1
+    )
+    check(
+        "b004 rerun: anchor bone REPLACED, not uniquified to a second one",
+        b_second == b_first and b_second in arm3.data.bones,
+        f"first={b_first} second={b_second}",
+    )
+    anchor_bones = [b.name for b in arm3.data.bones if "_anchor_" in b.name]
+    check(
+        "b004 rerun: exactly one anchor bone survives on the armature",
+        len(anchor_bones) == 1,
+        f"{anchor_bones}",
+    )
+    anchor_groups = [g.name for g in t3.vertex_groups if "_anchor_" in g.name]
+    check(
+        "b004 rerun: exactly one anchor vertex group survives on the mesh",
+        len(anchor_groups) == 1,
+        f"{anchor_groups}",
+    )
+    check(
+        "b004 rerun: the replacement bone tracks the LATEST anchor",
+        any(
+            c.type == "COPY_LOCATION" and c.target is a_second
+            for c in arm3.pose.bones[b_second].constraints
+        ),
+        f"{[(c.type, getattr(c.target, 'name', None)) for c in arm3.pose.bones[b_second].constraints]}",
+    )
+
     # precise redistribution invariant (Blender does NOT normalize raw group weights until deform
     # time, so a raw-sum check is meaningless): at a vertex a KNOWN distance from the falloff center,
     # apply_falloff sets target = 1 - d/r AND scales the vertex's existing influences by (1-w). A
