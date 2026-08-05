@@ -2,12 +2,17 @@
 # coding=utf-8
 """Slots for the Maya bridge panel.
 
-Subclass of uitk's :class:`BridgeSlotsBase` -- the panel machinery (template combo, dynamic
-parameter widgets, user presets, log routing, per-template description) lives upstream; this file
-owns only the Maya-specific bits: the bridge factory, the ``(template, mode)`` listing, the header
-menu, and the ``b000`` send action. Counterpart of mayatk's ``blender_bridge_slots`` (which goes
-through ``MayaBridgeSlotsBase``; blendertk subclasses ``BridgeSlotsBase`` directly since
-``REQUIRE_OUTPUT_DIR = False`` means it needs no DCC-side ``default_output_dir``).
+Subclass of :class:`blendertk.ui_utils.blender_bridge_slots_base.BlenderBridgeSlotsBase` -- the
+panel machinery (template combo, dynamic parameter widgets, user presets, log routing,
+per-template description) lives upstream in uitk's ``BridgeSlotsBase``; this file owns only the
+Maya-specific bits: the bridge factory, the ``(template, mode)`` listing, the header menu, and the
+``b000`` send action. Counterpart of mayatk's ``blender_bridge_slots``, which goes through
+``MayaBridgeSlotsBase`` the same way.
+
+Going through the Blender-flavored base is load-bearing even though its ``default_output_dir``
+fallback is moot here (``REQUIRE_OUTPUT_DIR = False``): the base also owns
+``resolve_scope_objects``, so inheriting ``BridgeSlotsBase`` directly resolves every Scope to an
+empty set and the send silently reports "nothing selected".
 
 Discovered by ``BlenderUiHandler`` (``marking_menu.show("maya_bridge")``). The Qt-only imports
 (``BridgeSlotsBase``, ``parameters``, ``fmt``) live here, not in the engine -- so the engine surface
@@ -17,9 +22,8 @@ the handler loads the panel, which always happens under Qt.
 
 from pathlib import Path
 
-from uitk.bridge import BridgeSlotsBase
+from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
-import blendertk as btk
 from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge, _TEMPLATE_DIR
 from blendertk.env_utils.maya_bridge import parameters as _params
 
@@ -27,7 +31,7 @@ from blendertk.env_utils.maya_bridge import parameters as _params
 _PRESETS_ROOT = Path("blendertk/maya_bridge")
 
 
-class MayaBridgeSlots(BridgeSlotsBase):
+class MayaBridgeSlots(BlenderBridgeSlotsBase):
     """Slots wired to ``maya_bridge.ui`` via :class:`BridgeSlotsBase`."""
 
     UI_NAME = "maya_bridge"
@@ -83,11 +87,11 @@ class MayaBridgeSlots(BridgeSlotsBase):
     # ------------------------------------------------------------------ b000 -- send
     def b000(self):
         """Send the selected objects to Maya with the chosen template."""
-        selection = btk.selected_objects()
+        # Scope (Selected / Entire Scene / Visible Only) resolves via the shared
+        # bridge-slots base; it logs the scope-aware reason when empty.
+        params = self.collect_param_values()
+        selection = self.scoped_objects(params)
         if not selection:
-            self.bridge.logger.warning(
-                "Nothing selected. Select one or more objects before clicking 'Send to Maya'."
-            )
             return
 
         pair = self._selected_template_mode()
@@ -112,7 +116,7 @@ class MayaBridgeSlots(BridgeSlotsBase):
                 objects=selection,
                 template=template,
                 mode=mode,
-                params=self.collect_param_values(),
+                params=params,
             )
         except Exception:
             import traceback

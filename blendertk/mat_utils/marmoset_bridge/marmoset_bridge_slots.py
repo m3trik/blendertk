@@ -107,14 +107,11 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
 
     def b000(self):
         """Process selected objects with the chosen template + mode."""
-        import blendertk as btk
-
-        selection = btk.selected_objects()
+        # Scope (Selected / Entire Scene / Visible Only) resolves via the shared
+        # bridge-slots base; it logs the scope-aware reason when empty.
+        params = self.collect_param_values()
+        selection = self.scoped_objects(params)
         if not selection:
-            self.bridge.logger.warning(
-                "Nothing selected. Select one or more mesh objects "
-                "before clicking 'Send to Marmoset'."
-            )
             return
 
         pair = self._selected_template_mode()
@@ -147,7 +144,7 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
                     template=template,
                     mode=mode,
                     output_dir=output_dir,
-                    params=self.collect_param_values(),
+                    params=params,
                 )
         except Exception:
             self.bridge.logger.error("Bridge raised:\n" + traceback.format_exc())

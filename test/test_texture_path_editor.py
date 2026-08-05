@@ -168,6 +168,16 @@ try:
           n == 1 and img3.filepath.startswith("//"), f"n={n} filepath={img3.filepath!r}")
     check("normalized path still resolves on disk", os.path.exists(_abspath(img3)), _abspath(img3))
 
+    # 7c2. normalize(absolute) — the inverse (backs the panel's Make Paths Absolute action):
+    # the //-relative path becomes absolute again, still resolves, and round-trips back.
+    n = btk.normalize_texture_paths("absolute", images=[img3])
+    check("normalize(absolute) rewrites // back to absolute",
+          n == 1 and os.path.isabs(img3.filepath), f"n={n} filepath={img3.filepath!r}")
+    check("absolutized path still resolves on disk", os.path.exists(_abspath(img3)), _abspath(img3))
+    n = btk.normalize_texture_paths("relative", images=[img3])
+    check("absolute -> relative round-trips",
+          n == 1 and img3.filepath.startswith("//"), f"n={n} filepath={img3.filepath!r}")
+
     # 7d. Normalize Paths / copy — an EXTERNAL texture is brought into the project AND ends up
     # relative (it used to be copied in but left with an absolute path).
     ext_tex = write_png(os.path.join(tmp, "external", "steel_DIFF.png"))

@@ -115,12 +115,27 @@ try:
         "template: one phong per source material (SG-sharing memoized)",
         "translated = {}" in txt and "mat in translated" in txt,
     )
+    # Live report: the "_fbxsafe" marker became the Blender material's NAME, was
+    # saved into the .blend, and rode back to Maya on the next send
+    # ("REF_x_fbxsafe1"). The phong takes over the source material's name
+    # instead (source renamed aside), so the FBX itself carries true names --
+    # no dependence on a successful manifest rebuild to undo a marker.
+    check(
+        "template: translated phong claims the source material's name",
+        'name=f"{_ns_safe(mat)}_fbxsafe"' not in txt
+        and 'cmds.rename(mat, "{}_src".format(leaf))' in txt,
+    )
+    check(
+        "template: SG-sharing memo keyed by the post-rename node name",
+        "translated[source] = (phong, entry)" in txt,
+    )
 
     # ---- rendering -----------------------------------------------------------
     eng = MayaSceneImport(maya_path="X:/fake/bin/maya.exe")
     script = eng.render_script(
         r"C:\scenes\test scene.ma",
         r"C:\tmp\out.fbx",
+        via="fbx",
         embed_textures=False,
         include_animation=True,
     )
@@ -192,7 +207,7 @@ try:
         "bake template replays visibility through the SHARED engine method",
         "def apply_visibility" in bake_txt
         and "_apply_visibility_manifest" in bake_txt
-        and 'SRC_FBX + ".manifest.json"' in bake_txt
+        and 'SRC_FILE + ".manifest.json"' in bake_txt
         and ".vis.json" not in bake_txt,
     )
     # venv (no bpy): the replay must degrade silently, never raise. Uses the merged
@@ -385,7 +400,7 @@ try:
     )
 
     for val, lit in (("auto", "'auto'"), (True, "True"), (False, "False")):
-        s = eng.render_script(r"C:\s.ma", r"C:\o.fbx", smart_bake=val)
+        s = eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", smart_bake=val)
         ok_compile = True
         try:
             compile(s, "r.py", "exec")
@@ -436,14 +451,14 @@ try:
     mayatk_parent = next((d for d in dirs if _holds(d, "mayatk")), None)
     baseline_pp = os.environ.get("PYTHONPATH", "")
     try:
-        EnvCaptureImport().convert(src2, out2, smart_bake=True)
+        EnvCaptureImport().convert(src2, out2, via="fbx", smart_bake=True)
         pp_on = (envs["last"] or {}).get("PYTHONPATH", "")
         check(
             "convert: smart_bake=True injects the mayatk parent on the child PYTHONPATH",
             bool(mayatk_parent) and mayatk_parent in pp_on and pp_on != baseline_pp,
             pp_on,
         )
-        EnvCaptureImport().convert(src2, out2, smart_bake=False)
+        EnvCaptureImport().convert(src2, out2, via="fbx", smart_bake=False)
         pp_off = (envs["last"] or {}).get("PYTHONPATH", "")
         check(
             "convert: smart_bake=False leaves PYTHONPATH untouched (no injection)",
@@ -454,6 +469,14 @@ try:
             "convert: fast-startup env still applied with smart_bake off",
             (envs["last"] or {}).get("MAYA_SKIP_USERSETUP_PY") == "1",
         )
+        # The conversion mayapy is launched FROM Blender and inherits its OCIO --
+        # a 2.5-profile config Maya 2025's OCIO 2.3 cannot load (color-management
+        # init fails on every conversion). The send path already strips it; the
+        # pull path must go through the SAME helper, not a second copy.
+        check(
+            "convert: OCIO hand-off scrub reuses MayaBridge._launch_env",
+            "MayaBridge._launch_env()" in _inspect.getsource(MayaSceneImport.convert),
+        )
     finally:
         for p in (src2, out2):
             if os.path.exists(p):
@@ -463,6 +486,186 @@ try:
         "cache key: smart_bake is part of the conversion identity (toggle invalidates)",
         MayaSceneImport._cache_key(__file__, {"smart_bake": True}, "fbx")
         != MayaSceneImport._cache_key(__file__, {"smart_bake": False}, "fbx"),
+    )
+
+    # ---- FBX default route + USD-capable bake --------------------------------
+    # The pull route defaults to FBX: its instancing is carried by the format
+    # itself on both sides, so a Maya instance set reaches Blender as linked
+    # duplicates with no sidecar replay in the path. The USD route matches that
+    # only by replaying a recorded grouping, and that replay degrades SILENTLY
+    # into a flattened scene (see .claude/BACKLOG.md), so USD is opt-in
+    # (via="usd") rather than the default.
+    for _fn in (
+        MayaSceneImport.import_scene,
+        MayaSceneImport.bake_scene,
+        MayaSceneImport.render_script,
+        MayaSceneImport.convert,
+    ):
+        _p = _inspect.signature(_fn).parameters.get("via")
+        check(
+            f"default route is FBX: {_fn.__name__}(via='fbx')",
+            _p is not None and _p.default == "fbx",
+        )
+    s_default = eng.render_script(r"C:\s.ma", r"C:\o.fbx")
+    check(
+        "render: default route renders the FBX template (FBXExport, no mayaUSDExport)",
+        "FBXExport" in s_default and "mayaUSDExport" not in s_default,
+    )
+    s_usd = eng.render_script(r"C:\s.ma", r"C:\o.usd", via="usd")
+    check(
+        "render: via='usd' still renders the USD template (mayaUSDExport, no FBXExport)",
+        "mayaUSDExport" in s_usd and "FBXExport" not in s_usd,
+    )
+    check(
+        "cache key: routes are separate cache identities",
+        MayaSceneImport._cache_key(__file__, {}, "usd")
+        != MayaSceneImport._cache_key(__file__, {}, "fbx"),
+    )
+    # Live regression (user report, 2026-08-02): a production scene pulled via USD
+    # arrived with a `prototypes` collection of uneditable collection-instance
+    # Empties AND lost materials. Measured cause: with exportInstances=True a
+    # scene holding instances collapses material export (def Material 3 -> 0,
+    # material:binding 4 -> 0 on the probe scene). Behavior pinned live by the
+    # e2e's e2e_inst_* trap; this just guards the flag itself.
+    check(
+        "USD template: exportInstances OFF (instancing collapses material export)",
+        '"exportInstances": False' in usd_txt,
+    )
+    check(
+        "USD template: the measured reason is recorded next to the flag",
+        "material:binding" in usd_txt and "prototypes" in usd_txt,
+    )
+    # Flattening must NOT mean losing instances: the relationship is recorded
+    # Maya-side and rebuilt as Blender linked duplicates on import. USD's own
+    # instancing can't express that (measured: collection-instance Empties one
+    # way, zero data sharing the other).
+    check(
+        "USD template: instance groups recorded for the Blender-side rebuild",
+        "def collect_instance_groups" in usd_txt
+        and "allParents=True" in usd_txt
+        and '"instances": groups' in usd_txt,
+    )
+    check(
+        "USD route: engine rebuilds shared mesh data from the sidecar",
+        "_apply_instance_manifest" in import_src
+        and hasattr(MayaSceneImport, "_apply_instance_manifest"),
+    )
+    _inst_src = _inspect.getsource(MayaSceneImport._apply_instance_manifest)
+    check(
+        "instance rebuild: per-instance shaders survive via OBJECT-linked slots",
+        'slot.link = "OBJECT"' in _inst_src,
+    )
+    check(
+        "instance rebuild: displaced meshes are freed (memory is the point)",
+        "bpy.data.meshes.remove" in _inst_src and "users == 0" in _inst_src,
+    )
+    check(
+        "bake template rebuilds instances too (the Reference Manager's Open path)",
+        "def apply_instances" in bake_txt
+        and "_apply_instance_manifest" in bake_txt,
+    )
+    # The frame range is a direct multiplier on USD export cost (no curves --
+    # one time sample per frame per prim). Measured on a 755-mesh static module
+    # with a 1-200 playback range: 234s -> 1.8s. Sample only what moves.
+    check(
+        "USD template: frame range gated on real animation, not playback range",
+        "def _animation_frame_range" in usd_txt
+        and "_animation_frame_range(cmds) if INCLUDE_ANIMATION" in usd_txt,
+    )
+    check(
+        "USD template: unkeyed drivers still force the full range",
+        "_UNKEYED_DRIVERS" in usd_txt and "motionPath" in usd_txt,
+    )
+    check(
+        "USD template: only TIME curves counted (animCurveU* are driver VALUES)",
+        all(
+            t in usd_txt
+            for t in ("animCurveTA", "animCurveTL", "animCurveTU", "animCurveTT")
+        )
+        and "set-driven" in usd_txt,
+    )
+    # Bake template: source-generalized (a USD intermediate imports natively, so
+    # main() bypasses the texture/visibility replays -- but a sidecar DOES exist
+    # beside a USD; it carries the instance grouping, replayed by apply_instances).
+    check(
+        "bake template: source token generalized (SRC_FILE, no SRC_FBX)",
+        "__" + "SRC_FILE" + "__" in bake_txt and "SRC_FBX" not in bake_txt,
+    )
+    check(
+        "bake template: USD sources import natively (wm.usd_import branch)",
+        "usd_import" in bake_txt and ".usd" in bake_txt,
+    )
+    bs_usd = eng.render_bake_script(r"C:\cache\conv.usd", r"C:\cache\conv.blend")
+    _ok_bs = True
+    try:
+        compile(bs_usd, "bake_rendered.py", "exec")
+    except SyntaxError:
+        _ok_bs = False
+    check(
+        "bake render: .usd source substitutes + compiles",
+        "C:/cache/conv.usd" in bs_usd and _ok_bs,
+    )
+    # bake_scene orchestration: the default route's intermediate is a .usd.
+    _bake_cap = {}
+
+    class BakeCapture(MayaSceneImport):
+        @staticmethod
+        def _run_script(app_exe, script_text, *, artifact, timeout, env=None):
+            with open(artifact, "wb") as fh:
+                fh.write(b"conv-bytes")
+            return ptk.ScriptRunResult(artifact, 0, "stub", 0.1, "stub.py")
+
+        @staticmethod
+        def _run_bake_script(app_exe, script_text, *, artifact, timeout, env=None):
+            _bake_cap["script"] = script_text
+            with open(artifact, "wb") as fh:
+                fh.write(b"blend-bytes")
+            return ptk.ScriptRunResult(artifact, 0, "stub", 0.1, "stub.py")
+
+        def require_mayapy(self):
+            return "stub_mayapy"
+
+        def require_blender(self):
+            return "stub_blender"
+
+    src_usdbake = os.path.join(tempfile.gettempdir(), "btk_usdbake_src.ma")
+    with open(src_usdbake, "w") as f:
+        f.write("//Maya ASCII scene\n")
+    baked_path = None
+    try:
+        baked_path = BakeCapture().bake_scene(src_usdbake, use_cache=False)
+        # Judge the SUBSTITUTED source line, not the template text (which always
+        # contains ".usd" in its extension table) -- the default route is FBX.
+        _src_line = next(
+            (
+                line
+                for line in _bake_cap.get("script", "").splitlines()
+                if line.startswith("SRC_FILE")
+            ),
+            "",
+        )
+        check(
+            "bake_scene: default route bakes from an .fbx intermediate",
+            _src_line.rstrip().endswith('.fbx"'),
+            _src_line,
+        )
+        check("bake_scene: returns the .blend path", baked_path.endswith(".blend"))
+    finally:
+        os.remove(src_usdbake)
+        # An uncached bake lives in scratch by design (the caller links it);
+        # this test's bake links nothing, so clean it + its source sidecar.
+        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
+
+        for p in ([baked_path, baked_path + BAKE_SOURCE_SUFFIX] if baked_path else []):
+            if os.path.exists(p):
+                os.remove(p)
+    # smart_bake is FBX-only: it must stay out of the USD route's cache key
+    # (an inert option fragmenting the default route's cache).
+    _is_src = _inspect.getsource(MayaSceneImport.import_scene)
+    check(
+        "USD route keeps smart_bake out of the conversion cache key",
+        'if via == "fbx":' in _is_src
+        and 'script_opts["smart_bake"] = smart_bake' in _is_src,
     )
 
     # ---- discovery / derivation ----------------------------------------------
@@ -617,7 +820,7 @@ try:
     mat_utils.MatUtils.assign_mat = fake_assign
     try:
         result = StubbedImport().import_scene(
-            src, use_cache=False, fbx_options={"use_anim": False}
+            src, via="fbx", use_cache=False, fbx_options={"use_anim": False}
         )
         check("import_scene returns the imported objects", result == [obj_a, obj_b])
         check(
@@ -659,15 +862,15 @@ try:
         # conversion cache: identical scene + options -> the second import must
         # NOT relaunch Maya; use_cache=False must force a fresh conversion.
         runs_before = calls["runs"]
-        StubbedImport().import_scene(src, fbx_options={"use_anim": False})
-        StubbedImport().import_scene(src, fbx_options={"use_anim": False})
+        StubbedImport().import_scene(src, via="fbx", fbx_options={"use_anim": False})
+        StubbedImport().import_scene(src, via="fbx", fbx_options={"use_anim": False})
         check(
             "conversion cache: second identical import skips the Maya run",
             calls["runs"] == runs_before + 1,
             f"runs={calls['runs']}",
         )
         StubbedImport().import_scene(
-            src, use_cache=False, fbx_options={"use_anim": False}
+            src, via="fbx", use_cache=False, fbx_options={"use_anim": False}
         )
         check(
             "use_cache=False forces a fresh conversion",
@@ -688,7 +891,7 @@ try:
 
         fbx_utils.FbxUtils.import_fbx = staticmethod(broken_import)
         try:
-            StubbedImport().import_scene(src, use_cache=False)
+            StubbedImport().import_scene(src, via="fbx", use_cache=False)
             check("failure propagates", False)
         except RuntimeError:
             check("failure propagates", True)
@@ -706,6 +909,476 @@ try:
     import blendertk as btk
 
     check("btk.MayaSceneImport registered", btk.MayaSceneImport is MayaSceneImport)
+
+    # ---------------------------------------------------------------- slot fallback
+    # The manifest's authoritative shader slots rescue textures whose FILENAME
+    # carries no map-type token (a plain color map named after a product). Two
+    # rules make this safe, and both are easy to regress:
+    #   * only files that classified to NOTHING are rescued -- a filename is the
+    #     only thing that reveals packing (MSAO in a metallic slot is still MSAO),
+    #   * a rescued type never displaces one the filename already resolved.
+    # resolve_pbr_plan is stubbed so these rules are tested on their own (and
+    # without bpy), rather than through real classification.
+    from blendertk.mat_utils import _mat_utils as _mu
+
+    _real_plan = _mu.MatUtils.resolve_pbr_plan
+    try:
+        engine = MayaSceneImport(log_level="WARNING")
+
+        def _stub(plan):
+            return staticmethod(lambda textures, config=None: {
+                "by_type": dict(plan.get("by_type", {})),
+                "dropped": {}, "extracted": {},
+                "unknown": list(plan.get("unknown", [])),
+                "unhandled": {}, "wired": set(),
+            })
+
+        # 1. An unclassifiable file is rescued via its channel.
+        _mu.MatUtils.resolve_pbr_plan = _stub(
+            {"by_type": {}, "unknown": ["/t/Agilent_PNA.png"]}
+        )
+        out = engine._plan_with_slot_fallback(
+            ["/t/Agilent_PNA.png"], {"baseColor": "/t/Agilent_PNA.png"}, "REF"
+        )
+        check(
+            "slot fallback rescues an unclassifiable texture",
+            out and out["by_type"].get("Base_Color") == "/t/Agilent_PNA.png",
+            str(out and out["by_type"]),
+        )
+        check(
+            "rescued file leaves the plan's unknown list",
+            out and "/t/Agilent_PNA.png" not in out["unknown"],
+            str(out and out["unknown"]),
+        )
+
+        # 2. A rescued channel must NOT displace what the filename resolved.
+        _mu.MatUtils.resolve_pbr_plan = _stub(
+            {"by_type": {"Base_Color": "/t/rock_BaseColor.png"},
+             "unknown": ["/t/Agilent_PNA.png"]}
+        )
+        out = engine._plan_with_slot_fallback(
+            ["/t/rock_BaseColor.png", "/t/Agilent_PNA.png"],
+            {"baseColor": "/t/Agilent_PNA.png"},
+            "REF",
+        )
+        check(
+            "slot fallback never displaces a filename-resolved map",
+            out and out["by_type"]["Base_Color"] == "/t/rock_BaseColor.png",
+            str(out and out["by_type"]),
+        )
+
+        # 3. A classified file is left alone even when a slot names it.
+        _mu.MatUtils.resolve_pbr_plan = _stub(
+            {"by_type": {"MSAO": "/t/cab_MSAO.png"}, "unknown": []}
+        )
+        out = engine._plan_with_slot_fallback(
+            ["/t/cab_MSAO.png"], {"metallic": "/t/cab_MSAO.png"}, "MAT"
+        )
+        check(
+            "a packed map keeps its filename type, not its slot's",
+            out and out["by_type"] == {"MSAO": "/t/cab_MSAO.png"},
+            str(out and out["by_type"]),
+        )
+
+        # 4. An unmapped channel rescues nothing.
+        _mu.MatUtils.resolve_pbr_plan = _stub(
+            {"by_type": {}, "unknown": ["/t/x.png"]}
+        )
+        out = engine._plan_with_slot_fallback(
+            ["/t/x.png"], {"notAChannel": "/t/x.png"}, "MAT"
+        )
+        check(
+            "an unmapped channel rescues nothing",
+            out is not None and not out["by_type"],
+            str(out and out["by_type"]),
+        )
+
+        # 5. No slots -> None, so the caller resolves the plan exactly as before.
+        check(
+            "no slots returns None (unchanged legacy path)",
+            engine._plan_with_slot_fallback(["/t/x.png"], None, "MAT") is None,
+        )
+    finally:
+        _mu.MatUtils.resolve_pbr_plan = _real_plan
+
+    # ---- USD instance replay: guaranteed-or-fail (v2 sidecar) -----------------
+    # A silently flattened scene looks correct and only misbehaves when an artist
+    # edits one duplicate and its siblings don't follow -- the one outcome a
+    # non-destructive transfer forbids. The replay either fully rebuilds the
+    # recorded sharing or the conversion FAILS atomically (imported objects
+    # removed). The sidecar records SANITIZED PRIM PATHS (v2): mayaUSDExport
+    # rewrites names the prim grammar forbids (probe-verified: ref:nsCube ->
+    # ref_nsCube), and paths keep duplicate leaf names (/g1/wheel vs /g2/wheel)
+    # unambiguous through Blender's .001 collision renames.
+    usd_txt = _IMPORT_TEMPLATE_USD.read_text()
+    bake_txt = _BAKE_TEMPLATE.read_text()
+    check(
+        "USD template: sidecar records sanitized prim PATHS (v2)",
+        "def _sanitize_prim_name" in usd_txt
+        and '"version": 2' in usd_txt
+        and '"format": "paths"' in usd_txt,
+    )
+    check(
+        "USD template: failed sidecar write withholds the artifact",
+        "os.remove(OUT_USD)" in usd_txt,
+    )
+    check(
+        "USD template: sanitize-collisions fail the export loudly",
+        "collide" in usd_txt,
+    )
+    check(
+        "bake template: USD sidecar replay is loud (no flattened .blend saved)",
+        "raise RuntimeError" in bake_txt
+        and "Instance rebuild failed; meshes stay independent" not in bake_txt,
+    )
+    check(
+        "bake template: materials-scope Empty stripped (prim-path keyed)",
+        "_strip_materials_scope" in bake_txt,
+    )
+
+    import ast as _ast
+
+    _fn = next(
+        (
+            n
+            for n in _ast.walk(_ast.parse(usd_txt))
+            if isinstance(n, _ast.FunctionDef) and n.name == "_sanitize_prim_name"
+        ),
+        None,
+    )
+    if _fn is None:
+        check("USD template: _sanitize_prim_name extractable", False)
+    else:
+        _ns = {"re": __import__("re")}
+        exec(compile(_ast.Module(body=[_fn], type_ignores=[]), "<tmpl>", "exec"), _ns)
+        _san = _ns["_sanitize_prim_name"]
+        # Pinned against live probes: mayaUSDExport flattens ':' (namespaces) and
+        # Blender's exporter PREFIXES a leading digit (TfMakeValidIdentifier
+        # replaces it -- the templates must match the DCC, not Tf).
+        check(
+            "sanitizer matches the probed exporter behavior",
+            _san("ref:nsCube") == "ref_nsCube"
+            and _san("Chair.001") == "Chair_001"
+            and _san("1digit") == "_1digit"
+            and _san("") == "_",
+            f'{_san("ref:nsCube")}/{_san("Chair.001")}/{_san("1digit")}',
+        )
+
+    # import leg: a USD conversion without its sidecar must fail BEFORE importing.
+    _usd_stub = os.path.join(tempfile.gettempdir(), "btk_strict_nomanifest.usda")
+    with open(_usd_stub, "w") as f:
+        f.write("#usda 1.0\n")
+
+    class _NoManifestStub(MayaSceneImport):
+        def _cached_conversion(self, s, **kw):
+            return SimpleNamespace(path=_usd_stub, scratch=None)
+
+    try:
+        _NoManifestStub().import_scene("X:/nope/scene.ma", via="usd", use_cache=False)
+        check("USD leg: missing sidecar fails the import", False)
+    except RuntimeError as e:
+        check(
+            "USD leg: missing sidecar fails the import",
+            "manifest" in str(e).lower(),
+            str(e),
+        )
+    except Exception as e:  # noqa: BLE001
+        check("USD leg: missing sidecar fails the import", False, repr(e))
+    finally:
+        os.remove(_usd_stub)
+
+    # bake leg: bake_scene(via="usd") must refuse to bake without the sidecar.
+    _bake_usd = os.path.join(tempfile.gettempdir(), "btk_strict_bake.usda")
+    with open(_bake_usd, "w") as f:
+        f.write("#usda 1.0\n")
+    _bake_src = os.path.join(tempfile.gettempdir(), "btk_strict_bake_src.ma")
+    with open(_bake_src, "w") as f:
+        f.write("//Maya ASCII scene\n")
+    _bake_ran = {}
+
+    class _BakeManifestStub(MayaSceneImport):
+        def _cached_conversion(self, s, **kw):
+            return SimpleNamespace(path=_bake_usd, scratch=None)
+
+        @staticmethod
+        def _run_bake_script(app_exe, script_text, *, artifact, timeout, env=None):
+            _bake_ran["ran"] = True
+            with open(artifact, "wb") as fh:
+                fh.write(b"blend-bytes")
+            return ptk.ScriptRunResult(artifact, 0, "stub", 0.1, "stub.py")
+
+        def require_mayapy(self):
+            return "stub_mayapy"
+
+        def require_blender(self):
+            return "stub_blender"
+
+    _baked2 = None
+    try:
+        _BakeManifestStub().bake_scene(_bake_src, via="usd", use_cache=False)
+        check("bake_scene: USD intermediate without sidecar refuses to bake", False)
+    except RuntimeError as e:
+        check(
+            "bake_scene: USD intermediate without sidecar refuses to bake",
+            "manifest" in str(e).lower() and "ran" not in _bake_ran,
+            str(e),
+        )
+    except Exception as e:  # noqa: BLE001
+        check(
+            "bake_scene: USD intermediate without sidecar refuses to bake",
+            False,
+            repr(e),
+        )
+    try:
+        import json as _json
+
+        with open(_bake_usd + ".manifest.json", "w") as f:
+            _json.dump({"version": 2, "format": "paths", "instances": []}, f)
+        _baked2 = _BakeManifestStub().bake_scene(_bake_src, via="usd", use_cache=False)
+        check(
+            "bake_scene: USD intermediate WITH sidecar bakes",
+            _bake_ran.get("ran") and _baked2.endswith(".blend"),
+        )
+    finally:
+        from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
+
+        for p in (
+            [_bake_usd, _bake_usd + ".manifest.json", _bake_src]
+            + ([_baked2, _baked2 + BAKE_SOURCE_SUFFIX] if _baked2 else [])
+        ):
+            if p and os.path.exists(p):
+                os.remove(p)
+
+    # ---- behavioral (needs bpy): strict path matching + atomic rollback -------
+    try:
+        import bpy
+
+        _HAVE_BPY = True
+    except Exception:  # noqa: BLE001 -- also runs under the workspace .venv
+        _HAVE_BPY = False
+
+    if _HAVE_BPY:
+        import json as _json
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+
+        def _mk_mesh(name):
+            m = bpy.data.meshes.new(name)
+            m.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+            return m
+
+        def _mk_obj(name, data=None, parent=None):
+            o = bpy.data.objects.new(name, data)
+            bpy.context.scene.collection.objects.link(o)
+            o.parent = parent
+            return o
+
+        _g1 = _mk_obj("g1")
+        _w1 = _mk_obj("wheel", _mk_mesh("M1"), _g1)
+        _g2 = _mk_obj("g2")
+        # Simulates Blender's collision rename of the second /g2/wheel prim.
+        _w2 = _mk_obj("wheel.001", _mk_mesh("M2"), _g2)
+        _c1 = _mk_obj("Chair_001", _mk_mesh("M3"))
+        _c2 = _mk_obj("Chair_002", _mk_mesh("M4"))
+        _matA = bpy.data.materials.new("strict_A")
+        _matB = bpy.data.materials.new("strict_B")
+        _c1.data.materials.append(_matA)
+        _c2.data.materials.append(_matB)
+
+        _mpath = os.path.join(tempfile.gettempdir(), "btk_strict_replay.manifest.json")
+        with open(_mpath, "w") as f:
+            _json.dump(
+                {
+                    "version": 2,
+                    "format": "paths",
+                    "instances": [
+                        ["/g1/wheel", "/g2/wheel"],
+                        ["/Chair_001", "/Chair_002"],
+                    ],
+                },
+                f,
+            )
+        _eng2 = MayaSceneImport()
+        try:
+            _relinked = _eng2._apply_instance_manifest(
+                _mpath, [_g1, _w1, _g2, _w2, _c1, _c2]
+            )
+            check(
+                "strict replay: duplicate leaf names resolved by PATH through the "
+                ".001 rename",
+                _relinked == 2 and _w2.data is _w1.data,
+            )
+            check(
+                "strict replay: root-level group shares one datablock",
+                _c2.data is _c1.data,
+            )
+            check(
+                "strict replay: per-instance material survives via OBJECT slot",
+                _c2.material_slots[0].link == "OBJECT"
+                and _c2.material_slots[0].material is _matB,
+            )
+        except Exception as e:  # noqa: BLE001
+            check("strict replay: path-matched rebuild", False, repr(e))
+        finally:
+            os.remove(_mpath)
+
+        # Unmatched member -> loud failure naming the path.
+        with open(_mpath, "w") as f:
+            _json.dump(
+                {
+                    "version": 2,
+                    "format": "paths",
+                    "instances": [["/Chair_001", "/Ghost"]],
+                },
+                f,
+            )
+        try:
+            _eng2._apply_instance_manifest(_mpath, [_c1, _c2])
+            check("strict replay: unmatched member raises", False)
+        except RuntimeError as e:
+            check("strict replay: unmatched member raises", "/Ghost" in str(e), str(e))
+        finally:
+            os.remove(_mpath)
+
+        # Stale v1 sidecar -> refused (pre-sanitization names can mismatch).
+        with open(_mpath, "w") as f:
+            _json.dump({"version": 1, "instances": [["Chair_001"]]}, f)
+        try:
+            _eng2._apply_instance_manifest(_mpath, [_c1])
+            check("strict replay: v1 sidecar refused", False)
+        except RuntimeError:
+            check("strict replay: v1 sidecar refused", True)
+        finally:
+            os.remove(_mpath)
+
+        # ---- materials-scope Empty strip (prim-path keyed, never name-keyed) --
+        _scope_usda = os.path.join(tempfile.gettempdir(), "btk_strict_scope.usda")
+        with open(_scope_usda, "w") as f:
+            f.write(
+                '#usda 1.0\n'
+                'def Scope "mtl" {\n'
+                '    def Material "M1" {}\n'
+                '}\n'
+                'def Mesh "Probe_Cube" {\n'
+                '    int[] faceVertexCounts = [3]\n'
+                '    int[] faceVertexIndices = [0, 1, 2]\n'
+                '    point3f[] points = [(0,0,0), (1,0,0), (0,1,0)]\n'
+                '}\n'
+            )
+        from blendertk.env_utils.usd import UsdUtils
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _user_mtl = _mk_obj("mtl")  # a user's own object legitimately named mtl
+        _imp = UsdUtils.import_usd(_scope_usda)
+        _scope_empties = [o for o in _imp if o.type == "EMPTY"]
+        check(
+            "usd import materializes the materials Scope as an Empty (the defect)",
+            len(_scope_empties) == 1,
+            str([o.name for o in _imp]),
+        )
+        _kept = _eng2._strip_materials_scope(_imp, _scope_usda)
+        check(
+            "scope strip: the Scope Empty is removed from the import",
+            all(o.type != "EMPTY" for o in _kept)
+            and any(o.type == "MESH" for o in _kept),
+            str([o.name for o in _kept]),
+        )
+        check(
+            "scope strip: the user's own 'mtl' object survives",
+            any(o is _user_mtl for o in bpy.data.objects.values()),
+        )
+        os.remove(_scope_usda)
+
+        # An Xform named mtl carrying real geometry is NOT a materials scope.
+        _xform_usda = os.path.join(tempfile.gettempdir(), "btk_strict_xform.usda")
+        with open(_xform_usda, "w") as f:
+            f.write(
+                '#usda 1.0\n'
+                'def Xform "mtl" {\n'
+                '    def Mesh "sub" {\n'
+                '        int[] faceVertexCounts = [3]\n'
+                '        int[] faceVertexIndices = [0, 1, 2]\n'
+                '        point3f[] points = [(0,0,0), (1,0,0), (0,1,0)]\n'
+                '    }\n'
+                '}\n'
+            )
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _imp2 = UsdUtils.import_usd(_xform_usda)
+        _kept2 = _eng2._strip_materials_scope(_imp2, _xform_usda)
+        check(
+            "scope strip: an Xform named mtl with geometry is untouched",
+            len(_kept2) == len(_imp2),
+            str([o.name for o in _imp2]),
+        )
+        os.remove(_xform_usda)
+
+        # ---- atomic rollback: a failed replay removes everything it imported --
+        _rb_usda = os.path.join(tempfile.gettempdir(), "btk_strict_rollback.usda")
+        with open(_rb_usda, "w") as f:
+            f.write(
+                '#usda 1.0\n'
+                'def Mesh "Chair_001" {\n'
+                '    int[] faceVertexCounts = [3]\n'
+                '    int[] faceVertexIndices = [0, 1, 2]\n'
+                '    point3f[] points = [(0,0,0), (1,0,0), (0,1,0)]\n'
+                '}\n'
+            )
+        with open(_rb_usda + ".manifest.json", "w") as f:
+            _json.dump(
+                {
+                    "version": 2,
+                    "format": "paths",
+                    "instances": [["/Chair_001", "/Ghost_777"]],
+                },
+                f,
+            )
+
+        class _RollbackStub(MayaSceneImport):
+            def _cached_conversion(self, s, **kw):
+                return SimpleNamespace(path=_rb_usda, scratch=None)
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _before = set(bpy.data.objects)
+        try:
+            _RollbackStub().import_scene(
+                "X:/nope/scene.ma", via="usd", use_cache=False, cleanup=False
+            )
+            check("USD leg: failed replay raises", False)
+        except RuntimeError:
+            check("USD leg: failed replay raises", True)
+        except Exception as e:  # noqa: BLE001
+            check("USD leg: failed replay raises", False, repr(e))
+        check(
+            "USD leg: failed replay rolls the import back out of the scene",
+            set(bpy.data.objects) == _before,
+            str([o.name for o in bpy.data.objects if o not in _before]),
+        )
+        for p in (_rb_usda, _rb_usda + ".manifest.json"):
+            if os.path.exists(p):
+                os.remove(p)
+
+        # ---- name reclaim (real Blender datablock naming) --------------------
+        # A rebuilt material is necessarily created while the FBX-carried one
+        # still owns the name, so Blender hands it "M_x.001"; once the FBX one
+        # is purged the name is free and must be taken back. Left unclaimed, the
+        # suffix rides into the next hand-off and compounds -- names are the
+        # binding for a game-engine-bound asset (live production report).
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _engine = MayaSceneImport(log_level="WARNING")
+
+        _clashed = bpy.data.materials.new("M_claim.001")
+        _engine._claim_material_name(_clashed, "M_claim")
+        check("name reclaim: a freed source name is taken back", _clashed.name == "M_claim")
+
+        _holder = bpy.data.materials.new("M_held")
+        _other = bpy.data.materials.new("M_held.001")
+        _engine._claim_material_name(_other, "M_held")
+        check(
+            "name reclaim: a name still in use is never stolen",
+            _other.name == "M_held.001" and _holder.name == "M_held",
+            f"{_other.name} / {_holder.name}",
+        )
+
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

@@ -12,6 +12,7 @@ that builds the param widgets) are covered under the workspace ``.venv`` by
 
 import sys
 import os
+import shutil
 import tempfile
 import traceback
 
@@ -104,6 +105,155 @@ try:
         mel == "python(\"exec(open(r'C:/tmp/btk_to_maya.py').read())\")",
         mel,
     )
+
+    # ---- save_as: the blocking route to a native .ma (Qt-FREE by design) -----
+    # This is the whole point of the mode: a headless Blender must be able to write a
+    # Maya scene, and headless Blender has no Qt -- so params/rendering may not touch
+    # uitk here. The mayapy run itself is stubbed (it costs ~6s and needs Maya).
+    from pythontk.core_utils.script_template import ScriptTemplate
+    from pythontk.core_utils import app_handoff as _handoff
+    from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS
+
+    save_txt = (_TEMPLATE_DIR / "_save_scene.py").read_text()
+    check(
+        "save template hidden from the panel list (not a user-pickable recipe)",
+        "_save_scene" not in {p.stem for p in MayaBridge.list_templates()},
+    )
+    check(
+        "save template declares only save_as",
+        ScriptTemplate.declared_modes(_TEMPLATE_DIR / "_save_scene.py") == ("save_as",),
+    )
+    check(
+        "save template: renames + saves, and exits hard (artifact is the verdict)",
+        "cmds.file(rename=OUT_FILE)" in save_txt
+        and "save=True" in save_txt
+        and "os._exit(0)" in save_txt,
+    )
+    check(
+        "save template: same paired-engine repairs as the interactive import",
+        "_apply_texture_manifest" in save_txt
+        and "restore_empty_groups" in save_txt,
+    )
+    check(
+        "save template: .mb only when asked for, else mayaAscii",
+        'mayaBinary" if OUT_FILE.lower().endswith(".mb")' in save_txt,
+    )
+
+    sa_hp = MayaBridge(maya_path="C:/fake/maya.exe").headless_app_path
+    check(
+        "headless route resolves a mayapy (or None where Maya is absent)",
+        sa_hp is None or os.path.basename(sa_hp).lower().startswith("mayapy"),
+        f"{sa_hp}",
+    )
+
+    # Qt-free params: the engine still knows its own defaults with no uitk import.
+    sa_bridge = MayaBridge(maya_path="C:/fake/bin/maya.exe")
+    check(
+        "params_defaults answers without Qt",
+        sa_bridge.params_defaults() == DEFAULTS,
+        f"{sa_bridge.params_defaults()}",
+    )
+    # These hand-offs feed a game engine: the rebuild targets Maya's game shader
+    # unless the user says otherwise. Stingray is also the only family that
+    # DECLARES its texture slots, so its maps survive the trip back out rather
+    # than being re-guessed from filenames. Paired with the Maya-side pull
+    # default (mayatk: BlenderSceneImport.import_scene) -- same rebuild, so the
+    # two must not disagree; each side pins its own.
+    check(
+        "default rebuild shader is the game shader",
+        DEFAULTS["SHADER_TYPE"] == "stingray",
+        DEFAULTS["SHADER_TYPE"],
+    )
+
+    sa_runs = []
+
+    def sa_fake_run(app_exe, script_text, *, artifact, launch_args, timeout, env=None):
+        import pythontk as ptk
+
+        sa_runs.append(
+            {
+                "app": app_exe,
+                "script": script_text,
+                "artifact": artifact,
+                "args": list(launch_args("S.py")),
+                "env": env,
+            }
+        )
+        with open(artifact, "w", encoding="utf-8") as fh:
+            fh.write("//Maya ASCII\n")
+        return ptk.ScriptRunResult(
+            artifact=artifact, returncode=0, output="", duration=0.1, script_path="S.py"
+        )
+
+    sa_dir = tempfile.mkdtemp(prefix="btk_save_as_")
+    sa_orig_run = _handoff.ScriptRunDeliverer.run
+    sa_orig_export = btk.FbxUtils.export_selection_fbx
+    _handoff.ScriptRunDeliverer.run = staticmethod(sa_fake_run)
+    btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: filepath
+    try:
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        bpy.context.active_object.name = "SaveAsCube"
+        bpy.ops.object.select_all(action="DESELECT")  # nothing selected on purpose
+
+        sa_out = os.path.join(sa_dir, "asset.ma")
+        sa_result = sa_bridge.save_as(sa_out)
+        check("save_as returns the written artifact", bool(sa_result), f"{sa_result}")
+        # NOTE: never echo the run record itself -- it carries the child env.
+        check(
+            "save_as ran ONE headless mayapy, interpreter-style argv",
+            len(sa_runs) == 1 and sa_runs[0]["args"] == ["S.py"],
+            f"{len(sa_runs)} run(s), argv={sa_runs[0]['args'] if sa_runs else None}",
+        )
+        check(
+            "save_as env carries the fast-start vars",
+            (sa_runs[0]["env"] or {}).get("MAYA_SKIP_USERSETUP_PY") == "1",
+        )
+        import re
+
+        sa_script = sa_runs[0]["script"]
+        # mayapy writes a staging sibling; the caller's path is the promotion target,
+        # so a failed run can never destroy an existing scene file.
+        sa_staged = _handoff.ScriptRunDeliverer._staging_path(sa_out)
+        check(
+            "rendered save script points at the staging sibling + the payload",
+            f'OUT_FILE = r"{sa_staged.replace(os.sep, "/")}"' in sa_script
+            and not re.findall(r"__[A-Z][A-Z0-9_]*__", sa_script),
+        )
+        check(
+            "the staged file is promoted to the caller's path",
+            os.path.isfile(sa_out) and not os.path.exists(sa_staged),
+        )
+        import ast
+
+        ast.parse(sa_script)  # raises -> caught by the outer handler
+        check("rendered save script is valid Python", True)
+
+        # "Save the scene as ..." means the SCENE -- nothing was selected above.
+        sa_runs.clear()
+        check(
+            "save_as defaults to the whole scene, not the selection",
+            [o.name for o in sa_bridge._scene_objects()] == ["SaveAsCube"],
+            f"{[o.name for o in sa_bridge._scene_objects()]}",
+        )
+
+        sa_bare = sa_bridge.save_as(os.path.join(sa_dir, "bare"))
+        check(
+            "a bare path gets .ma; .mb is honoured when asked for",
+            sa_bare and sa_bare["output"].endswith(".ma")
+            and MayaBridge.resolve_save_path("x/y.mb").endswith(".mb"),
+        )
+
+        sa_runs.clear()
+        sa_bad = sa_bridge.save_as(sa_out, template="import")
+        check(
+            "the interactive import template is rejected for save_as (preflight)",
+            sa_bad is None and not sa_runs,
+        )
+    finally:
+        _handoff.ScriptRunDeliverer.run = staticmethod(sa_orig_run)
+        btk.FbxUtils.export_selection_fbx = sa_orig_export
+        shutil.rmtree(sa_dir, ignore_errors=True)
 
     # ---- FBX export via _export_objects (bpy; plain params dict, no Qt) ------
     captured = {}
@@ -218,7 +368,7 @@ try:
     manifest_path = manifest_fbx + ".manifest.json"
     if os.path.isfile(manifest_path):
         os.remove(manifest_path)
-    MayaBridge(maya_path="C:/fake/maya.exe")._write_texture_manifest(
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
         [cube_a, cube_b], manifest_fbx
     )
     import json
@@ -271,6 +421,166 @@ try:
         os.environ.pop("OCIO", None)
         if prior is not None:
             os.environ["OCIO"] = prior
+
+    # ------------------------------------------------- slot derivation (link tracing)
+    # The Maya side rebuilds manifest materials by classifying FILENAMES, which
+    # cannot place a texture named after a product. Maya's own shaders declare
+    # their inputs; a Blender material has to be traced forward from each image
+    # node to a Principled socket. Only an UNAMBIGUOUS destination is recorded --
+    # a packed map reaches several channels and its identity lives in its
+    # filename, which the Maya side already reads correctly.
+    import bpy as _bpy
+    import struct as _struct
+    import zlib as _zlib
+
+    _slot_dir = tempfile.mkdtemp(prefix="btk_slots_")
+
+    def _png(path):
+        """A real 1x1 PNG -- _resolved_image_file skips generated/packed images.
+
+        Built from integer byte values rather than escapes: a \\x literal here is
+        one bad edit away from becoming real bytes and corrupting the file.
+        """
+        def chunk(tag, payload):
+            body = tag + payload
+            return (_struct.pack(">I", len(payload)) + body
+                    + _struct.pack(">I", _zlib.crc32(body)))
+
+        signature = bytes([137, 80, 78, 71, 13, 10, 26, 10])
+        header = _struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+        with open(path, "wb") as fh:
+            fh.write(
+                signature
+                + chunk(b"IHDR", header)
+                + chunk(b"IDAT", _zlib.compress(bytes(4)))
+                + chunk(b"IEND", b"")
+            )
+        return path
+
+    def _img(nt, name):
+        node = nt.nodes.new("ShaderNodeTexImage")
+        node.image = _bpy.data.images.load(
+            _png(os.path.join(_slot_dir, name + ".png")), check_existing=True
+        )
+        return node
+
+    def _mat(name):
+        m = _bpy.data.materials.new(name)
+        m.use_nodes = True
+        nt = m.node_tree
+        return m, nt, next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+
+    # 1. straight into Base Color -> baseColor
+    m, nt, bsdf = _mat("slotDirect")
+    nt.links.new(_img(nt, "prod_number").outputs["Color"], bsdf.inputs["Base Color"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: direct link resolves baseColor",
+          list(slots) == ["baseColor"], str(slots))
+
+    # 2. through a Normal Map node -> normal (NOT bump)
+    m, nt, bsdf = _mat("slotNormal")
+    nmap = nt.nodes.new("ShaderNodeNormalMap")
+    nt.links.new(_img(nt, "nrm").outputs["Color"], nmap.inputs["Color"])
+    nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: Normal Map chain resolves normal",
+          list(slots) == ["normal"], str(slots))
+
+    # 3. through a Bump node -> bump, distinguishable from a normal map
+    m, nt, bsdf = _mat("slotBump")
+    bump = nt.nodes.new("ShaderNodeBump")
+    nt.links.new(_img(nt, "hgt").outputs["Color"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: Bump chain resolves bump, not normal",
+          list(slots) == ["bump"], str(slots))
+
+    # 4. one image reaching SEVERAL channels (packed) records nothing
+    m, nt, bsdf = _mat("slotPacked")
+    packed = _img(nt, "orm")
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(packed.outputs["Color"], sep.inputs["Color"])
+    nt.links.new(sep.outputs[0], bsdf.inputs["Metallic"])
+    nt.links.new(sep.outputs[1], bsdf.inputs["Roughness"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: a packed map records NO channel (filename owns it)",
+          slots == {}, str(slots))
+
+    # 5. a raw image straight into the Principled Normal input is ambiguous
+    m, nt, bsdf = _mat("slotRawNormal")
+    nt.links.new(_img(nt, "raw").outputs["Color"], bsdf.inputs["Normal"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: raw image into Normal is ambiguous -> no channel",
+          slots == {}, str(slots))
+
+    # 6. an unconnected image records nothing
+    m, nt, bsdf = _mat("slotOrphan")
+    _img(nt, "orphan")
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: an unconnected image records no channel",
+          slots == {}, str(slots))
+
+    # 7. SEVERAL images reaching ONE channel is just as unresolvable as one image
+    #    reaching several. An AO multiply feeds the AO map and the color map into
+    #    the same Base Color input; picking by node order would hand Maya the AO
+    #    map as the base color.
+    m, nt, bsdf = _mat("slotAoMultiply")
+    mix = nt.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.blend_type = "MULTIPLY"
+    nt.links.new(_img(nt, "colr").outputs["Color"], mix.inputs[6])
+    nt.links.new(_img(nt, "occl").outputs["Color"], mix.inputs[7])
+    nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
+    slots = MayaBridge._material_slots(m)
+    check("slot trace: two images into one channel record NOTHING",
+          slots == {}, str(slots))
+
+    # 7b. The canonical cutout material: ONE image whose Color feeds Base Color
+    #     and whose Alpha feeds Alpha. Read node-wide that is two channels --
+    #     indistinguishable from a packed map -- so both were dropped and the
+    #     material arrived with neither its color nor its cutout. The two
+    #     outputs are different DATA, so they must trace separately.
+    m, nt, bsdf = _mat("slotCutout")
+    cutout = _img(nt, "cutout_leaf")
+    nt.links.new(cutout.outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(cutout.outputs["Alpha"], bsdf.inputs["Alpha"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: Color+Alpha off ONE image resolves BOTH channels",
+        sorted(slots) == ["baseColor", "opacity"]
+        and slots.get("baseColor") == slots.get("opacity"),
+        str(slots),
+    )
+
+    # 7c. A packed map is still rejected: one SOCKET reaching several channels
+    #     (an ORM's Color through a Separate Color) is the real ambiguity, and
+    #     socket-awareness must not weaken that.
+    m, nt, bsdf = _mat("slotPackedSocket")
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(_img(nt, "orm").outputs["Color"], sep.inputs["Color"])
+    nt.links.new(sep.outputs[1], bsdf.inputs["Roughness"])
+    nt.links.new(sep.outputs[2], bsdf.inputs["Metallic"])
+    slots = MayaBridge._material_slots(m)
+    check(
+        "slot trace: a packed map's Color socket still records NOTHING",
+        slots == {}, str(slots),
+    )
+
+    # 8. every derived channel must be resolvable by the SHARED registry
+    import pythontk as ptk
+
+    m, nt, bsdf = _mat("slotVocab")
+    nt.links.new(_img(nt, "c").outputs["Color"], bsdf.inputs["Base Color"])
+    nt.links.new(_img(nt, "r").outputs["Color"], bsdf.inputs["Roughness"])
+    nt.links.new(_img(nt, "a").outputs["Color"], bsdf.inputs["Alpha"])
+    derived = MayaBridge._material_slots(m)
+    check("slot trace: derived channels are all in the shared vocabulary",
+          derived and all(
+              ptk.MapRegistry.resolve_type_from_channel(c) is not None
+              for c in derived),
+          str({c: ptk.MapRegistry.resolve_type_from_channel(c) for c in derived}))
+
+    shutil.rmtree(_slot_dir, ignore_errors=True)  # artifacts are teardown's job
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

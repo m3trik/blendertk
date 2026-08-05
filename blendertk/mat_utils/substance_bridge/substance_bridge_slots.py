@@ -21,6 +21,7 @@ from uitk.bridge.spec import KindFactory
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.substance_bridge._substance_bridge import (
+    HighPolySet,
     SubstanceBridge,
     _TEMPLATE_DIR,
 )
@@ -45,6 +46,12 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     # (unsaved file) — the FBX + staged maps are transient hand-off artifacts Painter
     # reads once, so the user shouldn't be forced to pick a path.
     TEMP_OUTPUT_FALLBACK = True
+
+    # Header = the base panel-level utilities only (Clear Log). Template
+    # management lives on the template combo's own menu; the Bake Source set
+    # actions are the BAKE_SOURCE_SET param row (parameters.py) -- the base
+    # auto-wires its buttons to the same-named methods below. The
+    # ``PAINTER_HIGH_POLY`` checkbox only decides whether to ship the set.
 
     HELP_SPEC = {
         "title": "Substance Bridge",
@@ -81,10 +88,25 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
             "(or relaunch Painter), then tick <i>substance_rpc</i> in the "
             "<i>Python</i> menu (Painter remembers it). Without a reachable "
             "Painter the log shows the manual reload steps.",
+            "<b>Export Bake Source</b> ships a companion "
+            "<i>&lt;name&gt;_source.fbx</i> and sets it as Painter's "
+            "<i>Hipoly Mesh</i> in the baking options. Define the set once "
+            "with the <b>Bake Source</b> row's <b>Set From Selection</b> — "
+            "it lives in the file (a collection), so it survives saves and "
+            "restarts and is independent of the <b>Scope</b>. Hidden "
+            "geometry needs no preparation: FBX carries it verbatim, so the "
+            "export never touches your scene.",
+            "<b>Map Resolution</b> and <b>Export Bake Source</b> have no "
+            "Painter command line any more, so they travel over the "
+            "<i>substance_rpc</i> plugin. On a project that is already open "
+            "they apply at once; on a fresh launch the plugin holds them "
+            "and applies them the moment the New Project wizard finishes — "
+            "so the first send after Painter starts waits briefly for the "
+            "plugin's endpoint.",
             "Add custom templates by dropping new files into the "
             "templates folder (use <code>__KEY__</code> tokens from "
-            "<i>parameters.py</i> for tunable values), then click "
-            "<b>Refresh Templates</b> in the header menu.",
+            "<i>parameters.py</i> for tunable values), then use <b>Refresh "
+            "Templates</b> on the template dropdown's menu.",
         ],
     }
 
@@ -109,6 +131,76 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
 
         KindFactory.connect_changed(include_widget, _sync)
         _sync()
+
+    # ------------------------------------------------------------------
+    # Bake Source set (param-row actions)
+    # ------------------------------------------------------------------
+
+    def set_bake_source_from_selection(self) -> None:
+        """Store the current selection as this file's high-poly bake source.
+
+        Ticks ``Export High Poly`` on success -- defining the set is only
+        ever done in order to ship it, so making the user find the checkbox
+        afterwards would be a pure extra step.
+        """
+        members = HighPolySet.define()
+        if not members:
+            self.bridge.logger.warning(
+                "Nothing selected; the high-poly set was cleared."
+            )
+            return
+        self.bridge.logger.info(
+            f"High-poly set: {len(members)} object(s) -> {HighPolySet.SET_NAME}"
+        )
+        widget = self._param_widgets.get("PAINTER_HIGH_POLY")
+        if widget is not None:
+            KindFactory.set_value(widget, True)
+
+    def select_bake_source(self) -> None:
+        """Select the high-poly set's members.
+
+        Members outside the active view layer (an excluded collection) can't
+        be selected at all -- ``select_set`` raises there -- and one whose
+        ``hide_select`` is on silently refuses. Both are reported rather than
+        forced: unhiding geometry behind the user's back to satisfy a
+        *select* action would be the one thing this feature promises not to
+        do. The export itself doesn't care either way.
+        """
+        import bpy
+
+        members = HighPolySet.members()
+        if not members:
+            self.bridge.logger.warning("This file has no high-poly set.")
+            return
+        bpy.ops.object.select_all(action="DESELECT")
+        selected = []
+        for obj in members:
+            try:
+                obj.select_set(True)
+            except RuntimeError:  # not in the active view layer
+                continue
+            if obj.select_get():
+                selected.append(obj)
+        if selected:
+            bpy.context.view_layer.objects.active = selected[0]
+        unreachable = len(members) - len(selected)
+        self.bridge.logger.info(
+            f"Selected {len(selected)} high-poly object(s)."
+            + (
+                f" {unreachable} could not be selected (hidden from selection "
+                "or outside the active view layer); they still export."
+                if unreachable
+                else ""
+            )
+        )
+
+    def clear_bake_source(self) -> None:
+        """Remove the high-poly collection; its objects are left alone."""
+        if not HighPolySet.exists():
+            self.bridge.logger.warning("This file has no high-poly set.")
+            return
+        HighPolySet.clear()
+        self.bridge.logger.info("High-poly set cleared.")
 
     # ------------------------------------------------------------------
     # Required base-class hooks
@@ -139,8 +231,6 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
 
     def b000(self):
         """Process the selected objects with the chosen template + mode."""
-        import blendertk as btk
-
         pair = self._selected_template_mode()
         if not pair:
             self.bridge.logger.warning(
@@ -155,12 +245,12 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
         meta = SubstanceBridge.parse_template(_TEMPLATE_DIR / f"{template}.py")
         needs_selection = meta.get("EXPORT_FBX", True)
 
-        selection = btk.selected_objects()
+        # Scope resolves via the shared bridge-slots base. Warn only when this
+        # template actually needs geometry -- ``render`` operates on the project
+        # already open in Painter.
+        params = self.collect_param_values()
+        selection = self.scoped_objects(params, warn=needs_selection)
         if needs_selection and not selection:
-            self.bridge.logger.warning(
-                "Nothing selected. Select one or more mesh objects "
-                "before clicking 'Send to Painter'."
-            )
             return
 
         if not self.bridge.painter_path:
@@ -185,7 +275,7 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
                     template=template,
                     mode=mode,
                     output_dir=output_dir,
-                    params=self.collect_param_values(),
+                    params=params,
                 )
         except Exception:
             self.bridge.logger.error("Bridge raised:\n" + traceback.format_exc())

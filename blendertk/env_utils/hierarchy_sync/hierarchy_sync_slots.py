@@ -847,11 +847,15 @@ class HierarchySyncController(ptk.LoggingMixin):
 
     def _write_diff_report(self, missing, extra, reparented, fuzzy_matches):
         """Write a full hierarchy diff report to a temp file. Returns the path, or None on failure."""
-        import tempfile
+        import pythontk as ptk
 
         try:
-            fd, path = tempfile.mkstemp(suffix=".txt", prefix="hierarchy_diff_")
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            # Detached: the report outlives this call (the user opens it), so
+            # there is no deterministic delete -- allocation instead sweeps stale
+            # same-prefix reports from earlier sessions. A raw mkstemp here left
+            # every report on disk forever. Mirror of mayatk's twin.
+            path = ptk.TempArtifacts("hierarchy_diff").path(extension=".txt")
+            with open(path, "w", encoding="utf-8") as f:
                 f.write("Hierarchy Diff Report\n")
                 f.write("=" * 60 + "\n\n")
                 f.write("Summary\n")

@@ -60,8 +60,11 @@ class _GameShaderInternal(object):
     # Map type → the types that, when present, take over its Principled input (so it is loaded
     # but never connected). Mirrors the precedence the wiring in ``create_pbr_material`` applies.
     _SHADOWED_BY = {
-        "Bump": ("Normal", "Normal_OpenGL", "Normal_DirectX"),
-        "Height": ("Normal", "Normal_OpenGL", "Normal_DirectX"),
+        # Registry-sourced: any normal type takes over Bump/Height's input, so a
+        # type added there must shadow them here too or the report would call an
+        # unconnected map "connected".
+        "Bump": ptk.MapRegistry.NORMAL_TYPES,
+        "Height": ptk.MapRegistry.NORMAL_TYPES,
         "Glossiness": ("Roughness",),
         "Smoothness": ("Roughness",),
     }

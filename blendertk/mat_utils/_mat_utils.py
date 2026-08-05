@@ -1975,7 +1975,17 @@ class MatUtils(_MatUtilsInternal):
         if by_type:
             before = dict(by_type)  # filter_redundant_maps deletes dropped keys in place
             report = ptk.MapFactory.filter_redundant_maps(by_type, config=config)
-            for map_type, reason in report.get("dropped", {}).items():
+            # The redundancy filter cannot see normal-vs-normal: the three types
+            # have no `replaces` relationship yet all drive the Principled Normal
+            # input, so a set carrying two used to wire it twice. target_format is
+            # None here on purpose -- Blender's graph flips green itself (see
+            # create_pbr_material), so nothing needs converting on disk; mayatk,
+            # whose bump2d cannot, asks the same call for a converted file.
+            normal_report = ptk.MapFactory.resolve_normal_maps(by_type)
+            for map_type, reason in {
+                **report.get("dropped", {}),
+                **normal_report.get("dropped", {}),
+            }.items():
                 dropped[map_type] = (before.get(map_type), reason)
             for map_type, path in report.get("extracted", {}).items():
                 extracted[map_type] = path
@@ -2167,10 +2177,13 @@ class MatUtils(_MatUtilsInternal):
                 _set_input("Roughness", invert.outputs["Color"])
 
         # --- Normal (OpenGL direct / DirectX green-flip) -------------------------
-        normal_key = next(
-            (k for k in ("Normal", "Normal_OpenGL", "Normal_DirectX") if k in by_type),
-            None,
-        )
+        # Precedence comes from the shared registry (ptk.MapRegistry.NORMAL_TYPES),
+        # not a local tuple: mayatk's GameShader picks its normal the same way and
+        # the two cannot import each other, so a hardcoded copy here is free to
+        # drift — which it had. Explicitly tagged maps outrank the ambiguous
+        # generic one, matching the green-flip test below; taking "Normal" first
+        # handed an unknown-convention map to the combo when a labeled one existed.
+        normal_key = ptk.MapRegistry.select_normal_type(by_type)
         has_normal = normal_key is not None
         if has_normal:
             normal_color = _img(by_type[normal_key], non_color=True).outputs["Color"]

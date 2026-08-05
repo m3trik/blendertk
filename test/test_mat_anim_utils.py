@@ -718,6 +718,21 @@ try:
     check("ambiguous Normal follows the requested direction",
           _normal_chain(amb) == "COMBINE_COLOR", f"{_normal_chain(amb)}")
 
+    # Precedence when a set carries more than one normal type: the explicit tag wins.
+    # Selection used to try "Normal" first, so an ambiguous map shadowed a labeled one
+    # and then followed the combo — the opposite of the rule the flip test above locks
+    # in. Order comes from the shared ptk.MapRegistry.NORMAL_TYPES, so both DCCs agree.
+    both = btk.create_pbr_material(
+        [gs_png("Normal"), gs_png("Normal_OpenGL")], name="GSNrmBoth",
+        normal_direction="DirectX")
+    check("explicit Normal_OpenGL outranks an ambiguous Normal in the same set",
+          _normal_chain(both) == "TEX_IMAGE", f"{_normal_chain(both)}")
+    both_dx = btk.create_pbr_material(
+        [gs_png("Normal"), gs_png("Normal_DirectX")], name="GSNrmBothDX",
+        normal_direction="OpenGL")
+    check("explicit Normal_DirectX outranks an ambiguous Normal in the same set",
+          _normal_chain(both_dx) == "COMBINE_COLOR", f"{_normal_chain(both_dx)}")
+
     # config=None keeps the legacy 'packed wins' direction the old hardcoded block had.
     plan_pk = btk.MatUtils.resolve_pbr_plan(
         [gs_png("ORM"), gs_png("Metallic"), gs_png("Roughness")])

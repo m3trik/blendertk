@@ -623,6 +623,19 @@ try:
         passed is True,
         f"msgs={msgs}",
     )
+    # The size gate is now a QLineEdit — the limit arrives as text.
+    passed, msgs = tm_pu.check_texture_file_size("1")
+    check(
+        "check_texture_file_size applies QLineEdit text ('1') as a 1 MB gate",
+        passed is False and any("udim_big.1002" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    passed, msgs = tm_pu.check_texture_file_size("abc")
+    check(
+        "non-numeric size text skips the check instead of raising",
+        passed is True,
+        f"msgs={msgs}",
+    )
 
     # Drop this section's datablocks so the later embed-texture FBX writes don't
     # trip over the deliberately-stale packed/UDIM images (log noise only).

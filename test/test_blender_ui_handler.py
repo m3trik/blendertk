@@ -1323,6 +1323,68 @@ except Exception as e:
     traceback.print_exc()
     check("handler discovery raised", False, repr(e))
 
+# ---------------------------------------------------------------------------
+# Shared Scope parameter (needs Qt: the slot + parameter modules import
+# uitk.bridge, so this cannot live in the headless-Blender bridge suite).
+# ---------------------------------------------------------------------------
+try:
+    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
+    from blendertk.env_utils.maya_bridge.maya_bridge_slots import MayaBridgeSlots
+    from blendertk.env_utils.unity_bridge.unity_bridge_slots import UnityBridgeSlots
+    from blendertk.mat_utils.marmoset_bridge.marmoset_bridge_slots import (
+        MarmosetBridgeSlots,
+    )
+    from blendertk.mat_utils.substance_bridge.substance_bridge_slots import (
+        SubstanceBridgeSlots,
+    )
+    from blendertk.uv_utils.rizom_bridge.rizom_bridge_slots import RizomBridgeSlots
+
+    # Every bridge slot must inherit the ONE resolver. MayaBridgeSlots and
+    # RizomBridgeSlots subclassed uitk's BridgeSlotsBase directly, which resolves
+    # every scope to an EMPTY set -- the send then reports "nothing selected"
+    # forever. Pin the inheritance, not merely the presence of the parameter.
+    for _cls in (
+        MayaBridgeSlots,
+        UnityBridgeSlots,
+        MarmosetBridgeSlots,
+        SubstanceBridgeSlots,
+        RizomBridgeSlots,
+    ):
+        check(
+            f"{_cls.__name__} inherits the shared scope resolver",
+            _cls.resolve_scope_objects is BlenderBridgeSlotsBase.resolve_scope_objects,
+        )
+
+    import importlib as _il
+
+    _scope_specs = []
+    for _mod_name in (
+        "blendertk.env_utils.maya_bridge.parameters",
+        "blendertk.env_utils.unity_bridge.parameters",
+        "blendertk.mat_utils.marmoset_bridge.parameters",
+        "blendertk.mat_utils.substance_bridge.parameters",
+        "blendertk.uv_utils.rizom_bridge.parameters",
+    ):
+        _spec = _il.import_module(_mod_name).PARAMS.get("SCOPE")
+        _scope_specs.append(_spec)
+        check(
+            f"{_mod_name.split('.')[-2]} registers SCOPE (selected default)",
+            _spec is not None
+            and _spec.default == "selected"
+            and [v for _l, v in _spec.choices] == ["selected", "all", "visible"],
+        )
+    # A shared mutable spec would let one bridge's tweak leak into all of them.
+    check(
+        "each bridge holds its OWN SCOPE spec instance",
+        len({id(sp) for sp in _scope_specs if sp is not None}) == len(
+            [sp for sp in _scope_specs if sp is not None]
+        ),
+    )
+except Exception as e:
+    traceback.print_exc()
+    check("scope parameter wiring raised", False, repr(e))
+
+
 passed = sum(1 for line in lines if line.startswith("OK"))
 for line in lines:
     print(line)

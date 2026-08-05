@@ -5,7 +5,7 @@
 
 :class:`MarmosetBridge` is the Blender half of the split: a :class:`pythontk.HandoffBridge`
 whose ``_produce`` exports the current selection to FBX, builds a :class:`blendertk.mat_utils.
-mat_manifest.MatManifest` sidecar and a Blender-hierarchy-classified high/low bake-pairs sidecar,
+mat_manifest.MatManifest` sidecar and a Blender-hierarchy-classified source/target bake-pairs sidecar,
 and whose **deliverer** is the DCC-agnostic :class:`._marmoset_engine.MarmosetEngine` (a
 :class:`pythontk.Deliverer`) that renders the Toolbag template and launches / round-trips
 Toolbag.
@@ -42,6 +42,10 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (  # noqa: F401
     _TEMPLATE_DIR,
 )
 
+# Sibling module, imported relatively (as the engine does) so this module
+# never re-enters its own subpackage during import.
+from . import template_params
+
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
 
@@ -66,22 +70,25 @@ class _MarmosetBridgeInternal(object):
 
     @staticmethod
     def _classify_blender_chain(
-        obj, high_suffix: str, low_suffix: str
+        obj, high_suffix: str, low_suffix: str, include_children: bool = True
     ) -> Optional[str]:
-        """Walk *obj*'s parent chain in Blender, return ``'high'``/``'low'``/None.
+        """Walk *obj*'s parent chain in Blender, return ``'source'``/``'target'``/None.
 
         Mirrors the Toolbag-side ``_classify_by_chain`` in :mod:`._toolbag_helpers`, but operates on
         the live Blender object hierarchy via ``obj.parent`` -- so we can run it BEFORE the FBX
-        export flattens it. Mirror of mayatk's ``_classify_maya_chain``.
+        export flattens it. Mirror of mayatk's ``_classify_maya_chain``. *include_children* off
+        stops the walk at the object itself, so a suffixed parent no longer tags its children.
         """
         cur = obj
         visited = 0
         while cur is not None and visited < 64:
             stem = cur.name
             if high_suffix and stem.endswith(high_suffix):
-                return "high"
+                return "source"
             if low_suffix and stem.endswith(low_suffix):
-                return "low"
+                return "target"
+            if not include_children:
+                break
             cur = cur.parent
             visited += 1
         return None
@@ -173,10 +180,14 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             f'<a href="action://open?path={manifest_path}">{manifest_path}</a>'
         )
 
-        _high_suffix = request.params.get("HIGH_SUFFIX", "_high") or ""
-        _low_suffix = request.params.get("LOW_SUFFIX", "_low") or ""
+        # Fall back to the registry defaults for any key a programmatic caller
+        # left out -- one source of truth for what "_source" is.
+        pairing = {**template_params.DEFAULTS, **request.params}
         bake_pairs = MarmosetBridge.build_bake_pairs_manifest(
-            objects, _high_suffix, _low_suffix
+            objects,
+            pairing.get("HIGH_SUFFIX") or "",
+            pairing.get("LOW_SUFFIX") or "",
+            include_children=bool(pairing.get("SUFFIX_INCLUDE_CHILDREN", True)),
         )
         actual_pairs_path: Optional[str] = None
         if bake_pairs:
@@ -206,14 +217,18 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
 
     @staticmethod
     def build_bake_pairs_manifest(
-        objects: Sequence, high_suffix: str, low_suffix: str
+        objects: Sequence,
+        high_suffix: str,
+        low_suffix: str,
+        include_children: bool = True,
     ) -> Dict[str, str]:
-        """Build the ``{mesh_name: 'high'|'low'}`` sidecar for the bake -- mirror of mayatk's
+        """Build the ``{mesh_name: 'source'|'target'}`` sidecar for the bake -- mirror of mayatk's
         ``build_bake_pairs_manifest`` (Blender parent-chain walk instead of a Maya DAG walk).
 
         For each selected object, finds every mesh-type descendant (recursively, plus the object
         itself if it's a mesh), walks its parent chain, and records a classification if any ancestor
-        (or the mesh itself) carries *high_suffix* or *low_suffix*.
+        (or the mesh itself) carries *high_suffix* or *low_suffix*. With *include_children* off only
+        the mesh's own name is consulted.
         """
         if not (high_suffix or low_suffix):
             return {}
@@ -235,7 +250,7 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         out: Dict[str, str] = {}
         for mesh_obj in mesh_objs:
             cls = _MarmosetBridgeInternal._classify_blender_chain(
-                mesh_obj, high_suffix, low_suffix
+                mesh_obj, high_suffix, low_suffix, include_children
             )
             if cls:
                 out[mesh_obj.name] = cls

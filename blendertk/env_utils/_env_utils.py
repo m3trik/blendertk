@@ -556,6 +556,70 @@ class EnvUtils(_EnvUtilsInternal):
             return None
 
     @staticmethod
+    def export_scene_as_obj(
+        file_path=None,
+        *,
+        selection_only=False,
+        materials=True,
+        smoothing=True,
+        normals=True,
+        groups=True,
+    ):
+        """Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.
+
+        Same parameter names and meanings on both sides so a caller (the Scene panel's
+        Export Scene format combo) needs no branch. ``groups`` maps onto Blender's
+        ``export_object_groups``, ``smoothing`` onto ``export_smooth_groups``.
+
+        A note on what OBJ *cannot* carry, since the format is often picked by habit:
+        no transform hierarchy (everything is flattened into world space), no
+        skinning, no animation, and no textures beyond a ``.mtl`` sidecar referencing
+        them by path. It is a geometry interchange, not a scene one.
+
+        Parameters:
+            file_path (str): Destination ``.obj``. ``None`` derives it from the open
+                .blend (which must therefore have been saved).
+            selection_only (bool): Export only the selection (default: whole scene).
+            materials (bool): Write the ``.mtl`` sidecar beside the OBJ.
+            smoothing (bool): Write smoothing-group records.
+            normals (bool): Write vertex normals.
+            groups (bool): Write ``g``/``o`` group records.
+
+        Returns:
+            str: The written path.
+
+        Raises:
+            ValueError: When *file_path* is None and the scene has never been saved.
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if not file_path:
+            blend_path = bpy.data.filepath or ""
+            if not blend_path:
+                raise ValueError(
+                    "Scene has not been saved yet.\nPlease save the scene first, or "
+                    "specify a file path."
+                )
+            file_path = os.path.splitext(blend_path)[0] + ".obj"
+
+        # window override: the bundled exporters call ``context.window.cursor_set``,
+        # which is an AttributeError when window is None (the Qt-pump state) -- the
+        # same guard btk.FbxUtils.export applies.
+        with CoreUtils.window_context_override():
+            bpy.ops.wm.obj_export(
+                filepath=file_path,
+                export_selected_objects=selection_only,
+                export_materials=materials,
+                export_smooth_groups=smoothing,
+                export_normals=normals,
+                export_object_groups=groups,
+                export_uv=True,
+            )
+        return file_path
+
+    @staticmethod
     def rename_scene_file(path, new_base):
         """Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
         Returns the new path, or ``None`` (missing source, name clash, or no-op rename)."""

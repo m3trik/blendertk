@@ -379,7 +379,9 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Name the material.  &lt;/p&gt;&lt;p&gt;If None is given, the material name will be derived from the given texture names.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               <string>Name the material.
+
+If None is given, the material name is derived from the given texture names.</string>
               </property>
               <property name="placeholderText">
                <string>&lt;Material Name&gt;</string>

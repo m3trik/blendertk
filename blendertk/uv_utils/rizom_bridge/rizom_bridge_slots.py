@@ -2,10 +2,12 @@
 # coding=utf-8
 """Slots for the RizomUV bridge panel.
 
-Mirror of mayatk's ``uv_utils.rizom_bridge.rizom_bridge_slots``. Subclass of uitk's
-:class:`BridgeSlotsBase` directly (not through a Blender-flavored intermediate base) --
-``REQUIRE_OUTPUT_DIR = False`` means it needs no DCC-side ``default_output_dir`` fallback, exactly
-like ``blendertk.env_utils.maya_bridge.maya_bridge_slots.MayaBridgeSlots``. The panel machinery
+Mirror of mayatk's ``uv_utils.rizom_bridge.rizom_bridge_slots``. Subclasses
+:class:`blendertk.ui_utils.blender_bridge_slots_base.BlenderBridgeSlotsBase` like every other
+Blender bridge. ``REQUIRE_OUTPUT_DIR = False`` makes the base's ``default_output_dir`` fallback
+moot here, but the base is also where ``resolve_scope_objects`` lives -- inheriting
+``BridgeSlotsBase`` directly (as this did) silently resolved every Scope to an empty set. The
+panel machinery
 (template combo, dynamic parameter widgets, user presets, log routing, per-template description)
 lives upstream; this file owns only the Rizom-specific bits.
 
@@ -21,7 +23,7 @@ Discovered by ``BlenderUiHandler`` (``marking_menu.show("rizom_bridge")``).
 """
 from pathlib import Path
 
-from uitk.bridge import BridgeSlotsBase
+from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 import blendertk as btk
 from blendertk.uv_utils.rizom_bridge._rizom_bridge import RizomUVBridge, _SCRIPT_DIR
@@ -68,8 +70,8 @@ class _VersionedParamsProxy:
         return getattr(self._mod, name)
 
 
-class RizomBridgeSlots(BridgeSlotsBase):
-    """Slots wired to ``rizom_bridge.ui`` via :class:`BridgeSlotsBase`.
+class RizomBridgeSlots(BlenderBridgeSlotsBase):
+    """Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
 
     Discovered automatically by :class:`blendertk.ui_utils.blender_ui_handler.BlenderUiHandler`
     so ``self.sb.handlers.marking_menu.show("rizom_bridge")`` works from anywhere with no
@@ -208,12 +210,11 @@ class RizomBridgeSlots(BridgeSlotsBase):
             return
         preset, _mode = pair
 
-        selection = btk.selected_objects()
+        # Scope resolves via the shared bridge-slots base; it logs the
+        # scope-aware reason when empty.
+        params = self.collect_param_values()
+        selection = self.scoped_objects(params)
         if not selection:
-            self.bridge.logger.warning(
-                "Nothing selected. Select one or more mesh objects before clicking "
-                "'Process Selected'."
-            )
             return
 
         if not self.bridge.rizom_path:
@@ -224,7 +225,6 @@ class RizomBridgeSlots(BridgeSlotsBase):
             return
 
         self.bridge.logger.info(f"--- {preset} on {len(selection)} object(s) ---")
-        params = self.collect_param_values()
         try:
             with self.sb.progress(text=f"Working: RizomUV {preset}"):
                 if preset == self.SEND_PRESET:

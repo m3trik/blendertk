@@ -68,6 +68,20 @@ STINGRAY_TEX_SLOTS = (
     "TEX_color_map", "TEX_normal_map", "TEX_metallic_map",
     "TEX_roughness_map", "TEX_ao_map", "TEX_emissive_map",
 )
+# Stingray slot -> the logical channel vocabulary the manifest speaks (the same
+# names mtk's MatManifest emits, resolved Blender-side through
+# ptk.MapRegistry.resolve_type_from_channel). Lets the applier rebuild a texture
+# whose FILENAME carries no map-type token -- a plain color map named after a
+# product would otherwise be unclassifiable. Spelled out rather than imported:
+# this template is dependency-free by contract.
+STINGRAY_SLOT_CHANNELS = {
+    "TEX_color_map": "baseColor",
+    "TEX_normal_map": "normal",
+    "TEX_metallic_map": "metallic",
+    "TEX_roughness_map": "roughness",
+    "TEX_ao_map": "ambientOcclusion",
+    "TEX_emissive_map": "emission",
+}
 
 
 def _ns_safe(name):
@@ -259,6 +273,27 @@ def _resolved_file(cmds, file_node):
     return os.path.abspath(path) if os.path.isfile(path) else None
 
 
+def _material_slots(cmds, mat, node_type):
+    """``{logical channel: file}`` for *mat*, or ``{}`` when the slots are unknowable.
+
+    Only the Stingray family declares its inputs; the surface family is walked
+    through history, where a file node carries no reliable channel. Returned
+    alongside (never instead of) the flat file list -- see
+    ``STINGRAY_SLOT_CHANNELS``.
+    """
+    slots = {}
+    if node_type not in STINGRAY_SHADER_TYPES:
+        return slots
+    for slot, channel in STINGRAY_SLOT_CHANNELS.items():
+        src = _plug_source(cmds, f"{mat}.{slot}")
+        if not src:
+            continue
+        path = _resolved_file(cmds, src.split(".")[0])
+        if path:
+            slots[channel] = path
+    return slots
+
+
 def _material_files(cmds, mat, node_type):
     """The texture files feeding *mat* -- the payload FBX cannot carry.
 
@@ -308,11 +343,14 @@ def fbx_safe_materials(cmds):
 
     Texture connections are re-pointed, scalar values approximated. Per-material
     failures degrade to the untranslated shader (gray in Blender) rather than
-    aborting the conversion. The scene is throwaway -- nothing is restored.
+    aborting the conversion. The scene is throwaway -- nothing is restored, which
+    is what lets each phong TAKE OVER its source material's name (the source is
+    renamed aside) so the FBX carries the real names rather than an internal
+    marker.
 
     ONE phong per source material: production scenes routinely feed one material
     into many shading groups (per-object SG splits, merged imports), and a
-    per-SG translation explodes into "_fbxsafe1..N" duplicates. Every SG of an
+    per-SG translation explodes into "<mat>1..N" duplicates. Every SG of an
     already-translated material reuses its phong, and the manifest entry merges
     the member objects.
 
@@ -342,20 +380,39 @@ def fbx_safe_materials(cmds):
                 translate = _translate_stingray
             else:
                 continue
-            phong = cmds.shadingNode(
-                "phong", asShader=True, name=f"{_ns_safe(mat)}_fbxsafe"
-            )
-            translate(cmds, mat, phong)
+            # The phong takes over the source material's NAME (the source is
+            # moved aside first). That name is what rides in the FBX and becomes
+            # the Blender material's name, so a translated material must not
+            # arrive wearing an internal marker: "_fbxsafe" leaked into .blend
+            # files and round-tripped back to Maya on the next send (live
+            # production report). Only the manifest-driven rebuild used to undo
+            # it -- an untextured or unclassifiable material kept the marker
+            # forever. Renaming instead of decorating makes the FBX itself
+            # truthful, so even a hand-rolled import gets the real name.
+            leaf = _ns_safe(mat)
+            try:
+                source = cmds.rename(mat, "{}_src".format(leaf))
+                phong_name = leaf
+            except RuntimeError:  # locked/referenced -- keep the old marker
+                source, phong_name = mat, "{}_fbxsafe".format(leaf)
+            phong = cmds.shadingNode("phong", asShader=True, name=phong_name)
+            translate(cmds, source, phong)
             cmds.connectAttr(f"{phong}.outColor", f"{sg}.surfaceShader", force=True)
             entry = {
                 "name": mat.split(":")[-1],
                 "shader_type": node_type,
                 "fbx_material": phong,
                 "objects": _sg_member_names(cmds, sg),
-                "files": _material_files(cmds, mat, node_type),
+                "files": _material_files(cmds, source, node_type),
+                "slots": _material_slots(cmds, source, node_type),
             }
             entries.append(entry)
-            translated[mat] = (phong, entry)
+            # Keyed by the node's CURRENT name: the other shading groups this
+            # material feeds still point at it, and that is the name
+            # ``_plug_source`` reports for them on the next iteration. Keying by
+            # the pre-rename spelling would miss every one of them and re-translate
+            # the material per shading group -- the duplicate explosion above.
+            translated[source] = (phong, entry)
             print(
                 "fbx-safe: {} -> {} ({} texture file(s) resolved)".format(
                     mat, phong, len(entry["files"])
@@ -367,21 +424,58 @@ def fbx_safe_materials(cmds):
     return entries
 
 
-def write_manifest(entries, visibility, path):
+def scene_node_types(cmds):
+    """``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
+
+    Maya groups (shapeless transforms) and locators both travel as identical
+    FBX nulls; Blender imports both as look-alike Empties. Recording which was
+    which lets the Blender side stamp a ``maya_node_type`` custom property, so
+    a later send BACK to Maya restores the correct node type instead of
+    guessing from the children heuristic. A leaf name claimed by BOTH kinds is
+    dropped -- a wrong tag is worse than the heuristic. Kept in step by hand
+    with ``mtk.BlenderBridge._manifest_node_types`` (the send direction's
+    in-process collector).
+    """
+    out = {}
+    ambiguous = set()
+    for transform in cmds.ls(type="transform", long=True) or []:
+        shapes = cmds.listRelatives(transform, shapes=True, fullPath=True) or []
+        if not shapes:
+            node_type = "group"
+        elif all(cmds.nodeType(s) == "locator" for s in shapes):
+            node_type = "locator"
+        else:
+            continue
+        leaf = transform.split("|")[-1].split(":")[-1]
+        if out.get(leaf, node_type) != node_type:
+            ambiguous.add(leaf)
+        out[leaf] = node_type
+    for leaf in ambiguous:
+        out.pop(leaf, None)
+    return out
+
+
+def write_manifest(entries, visibility, node_types, path):
     """The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
     textures FBX cannot carry; ``visibility`` = smart-bake's baked visibility
-    (FBX carries the curve but Blender's importer drops it). One file — same
+    (FBX carries the curve but Blender's importer drops it); ``transforms`` =
+    the group/locator node types FBX nulls cannot express. One file — same
     producer, same consumer, same lifecycle — not a sidecar per concern.
 
     File-less material entries are written too: a translated material whose
     texture paths never resolved must surface as a NAMED warning on the Blender
     side, not as silently pink geometry (live production report).
     """
-    if not (entries or visibility):
+    if not (entries or visibility or node_types):
         return
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(
-            {"version": 1, "materials": entries, "visibility": visibility},
+            {
+                "version": 1,
+                "materials": entries,
+                "visibility": visibility,
+                "transforms": node_types,
+            },
             fh,
             indent=1,
         )
@@ -543,7 +637,9 @@ def main():
             print("FBX flag skipped (unsupported by this plugin): " + flag)
     mel.eval('FBXExport -f "{}"'.format(OUT_FBX))
     # Written only after a successful export (a manifest implies its FBX).
-    write_manifest(manifest_entries, visibility, OUT_FBX + ".manifest.json")
+    write_manifest(
+        manifest_entries, visibility, scene_node_types(cmds), OUT_FBX + ".manifest.json"
+    )
 
 
 try:

@@ -159,7 +159,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select an HDR map from the folder set via the header menu (&#9656; Set HDR Folder…).&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               <string>Select an HDR map from the folder set via the header menu (▸ Set HDR Folder…).</string>
               </property>
               <property name="editable">
                <bool>false</bool>

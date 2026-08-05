@@ -47,7 +47,6 @@ engine API -- see that module's docstring.
 import os
 import re
 import shutil
-import tempfile
 import time
 import logging
 from datetime import datetime
@@ -366,7 +365,7 @@ class SceneExporter(ptk.LoggingMixin):
         glb_tempdir = None
         try:
             if glb_only:
-                glb_tempdir = tempfile.mkdtemp(prefix="scene_exporter_glb_")
+                glb_tempdir = ptk.TempArtifacts("scene_exporter_glb").dir_path()
                 fbx_write_path = os.path.join(
                     glb_tempdir, os.path.basename(self.export_path)
                 )

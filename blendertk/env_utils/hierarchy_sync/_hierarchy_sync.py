@@ -977,8 +977,13 @@ class HierarchySync(ptk.LoggingMixin):
             f"Converting reference {ext} for staging: {os.path.basename(reference_path)}",
         )
 
-        fd, temp_blend = tempfile.mkstemp(prefix="hier_ref_", suffix=".blend")
-        os.close(fd)
+        # Detached: the staged .blend is linked/read after this returns, so the
+        # success path cannot delete it -- and nothing else did, so every staged
+        # reference leaked. Allocation now sweeps stale ones by age; ``_fail``
+        # still removes it immediately on the error paths.
+        import pythontk as ptk
+
+        temp_blend = ptk.TempArtifacts("hier_ref").path(extension=".blend")
 
         def _fail(msg):
             _log("error", msg)

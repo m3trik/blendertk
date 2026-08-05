@@ -18,7 +18,6 @@ import glob
 import os
 import platform
 import shutil
-import tempfile
 from typing import List, Optional
 
 import pythontk as ptk
@@ -120,9 +119,9 @@ class BlenderConnection:
 
         ``**kwargs`` forward to :meth:`run_script`. Returns the ``CompletedProcess``.
         """
-        fd, path = tempfile.mkstemp(suffix=".py", prefix="btk_conn_")
+        path = ptk.TempArtifacts("btk_conn").path(extension=".py")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(code)
             return self.run_script(path, **kwargs)
         finally:

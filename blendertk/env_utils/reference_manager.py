@@ -327,6 +327,37 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             setToolTip="Show the Notes column (per-file comments / metadata). Hidden by default.",
         ).toggled.connect(lambda *_: self._apply_notes_column_visibility())
 
+        # Foreign-scene conversion route (mirror across both panels). FBX (default):
+        # instancing is native to the format on BOTH sides, so shared mesh data
+        # survives with no sidecar replay in the path — and when FBX's texture
+        # manifest does fail, the loss is VISIBLE (classic-model materials) and
+        # structurally harmless. USD: richer material graphs plus native animation
+        # and visibility, but instance relationships are rebuilt from the conversion
+        # sidecar, and that rebuild currently fails SILENTLY (see .claude/BACKLOG.md)
+        # — a scene that looks correct but no longer shares data. Opt in per scene.
+        #
+        # Item order is APPEND-ONLY: uitk persists a combo by INDEX, so reordering
+        # would retroactively flip every stored pick. The default moves via
+        # setCurrentIndex, never by moving items. The objectName was renamed off
+        # `cmb_foreign_route` when the default changed, deliberately orphaning the
+        # old key so the new default reaches profiles that had already stored one.
+        widget.menu.add("Separator", setTitle="Foreign Scenes:")
+        widget.menu.add(
+            "QComboBox",
+            addItems=["Convert via USD", "Convert via FBX"],
+            setCurrentIndex=1,  # FBX
+            setObjectName="cmb_conversion_route",
+            setToolTip=(
+                "Intermediate used when opening / importing / referencing a foreign "
+                "scene.\n"
+                "FBX (default): instancing is carried by the format itself, so a "
+                "scene keeps its shared mesh data without a rebuild step.\n"
+                "USD: richer materials, plus animation and visibility arrive "
+                "natively — but instances are rebuilt from a sidecar. Prefer it for "
+                "look-heavy scenes, and check instancing survived."
+            ),
+        )
+
         # Include Types — a single horizontal row of per-extension toggles (mirror across both
         # panels). Replaces the old single "Include Maya Scenes" toggle: .blend lists + links
         # natively; .ma/.mb list as import-only rows converted through the maya_bridge.
@@ -1536,6 +1567,34 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         else:
             self.sb.message_box("Failed to open the file.")
 
+    def _foreign_route(self):
+        """The conversion route from the header menu — ``"fbx"`` (default) / ``"usd"``.
+
+        USD is returned only when explicitly selected, so a missing/unbuilt menu
+        falls back to the same route the engine defaults to.
+        """
+        menu = getattr(getattr(self.ui, "header", None), "menu", None)
+        combo = getattr(menu, "cmb_conversion_route", None) if menu else None
+        if combo is not None and "USD" in combo.currentText():
+            return "usd"
+        return "fbx"
+
+    def _resolve_conversion(self, path):
+        """Route + smart-bake decision for converting *path*.
+
+        Returns the kwargs to hand ``import_scene`` / ``bake_scene`` (``via`` +
+        ``smart_bake``), or ``None`` if the user cancelled. The Bake-vs-Raw prompt
+        exists to patch FBX's driven-animation hole — the USD route samples driven
+        animation and visibility natively, so it never asks.
+        """
+        via = self._foreign_route()
+        if via != "fbx":
+            return {"via": via}  # smart_bake is FBX-only; the engine ignores it anyway
+        smart_bake = self._resolve_smart_bake(path)
+        if smart_bake is None:
+            return None
+        return {"via": "fbx", "smart_bake": smart_bake}
+
     def _resolve_smart_bake(self, path):
         """Decide how to convert a foreign scene: when it has *driven* animation a raw
         import would lose, prompt Bake vs Import Raw — the conversion-time counterpart
@@ -1567,8 +1626,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Bake a foreign (Maya / FBX) scene to a .blend and open it as a new, unsaved file.
 
         The 'open' counterpart of the link icon's bake-and-reference: a fresh headless Maya
-        converts the scene to FBX and a headless Blender bakes that to a cached .blend (an .fbx
-        source skips Maya). That cached bake is copied to a scratch .blend which is opened — so
+        converts the scene to FBX (default) or USD per the header-menu route, and a headless
+        Blender bakes that to a cached .blend (an .fbx source skips Maya). That cached bake is
+        copied to a scratch .blend which is opened — so
         the user edits a throwaway document and saves it wherever they like, and the cache the
         link icon reuses is never touched. The bake costs a mayapy start + license on the first
         run for a .ma/.mb, hence the wait cursor.
@@ -1576,10 +1636,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if not self._has_bpy():
             self.sb.message_box("Opening a foreign scene needs a running Blender.")
             return
-        # Prompt bake-vs-raw when driven animation is present (before the wait cursor,
-        # so the modal shows a normal cursor).
-        smart_bake = self._resolve_smart_bake(path)
-        if smart_bake is None:
+        # Resolve route + bake-vs-raw (may prompt on the FBX route) before the wait
+        # cursor, so the modal shows a normal cursor.
+        conv = self._resolve_conversion(path)
+        if conv is None:
             return  # user cancelled
         import shutil
 
@@ -1588,7 +1648,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         app = self.sb.QtWidgets.QApplication
         app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
         try:
-            baked = MayaSceneImport().bake_scene(path, smart_bake=smart_bake)
+            baked = MayaSceneImport().bake_scene(path, **conv)
         except FileNotFoundError as e:
             self.sb.message_box(f"Can't open — Maya not found:<br>{e}")
             return
@@ -1713,21 +1773,21 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         from blendertk.env_utils.fbx_utils import FbxUtils
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        def _import(path, smart_bake):
+        def _import(path, conv):
             if os.path.splitext(path)[1].lower() == ".fbx":
                 return FbxUtils.import_fbx(path)
-            return MayaSceneImport().import_scene(path, smart_bake=smart_bake)
+            return MayaSceneImport().import_scene(path, **conv)
 
-        # Resolve bake-vs-raw per scene (may prompt) BEFORE the wait cursor. An .fbx
-        # skips the prompt ("auto" is inert for it); a cancelled scene is dropped.
+        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE
+        # the wait cursor. An .fbx needs no conversion; a cancelled scene is dropped.
         plan = []
         for path in paths:
             if os.path.splitext(path)[1].lower() == ".fbx":
-                plan.append((path, "auto"))
+                plan.append((path, {}))
             else:
-                smart_bake = self._resolve_smart_bake(path)
-                if smart_bake is not None:
-                    plan.append((path, smart_bake))
+                conv = self._resolve_conversion(path)
+                if conv is not None:
+                    plan.append((path, conv))
         if not plan:
             return
 
@@ -1735,9 +1795,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
         total, failed = 0, 0
         try:
-            for path, smart_bake in plan:
+            for path, conv in plan:
                 try:
-                    total += len(_import(path, smart_bake))
+                    total += len(_import(path, conv))
                 except FileNotFoundError as e:
                     self.sb.message_box(f"Can't import — Maya not found:<br>{e}")
                     return
@@ -1758,7 +1818,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Bake each foreign scene in *paths* to a cached .blend and link it. True on success.
 
         Blender can only link a ``.blend``, so a foreign row is referenced through a bake
-        (headless Maya → FBX → headless Blender → cached .blend) rather than directly.
+        (headless Maya → USD/FBX intermediate → headless Blender → cached .blend) rather
+        than directly.
         Both stages are cached, so re-linking the same unchanged scene is instant; the
         first run costs a mayapy start + license, hence the wait cursor.
         """
@@ -1770,13 +1831,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return False
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        # Resolve bake-vs-raw per scene (may prompt) BEFORE the wait cursor; a
-        # cancelled scene is dropped from the batch.
+        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE
+        # the wait cursor; a cancelled scene is dropped from the batch.
         plan = []
         for path in paths:
-            smart_bake = self._resolve_smart_bake(path)
-            if smart_bake is not None:
-                plan.append((path, smart_bake))
+            conv = self._resolve_conversion(path)
+            if conv is not None:
+                plan.append((path, conv))
         if not plan:
             return False
 
@@ -1784,10 +1845,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
         linked = 0
         try:
-            for path, smart_bake in plan:
+            for path, conv in plan:
                 try:
                     linked += btk.link_blend_file(
-                        MayaSceneImport().bake_scene(path, smart_bake=smart_bake), link=True
+                        MayaSceneImport().bake_scene(path, **conv), link=True
                     )
                 except FileNotFoundError as e:
                     self.sb.message_box(f"Can't reference — Maya not found:<br>{e}")

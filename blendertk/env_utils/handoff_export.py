@@ -37,11 +37,87 @@ class BlenderExportMixin:
             objects = btk.selected_objects()
         return objects or []
 
+    @staticmethod
+    def _hierarchy_closure(objects, descend: bool = True) -> List[Any]:
+        """*objects* plus their ancestors (and, per *descend*, descendants).
+
+        Blender's FBX exporter writes EXACTLY the given objects -- an unlisted
+        parent Empty is dropped and its children re-root, so a bare selection
+        silently flattens the scene graph on the far side (live report). Two
+        directions, separately load-bearing:
+
+        - **Ancestors** (always) carry the path: only the chain itself is
+          added, never an ancestor's other children -- sending one mesh must
+          not widen to its siblings.
+        - **Descendants** (*descend*) carry the content: selecting a group
+          Empty means sending the group (Maya's export-selection includes the
+          subtree; Blender's does not, so the closure supplies the parity).
+          The Visible Only scope passes ``descend=False`` -- re-adding a
+          HIDDEN child of a visible parent would defeat the scope.
+
+        Accepts names or objects; unresolvable names drop (matching
+        ``FbxUtils.export``'s tolerance). Outside Blender (engine-surface
+        tests) there is no ``bpy`` and nothing to close over -- the input
+        passes through unchanged.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return list(objects)
+
+        resolved: List[Any] = []
+        for o in objects:
+            obj = bpy.data.objects.get(o) if isinstance(o, str) else o
+            if obj is not None and obj not in resolved:
+                resolved.append(obj)
+
+        closure = list(resolved)
+        seen = set(closure)
+        for obj in resolved:
+            parent = obj.parent
+            while parent is not None and parent not in seen:
+                seen.add(parent)
+                closure.append(parent)
+                parent = parent.parent
+            if not descend:
+                continue
+            for child in obj.children_recursive:
+                if child not in seen:
+                    seen.add(child)
+                    closure.append(child)
+        return closure
+
+    def _scene_objects(self) -> List[Any]:
+        """Every object in the CURRENT scene (the whole-scene hand-off).
+
+        Used by ``save_as``, where "save the scene as ..." means the scene rather than
+        the selection. The current scene's objects, NOT ``bpy.data.objects`` -- the
+        latter also sweeps in unlinked/orphaned objects and objects belonging to other
+        scenes (same rule as the panel's "Entire Scene" scope). Unfiltered by type: the
+        export's ``object_types`` already decides what travels, and empties/armatures
+        must travel.
+        """
+        import bpy
+
+        return list(bpy.context.scene.objects)
+
     def _produce(self, objects, request) -> Payload:
-        """Export the selection to a temp FBX and wrap it as a :class:`pythontk.Payload`."""
+        """Export the hierarchy closure of *objects* to a temp FBX :class:`pythontk.Payload`.
+
+        The closure (see :meth:`_hierarchy_closure`) happens here, not in
+        ``_resolve_objects``, because it is scope-dependent: Visible Only must
+        not descend into hidden children, and only the request carries the
+        scope. The closed set rides on ``Payload.extras["export_set"]`` so a
+        subclass sidecar (e.g. the Maya bridge's manifest) covers exactly what
+        was exported -- a group-Empty send must manifest the DESCENDANT
+        meshes' materials, not just the selected Empty.
+        """
+        objects = self._hierarchy_closure(
+            objects, descend=request.params.get("SCOPE") != "visible"
+        )
         fbx_path = self._make_payload_path()
         self._export_fbx(objects, fbx_path, request.params)
-        return Payload(primary=fbx_path)
+        return Payload(primary=fbx_path, extras={"export_set": objects})
 
     def _fbx_options(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Blender ``export_scene.fbx`` options derived from the bridge params.
@@ -89,6 +165,7 @@ class BlenderExportMixin:
         src = [bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects]
         src = [o for o in src if o is not None]
         dups = []  # (object, copied_data)
+        dup_of = {}
         for o in src:
             nd = o.copy()
             copied_data = None
@@ -97,6 +174,19 @@ class BlenderExportMixin:
                 nd.data = copied_data
             bpy.context.scene.collection.objects.link(nd)
             dups.append((nd, copied_data))
+            dup_of[o] = nd
+        # Re-parent each copy onto the copy of its parent: ``o.copy()`` keeps
+        # ``.parent`` aimed at the ORIGINAL, which is not in the exported set,
+        # so the exporter would re-root every child and the strip path would
+        # flatten the very hierarchy the closure preserved. The copied
+        # ``matrix_parent_inverse`` stays valid -- the new parent has the
+        # source parent's transform -- so assigning ``.parent`` directly
+        # keeps world placement. A parent OUTSIDE the set stays aimed at the
+        # original (unexported -> the exporter re-roots that child with its
+        # world transform, same as before the closure existed).
+        for o in src:
+            if o.parent in dup_of:
+                dup_of[o].parent = dup_of[o.parent]
         try:
             for obj, _ in dups:
                 data = getattr(obj, "data", None)
