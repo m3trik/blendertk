@@ -140,6 +140,23 @@ try:
     check("rename_scene_file refuses an existing target (no side effect)",
           btk.rename_scene_file(renamed, "taken") is None and os.path.isfile(renamed))
 
+    # 14b. renaming the OPEN file is save-then-reopen: the edits authored since the last save go
+    #      into the renamed file, and the session tracks the new path. Without it bpy.data.filepath
+    #      keeps pointing at a name that no longer exists and the next save resurrects the old file.
+    open_path = btk.save_scene_as(ws_dir, "live")  # this is now the open file
+    bpy.ops.mesh.primitive_cube_add()  # an edit made after that save
+    bpy.context.active_object.name = "RenameProbe"
+    moved = btk.rename_scene_file(open_path, "live_renamed")
+    check("rename_scene_file renames the open .blend",
+          moved is not None and os.path.isfile(moved) and not os.path.exists(open_path), str(moved))
+    check("the session tracks the renamed file, not the old name",
+          moved is not None and os.path.normcase(os.path.normpath(bpy.data.filepath)) == os.path.normcase(moved),
+          bpy.data.filepath)
+    check("the unsaved edit was saved into the renamed file", "RenameProbe" in bpy.data.objects)
+    bpy.ops.wm.save_mainfile()
+    check("saving after the rename doesn't resurrect the old name", not os.path.exists(open_path))
+    btk.delete_scene_file(moved)
+
     # 15. delete_scene_file — removes it.
     check("delete_scene_file removes the .blend", btk.delete_scene_file(renamed) and not os.path.exists(renamed))
     check("delete_scene_file(missing) → False", not btk.delete_scene_file(renamed))
@@ -314,6 +331,39 @@ try:
     s, _ = make_slots()  # stub ui has no header menu -> defaults
     check("_included_extensions falls back to defaults without a menu",
           s._included_extensions() == set(ReferenceManagerSlots._INCLUDE_DEFAULTS))
+
+    # Conversion route: FBX is the default, USD is opt-in. A missing menu must fall
+    # back to the SAME route the engine defaults to, not the opposite one.
+    check("_foreign_route falls back to fbx without a menu", s._foreign_route() == "fbx")
+    for _text, _expected in (("Convert via FBX", "fbx"), ("Convert via USD", "usd"), ("", "fbx")):
+        _combo = type("C", (), {"currentText": lambda self, t=_text: t})()
+        _menu = type("M", (), {"cmb_conversion_route": _combo})()
+        s2, _ = make_slots()
+        s2.ui = type("U", (), {"header": type("H", (), {"menu": _menu})()})()
+        check(f"_foreign_route({_text!r}) -> {_expected}", s2._foreign_route() == _expected)
+    # uitk persists a combo by INDEX, so the item list is append-only and the default
+    # moves via setCurrentIndex. Tie the two together: reordering the items without
+    # moving the index must fail here, not silently re-default every profile to USD.
+    # Anchored on the objectName — this panel builds several combos, and an
+    # unanchored match would pin whichever one came first in the file. The kwarg
+    # ORDER matters too: set_attributes applies kwargs in order, so setCurrentIndex
+    # must follow addItems or it selects into an empty model.
+    import ast as _ast, re as _re
+    from blendertk.env_utils import reference_manager as _rm_mod
+    with open(_rm_mod.__file__, encoding="utf-8") as _fh:
+        _rm_src = _fh.read()
+    _blk = _re.search(
+        # [^\n]* tolerates a trailing comment after setCurrentIndex.
+        r'addItems=(\[[^\]]*\]),\s*setCurrentIndex=(\d+),[^\n]*\s*'
+        r'setObjectName="cmb_conversion_route"',
+        _rm_src,
+    )
+    check("route combo declares addItems -> setCurrentIndex -> objectName", _blk is not None)
+    if _blk:
+        _route_items = _ast.literal_eval(_blk.group(1))
+        check("route combo default index is the FBX item",
+              "FBX" in _route_items[int(_blk.group(2))],
+              f"{_route_items} idx={_blk.group(2)}")
 
     # find_scenes honors the extensions narrowing (drives the Include Types discovery).
     scan_ws = os.path.join(tmp, "scan_ws")

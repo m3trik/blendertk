@@ -243,8 +243,18 @@ try:
         "usd template translates ShaderFX, not the surface family",
         "StingrayPBS" in s_usd and "usd_safe_materials" in s_usd,
     )
-    s_fbx = eng.render_script("C:/scenes/s.ma", "C:/tmp/out.fbx")
-    check("render_script default stays the FBX route", "FBXExport" in s_fbx)
+    # The default is FBX: its instancing is format-native on both sides, so no
+    # sidecar replay stands between a Maya instance set and Blender linked
+    # duplicates. USD's equivalent is a recorded grouping replayed on import, and
+    # that replay degrades SILENTLY into a flattened scene -- so USD is opt-in.
+    s_def = eng.render_script("C:/scenes/s.ma", "C:/tmp/out.fbx")
+    check(
+        "render_script default is the FBX route",
+        "FBXExport" in s_def and "mayaUSDExport" not in s_def,
+    )
+    s_fbx = eng.render_script("C:/scenes/s.ma", "C:/tmp/out.fbx", via="fbx")
+    check("render_script via='fbx' is explicit-equivalent", "FBXExport" in s_fbx)
+    check("render_script via='usd' stays available (opt-in)", "mayaUSDExport" in s_usd)
     try:
         eng.render_script("a.ma", "b", via="alembic")
         check("unknown via -> ValueError", False)

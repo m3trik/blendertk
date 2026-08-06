@@ -352,21 +352,6 @@ class UnityBridgeSlots(BlenderBridgeSlotsBase):
         elif not created:
             self.bridge.logger.error(f"Project creation did not complete at {target}.")
 
-    # ------------------------------------------------------------------ scope
-    def _resolve_scope_objects(self, scope: str):
-        """Objects to export for the chosen ``SCOPE`` param. ``"selected"`` is the default
-        (and the fallback for any unknown value)."""
-        import bpy
-        import blendertk as btk
-
-        if scope == "all":
-            # The current SCENE's objects, not every mesh datablock in the .blend (bpy.data.objects
-            # would also sweep in unlinked/orphaned objects and objects belonging to other scenes).
-            return [o for o in bpy.context.scene.objects if o.type == "MESH"]
-        if scope == "visible":
-            return btk.get_visible_geometry()
-        return btk.selected_objects()
-
     # ------------------------------------------------------------------ b000 -- send
     def b000(self):
         """Run the selected template: export-and-copy, or script management."""
@@ -378,19 +363,8 @@ class UnityBridgeSlots(BlenderBridgeSlotsBase):
             return
 
         params = self.collect_param_values()
-        scope = params.get("SCOPE", "selected")
-        objects = self._resolve_scope_objects(scope)
+        objects = self.scoped_objects(params)
         if not objects:
-            self.bridge.logger.warning(
-                {
-                    "all": "The scene contains no mesh geometry to export.",
-                    "visible": "No visible mesh geometry to export.",
-                }.get(
-                    scope,
-                    "Nothing selected. Select one or more objects, or change "
-                    "Scope to 'Entire Scene' / 'Visible Only'.",
-                )
-            )
             return
 
         project = self.resolved_output_dir()

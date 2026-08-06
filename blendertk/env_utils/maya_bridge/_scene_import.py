@@ -1,6 +1,15 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Import a Maya scene (.ma/.mb) into Blender via a headless-Maya FBX round-trip.
+"""Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
+(FBX intermediate by default; USD per call via ``via="usd"``).
+
+FBX is the default because its instancing is carried by the format itself on both
+sides -- no sidecar replay stands between a Maya instance set and Blender linked
+duplicates. The USD route reaches parity by replaying a recorded grouping from the
+conversion's v2 sidecar (sanitized prim PATHS), and that replay is
+GUARANTEED-OR-FAIL: a failed replay removes everything it imported and raises, so
+a USD pull either preserves the sharing exactly or fails loudly -- never a
+silently flattened scene. Pick USD per call/panel for look-heavy scenes.
 
 The pull-direction sibling of :class:`MayaBridge` (which pushes the Blender selection
 to a fresh interactive Maya). A pull inverts the hand-off pipeline -- the input is a
@@ -10,9 +19,10 @@ the :class:`pythontk.AppSpec` discovery (borrowed from ``_maya_bridge._SPEC``), 
 ``__KEY__`` template renderer, and pythontk's blocking
 :func:`~pythontk.run_script_to_artifact` runner.
 
-Flow: render ``templates/_import_scene.py`` -> run it under ``mayapy`` (fresh process
-every time -- the ecosystem session-safety rule) -> the script opens the scene and
-exports an FBX -> :meth:`blendertk.FbxUtils.import_fbx` brings it in -> temp payload
+Flow: render the per-route conversion template (``_TEMPLATES``) -> run it under
+``mayapy`` (fresh process every time -- the ecosystem session-safety rule) -> the
+script opens the scene and exports the USD/FBX intermediate -> imported natively
+(``UsdUtils.import_usd`` / :meth:`blendertk.FbxUtils.import_fbx`) -> temp payload
 removed on success, kept + logged on failure (``TempArtifacts`` scoped policy).
 
 ``import bpy`` stays deferred (inside ``FbxUtils``) so this surface resolves under
@@ -31,7 +41,12 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 import pythontk as ptk
 from pythontk.core_utils import script_template as _templates
 
-from blendertk.env_utils.maya_bridge._maya_bridge import _SPEC, _TEMPLATE_DIR
+from blendertk.env_utils.maya_bridge._maya_bridge import (
+    _FAST_MAYA_ENV,
+    _SPEC,
+    _TEMPLATE_DIR,
+    MayaBridge,
+)
 
 _IMPORT_TEMPLATE = _TEMPLATE_DIR / "_import_scene.py"
 _IMPORT_TEMPLATE_USD = _TEMPLATE_DIR / "_import_scene_usd.py"
@@ -39,8 +54,10 @@ _BAKE_TEMPLATE = _TEMPLATE_DIR / "_bake_scene.py"
 
 # Conversion intermediates by route: "fbx" = classic material model + texture-
 # manifest sidecar rebuilt via create_pbr_material; "usd" = native materials /
-# instancing through each DCC's USD runtime (no manifest needed — see the
-# templates' docstrings for the fidelity trade-offs).
+# animation / visibility through each DCC's USD runtime, with Maya's instance
+# sets recorded in the sidecar and rebuilt Blender-side as shared mesh data
+# (USD's own instancing cannot express Blender linked duplicates — see the
+# templates' docstrings).
 _TEMPLATES = {"fbx": _IMPORT_TEMPLATE, "usd": _IMPORT_TEMPLATE_USD}
 
 # Maya scene formats cmds.file(open=...) accepts; FBX would be imported directly.
@@ -137,19 +154,6 @@ def _smart_bake_syspath(mayatk_path: Optional[str] = None) -> List[str]:
             dirs.append(parent)
             return [d for d in dict.fromkeys(dirs) if d and os.path.isdir(d)]
     return []  # mayatk unresolvable -> no injection, plain bake in the child
-
-# Child-process env for the conversion mayapy: skip the startup baggage a
-# headless one-shot converter never needs. userSetup.py is the big one on
-# pipeline machines (it can bootstrap a whole toolkit); the CIP/CER/CLIC
-# analytics trio adds network round-trips. Scene REQUIREMENTS (Arnold, USD,
-# module plugins) are untouched -- ``cmds.file(open)`` still resolves them.
-_FAST_MAYA_ENV = {
-    "MAYA_SKIP_USERSETUP_PY": "1",
-    "MAYA_DISABLE_CIP": "1",
-    "MAYA_DISABLE_CER": "1",
-    "MAYA_DISABLE_CLIC_IPM": "1",
-}
-
 
 class MayaSceneImport(ptk.LoggingMixin):
     """Engine: convert a Maya scene to FBX via headless Maya, then import it.
@@ -269,7 +273,12 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         mayapy = self.require_mayapy()
         self.logger.info(f"Converting {os.path.basename(src)} via {mayapy} ...")
-        env = dict(os.environ)
+        # The conversion mayapy is launched FROM Blender, so it inherits Blender's
+        # OCIO -- a 2.5-profile config Maya 2025's OCIO 2.3 cannot load, failing
+        # color-management init on every conversion. Same hand-off hazard the send
+        # path already handles; reuse MayaBridge's helper rather than a second copy
+        # (a studio config outside Blender's tree passes through untouched).
+        env = dict(MayaBridge._launch_env() or os.environ)
         env.update(_FAST_MAYA_ENV)
         # Smart-bake pre-pass needs mayatk (+ pythontk) importable in the child
         # mayapy — inject their package parents on PYTHONPATH. "auto"/True enable it;
@@ -309,7 +318,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         )
 
     @classmethod
-    def _cache_key(cls, src: str, script_opts: Dict[str, Any], via: str = "fbx") -> str:
+    def _cache_key(cls, src: str, script_opts: Dict[str, Any], via: str = "usd") -> str:
         """Deterministic tag for the conversion cache: scene identity (path +
         mtime + size), the Maya-side options that shape the artifact, and the
         conversion template's own identity (per *via*) -- a template fix must
@@ -366,13 +375,23 @@ class MayaSceneImport(ptk.LoggingMixin):
                 (``via``/``cleanup``/``use_cache``/``timeout``/``fbx_options``
                 are inert for USD sources).
             via: Conversion intermediate for ``.ma``/``.mb`` sources.
-                ``"fbx"`` (default) = classic material model + texture-manifest
-                sidecar rebuilt through ``create_pbr_material``. ``"usd"`` =
-                ``mayaUSDExport`` → ``wm.usd_import``: materials arrive as
-                native UsdPreviewSurface→Principled conversions (metallic /
-                roughness / normal textures included, no manifest), instancing
-                survives, and ShaderFX game shaders are translated to
-                standardSurface Maya-side (see the template docstrings).
+                ``"fbx"`` (default) = the classic material model + texture-
+                manifest sidecar rebuilt through ``create_pbr_material``;
+                instancing is carried by the FBX format itself, so a Maya
+                instance set arrives as linked duplicates with no replay in
+                the path.
+                ``"usd"`` = ``mayaUSDExport`` → ``wm.usd_import``:
+                materials arrive as native UsdPreviewSurface→Principled
+                conversions (metallic / roughness / normal textures included,
+                no manifest), animated visibility survives, and ShaderFX game
+                shaders are translated to standardSurface Maya-side (see the
+                template docstrings). Maya instance sets are rebuilt as shared
+                mesh datablocks via :meth:`_apply_instance_manifest` — the USD
+                is written flattened (mayaUsd's instance path drops materials
+                wholesale) and the relationship replayed from the conversion's
+                REQUIRED v2 sidecar, GUARANTEED-OR-FAIL: a failed replay
+                removes everything it imported and raises instead of leaving
+                a silently flattened scene.
             cleanup: Remove the intermediate artifact on success (kept on
                 failure either way, with its path logged, for debugging). Not
                 applied to cached payloads -- persistence is the cache's point.
@@ -403,8 +422,16 @@ class MayaSceneImport(ptk.LoggingMixin):
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        # Surface the option into the cache key + the Maya-side render context.
-        script_opts["smart_bake"] = smart_bake
+        # smart_bake shapes only the FBX template; keep it out of the USD route's
+        # cache key so identical USD conversions can't fragment on an inert option.
+        if via == "fbx":
+            # Surface the option into the cache key + the Maya-side render context.
+            script_opts["smart_bake"] = smart_bake
+        elif smart_bake not in (False, "auto"):
+            self.logger.info(
+                "smart_bake applies to the FBX route only (the USD route bakes "
+                "animation natively); ignored."
+            )
 
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if os.path.splitext(src)[1].lower() in USD_EXTENSIONS:
@@ -425,10 +452,22 @@ class MayaSceneImport(ptk.LoggingMixin):
         )
         out_path, tmp = got.path, got.scratch
 
-        # Sidecar the FBX template writes for the textures FBX cannot carry
-        # (packed metallic/roughness/ao maps on translated materials). The USD
-        # route needs no manifest -- its materials arrive natively.
+        # Both routes sidecar what their intermediate cannot carry. FBX: the
+        # textures (packed metallic/roughness/ao on translated materials) plus
+        # baked visibility. USD: materials arrive natively, but instance
+        # RELATIONSHIPS do not survive a flattened export -- they are replayed
+        # below as Blender-native shared mesh data.
         manifest_path = out_path + ".manifest.json"
+        if via == "usd" and not os.path.isfile(manifest_path):
+            # The v2 conversion ALWAYS writes the sidecar (empty groups included)
+            # and withholds the USD when it can't -- a missing manifest means a
+            # stale or hand-damaged payload, and importing it could silently
+            # flatten the scene's instance sets. Refuse before touching the scene.
+            raise RuntimeError(
+                f"USD conversion sidecar missing: {manifest_path}. Nothing was "
+                "imported (a flat import could silently lose instancing); clear "
+                "the conversion cache or re-pull via FBX."
+            )
         try:
             if via == "usd":
                 from blendertk.env_utils.usd import UsdUtils
@@ -442,7 +481,32 @@ class MayaSceneImport(ptk.LoggingMixin):
                     f"Keeping intermediate {via.upper()} for debugging: {out_path}"
                 )
             raise
-        if os.path.isfile(manifest_path):
+        if via == "usd":
+            # Rebuild Blender-native linked duplicates from Maya's instance
+            # sets. GUARANTEED-OR-FAIL: a partially-shared scene renders
+            # correctly and only betrays itself when an artist edits one
+            # duplicate and its siblings don't follow -- so a failed replay
+            # rolls the whole import back and raises.
+            try:
+                self._apply_instance_manifest(manifest_path, imported)
+            except Exception:
+                self._rollback_import(imported)
+                if tmp is not None and os.path.isfile(out_path):
+                    self.logger.warning(
+                        f"Keeping intermediate USD for debugging: {out_path}"
+                    )
+                raise
+            # Cosmetic, after the structural work: drop the Empty Blender
+            # materializes for the exporter's materials Scope prim ("mtl").
+            imported = self._strip_materials_scope(imported, out_path)
+        elif os.path.isfile(manifest_path):
+            # Node-type tags first (cheap, structural): a ``maya_node_type``
+            # custom property on each Empty that was a Maya group/locator, so
+            # a later send BACK restores the correct node type. Non-fatal.
+            try:
+                self._tag_maya_node_types(manifest_path, imported)
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning(f"Node-type tagging failed ({e}); skipped.")
             # Structurally non-fatal: a bad sidecar must never abort an
             # import whose FBX already landed (materials just stay phong).
             try:
@@ -467,6 +531,308 @@ class MayaSceneImport(ptk.LoggingMixin):
             tmp.cleanup()
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
         return imported
+
+    @staticmethod
+    def _tag_maya_node_types(manifest_path: str, imported: List[Any]) -> int:
+        """Stamp ``maya_node_type`` custom props from the manifest's ``transforms``.
+
+        Maya groups (shapeless transforms) and locators travel as identical FBX
+        nulls and arrive as look-alike Empties; the conversion sidecar records
+        which was which (``scene_node_types`` in the conversion template). The
+        custom property persists in the .blend, so the send direction's
+        ``empties`` manifest can restore each one as the CORRECT Maya node
+        type instead of guessing from the children heuristic. Returns the
+        number of Empties tagged. Mirror of the tagging in mayatk's
+        ``blender_bridge/templates/import.py`` (the Maya->Blender send).
+        """
+        import json
+
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        types = data.get("transforms") if isinstance(data, dict) else None
+        if not types:
+            return 0
+        tagged = 0
+        for obj in imported:
+            if getattr(obj, "type", None) != "EMPTY":
+                continue
+            # Tolerate Blender's rename-on-collision suffix ("grp1.001").
+            node_type = types.get(obj.name) or types.get(obj.name.rsplit(".", 1)[0])
+            if node_type:
+                obj["maya_node_type"] = str(node_type)
+                tagged += 1
+        return tagged
+
+    def _apply_instance_manifest(self, manifest_path: str, imported: List[Any]) -> int:
+        """Rebuild Blender-native linked duplicates from Maya's instance sets.
+
+        The USD export flattens instances -- that is what keeps materials intact
+        (mayaUsd's instance path writes none) and what keeps every object
+        editable. But flattening alone would hand Blender N independent meshes
+        and wreck the scene's memory profile, so the *relationship* travels in
+        the conversion sidecar and is replayed here: every transform that shared
+        a shape in Maya is pointed at ONE mesh datablock, which is exactly
+        Blender's linked-duplicate model (edit one, all follow).
+
+        Per-object materials survive the sharing. Maya allows a different shader
+        per instance, and Blender expresses that with an OBJECT-linked material
+        slot; the group only stays DATA-linked when every member agreed, so the
+        common case keeps the simpler wiring.
+
+        The v2 sidecar records SANITIZED PRIM PATHS -- mayaUSDExport rewrites
+        names the prim grammar forbids (probe-verified: ``ref:nsCube`` ->
+        ``ref_nsCube``) -- and the matcher resolves each path against the
+        imported objects' parent chains with Blender's ``.001`` collision
+        suffixes stripped (a ``.NNN`` suffix can ONLY be a collision rename;
+        prim names cannot contain dots). Prim paths are unique, so duplicate
+        LEAF names (``/g1/wheel`` vs ``/g2/wheel``) stay unambiguous even after
+        the importer renames one.
+
+        GUARANTEED-OR-FAIL: any member the import can't account for raises.
+        A partially-shared scene renders correctly and only betrays itself when
+        an artist edits one duplicate and its siblings don't follow, so the
+        conversion must fail loudly instead (callers roll the import back).
+
+        Returns the number of objects re-linked.
+        """
+        import json
+        import re
+
+        with open(manifest_path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+        if not isinstance(data, dict) or data.get("version") != 2 or data.get(
+            "format"
+        ) != "paths":
+            raise RuntimeError(
+                "Unsupported instance sidecar (expected a v2 'paths' manifest, "
+                f"got version={data.get('version') if isinstance(data, dict) else data!r}). "
+                "Stale conversion cache? Clear it or re-pull via FBX."
+            )
+        groups = data.get("instances") or []
+        if not groups:
+            return 0
+
+        def stripped(name: str) -> str:
+            return re.sub(r"\.\d+$", "", name)
+
+        by_path: Dict[str, Any] = {}
+        ambiguous: set = set()
+        for o in imported:
+            if getattr(o, "type", None) != "MESH":
+                continue
+            parts, cur = [], o
+            while cur is not None:
+                parts.append(stripped(cur.name))
+                cur = cur.parent
+            path = "/" + "/".join(reversed(parts))
+            if path in by_path:
+                ambiguous.add(path)
+            else:
+                by_path[path] = o
+
+        wanted = [p for group in groups for p in group]
+        problems = sorted({p for p in wanted if p in ambiguous})
+        if problems:
+            raise RuntimeError(
+                "Instance sidecar paths are ambiguous in the import: "
+                + ", ".join(problems)
+            )
+        problems = sorted({p for p in wanted if p not in by_path})
+        if problems:
+            raise RuntimeError(
+                "Instance sidecar paths not found in the import: "
+                + ", ".join(problems)
+            )
+
+        relinked = 0
+        orphaned = []
+        for group in groups:
+            if len(group) < 2:
+                raise RuntimeError(
+                    f"Malformed instance sidecar group (needs >= 2 members): {group}"
+                )
+            objs = [by_path[p] for p in group]
+            master, rest = objs[0], objs[1:]
+            # Snapshot each follower's materials BEFORE its data is swapped --
+            # material_slots is derived from the mesh, so the swap rewrites it.
+            per_object = [
+                [s.material for s in o.material_slots] for o in rest
+            ]
+            master_mats = [s.material for s in master.material_slots]
+            for obj, mats in zip(rest, per_object):
+                if obj.data is master.data:
+                    continue
+                previous = obj.data
+                obj.data = master.data
+                orphaned.append(previous)
+                relinked += 1
+                if mats == master_mats:
+                    continue  # agreed with the master -- DATA linkage is right
+                for slot, mat in zip(obj.material_slots, mats):
+                    if mat is None:
+                        continue
+                    slot.link = "OBJECT"  # per-instance shader, Blender's way
+                    slot.material = mat
+        # Drop the meshes the re-link displaced. Blender would not save a
+        # 0-user datablock anyway, but leaving them costs the running session
+        # the very memory the sharing exists to reclaim -- and the memory
+        # profile is the whole point of instancing in a production scene.
+        # Guarded on users_count so a datablock something else picked up
+        # (a group whose members overlap) is never removed out from under it.
+        import bpy
+
+        purged = 0
+        for mesh in orphaned:
+            try:
+                if mesh.users == 0:
+                    bpy.data.meshes.remove(mesh)
+                    purged += 1
+            except (ReferenceError, RuntimeError):
+                continue  # already gone; nothing to reclaim
+        if relinked:
+            self.logger.info(
+                f"Instances rebuilt: {relinked} object(s) re-linked across "
+                f"{len(groups)} Maya instance set(s); {purged} displaced mesh(es) freed."
+            )
+        return relinked
+
+    def _rollback_import(self, imported: List[Any]) -> None:
+        """Remove *imported* objects and the mesh data only they used.
+
+        The failed-replay path must leave the scene as it was -- a
+        half-imported scene that LOOKS correct is the outcome the
+        guaranteed-or-fail contract exists to prevent. Non-mesh datablocks
+        (materials the import created, lights, cameras) are left to Blender's
+        0-user reclaim on save; meshes are purged eagerly because the memory
+        profile is the point of the instancing work.
+        """
+        import bpy
+
+        data_blocks = {o.data for o in imported if getattr(o, "data", None)}
+        for o in imported:
+            try:
+                bpy.data.objects.remove(o, do_unlink=True)
+            except (ReferenceError, RuntimeError):
+                continue  # already gone
+        for block in data_blocks:
+            try:
+                if isinstance(block, bpy.types.Mesh) and block.users == 0:
+                    bpy.data.meshes.remove(block)
+            except (ReferenceError, RuntimeError):
+                continue
+
+    def _strip_materials_scope(
+        self, imported: List[Any], usd_path: str
+    ) -> List[Any]:
+        """Drop the Empty Blender materializes for a pure-materials Scope prim
+        (mayaUSDExport's ``mtl``) and return the surviving imported objects.
+
+        PRIM-PATH KEYED, never name-keyed: only a root-level ``Scope`` prim
+        whose whole subtree is material machinery qualifies, so a user object
+        that happens to be named ``mtl`` (not in *imported*), or a real
+        Xform/Mesh prim named ``mtl``, is untouched. Blender's ``.001``
+        collision suffix is stripped before comparing, since the Empty may
+        arrive renamed when the open scene already holds that name.
+
+        Cosmetic by contract: any failure logs and keeps everything --
+        structural fidelity is the replay's job, not this sweep's.
+        """
+        import re
+
+        try:
+            from pxr import Usd
+
+            stage = Usd.Stage.Open(usd_path)
+        except Exception as e:  # noqa: BLE001 -- cosmetic; never fail the import
+            self.logger.warning(f"Materials-scope strip skipped ({e}).")
+            return imported
+        if not stage:
+            return imported
+        material_types = {"Scope", "Material", "Shader", "NodeGraph"}
+        scope_names = set()
+        for prim in stage.GetPseudoRoot().GetChildren():
+            if prim.GetTypeName() != "Scope":
+                continue
+            descendants = list(Usd.PrimRange(prim))[1:]
+            if descendants and all(
+                p.GetTypeName() in material_types for p in descendants
+            ):
+                scope_names.add(prim.GetName())
+        if not scope_names:
+            return imported
+
+        import bpy
+
+        kept, removed = [], 0
+        for o in imported:
+            if (
+                getattr(o, "type", None) == "EMPTY"
+                and o.parent is None
+                and not o.children
+                and re.sub(r"\.\d+$", "", o.name) in scope_names
+            ):
+                try:
+                    bpy.data.objects.remove(o, do_unlink=True)
+                    removed += 1
+                    continue
+                except (ReferenceError, RuntimeError):
+                    pass
+            kept.append(o)
+        if removed:
+            self.logger.info(
+                f"Removed {removed} materials-scope Empty(ies) "
+                f"({', '.join(sorted(scope_names))})."
+            )
+        return kept
+
+    def _plan_with_slot_fallback(
+        self, files: List[str], slots: Any, name: str
+    ) -> Any:
+        """Wiring plan for *files*, rescuing unclassifiable ones via *slots*.
+
+        Filename classification stays authoritative: only a filename reveals how a
+        map is PACKED (``MSAO`` wired into a metallic slot is still an MSAO, and
+        the channel cannot say so). So the plan is resolved normally first, and the
+        manifest's logical channels are consulted **only** for files that landed in
+        ``unknown`` -- a plain color map named after a product (``Agilent_PNA.png``)
+        carries no map-type token, yet Maya knew it was the ``baseColor``.
+
+        Returns ``None`` when there is nothing to add, so the caller's
+        ``create_pbr_material`` resolves the plan itself exactly as before.
+        """
+        if not slots or not isinstance(slots, dict):
+            return None
+
+        import pythontk as ptk
+        from blendertk.mat_utils._mat_utils import MatUtils
+
+        plan = MatUtils.resolve_pbr_plan(files)
+        unknown = list(plan.get("unknown") or [])
+        if not unknown:
+            return plan
+
+        by_path = {}
+        for channel, path in slots.items():
+            if path:
+                by_path.setdefault(os.path.normcase(os.path.abspath(path)), channel)
+
+        rescued = {}
+        for path in unknown:
+            channel = by_path.get(os.path.normcase(os.path.abspath(path)))
+            map_type = ptk.MapRegistry.resolve_type_from_channel(channel)
+            # Never displace a map the filename already resolved.
+            if map_type and map_type not in plan["by_type"]:
+                plan["by_type"][map_type] = path
+                rescued[map_type] = path
+
+        if rescued:
+            claimed = set(rescued.values())
+            plan["unknown"] = [p for p in unknown if p not in claimed]
+            self.logger.info(
+                f"{name}: {len(rescued)} unclassifiable texture(s) rebuilt from the "
+                f"manifest's shader slots ({', '.join(sorted(rescued))})."
+            )
+        return plan
 
     def _apply_texture_manifest(self, manifest_path: str, imported: List[Any]) -> None:
         """Rebuild translated materials natively from the conversion's sidecar.
@@ -525,10 +891,12 @@ class MayaSceneImport(ptk.LoggingMixin):
                             "textures need relinking. Material stays untextured."
                         )
                     continue
-                material = MatUtils.create_pbr_material(files, name=name)
+                plan = self._plan_with_slot_fallback(files, entry.get("slots"), name)
+                material = MatUtils.create_pbr_material(files, name=name, plan=plan)
                 if material is None:  # nothing classified -- keep the FBX phong
                     self.logger.warning(
-                        f"{name}: no texture classified by filename; keeping the "
+                        f"{name}: no texture classified by filename and no "
+                        "authoritative slot in the manifest; keeping the "
                         "FBX-carried material."
                     )
                     continue
@@ -550,7 +918,10 @@ class MayaSceneImport(ptk.LoggingMixin):
                                 if old not in replaced:
                                     replaced.append(old)
                 if swapped:
+                    # Purge FIRST: the source name is only free once the
+                    # FBX-carried material holding it is gone.
                     self._purge_orphans(replaced)
+                    self._claim_material_name(material, name)
                     self.logger.info(
                         f"Rebuilt material {material.name} from {len(files)} "
                         f"file(s) into {swapped} slot(s)."
@@ -568,6 +939,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                     self.logger.warning(f"{name}: no matching slot or object found.")
                     continue
                 MatUtils.assign_mat(targets, material)
+                self._claim_material_name(material, name)
                 self.logger.info(
                     f"Rebuilt material {material.name} from {len(files)} file(s) "
                     f"on {len(targets)} object(s) (object-level fallback)."
@@ -665,6 +1037,35 @@ class MayaSceneImport(ptk.LoggingMixin):
                 for kp in fc.keyframe_points:
                     kp.interpolation = "CONSTANT"
 
+    def _claim_material_name(self, material: Any, desired: str) -> None:
+        """Rename *material* to *desired* once that name is free.
+
+        The rebuild is necessarily created while the FBX-carried material still
+        owns the name, so Blender hands it the clash spelling ("M_x.001"); the
+        FBX one is purged moments later and the name falls free. Reclaiming it
+        keeps the hand-off non-destructive -- downstream (a game engine, a
+        material library, the next round-trip) binds by material NAME, and the
+        suffix compounds on every re-import.
+
+        Yields silently whenever the name is still taken: the object-level
+        fallback runs exactly when the FBX material was never matched, so it may
+        still be in use and keeps its claim. Cosmetic and best-effort; the
+        material is already correctly assigned either way. Mirror of the
+        Maya-side ``BlenderSceneImport._claim_material_name``.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return
+        if not desired or material is None or material.name == desired:
+            return
+        try:
+            if desired in bpy.data.materials:
+                return
+            material.name = desired
+        except Exception as e:  # noqa: BLE001
+            self.logger.debug(f"Name reclaim skipped: {e}")
+
     def _purge_orphans(self, materials: List[Any]) -> None:
         """Remove replaced materials (and their now-exclusive images) once unused.
 
@@ -725,12 +1126,14 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         return blender_exe
 
-    def render_bake_script(self, fbx_path: str, out_path: str) -> str:
-        """Render the Blender-side FBX->.blend bake script (exposed for tests/preview)."""
+    def render_bake_script(self, src_path: str, out_path: str) -> str:
+        """Render the Blender-side intermediate->.blend bake script (exposed for
+        tests/preview). *src_path* may be a USD or FBX intermediate -- the template
+        dispatches on extension."""
         return _templates.ScriptTemplate.render_template(
             _BAKE_TEMPLATE,
             {
-                "SRC_FBX": str(fbx_path).replace("\\", "/"),
+                "SRC_FILE": str(src_path).replace("\\", "/"),
                 "OUT_BLEND": str(out_path).replace("\\", "/"),
                 # The child is the same Blender build, so the parent's sys.path entries
                 # are valid there -- this is what makes the shared manifest replay
@@ -739,16 +1142,17 @@ class MayaSceneImport(ptk.LoggingMixin):
             },
         )
 
-    def bake(self, fbx_path: str, out_path: str, *, timeout: float = 600) -> Any:
-        """Bake *fbx_path* into the .blend at *out_path* in a fresh headless Blender."""
-        fbx = os.path.abspath(os.path.expanduser(os.path.expandvars(str(fbx_path))))
-        if not os.path.isfile(fbx):
-            raise FileNotFoundError(f"FBX not found: {fbx}")
+    def bake(self, src_path: str, out_path: str, *, timeout: float = 600) -> Any:
+        """Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*
+        in a fresh headless Blender."""
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"Bake source not found: {src}")
         blender_exe = self.require_blender()
-        self.logger.info(f"Baking {os.path.basename(fbx)} to .blend via {blender_exe} ...")
+        self.logger.info(f"Baking {os.path.basename(src)} to .blend via {blender_exe} ...")
         result = self._run_bake_script(
             blender_exe,
-            self.render_bake_script(fbx, out_path),
+            self.render_bake_script(src, out_path),
             artifact=out_path,
             timeout=timeout,
         )
@@ -774,6 +1178,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         self,
         src_path: str,
         *,
+        via: str = "fbx",
         use_cache: bool = True,
         timeout: float = 600,
         smart_bake: Union[bool, str] = "auto",
@@ -782,23 +1187,29 @@ class MayaSceneImport(ptk.LoggingMixin):
         """Bake *src_path* to a cached ``.blend`` and return its path — the link path.
 
         Blender can only link a ``.blend``, so a foreign row's reference toggle needs a
-        native stand-in: ``.ma``/``.mb`` are converted to FBX in a headless Maya (the
-        cached intermediate :meth:`import_scene` already uses), then that FBX is baked
-        into a ``.blend`` in a headless Blender. An ``.fbx`` source skips straight to the
-        bake — no Maya, no license.
+        native stand-in: ``.ma``/``.mb`` are converted to an FBX (default) or USD
+        intermediate in a headless Maya (the cached intermediate :meth:`import_scene`
+        already uses), then that intermediate is baked into a ``.blend`` in a headless
+        Blender. An ``.fbx`` source skips straight to the bake — no Maya, no license.
 
-        Both stages are cached independently, and the bake's key includes the FBX's
-        identity **and the bake template's**, so a template fix invalidates stale bakes
-        (a retry after an upgrade must not replay the old bug).
+        Both stages are cached independently, and the bake's key includes the
+        intermediate's identity **and the bake template's**, so a template fix
+        invalidates stale bakes (a retry after an upgrade must not replay the old bug).
 
         Parameters:
             src_path: A ``.ma`` / ``.mb`` / ``.fbx`` file.
+            via: Conversion intermediate for ``.ma``/``.mb`` sources — ``"fbx"``
+                (default: format-native instancing + classic model / manifest
+                replay) or ``"usd"`` (native materials / animation / visibility,
+                instances rebuilt guaranteed-or-fail from the conversion's
+                required sidecar; see :meth:`import_scene`).
             use_cache: Reuse a prior conversion + bake of the identical source.
             timeout: Max seconds for EACH headless stage.
             smart_bake: Pre-bake driven animation to keys via mayatk's
                 ``SmartBake`` before the FBX export (see :meth:`import_scene`).
                 ``"auto"`` (default) acts only when a cheap probe detects it;
-                inert for an ``.fbx`` source (no Maya stage to bake in).
+                FBX route only — inert for ``via="usd"`` (which samples animation
+                natively) and for an ``.fbx`` source (no Maya stage to bake in).
             **script_opts: Maya-side conversion knobs (``embed_textures`` /
                 ``include_animation``); inert for an ``.fbx`` source.
 
@@ -816,26 +1227,42 @@ class MayaSceneImport(ptk.LoggingMixin):
             raise FileNotFoundError(f"Scene not found: {src}")
 
         if ext == ".fbx":
-            fbx_path, conversion = src, None
+            inter_path, conversion = src, None
         else:
-            script_opts["smart_bake"] = smart_bake  # into the cache key + render context
+            if via == "fbx":  # FBX-only option — keep out of the USD cache key
+                script_opts["smart_bake"] = smart_bake
+            elif smart_bake not in (False, "auto"):
+                self.logger.info(
+                    "smart_bake applies to the FBX route only (the USD route bakes "
+                    "animation natively); ignored."
+                )
             conversion = self._cached_conversion(
                 src,
-                via="fbx",
+                via=via,
                 use_cache=use_cache,
                 timeout=timeout,
                 script_opts=script_opts,
             )
-            fbx_path = conversion.path
+            inter_path = conversion.path
+            if via == "usd" and not os.path.isfile(inter_path + ".manifest.json"):
+                # The v2 conversion always writes the sidecar; without it the
+                # bake could silently cache a flattened .blend (see the bake
+                # template's apply_instances).
+                raise RuntimeError(
+                    f"USD conversion sidecar missing: {inter_path}.manifest.json. "
+                    "Refusing to bake (a flat bake could silently lose "
+                    "instancing); clear the conversion cache or bake via FBX."
+                )
 
         got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(
-            ptk.CachedArtifact.key(files=[fbx_path, _BAKE_TEMPLATE]),
-            lambda out: self.bake(fbx_path, out, timeout=timeout),
+            ptk.CachedArtifact.key(files=[inter_path, _BAKE_TEMPLATE]),
+            lambda out: self.bake(inter_path, out, timeout=timeout),
             use_cache=use_cache,
         )
-        # The FBX scratch is consumed once the bake has read it; the .blend scratch is
-        # NOT cleaned up -- the caller links that file, so it must outlive this call
-        # (an uncached bake therefore lives under the scoped store's stale sweep).
+        # The intermediate scratch is consumed once the bake has read it; the .blend
+        # scratch is NOT cleaned up -- the caller links that file, so it must outlive
+        # this call (an uncached bake therefore lives under the scoped store's stale
+        # sweep).
         if conversion is not None and conversion.scratch is not None:
             conversion.scratch.cleanup()
         # Rewritten on a cache hit too: cheap, and it self-heals a sidecar lost to a
@@ -873,15 +1300,11 @@ class MayaSceneImport(ptk.LoggingMixin):
     def mayapy_from_maya_exe(maya_exe: str) -> Optional[str]:
         """Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
 
-        The bridge's :class:`pythontk.AppSpec` discovers the GUI binary
-        (``.../bin/maya.exe``); the headless interpreter ships in the same ``bin`` dir.
+        Owned by :meth:`MayaBridge.mayapy_from_maya_exe` (with the rest of the Maya
+        discovery config, which both directions share); kept here so the pull
+        direction's callers have one obvious entry point.
         """
-        exe = Path(maya_exe)
-        # The install scan can return 'maya.EXE' — the suffix check must be case-insensitive.
-        candidate = exe.with_name(
-            "mayapy.exe" if exe.suffix.lower() == ".exe" else "mayapy"
-        )
-        return str(candidate) if candidate.is_file() else None
+        return MayaBridge.mayapy_from_maya_exe(maya_exe)
 
     # ------------------------------------------------------------------ discovery (browser API)
     @staticmethod

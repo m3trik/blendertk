@@ -24,6 +24,7 @@ user-pickable send recipe; it belongs to the pull engine).
 
 # Dependency-free Maya Python: no mayatk/blendertk imports (the target machine's
 # mayapy only has Maya's own modules).
+import math
 import os
 import re
 import sys
@@ -199,6 +200,66 @@ def usd_safe_materials(cmds):
             traceback.print_exc()
 
 
+# Drivers that move things WITHOUT keys of their own: their motion cannot be
+# inferred from key times, so they force the full playback range.
+_UNKEYED_DRIVERS = (
+    "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
+    "aimConstraint", "poleVectorConstraint", "geometryConstraint",
+    "normalConstraint", "tangentConstraint", "expression", "ikHandle",
+    "motionPath",
+)
+
+
+def _animation_frame_range(cmds):
+    """The frames actually worth sampling, or ``None`` for a static export.
+
+    USD has no animation *curves* -- ``frameRange`` makes mayaUSDExport write a
+    time sample per frame for EVERY prim, so the range is a direct multiplier on
+    export cost (measured on a 755-mesh production module with a 1-200 playback
+    range: 234s with the full range vs 1.8s static, byte-identical result).
+
+    So sample only what moves:
+      * nothing animated                -> ``None``  (static export)
+      * unkeyed drivers present         -> the full playback range (their motion
+                                           can't be derived from key times)
+      * plain keyframes only            -> the keys' own span, clamped to the
+                                           playback range (a stray far-out key
+                                           must not multiply the sample count,
+                                           and frames outside the scene's own
+                                           time are not what the user sees)
+
+    Only TIME-based curves (``animCurveT*``) count: ``animCurveU*`` are
+    set-driven keys whose "times" are driver *values*, not frames -- their
+    motion over time comes from whatever animates the driver, which is itself a
+    time curve.
+    """
+    playback = (
+        cmds.playbackOptions(query=True, animationStartTime=True),
+        cmds.playbackOptions(query=True, animationEndTime=True),
+    )
+    if cmds.ls(type=_UNKEYED_DRIVERS):
+        return playback
+
+    curves = cmds.ls(
+        type=("animCurveTA", "animCurveTL", "animCurveTU", "animCurveTT")
+    ) or []
+    if not curves:
+        return None
+    # ONE query for every curve -- per-curve calls cost a round trip each, and a
+    # rigged scene carries thousands.
+    times = cmds.keyframe(curves, query=True, timeChange=True) or []
+    if not times:
+        return None
+
+    # floor/ceil, not int(): int() truncates toward zero, which would clip a key
+    # at 20.5 down to 20 (losing motion) and mis-round negative frames.
+    start = max(playback[0], math.floor(min(times)))
+    end = min(playback[1], math.ceil(max(times)))
+    if end < start:  # keys live entirely outside the scene's own time
+        return None
+    return (start, end)
+
+
 def export_usd(cmds):
     """Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
 
@@ -212,7 +273,28 @@ def export_usd(cmds):
         "file": OUT_USD,
         "shadingMode": "useRegistry",
         "convertMaterialsTo": ["UsdPreviewSurface"],
-        "exportInstances": True,
+        # exportInstances is DELIBERATELY off (measured on Maya 2025 / mayaUsd).
+        # When the scene holds instanced shapes, material export degrades badly
+        # and can collapse outright: on a probe scene whose only instances were
+        # two cubes, `def Material` went 3 -> 0 and `material:binding` 4 -> 0
+        # with the flag on -- taking `mat_solo`, bound ONLY to a non-instanced
+        # mesh, with it. (On other scenes only the instanced prims lose their
+        # binding; either way objects arrive unshaded.) It also lands geometry
+        # in a `prototypes` collection of collection-instance Empties, which a
+        # pull-for-editing user cannot edit per-object, and drops per-instance
+        # material assignments, since all instances share one prototype.
+        # Flattening does NOT mean losing instances. USD's own instancing model
+        # cannot give Blender what production needs -- measured both ways: the
+        # importer turns instanceable prims into collection-instance Empties
+        # under a `prototypes` collection (uneditable), and disabling that
+        # (`support_scene_instancing=False`) yields real objects with ZERO data
+        # sharing. Neither is Blender's linked-duplicate model. So the export
+        # flattens (materials + clean structure), `collect_instance_groups`
+        # records the relationship in the sidecar, and the Blender side rebuilds
+        # native shared mesh datablocks from it -- VDATS_RF lands at 628
+        # datablocks for 755 objects, matching the FBX route's 627.
+        # Pinned by the e2e's e2e_inst_* trap.
+        "exportInstances": False,
         "mergeTransformAndShape": True,
         "exportUVs": True,
         "exportVisibility": True,
@@ -224,10 +306,14 @@ def export_usd(cmds):
         # unresolvable in Blender (the FBX route's path_mode=ABSOLUTE mirror).
         "exportRelativeTextures": "absolute",
     }
-    if INCLUDE_ANIMATION:
-        start = cmds.playbackOptions(query=True, animationStartTime=True)
-        end = cmds.playbackOptions(query=True, animationEndTime=True)
-        kwargs["frameRange"] = (start, end)
+    # Sample only the frames that carry motion -- see _animation_frame_range for
+    # the measured cost of getting this wrong.
+    frame_range = _animation_frame_range(cmds) if INCLUDE_ANIMATION else None
+    if frame_range:
+        kwargs["frameRange"] = frame_range
+        print("USD export: sampling frames {}-{}".format(*frame_range))
+    else:
+        print("USD export: no animation to sample -- static export (no frameRange)")
     while True:
         try:
             cmds.mayaUSDExport(**kwargs)
@@ -240,6 +326,103 @@ def export_usd(cmds):
                 del kwargs[key]
                 continue
             raise
+
+
+def _sanitize_prim_name(name):
+    """Mirror of the USD prim-name rewrite (probe-verified: mayaUSDExport turns
+    ``ref:nsCube`` into ``ref_nsCube``): every char outside ``[A-Za-z0-9_]``
+    becomes ``_``, and a leading digit is PREFIXED with ``_``. The sidecar must
+    record what the exporter actually writes. Keep identical to the mayatk twin.
+    """
+    if not name:
+        return "_"
+    name = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if name[0].isdigit():
+        name = "_" + name
+    return name
+
+
+def collect_instance_groups(cmds):
+    """Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
+
+    The export FLATTENS instances (see ``exportInstances`` above), which is what
+    keeps materials intact -- but flattening alone would hand Blender N
+    independent meshes and break the scene's memory profile. USD cannot carry
+    the relationship for us: its instancing model produces read-only prototypes
+    that Blender materializes as collection-instance Empties, not the linked
+    duplicates a Blender artist edits (measured: both import modes fail, one
+    with `prototypes` clutter, the other with zero data sharing).
+
+    So the RELATIONSHIP travels as data, in the same sidecar the FBX route
+    already uses, and ``_apply_instance_manifest`` rebuilds Blender-native
+    shared mesh datablocks from it. Recorded, never inferred: hashing geometry
+    would also fuse coincidentally-identical meshes, so editing one would
+    silently change another.
+
+    Recorded as FULL PRIM PATHS with every segment sanitized -- what
+    ``mergeTransformAndShape=True`` writes (probe-verified: ``|g1|wheel`` ->
+    ``/g1/wheel``, namespaced ``ref:nsCube`` -> ``/ref_nsCube``). Paths, not
+    leaf names: prim paths are unique, so duplicate leaves stay matchable
+    through Blender's ``.001`` collision renames. Two transforms whose paths
+    sanitize identically (``ns:cube`` beside ``ns_cube``) are renamed apart
+    unpredictably by the exporter, so a collision touching a recorded member
+    fails the export loudly rather than shipping a sidecar that cannot match.
+    """
+    def prim_path(dag_path):
+        return "/" + "/".join(
+            _sanitize_prim_name(seg) for seg in dag_path.split("|") if seg
+        )
+
+    all_paths = {}
+    for transform in cmds.ls(type="transform", long=True) or []:
+        all_paths.setdefault(prim_path(transform), []).append(transform)
+
+    groups = []
+    for shape in cmds.ls(type="mesh", noIntermediate=True) or []:
+        try:
+            parents = cmds.listRelatives(shape, allParents=True, fullPath=True) or []
+        except Exception:
+            continue
+        if len(parents) > 1:  # >1 parent transform == a Maya instance set
+            groups.append([prim_path(p) for p in parents])
+
+    colliding = {}
+    for group in groups:
+        for path in group:
+            if len(all_paths.get(path, [])) > 1:
+                colliding[path] = all_paths[path]
+    if colliding:
+        raise RuntimeError(
+            "Transform paths collide after USD prim sanitization -- the "
+            "exporter renames them apart unpredictably, so the instance sets "
+            "could not be matched on the Blender side. Rename to distinct "
+            "prim-safe names or pull via FBX: "
+            + "; ".join(
+                "{} <- {}".format(k, v) for k, v in sorted(colliding.items())
+            )
+        )
+    return groups
+
+
+def write_manifest(cmds):
+    """Sidecar beside the USD carrying what USD itself cannot: instance groups.
+
+    ALWAYS written for the USD route (empty groups included), so the Blender
+    side can tell "no instances" from "sidecar lost" -- it REQUIRES the file.
+    Raises on failure; main() then withholds the USD artifact, so the parent's
+    judged-by-artifact contract reports a failed conversion instead of shipping
+    a payload that would import silently flattened.
+    """
+    import json
+
+    groups = collect_instance_groups(cmds)
+    with open(OUT_USD + ".manifest.json", "w", encoding="utf-8") as fh:
+        json.dump({"version": 2, "format": "paths", "instances": groups}, fh)
+    print(
+        "instance manifest: {} group(s) covering {} transforms".format(
+            len(groups), sum(len(g) for g in groups)
+        )
+    )
 
 
 def main():
@@ -255,6 +438,19 @@ def main():
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")
     export_usd(cmds)
+    # AFTER the export: the sidecar describes the scene the USD was written
+    # from, and a failed export must not leave a stale manifest behind. A
+    # failed MANIFEST must not leave the USD behind either -- success is
+    # judged by the artifact, and a USD without its sidecar would import
+    # silently flattened.
+    try:
+        write_manifest(cmds)
+    except Exception:
+        try:
+            os.remove(OUT_USD)
+        except OSError:
+            pass
+        raise
 
 
 try:

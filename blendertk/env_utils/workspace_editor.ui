@@ -70,7 +70,9 @@
        </size>
       </property>
       <property name="toolTip">
-       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The project root folder. An existing workspace loads its rules; a fresh path shows the active template, and the project is created the moment a rule is edited. The ▸ buttons browse for the root and open it in the file browser.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       <string>The project root folder. An existing workspace loads its rules; a fresh path shows the active template, and the project is created the moment a rule is edited.
+
+The ▸ buttons browse for the root and open it in the file browser.</string>
       </property>
       <property name="placeholderText">
        <string>Project Root:</string>
@@ -86,7 +88,9 @@
        </size>
       </property>
       <property name="toolTip">
-       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Project file rules: a rule mapped to a location (project-relative unless absolute). Double-click a location cell to edit — changes save to workspace.mel immediately. The row icons reset a rule to its template default or remove it; the header menu adds rules and switches Nice Names ↔ File Rules.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       <string>Project file rules: a rule mapped to a location (project-relative unless absolute). Double-click a location cell to edit — changes save to workspace.mel immediately.
+
+The row icons reset a rule to its template default or remove it; the header menu adds rules and switches Nice Names ↔ File Rules.</string>
       </property>
      </widget>
     </item>

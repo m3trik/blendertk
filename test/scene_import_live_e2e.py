@@ -34,6 +34,13 @@ fidelity trap the conversion must survive:
   output) with a color map. FBX writes these as a ``Maya|TEX_*`` custom-property
   set Blender's importer ignores ("material link ... ignored" — the live user
   report), so the template must translate them like the standardSurface family.
+* ``e2e_inst_base`` / ``e2e_inst_b`` — an INSTANCED shape whose two instances
+  carry DIFFERENT materials. Pins the 2026-08-02 user report: with
+  ``exportInstances=True`` a scene holding any instance exported ZERO materials
+  for the WHOLE file (so even the single-object traps above arrived unshaded)
+  and delivered geometry as uneditable collection-instance Empties under a
+  ``prototypes`` collection. Every other trap is single-object, so only an
+  instanced one can catch a scene-wide, instancing-triggered regression.
 """
 
 import os
@@ -172,6 +179,23 @@ assign([cyl], sr)
 # manifest rebuild must swap ONLY the Stingray slot, never clobber the mesh.
 cmds.sets(cyl + ".f[0:9]", edit=True, forceElement="e2e_phong_absSG")
 
+# e2e_inst_*: an INSTANCED shape whose instances carry DIFFERENT materials.
+# The trap that the 2026-08-02 user report exposed: with mayaUSDExport's
+# exportInstances=True, a scene holding any instance exports ZERO materials for
+# the WHOLE file (every object arrives unshaded), and the geometry lands in a
+# `prototypes` collection of uneditable collection-instance Empties. Every other
+# trap here is single-object, so none of them could catch it.
+inst_base = cmds.polyCube(width=1, height=1, depth=1, name="e2e_inst_base")[0]
+cmds.move(0, 3, 0, inst_base)
+inst_b = cmds.instance(inst_base, name="e2e_inst_b")[0]
+cmds.move(2, 3, 0, inst_b)
+inst_red = cmds.shadingNode("standardSurface", asShader=True, name="e2e_inst_red")
+cmds.setAttr(inst_red + ".baseColor", 1, 0, 0, type="double3")
+inst_green = cmds.shadingNode("standardSurface", asShader=True, name="e2e_inst_green")
+cmds.setAttr(inst_green + ".baseColor", 0, 1, 0, type="double3")
+assign([inst_base], inst_red)
+assign([inst_b], inst_green)  # per-INSTANCE assignment (Maya: instObjGroups[i])
+
 cmds.file(rename=os.path.join(PROJ, "scenes", "e2e_scene.ma").replace("\\\\", "/"))
 cmds.file(save=True, type="mayaAscii", force=True)
 sys.stdout.flush()
@@ -252,13 +276,16 @@ try:
     import time
 
     t0 = time.time()
-    imported = btk.import_maya_scene(src, timeout=600)
+    # via="fbx": this leg pins the FBX-route traps (phong translation + manifest
+    # rebuild) -- this is the default route. USD has its own leg below.
+    imported = btk.MayaSceneImport().import_scene(src, via="fbx", timeout=600)
     first_duration = time.time() - t0
 
     objs = {o.name: o for o in imported}
     names = sorted(objs)
     meshes = {o.name: len(o.data.vertices) for o in imported if o.type == "MESH"}
-    check("all five meshes imported", len(meshes) == 5, f"{names}")
+    # 5 trap objects + the 2 instanced cubes.
+    check("all seven meshes imported", len(meshes) == 7, f"{names}")
 
     # One source material through two shading groups must arrive as ONE
     # material, not per-SG "_fbxsafe" duplicates (live production report).
@@ -321,7 +348,7 @@ try:
     # Conversion cache: an identical second import must skip the Maya launch
     # (its cost is Blender's FBX import only).
     t0 = time.time()
-    imported2 = btk.import_maya_scene(src, timeout=600)
+    imported2 = btk.MayaSceneImport().import_scene(src, via="fbx", timeout=600)
     second_duration = time.time() - t0
     check(
         "conversion cache: second import skips the Maya launch",
@@ -334,9 +361,9 @@ try:
     # UsdPreviewSurface -> Principled), with no manifest rebuild involved.
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
-    imported_usd = btk.import_maya_scene(src, via="usd", use_cache=False, timeout=600)
+    imported_usd = btk.MayaSceneImport().import_scene(src, via="usd", use_cache=False, timeout=600)
     objs_u = {o.name: o for o in imported_usd if o.type == "MESH"}
-    check("USD route: all five meshes imported", len(objs_u) == 5, f"{sorted(objs_u)}")
+    check("USD route: all seven meshes imported", len(objs_u) == 7, f"{sorted(objs_u)}")
     cube_u = next((o for n, o in objs_u.items() if "cube" in n), None)
     check(
         "USD route: live construction history evaluated (12+4 verts)",
@@ -358,6 +385,82 @@ try:
     check(
         "USD route: stingray packed metallic wired NATIVELY (no manifest)",
         sting_u is not None and metallic_linked(sting_u),
+    )
+
+    # --- instancing regression (user report 2026-08-02) ------------------------
+    # exportInstances=True made a scene holding ANY instance export ZERO materials
+    # for the WHOLE file, and delivered geometry as uneditable collection-instance
+    # Empties under a `prototypes` collection. All three symptoms pinned here.
+    proto_colls = [c for c in bpy.data.collections if "proto" in c.name.lower()]
+    check(
+        "USD route: no `prototypes` collection (instances flattened to real meshes)",
+        not proto_colls,
+        f"{[c.name for c in proto_colls]}",
+    )
+    inst_empties = [
+        o for o in bpy.data.objects if o.type == "EMPTY" and o.instance_collection
+    ]
+    check(
+        "USD route: no uneditable collection-instance Empties",
+        not inst_empties,
+        f"{[o.name for o in inst_empties]}",
+    )
+    inst_objs = {n: o for n, o in objs_u.items() if "e2e_inst" in n}
+    check("USD route: both instances arrived as real meshes", len(inst_objs) == 2,
+          f"{sorted(inst_objs)}")
+    # The scene-wide symptom: every OTHER object must still be shaded.
+    unshaded = [
+        n for n, o in objs_u.items()
+        if not (getattr(o.data, "materials", None) and any(o.data.materials))
+    ]
+    check(
+        "USD route: instances present, yet every mesh still carries a material",
+        not unshaded,
+        f"unshaded={unshaded}",
+    )
+    # And the per-instance assignment must not collapse onto one prototype.
+    # With shared mesh data the differing shader rides an OBJECT-linked slot,
+    # so read the EFFECTIVE material per object, not the mesh's.
+    def effective_mats(obj):
+        return {s.material.name for s in obj.material_slots if s.material}
+
+    inst_mats = set().union(*(effective_mats(o) for o in inst_objs.values())) \
+        if inst_objs else set()
+    check(
+        "USD route: per-instance materials stay DISTINCT (not collapsed)",
+        len(inst_mats) == 2,
+        f"{sorted(inst_mats)}",
+    )
+    # The whole point of the flatten-then-rebuild design: Maya's instance sets
+    # come back as Blender linked duplicates. Without the sidecar replay these
+    # two objects would carry independent geometry and the scene's memory
+    # profile would be wrong (production-blocking, reported 2026-08-02).
+    inst_data = {o.data.name for o in inst_objs.values()}
+    check(
+        "USD route: instances share ONE mesh datablock (linked duplicates)",
+        len(inst_objs) == 2 and len(inst_data) == 1,
+        f"objects={sorted(inst_objs)} datablocks={sorted(inst_data)}",
+    )
+    check(
+        "USD route: the differing instance shader rides an OBJECT-linked slot",
+        any(
+            s.link == "OBJECT"
+            for o in inst_objs.values()
+            for s in o.material_slots
+            if s.material
+        ),
+    )
+    # The re-link must free the mesh it displaced. Scoped to the instance set:
+    # this leg runs after the FBX leg, whose deleted objects leave their own
+    # orphans behind, so a scene-wide sweep would measure the harness, not the
+    # feature.
+    inst_orphans = [
+        m.name for m in bpy.data.meshes if m.users == 0 and "e2e_inst" in m.name
+    ]
+    check(
+        "USD route: the displaced instance mesh is freed (memory reclaimed)",
+        not inst_orphans,
+        f"{inst_orphans}",
     )
 
     # Cached payloads persist BY DESIGN (detached policy, stale-swept);

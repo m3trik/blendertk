@@ -501,6 +501,10 @@ class WheelRigSlots(ptk.LoggingMixin):
 
         self.ui.s000.setText(str(round(wheel_size, 3)))
 
+    def txt000_init(self, widget):
+        """Rig-name field — optional, so clearing back to auto-naming is a state."""
+        widget.option_box.clear_option = True
+
     def s000_init(self, widget):
         """Initialize the wheel height field's option-box menu."""
         widget.option_box.menu.add(

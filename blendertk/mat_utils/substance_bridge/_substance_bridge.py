@@ -137,6 +137,113 @@ _TEMPLATE_TYPES: Dict[str, type] = {
 }
 
 
+# -- High-poly membership --------------------------------------------------
+
+
+class HighPolySet:
+    """The scene's high-poly bake source, stored as a stamped Collection.
+
+    Mirror of mayatk's ``HighPolySet`` (an ``objectSet`` there). Painter
+    bakes from a *separate* mesh file, so the high-poly geometry is not part
+    of the export scope -- it is its own set, defined once and reused across
+    sends no matter what the Scope combo resolves to. Keeping it in the
+    scene rather than in panel settings means it saves with the .blend,
+    shows up in the Outliner, and can't go stale against a file it was never
+    captured in. Same idiom as
+    :class:`blendertk.display_utils.color_id.ColorId`: created stamped, and
+    looked up by that stamp rather than by name, so a user's own collection
+    that happens to share the name is never adopted.
+
+    Members are *added* to the collection, never moved out of their existing
+    ones -- the set is a tag, not a re-parent. Hidden members need no special
+    treatment either: FBX carries hidden geometry verbatim, so the export
+    never touches the scene.
+    """
+
+    SET_NAME = "substanceBridge_highPoly"
+    #: Custom-property stamp identifying our collection (see class docstring).
+    STAMP = "btk_substance_high_poly"
+
+    @classmethod
+    def collection(cls):
+        """The stamped high-poly collection, or ``None`` when absent."""
+        import bpy
+
+        return next((c for c in bpy.data.collections if cls.STAMP in c), None)
+
+    @classmethod
+    def exists(cls) -> bool:
+        """Whether the high-poly collection is present in the file."""
+        return cls.collection() is not None
+
+    @classmethod
+    def members(cls) -> List[Any]:
+        """The set's objects (an empty list when there is no set)."""
+        col = cls.collection()
+        return list(col.objects) if col is not None else []
+
+    @classmethod
+    def define(cls, objects: Optional[List[Any]] = None) -> List[Any]:
+        """Replace the set's contents with *objects* (default: the selection).
+
+        Returns the resulting members. An empty input removes the
+        collection -- "no high poly" is the absence of the collection, so a
+        cleared set never lingers as a confusing empty container.
+        """
+        import bpy
+
+        if objects is None:
+            import blendertk as btk
+
+            objects = btk.selected_objects()
+        objects = [o for o in objects or [] if o is not None]
+        if not objects:
+            cls.clear()
+            return []
+
+        col = cls.collection()
+        if col is None:
+            col = bpy.data.collections.new(cls.SET_NAME)
+            col[cls.STAMP] = True
+            bpy.context.scene.collection.children.link(col)
+        else:  # redefining replaces membership wholesale
+            for obj in list(col.objects):
+                cls._rehome_if_last(col, obj)
+                col.objects.unlink(obj)
+        for obj in objects:
+            if obj.name not in col.objects:
+                col.objects.link(obj)
+        return cls.members()
+
+    @classmethod
+    def clear(cls) -> None:
+        """Remove the collection; its objects are left in the scene."""
+        import bpy
+
+        col = cls.collection()
+        if col is None:
+            return
+        for obj in list(col.objects):
+            cls._rehome_if_last(col, obj)
+        bpy.data.collections.remove(col)
+
+    @staticmethod
+    def _rehome_if_last(col, obj) -> None:
+        """Link *obj* to the scene root if *col* is its only collection.
+
+        A zero-collection object is orphaned data -- gone from the view
+        layer and collected on the next save/load. Members are normally
+        *added* to the set while staying in their own collections, so this
+        only bites when the user unlinked an object's home afterwards; both
+        the redefine path and :meth:`clear` call it, so neither can be the
+        one that loses geometry.
+        """
+        import bpy
+
+        if list(obj.users_collection) == [col]:
+            bpy.context.scene.collection.objects.link(obj)
+
+
 # -- Painter log resolution (mirror of marmoset's version-aware resolver) --
 
 
@@ -393,7 +500,8 @@ class SubstanceBridge(ptk.HandoffBridge):
         Returns:
             A result dict with ``fbx``, ``mode``, ``connection`` (the
             :class:`SubstanceConnection`, or *None* on a hint-declaring
-            template's graceful fallback), ``output_dir``, ``delivered``
+            template's graceful fallback), ``output_dir``, ``high_poly``
+            (only when a companion high-poly file was written), ``delivered``
             (False when the RPC leg was skipped or failed on a
             ``send_to`` template), and -- for RPC templates --
             ``rpc_results`` (one value per ``RPC_OPS`` entry) and/or
@@ -512,10 +620,23 @@ class SubstanceBridge(ptk.HandoffBridge):
         os.makedirs(output_dir, exist_ok=True)
         manifest_path = os.path.join(output_dir, f"{base}.materials.json")
 
+        # Which knobs this template claims, and their effective values. Read
+        # before the export because the high-poly leg below is gated on them
+        # (a stale panel value must not pollute a template that never asked
+        # for the widget -- e.g. ``render.py``).
+        from blendertk.mat_utils.substance_bridge import parameters as _params
+
+        referenced = _params.Parameters.referenced_keys(
+            template_path.read_text(encoding="utf-8")
+        )
+        merged_params = _params.Parameters.defaults()
+        merged_params.update(request.params or {})
+
         # -- FBX export ----------------------------------------------------
         # Templates that operate on an already-loaded Painter project (e.g.
         # render the current view) declare EXPORT_FBX=False and skip this
         # phase entirely. Defaults to True for compat with import/reimport.
+        high_poly_path: Optional[str] = None
         if meta.get("EXPORT_FBX", True):
             # Precedence: defaults < template FBX_OPTIONS < caller's fbx_options.
             merged_options = dict(_DEFAULT_FBX_OPTIONS)
@@ -537,6 +658,15 @@ class SubstanceBridge(ptk.HandoffBridge):
             # Remember where this scene's mesh went so a later reimport --
             # even from a fresh Blender session -- overwrites the same file.
             self._record_export_path(fbx_path)
+
+            # -- Companion high-poly export ----------------------------
+            # A wholly separate pass over a wholly separate object set,
+            # run after the main export so it can neither reorder nor
+            # fail it -- and reading nothing from the export scope, so
+            # "Visible Only" stays exactly as wide as the user set it.
+            high_poly_path = self._export_high_poly(
+                fbx_path, merged_options, referenced, merged_params
+            )
         else:
             self.logger.info(
                 "Template declares EXPORT_FBX=False; skipping Blender FBX export."
@@ -546,13 +676,6 @@ class SubstanceBridge(ptk.HandoffBridge):
         # Only when the active template claims the PAINTER_INCLUDE_TEXTURES
         # widget AND the user left it on -- otherwise a stale value in the
         # panel doesn't pollute an unrelated template (e.g. ``render.py``).
-        from blendertk.mat_utils.substance_bridge import parameters as _params
-
-        referenced = _params.Parameters.referenced_keys(
-            template_path.read_text(encoding="utf-8")
-        )
-        merged_params = _params.Parameters.defaults()
-        merged_params.update(request.params or {})
         include_textures = "PAINTER_INCLUDE_TEXTURES" in referenced and bool(
             merged_params.get("PAINTER_INCLUDE_TEXTURES", True)
         )
@@ -567,26 +690,46 @@ class SubstanceBridge(ptk.HandoffBridge):
                 import blendertk as btk
 
                 scope_objects = btk.selected_objects()
+        texture_prefix = str(merged_params.get("PAINTER_TEXTURE_PREFIX", ""))
         staged_textures: List[str] = []
         if include_textures and scope_objects:
             staged_textures = self._stage_assigned_textures(
                 scope_objects,
                 output_dir,
-                prefix=str(merged_params.get("PAINTER_TEXTURE_PREFIX", "")),
+                prefix=texture_prefix,
+                unpack="PAINTER_UNPACK_MAPS" in referenced
+                and bool(merged_params.get("PAINTER_UNPACK_MAPS", True)),
             )
 
         # -- Optional material manifest -----------------------------------
+        has_mesh_map_wiring = False
         if meta["BUILD_MANIFEST"]:
             self.logger.info("Building material manifest ...")
             manifest = MatManifest.build(scope_objects)
             if staged_textures:
                 manifest["staged_textures"] = staged_textures
+            # Per-material mesh-map assignments. ``--mesh-map`` can only
+            # apply a map globally; this section is what lets the Painter
+            # plugin put each material's AO/normal on the matching texture
+            # set instead of on all of them.
+            mesh_maps = self._mesh_map_assignments(
+                manifest.get("materials", {}), staged_textures, prefix=texture_prefix
+            )
+            if mesh_maps:
+                manifest["mesh_maps"] = mesh_maps
+                has_mesh_map_wiring = True
             with open(manifest_path, "w", encoding="utf-8") as fh:
                 json.dump(manifest, fh, indent=2)
             self.logger.info(
                 f"Manifest written: "
                 f'<a href="action://open?path={manifest_path}">{manifest_path}</a>'
             )
+            if mesh_maps:
+                self.logger.info(
+                    "Mesh-map wiring for %d material(s): %s",
+                    len(mesh_maps),
+                    ", ".join(sorted(mesh_maps)),
+                )
 
         return ptk.Payload(
             primary=fbx_path,
@@ -596,6 +739,8 @@ class SubstanceBridge(ptk.HandoffBridge):
                 "output_dir": output_dir,
                 "staged_textures": staged_textures,
                 "referenced": referenced,
+                "high_poly_path": high_poly_path,
+                "has_mesh_map_wiring": has_mesh_map_wiring,
             },
         )
 
@@ -609,7 +754,11 @@ class SubstanceBridge(ptk.HandoffBridge):
         output_dir = payload.extras["output_dir"]
         staged_textures = payload.extras["staged_textures"]
         referenced = payload.extras["referenced"]
+        high_poly_path = payload.extras.get("high_poly_path")
         mode = request.mode
+
+        merged_params = _params.Parameters.defaults()
+        merged_params.update(request.params or {})
 
         # -- Render placeholders ------------------------------------------
         cli_ctx, js_ctx = self._build_contexts(
@@ -617,22 +766,48 @@ class SubstanceBridge(ptk.HandoffBridge):
             manifest_path=manifest_path,
             output_dir=output_dir,
             params=request.params,
+            high_poly_path=high_poly_path,
         )
         launch_args = self._render_launch_args(meta["LAUNCH_ARGS"], cli_ctx)
         # Dynamic argv extensions that don't fit the static __KEY__ shape:
         # - ``--mesh-map <path>`` per staged texture (variable-length).
         # - ``--split-by-udim`` as a bare presence flag (no value follows).
         if "--mesh" in launch_args:
-            for tex_path in staged_textures:
+            # Only genuine mesh maps: Painter files these by filename suffix
+            # and has no slot for a base-color or roughness map, so handing
+            # it the whole staged set (as this did) was noise at best. The
+            # material channels still ship -- they ride the FBX's embedded
+            # textures and the manifest.
+            for tex_path in self.mesh_map_files(staged_textures):
                 launch_args.extend(["--mesh-map", tex_path])
-            merged_params = _params.Parameters.defaults()
-            merged_params.update(request.params or {})
             if "PAINTER_SPLIT_BY_UDIM" in referenced and bool(
                 merged_params.get("PAINTER_SPLIT_BY_UDIM", False)
             ):
                 launch_args.append("--split-by-udim")
         rpc_script = StrUtils.replace_delimited(meta["RPC_SCRIPT"], js_ctx)
-        rpc_ops = self._render_rpc_ops(meta["RPC_OPS"], cli_ctx)
+        # Project-setup ops are added per-run rather than declared in the
+        # template, because they must not exist when the user hasn't asked
+        # for them: an empty RPC_OPS is what lets a plain ``import`` launch
+        # Painter without waiting on the plugin's endpoint first.
+        #
+        # They go FIRST, not last. ``mesh.reload`` (reimport) is
+        # asynchronous -- it returns ``{"started": True}`` and finishes via
+        # callback -- so appending would mutate texture sets while a reload
+        # is in flight. Ahead of it, they act on a settled project, and
+        # baking parameters survive the reload that follows.
+        rpc_ops = (
+            self._project_setup_ops(
+                high_poly_path,
+                referenced,
+                merged_params,
+                manifest_path=(
+                    manifest_path
+                    if payload.extras.get("has_mesh_map_wiring")
+                    else None
+                ),
+            )
+            + self._render_rpc_ops(meta["RPC_OPS"], cli_ctx)
+        )
         no_connection_hint = StrUtils.replace_delimited(
             meta.get("NO_CONNECTION_HINT", ""), cli_ctx
         ).strip()
@@ -670,6 +845,7 @@ class SubstanceBridge(ptk.HandoffBridge):
                     "connection": None,
                     "output_dir": output_dir,
                     "delivered": False,
+                    **({"high_poly": high_poly_path} if high_poly_path else {}),
                 }
             return None
 
@@ -680,6 +856,8 @@ class SubstanceBridge(ptk.HandoffBridge):
             "output_dir": output_dir,
             "delivered": True,
         }
+        if high_poly_path:
+            result["high_poly"] = high_poly_path
         if meta["BUILD_MANIFEST"]:
             result["manifest"] = manifest_path
 
@@ -728,9 +906,16 @@ class SubstanceBridge(ptk.HandoffBridge):
     EXPORT_RECORD_KEY = "substance_bridge_last_fbx"
 
     def ensure_rpc_plugin(self) -> None:
-        """Install the Painter-side substance_rpc plugin if it isn't already.
+        """Install -- or refresh -- the Painter-side substance_rpc plugin.
 
-        Idempotent (symlink-first via :class:`pythontk` PluginInstaller).
+        Gated on *content*, not presence. Without Developer Mode the
+        install is a copytree snapshot, so an install predating a blendertk
+        update keeps serving the ops it shipped with: the bridge dispatches
+        ``project.set_resolution``, that Painter has never heard of it, and
+        the panel's Map Resolution silently does nothing while the project
+        stays at Painter's own default. Re-checking each hand-off is cheap
+        (a content compare of a handful of small files) and self-heals.
+
         Failure is non-fatal -- the send continues and RPC-dependent steps
         fall back to their hints -- but is logged so the user knows why a
         one-click reimport didn't happen.
@@ -738,8 +923,9 @@ class SubstanceBridge(ptk.HandoffBridge):
         try:
             from blendertk.mat_utils.substance_bridge.substance_rpc import Installer
 
-            if Installer.is_installed():
+            if Installer.is_current():
                 return
+            refreshed = Installer.is_installed()
             dest = Installer.install()
             if dest is None:
                 self.logger.warning(
@@ -748,10 +934,11 @@ class SubstanceBridge(ptk.HandoffBridge):
                 )
                 return
             self.logger.info(
-                f"Installed Painter RPC plugin: {dest}. To activate it: in "
-                "Painter, use Python > Reload Plugins Folder (or relaunch "
-                "Painter), then ensure 'substance_rpc' is ticked in the "
-                "Python menu -- Painter remembers it after the first time."
+                f"{'Refreshed' if refreshed else 'Installed'} Painter RPC "
+                f"plugin: {dest}. To activate it: in Painter, use Python > "
+                "Reload Plugins Folder (or relaunch Painter), then ensure "
+                "'substance_rpc' is ticked in the Python menu -- Painter "
+                "remembers it after the first time."
             )
         except Exception as e:  # noqa: BLE001 -- never block the handoff
             self.logger.warning(f"substance_rpc plugin install failed: {e}")
@@ -778,6 +965,190 @@ class SubstanceBridge(ptk.HandoffBridge):
             bpy.context.scene[cls.EXPORT_RECORD_KEY] = fbx_path.replace("\\", "/")
         except Exception as e:  # noqa: BLE001 -- recording is best-effort
             logger.debug("Could not record export path on the scene: %s", e)
+
+    #: Suffix appended to the export stem for the companion high-poly file.
+    HIGH_POLY_SUFFIX = "_high"
+
+    @classmethod
+    def high_poly_path_for(cls, fbx_path: str) -> str:
+        """``.../asset.fbx`` -> ``.../asset_high.fbx``.
+
+        Derived from the main export rather than re-resolved, so a
+        ``REUSE_RECORDED_EXPORT`` template's high-poly file lands beside
+        the exact mesh the open Painter project was built from.
+        """
+        stem, ext = os.path.splitext(fbx_path)
+        return f"{stem}{cls.HIGH_POLY_SUFFIX}{ext}"
+
+    #: :class:`pythontk.MapFactory` types Painter accepts as a **mesh map**
+    #: (its baked-geometry inputs), mapped to the usage name it files them
+    #: under. Everything else a material references -- base color, roughness,
+    #: metallic, emission -- is a *material channel*: real data, but not
+    #: something ``--mesh-map`` or ``set_mesh_map_resource`` can take.
+    #:
+    #: Deliberately NOT height/displacement: Painter's bake list is normal,
+    #: world-space normal, ID, ambient occlusion, curvature, position and
+    #: thickness -- there is no height mesh map, so shipping one as a mesh
+    #: map is the same mistake as shipping a base color.
+    MESH_MAP_TYPES = {
+        "Ambient_Occlusion": "ambient_occlusion",
+        "Normal": "normal",
+        "Normal_DirectX": "normal",
+        "Normal_OpenGL": "normal",
+        "Thickness": "thickness",
+    }
+
+    @classmethod
+    def _mesh_map_assignments(
+        cls,
+        materials: Dict[str, Dict[str, str]],
+        staged: List[str],
+        prefix: str = "",
+    ) -> Dict[str, Dict[str, str]]:
+        """``{material: {usage: staged_path}}`` for the mesh maps we shipped.
+
+        Painter names each texture set after the FBX material, so a section
+        keyed by material name is directly addressable on the far side --
+        which is the whole point: ``--mesh-map`` can only apply a map to
+        *everything*, and a per-material scene then gets one material's AO
+        smeared across every texture set.
+
+        Matching is by **base texture name**, not by path: the manifest
+        records where a map lives in the Maya scene, while the file Painter
+        reads is the staged copy -- renamed by *prefix*, or produced by
+        unpacking a packed source, in which case no manifest slot points at
+        it at all. ``MapFactory.get_base_texture_name`` strips the map
+        suffix from both sides (and *prefix* from the staged side) so
+        ``body_ORM.png`` -> ``hero_body_AO.png`` still resolves to the
+        material that referenced ``body_ORM.png``.
+        """
+        if not materials or not staged:
+            return {}
+
+        # Staged mesh maps grouped by base texture name -> {usage: path}.
+        by_base: Dict[str, Dict[str, str]] = {}
+        for path in cls.mesh_map_files(staged):
+            usage = cls.MESH_MAP_TYPES[ptk.MapFactory.resolve_map_type(path)]
+            base = ptk.MapFactory.get_base_texture_name(path, prefix=prefix)
+            by_base.setdefault(base, {}).setdefault(usage, path)
+
+        assignments: Dict[str, Dict[str, str]] = {}
+        for material, slots in materials.items():
+            # Sorted, not a bare set: a material whose slots span two base
+            # names could otherwise resolve a usage to a different file on
+            # each run, since set iteration order is hash-seed dependent.
+            bases = sorted(
+                {ptk.MapFactory.get_base_texture_name(p) for p in slots.values() if p}
+            )
+            found: Dict[str, str] = {}
+            for base in bases:
+                for usage, path in by_base.get(base, {}).items():
+                    found.setdefault(usage, path.replace("\\", "/"))
+            if found:
+                assignments[material] = found
+        return assignments
+
+    @classmethod
+    def mesh_map_files(cls, paths: List[str]) -> List[str]:
+        """The subset of *paths* Painter can actually use as mesh maps.
+
+        Painter files a ``--mesh-map`` by reading the filename suffix; a
+        base-color or roughness map handed to that flag is not a mesh map
+        under any name, so passing the whole staged set (as this bridge
+        used to) just hands Painter files it has no slot for.
+        """
+        return [
+            p for p in paths if ptk.MapFactory.resolve_map_type(p) in cls.MESH_MAP_TYPES
+        ]
+
+    @staticmethod
+    def _project_setup_ops(
+        high_poly_path: Optional[str],
+        referenced: set,
+        params: Dict[str, Any],
+        manifest_path: Optional[str] = None,
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """Ops that configure the Painter project once it exists.
+
+        None of these has a CLI equivalent -- Painter dropped
+        ``--resolution``, never had a high-poly flag, and ``--mesh-map`` can
+        only apply a map to every texture set at once -- so all three travel
+        over the ``substance_rpc`` plugin. The plugin applies them
+        immediately when a project is open and otherwise holds them until
+        one opens, which is what makes them work on a fresh launch where the
+        New Project wizard hasn't run yet at dispatch time.
+
+        Returns ``[]`` when the template claims none of the widgets or the
+        user left them all at their inert values, so an ordinary send never
+        pays for an RPC round-trip it doesn't need.
+        """
+        ops: List[Tuple[str, Dict[str, Any]]] = []
+        resolution = params.get("PAINTER_RESOLUTION") or 0
+        if "PAINTER_RESOLUTION" in referenced and int(resolution) > 0:
+            ops.append(("project.set_resolution", {"size": int(resolution)}))
+        if high_poly_path:
+            ops.append(
+                ("bake.set_high_poly", {"mesh_path": high_poly_path.replace("\\", "/")})
+            )
+        if manifest_path:
+            ops.append(
+                (
+                    "textures.apply_mesh_maps",
+                    {"manifest_path": manifest_path.replace("\\", "/")},
+                )
+            )
+        return ops
+
+    def _export_high_poly(
+        self,
+        fbx_path: str,
+        fbx_options: Dict[str, Any],
+        referenced: set,
+        params: Dict[str, Any],
+    ) -> Optional[str]:
+        """Export :class:`HighPolySet`'s members to ``<stem>_high.fbx``.
+
+        Returns the written path, or ``None`` when the template doesn't
+        claim the widget, the user left it off, the set is empty, or the
+        export failed. A failure here is logged and swallowed: the main
+        mesh is already on disk and the handoff is still worth making --
+        Painter simply opens without a bake source.
+
+        The scene is never modified. Hidden members export exactly like
+        visible ones (FBX carries the geometry regardless), which is also
+        why this can't disturb a "Visible Only" scope: it reads the set,
+        not the selection.
+        """
+        if "PAINTER_HIGH_POLY" not in referenced or not params.get("PAINTER_HIGH_POLY"):
+            return None
+
+        members = HighPolySet.members()
+        if not members:
+            self.logger.warning(
+                "Export High Poly is on, but the scene has no high-poly set. "
+                "Select the high-poly geometry and use 'Set High Poly From "
+                "Selection' in the panel's header menu."
+            )
+            return None
+
+        # Texture embedding is for the paintable mesh; the bake source is
+        # geometry only, and embedding would bloat a dense mesh for nothing.
+        options = dict(fbx_options)
+        options["embed_textures"] = False
+
+        high_path = self.high_poly_path_for(fbx_path)
+        self.logger.info(f"Exporting high poly ({len(members)} object(s)) ...")
+        try:
+            FbxUtils.export_selection_fbx(
+                filepath=high_path, objects=members, **options
+            )
+        except Exception as e:  # noqa: BLE001 -- optional leg, never fatal
+            self.logger.error(f"High-poly FBX export failed: {e}")
+            return None
+        self.logger.info(
+            f'High poly written: <a href="action://open?path={high_path}">{high_path}</a>'
+        )
+        return high_path
 
     @staticmethod
     def _render_rpc_ops(
@@ -821,6 +1192,7 @@ class SubstanceBridge(ptk.HandoffBridge):
         manifest_path: str,
         output_dir: str,
         params: Optional[Dict[str, Any]],
+        high_poly_path: Optional[str] = None,
     ) -> Tuple[Dict[str, str], Dict[str, str]]:
         """Compose two placeholder contexts -- one CLI-raw, one JS-escaped.
 
@@ -837,6 +1209,10 @@ class SubstanceBridge(ptk.HandoffBridge):
 
         internal: Dict[str, str] = {
             "FBX_PATH": fbx_path.replace("\\", "/"),
+            # Empty when no high poly was exported, so a template that
+            # references it degrades to an empty argv/JS slot rather than a
+            # path to a file that isn't there.
+            "HIGH_POLY_PATH": (high_poly_path or "").replace("\\", "/"),
             "MANIFEST_PATH": manifest_path.replace("\\", "/"),
             "OUTPUT_DIR": output_dir.replace("\\", "/"),
             "PAINTER_HELPERS_DIR": str(_PKG_DIR).replace("\\", "/"),
@@ -886,6 +1262,7 @@ class SubstanceBridge(ptk.HandoffBridge):
         objects: List[str],
         output_dir: str,
         prefix: str = "",
+        unpack: bool = False,
     ) -> List[str]:
         """Copy every texture assigned to *objects*' materials into *output_dir*.
 
@@ -925,6 +1302,11 @@ class SubstanceBridge(ptk.HandoffBridge):
             if not src or not os.path.isfile(src):
                 self.logger.warning("Assigned texture missing on disk: %s", src)
                 continue
+            if unpack:
+                components = self._unpack_packed_map(src, output_dir, prefix)
+                if components is not None:
+                    staged.extend(components)
+                    continue
             base = os.path.basename(src)
             if prefix and base.startswith(prefix):
                 base = base[len(prefix) :]
@@ -938,6 +1320,83 @@ class SubstanceBridge(ptk.HandoffBridge):
             staged.append(dst)
             self.logger.info("Staged texture: %s", dst)
         return staged
+
+    #: Packed map type -> the :class:`pythontk.MapFactory` unpacker for it.
+    #: Keys are ``MapFactory.resolve_map_type`` results, so a type the
+    #: registry learns later only needs an entry here to become splittable.
+    _UNPACKERS = {
+        "ORM": "unpack_orm_texture",
+        "MRAO": "unpack_mrao_texture",
+        "MSAO": "unpack_msao_texture",
+        "Metallic_Smoothness": "unpack_metallic_smoothness",
+        "Albedo_Transparency": "unpack_albedo_transparency",
+    }
+
+    def _unpack_packed_map(
+        self, src: str, output_dir: str, prefix: str = ""
+    ) -> Optional[List[str]]:
+        """Split *src* into component maps in *output_dir*, or ``None``.
+
+        ``None`` means "not a packed map" (or the split failed) and the
+        caller should stage *src* verbatim -- an unusable packed file in
+        the folder still beats no texture at all.
+
+        The components come back named by :class:`pythontk.MapFactory`'s own
+        suffixes (``_AO`` / ``_Roughness`` / ...), which is what Painter's
+        filename-based detection keys on; *prefix* is applied afterwards so
+        the naming rule matches the plain-copy path exactly.
+        """
+        map_type = ptk.MapFactory.resolve_map_type(src)
+        unpacker = self._UNPACKERS.get(map_type)
+        if unpacker is None:
+            return None
+        try:
+            produced = getattr(ptk.MapFactory, unpacker)(
+                src, output_dir=output_dir, save=True
+            )
+        except Exception as e:  # noqa: BLE001 -- fall back to a plain copy
+            self.logger.warning(
+                "Could not unpack %s map %s (%s); staging it as-is.",
+                map_type,
+                os.path.basename(src),
+                e,
+            )
+            return None
+
+        components: List[str] = []
+        for path in produced or []:
+            path = str(path)
+            if not os.path.isfile(path):
+                continue
+            components.append(self._apply_prefix(path, prefix))
+        if not components:
+            return None
+        self.logger.info(
+            "Unpacked %s: %s -> %s",
+            map_type,
+            os.path.basename(src),
+            ", ".join(os.path.basename(p) for p in components),
+        )
+        return components
+
+    @staticmethod
+    def _apply_prefix(path: str, prefix: str) -> str:
+        """Rename *path* in place to carry *prefix*; returns the final path.
+
+        Idempotent in the same way the copy path is: a basename that already
+        starts with *prefix* keeps exactly one.
+        """
+        if not prefix:
+            return path
+        directory, base = os.path.split(path)
+        if base.startswith(prefix):
+            return path
+        dst = os.path.join(directory, f"{prefix}{base}")
+        try:
+            os.replace(path, dst)
+        except OSError:
+            return path
+        return dst
 
     def _announce_handoff(
         self, template: str, mode: str, fbx_path: str, output_dir: str

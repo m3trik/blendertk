@@ -836,8 +836,19 @@ class _TaskChecksMixin(_TaskDataMixin):
           silent ``continue``, letting entire multi-GB tile sets through the
           gate unmeasured (mayatk collapses the token to a probe tile the same
           way).
+
+        ``max_mb`` may be a number or the QLineEdit's text (e.g. ``"16"``);
+        ``None``, ``0``, ``""``, or ``"OFF"`` disables the check, and a
+        non-numeric value logs a warning and skips.
         """
-        if not max_mb:
+        if not max_mb or str(max_mb).upper() == "OFF":
+            return True, []
+        try:
+            max_mb = float(max_mb)
+        except (TypeError, ValueError):
+            self.logger.warning(
+                f"Invalid max texture size '{max_mb}'. Skipping size check."
+            )
             return True, []
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
@@ -872,7 +883,9 @@ class _TaskChecksMixin(_TaskDataMixin):
                 oversized.append(f"{os.path.basename(p)} ({size_mb:.1f} MB)")
         if oversized:
             shown = ", ".join(oversized[:10]) + (" …" if len(oversized) > 10 else "")
-            return False, [f"{len(oversized)} texture(s) exceed {max_mb} MB: {shown}"]
+            return False, [
+                f"{len(oversized)} texture(s) exceed {max_mb:g} MB: {shown}"
+            ]
         return True, []
 
     def check_untied_keyframes(self, enabled) -> tuple:
@@ -982,16 +995,6 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
     _scene_unit_options: Dict[str, Any] = {
         f"Set Linear Unit: {k}": v
         for k, v in ptk.insert_into_dict(_LINEAR_UNIT_VALUES, "OFF", None).items()
-    }
-
-    _texture_size_options: Dict[str, Any] = {
-        "Check Max Texture Size: OFF": None,
-        "Check Max Texture Size: 4 MB": 4,
-        "Check Max Texture Size: 8 MB": 8,
-        "Check Max Texture Size: 16 MB": 16,
-        "Check Max Texture Size: 32 MB": 32,
-        "Check Max Texture Size: 64 MB": 64,
-        "Check Max Texture Size: 128 MB": 128,
     }
 
     def __init__(self, logger):
@@ -1265,14 +1268,14 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setChecked": True,
             },
             "check_texture_file_size": {
-                "widget_type": "ComboBox",
-                "add": self._texture_size_options,
-                "setCurrentIndex": 3,  # Default to 16 MB
+                "widget_type": "QLineEdit",
+                "setPlaceholderText": "Max Texture Size (MB) — empty disables",
+                "setText": "16",
                 "setToolTip": (
                     "Fail the export when any texture feeding the export materials exceeds "
-                    "the selected size on disk. Set to OFF to disable."
+                    "this size (in MB) on disk. Leave empty to disable."
                 ),
-                "value_method": "currentData",
+                "value_method": "text",
             },
             "sep_anim": {"widget_type": "Separator", "title": "Animation"},
             "check_untied_keyframes": {

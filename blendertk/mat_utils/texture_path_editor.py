@@ -136,6 +136,16 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 "project."
             ),
         )
+        btn_make_abs = widget.menu.add(
+            "QPushButton",
+            setText="Make Paths Absolute",
+            setObjectName="btn_make_paths_absolute",
+            setToolTip=(
+                "Rewrite (selected, or all) // relative paths to absolute, resolved from "
+                "the saved .blend. Inverse of Normalize Paths."
+            ),
+        )
+        btn_make_abs.clicked.connect(self.make_paths_absolute)
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
             setText="Resolve Missing Textures",
@@ -196,6 +206,8 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                             "<b>Normalize Paths</b> — rewrite paths relative to the saved .blend. "
                             "Option box (▸) controls external textures: leave / copy / move into "
                             "the project.",
+                            "<b>Make Paths Absolute</b> — rewrite // relative paths to absolute "
+                            "(resolved from the saved .blend). Inverse of Normalize Paths.",
                             "<b>Resolve Missing Textures</b> — search a folder using strategy "
                             "cascade <i>Stem → Texture → Fuzzy</i> (safest first; stops at first "
                             "hit). Option box (▸) enables/disables individual strategies.",
@@ -228,8 +240,8 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                     "Collision policy on Copy / Move: same-name + same-size files rebind "
                     "without overwriting; different-size hits skip with a warning (never "
                     "silently rebinds to a wrong texture, never destroys the external).",
-                    "Normalize Paths / Copy or Move into the project need the .blend to be "
-                    "saved.",
+                    "Normalize Paths / Make Paths Absolute / Copy or Move into the project "
+                    "need the .blend to be saved.",
                 ],
             )
         )
@@ -652,6 +664,33 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         else:
             msg = "Nothing changed — paths are already relative (or the .blend isn't saved)."
         self.sb.message_box(msg)
+        self.ui.tbl000.init_slot()
+
+    def make_paths_absolute(self):
+        """Rewrite (selected, or all) ``//`` relative paths to absolute — inverse of
+        Normalize Paths (engine ``normalize_texture_paths("absolute")``)."""
+        import bpy
+
+        # '//' resolves against the .blend itself; with no saved file Blender would
+        # fall back to the process CWD and bake a bogus absolute path into the
+        # datablock. Mirrors the Maya slot's unset-workspace guard.
+        if not bpy.data.filepath:
+            self.sb.message_box(
+                "Save the .blend first — <hl>//</hl> paths have nothing to resolve against."
+            )
+            return
+        images, scope_label = self._get_scope_images()
+        if not images:
+            self.sb.message_box("No textures to process.")
+            return
+        record = self._snapshot_for_tracking(images)
+        n = btk.normalize_texture_paths("absolute", images=images)
+        record()
+        self.sb.message_box(
+            f"Made <hl>{n}</hl> path(s) absolute ({scope_label})."
+            if n
+            else "Nothing changed — paths are already absolute (or the .blend isn't saved)."
+        )
         self.ui.tbl000.init_slot()
 
     def tb_resolve_missing_textures(self, widget=None):

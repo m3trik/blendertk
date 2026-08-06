@@ -634,79 +634,20 @@ class ChannelsSlots:
             widget.setColumnWidth(self.COL_TYPE, 80)
 
     def _autofit_window(self, widget):
-        """Resize the window so the table's content width/height fits exactly.
+        """Fit the window to the table's contents when ``Auto-fit Window`` is on.
 
-        Runs only when ``Auto-fit Window`` is checked. Deferred twice: once to let
-        ``_refresh_table``'s signal-block unwind, then a second tick so the
-        ``ResizeToContents`` columns have applied their final widths before we measure
-        them. Pure Qt — mirror of the Maya panel, no ``bpy``.
+        All the sizing — the screen-fraction cap that hands overflow to the table's
+        scrollbar, and the deferral that lets ``ResizeToContents`` columns settle
+        before they're measured — lives in uitk's
+        :meth:`TableWidget.fit_window_to_contents`, so this panel and its mayatk twin
+        can't drift apart.
         """
         chk = getattr(self, "_chk_auto_fit", None)
         if not (chk and chk.isChecked()):
             return
-
-        def _do_fit():
-            try:
-                if not self._is_alive(widget):
-                    return
-
-                win = widget.window()
-                if win is None:
-                    return
-
-                # Force only ResizeToContents columns to recompute — a blanket
-                # resizeColumnsToContents() would override the Fixed-width action
-                # columns (sized to row height) and inflate them.
-                QHV = self.sb.QtWidgets.QHeaderView
-                header = widget.horizontalHeader()
-                for col in range(widget.columnCount()):
-                    if (
-                        not widget.isColumnHidden(col)
-                        and header.sectionResizeMode(col) == QHV.ResizeToContents
-                    ):
-                        widget.resizeColumnToContents(col)
-
-                lay = win.layout()
-                if lay is not None:
-                    lay.activate()
-                cw = win.centralWidget() if hasattr(win, "centralWidget") else None
-                if cw is not None and cw.layout() is not None:
-                    cw.layout().activate()
-
-                header_len = header.length()
-                if header_len <= 0:
-                    return
-
-                # Width
-                vbar = widget.verticalScrollBar()
-                vsb_w = vbar.sizeHint().width() if vbar and vbar.isVisible() else 0
-                fr_w = widget.frameWidth() * 2
-                chrome_w = max(win.width() - widget.viewport().width(), 0)
-                target_w = header_len + fr_w + vsb_w + chrome_w
-                target_w = max(target_w, win.minimumWidth())
-
-                # Height — sum of (visible) row heights + horizontal header height
-                # (when shown) + horizontal scrollbar (when shown).
-                rows_h = 0
-                for row in range(widget.rowCount()):
-                    if not widget.isRowHidden(row):
-                        rows_h += widget.rowHeight(row)
-                hhdr = widget.horizontalHeader()
-                hhdr_h = hhdr.height() if hhdr.isVisible() else 0
-                hbar = widget.horizontalScrollBar()
-                hsb_h = hbar.sizeHint().height() if hbar and hbar.isVisible() else 0
-                fr_h = widget.frameWidth() * 2
-                chrome_h = max(win.height() - widget.viewport().height(), 0)
-                target_h = rows_h + hhdr_h + fr_h + hsb_h + chrome_h
-                target_h = max(target_h, win.minimumHeight())
-
-                if target_w != win.width() or target_h != win.height():
-                    win.resize(target_w, target_h)
-            except RuntimeError:
-                pass
-
-        QtCore = self.sb.QtCore
-        QtCore.QTimer.singleShot(0, lambda: QtCore.QTimer.singleShot(0, _do_fit))
+        if not self._is_alive(widget):
+            return
+        widget.fit_window_to_contents()
 
     def _create_footer_controller(self):
         """Wrap the footer in a status controller (resolver shows the target name in compact mode)."""

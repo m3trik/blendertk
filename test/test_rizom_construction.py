@@ -67,6 +67,15 @@ try:
     # ---- wrapper substitution (2022: all placeholders resolve) -------------------
     import re
 
+    # Field-presence checks must ignore Lua comments: the shared pack_block.lua
+    # header discusses the gated fields BY NAME (why Resolution is sent on
+    # 2020.1 and MaxMutations is not), and a raw substring scan reads that prose
+    # as code. Same hazard the zom_lines() helper below exists for.
+    def code_lines(script):
+        return "\n".join(
+            ln for ln in script.splitlines() if not ln.lstrip().startswith("--")
+        )
+
     pack = (_SCRIPT_DIR / "pack.lua").read_text(encoding="utf-8")
     full22 = b._construct_full_script(pack)
     leftover = re.findall(r"__[A-Z][A-Z_]*__", full22)  # unresolved __KEY__ tokens
@@ -75,6 +84,7 @@ try:
     check("2022: no unresolved __KEY__ placeholders left", not leftover, str(leftover))
     check("2022: gated pack fields kept (MaxMutations/Resolution)",
           "MaxMutations" in full22 and "Resolution" in full22)
+    check("2022: Rotate.Enable kept above the gate", "Enable=" in code_lines(full22))
     check("2022: export path inlined into ZomLoad/ZomSave",
           full22.count('Path="C:/tmp/x.fbx"') >= 2)
 
@@ -89,8 +99,15 @@ try:
     b20 = RizomUVBridge(rizom_path=V2020)
     b20.export_path = "C:/tmp/x.fbx"
     full20 = b20._construct_full_script(pack)
-    check("2020.1: gated ZomPack fields stripped (no MaxMutations)",
-          "MaxMutations" not in full20 and "__PACK_MAX_MUTATIONS__" not in full20)
+    check("2020.1: gated ZomPack fields stripped (no MaxMutations/Rotate.Enable)",
+          "MaxMutations" not in code_lines(full20)
+          and "__PACK_MAX_MUTATIONS__" not in full20
+          and "Enable=" not in code_lines(full20))
+    # Resolution is deliberately NOT gated: probed safe on 2020.1, and sending it
+    # is what makes a single send converge instead of needing a second one.
+    check("2020.1: Resolution survives (ungated -- converges the pack in one send)",
+          "Resolution=" in code_lines(full20)
+          and "__PACK_RESOLUTION__" not in full20)
     check("2020.1: non-gated fields survive (RecursionDepth resolved)",
           "RecursionDepth" in full20 and "__RECURSION_DEPTH__" not in full20)
     check("2020.1: no FBX={UseUVSetNames} flag on the ZomLoad/ZomSave lines (below the gate)",

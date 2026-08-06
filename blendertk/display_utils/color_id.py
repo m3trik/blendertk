@@ -604,8 +604,9 @@ class ColorIdSlots(ptk.LoggingMixin):
                 steps=[
                     "Click a palette swatch to pick the active color (right-click a "
                     "swatch to change its color).",
-                    "Enable the channels to apply via the <b>Outliner</b> / "
-                    "<b>Wireframe</b> / <b>Material</b> / <b>Vertex</b> checkboxes.",
+                    "Enable the channels to act on via the <b>Outliner</b> / "
+                    "<b>Wireframe</b> / <b>Material</b> / <b>Vertex</b> checkboxes "
+                    "— they scope <i>every</i> action below.",
                     "Select objects and press <b>Set Color</b>.",
                     "Use <b>Select By Color</b> to find objects matching the active "
                     "color across the enabled channels.",
@@ -614,8 +615,10 @@ class ColorIdSlots(ptk.LoggingMixin):
                     (
                         "Notes",
                         [
-                            f"<b>Reset</b> clears assignments on the selection (or every "
-                            f"object with {self.sb.tooltip.kbd('Ctrl')}-click).",
+                            f"<b>Reset</b> clears the <i>enabled</i> channels' assignments "
+                            f"on the selection (or every object with "
+                            f"{self.sb.tooltip.kbd('Ctrl')}-click) — unchecked channels are "
+                            f"left untouched.",
                             "<b>Outliner</b> groups the objects under a color-tagged "
                             "<i>ID collection</i> (their normal collections are kept). "
                             "Blender colors collection rows, not object text — and shows "
@@ -691,11 +694,29 @@ class ColorIdSlots(ptk.LoggingMixin):
             "set": self.ui.chk016.isChecked(),
         }
 
+    def _channels_or_warn(self) -> Optional[dict]:
+        """:meth:`_channels`, or None (with a prompt) when the user has enabled none.
+
+        Every action is channel-scoped, so with nothing checked there is nothing to do —
+        and Select By Color would answer "no matches" by clearing the selection."""
+        channels = self._channels()
+        if not any(channels.values()):
+            self.sb.message_box("No channels enabled.")
+            return None
+        return channels
+
     # ── buttons ──────────────────────────────────────────────────────────────
     def b000(self) -> None:
-        """Reset Colors (Ctrl+click resets every object in the scene)."""
+        """Reset — clear the ENABLED channels (Ctrl+click resets every object in the scene).
+
+        Channel-scoped like Set Color / Select By Color: an unchecked channel is never
+        touched. (Reset used to wipe all five regardless, so clearing a wireframe tint also
+        stripped the object's ID material, vertex colors and ID collection.)"""
         import bpy
 
+        ch = self._channels_or_warn()
+        if ch is None:
+            return
         if self.sb.app.keyboardModifiers() == self.sb.QtCore.Qt.ControlModifier:
             objects = list(bpy.context.scene.objects)
         else:
@@ -703,16 +724,25 @@ class ColorIdSlots(ptk.LoggingMixin):
         if not objects:
             return
         with CoreUtils.undo_chunk("Color ID: Reset"):
-            ColorId.reset_colors(objects)
+            ColorId.reset_colors(
+                objects,
+                reset_object=ch["wireframe"],  # the wireframe channel's datum is obj.color
+                reset_material=ch["material"],
+                reset_vertex=ch["vertex"],
+                reset_outliner=ch["outliner"],
+                reset_sets=ch["set"],
+            )
         CoreUtils.tag_redraw()  # all editors — the outliner repaints too
 
     def b001(self) -> None:
         """Set Color — apply the active color to the selected objects on the enabled channels."""
+        ch = self._channels_or_warn()
+        if ch is None:
+            return
         objects = self.selected_objects
         color = self.target_color
         if not objects or color is None:
             return
-        ch = self._channels()
         with CoreUtils.undo_chunk("Color ID: Set Color"):
             ColorId.apply_color(
                 objects,
@@ -733,10 +763,12 @@ class ColorIdSlots(ptk.LoggingMixin):
         """Select By Color — select scene objects matching the active color (enabled channels)."""
         import bpy
 
+        ch = self._channels_or_warn()
+        if ch is None:
+            return
         color = self.target_color
         if color is None:
             return
-        ch = self._channels()
         found = ColorId.get_objects_by_color(
             color,
             check_object=ch["wireframe"],
@@ -761,12 +793,14 @@ class ColorIdSlots(ptk.LoggingMixin):
         answer, so they're read in order.)"""
         import bpy
 
+        ch = self._channels_or_warn()
+        if ch is None:
+            return
         obj = bpy.context.view_layer.objects.active
         button = self.selected_button
         if obj is None or button is None:
             self.sb.message_box("Select an object and a swatch first.")
             return
-        ch = self._channels()
         color = None
         if ch["outliner"]:
             color = ColorId.get_outliner_color(obj)

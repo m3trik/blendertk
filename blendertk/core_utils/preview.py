@@ -10,6 +10,10 @@ name sets, then runs ``operation.perform_operation(objects)``. ``refresh()`` rol
 back to the snapshot and re-runs (wire it to every parameter widget). Commit keeps the
 current result and pushes a **single undo step**; un-checking rolls everything back.
 
+The preview is **optional**: the commit button is live from the start and a click with the
+preview off runs the operation once on the current selection. Panels that must not commit
+blind pass ``require_preview=True`` (button dead until the preview is on).
+
 Constraints on ``perform_operation(objects)`` authors:
   - It may create objects/collections/datablocks freely — rollback removes anything whose
     name wasn't present at enable time.
@@ -41,6 +45,7 @@ class Preview:
         restore_func=None,
         message_func=print,
         undo_message=None,
+        require_preview=False,
     ):
         self.operation = operation
         self.enable_checkbox = enable_checkbox
@@ -49,6 +54,7 @@ class Preview:
         self.restore_func = restore_func
         self.message_func = message_func
         self.undo_message = undo_message or type(operation).__name__
+        self.require_preview = require_preview
 
         self._enabled = False
         self._guard = False  # suppress toggled-handler on programmatic setChecked
@@ -61,13 +67,13 @@ class Preview:
 
         enable_checkbox.toggled.connect(self._on_toggled)
         commit_button.clicked.connect(self.commit)
-        # The co-located ``.ui`` files ship the commit button ``enabled=false`` (copied from
-        # mayatk, whose Preview re-enables it on preview-on). This Preview instead supports
-        # commit WITHOUT a preview (``commit`` runs the op once on the live selection), so the
-        # button must always be clickable — enable it here so every panel's Create works
-        # regardless of what its ``.ui`` ships (otherwise the button is dead: preview can never
-        # be committed and a no-preview commit is impossible).
-        commit_button.setEnabled(True)
+        # The co-located ``.ui`` files ship the commit button ``enabled=false`` (the old gated
+        # contract). Previewing is optional here — ``commit`` runs the op once on the live
+        # selection when no preview is running — so the button is asserted live rather than
+        # left to whatever each ``.ui`` carries (otherwise it is dead: a preview could never be
+        # committed and a no-preview commit would be impossible). ``require_preview=True``
+        # restores the gate for panels that must not commit blind (mirrors mayatk).
+        self._sync_commit_enabled(False)
 
     # ------------------------------------------------------------------ public surface
     @property
@@ -93,8 +99,23 @@ class Preview:
         if active and active.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
-    def enable(self):
-        import bpy
+    def _prepared_selection(self, hint=""):
+        """Object-mode selection with the precondition applied, or None to abort.
+
+        Shared front gate for BOTH entry points — ``enable`` and the no-preview
+        ``commit`` — so a bypassed commit is gated exactly like a previewed one:
+        force OBJECT mode (the whole workflow is object-level; ops run from a live
+        edit session are unsafe), read the selection, then run the optional one-shot
+        ``prepare_operation`` precondition (mirror of mayatk's hook). Mirror needs it
+        to break linked-data sharing — mirroring shared geometry rewrites every linked
+        duplicate — so skipping it on the commit path silently corrupted the siblings.
+
+        In ``enable`` this ordering is additionally load-bearing: ``_prior_data`` is the
+        set of datablocks that already existed and anything outside it is purged as
+        "new" on rollback, so forking AFTER that snapshot would mark the new datablock
+        for deletion and strip the object's mesh. Reports the reason through
+        ``message_func``; the caller only decides how to abort.
+        """
         from blendertk.core_utils._core_utils import CoreUtils
 
         self._ensure_object_mode()
@@ -102,31 +123,28 @@ class Preview:
             CoreUtils.selected_objects()
         )  # view-layer read: robust from the Qt-pump timer context
         if not objects:
-            self.message_func(
-                "<strong>Nothing selected.</strong><br>Select object(s) before "
-                "enabling the preview."
-            )
-            self._set_checked(False)
-            return
-        # Optional one-shot precondition: anything the operation needs in place that
-        # must not participate in rollback. Mirror uses it to break linked-data sharing
-        # once, instead of forking inside every previewed run (mirror of mayatk's
-        # Preview.prepare_operation hook).
-        #
-        # Runs BEFORE every capture below, which is load-bearing here: `_prior_data`
-        # is the set of datablocks that already existed, and anything outside it is
-        # purged as "new" on rollback. Forking after that snapshot would mark the new
-        # datablock for deletion and strip the object's mesh. Capturing after also
-        # means an aborted enable leaves no half-populated state. Failure aborts the
-        # enable -- if the precondition can't be met, previewing isn't safe.
+            self.message_func(f"<strong>Nothing selected.</strong>{hint}")
+            return None
         prepare = getattr(self.operation, "prepare_operation", None)
         if callable(prepare):
             try:
                 prepare(objects)
             except Exception as e:
                 self.message_func(f"<strong>{type(e).__name__}</strong><br>{e}")
-                self._set_checked(False)
-                return
+                return None
+        return objects
+
+    def enable(self):
+        import bpy
+
+        objects = self._prepared_selection(
+            "<br>Select object(s) before enabling the preview."
+        )
+        if objects is None:
+            # A failed precondition aborts the enable — if it can't be met,
+            # previewing isn't safe — and leaves no half-populated capture state.
+            self._set_checked(False)
+            return
 
         self._captured = [o.name for o in objects]
         active = bpy.context.view_layer.objects.active
@@ -152,6 +170,7 @@ class Preview:
             )
         self._enabled = True
         self._set_checked(True)
+        self._sync_commit_enabled(True)
         self._run()
 
     def disable(self):
@@ -165,20 +184,21 @@ class Preview:
         self._drop_snapshots()
         self._enabled = False
         self._set_checked(False)
+        self._sync_commit_enabled(False)
 
     def commit(self):
         """Keep the current result and push one undo step. With the preview off, runs the
         operation once directly on the current selection (the Maya commit-without-preview
-        behavior)."""
+        behavior) — unless the panel opted into ``require_preview``, where a commit with no
+        preview running is a no-op."""
         import bpy
-        from blendertk.core_utils._core_utils import CoreUtils
 
         if not self._enabled:
-            objects = (
-                CoreUtils.selected_objects()
-            )  # view-layer read: robust from the Qt-pump timer context
-            if not objects:
-                self.message_func("<strong>Nothing selected.</strong>")
+            if self.require_preview:
+                return
+            # Same gate as enable(): OBJECT mode + selection + prepare_operation.
+            objects = self._prepared_selection()
+            if objects is None:
                 return
             try:
                 self.operation.perform_operation(objects)
@@ -189,6 +209,7 @@ class Preview:
             self._drop_snapshots()
             self._enabled = False
             self._set_checked(False)
+            self._sync_commit_enabled(False)
         if self.finalize_func:
             self.finalize_func()
         bpy.ops.ed.undo_push(message=self.undo_message)
@@ -208,6 +229,14 @@ class Preview:
             self.enable_checkbox.setChecked(state)
         finally:
             self._guard = False
+
+    def _sync_commit_enabled(self, previewing):
+        """Commit is only gated on the preview in ``require_preview`` mode; otherwise it
+        stays live so the user can commit without previewing."""
+        try:
+            self.commit_button.setEnabled(previewing or not self.require_preview)
+        except Exception:  # duck-typed / dead widget — never abort a commit
+            pass
 
     def _objects(self):
         """Re-resolve the captured selection by name — rollback may have recreated them."""

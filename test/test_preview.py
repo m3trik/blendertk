@@ -342,6 +342,43 @@ try:
     check("failing prepare_operation aborts the enable", not chk.isChecked())
     check("failing prepare_operation prevents the operation", boom.ran == 0, f"n={boom.ran}")
 
+    # ---- the SAME precondition must run on the commit-without-preview path. It used to
+    #      be skipped there, so a bypassed Mirror never broke linked-data sharing and
+    #      rewrote every linked duplicate — the exact corruption the hook exists to stop.
+    reset()
+    src = cube("Src")
+    linked = src.copy()  # linked duplicate: shares src.data
+    for coll in src.users_collection:
+        coll.objects.link(linked)
+    linked.location.x += 10.0
+    bpy.context.view_layer.update()
+    linked_verts = len(linked.data.vertices)
+
+    op = PrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(op, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    src.select_set(True)
+    bpy.context.view_layer.objects.active = src
+    btn.click()  # commit with the preview OFF
+    check("bypassed commit runs prepare_operation once", op.prepared == 1, f"n={op.prepared}")
+    check("bypassed commit broke the link", src.data is not linked.data)
+    check("bypassed commit left the linked sibling untouched",
+          len(linked.data.vertices) == linked_verts,
+          f"v={len(linked.data.vertices)} (was {linked_verts})")
+
+    # ---- a failing precondition must also abort the bypassed commit
+    reset()
+    o = cube("Src")
+    boom = BoomPrepareOp()
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(boom, chk, btn, message_func=msgs.append)
+    bpy.ops.object.select_all(action="DESELECT")
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    btn.click()
+    check("failing prepare_operation aborts the bypassed commit", boom.ran == 0, f"n={boom.ran}")
+
     # ---- restore_func: called once when a rollback DISCARDS the preview
     #      (un-check / failure), never on enable/refresh/commit — the hook for
     #      out-of-snapshot state (shared-carrier props, files on disk).
@@ -381,6 +418,25 @@ try:
     chk.setChecked(True)  # op raises -> self-disable path
     check("restore_func called on the failure-disable path", len(restores) == 1,
           f"n={len(restores)}")
+
+    # ---- require_preview=True: the opt-in gate (mirrors mayatk). Commit stays dead
+    #      until a preview is running, and a blind commit is a no-op.
+    reset()
+    o = cube("Src")
+    chk, btn = FakeCheck(), FakeButton()
+    pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append,
+                     require_preview=True)
+    check("require_preview leaves the commit button disabled", not btn.isEnabled())
+    n_before = len(bpy.data.objects)
+    btn.click()  # blind commit -> no-op
+    check("require_preview refuses a commit with no preview",
+          len(bpy.data.objects) == n_before, f"n={len(bpy.data.objects)}")
+    chk.setChecked(True)
+    check("require_preview enables commit once previewing", btn.isEnabled())
+    btn.click()
+    check("require_preview commit keeps the result",
+          len(bpy.data.objects) == 4, f"n={len(bpy.data.objects)}")
+    check("require_preview re-disables commit after the commit", not btn.isEnabled())
 
 except Exception:
     traceback.print_exc()

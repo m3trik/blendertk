@@ -1116,6 +1116,7 @@ class LightmapBakerSlots(ptk.LoggingMixin):
 
     def txt000_init(self, widget) -> None:
         """Add the Prefix / Suffix / Auto picker to the name-affix field."""
+        widget.option_box.clear_option = True
         widget.option_box.set_affix(default="auto")
 
     def _apply_preset(self, name: str) -> bool:
