@@ -764,6 +764,10 @@ class TubeRigSlots(ptk.LoggingMixin):
         self.ui.cmb_preset.currentIndexChanged.connect(self._on_mode_changed)
         self._rebuild_options()
 
+    def txt000_init(self, widget):
+        """Rig-name field — optional, so clearing back to auto-naming is a state."""
+        widget.option_box.clear_option = True
+
     def header_init(self, widget):
         """Configure header help text."""
         widget.set_help_text(

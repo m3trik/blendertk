@@ -88,6 +88,38 @@ try:
     Naming.rename([o], "foo__bar")
     check("rename explicit __ preserved", o.name == "foo__bar", o.name)
 
+    # ---- rename: paired '|' terms (mayatk parity) ---------------------------------------------
+    reset()
+    a, b = empty("arm_L"), empty("arm_R")
+    Naming.rename([a, b], "*_lt|*_rt", fltr="*_L|*_R")
+    check(
+        "rename paired terms",
+        a.name == "arm_lt" and b.name == "arm_rt",
+        f"{a.name},{b.name}",
+    )
+
+    # ---- rename: each filter term supplies its own 'from' text --------------------------------
+    reset()
+    a, b = empty("pCube1"), empty("nurbsSphere1")
+    Naming.rename([a, b], "*box*", fltr="pCube*|nurbs*")
+    check(
+        "rename multi-term filter",
+        a.name == "box1" and b.name == "boxSphere1",
+        f"{a.name},{b.name}",
+    )
+
+    # ---- rename: regex capture-group backref --------------------------------------------------
+    reset()
+    o = empty("pCube1")
+    Naming.rename([o], r"*\1_GEO", fltr=r"Cube(\d+)", regex=True)
+    check("rename regex backref", o.name == "p1_GEO", o.name)
+
+    # ---- rename: regex replace-suffix cuts at the match ---------------------------------------
+    reset()
+    o = empty("pCube1")
+    Naming.rename([o], "*_GEO", fltr=r"Cube.*", regex=True)
+    check("rename regex replace-suffix", o.name == "p_GEO", o.name)
+
     # ---- set_case -----------------------------------------------------------------------------
     reset()
     o = empty("cube")

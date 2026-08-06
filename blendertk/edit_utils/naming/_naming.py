@@ -37,13 +37,19 @@ class Naming(ptk.HelpMixin):
     ):
         """Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
 
-        ``to`` formatting tokens (via :func:`pythontk.find_str_and_format`): ``chars`` replace all,
-        ``*chars*`` replace-only, ``*chars`` replace-suffix, ``**chars`` append-suffix, ``chars*``
-        replace-prefix, ``chars**`` append-prefix. ``fltr`` filters which names match (wildcards or,
-        with ``regex``, regex). ``retain_suffix`` re-appends the object's existing type suffix (from
-        ``valid_suffixes``). ``collapse_padding`` collapses the underscore residue strip/replace
-        formatting leaves behind (skipped when ``to`` itself contains ``__``). Returns the new
-        names parallel to ``objects``.
+        ``to`` formatting tokens (via :func:`pythontk.find_str_and_format`) — the asterisk marks
+        the part of the existing name that is *kept*: ``chars`` replace all, ``*chars*``
+        replace-only, ``*chars`` replace-suffix, ``**chars`` append-suffix, ``chars*``
+        replace-prefix, ``chars**`` append-prefix, ``""`` strip. Pipe-separated ``to`` terms pair
+        positionally with ``fltr``'s (``*_L|*_R`` with ``*_lt|*_rt`` renames each side
+        differently); a single term applies to every filter term. ``fltr`` filters which names
+        match (wildcards or, with ``regex``, regex) and each of its terms supplies the "from" text
+        for the names it matched; in ``regex`` mode the pattern also drives the substitution and
+        its capture groups are available in ``to`` as ``\\1`` / ``\\g<name>``. ``retain_suffix``
+        re-appends the object's existing type suffix (from ``valid_suffixes``).
+        ``collapse_padding`` collapses the underscore residue strip/replace formatting leaves
+        behind (skipped when ``to`` itself contains ``__``). Returns the new names parallel to
+        ``objects``.
         """
         objects = [o for o in ptk.make_iterable(objects) if o]
         name_to_obj = {

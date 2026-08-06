@@ -596,6 +596,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     def txt001_init(self, widget):
         """Filter field — enable toggle + ignore-case + target combo, plus live re-filter (mirror of Maya)."""
         if not getattr(widget, "is_initialized", False):
+            widget.option_box.clear_option = True
             widget.option_box.set_toggle(
                 icon="filter",
                 tooltip_on="Filter enabled. Click to disable.",
@@ -1718,7 +1719,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.logger.info(f"Renamed to: {os.path.basename(new_path)}")
         else:
             self.sb.message_box(
-                "Rename failed (a file with that name may already exist)."
+                "Rename failed — a file with that name may already exist, or the open "
+                "file could not be saved."
             )
         self._refresh()
 

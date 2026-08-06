@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-08-04_
+_Generated: 2026-08-06_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
@@ -19,7 +19,7 @@ _Generated: 2026-08-04_
 
 ### `anim_utils/blendshape_animator/blendshape_animator_slots.py` — Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
 - `class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`
-  - methods: header_init, b000_init, b000, cmb000_init, le001_init, b001_init, b001, b003, b004_init, b004, b005, b006_init, b006, b007, b008_init, b008
+  - methods: header_init, b000_init, b000, cmb000_init, le000_init, le001_init, b001_init, b001, b003, b004_init, b004, b005, b006_init, b006, b007, b008_init, b008
 
 ### `anim_utils/blendshape_animator/creator.py` — Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
 - `class Creator(ptk.LoggingMixin)`
@@ -458,7 +458,7 @@ _Generated: 2026-08-04_
 - `class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, refresh_export_metadata
 - `class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`
-  - methods: header_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
+  - methods: header_init, txt000_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
 
 ### `mat_utils/game_shader.py` — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - `class GameShader(ptk.LoggingMixin, _GameShaderInternal)`
@@ -593,7 +593,7 @@ _Generated: 2026-08-04_
 
 ### `mat_utils/substance_bridge/substance_rpc/installer.py` — Install the substance_rpc plugin into Painter's user plugin folder.
 - `class Installer(_InstallerInternal)`
-  - methods: user_plugin_dir, is_installed, install, uninstall
+  - methods: user_plugin_dir, is_installed, is_current, install, uninstall
 
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py` — Substance 3D Painter RPC plugin -- entry point.
 - `start_plugin()`
@@ -715,13 +715,13 @@ _Generated: 2026-08-04_
 - `class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`
   - methods: collection, resolve_centerline, create_root, create_armature, create_joint_chain, add_twist, attach_spline_rig, build_curve, make_control, hook_curve_controls, constrain_end_with_falloff, build
 - `class TubeRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, b000, b001, b002, b003, b004
+  - methods: txt000_init, header_init, b000, b001, b002, b003, b004
 
 ### `rig_utils/wheel_rig.py` — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 - `class WheelRig(ptk.LoggingMixin)`
   - methods: rig_name, get_drivers, delete_drivers, rig_rotation
 - `class WheelRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, rig_name, movement_axis, rotation_axis, resolve_selection, set_wheel_height, s000_init, update_rig_name_placeholder, cleanup, wheel_rig, b000
+  - methods: header_init, rig_name, movement_axis, rotation_axis, resolve_selection, set_wheel_height, txt000_init, s000_init, update_rig_name_placeholder, cleanup, wheel_rig, b000
 
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - `class UiUtils(_UiUtilsInternal)`

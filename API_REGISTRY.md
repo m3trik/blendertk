@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-04_
+_Generated: 2026-08-06_
 
 ## Index
 
@@ -253,6 +253,7 @@ Switchboard slots controller for the co-located ``blendshape_animator.ui`` — B
   - `BlendshapeAnimatorSlots.b000_init(self, widget) -> None` — Create Setup button — option_box exposes an alternative entrypoint.
   - `BlendshapeAnimatorSlots.b000(self, widget) -> None` — Create Setup.
   - `BlendshapeAnimatorSlots.cmb000_init(self, widget) -> None` — Populate the edit-mode combo.
+  - `BlendshapeAnimatorSlots.le000_init(self, widget) -> None` — Name-prefix field — optional, so an empty prefix is a real choice.
   - `BlendshapeAnimatorSlots.le001_init(self, widget) -> None` — CSV weights field — option_box menu offers preset lists.
   - `BlendshapeAnimatorSlots.b001_init(self, widget) -> None` — Add Tweens — option_box exposes count + group / prefix overrides.
   - `BlendshapeAnimatorSlots.b001(self, widget) -> None` — Add Tweens — dispatches by mode.
@@ -807,7 +808,7 @@ Transform diagnostics — the Blender counterpart of mayatk's
 
 Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 
-- **[`class Preview`](blendertk/blendertk/core_utils/preview.py#L32)** — Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``.
+- **[`class Preview`](blendertk/blendertk/core_utils/preview.py#L36)** — Snapshot-based live preview: ``Preview(slot, ui.chk000, ui.b000, …)``.
   - `Preview.is_enabled(self)` *(property)*
   - `Preview.refresh(self, *args)` — Roll back to the snapshot and re-run the operation (parameter-change hook).
   - `Preview.enable(self)`
@@ -877,7 +878,7 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
   - `ColorIdSlots.selected_objects(self) -> List` *(property)* — Return the currently selected objects, or an empty list if none are selected.
   - `ColorIdSlots.selected_button(self)` *(property)* — Return the currently checked swatch button in the palette group.
   - `ColorIdSlots.target_color(self) -> Optional[Color]` *(property)* — Return the color of the selected swatch, or None if no swatch is selected.
-  - `ColorIdSlots.b000(self) -> None` — Reset Colors (Ctrl+click resets every object in the scene).
+  - `ColorIdSlots.b000(self) -> None` — Reset — clear the ENABLED channels (Ctrl+click resets every object in the scene).
   - `ColorIdSlots.b001(self) -> None` — Set Color — apply the active color to the selected objects on the enabled channels.
   - `ColorIdSlots.b002(self) -> None` — Select By Color — select scene objects matching the active color (enabled channels).
   - `ColorIdSlots.b003(self) -> None` — Get Color — read the active object's color into the selected swatch.
@@ -1236,7 +1237,7 @@ Target Weld — interactive drag-a-vertex-onto-another merge tool.
 
 blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 
-- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L107)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
+- **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L135)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
   - `EnvUtils.find_blend_files(root_dir, recursive=True, filter_text='')` *(static)* — Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.
   - `EnvUtils.list_libraries()` *(static)* — Every linked library as a record: ``{name, library, filepath, abspath, exists}``.
   - `EnvUtils.linked_blend_paths()` *(static)* — Set of normalized absolute paths of the ``.blend`` files currently linked as libraries.
@@ -1883,6 +1884,7 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
   - `EmissiveGroups.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Republish the ``emissive_groups`` channel on the ``data_export``
 - **[`class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L865)** — Switchboard slots for the ``emissive_groups.ui`` panel.
   - `EmissiveGroupsSlots.header_init(self, widget) -> None`
+  - `EmissiveGroupsSlots.txt000_init(self, widget) -> None` — Group-name field — clearable back to the auto-derived name.
   - `EmissiveGroupsSlots.tbl000_init(self, widget) -> None` — Table setup: one-time construction, then (re)wire signals and populate.
   - `EmissiveGroupsSlots.b000(self) -> None` — Add (or extend) a group from the selection.
   - `EmissiveGroupsSlots.b001(self) -> None` — Remove the selected group (retires its slot).
@@ -2211,7 +2213,7 @@ Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
   - `SubstanceBridge.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
   - `SubstanceBridge.find_live_managed(self) -> Optional[SubstanceConnection]` — Return the most-recently-launched managed instance whose RPC pings.
   - `SubstanceBridge.send(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]` — Export *objects*, render *template* in *mode*, hand off to Painter.
-  - `SubstanceBridge.ensure_rpc_plugin(self) -> None` — Install the Painter-side substance_rpc plugin if it isn't already.
+  - `SubstanceBridge.ensure_rpc_plugin(self) -> None` — Install -- or refresh -- the Painter-side substance_rpc plugin.
   - `SubstanceBridge.high_poly_path_for(cls, fbx_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_high.fbx``.
   - `SubstanceBridge.mesh_map_files(cls, paths: List[str]) -> List[str]` *(class)* — The subset of *paths* Painter can actually use as mesh maps.
   - `SubstanceBridge.list_templates() -> List[Path]` *(static)* — Return user-visible templates in ``templates/`` (skips underscore-prefixed).
@@ -2281,6 +2283,7 @@ Install the substance_rpc plugin into Painter's user plugin folder.
 - **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L87)** — Installer — module namespace.
   - `Installer.user_plugin_dir() -> Optional[Path]` *(static)* — Resolve Painter's Python plugins folder.
   - `Installer.is_installed() -> bool` *(static)* — True if the plugin is present at the resolved user plugin dir.
+  - `Installer.is_current() -> bool` *(static)* — True if the installed plugin matches the one this package ships.
   - `Installer.install(force: bool = False) -> Optional[Path]` *(static)* — Install the plugin into Painter's user plugin folder.
   - `Installer.uninstall() -> bool` *(static)* — Remove the plugin from the user plugin folder.
 
@@ -2653,6 +2656,7 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `TubeRig.constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)` — Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
   - `TubeRig.build(self, strategy='spline', **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
 - **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L742)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
+  - `TubeRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
   - `TubeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TubeRigSlots.b000(self)` — Build Rig — run the selected strategy on the selected tube mesh.
   - `TubeRigSlots.b001(self)` — Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls
@@ -2677,6 +2681,7 @@ Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui
   - `WheelRigSlots.rotation_axis(self) -> int` *(property)* — Get the wheel ``rotation_euler`` index that corresponds to the selected movement axis.
   - `WheelRigSlots.resolve_selection(self)` — Resolve the current selection into control (driver) and wheels.
   - `WheelRigSlots.set_wheel_height(self)` — Get the wheel height from the selected object's bounding box.
+  - `WheelRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
   - `WheelRigSlots.s000_init(self, widget)` — Initialize the wheel height field's option-box menu.
   - `WheelRigSlots.update_rig_name_placeholder(self)` — Update the rig name placeholder based on the driver (active object).
   - `WheelRigSlots.cleanup(self)` — Unsubscribe from the centralized ScriptJobManager.
@@ -2879,7 +2884,7 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
-- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L440)** — Parameters — module namespace.
+- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L452)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).

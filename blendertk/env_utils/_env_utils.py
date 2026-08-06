@@ -86,6 +86,34 @@ class _EnvUtilsInternal(object):
         return bool(is_saved or has_content)
 
     @staticmethod
+    def _is_open_file(path):
+        """True if *path* is the .blend open in this session (False without bpy / unsaved file)."""
+        try:
+            import bpy
+        except ImportError:  # no running Blender — nothing can be open
+            return False
+
+        current = bpy.data.filepath
+        if not (current and path):
+            return False
+        return os.path.normcase(os.path.normpath(current)) == os.path.normcase(
+            os.path.normpath(path)
+        )
+
+    @staticmethod
+    def _save_open_file():
+        """Flush the open file to disk so a pending rename carries the user's unsaved edits.
+        True when the file on disk is up to date, False when the save failed (caller aborts —
+        renaming a file out from under an unsaved session loses the edits at the next save)."""
+        import bpy
+
+        try:
+            bpy.ops.wm.save_mainfile()
+            return True
+        except RuntimeError:
+            return False
+
+    @staticmethod
     def _library_objects(lib):
         """Scene objects belonging to ``lib`` — directly linked objects + the local collection-instance
         empties that instance one of the library's linked collections."""
@@ -622,7 +650,16 @@ class EnvUtils(_EnvUtilsInternal):
     @staticmethod
     def rename_scene_file(path, new_base):
         """Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
-        Returns the new path, or ``None`` (missing source, name clash, or no-op rename)."""
+
+        Renaming the **open** file is save-then-reopen: unsaved edits are flushed to the old
+        .blend first (a save afterwards would just re-create the old name) and the renamed file
+        is re-opened at the end. Without the reopen ``bpy.data.filepath`` keeps pointing at a
+        filename that no longer exists, so the next save silently resurrects it and the panel
+        lists two scenes where the user renamed one.
+
+        Returns the new path, or ``None`` (missing source, name clash, no-op rename, or the open
+        file could not be saved).
+        """
         if not (path and os.path.isfile(path) and new_base):
             return None
         directory = os.path.dirname(path)
@@ -634,6 +671,9 @@ class EnvUtils(_EnvUtilsInternal):
             return None
         if os.path.exists(new_path):
             return None
+        is_open = EnvUtils._is_open_file(path)
+        if is_open and not EnvUtils._save_open_file():
+            return None
         try:
             os.rename(path, new_path)
         except OSError:
@@ -644,7 +684,10 @@ class EnvUtils(_EnvUtilsInternal):
                 os.rename(backup, new_path + "1")
             except OSError:
                 pass
-        return os.path.normpath(new_path)
+        new_path = os.path.normpath(new_path)
+        if is_open:
+            EnvUtils.open_scene(new_path)
+        return new_path
 
     @staticmethod
     def delete_scene_file(path):
