@@ -48,7 +48,7 @@ try:
         "m_grid", "m_grid_and_image_planes", "m_cycle_display_state", "m_smooth_preview", "m_multi_component",
         "m_frame", "m_object_selection", "m_vertex_selection", "m_edge_selection", "m_face_selection",
         "m_invert_selection", "m_paste_and_rename", "m_toggle_panels", "m_toggle_UV_select_type",
-        "m_merge_vertices", "m_group", "m_set_selected_keys", "m_unset_selected_keys",
+        "m_merge_vertices", "m_group", "m_ungroup", "m_set_selected_keys", "m_unset_selected_keys",
     ]
     missing = [m for m in expected if not callable(getattr(M, m, None))]
     check("all userSetup macros present", not missing, str(missing))
@@ -142,6 +142,49 @@ try:
           str(grp.location) if grp else None)
     check("children kept world position",
           abs(a.matrix_world.translation.x) < 1e-4 and abs(b.matrix_world.translation.x - 4.0) < 1e-4)
+
+    # 7a. m_ungroup is the inverse — dissolve the Empty, children stay put in world space.
+    bpy.ops.object.select_all(action="DESELECT")
+    grp.select_set(True)
+    bpy.context.view_layer.objects.active = grp
+    grp_name = grp.name
+    M.m_ungroup()
+    check("m_ungroup removed the Empty", grp_name not in bpy.data.objects)
+    check("children unparented", a.parent is None and b.parent is None)
+    check("children kept world position after ungroup",
+          abs(a.matrix_world.translation.x) < 1e-4 and abs(b.matrix_world.translation.x - 4.0) < 1e-4,
+          f"{a.matrix_world.translation} {b.matrix_world.translation}")
+    # Maya's ungroup leaves the freed children selected (asserted in mayatk's
+    # test_ungroup_objects_leaves_children_selected) — the mirror must match, or the
+    # hotkey drops the user with an empty selection.
+    check("freed children left selected", a.select_get() and b.select_get())
+    # A mesh is not a group — m_ungroup must leave it alone.
+    bpy.ops.object.select_all(action="DESELECT")
+    a.select_set(True)
+    bpy.context.view_layer.objects.active = a
+    check("m_ungroup skips non-Empty selections",
+          M.m_ungroup() == [] and a.name in bpy.data.objects)
+
+    # 7a-ii. Nested groups — outer + inner in one call frees the leaf exactly ONCE
+    #        (it is handed up through every level, so a naive collect double-counts).
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0)); leaf = bpy.context.active_object
+    M.m_group()                                   # leaf under an Empty
+    inner = leaf.parent
+    bpy.ops.object.select_all(action="DESELECT")
+    inner.select_set(True); bpy.context.view_layer.objects.active = inner
+    M.m_group()                                   # that Empty under a second one
+    outer = inner.parent
+    check("nested groups built", outer is not None and leaf.parent is inner)
+    bpy.ops.object.select_all(action="DESELECT")
+    for e in (outer, inner):
+        e.select_set(True)
+    bpy.context.view_layer.objects.active = outer
+    freed = M.m_ungroup()
+    check("nested ungroup frees the leaf exactly once",
+          leaf.parent is None and freed == [leaf], str([o.name for o in freed]))
+    check("leaf kept world position through nested ungroup",
+          abs(leaf.matrix_world.translation.x - 2.0) < 1e-4, str(leaf.matrix_world.translation))
 
     # 7b. m_merge_vertices works in OBJECT mode (merges doubles across selected meshes).
     reset_scene()

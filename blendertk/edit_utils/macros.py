@@ -356,6 +356,12 @@ class EditMacros(_ViewportMixin):
             return
         EditUtils._group_under_empty(sel, "group", center=True)
 
+    @staticmethod
+    def m_ungroup():
+        """Ungroup the selected group Empties — children keep their world transforms
+        (Maya's ungroup). The inverse of `m_group`; non-Empty selections are skipped."""
+        return EditUtils.ungroup_objects()
+
 
 class SelectionMacros:
     """ """

@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-06_
+_Generated: 2026-08-07_
 
 ## Index
 
@@ -94,6 +94,7 @@ _Generated: 2026-08-06_
 - [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 - [`env_utils/unity_bridge/unity_bridge_slots.py`](#env_utils--unity_bridge--unity_bridge_slots) — Slots for the Unity bridge panel -- mirror of mayatk's
 - [`env_utils/usd.py`](#env_utils--usd) — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
+- [`env_utils/webxr_preview.py`](#env_utils--webxr_preview) — Push the Blender selection to a live browser / WebXR preview.
 - [`env_utils/workspace_editor.py`](#env_utils--workspace_editor) — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — Blender world-HDRI environment manager.
@@ -111,11 +112,10 @@ _Generated: 2026-08-06_
 - [`mat_utils/marmoset_bridge/marmoset_rpc/connection.py`](#mat_utils--marmoset_bridge--marmoset_rpc--connection) — JSON-RPC client bound to the marmoset_rpc Toolbag plugin.
 - [`mat_utils/marmoset_bridge/marmoset_rpc/installer.py`](#mat_utils--marmoset_bridge--marmoset_rpc--installer) — Install the marmoset_rpc plugin into Toolbag's user plugin folder.
 - [`mat_utils/marmoset_bridge/marmoset_rpc/job.py`](#mat_utils--marmoset_bridge--marmoset_rpc--job) — One-shot batch pipeline for the marmoset_rpc bridge.
-- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--main_thread) — Main-thread marshalling for ops that touch Toolbag's API.
+- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--__init__) — Marmoset Toolbag RPC plugin -- entry point.
+- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--_rpc_core) — The in-application half of the RPC pair: registry + marshaller + server.
 - [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--scene_ops) — Scene-inspection ops.
-- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--system_ops) — System-level ops: heartbeat, introspection, Toolbag version.
-- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--registry) — Op registry for the marmoset_rpc plugin.
-- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--server) — HTTP JSON-RPC server for the marmoset_rpc plugin.
+- [`mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py`](#mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--system_ops) — Toolbag-specific system ops.
 - [`mat_utils/marmoset_bridge/parameters.py`](#mat_utils--marmoset_bridge--parameters) — Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 - [`mat_utils/marmoset_bridge/template_params.py`](#mat_utils--marmoset_bridge--template_params) — Plain default values + literal formatting for Marmoset template tokens.
 - [`mat_utils/marmoset_bridge/templates/bake.py`](#mat_utils--marmoset_bridge--templates--bake) — Bake source detail + surface maps onto the target meshes.
@@ -134,12 +134,10 @@ _Generated: 2026-08-06_
 - [`mat_utils/substance_bridge/substance_rpc/client.py`](#mat_utils--substance_bridge--substance_rpc--client) — HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 - [`mat_utils/substance_bridge/substance_rpc/installer.py`](#mat_utils--substance_bridge--substance_rpc--installer) — Install the substance_rpc plugin into Painter's user plugin folder.
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--__init__) — Substance 3D Painter RPC plugin -- entry point.
-- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--main_thread) — Main-thread marshalling for ops that touch Painter's API.
+- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--_rpc_core) — The in-application half of the RPC pair: registry + marshaller + server.
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--project_ops) — Project-level ops: inspect the open project and reload its mesh.
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--setup_ops) — Project-setup ops: resolution, the baking high poly, and mesh maps.
-- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--system_ops) — Transport-level ops: liveness, discovery, and script evaluation.
-- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--registry) — Op registry for the substance_rpc plugin.
-- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--server) — HTTP JSON-RPC server for the substance_rpc plugin.
+- [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--system_ops) — Painter-specific system ops: version reporting and script evaluation.
 - [`mat_utils/texture_baker.py`](#mat_utils--texture_baker) — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - [`mat_utils/texture_path_editor.py`](#mat_utils--texture_path_editor) — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - [`node_utils/_node_utils.py`](#node_utils--_node_utils) — Node / datablock utilities — instancing via shared object data.
@@ -926,7 +924,7 @@ Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 
 Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 
-- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L523)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L524)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
   - `EditUtils.hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')` *(static)* — Hook control point *point_index* of *curve* to *target* so moving the target moves that point
   - `EditUtils.decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
@@ -959,6 +957,7 @@ Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tri
   - `EditUtils.snap_to_grid(objects=None, grid_size=1.0, axes='xyz')` *(static)* — Snap to the nearest grid point — mirror of ``mtk.Snap.snap_to_grid``.
   - `EditUtils.snap_to_surface(source_meshes, target, offset=0.0, threshold=None, invert=False)` *(static)* — Project the source meshes' vertices onto the closest point of ``target``'s surface —
   - `EditUtils.get_similar_mesh(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)` *(static)* — Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —
+  - `EditUtils.ungroup_objects(objects=None)` *(static)* — Dissolve the given group Empties (or the selection's) — mirror of mayatk's
   - `EditUtils.separate_objects(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)` *(static)* — Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender
   - `EditUtils.combine_objects(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0, uninstance=True)` *(static)* — Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``
   - `EditUtils.detach_components(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)` *(static)* — Detach the active mesh's selected faces — Blender mirror of mayatk's
@@ -1085,19 +1084,20 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `EditMacros.m_paste_and_rename(cls)` *(class)* — Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L360)**
+  - `EditMacros.m_ungroup()` *(static)* — Ungroup the selected group Empties — children keep their world transforms
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L366)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L413)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L419)**
   - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L456)**
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L462)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L482)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L488)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1126,7 +1126,7 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1167)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1173)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--mirror"></a>
 ### `edit_utils/mirror.py`
@@ -1608,8 +1608,6 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.b000(self) -> None` — Export: run the scene export with the configured tasks and settings.
   - `SceneExporterSlots.b010(self) -> None` — Set Output Directory
   - `SceneExporterSlots.b006(self) -> None` — Open Output Directory
-  - `SceneExporterSlots.b003(self) -> None` — Add Preset -- save a new named FBX export-option preset, seeded from the currently
-  - `SceneExporterSlots.b004(self) -> None` — Delete Preset -- remove the currently-selected FBX export-option preset from disk
   - `SceneExporterSlots.b007(self) -> None` — Open Preset Directory.
   - `SceneExporterSlots.b008(self) -> None` — Edit Preset -- open the selected preset's JSON file in the OS's default editor so
   - `SceneExporterSlots.save_output_dir(self, output_dir: str) -> None` — Record the output directory into the recent values plugin.
@@ -1620,7 +1618,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L953)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L954)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1711,6 +1709,13 @@ USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.
   - `UsdUtils.export(filepath=None, objects=None, selection_only=True, **usd_opts)` *(static)* — Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.
   - `UsdUtils.import_usd(filepath, **usd_opts)` *(static)* — Import a USD file (wrapper over ``bpy.ops.wm.usd_import``).
   - `UsdUtils.export_selection_usd(filepath=None, objects=None, **usd_opts)` *(static)* — Export the selection (or *objects*) to a USD file for an external-app hand-off.
+
+<a id="env_utils--webxr_preview"></a>
+### `env_utils/webxr_preview.py`
+
+Push the Blender selection to a live browser / WebXR preview.
+
+- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L37)** — Live browser / WebXR preview of the Blender selection.
 
 <a id="env_utils--workspace_editor"></a>
 ### `env_utils/workspace_editor.py`
@@ -2025,13 +2030,38 @@ One-shot batch pipeline for the marmoset_rpc bridge.
 - **[`class BatchJob`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/job.py#L31)** — BatchJob — module namespace.
   - `BatchJob.run_batch(calls: List[Call], host: str = '127.0.0.1', port: int = 8765, stop_on_error: bool = False) -> List[Result]` *(static)* — Connect to a running Toolbag's marmoset_rpc plugin and fire calls.
 
-<a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--main_thread"></a>
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py`
+<a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--__init__"></a>
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py`
 
-Main-thread marshalling for ops that touch Toolbag's API.
+Marmoset Toolbag RPC plugin -- entry point.
 
-- [`run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py#L50) — Run *fn* on the Qt main thread;
-- [`is_main_thread_marshalling_active()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py#L113) — True if :func:`run_on_main_thread` will actually marshal a call.
+- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L48) — Start the RPC server (idempotent).
+- [`stop_server()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L53) — Shut the server down (tests / hot-reload).
+- [`is_running()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L58) — True while the server is bound.
+- [`autostart()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L63) — Start on plugin load, gated to the Toolbag host.
+
+<a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--_rpc_core"></a>
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py`
+
+The in-application half of the RPC pair: registry + marshaller + server.
+
+- **[`class OpRegistry(_OpRegistryInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py#L84)** — The callable surface a host plugin exposes over RPC.
+  - `OpRegistry.register(self, name)` — Decorator registering the wrapped function under *name*.
+  - `OpRegistry.get(self, name)` — Return the op callable registered under *name*, or ``None``.
+  - `OpRegistry.all_ops(self)` — Every registered op name, sorted.
+  - `OpRegistry.describe(self, name=None)` — Describe one op (``None`` for all) as ``{name, doc, params}``.
+- **[`class MainThreadMarshaller(_MainThreadMarshallerInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py#L162)** — Run a callable on the host's Qt main thread and block for its result.
+  - `MainThreadMarshaller.is_active(self)` — True when :meth:`run` will marshal rather than call direct.
+  - `MainThreadMarshaller.run(self, fn, *args, timeout=None, **kwargs)` — Call *fn*, on the main thread when one is reachable.
+- **[`class RpcPlugin(object)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py#L326)** — One host plugin: a registry, a marshaller, and the server that joins them.
+  - `RpcPlugin.port(self)` *(property)* — Configured port: ``<PREFIX>_PORT`` if set and numeric, else the default.
+  - `RpcPlugin.is_hosted(self)` — True only inside the real host application.
+  - `RpcPlugin.is_running(self)` — True while the HTTP server is bound.
+  - `RpcPlugin.address(self)` *(property)* — The bound ``(host, port)``, or ``None`` when not running.
+  - `RpcPlugin.start(self, port=None, host=None)` — Bind and serve on a daemon thread.
+  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload).
+  - `RpcPlugin.autostart(self)` — Start on plugin load, but only when actually hosted.
+  - `RpcPlugin.autostart_safely(self)` — :meth:`autostart`, but a failure is logged instead of raised.
 
 <a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--scene_ops"></a>
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py`
@@ -2044,33 +2074,9 @@ Scene-inspection ops.
 <a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--system_ops"></a>
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py`
 
-System-level ops: heartbeat, introspection, Toolbag version.
+Toolbag-specific system ops.
 
-- [`ping()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L8) — Heartbeat -- proves the plugin is alive.
-- [`list_ops()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L14) — Sorted list of every registered op name.
-- [`describe_op(op='')`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L20) — Return the JSON-friendly description of *op* or all ops if empty.
-- [`version()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L31) — Toolbag build number (e.g.
-
-<a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--registry"></a>
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py`
-
-Op registry for the marmoset_rpc plugin.
-
-- [`register(name)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py#L21) — Decorator: register *fn* under *name*.
-- [`get(name)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py#L36) — Return the op function for *name*, or None.
-- [`all_ops()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py#L41) — Sorted list of every registered op name.
-- [`describe(name=None)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py#L46) — Return a JSON-friendly description of one op or all ops.
-- [`clear()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py#L82) — Reset the registry (test-only).
-
-<a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--server"></a>
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py`
-
-HTTP JSON-RPC server for the marmoset_rpc plugin.
-
-- [`start_server(port=None, host='127.0.0.1')`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py#L97) — Start the HTTP server in a daemon thread.
-- [`stop_server()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py#L117) — Shut down the server (mostly useful for tests / hot-reload).
-- [`is_running()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py#L130)
-- [`autostart()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py#L154) — Start the server on plugin load, gated to the Toolbag host.
+- [`version()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L14) — Toolbag build number (e.g.
 
 <a id="mat_utils--marmoset_bridge--parameters"></a>
 ### `mat_utils/marmoset_bridge/parameters.py`
@@ -2292,16 +2298,35 @@ Install the substance_rpc plugin into Painter's user plugin folder.
 
 Substance 3D Painter RPC plugin -- entry point.
 
-- [`start_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L33) — Painter lifecycle hook: start the RPC server (idempotent).
-- [`close_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L45) — Painter lifecycle hook: shut the RPC server down.
+- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L49) — Start the RPC server (idempotent).
+- [`stop_server()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L54) — Shut the server down (close_plugin hook / tests / hot-reload).
+- [`is_running()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L59) — True while the server is bound.
+- [`autostart()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L64) — Start on plugin load, gated to the Painter host.
+- [`start_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L69) — Painter lifecycle hook: start the RPC server (idempotent).
+- [`close_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L76) — Painter lifecycle hook: shut the RPC server down.
 
-<a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--main_thread"></a>
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py`
+<a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--_rpc_core"></a>
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py`
 
-Main-thread marshalling for ops that touch Painter's API.
+The in-application half of the RPC pair: registry + marshaller + server.
 
-- [`run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py#L53) — Run *fn* on the Qt main thread;
-- [`is_main_thread_marshalling_active()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py#L111) — True if :func:`run_on_main_thread` will actually marshal a call.
+- **[`class OpRegistry(_OpRegistryInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py#L84)** — The callable surface a host plugin exposes over RPC.
+  - `OpRegistry.register(self, name)` — Decorator registering the wrapped function under *name*.
+  - `OpRegistry.get(self, name)` — Return the op callable registered under *name*, or ``None``.
+  - `OpRegistry.all_ops(self)` — Every registered op name, sorted.
+  - `OpRegistry.describe(self, name=None)` — Describe one op (``None`` for all) as ``{name, doc, params}``.
+- **[`class MainThreadMarshaller(_MainThreadMarshallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py#L162)** — Run a callable on the host's Qt main thread and block for its result.
+  - `MainThreadMarshaller.is_active(self)` — True when :meth:`run` will marshal rather than call direct.
+  - `MainThreadMarshaller.run(self, fn, *args, timeout=None, **kwargs)` — Call *fn*, on the main thread when one is reachable.
+- **[`class RpcPlugin(object)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py#L326)** — One host plugin: a registry, a marshaller, and the server that joins them.
+  - `RpcPlugin.port(self)` *(property)* — Configured port: ``<PREFIX>_PORT`` if set and numeric, else the default.
+  - `RpcPlugin.is_hosted(self)` — True only inside the real host application.
+  - `RpcPlugin.is_running(self)` — True while the HTTP server is bound.
+  - `RpcPlugin.address(self)` *(property)* — The bound ``(host, port)``, or ``None`` when not running.
+  - `RpcPlugin.start(self, port=None, host=None)` — Bind and serve on a daemon thread.
+  - `RpcPlugin.stop(self)` — Shut the server down (host teardown hook, tests, hot-reload).
+  - `RpcPlugin.autostart(self)` — Start on plugin load, but only when actually hosted.
+  - `RpcPlugin.autostart_safely(self)` — :meth:`autostart`, but a failure is logged instead of raised.
 
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--project_ops"></a>
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py`
@@ -2326,34 +2351,11 @@ Project-setup ops: resolution, the baking high poly, and mesh maps.
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--system_ops"></a>
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py`
 
-Transport-level ops: liveness, discovery, and script evaluation.
+Painter-specific system ops: version reporting and script evaluation.
 
-- [`ping()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L13) — Liveness probe.
-- [`list_ops()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L19) — Return every registered op name (sorted).
-- [`version()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L27) — Return Painter + plugin API version info (best-effort).
-- [`eval_python(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L49) — Exec *script* (Python source) inside Painter's interpreter.
-- [`js_evaluate(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L71) — Evaluate *script* in Painter's JavaScript engine (``alg.*`` API).
-
-<a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--registry"></a>
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py`
-
-Op registry for the substance_rpc plugin.
-
-- [`register(name)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py#L26) — Decorator: register *fn* under *name*.
-- [`get(name)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py#L41) — Return the op function for *name*, or None.
-- [`all_ops()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py#L46) — Sorted list of every registered op name.
-- [`describe(name=None)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py#L51) — Return a JSON-friendly description of one op or all ops.
-- [`clear()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py#L87) — Reset the registry (test-only).
-
-<a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--server"></a>
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py`
-
-HTTP JSON-RPC server for the substance_rpc plugin.
-
-- [`start_server(port=None, host='127.0.0.1')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py#L99) — Start the HTTP server in a daemon thread.
-- [`stop_server()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py#L119) — Shut down the server (close_plugin hook / tests / hot-reload).
-- [`is_running()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py#L132)
-- [`autostart()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py#L157) — Start the server, gated to the Painter host.
+- [`version()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L18) — Return Painter + plugin API version info (best-effort).
+- [`eval_python(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L38) — Exec *script* (Python source) inside Painter's interpreter.
+- [`js_evaluate(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L60) — Evaluate *script* in Painter's JavaScript engine (``alg.*`` API).
 
 <a id="mat_utils--texture_baker"></a>
 ### `mat_utils/texture_baker.py`

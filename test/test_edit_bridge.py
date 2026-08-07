@@ -1,5 +1,5 @@
 """blendertk bridge (btk.Bridge + BridgeSlots/Preview) headless test.
-Run: blender --background --factory-startup --python blendertk/test/test_bridge.py
+Run: blender --background --factory-startup --python blendertk/test/test_edit_bridge.py
 
 Covers the engine (bridge two open loops via bmesh.ops.bridge_loops in the Object-Mode/Preview
 entry path, the divisions→subdivide rows, empty/insufficient-selection guards) and the live-Preview

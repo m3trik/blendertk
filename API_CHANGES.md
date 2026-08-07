@@ -1,5 +1,8 @@
 # blendertk — API Changes
 
-_Diff vs prior baseline. Generated 2026-08-06._
+_Diff vs prior baseline. Generated 2026-08-07._
 
-No public API changes since last refresh.
+## Removed (2)
+
+- `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.b003` — was `(self) -> None`
+- `env_utils/scene_exporter/scene_exporter_slots.py::SceneExporterSlots.b004` — was `(self) -> None`

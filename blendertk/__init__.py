@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.50"
+__version__ = "0.5.53"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -111,6 +111,11 @@ DEFAULT_INCLUDE = {
     # round-trip. btk-only by design (Maya opens its own scenes natively);
     # ledgered in tentacle/docs/parity_map.py.
     "env_utils.maya_bridge._scene_import": "MayaSceneImport",
+    # Live browser / WebXR preview — a hand-off bridge whose target is a loopback
+    # PreviewServer rather than an app. Mirror of mayatk's ``WebXrPreview``.
+    "env_utils.webxr_preview": [
+        "WebXrPreview",
+    ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
     "env_utils.unity_bridge._unity_bridge": [

@@ -837,9 +837,10 @@ class _TaskChecksMixin(_TaskDataMixin):
           gate unmeasured (mayatk collapses the token to a probe tile the same
           way).
 
-        ``max_mb`` may be a number or the QLineEdit's text (e.g. ``"16"``);
-        ``None``, ``0``, ``""``, or ``"OFF"`` disables the check, and a
-        non-numeric value logs a warning and skips.
+        ``max_mb`` may be the spin box's value or any numeric-ish string (e.g.
+        ``"16"``); ``None``, ``0`` (the spin box's "OFF" position), ``""``, or
+        ``"OFF"`` disables the check, and a non-numeric value logs a warning
+        and skips.
         """
         if not max_mb or str(max_mb).upper() == "OFF":
             return True, []
@@ -1032,12 +1033,14 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "sep_general": {"widget_type": "Separator", "title": "General"},
             "export_visible_objects": {
                 "widget_type": "ComboBox",
+                "set_row_label": "Scope",
                 "setToolTip": "Choose what objects to export:\n- All Visible Objects: Export all visible geometry in the scene\n- Selected Objects Only: Export only currently selected objects\n- All Scene Objects: Export all objects regardless of visibility or selection",
                 "add": self._export_mode_options,
                 "value_method": "currentData",
             },
             "set_linear_unit": {
                 "widget_type": "ComboBox",
+                "set_row_label": "Units",
                 "setToolTip": "Linear unit to be used during export.",
                 "add": self._scene_unit_options,
             },
@@ -1134,6 +1137,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "sep_hierarchy": {"widget_type": "Separator", "title": "Hierarchy"},
             "ignore_groups": {
                 "widget_type": "QLineEdit",
+                "set_row_label": "Ignore",
                 "setPlaceholderText": "Group names to ignore (comma-separated)",
                 "setToolTip": "Comma-separated names of top-level objects to exclude from export (case-insensitive).\nExample: temp, proxy\nLeave empty to skip.",
                 "setText": "temp",
@@ -1156,6 +1160,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "sep_output": {"widget_type": "Separator", "title": "Output"},
             "version": {
                 "widget_type": "QLineEdit",
+                "set_row_label": "Version",
                 "setPlaceholderText": "{stem}_v{n:03d}  — empty disables",
                 "setToolTip": (
                     "Version format for the export filename. Placeholders:\n"
@@ -1178,6 +1183,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
             "sep_general": {"widget_type": "Separator", "title": "General"},
             "check_framerate": {
                 "widget_type": "ComboBox",
+                "set_row_label": "Framerate",
                 "setToolTip": "Check the scene framerate against the target framerate.",
                 "add": self._frame_rate_options,
             },
@@ -1268,14 +1274,18 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setChecked": True,
             },
             "check_texture_file_size": {
-                "widget_type": "QLineEdit",
-                "setPlaceholderText": "Max Texture Size (MB) — empty disables",
-                "setText": "16",
+                # Mirrors mayatk: a bounded MB budget is a spin box, and 0 reads
+                # back as "OFF" (the check treats a falsy limit as disabled).
+                "widget_type": "SpinBox",
+                "set_row_label": "Max Size (MB)",
+                "set_limits": [0, 4096, 1, 0],
+                "setValue": 16,
+                "setCustomDisplayValues": {0: "OFF"},
                 "setToolTip": (
                     "Fail the export when any texture feeding the export materials exceeds "
-                    "this size (in MB) on disk. Leave empty to disable."
+                    "this size (in MB) on disk. Set to 0 (OFF) to disable."
                 ),
-                "value_method": "text",
+                "value_method": "value",
             },
             "sep_anim": {"widget_type": "Separator", "title": "Animation"},
             "check_untied_keyframes": {
