@@ -153,6 +153,8 @@ try:
           moved is not None and os.path.normcase(os.path.normpath(bpy.data.filepath)) == os.path.normcase(moved),
           bpy.data.filepath)
     check("the unsaved edit was saved into the renamed file", "RenameProbe" in bpy.data.objects)
+    check("the .blend1 backup followed the rename (no leftover under the old name)",
+          moved is not None and os.path.isfile(moved + "1") and not os.path.exists(open_path + "1"))
     bpy.ops.wm.save_mainfile()
     check("saving after the rename doesn't resurrect the old name", not os.path.exists(open_path))
     btk.delete_scene_file(moved)

@@ -111,6 +111,11 @@ DEFAULT_INCLUDE = {
     # round-trip. btk-only by design (Maya opens its own scenes natively);
     # ledgered in tentacle/docs/parity_map.py.
     "env_utils.maya_bridge._scene_import": "MayaSceneImport",
+    # Live browser / WebXR preview — a hand-off bridge whose target is a loopback
+    # PreviewServer rather than an app. Mirror of mayatk's ``WebXrPreview``.
+    "env_utils.webxr_preview": [
+        "WebXrPreview",
+    ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
     "env_utils.unity_bridge._unity_bridge": [

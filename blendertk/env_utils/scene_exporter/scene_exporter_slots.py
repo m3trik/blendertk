@@ -10,13 +10,13 @@ The FBX-preset combo (``cmb000``) is a real, populated combo backed by
 ``SceneExporter``'s ``pythontk.PresetStore``-based preset engine (named JSON dicts of
 ``export_scene.fbx`` kwargs -- see ``_scene_exporter.py``'s module docstring for the full
 design rationale, including why Blender's native operator-preset system was considered and
-rejected). Its option-box mirrors mayatk's b003/b004/b007/b008 1:1 by objectName:
+rejected). Its option-box mirrors mayatk's b007/b008 1:1 by objectName:
 
-* ``b003`` "Add New Preset" -- save a new named preset, seeded from the currently selected
-  preset (or the built-in defaults if none is selected).
-* ``b004`` "Delete Current Preset" -- delete the selected *user* preset (built-ins are
-  read-only).
-* ``b007`` "Open Preset Directory" -- ``os.startfile`` the writable preset directory.
+* ``b007`` "Open Preset Directory" -- ``os.startfile`` the writable preset directory. Adding
+  and deleting presets happens there: a preset is a plain JSON file, so the file browser
+  already copies, renames, and deletes them better than a pair of one-shot buttons could
+  (the programmatic equivalents, :meth:`SceneExporter.save_fbx_preset` /
+  :meth:`~SceneExporter.delete_fbx_preset`, remain on the engine).
 * ``b008`` "Edit Preset" -- ``os.startfile`` the selected preset's JSON file so the user can
   hand-edit + re-save it (Blender has no per-field editor for an arbitrary FBX-kwargs dict the
   way Maya's native FBX exporter dialog does). A built-in preset is shadowed into the user
@@ -106,7 +106,7 @@ class SceneExporterSlots(SceneExporter):
                 "task pipelines.",
                 steps=[
                     "Pick a <b>Preset</b> (option box ▸ for preset management — "
-                    "Add / Delete / Open Folder / Edit).",
+                    "Open Folder / Edit; add and delete in the folder itself).",
                     "Configure the task list and output path in the panel.",
                     "Press the export action button to run.",
                 ],
@@ -142,23 +142,13 @@ class SceneExporterSlots(SceneExporter):
 
             widget.option_box.menu.setTitle("Preset Options:")
             widget.option_box.menu.add_defaults_button = False
+            # Adding and deleting presets is done in the preset directory itself
+            # (b007) -- see this module's docstring.
             widget.option_box.menu.add(
                 "QPushButton",
-                setToolTip="Open the FBX export-option preset directory.",
+                setToolTip="Open the FBX export-option preset directory to add, rename, or delete presets.",
                 setText="Open Preset Directory",
                 setObjectName="b007",
-            )
-            widget.option_box.menu.add(
-                "QPushButton",
-                setToolTip="Save the current (or default) export settings as a new named preset.",
-                setText="Add New Preset",
-                setObjectName="b003",
-            )
-            widget.option_box.menu.add(
-                "QPushButton",
-                setToolTip="Delete the current FBX export-option preset.",
-                setText="Delete Current Preset",
-                setObjectName="b004",
             )
             widget.option_box.menu.add(
                 "QPushButton",
@@ -420,55 +410,6 @@ class SceneExporterSlots(SceneExporter):
         output_dir = self.ui.txt000.text()
         if os.path.exists(output_dir):
             os.startfile(output_dir)
-
-    def b003(self) -> None:
-        """Add Preset -- save a new named FBX export-option preset, seeded from the currently
-        selected preset (or the built-in defaults if none is selected) so it's a ready-to-edit
-        starting point. Blender-native counterpart of mayatk's b003 "copy an external
-        .fbxexportpreset file in" -- see ``_scene_exporter.py``'s module docstring."""
-        current = self.ui.cmb000.currentData()
-        seed = None
-        if current:
-            try:
-                seed = self._preset_store().load(current)
-            except (KeyError, ValueError, OSError) as e:
-                self.logger.error(
-                    f"Failed to read preset {current!r} to seed from: {e}"
-                )
-
-        name = self.sb.input_dialog(
-            "Add FBX Export Preset",
-            "Preset name (seeded from the current selection, or the defaults):",
-            "",
-        )
-        if not name:
-            return
-        # ``save_fbx_preset`` sanitizes *name* for the filename (PresetStore.save ->
-        # sanitize_preset_name); ``list_fbx_presets()`` (and thus the repopulated combo) lists
-        # that sanitized stem, not the raw input. Re-derive it from the written path so the
-        # post-save selection actually matches an item in the combo instead of silently
-        # no-op'ing on a name containing characters the sanitizer stripped/replaced (e.g. "/").
-        saved_path = self.save_fbx_preset(name, seed)
-        saved_name = os.path.splitext(os.path.basename(saved_path))[0]
-        self.ui.cmb000.init_slot()
-        self.ui.cmb000.setCurrentText(saved_name)
-        self.logger.success(f"FBX export preset saved: {saved_name}")
-
-    def b004(self) -> None:
-        """Delete Preset -- remove the currently-selected FBX export-option preset from disk
-        (user tier only; shipped built-ins are read-only)."""
-        name = self.ui.cmb000.currentData()
-        if not name:
-            self.logger.error("No preset selected to delete.")
-            return
-        if self.delete_fbx_preset(name):
-            self.logger.success(f"Preset deleted: {name}")
-            self.ui.cmb000.init_slot()
-        else:
-            self.logger.error(
-                f"Preset {name!r} could not be deleted (built-in presets are read-only, "
-                "or it no longer exists)."
-            )
 
     def b007(self) -> None:
         """Open Preset Directory."""

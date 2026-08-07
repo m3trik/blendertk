@@ -18,6 +18,7 @@ import pythontk as ptk
 from blendertk.core_utils._core_utils import (
     CoreUtils,
 )  # shared OBJECT-mode guard + window-independent selection read
+from blendertk.node_utils._node_utils import NodeUtils  # keep-transform reparent
 
 
 # ---------------------------------------------------------------- normals / shading
@@ -1609,6 +1610,62 @@ class EditUtils(_EditUtilsInternal):
             if result:
                 bpy.context.view_layer.objects.active = result[0]
         return result
+
+    @staticmethod
+    def ungroup_objects(objects=None):
+        """Dissolve the given group Empties (or the selection's) — mirror of mayatk's
+        ``EditUtils.ungroup_objects`` and the inverse of ``_group_under_empty``.
+
+        Each Empty's children are reparented one level up (to the Empty's own parent, or to
+        the world) with their **world transforms preserved**, then the emptied Empty is
+        removed. Only ``EMPTY`` objects count as groups — Maya's "transform with no shape" —
+        so meshes / armatures / lights in the selection are skipped rather than deleted.
+
+        The freed children are left selected, mirroring what Maya's ``ungroup`` does: this
+        drives a hotkey, and clearing the selection would strand the user mid-operation.
+
+        Returns the freed children. Headless-testable (no ``bpy.ops``).
+        """
+        import bpy
+
+        if objects is None:
+            objects = CoreUtils.selected_objects()
+        # Dedupe: the same group passed twice would hit ``remove()`` on an
+        # already-freed datablock, raising ReferenceError and skipping every
+        # later group. Maya's twin guards the same case with an objExists
+        # check; bpy frees the pointer instead, so dedupe up front (Objects are
+        # hashable, and dict.fromkeys keeps the caller's order).
+        groups = list(dict.fromkeys(o for o in objects if o.type == "EMPTY"))
+        if not groups:
+            return []
+
+        def _depth(obj):
+            d, p = 0, obj.parent
+            while p:
+                d, p = d + 1, p.parent
+            return d
+
+        # Deepest first, so dissolving an inner group hands its children to the outer
+        # one and they get freed too on the outer group's turn.
+        groups.sort(key=_depth, reverse=True)
+
+        freed = []
+        for grp in groups:
+            # A leaf under nested groups is handed up once per level, so dedupe.
+            for child in NodeUtils.reparent(list(grp.children), grp.parent):
+                if child not in freed:
+                    freed.append(child)
+            bpy.data.objects.remove(grp, do_unlink=True)
+
+        # select_set() raises on objects outside the active view layer (other scenes /
+        # excluded collections) — those simply can't be selected.
+        view_objects = set(bpy.context.view_layer.objects)
+        selectable = [o for o in freed if o in view_objects]
+        for obj in selectable:
+            obj.select_set(True)
+        if selectable:
+            bpy.context.view_layer.objects.active = selectable[0]
+        return freed
 
     @staticmethod
     @CoreUtils._object_mode

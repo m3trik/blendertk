@@ -1,7 +1,7 @@
 """Scene Exporter engine test — Blender port of mayatk's ``test_scene_exporter.py``, scoped to
-the FBX export-option preset feature this port closed (``SceneExporter``'s ``cmb000``
-add/delete/open-directory/edit parity gap; the task/check pipeline itself is covered by
-``test_smart_bake.py``'s ``_run_task_manager_wiring_checks``).
+the FBX export-option preset feature this port closed (``SceneExporter``'s ``cmb000`` preset
+gap — save/delete/list plus the open-directory/edit slots; the task/check pipeline itself is
+covered by ``test_smart_bake.py``'s ``_run_task_manager_wiring_checks``).
 
 Needs **bpy, not Qt** — it drives ``SceneExporter``'s preset API (``pythontk.PresetStore``-
 backed named JSON dicts of ``export_scene.fbx`` kwargs; see ``_scene_exporter.py``'s module
@@ -9,13 +9,16 @@ docstring for why this design was picked over Blender's native operator-preset s
 then proves a saved preset's kwargs actually reach — and are accepted by — a real
 ``bpy.ops.export_scene.fbx`` call through :meth:`SceneExporter.perform_export`.
 
-The Slots-layer button handlers (``b003``/``b004``/``b007``/``b008`` in
-``scene_exporter_slots.py``) are thin Qt/OS glue over this same engine API (a name-prompt dialog,
-then ``save_fbx_preset``/``delete_fbx_preset``/``fbx_preset_dir``/``fbx_preset_path``, one of
-which ``os.startfile``s a real Explorer window) — exercising the engine calls they delegate to
-is the meaningful, headlessly-testable surface; spinning up real widgets just to click a button
+The Slots-layer button handlers (``b007``/``b008`` in ``scene_exporter_slots.py``) are thin
+Qt/OS glue over this same engine API (``fbx_preset_dir``/``fbx_preset_path``, each
+``os.startfile``-ing a real Explorer window) — exercising the engine calls they delegate to is
+the meaningful, headlessly-testable surface; spinning up real widgets just to click a button
 that calls the same method adds no coverage, and driving ``os.startfile`` in an automated suite
 would pop OS windows.
+
+``save_fbx_preset`` / ``delete_fbx_preset`` are covered below as the *programmatic* preset
+surface: the panel's Add/Delete buttons were dropped (2026-08-06) in favour of managing the
+preset directory directly through ``b007``, since a preset is a plain JSON file.
 
 Run: blender --background --factory-startup --python blendertk/test/test_scene_exporter.py
 """
@@ -520,6 +523,32 @@ try:
     stray.source = "FILE"
     stray.filepath = os.path.join(tex_dir, "machine_shop_8k.hdr")
 
+    # ---- captionless rows must carry a row label (mirrors mayatk) ------------
+    # A QCheckBox labels itself via setText and a Separator via title, but a
+    # ComboBox / QLineEdit / spin-box row renders as a bare control. These fields
+    # ship with a default value so their placeholder is never visible -- without
+    # a caption the user just sees "16" with no idea it is a size budget.
+    _tm_defs = SceneExporter().task_manager
+    _defs = {**_tm_defs.task_definitions, **_tm_defs.check_definitions}
+    _captionless = {
+        "ComboBox",
+        "QLineEdit",
+        "SpinBox",
+        "DoubleSpinBox",
+        "QSpinBox",
+        "QDoubleSpinBox",
+    }
+    _missing = [
+        name
+        for name, params in _defs.items()
+        if params.get("widget_type") in _captionless and not params.get("set_row_label")
+    ]
+    check(
+        "every captionless definition row supplies set_row_label",
+        _missing == [],
+        f"unlabelled={_missing}",
+    )
+
     tm_paths = SceneExporter().task_manager
     tm_paths.objects = [tex_cube]
     passed, msgs = tm_paths.check_valid_paths(True)
@@ -623,10 +652,11 @@ try:
         passed is True,
         f"msgs={msgs}",
     )
-    # The size gate is now a QLineEdit — the limit arrives as text.
+    # The size gate is a SpinBox (int), but saved templates and direct calls can
+    # still hand the limit over as text.
     passed, msgs = tm_pu.check_texture_file_size("1")
     check(
-        "check_texture_file_size applies QLineEdit text ('1') as a 1 MB gate",
+        "check_texture_file_size applies numeric text ('1') as a 1 MB gate",
         passed is False and any("udim_big.1002" in m for m in msgs),
         f"msgs={msgs}",
     )

@@ -205,7 +205,7 @@ _Generated: 2026-08-07_
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
+  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
 ### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - `class Bevel`
@@ -258,7 +258,7 @@ _Generated: 2026-08-07_
 - `class DisplayMacros(_ViewportMixin)`
   - methods: m_back_face_culling, m_isolate_selected, m_wireframe, m_shading, m_lighting, m_grid, m_grid_and_image_planes, m_cycle_display_state, m_smooth_preview, m_frame
 - `class EditMacros(_ViewportMixin)`
-  - methods: m_multi_component, m_paste_and_rename, m_merge_vertices, m_group
+  - methods: m_multi_component, m_paste_and_rename, m_merge_vertices, m_group, m_ungroup
 - `class SelectionMacros`
   - methods: m_object_selection, m_vertex_selection, m_edge_selection, m_face_selection, m_invert_selection, m_toggle_UV_select_type
 - `class UiMacros(_ViewportMixin)`
@@ -398,7 +398,7 @@ _Generated: 2026-08-07_
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, b000, b010, b006, b003, b004, b007, b008, save_output_dir, save_output_name
+  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
@@ -423,6 +423,9 @@ _Generated: 2026-08-07_
 ### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - `class UsdUtils(_UsdUtilsInternal)`
   - methods: is_usd_file, export, import_usd, export_selection_usd
+
+### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
+- `class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`
 
 ### `env_utils/workspace_editor.py` — blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 - `class WorkspaceEditorSlots(ptk.LoggingMixin)`
@@ -501,32 +504,26 @@ _Generated: 2026-08-07_
 - `class BatchJob`
   - methods: run_batch
 
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/main_thread.py` — Main-thread marshalling for ops that touch Toolbag's API.
-- `run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`
-- `is_main_thread_marshalling_active()`
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py` — Marmoset Toolbag RPC plugin -- entry point.
+- `start_server(port=None, host=None)`
+- `stop_server()`
+- `is_running()`
+- `autostart()`
+
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py` — The in-application half of the RPC pair: registry + marshaller + server.
+- `class OpRegistry(_OpRegistryInternal)`
+  - methods: register, get, all_ops, describe
+- `class MainThreadMarshaller(_MainThreadMarshallerInternal)`
+  - methods: is_active, run
+- `class RpcPlugin(object)`
+  - methods: port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py` — Scene-inspection ops.
 - `summary()`
 - `list_materials()`
 
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py` — System-level ops: heartbeat, introspection, Toolbag version.
-- `ping()`
-- `list_ops()`
-- `describe_op(op='')`
+### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py` — Toolbag-specific system ops.
 - `version()`
-
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/registry.py` — Op registry for the marmoset_rpc plugin.
-- `register(name)`
-- `get(name)`
-- `all_ops()`
-- `describe(name=None)`
-- `clear()`
-
-### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/server.py` — HTTP JSON-RPC server for the marmoset_rpc plugin.
-- `start_server(port=None, host='127.0.0.1')`
-- `stop_server()`
-- `is_running()`
-- `autostart()`
 
 ### `mat_utils/marmoset_bridge/parameters.py` — Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 - `class Parameters`
@@ -596,12 +593,20 @@ _Generated: 2026-08-07_
   - methods: user_plugin_dir, is_installed, is_current, install, uninstall
 
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py` — Substance 3D Painter RPC plugin -- entry point.
+- `start_server(port=None, host=None)`
+- `stop_server()`
+- `is_running()`
+- `autostart()`
 - `start_plugin()`
 - `close_plugin()`
 
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/main_thread.py` — Main-thread marshalling for ops that touch Painter's API.
-- `run_on_main_thread(fn, *args, timeout=_DEFAULT_TIMEOUT, **kwargs)`
-- `is_main_thread_marshalling_active()`
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py` — The in-application half of the RPC pair: registry + marshaller + server.
+- `class OpRegistry(_OpRegistryInternal)`
+  - methods: register, get, all_ops, describe
+- `class MainThreadMarshaller(_MainThreadMarshallerInternal)`
+  - methods: is_active, run
+- `class RpcPlugin(object)`
+  - methods: port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
 
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py` — Project-level ops: inspect the open project and reload its mesh.
 - `project_info()`
@@ -615,25 +620,10 @@ _Generated: 2026-08-07_
 - `apply_mesh_maps(manifest_path='')`
 - `pending_setup()`
 
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py` — Transport-level ops: liveness, discovery, and script evaluation.
-- `ping()`
-- `list_ops()`
+### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py` — Painter-specific system ops: version reporting and script evaluation.
 - `version()`
 - `eval_python(script='')`
 - `js_evaluate(script='')`
-
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/registry.py` — Op registry for the substance_rpc plugin.
-- `register(name)`
-- `get(name)`
-- `all_ops()`
-- `describe(name=None)`
-- `clear()`
-
-### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/server.py` — HTTP JSON-RPC server for the substance_rpc plugin.
-- `start_server(port=None, host='127.0.0.1')`
-- `stop_server()`
-- `is_running()`
-- `autostart()`
 
 ### `mat_utils/texture_baker.py` — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - `class TextureBaker(ptk.LoggingMixin)`

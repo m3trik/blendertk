@@ -1553,6 +1553,23 @@ try:
     btk.Diagnostics.find_problem_geometry(e, ngons=True)
     check("non-mesh ignored (no crash)", True)
 
+    # ungroup_objects: the same group passed twice must not crash. The Maya twin
+    # guards this explicitly (`if not cmds.objExists(grp): continue`); without it
+    # the second remove() hits a freed StructRNA, the caller gets a
+    # ReferenceError, and every later group in the list is skipped.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    child = bpy.context.active_object
+    grp = bpy.data.objects.new("grp_dup", None)
+    bpy.context.scene.collection.objects.link(grp)
+    child.parent = grp
+    try:
+        freed = btk.EditUtils.ungroup_objects([grp, grp])
+        check("ungroup: duplicate group in input is tolerated", freed == [child],
+              f"freed={[o.name for o in freed]}")
+    except Exception as exc:
+        check("ungroup: duplicate group in input is tolerated", False, repr(exc))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
