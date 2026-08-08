@@ -954,6 +954,52 @@ class UvUtils(_UvUtilsInternal):
         return None
 
     @staticmethod
+    def export_uv_layout(objects, uv_set=None):
+        """Serialize each mesh's *uv_set* as a per-loop UV array, for another app to replay.
+
+        The transfer format behind the lightmap round trip: Blender owns the whole lightmap
+        job (generate the UVs, bake, atlas) and the host application writes the finished
+        layout onto its own meshes, instead of authoring a second, different one. Per LOOP
+        (face-vertex), never per vertex -- lightmap islands are cut at seams, where a single
+        vertex carries several distinct UVs.
+
+        A layout may only be replayed onto the SAME topology, so each entry carries the
+        polygon vertex-count sequence and the vertex total as a fingerprint for the receiver
+        to check before applying. A Maya -> FBX -> Blender crossing preserves loop order
+        exactly (probe-verified: quads, tris and n-gons all keep their per-face-vertex
+        sequence with FBX triangulation off), which is what makes the replay a straight
+        array write rather than a spatial transfer.
+
+        Returns ``{object_name: {"uv_set", "poly_counts", "num_verts", "uvs"}}``, where
+        ``uvs`` is base64 little-endian float32 ``[u0, v0, u1, v1, ...]`` in loop order.
+        """
+        import array
+        import base64
+        import sys
+
+        out = {}
+        for obj in objects or []:
+            me = getattr(obj, "data", None)
+            layers = getattr(me, "uv_layers", None)
+            if layers is None:
+                continue
+            name = uv_set or UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
+            layer = layers.get(name)
+            if layer is None:
+                continue
+            buf = array.array("f", [0.0]) * (len(layer.data) * 2)
+            layer.data.foreach_get("uv", buf)
+            if sys.byteorder != "little":  # pin the wire format, not the host's
+                buf.byteswap()
+            out[obj.name] = {
+                "uv_set": name,
+                "poly_counts": [len(p.vertices) for p in me.polygons],
+                "num_verts": len(me.vertices),
+                "uvs": base64.b64encode(buf.tobytes()).decode("ascii"),
+            }
+        return out
+
+    @staticmethod
     def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True):
         """Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).
 

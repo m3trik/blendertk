@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.53"
+__version__ = "0.5.56"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -116,6 +116,12 @@ DEFAULT_INCLUDE = {
     "env_utils.webxr_preview": [
         "WebXrPreview",
     ],
+    # Scene-state reader column of the scene-data grid: sections of live-scene
+    # state FBX translation drops, shared by the WebXR preview and the Scene
+    # Exporter's GLB path. Mirror of mayatk's ``SceneState``.
+    "env_utils.scene_state": [
+        "SceneState",
+    ],
     # Unity Bridge — mirror of mayatk's ``env_utils.unity_bridge._unity_bridge`` (the
     # ``UnityBridgeSlots`` panel is discovered by BlenderUiHandler, not registered here).
     "env_utils.unity_bridge._unity_bridge": [
@@ -143,6 +149,13 @@ DEFAULT_INCLUDE = {
     # discovered by ``BlenderUiHandler`` (not registered here), matching the other tool Slots.
     "light_utils.lightmap_baker.lightmap_baker": [
         "LightmapBaker",
+    ],
+    # The WebXR delivery half of the same tool — everything between a Cycles
+    # lightmap EXR and a browser-ready GLB. Registered like its sibling above
+    # because it is cross-package public surface: mayatk's ``bake_lightmaps``
+    # bridge template is its consumer, and the API registry already publishes it.
+    "light_utils.lightmap_baker.web_export": [
+        "LightmapWebExport",
     ],
     "ui_utils._ui_utils": "*",
     # Switchboard launchable-entry handler + the native-menu driver — mirrors mayatk's

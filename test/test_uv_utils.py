@@ -949,6 +949,53 @@ try:
         f"{tuple(round(x,3) for x in doomed_before)} -> {tuple(round(x,3) for x in uv_bounds(doomed))}",
     )
 
+    # ---- export_uv_layout: the wire format the Maya lightmap round trip rides on.
+    # Blender owns the whole lightmap job and hands the finished layout back, so this
+    # payload IS the guarantee that Maya's meshes sample the bake through the right UVs.
+    import array
+    import base64
+
+    from blendertk.uv_utils._uv_utils import UvUtils as _UvUtils
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.object
+    _UvUtils.create_lightmap_uvs([cube], quiet=True)
+    lm = _UvUtils.find_lightmap_uv_set(cube)
+    check("export: cube has a lightmap set", bool(lm), str(lm))
+
+    payload = _UvUtils.export_uv_layout([cube])
+    entry = payload.get(cube.name, {})
+    check("export: keyed by object name", bool(entry), str(list(payload)))
+    check(
+        "export: carries a topology fingerprint",
+        entry.get("poly_counts") == [len(p.vertices) for p in cube.data.polygons]
+        and entry.get("num_verts") == len(cube.data.vertices),
+        f"{entry.get('num_verts')} verts",
+    )
+
+    buf = array.array("f")
+    buf.frombytes(base64.b64decode(entry["uvs"]))
+    loops = len(cube.data.uv_layers[lm].data)
+    check(
+        "export: two float32 per LOOP, not per vertex",
+        len(buf) == loops * 2,
+        f"{len(buf)} floats vs {loops} loops",
+    )
+
+    src = [0.0] * (loops * 2)
+    cube.data.uv_layers[lm].data.foreach_get("uv", src)
+    check(
+        "export: values survive the encode exactly",
+        all(abs(a - b) < 1e-6 for a, b in zip(buf, src)),
+        f"max {max((abs(a - b) for a, b in zip(buf, src)), default=0):.3g}",
+    )
+
+    check(
+        "export: skips a mesh with no such set",
+        _UvUtils.export_uv_layout([cube], uv_set="no_such_set") == {},
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

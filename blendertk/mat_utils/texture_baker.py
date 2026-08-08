@@ -20,10 +20,14 @@ bake natively in Cycles**, so this is a thin adapter over ``bpy.ops.object.bake`
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
 """
 
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
 
 import pythontk as ptk
+
+# Module logger for the classmethod paths, where there is no instance to log through.
+_logger = logging.getLogger(__name__)
 
 
 class TextureBaker(ptk.LoggingMixin):
@@ -37,10 +41,28 @@ class TextureBaker(ptk.LoggingMixin):
                          use_pass_color=False)      # lighting-only irradiance
     """
 
-    def __init__(self, resolution: int = 1024, samples: int = 5):
+    def __init__(
+        self,
+        resolution: int = 1024,
+        samples: int = 5,
+        denoise: bool = True,
+        device: Optional[str] = None,
+    ):
         super().__init__()
         self.resolution = int(resolution)
         self.samples = int(samples)
+        #: Denoise each baked map. On by default because a *baked* texture is permanent —
+        #: unlike a noisy render preview, the grain ships — and denoising buys more
+        #: apparent quality per sample than any other single setting.
+        #:
+        #: Note ``scene.cycles.use_denoising`` does NOT do this: it is a *render* setting,
+        #: is already ``True`` by factory default, and ``scene.render.bake`` exposes no
+        #: denoise flag at all — a bake comes back with its raw sampling noise regardless.
+        #: (Measured: 256-sample bakes were visibly grainy with it on.) So the denoise is
+        #: applied as a post-pass over the saved EXR, via :meth:`denoise_image`.
+        self.denoise = bool(denoise)
+        #: ``"GPU"`` / ``"CPU"`` / ``None`` to leave the scene's own device alone.
+        self.device = device
 
     def bake(
         self,
@@ -186,6 +208,9 @@ class TextureBaker(ptk.LoggingMixin):
             image.filepath_raw = path
             image.file_format = "OPEN_EXR"
             image.save()
+            if self.denoise:
+                # Post-pass over the saved file: Cycles cannot denoise the bake itself.
+                self.denoise_image(path)
         finally:
             for nt, node in added:
                 nt.nodes.remove(node)  # non-destructive: leave the material as it was
@@ -216,19 +241,168 @@ class TextureBaker(ptk.LoggingMixin):
             "use_selected_to_active": False,  # bake each object onto itself
             "target": "IMAGE_TEXTURES",  # never vertex colors
         }
+        has_cycles = hasattr(scene, "cycles")
         prev = {
             "engine": scene.render.engine,
-            "samples": getattr(scene.cycles, "samples", None)
-            if hasattr(scene, "cycles")
+            "samples": getattr(scene.cycles, "samples", None) if has_cycles else None,
+            "use_denoising": getattr(scene.cycles, "use_denoising", None)
+            if has_cycles
             else None,
+            "device": getattr(scene.cycles, "device", None) if has_cycles else None,
             "bake": {k: getattr(bake, k) for k in new_bake},
         }
         scene.render.engine = "CYCLES"
-        if hasattr(scene, "cycles"):
+        if has_cycles:
             scene.cycles.samples = self.samples
+            scene.cycles.use_denoising = self.denoise
+            if self.device:
+                scene.cycles.device = self.device
+                if self.device == "GPU":
+                    self._enable_gpu_devices()
         for k, v in new_bake.items():
             setattr(bake, k, v)
         return prev
+
+    @classmethod
+    def denoise_image(cls, path: str, output: Optional[str] = None) -> Optional[str]:
+        """Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
+
+        Cycles will not denoise a bake itself -- ``use_denoising`` is a render setting and
+        ``scene.render.bake`` has no equivalent -- so the map is pushed back through
+        Blender's own compositor, which does expose OIDN as ``CompositorNodeDenoise``.
+        This is the single largest quality lever available to a lightmap: indirect light in
+        a small interior needs thousands of samples to resolve clean by brute force, and
+        stays grainy at any sample count a production loop can afford.
+
+        Blender 5.x moved the scene compositor to ``scene.compositing_node_group`` (the old
+        ``scene.node_tree`` is gone) and, being a real node *group*, it terminates in a
+        ``NodeGroupOutput`` fed by an interface socket -- ``CompositorNodeComposite`` no
+        longer exists at all. The write still goes through ``render()``, so the engine is
+        forced to Workbench for the duration, making the 3D pass trivial while the
+        compositor does the real work.
+
+        Measured on a 512-sample interior bake: mean |laplacian| 0.389 -> 0.008.
+
+        Returns the written path, or ``None`` if denoising was unavailable (the caller
+        keeps the raw bake -- noisy beats missing).
+        """
+        import bpy
+
+        if not os.path.isfile(path):
+            return None
+        output = output or path
+        scene = bpy.context.scene
+
+        prior = {
+            "group": getattr(scene, "compositing_node_group", None),
+            "engine": scene.render.engine,
+            "filepath": scene.render.filepath,
+            "format": scene.render.image_settings.file_format,
+            "depth": scene.render.image_settings.color_depth,
+            "res_x": scene.render.resolution_x,
+            "res_y": scene.render.resolution_y,
+            "pct": scene.render.resolution_percentage,
+            "view": scene.view_settings.view_transform,
+        }
+        tree = bpy.data.node_groups.new("btk_denoise", "CompositorNodeTree")
+        source = None
+        try:
+            source = bpy.data.images.load(os.path.abspath(path))
+            width, height = source.size
+
+            tree.interface.new_socket(
+                "Image", in_out="OUTPUT", socket_type="NodeSocketColor"
+            )
+            image_node = tree.nodes.new("CompositorNodeImage")
+            image_node.image = source
+            denoise = tree.nodes.new("CompositorNodeDenoise")
+            group_output = tree.nodes.new("NodeGroupOutput")
+            tree.links.new(image_node.outputs["Image"], denoise.inputs["Image"])
+            tree.links.new(denoise.outputs["Image"], group_output.inputs[0])
+
+            scene.compositing_node_group = tree
+            # Workbench: the compositor is the point, the 3D render is a formality.
+            scene.render.engine = "BLENDER_WORKBENCH"
+            scene.render.resolution_x = width
+            scene.render.resolution_y = height
+            scene.render.resolution_percentage = 100
+            scene.render.image_settings.file_format = "OPEN_EXR"
+            scene.render.image_settings.color_depth = "32"
+            # Standard, not the default view transform: the lightmap is linear data and a
+            # filmic/AgX curve would bake a tone mapping into it.
+            scene.view_settings.view_transform = "Standard"
+            scene.render.filepath = os.path.abspath(output)
+
+            bpy.ops.render.render(write_still=True)
+        except Exception as error:  # noqa: BLE001 — a denoise failure must not lose a bake
+            # Module logger, not ``cls().logger``: constructing an instance inside the
+            # handler would raise for any subclass with required __init__ args, replacing
+            # the real failure with a confusing one.
+            _logger.warning("Denoise skipped for %s: %s", os.path.basename(path), error)
+            return None
+        finally:
+            if source is not None:
+                bpy.data.images.remove(source)
+            try:
+                scene.compositing_node_group = prior["group"]
+            except (AttributeError, TypeError):  # older/newer compositor surface
+                pass
+            scene.render.engine = prior["engine"]
+            scene.render.filepath = prior["filepath"]
+            scene.render.image_settings.file_format = prior["format"]
+            scene.render.image_settings.color_depth = prior["depth"]
+            scene.render.resolution_x = prior["res_x"]
+            scene.render.resolution_y = prior["res_y"]
+            scene.render.resolution_percentage = prior["pct"]
+            scene.view_settings.view_transform = prior["view"]
+            bpy.data.node_groups.remove(tree)
+
+        # render() appends the format extension when the path has none.
+        for candidate in (output, output + ".exr"):
+            if os.path.isfile(candidate):
+                if candidate != output:
+                    os.replace(candidate, output)
+                return output
+        return None
+
+    def _enable_gpu_devices(self) -> List[str]:
+        """Turn on Cycles' compute devices; return the names enabled (empty -> CPU).
+
+        ``scene.cycles.device = 'GPU'`` alone silently falls back to the CPU when no device
+        is enabled in preferences, and ``--factory-startup`` (which every headless bridge
+        run uses, by the session-safety rule) starts with exactly that state. So the
+        addon preferences have to be configured in-process, per run.
+        """
+        import bpy
+
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+        except (KeyError, AttributeError):
+            self.logger.warning("Cycles preferences unavailable; baking on the CPU.")
+            return []
+
+        enabled: List[str] = []
+        for backend in ("OPTIX", "CUDA", "HIP", "ONEAPI", "METAL"):
+            try:
+                prefs.compute_device_type = backend
+            except TypeError:  # not a valid backend on this build/platform
+                continue
+            try:
+                prefs.get_devices()
+            except Exception:  # noqa: BLE001 — probing devices must never abort a bake
+                continue
+            found = [d for d in prefs.devices if d.type == backend]
+            if not found:
+                continue
+            for device in prefs.devices:
+                device.use = device.type in (backend, "CPU")
+            enabled = [d.name for d in found]
+            self.logger.info("Cycles %s device(s): %s", backend, ", ".join(enabled))
+            break
+
+        if not enabled:
+            self.logger.warning("No GPU compute device found; baking on the CPU.")
+        return enabled
 
     @staticmethod
     def _restore_bake_scene(prev: Dict[str, Any]) -> None:
