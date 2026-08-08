@@ -382,7 +382,9 @@ class SceneExporter(ptk.LoggingMixin):
 
             deliverable_path = self.export_path
             if glb_only:
-                glb_path = self._create_glb(fbx_path=fbx_write_path, announce=False)
+                glb_path = self._create_glb(
+                    fbx_path=fbx_write_path, announce=False, objects=export_objects
+                )
                 if not (glb_path and os.path.exists(glb_path)):
                     self.logger.error(
                         "GLB-only export failed: FBX→GLB conversion produced no file."
@@ -422,7 +424,7 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.log_box("EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS")
 
             if create_glb_enabled and not glb_only:
-                self._create_glb()
+                self._create_glb(objects=export_objects)
         except Exception as e:
             self.logger.error(f"Failed to export objects: {e}")
             raise RuntimeError(f"Failed to export objects: {e}")
@@ -490,9 +492,12 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.debug("scene-data sidecar write skipped.", exc_info=True)
 
     def _create_glb(
-        self, fbx_path: Optional[str] = None, announce: bool = True
+        self,
+        fbx_path: Optional[str] = None,
+        announce: bool = True,
+        objects: Optional[List] = None,
     ) -> Optional[str]:
-        """Convert an exported FBX to a GLB sidecar via pythontk's ``MeshConvert``.
+        """Convert an exported FBX to a GLB via pythontk's ``MeshConvert``.
 
         Runs after the FBX has been written; :meth:`perform_export` invokes this
         explicitly rather than as part of the pre-export task pipeline. Mirror of
@@ -500,23 +505,53 @@ class SceneExporter(ptk.LoggingMixin):
         blendertk's ``TaskManager`` carries no ``export_path`` of its own — the
         FBX path is resolved from this engine's :attr:`export_path` instead.
 
+        The conversion is handed the scene sidecar built from *objects*
+        (:class:`~blendertk.env_utils.scene_state.SceneState` — the same
+        readers the WebXR preview uses), so the production GLB gets the same
+        translation repairs the preview shows, and the envelope rides embedded
+        in the GLB's ``extras``. A sidecar read failure degrades to a bare
+        conversion rather than costing the deliverable.
+
         Parameters:
             fbx_path: FBX to convert. Defaults to :attr:`export_path` (the
                 FBX-alongside case). The GLB-only path passes the temp FBX so the
                 ``.glb`` lands beside it (then gets moved into the output dir).
             announce: When True, log the resulting path. The GLB-only path sets
                 this False and logs the final (moved) path itself.
+            objects: The export set the sidecar describes; ``None`` skips the
+                sidecar (bare conversion).
 
         Returns:
             The created ``.glb`` path, or ``None`` if conversion failed.
         """
+        from blendertk.env_utils.scene_state import SceneState
+
+        src = fbx_path or self.export_path
+        sidecar = None
+        if objects:
+            try:
+                sections = SceneState.read(objects)
+                sidecar = ptk.MeshConvert.build_scene_sidecar(
+                    sections,
+                    source=SceneState.source(),
+                    asset=os.path.basename(src),
+                )
+                if sections:
+                    self.logger.info(
+                        "Scene sidecar (%s) riding the GLB.",
+                        ", ".join(sorted(sections)),
+                    )
+            except Exception:  # noqa: BLE001 — a bare GLB still beats no GLB
+                self.logger.warning("Scene sidecar skipped.", exc_info=True)
+
         self.logger.info("Converting FBX to GLB...")
         try:
             glb_path = ptk.MeshConvert.fbx_to_glb(
-                fbx_path or self.export_path,
+                src,
                 overwrite=True,
                 auto_install=True,
                 prompt=False,
+                sidecar=sidecar,
             )
         except (FileNotFoundError, RuntimeError) as e:
             self.logger.error(f"GLB conversion failed: {e}")

@@ -504,9 +504,10 @@ class SubstanceBridge(ptk.HandoffBridge):
             (only when a companion high-poly file was written), ``delivered``
             (False when the RPC leg was skipped or failed on a
             ``send_to`` template), and -- for RPC templates --
-            ``rpc_results`` (one value per ``RPC_OPS`` entry) and/or
-            ``rpc_result`` (the ``RPC_SCRIPT`` return). *None* on
-            failure.
+            ``rpc_results`` (one value per op that succeeded), ``rpc_failed``
+            (op names that did not, present only when some did fail; a
+            ``send_to`` run continues past them) and/or ``rpc_result`` (the
+            ``RPC_SCRIPT`` return). *None* on failure.
         """
         # Swallow legacy kwargs without surprises.
         legacy_kwargs.pop("headless", None)
@@ -880,21 +881,44 @@ class SubstanceBridge(ptk.HandoffBridge):
                     connection.close()
                     return None
             else:
-                try:
-                    for op_name, op_kwargs in rpc_ops:
-                        self.logger.info(f"RPC: {op_name} ...")
+                # Each op is isolated. They are independent knobs, and the
+                # cosmetic one (resolution) goes first -- sharing one ``try``
+                # meant a Painter that couldn't serve it never got asked to
+                # apply the mesh maps either, so one stale op took the whole
+                # hand-off down. A roundtrip still aborts: its later steps
+                # are written assuming the earlier ones landed.
+                for op_name, op_kwargs in rpc_ops:
+                    self.logger.info(f"RPC: {op_name} ...")
+                    try:
                         result.setdefault("rpc_results", []).append(
                             connection.rpc.invoke(op_name, **op_kwargs)
                         )
-                    if rpc_script.strip():
-                        self.logger.info("Sending template RPC script ...")
+                    except Exception as e:
+                        self.logger.error(f"RPC {op_name} failed: {e}")
+                        result.setdefault("rpc_failed", []).append(op_name)
+                        result["delivered"] = False
+                        if mode == ROUNDTRIP:
+                            connection.close()
+                            return None
+                if rpc_script.strip():
+                    self.logger.info("Sending template RPC script ...")
+                    try:
                         result["rpc_result"] = connection.rpc.eval_js(rpc_script)
-                except Exception as e:
-                    self.logger.error(f"RPC dispatch failed: {e}")
-                    result["delivered"] = False
-                    if mode == ROUNDTRIP:
-                        connection.close()
-                        return None
+                    except Exception as e:
+                        self.logger.error(f"RPC script failed: {e}")
+                        result.setdefault("rpc_failed", []).append("RPC_SCRIPT")
+                        result["delivered"] = False
+                        if mode == ROUNDTRIP:
+                            connection.close()
+                            return None
+                if result.get("rpc_failed"):
+                    self.logger.warning(
+                        "Painter did not apply: %s. If these read as unknown "
+                        "ops, the running Painter is serving a stale "
+                        "substance_rpc -- use Python > Reload Plugins Folder "
+                        "(or relaunch Painter) and send again.",
+                        ", ".join(result["rpc_failed"]),
+                    )
 
         self._announce_handoff(request.template, mode, fbx_path, output_dir)
         return result
@@ -1277,8 +1301,23 @@ class SubstanceBridge(ptk.HandoffBridge):
         starts with *prefix* has it stripped first, so the staged file
         ends up as ``<prefix><tail>`` no matter how the source was named.
 
-        Returns the list of staged destination paths -- the same payload
-        the manifest records under ``"staged_textures"``.
+        With *unpack*, a channel-packed source (ORM / MRAO / MSAO /
+        MetallicSmoothness / AlbedoTransparency) contributes its **component
+        maps** instead of itself -- Painter identifies a map by filename
+        suffix and has no concept of a packed one, so the packed file is
+        dead weight while its channels are exactly what Painter wants. The
+        return stays a flat list of staged paths either way, so a caller
+        that only needs "what landed in the folder" is unaffected.
+
+        Packed sources are staged **first** so that a material carrying both
+        ``body_ORM.png`` and an authored ``body_AO.png`` -- which land on the
+        same destination name -- ends up with the authored map: it is the real
+        thing, the packed file's occlusion channel is a by-product. Left to
+        node-tree order the winner would flip run to run.
+
+        Returns the list of staged destination paths, de-duplicated: a
+        destination reached twice is one file, and listing it twice would emit
+        a duplicate ``--mesh-map`` pair on Painter's command line.
         """
         import shutil
 
@@ -1296,12 +1335,24 @@ class SubstanceBridge(ptk.HandoffBridge):
             self.logger.warning(f"Texture collection failed: {e}")
             return []
 
-        staged: List[str] = []
+        sources: List[str] = []
         for src in paths:
             src = str(src)
             if not src or not os.path.isfile(src):
                 self.logger.warning("Assigned texture missing on disk: %s", src)
                 continue
+            sources.append(src)
+
+        if unpack:
+            # Packed first (see docstring): a later plain copy overwrites the
+            # component it collides with, which is the precedence we want.
+            sources.sort(
+                key=lambda p: ptk.MapFactory.resolve_map_type(p)
+                not in self._UNPACKERS
+            )
+
+        staged: List[str] = []
+        for src in sources:
             if unpack:
                 components = self._unpack_packed_map(src, output_dir, prefix)
                 if components is not None:
@@ -1319,7 +1370,7 @@ class SubstanceBridge(ptk.HandoffBridge):
                 continue
             staged.append(dst)
             self.logger.info("Staged texture: %s", dst)
-        return staged
+        return ptk.remove_duplicates(staged)
 
     #: Packed map type -> the :class:`pythontk.MapFactory` unpacker for it.
     #: Keys are ``MapFactory.resolve_map_type`` results, so a type the

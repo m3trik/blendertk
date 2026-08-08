@@ -86,13 +86,20 @@ class LightmapBaker(ptk.LoggingMixin):
     # Identity atlas transform: the object's 0-1 lightmap UVs map to the whole texture.
     _IDENTITY_SCALE_OFFSET: Tuple[float, float, float, float] = (1.0, 1.0, 0.0, 0.0)
 
-    def __init__(self, resolution: int = 1024, samples: int = 5):
+    def __init__(
+        self,
+        resolution: int = 1024,
+        samples: int = 5,
+        denoise: bool = True,
+        device: Optional[str] = None,
+    ):
         super().__init__()
         # The generic Cycles bake-to-texture primitive (mat_utils) owns resolution/samples; this
         # workflow (UV2, commit/revert, engine metadata) composes it — mirror of mayatk's
         # TextureBaker / LightmapBaker split. ``resolution``/``samples`` stay readable/settable on
         # the baker (below) as a single source of truth (no drift between the two objects).
-        self._texture_baker = TextureBaker(resolution, samples)
+        # ``denoise``/``device`` are Cycles quality/throughput knobs owned by the same primitive.
+        self._texture_baker = TextureBaker(resolution, samples, denoise, device)
 
     @property
     def resolution(self) -> int:
@@ -109,6 +116,22 @@ class LightmapBaker(ptk.LoggingMixin):
     @samples.setter
     def samples(self, value: int) -> None:
         self._texture_baker.samples = int(value)
+
+    @property
+    def denoise(self) -> bool:
+        return self._texture_baker.denoise
+
+    @denoise.setter
+    def denoise(self, value: bool) -> None:
+        self._texture_baker.denoise = bool(value)
+
+    @property
+    def device(self) -> Optional[str]:
+        return self._texture_baker.device
+
+    @device.setter
+    def device(self, value: Optional[str]) -> None:
+        self._texture_baker.device = value
 
     # ------------------------------------------------------------------
     # Quality-tier presets (pythontk PresetStore: built-in + user tiers)

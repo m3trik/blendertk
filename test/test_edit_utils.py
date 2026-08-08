@@ -1570,6 +1570,75 @@ try:
     except Exception as exc:
         check("ungroup: duplicate group in input is tolerated", False, repr(exc))
 
+    # get_standoff_distances: what sizes the Marmoset bake cage. The cage has
+    # to reach a source's FURTHEST point, and a source standing off an interior
+    # target surface is invisible to every bounding-box measure.
+    reset()
+    bpy.ops.mesh.primitive_plane_add(size=20)
+    plane = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # spans z 5..7
+    slab = bpy.context.active_object
+    try:
+        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
+        got = next(iter(d.values()), None)
+        check(
+            "standoff: reports the furthest point, not the nearest",
+            got is not None and abs(got - 7.0) < 1e-4,
+            f"{d}",
+        )
+    except Exception as exc:
+        check("standoff: reports the furthest point, not the nearest", False, repr(exc))
+
+    # A fixture inside a room shell -- the OFFICE_ENV case. Its bounding box is
+    # wholly inside the target's, so a bounds-derived estimate reads zero.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(size=100, location=(0, 0, 0))
+    room = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 39))  # z 38..40
+    fixture = bpy.context.active_object
+    try:
+        d = btk.EditUtils.get_standoff_distances([fixture], [room], sample_limit=0)
+        got = next(iter(d.values()), None)
+        # Ceiling at z=50; the fixture's underside at z=38 is 12 from the shell.
+        check(
+            "standoff: sees a source inside the target's box",
+            got is not None and abs(got - 12.0) < 1e-4,
+            f"{d}",
+        )
+    except Exception as exc:
+        check("standoff: sees a source inside the target's box", False, repr(exc))
+
+    try:
+        check(
+            "standoff: empty when either side has no mesh",
+            btk.EditUtils.get_standoff_distances([], [room]) == {}
+            and btk.EditUtils.get_standoff_distances([room], []) == {},
+        )
+    except Exception as exc:
+        check("standoff: empty when either side has no mesh", False, repr(exc))
+
+    # Modifiers are the norm here and the FBX export bakes them, so measuring
+    # obj.data would size the cage for a mesh that is not the one being baked.
+    reset()
+    bpy.ops.mesh.primitive_plane_add(size=20)
+    plane = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 6))  # base spans z 5..7
+    slab = bpy.context.active_object
+    mod = slab.modifiers.new(name="lift", type="DISPLACE")
+    mod.direction = "Z"
+    mod.mid_level = 0.0
+    mod.strength = 10.0  # evaluated mesh now spans z 15..17
+    try:
+        d = btk.EditUtils.get_standoff_distances([slab], [plane], sample_limit=0)
+        got = next(iter(d.values()), None)
+        check(
+            "standoff: measures the evaluated mesh, not the base data",
+            got is not None and abs(got - 17.0) < 1e-3,
+            f"{d} (base-data answer would be 7.0)",
+        )
+    except Exception as exc:
+        check("standoff: measures the evaluated mesh, not the base data", False, repr(exc))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

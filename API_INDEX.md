@@ -205,7 +205,7 @@ _Generated: 2026-08-08_
 
 ### `edit_utils/_edit_utils.py` — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - `class EditUtils(_EditUtilsInternal)`
-  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
+  - methods: hook_bind_inverse, hook_curve_point, decimate, dissolve_coplanar, triangulate, tris_to_quads, subdivide_mesh, boolean_op, set_subdivision, apply_subdivision, set_shading, average_normals, select_edges_by_angle, set_edge_hardness, clear_custom_split_normals, add_custom_split_normals, has_custom_split_normals, flip_normals, recalculate_normals, propagate_normals, conform_normals, extract_reversed_faces, clean_geometry, crease_edges, mirror, mirror_instance, cut_along_axis, wedge, snap_closest_verts, snap_to_grid, snap_to_surface, get_standoff_distances, get_similar_mesh, ungroup_objects, separate_objects, combine_objects, detach_components, get_overlapping_faces, get_overlapping_duplicates, loft
 
 ### `edit_utils/bevel.py` — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - `class Bevel`
@@ -404,6 +404,10 @@ _Generated: 2026-08-08_
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
   - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_absolute_paths, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
 
+### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
+- `class SceneState`
+  - methods: source, read
+
 ### `env_utils/script_output.py` — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 - `class ScriptConsole`
   - methods: instance, widget, show, hide, toggle, begin_capture, restore, is_open, teardown
@@ -433,7 +437,7 @@ _Generated: 2026-08-08_
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
-  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri
+  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, lights_from_geometry, remove_lights
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManagerSlots(ptk.LoggingMixin)`
@@ -441,9 +445,13 @@ _Generated: 2026-08-08_
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, pack_atlas, refresh_export_metadata, revert_lightmap, commit_unlit, revert_unlit, revert
+  - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, pack_atlas, refresh_export_metadata, revert_lightmap, commit_unlit, revert_unlit, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
+
+### `light_utils/lightmap_baker/web_export.py` — Turn a Cycles lightmap bake into a WebXR-ready GLB.
+- `class LightmapWebExport(ptk.LoggingMixin)`
+  - methods: set_world_environment, set_emission_strength, encode_for_web, wire_lightmaps, unwire_lightmaps, build_manifest, export_glb, bake_and_export
 
 ### `mat_utils/_mat_utils.py` — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
@@ -516,7 +524,7 @@ _Generated: 2026-08-08_
 - `class MainThreadMarshaller(_MainThreadMarshallerInternal)`
   - methods: is_active, run
 - `class RpcPlugin(object)`
-  - methods: port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
+  - methods: import_ops, port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
 
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py` — Scene-inspection ops.
 - `summary()`
@@ -531,7 +539,7 @@ _Generated: 2026-08-08_
 
 ### `mat_utils/marmoset_bridge/template_params.py` — Plain default values + literal formatting for Marmoset template tokens.
 - `class TemplateParams`
-  - methods: derive_bake_values, python_literal, defaults, to_context
+  - methods: derive_auto_maps, derive_bake_values, python_literal, defaults, to_context
 
 ### `mat_utils/marmoset_bridge/templates/bake.py` — Bake source detail + surface maps onto the target meshes.
 - `main()`
@@ -606,7 +614,7 @@ _Generated: 2026-08-08_
 - `class MainThreadMarshaller(_MainThreadMarshallerInternal)`
   - methods: is_active, run
 - `class RpcPlugin(object)`
-  - methods: port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
+  - methods: import_ops, port, is_hosted, is_running, address, start, stop, autostart, autostart_safely
 
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py` — Project-level ops: inspect the open project and reload its mesh.
 - `project_info()`
@@ -627,7 +635,7 @@ _Generated: 2026-08-08_
 
 ### `mat_utils/texture_baker.py` — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - `class TextureBaker(ptk.LoggingMixin)`
-  - methods: bake, resolve_meshes, texture_set_stem, default_output_dir
+  - methods: bake, denoise_image, resolve_meshes, texture_set_stem, default_output_dir
 
 ### `mat_utils/texture_path_editor.py` — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - `class TexturePathEditorSlots(ptk.LoggingMixin)`
@@ -756,7 +764,7 @@ _Generated: 2026-08-08_
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`

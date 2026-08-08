@@ -19,9 +19,46 @@ _ENV_NODE = "btk_hdri_env"
 _MAPPING_NODE = "btk_hdri_mapping"
 _COORD_NODE = "btk_hdri_coords"
 
+# Name prefix (and delete handle) for lights built from fixture geometry.
+_FIXTURE_LIGHT_PREFIX = "btk_fixture_"
+
 
 class _LightUtilsInternal(object):
     """Internal helpers for LightUtils."""
+
+    @staticmethod
+    def _as_objects(objects):
+        """Normalize refs / names / a single item to a list of objects (missing -> None)."""
+        import bpy
+
+        if objects is None:
+            return []
+        if isinstance(objects, str) or not hasattr(objects, "__iter__"):
+            objects = [objects]
+        return [bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects]
+
+    @staticmethod
+    def _world_corners(obj):
+        """The object's bounding-box corners in world space."""
+        from mathutils import Vector
+
+        return [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+
+    @staticmethod
+    def _world_center(obj):
+        """Centre of the object's world-space bounding box."""
+        from mathutils import Vector
+
+        corners = _LightUtilsInternal._world_corners(obj)
+        return sum(corners, Vector((0.0, 0.0, 0.0))) / len(corners)
+
+    @staticmethod
+    def _world_extents(obj):
+        """``(x, y, z)`` size of the object's world-space bounding box."""
+        corners = _LightUtilsInternal._world_corners(obj)
+        return tuple(
+            max(c[i] for c in corners) - min(c[i] for c in corners) for i in range(3)
+        )
 
     @staticmethod
     def _world_node_tree(create=True):
@@ -261,4 +298,131 @@ class LightUtils(_LightUtilsInternal):
             if node is not None:
                 nt.nodes.remove(node)
                 removed = True
+        return removed
+
+    # ------------------------------------------------------------------ fixture lights
+
+    @staticmethod
+    def lights_from_geometry(
+        objects,
+        power=100.0,
+        color=(1.0, 1.0, 1.0),
+        direction="auto",
+        offset=0.01,
+        spread=None,
+        prefix=_FIXTURE_LIGHT_PREFIX,
+        diffuse_only=False,
+    ):
+        """Create a real area light matched to each light-fixture *mesh*.
+
+        An emissive map is an **appearance**, not a light source: it makes a fixture look
+        lit without emitting anything an artist can aim, colour-temperature or re-time, and
+        driving a bake from emissive geometry instead couples the room's illumination to a
+        texture's exposure. This builds actual lights from the fixture geometry that is
+        already correctly placed and sized in the scene, so a module authored without
+        lights (a StingrayPBS/IBL scene exports none) can be lit for a bake without
+        re-authoring it upstream.
+
+        Each light is an **area** light matched to the fixture's plate: the mesh's thinnest
+        bounding axis is taken as the emitting normal, the other two become the light's
+        width and height, and the light is placed at the fixture's centre pushed *offset*
+        along the emission direction so it never sits inside its own housing.
+
+        The box is the **world-axis-aligned** bounding box, so a fixture rotated off the
+        world axes gets a light that is correctly placed and powered but axis-aligned in
+        size and aim — fine for the architectural case this exists for (ceiling and wall
+        plates), wrong for a raked or angled fitting. Pass an explicit *direction* for
+        those, or author real lights upstream.
+
+        Parameters:
+            objects: Fixture meshes (refs or names).
+            power: Radiant power per light, in Watts.
+            color: Light RGB.
+            direction: ``"auto"`` aims each light along its thin axis toward the overall
+                centre of the set — a ceiling panel points down, a wall panel points inward,
+                with no per-object setup. Pass an explicit ``(x, y, z)`` to force one
+                direction for all of them.
+            offset: Metres to push the light off the fixture surface along its aim.
+            spread: Beam spread in degrees (``None`` keeps Blender's 180° default).
+            prefix: Name prefix, also the handle :meth:`remove_lights` deletes by.
+            diffuse_only: Drop the light's specular contribution. Useful for a *lightmap*
+                bake, where a baked specular highlight would be locked to the baking
+                viewpoint and read as a smudge from every other angle.
+
+        Returns:
+            (list) names of the light objects created.
+        """
+        import bpy
+        from mathutils import Vector
+
+        meshes = []
+        for o in _LightUtilsInternal._as_objects(objects):
+            if o is not None and o.type == "MESH":
+                meshes.append(o)
+        if not meshes:
+            return []
+
+        centers = {o.name: _LightUtilsInternal._world_center(o) for o in meshes}
+        group_center = sum(centers.values(), Vector((0.0, 0.0, 0.0))) / len(centers)
+
+        created = []
+        for obj in meshes:
+            extents = _LightUtilsInternal._world_extents(obj)
+            axis = min(range(3), key=lambda i: extents[i])  # thinnest = plate normal
+            sizes = sorted(extents[i] for i in range(3) if i != axis)
+            size_y, size_x = sizes[0], sizes[1]
+
+            normal = Vector((0.0, 0.0, 0.0))
+            normal[axis] = 1.0
+            if direction == "auto":
+                # Aim along the plate's own thin axis, toward the middle of the set: a
+                # ceiling plate points down, a wall plate points inward. The aim stays ON
+                # that axis even when the position is ambiguous, because the rectangle was
+                # sized from the OTHER two — aiming somewhere else would light a shape the
+                # fixture does not have.
+                toward = group_center - centers[obj.name]
+                if toward[axis] < 0:
+                    normal = -normal
+                elif toward[axis] == 0 and axis == 2:
+                    # Dead centre along the aim axis — a lone fixture, or a co-planar row
+                    # of them. Only Z has a natural answer, and it is down; an ambiguous
+                    # X/Y plate keeps +axis, which is arbitrary but deterministic.
+                    normal = -normal
+            else:
+                normal = Vector(direction).normalized()
+
+            data = bpy.data.lights.new(f"{prefix}{obj.name}", type="AREA")
+            data.energy = float(power)
+            data.color = tuple(color)[:3]
+            data.shape = "RECTANGLE"
+            data.size = max(size_x, 1e-4)
+            data.size_y = max(size_y, 1e-4)
+            if spread is not None:
+                data.spread = math.radians(float(spread))
+            if diffuse_only:
+                data.specular_factor = 0.0
+
+            light = bpy.data.objects.new(f"{prefix}{obj.name}", data)
+            light.location = centers[obj.name] + normal * float(offset)
+            # An area light emits along its local -Z, so aim that at the emission normal.
+            light.rotation_euler = normal.to_track_quat("-Z", "Y").to_euler()
+            bpy.context.scene.collection.objects.link(light)
+            created.append(light.name)
+
+        return created
+
+    @staticmethod
+    def remove_lights(prefix=_FIXTURE_LIGHT_PREFIX):
+        """Delete the light objects :meth:`lights_from_geometry` created; return their names."""
+        import bpy
+
+        removed = []
+        for obj in [o for o in bpy.data.objects if o.type == "LIGHT"]:
+            if not obj.name.startswith(prefix):
+                continue
+            data = obj.data
+            removed.append(obj.name)
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if data is not None and data.users == 0:
+                bpy.data.lights.remove(data)
         return removed

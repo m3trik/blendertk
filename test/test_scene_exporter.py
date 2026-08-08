@@ -689,7 +689,7 @@ try:
     os.makedirs(glb_dir, exist_ok=True)
     exp8 = SceneExporter()
     # Deterministic conversion failure (ptk.MeshConvert is environment-dependent).
-    exp8._create_glb = lambda fbx_path=None, announce=True: None
+    exp8._create_glb = lambda fbx_path=None, announce=True, objects=None: None
     result = exp8.perform_export(
         export_dir=glb_dir,
         objects=[gcube],
@@ -710,7 +710,7 @@ try:
     )
 
     # ... and with a working conversion the deliverable lands AND the sidecar is written.
-    def _fake_glb(fbx_path=None, announce=True):
+    def _fake_glb(fbx_path=None, announce=True, objects=None):
         p = os.path.splitext(fbx_path)[0] + ".glb"
         with open(p, "wb") as fh:
             fh.write(b"GLBDATA")

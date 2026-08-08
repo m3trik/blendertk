@@ -4958,12 +4958,21 @@
               "deprecated": false
             },
             {
+              "name": "get_standoff_distances",
+              "qualname": "EditUtils.get_standoff_distances",
+              "kind": "classmethod",
+              "signature": "(cls, objects, target, sample_limit=None)",
+              "summary": "Measure how far each mesh in *objects* stands off *target*'s surface —",
+              "line": 1555,
+              "deprecated": false
+            },
+            {
               "name": "get_similar_mesh",
               "qualname": "EditUtils.get_similar_mesh",
               "kind": "staticmethod",
               "signature": "(objects=None, *, tolerance=0.0, inc_orig=False, select=False, vertex=False, edge=False, face=False, triangle=False, shell=False, uvcoord=False, area=False, world_area=False, bounding_box=False)",
               "summary": "Find scene mesh objects similar to ``objects`` by topology / area / bounding-box metrics —",
-              "line": 1547,
+              "line": 1626,
               "deprecated": false
             },
             {
@@ -4972,7 +4981,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Dissolve the given group Empties (or the selection's) — mirror of mayatk's",
-              "line": 1615,
+              "line": 1694,
               "deprecated": false
             },
             {
@@ -4981,7 +4990,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, by_material=False, rename=False, center_pivots=True, uninstance=True)",
               "summary": "Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender",
-              "line": 1672,
+              "line": 1751,
               "deprecated": false
             },
             {
@@ -4990,7 +4999,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, group_by_material=False, cluster_by_distance=False, threshold=10000.0, uninstance=True)",
               "summary": "Combine mesh objects into one — Blender mirror of mayatk's ``EditUtils.combine_objects``",
-              "line": 1735,
+              "line": 1814,
               "deprecated": false
             },
             {
@@ -4999,7 +5008,7 @@
               "kind": "staticmethod",
               "signature": "(*, duplicate=False, separate=True, separate_each=False, center_pivot=True)",
               "summary": "Detach the active mesh's selected faces — Blender mirror of mayatk's",
-              "line": 1793,
+              "line": 1872,
               "deprecated": false
             },
             {
@@ -5008,7 +5017,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete=False, select=True, round_ndigits=5)",
               "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-              "line": 1870,
+              "line": 1949,
               "deprecated": false
             },
             {
@@ -5017,7 +5026,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
               "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-              "line": 1917,
+              "line": 1996,
               "deprecated": false
             },
             {
@@ -5026,7 +5035,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
               "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-              "line": 2008,
+              "line": 2087,
               "deprecated": false
             }
           ]
@@ -8881,7 +8890,7 @@
               "kind": "method",
               "signature": "(self, version_format: str = '') -> str",
               "summary": "Generate the full export file path.",
-              "line": 529,
+              "line": 564,
               "deprecated": false
             },
             {
@@ -8890,7 +8899,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> str",
               "summary": "Format the export name using a regex pattern and replacement (e.g.",
-              "line": 658,
+              "line": 693,
               "deprecated": false
             },
             {
@@ -8899,7 +8908,7 @@
               "kind": "method",
               "signature": "(self, export_path: str) -> str",
               "summary": "Generate the log file path based on the export path.",
-              "line": 676,
+              "line": 711,
               "deprecated": false
             },
             {
@@ -8908,7 +8917,7 @@
               "kind": "method",
               "signature": "(self, log_file_path: str)",
               "summary": "Setup file logging to log actions during export.",
-              "line": 681,
+              "line": 716,
               "deprecated": false
             },
             {
@@ -8917,7 +8926,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Close and remove file handlers after logging is complete.",
-              "line": 697,
+              "line": 732,
               "deprecated": false
             },
             {
@@ -8926,7 +8935,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "All FBX export-option preset names (built-in + user;",
-              "line": 721,
+              "line": 756,
               "deprecated": false
             },
             {
@@ -8935,7 +8944,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "Writable directory FBX export-option presets are saved to (the \"Open Preset",
-              "line": 727,
+              "line": 762,
               "deprecated": false
             },
             {
@@ -8944,7 +8953,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Optional[str]",
               "summary": "Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it",
-              "line": 733,
+              "line": 768,
               "deprecated": false
             },
             {
@@ -8953,7 +8962,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, options: Optional[Dict[str, Any]] = None) -> str",
               "summary": "Save *options* (default: :data:`_DEFAULT_FBX_OPTIONS`) as user preset *name*.",
-              "line": 741,
+              "line": 776,
               "deprecated": false
             },
             {
@@ -8962,7 +8971,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete the *user* FBX export-option preset *name* (built-ins are read-only).",
-              "line": 752,
+              "line": 787,
               "deprecated": false
             },
             {
@@ -8971,7 +8980,7 @@
               "kind": "method",
               "signature": "(self, name: Optional[str] = None, verify: bool = False) -> Optional[dict]",
               "summary": "Load a named FBX export-option preset so the next :meth:`perform_export` call",
-              "line": 757,
+              "line": 792,
               "deprecated": false
             },
             {
@@ -8980,7 +8989,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "Return (and log) the FBX export kwargs the next :meth:`perform_export` call will",
-              "line": 792,
+              "line": 827,
               "deprecated": false
             }
           ]
@@ -9438,6 +9447,39 @@
       ]
     },
     {
+      "relpath": "env_utils/scene_state.py",
+      "summary": "Read named sections of live-scene state for transport.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "SceneState",
+          "summary": "Section-registry reader of scene state the FBX cannot express.",
+          "line": 31,
+          "bases": [],
+          "members": [
+            {
+              "name": "source",
+              "qualname": "SceneState.source",
+              "kind": "staticmethod",
+              "signature": "() -> Dict[str, str]",
+              "summary": "This host's identity for the envelope's ``source`` key.",
+              "line": 49,
+              "deprecated": false
+            },
+            {
+              "name": "read",
+              "qualname": "SceneState.read",
+              "kind": "classmethod",
+              "signature": "(cls, objects: List[Any], include_textures: bool = True, sections: Optional[List[str]] = None) -> Dict[str, Any]",
+              "summary": "Scene state the FBX cannot express, one key per requested section.",
+              "line": 56,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "relpath": "env_utils/script_output.py",
       "summary": "Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.",
       "functions": [],
@@ -9752,7 +9794,7 @@
         {
           "name": "WebXrPreview",
           "summary": "Live browser / WebXR preview of the Blender selection.",
-          "line": 37,
+          "line": 39,
           "bases": [
             "BlenderExportMixin",
             "ptk.PreviewBridge"
@@ -9876,7 +9918,7 @@
         {
           "name": "LightUtils",
           "summary": "Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).",
-          "line": 59,
+          "line": 96,
           "bases": [
             "_LightUtilsInternal"
           ],
@@ -9887,7 +9929,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)",
               "summary": "Set (or update) the world environment from an HDR image.",
-              "line": 63,
+              "line": 100,
               "deprecated": false
             },
             {
@@ -9896,7 +9938,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/",
-              "line": 139,
+              "line": 176,
               "deprecated": false
             },
             {
@@ -9905,7 +9947,7 @@
               "kind": "staticmethod",
               "signature": "(diffuse=None, glossy=None)",
               "summary": "Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the",
-              "line": 177,
+              "line": 214,
               "deprecated": false
             },
             {
@@ -9914,7 +9956,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The world's diffuse/glossy ray-visibility as ``{diffuse, glossy}``, or ``None`` (no world /",
-              "line": 198,
+              "line": 235,
               "deprecated": false
             },
             {
@@ -9923,7 +9965,7 @@
               "kind": "staticmethod",
               "signature": "(resolution)",
               "summary": "Set the world environment's importance-sampling **map resolution** — the Cycles analogue of",
-              "line": 210,
+              "line": 247,
               "deprecated": false
             },
             {
@@ -9932,7 +9974,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The world's importance-sampling map resolution when in **manual** mode, else ``None``",
-              "line": 234,
+              "line": 271,
               "deprecated": false
             },
             {
@@ -9941,7 +9983,25 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.",
-              "line": 247,
+              "line": 284,
+              "deprecated": false
+            },
+            {
+              "name": "lights_from_geometry",
+              "qualname": "LightUtils.lights_from_geometry",
+              "kind": "staticmethod",
+              "signature": "(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False)",
+              "summary": "Create a real area light matched to each light-fixture *mesh*.",
+              "line": 306,
+              "deprecated": false
+            },
+            {
+              "name": "remove_lights",
+              "qualname": "LightUtils.remove_lights",
+              "kind": "staticmethod",
+              "signature": "(prefix=_FIXTURE_LIGHT_PREFIX)",
+              "summary": "Delete the light objects :meth:`lights_from_geometry` created;",
+              "line": 415,
               "deprecated": false
             }
           ]
@@ -10128,7 +10188,7 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "",
-              "line": 98,
+              "line": 105,
               "deprecated": false
             },
             {
@@ -10137,7 +10197,25 @@
               "kind": "property",
               "signature": "(self) -> int",
               "summary": "",
-              "line": 106,
+              "line": 113,
+              "deprecated": false
+            },
+            {
+              "name": "denoise",
+              "qualname": "LightmapBaker.denoise",
+              "kind": "property",
+              "signature": "(self) -> bool",
+              "summary": "",
+              "line": 121,
+              "deprecated": false
+            },
+            {
+              "name": "device",
+              "qualname": "LightmapBaker.device",
+              "kind": "property",
+              "signature": "(self) -> Optional[str]",
+              "summary": "",
+              "line": 129,
               "deprecated": false
             },
             {
@@ -10146,7 +10224,7 @@
               "kind": "staticmethod",
               "signature": "() -> 'ptk.PresetStore'",
               "summary": "Shared store of lightmap quality presets (built-in + user tiers).",
-              "line": 118,
+              "line": 141,
               "deprecated": false
             },
             {
@@ -10155,7 +10233,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, **overrides) -> 'LightmapBaker'",
               "summary": "Construct a baker from a named quality preset (``resolution`` / ``samples``).",
-              "line": 129,
+              "line": 152,
               "deprecated": false
             },
             {
@@ -10164,7 +10242,7 @@
               "kind": "method",
               "signature": "(self, objects=None, **kwargs) -> Dict[str, str]",
               "summary": "Bake a **fused** (albedo x lighting) HDR lightmap per object.",
-              "line": 148,
+              "line": 171,
               "deprecated": false
             },
             {
@@ -10173,7 +10251,7 @@
               "kind": "method",
               "signature": "(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]",
               "summary": "Bake a **lighting-only** irradiance lightmap per object (the default path).",
-              "line": 156,
+              "line": 179,
               "deprecated": false
             },
             {
@@ -10182,7 +10260,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]",
               "summary": "Record a lighting-only bake for the engine (changes nothing about the material/UVs).",
-              "line": 234,
+              "line": 257,
               "deprecated": false
             },
             {
@@ -10191,7 +10269,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap') -> Dict[str, Tuple[str, List[float]]]",
               "summary": "Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.",
-              "line": 306,
+              "line": 329,
               "deprecated": false
             },
             {
@@ -10200,7 +10278,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> Optional[str]",
               "summary": "Rebuild the ``lightmap_metadata`` export channel from the scene's markers.",
-              "line": 654,
+              "line": 677,
               "deprecated": false
             },
             {
@@ -10209,7 +10287,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Undo :meth:`commit_lightmap` -- restore any atlas UV remap, drop the markers, republish.",
-              "line": 733,
+              "line": 756,
               "deprecated": false
             },
             {
@@ -10218,7 +10296,7 @@
               "kind": "method",
               "signature": "(self, mapping: Dict[str, str]) -> Dict[str, str]",
               "summary": "Make the fused bake each object's live appearance (non-destructive).",
-              "line": 772,
+              "line": 795,
               "deprecated": false
             },
             {
@@ -10227,7 +10305,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Undo :meth:`commit_unlit` -- restore the source material slots + drop the marker.",
-              "line": 828,
+              "line": 851,
               "deprecated": false
             },
             {
@@ -10236,7 +10314,7 @@
               "kind": "method",
               "signature": "(self, objects=None) -> List[str]",
               "summary": "Undo any lightmap wiring -- fused commit and/or lighting-only marker.",
-              "line": 857,
+              "line": 880,
               "deprecated": false
             }
           ]
@@ -10244,7 +10322,7 @@
         {
           "name": "LightmapBakerSlots",
           "summary": "Switchboard slots for the co-located ``lightmap_baker.ui`` panel.",
-          "line": 884,
+          "line": 907,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -10255,7 +10333,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Configure the header chrome (menu / collapse / hide), menu, help text.",
-              "line": 955,
+              "line": 978,
               "deprecated": false
             },
             {
@@ -10264,7 +10342,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Quality combobox from the shared preset store.",
-              "line": 1031,
+              "line": 1054,
               "deprecated": false
             },
             {
@@ -10273,7 +10351,7 @@
               "kind": "method",
               "signature": "(self, index, widget) -> None",
               "summary": "Apply the selected preset's dials to Resolution / Samples.",
-              "line": 1040,
+              "line": 1063,
               "deprecated": false
             },
             {
@@ -10282,7 +10360,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the bake-level (Mode) combobox;",
-              "line": 1045,
+              "line": 1068,
               "deprecated": false
             },
             {
@@ -10291,7 +10369,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Packing combobox;",
-              "line": 1055,
+              "line": 1078,
               "deprecated": false
             },
             {
@@ -10300,7 +10378,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Scope combobox;",
-              "line": 1066,
+              "line": 1089,
               "deprecated": false
             },
             {
@@ -10309,7 +10387,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the Resolution combobox (value carried as item data);",
-              "line": 1095,
+              "line": 1118,
               "deprecated": false
             },
             {
@@ -10318,7 +10396,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Add the Prefix / Suffix / Auto picker to the name-affix field.",
-              "line": 1117,
+              "line": 1140,
               "deprecated": false
             },
             {
@@ -10327,7 +10405,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).",
-              "line": 1139,
+              "line": 1162,
               "deprecated": false
             },
             {
@@ -10336,7 +10414,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Undo the bake wiring on the selected objects (or all baked ones).",
-              "line": 1215,
+              "line": 1238,
               "deprecated": false
             },
             {
@@ -10345,7 +10423,96 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open the most recent output folder in the file browser.",
-              "line": 1228,
+              "line": 1251,
+              "deprecated": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "relpath": "light_utils/lightmap_baker/web_export.py",
+      "summary": "Turn a Cycles lightmap bake into a WebXR-ready GLB.",
+      "functions": [],
+      "classes": [
+        {
+          "name": "LightmapWebExport",
+          "summary": "Bake a scene's lightmaps and emit a WebXR-ready GLB.",
+          "line": 51,
+          "bases": [
+            "ptk.LoggingMixin"
+          ],
+          "members": [
+            {
+              "name": "set_world_environment",
+              "qualname": "LightmapWebExport.set_world_environment",
+              "kind": "staticmethod",
+              "signature": "(hdri: Optional[str] = None, strength: float = 1.0, color: Optional[Sequence[float]] = None, rotation: float = 0.0) -> str",
+              "summary": "Light the world with an equirect HDRI, or a flat ambient colour.",
+              "line": 102,
+              "deprecated": false
+            },
+            {
+              "name": "set_emission_strength",
+              "qualname": "LightmapWebExport.set_emission_strength",
+              "kind": "staticmethod",
+              "signature": "(multiplier: float, objects=None) -> List[str]",
+              "summary": "Set Emission Strength on every material whose Emission Color is textured.",
+              "line": 162,
+              "deprecated": false
+            },
+            {
+              "name": "encode_for_web",
+              "qualname": "LightmapWebExport.encode_for_web",
+              "kind": "classmethod",
+              "signature": "(cls, mapping: Dict[str, str], output_dir: Optional[str] = None, percentile: Optional[float] = None, suffix: str = '') -> Dict[str, Tuple[str, float]]",
+              "summary": "Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.",
+              "line": 212,
+              "deprecated": false
+            },
+            {
+              "name": "wire_lightmaps",
+              "qualname": "LightmapWebExport.wire_lightmaps",
+              "kind": "method",
+              "signature": "(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None) -> Dict[str, Any]",
+              "summary": "Wire each lightmap into a real glTF texture slot on the lightmap UV.",
+              "line": 311,
+              "deprecated": false
+            },
+            {
+              "name": "unwire_lightmaps",
+              "qualname": "LightmapWebExport.unwire_lightmaps",
+              "kind": "staticmethod",
+              "signature": "(token: Dict[str, Any]) -> List[str]",
+              "summary": "Remove the nodes :meth:`wire_lightmaps` added, restoring the source materials.",
+              "line": 434,
+              "deprecated": false
+            },
+            {
+              "name": "build_manifest",
+              "qualname": "LightmapWebExport.build_manifest",
+              "kind": "method",
+              "signature": "(self, encoded: Dict[str, Tuple[str, float]], carrier: str, lighting: Optional[Dict[str, Any]] = None) -> Dict[str, Any]",
+              "summary": "The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.",
+              "line": 453,
+              "deprecated": false
+            },
+            {
+              "name": "export_glb",
+              "qualname": "LightmapWebExport.export_glb",
+              "kind": "method",
+              "signature": "(self, path: str, objects=None, manifest: Optional[Dict[str, Any]] = None, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> str",
+              "summary": "Export a GLB through Blender's native glTF exporter.",
+              "line": 500,
+              "deprecated": false
+            },
+            {
+              "name": "bake_and_export",
+              "qualname": "LightmapWebExport.bake_and_export",
+              "kind": "method",
+              "signature": "(self, glb_path: str, objects=None, output_dir: Optional[str] = None, lightmap_dir: Optional[str] = None, mode: str = 'separated', carrier: str = 'occlusion', percentile: Optional[float] = None, lighting: Optional[Dict[str, Any]] = None, keep_wiring: bool = False, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> Dict[str, Any]",
+              "summary": "Bake -> atlas -> encode -> wire -> GLB, in one call.",
+              "line": 625,
               "deprecated": false
             }
           ]
@@ -11390,7 +11557,7 @@
         {
           "name": "MarmosetBridge",
           "summary": "Export the Blender selection to Marmoset Toolbag with templated automation.",
-          "line": 97,
+          "line": 98,
           "bases": [
             "ptk.HandoffBridge",
             "_MarmosetBridgeInternal"
@@ -11402,7 +11569,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "",
-              "line": 119,
+              "line": 120,
               "deprecated": false
             },
             {
@@ -11411,7 +11578,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "",
-              "line": 126,
+              "line": 127,
               "deprecated": false
             },
             {
@@ -11420,7 +11587,7 @@
               "kind": "method",
               "signature": "(self, *args, **kwargs) -> Optional[str]",
               "summary": "Render a Toolbag script body (delegates to the engine deliverer).",
-              "line": 131,
+              "line": 132,
               "deprecated": false
             },
             {
@@ -11429,7 +11596,7 @@
               "kind": "staticmethod",
               "signature": "(objects: Sequence, high_suffix: str, low_suffix: str, include_children: bool = True) -> Dict[str, str]",
               "summary": "Build the ``{mesh_name: 'source'|'target'}`` sidecar for the bake -- mirror of mayatk's",
-              "line": 219,
+              "line": 312,
               "deprecated": false
             }
           ]
@@ -11444,7 +11611,7 @@
         {
           "name": "MarmosetEngine",
           "summary": "Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.",
-          "line": 57,
+          "line": 58,
           "bases": [
             "ptk.Deliverer",
             "ptk.LoggingMixin"
@@ -11456,7 +11623,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "Resolve the Toolbag executable path.",
-              "line": 96,
+              "line": 97,
               "deprecated": false
             },
             {
@@ -11465,7 +11632,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "Resolve Toolbag's application log file (script prints + tracebacks).",
-              "line": 119,
+              "line": 120,
               "deprecated": false
             },
             {
@@ -11474,7 +11641,7 @@
               "kind": "method",
               "signature": "(self, bridge, request) -> bool",
               "summary": "Validate the (template, mode) before the bridge produces its payload.",
-              "line": 130,
+              "line": 131,
               "deprecated": false
             },
             {
@@ -11483,7 +11650,7 @@
               "kind": "method",
               "signature": "(self, bridge, payload, request) -> Optional[Dict[str, Any]]",
               "summary": "Hand the produced model + manifests to Toolbag via :meth:`send`.",
-              "line": 146,
+              "line": 147,
               "deprecated": false
             },
             {
@@ -11492,7 +11659,7 @@
               "kind": "method",
               "signature": "(self, model_path: str, manifest_path: Optional[str] = None, pairs_path: Optional[str] = None, source_model_path: Optional[str] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, toolbag_exe: Optional[str] = None, template: str = 'import', mode: str = SEND_TO, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]",
               "summary": "Render *template* in *mode* against *model_path* and hand off to Toolbag.",
-              "line": 169,
+              "line": 170,
               "deprecated": false
             },
             {
@@ -11501,7 +11668,7 @@
               "kind": "method",
               "signature": "(self, template: str, model_path: str, manifest_path: str, output_dir: str, mode: str = SEND_TO, params: Optional[Dict[str, Any]] = None, headless: Optional[bool] = None, pairs_path: Optional[str] = None, source_model_path: Optional[str] = None) -> Optional[str]",
               "summary": "Return the rendered Toolbag Python script body, or *None* on miss.",
-              "line": 365,
+              "line": 411,
               "deprecated": false
             },
             {
@@ -11510,7 +11677,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Path]",
               "summary": "Return user-visible templates in ``templates/`` (skips underscore-prefixed).",
-              "line": 595,
+              "line": 650,
               "deprecated": false
             },
             {
@@ -11519,7 +11686,7 @@
               "kind": "staticmethod",
               "signature": "(template_path: Path) -> Tuple[str, ...]",
               "summary": "Return the modes declared by *template_path*'s ``BRIDGE_MODES`` constant.",
-              "line": 600,
+              "line": 655,
               "deprecated": false
             },
             {
@@ -11528,7 +11695,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Tuple[str, str]]",
               "summary": "Return ``[(stem, mode), ...]`` for every (template, mode) pairing.",
-              "line": 609,
+              "line": 664,
               "deprecated": false
             }
           ]
@@ -11817,7 +11984,7 @@
           "kind": "function",
           "signature": "(port=None, host=None)",
           "summary": "Start the RPC server (idempotent).",
-          "line": 48,
+          "line": 52,
           "deprecated": false
         },
         {
@@ -11826,7 +11993,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Shut the server down (tests / hot-reload).",
-          "line": 53,
+          "line": 57,
           "deprecated": false
         },
         {
@@ -11835,7 +12002,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "True while the server is bound.",
-          "line": 58,
+          "line": 62,
           "deprecated": false
         },
         {
@@ -11844,7 +12011,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Start on plugin load, gated to the Toolbag host.",
-          "line": 63,
+          "line": 67,
           "deprecated": false
         }
       ],
@@ -11904,7 +12071,7 @@
         {
           "name": "MainThreadMarshaller",
           "summary": "Run a callable on the host's Qt main thread and block for its result.",
-          "line": 162,
+          "line": 200,
           "bases": [
             "_MainThreadMarshallerInternal"
           ],
@@ -11915,7 +12082,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True when :meth:`run` will marshal rather than call direct.",
-              "line": 184,
+              "line": 245,
               "deprecated": false
             },
             {
@@ -11924,7 +12091,7 @@
               "kind": "method",
               "signature": "(self, fn, *args, timeout=None, **kwargs)",
               "summary": "Call *fn*, on the main thread when one is reachable.",
-              "line": 202,
+              "line": 263,
               "deprecated": false
             }
           ]
@@ -11932,18 +12099,27 @@
         {
           "name": "RpcPlugin",
           "summary": "One host plugin: a registry, a marshaller, and the server that joins them.",
-          "line": 326,
+          "line": 394,
           "bases": [
             "object"
           ],
           "members": [
+            {
+              "name": "import_ops",
+              "qualname": "RpcPlugin.import_ops",
+              "kind": "staticmethod",
+              "signature": "(package)",
+              "summary": "Import *package* (dotted name), forcing its ``@register`` side effects.",
+              "line": 453,
+              "deprecated": false
+            },
             {
               "name": "port",
               "qualname": "RpcPlugin.port",
               "kind": "property",
               "signature": "(self)",
               "summary": "Configured port: ``<PREFIX>_PORT`` if set and numeric, else the default.",
-              "line": 418,
+              "line": 520,
               "deprecated": false
             },
             {
@@ -11952,7 +12128,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True only inside the real host application.",
-              "line": 425,
+              "line": 527,
               "deprecated": false
             },
             {
@@ -11961,7 +12137,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True while the HTTP server is bound.",
-              "line": 447,
+              "line": 549,
               "deprecated": false
             },
             {
@@ -11970,7 +12146,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The bound ``(host, port)``, or ``None`` when not running.",
-              "line": 452,
+              "line": 554,
               "deprecated": false
             },
             {
@@ -11979,7 +12155,7 @@
               "kind": "method",
               "signature": "(self, port=None, host=None)",
               "summary": "Bind and serve on a daemon thread.",
-              "line": 456,
+              "line": 558,
               "deprecated": false
             },
             {
@@ -11988,7 +12164,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Shut the server down (host teardown hook, tests, hot-reload).",
-              "line": 478,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -11997,7 +12173,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Start on plugin load, but only when actually hosted.",
-              "line": 489,
+              "line": 591,
               "deprecated": false
             },
             {
@@ -12006,7 +12182,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": ":meth:`autostart`, but a failure is logged instead of raised.",
-              "line": 503,
+              "line": 605,
               "deprecated": false
             }
           ]
@@ -12062,7 +12238,7 @@
         {
           "name": "Parameters",
           "summary": "Parameters — module namespace.",
-          "line": 324,
+          "line": 404,
           "bases": [],
           "members": [
             {
@@ -12071,7 +12247,7 @@
               "kind": "staticmethod",
               "signature": "(script_text: str) -> 'set[str]'",
               "summary": "Registered keys present in *script_text* (delegates to uitk.bridge).",
-              "line": 334,
+              "line": 417,
               "deprecated": false
             },
             {
@@ -12080,7 +12256,7 @@
               "kind": "staticmethod",
               "signature": "() -> 'dict[str, Any]'",
               "summary": "Return ``{key: default}`` for every registered parameter.",
-              "line": 339,
+              "line": 422,
               "deprecated": false
             },
             {
@@ -12089,7 +12265,7 @@
               "kind": "staticmethod",
               "signature": "(values: 'dict[str, Any]') -> 'dict[str, str]'",
               "summary": "Format *values* for ``StrUtils.replace_delimited`` using Python literals.",
-              "line": 344,
+              "line": 427,
               "deprecated": false
             }
           ]
@@ -12104,16 +12280,25 @@
         {
           "name": "TemplateParams",
           "summary": "TemplateParams — module namespace.",
-          "line": 73,
+          "line": 93,
           "bases": [],
           "members": [
+            {
+              "name": "derive_auto_maps",
+              "qualname": "TemplateParams.derive_auto_maps",
+              "kind": "staticmethod",
+              "signature": "(manifest: Dict[str, Any]) -> Dict[str, bool]",
+              "summary": "Return the ``{MAP_*: bool}`` roster *manifest*'s textures imply.",
+              "line": 147,
+              "deprecated": false
+            },
             {
               "name": "derive_bake_values",
               "qualname": "TemplateParams.derive_bake_values",
               "kind": "staticmethod",
               "signature": "(values: Dict[str, Any]) -> Dict[str, Any]",
               "summary": "Return the managed bake tokens derived from *values*.",
-              "line": 101,
+              "line": 178,
               "deprecated": false
             },
             {
@@ -12122,7 +12307,7 @@
               "kind": "staticmethod",
               "signature": "(value: Any) -> str",
               "summary": "Format *value* as a Python source literal for template substitution.",
-              "line": 133,
+              "line": 210,
               "deprecated": false
             },
             {
@@ -12131,7 +12316,7 @@
               "kind": "staticmethod",
               "signature": "() -> Dict[str, Any]",
               "summary": "Return a copy of :data:`DEFAULTS`.",
-              "line": 144,
+              "line": 221,
               "deprecated": false
             },
             {
@@ -12140,7 +12325,7 @@
               "kind": "staticmethod",
               "signature": "(values: Dict[str, Any]) -> Dict[str, str]",
               "summary": "Map ``{KEY: value}`` to ``{KEY: python-literal-string}``.",
-              "line": 149,
+              "line": 226,
               "deprecated": false
             }
           ]
@@ -12157,7 +12342,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "",
-          "line": 358,
+          "line": 642,
           "deprecated": false
         }
       ],
@@ -12772,7 +12957,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Install -- or refresh -- the Painter-side substance_rpc plugin.",
-              "line": 908,
+              "line": 932,
               "deprecated": false
             },
             {
@@ -12781,7 +12966,7 @@
               "kind": "classmethod",
               "signature": "(cls, fbx_path: str) -> str",
               "summary": "``.../asset.fbx`` -> ``.../asset_high.fbx``.",
-              "line": 973,
+              "line": 997,
               "deprecated": false
             },
             {
@@ -12790,7 +12975,7 @@
               "kind": "classmethod",
               "signature": "(cls, paths: List[str]) -> List[str]",
               "summary": "The subset of *paths* Painter can actually use as mesh maps.",
-              "line": 1052,
+              "line": 1076,
               "deprecated": false
             },
             {
@@ -12799,7 +12984,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Path]",
               "summary": "Return user-visible templates in ``templates/`` (skips underscore-prefixed).",
-              "line": 1427,
+              "line": 1478,
               "deprecated": false
             },
             {
@@ -12808,7 +12993,7 @@
               "kind": "staticmethod",
               "signature": "(template_path: Path) -> Dict[str, Any]",
               "summary": "Read a template's metadata constants without executing the file.",
-              "line": 1434,
+              "line": 1485,
               "deprecated": false
             },
             {
@@ -12817,7 +13002,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Tuple[str, str]]",
               "summary": "Return ``[(stem, mode), ...]`` for every (template, mode) pairing.",
-              "line": 1524,
+              "line": 1575,
               "deprecated": false
             },
             {
@@ -12826,7 +13011,7 @@
               "kind": "staticmethod",
               "signature": "(painter_exe: Optional[str] = None) -> Optional[str]",
               "summary": "Return the path to Painter's application log.",
-              "line": 1533,
+              "line": 1584,
               "deprecated": false
             }
           ]
@@ -13205,7 +13390,7 @@
           "kind": "function",
           "signature": "(port=None, host=None)",
           "summary": "Start the RPC server (idempotent).",
-          "line": 49,
+          "line": 53,
           "deprecated": false
         },
         {
@@ -13214,7 +13399,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Shut the server down (close_plugin hook / tests / hot-reload).",
-          "line": 54,
+          "line": 58,
           "deprecated": false
         },
         {
@@ -13223,7 +13408,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "True while the server is bound.",
-          "line": 59,
+          "line": 63,
           "deprecated": false
         },
         {
@@ -13232,7 +13417,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Start on plugin load, gated to the Painter host.",
-          "line": 64,
+          "line": 68,
           "deprecated": false
         },
         {
@@ -13241,7 +13426,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Painter lifecycle hook: start the RPC server (idempotent).",
-          "line": 69,
+          "line": 73,
           "deprecated": false
         },
         {
@@ -13250,7 +13435,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Painter lifecycle hook: shut the RPC server down.",
-          "line": 76,
+          "line": 80,
           "deprecated": false
         }
       ],
@@ -13310,7 +13495,7 @@
         {
           "name": "MainThreadMarshaller",
           "summary": "Run a callable on the host's Qt main thread and block for its result.",
-          "line": 162,
+          "line": 200,
           "bases": [
             "_MainThreadMarshallerInternal"
           ],
@@ -13321,7 +13506,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True when :meth:`run` will marshal rather than call direct.",
-              "line": 184,
+              "line": 245,
               "deprecated": false
             },
             {
@@ -13330,7 +13515,7 @@
               "kind": "method",
               "signature": "(self, fn, *args, timeout=None, **kwargs)",
               "summary": "Call *fn*, on the main thread when one is reachable.",
-              "line": 202,
+              "line": 263,
               "deprecated": false
             }
           ]
@@ -13338,18 +13523,27 @@
         {
           "name": "RpcPlugin",
           "summary": "One host plugin: a registry, a marshaller, and the server that joins them.",
-          "line": 326,
+          "line": 394,
           "bases": [
             "object"
           ],
           "members": [
+            {
+              "name": "import_ops",
+              "qualname": "RpcPlugin.import_ops",
+              "kind": "staticmethod",
+              "signature": "(package)",
+              "summary": "Import *package* (dotted name), forcing its ``@register`` side effects.",
+              "line": 453,
+              "deprecated": false
+            },
             {
               "name": "port",
               "qualname": "RpcPlugin.port",
               "kind": "property",
               "signature": "(self)",
               "summary": "Configured port: ``<PREFIX>_PORT`` if set and numeric, else the default.",
-              "line": 418,
+              "line": 520,
               "deprecated": false
             },
             {
@@ -13358,7 +13552,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True only inside the real host application.",
-              "line": 425,
+              "line": 527,
               "deprecated": false
             },
             {
@@ -13367,7 +13561,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "True while the HTTP server is bound.",
-              "line": 447,
+              "line": 549,
               "deprecated": false
             },
             {
@@ -13376,7 +13570,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The bound ``(host, port)``, or ``None`` when not running.",
-              "line": 452,
+              "line": 554,
               "deprecated": false
             },
             {
@@ -13385,7 +13579,7 @@
               "kind": "method",
               "signature": "(self, port=None, host=None)",
               "summary": "Bind and serve on a daemon thread.",
-              "line": 456,
+              "line": 558,
               "deprecated": false
             },
             {
@@ -13394,7 +13588,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Shut the server down (host teardown hook, tests, hot-reload).",
-              "line": 478,
+              "line": 580,
               "deprecated": false
             },
             {
@@ -13403,7 +13597,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Start on plugin load, but only when actually hosted.",
-              "line": 489,
+              "line": 591,
               "deprecated": false
             },
             {
@@ -13412,7 +13606,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": ":meth:`autostart`, but a failure is logged instead of raised.",
-              "line": 503,
+              "line": 605,
               "deprecated": false
             }
           ]
@@ -13547,7 +13741,7 @@
         {
           "name": "TextureBaker",
           "summary": "Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).",
-          "line": 29,
+          "line": 33,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -13558,7 +13752,16 @@
               "kind": "method",
               "signature": "(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color') -> Dict[str, str]",
               "summary": "Bake each object's shaded surface to a per-object EXR.",
-              "line": 45,
+              "line": 67,
+              "deprecated": false
+            },
+            {
+              "name": "denoise_image",
+              "qualname": "TextureBaker.denoise_image",
+              "kind": "classmethod",
+              "signature": "(cls, path: str, output: Optional[str] = None) -> Optional[str]",
+              "summary": "Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.",
+              "line": 267,
               "deprecated": false
             },
             {
@@ -13567,7 +13770,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> List[Any]",
               "summary": "Normalize ``objects`` (refs / names / None=selection) to mesh objects.",
-              "line": 250,
+              "line": 424,
               "deprecated": false
             },
             {
@@ -13576,7 +13779,7 @@
               "kind": "staticmethod",
               "signature": "(obj) -> Optional[str]",
               "summary": "Base name of *obj*'s existing texture set (e.g.",
-              "line": 292,
+              "line": 466,
               "deprecated": false
             },
             {
@@ -13585,7 +13788,7 @@
               "kind": "staticmethod",
               "signature": "(subdir: str = 'baked_textures') -> str",
               "summary": "``<subdir>`` next to the saved .blend, else under the OS temp dir.",
-              "line": 316,
+              "line": 490,
               "deprecated": false
             }
           ]
@@ -16746,12 +16949,21 @@
               "deprecated": false
             },
             {
+              "name": "export_uv_layout",
+              "qualname": "UvUtils.export_uv_layout",
+              "kind": "staticmethod",
+              "signature": "(objects, uv_set=None)",
+              "summary": "Serialize each mesh's *uv_set* as a per-loop UV array, for another app to replay.",
+              "line": 957,
+              "deprecated": false
+            },
+            {
               "name": "create_lightmap_uvs",
               "qualname": "UvUtils.create_lightmap_uvs",
               "kind": "staticmethod",
               "signature": "(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True)",
               "summary": "Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).",
-              "line": 957,
+              "line": 1003,
               "deprecated": false
             },
             {
@@ -16760,7 +16972,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, method: str = 'hard', map_size: int = 4096, pack: bool = None, orient: bool = True, engine_params: dict = None)",
               "summary": "Automatically unwrap meshes with an external unwrapping engine.",
-              "line": 1028,
+              "line": 1074,
               "deprecated": false
             },
             {
@@ -16769,7 +16981,7 @@
               "kind": "classmethod",
               "signature": "(cls, source, target, tolerance=0.1, match_by_similarity=True)",
               "summary": "Copy the active UV layer from *source* mesh(es) onto *target* mesh(es).",
-              "line": 1144,
+              "line": 1190,
               "deprecated": false
             },
             {
@@ -16778,7 +16990,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in",
-              "line": 1230,
+              "line": 1276,
               "deprecated": false
             },
             {
@@ -16787,7 +16999,7 @@
               "kind": "staticmethod",
               "signature": "(objects, snapshot)",
               "summary": "Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the",
-              "line": 1252,
+              "line": 1298,
               "deprecated": false
             },
             {
@@ -16796,7 +17008,7 @@
               "kind": "staticmethod",
               "signature": "(objects, tolerance=None)",
               "summary": "Stack UV islands on top of each other.",
-              "line": 1276,
+              "line": 1322,
               "deprecated": false
             },
             {
@@ -16805,7 +17017,7 @@
               "kind": "staticmethod",
               "signature": "(objects, mode='LENGTH_AVERAGE')",
               "summary": "Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via",
-              "line": 1332,
+              "line": 1378,
               "deprecated": false
             },
             {
@@ -16814,7 +17026,7 @@
               "kind": "staticmethod",
               "signature": "(objects, angle=66.0, margin=0.0)",
               "summary": "Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's",
-              "line": 1395,
+              "line": 1441,
               "deprecated": false
             },
             {
@@ -16823,7 +17035,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u')",
               "summary": "Distribute UV islands evenly along ``axis`` (``\"u\"`` or ``\"v\"``) — the first and",
-              "line": 1438,
+              "line": 1484,
               "deprecated": false
             },
             {
@@ -16832,7 +17044,7 @@
               "kind": "staticmethod",
               "signature": "(objects, u=True, v=True, angle=30.0)",
               "summary": "Straighten the selected UV edges — edges within ``angle`` degrees of horizontal",
-              "line": 1480,
+              "line": 1526,
               "deprecated": false
             },
             {
@@ -16841,7 +17053,7 @@
               "kind": "staticmethod",
               "signature": "(objects, axis='u', mode='avg')",
               "summary": "Align the selected UVs — mirror of Maya's ``performAlignUV`` (min/avg/max) and",
-              "line": 1537,
+              "line": 1583,
               "deprecated": false
             },
             {
@@ -16850,7 +17062,7 @@
               "kind": "staticmethod",
               "signature": "(objects)",
               "summary": "Gather the targeted UV shells back into the 0-1 tile — mirror of Maya's ``UVGatherShells``:",
-              "line": 1594,
+              "line": 1640,
               "deprecated": false
             },
             {
@@ -16859,7 +17071,7 @@
               "kind": "staticmethod",
               "signature": "(objects, udim=None, map_size=4096)",
               "summary": "Move UV shells sitting outside the target UDIM tile into it — mirror of mayatk's",
-              "line": 1620,
+              "line": 1666,
               "deprecated": false
             },
             {
@@ -16868,7 +17080,7 @@
               "kind": "staticmethod",
               "signature": "(objects, to_edge=False)",
               "summary": "Orient the selected UV shells — mirror of Maya's ``texOrientShells`` /",
-              "line": 1682,
+              "line": 1728,
               "deprecated": false
             },
             {
@@ -16877,7 +17089,7 @@
               "kind": "staticmethod",
               "signature": "(objects, seed=0)",
               "summary": "Randomly offset the selected UV shells — mirror of Maya's ``RandomizeShells`` (a per-shell",
-              "line": 1699,
+              "line": 1745,
               "deprecated": false
             }
           ]

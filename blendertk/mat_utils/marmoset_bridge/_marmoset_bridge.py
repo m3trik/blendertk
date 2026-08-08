@@ -25,7 +25,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
@@ -46,6 +46,7 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (  # noqa: F401
 # never re-enters its own subpackage during import.
 from . import template_params
 
+from blendertk.edit_utils._edit_utils import EditUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
 
@@ -200,10 +201,102 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             )
             actual_pairs_path = pairs_path
 
+        # Measured cage input, passed as template params. Only for AUTO_CAGE:
+        # with a hand-typed offset these would go unread, and the measurement
+        # walks every source mesh's points.
+        if pairing.get("AUTO_CAGE"):
+            request.params.update(
+                self._cage_measurements(*self._split_by_pairs(objects, bake_pairs))
+            )
+
         return ptk.Payload(
             primary=fbx_path,
             extras={"manifest": manifest_path, "pairs": actual_pairs_path},
         )
+
+    @staticmethod
+    def _split_by_pairs(objects: Sequence, bake_pairs: Dict[str, str]) -> Tuple:
+        """``(sources, targets)`` mesh objects under *objects*, per *bake_pairs*.
+
+        Reuses the sidecar's classification -- the same one the Toolbag side
+        groups by -- rather than forming a second opinion that could disagree
+        with the bake groups the cage is measured for.
+        """
+        sources, targets = [], []
+        for obj in ptk.make_iterable(objects):
+            for node in [obj] + list(getattr(obj, "children_recursive", []) or []):
+                if getattr(node, "type", None) != "MESH":
+                    continue
+                side = bake_pairs.get(node.name)
+                if side == "source":
+                    sources.append(node)
+                elif side == "target":
+                    targets.append(node)
+        return sources, targets
+
+    def _cage_measurements(self, sources: Sequence, targets: Sequence) -> Dict[str, Any]:
+        """Measure what the auto cage needs -- mirror of mayatk's ``_cage_measurements``.
+
+        The cage has to travel from the bake target out past the source's
+        FURTHEST point, and only a closest-point query can say how far that is
+        -- a source standing off an INTERIOR target surface (a light fixture
+        under a ceiling, a door inset in its opening) sits wholly inside the
+        target's bounding box, so every box-derived estimate reads zero for it.
+        Blender has the acceleration structure for the real query; Toolbag
+        exposes no such call, which is why it happens here.
+
+        The diagonal rides along so the Toolbag side can convert these
+        host-unit distances into its own (see ``_unit_scale`` in
+        ``templates/bake.py``). Returns an empty mapping when there is nothing
+        to measure; the template falls back to its bounds estimate.
+        """
+        if not (sources and targets):
+            return {}
+        try:
+            distances = EditUtils.get_standoff_distances(sources, targets)
+            lo, hi = self._world_bounds(targets)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                f"Could not measure the bake cage ({e}); Toolbag will estimate "
+                f"it from the imported bounds instead."
+            )
+            return {}
+        if not distances or lo is None:
+            return {}
+
+        diagonal = sum((hi[i] - lo[i]) ** 2 for i in range(3)) ** 0.5
+        furthest = max(distances.items(), key=lambda kv: kv[1])
+        self.logger.info(
+            f"Cage measured over {len(distances)} source mesh(es): the furthest "
+            f"stands {furthest[1]:.4g} off the bake target ({furthest[0]})."
+        )
+        return {"CAGE_STANDOFFS": dict(distances), "CAGE_HOST_DIAGONAL": diagonal}
+
+    @staticmethod
+    def _world_bounds(objects: Sequence) -> Tuple:
+        """World-space AABB over *objects* as ``(min_xyz, max_xyz)``, or ``(None, None)``.
+
+        Depsgraph-evaluated, matching ``get_standoff_distances``: this diagonal
+        is compared against Toolbag's measurement of the SAME target to convert
+        units, and Toolbag sees the post-modifier mesh the FBX carried. Reading
+        the base ``bound_box`` off a modifier-carrying target would invent a
+        scale factor and rescale every standoff by it.
+        """
+        import bpy
+        from mathutils import Vector
+
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        lo = [None, None, None]
+        hi = [None, None, None]
+        for obj in objects:
+            obj = obj.evaluated_get(depsgraph)
+            mw = obj.matrix_world
+            for corner in getattr(obj, "bound_box", ()) or ():
+                world = mw @ Vector(corner)
+                for i in range(3):
+                    lo[i] = world[i] if lo[i] is None else min(lo[i], world[i])
+                    hi[i] = world[i] if hi[i] is None else max(hi[i], world[i])
+        return (None, None) if lo[0] is None else (lo, hi)
 
     @staticmethod
     def _scene_base_name() -> str:
