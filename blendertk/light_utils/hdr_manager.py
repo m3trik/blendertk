@@ -761,18 +761,18 @@ class HdrManagerSlots(ptk.LoggingMixin):
             detail=(
                 f"HDR not loaded — only part of the file is on disk ({reason}):\n"
                 f"{path}\n\n"
-                "Common causes: it's a cloud file (Dropbox / OneDrive) still syncing, a "
+                "Common causes: it's a cloud-synced file still downloading, a "
                 "download or export that was interrupted, or the disk filled up mid-write. "
-                "If it's a cloud file, make sure your sync app is running and let it finish "
+                "If it's a cloud file, make sure your sync client is running and let it finish "
                 "downloading; otherwise free up disk space and re-export or re-download it. "
                 "Then retry."
             ),
             dialog=dialog,
             dialog_text=(
                 f"{name} is incomplete on disk ({reason}).\n\n"
-                "Common causes: a cloud file (Dropbox / OneDrive) still syncing, an interrupted "
+                "Common causes: a cloud-synced file still downloading, an interrupted "
                 "download or export, or a full disk. If it's a cloud file, make sure your sync "
-                "app is running and it finishes downloading; otherwise free up space and "
+                "client is running and it finishes downloading; otherwise free up space and "
                 "re-export or re-download it, then retry."
             ),
         )

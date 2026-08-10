@@ -91,10 +91,88 @@ try:
         f"{light.data.size:.2f} x {light.data.size_y:.2f}" if light else "",
     )
     # Aimed down: the plate sits above the group centre, so "auto" points it at the floor.
-    aim = light.matrix_world.to_quaternion() @ __import__("mathutils").Vector((0, 0, -1))
+    # The update is load-bearing: `matrix_world` is EVALUATED state, and a freshly created
+    # object reports identity until the depsgraph runs. Identity happens to read as
+    # "aimed down", so without this the check passes even if no rotation was applied.
+    import mathutils
+
+    bpy.context.view_layer.update()
+    aim = light.matrix_world.to_quaternion() @ mathutils.Vector((0, 0, -1))
     check("...aimed downward from a ceiling plate", aim.z < -0.9, f"aim.z={aim.z:.3f}")
     check("remove_lights cleans them up", len(LightUtils.remove_lights()) == 1)
     check("...and leaves none behind", not [o for o in bpy.data.objects if o.type == "LIGHT"])
+
+    # --- a COPLANAR ceiling grid: every plate must aim down --------------------
+    # The real shape of a room's lighting, and the case the old "auto" rule got
+    # wrong: the centre of a set of ceiling plates lies IN their own plane, so
+    # `toward[axis]` is zero up to modelling noise and its SIGN decided up vs
+    # down. Measured on a production office, 2 of 4 troffers fired into the
+    # ceiling. The heights below differ by a tenth of a millimetre, as modelled
+    # geometry does.
+    grid = []
+    for i, (x, y, dz) in enumerate(
+        [(-2, -2, 0.0), (2, -2, 0.0001), (-2, 2, -0.0001), (2, 2, 0.00005)]
+    ):
+        bpy.ops.mesh.primitive_cube_add(size=1, location=(x, y, 3 + dz))
+        # NOT `plate` — that name is the ceiling plate the export section below reuses.
+        grid_plate = bpy.context.active_object
+        grid_plate.name = f"LIGHT_grid{i}"
+        grid_plate.scale = (1.5, 0.3, 0.05)  # a troffer: thin in Z, thickness 0.05
+        grid.append(grid_plate)
+    bpy.context.view_layer.update()
+
+    def aim_zs(names):
+        bpy.context.view_layer.update()
+        return [
+            round(
+                (
+                    bpy.data.objects[n].matrix_world.to_quaternion()
+                    @ mathutils.Vector((0, 0, -1))
+                ).z,
+                3,
+            )
+            for n in names
+        ]
+
+    made = LightUtils.lights_from_geometry(grid, power=50.0)
+    aims = aim_zs(made)
+    check(
+        "a coplanar ceiling grid aims every plate DOWN",
+        len(aims) == 4 and all(z < -0.9 for z in aims),
+        f"aim.z per plate = {aims}",
+    )
+    # ...and each light must clear its own housing, or the plate blocks it.
+    lows = [
+        bpy.data.objects[n].location.z
+        < min((g.matrix_world @ mathutils.Vector(v)).z for v in g.bound_box)
+        for n, g in zip(made, grid)
+    ]
+    check("...and sits BELOW its own plate, not inside it", all(lows), str(lows))
+
+    # An explicit `toward` must still win over the coplanar fallback.
+    LightUtils.remove_lights()
+    up = aim_zs(LightUtils.lights_from_geometry(grid, power=50.0, toward=(0, 0, 10)))
+    check("an explicit `toward` above the plates aims them UP", all(z > 0.9 for z in up), str(up))
+
+    # Colour temperature rides Blender's own blackbody, not a hand-rolled table.
+    LightUtils.remove_lights()
+    warm = LightUtils.lights_from_geometry(grid[:1], power=50.0, kelvin=4000)
+    lamp = bpy.data.objects[warm[0]].data
+    check(
+        "kelvin sets Blender's native light temperature",
+        bool(getattr(lamp, "use_temperature", False)) and abs(lamp.temperature - 4000) < 1,
+        f"use_temperature={getattr(lamp, 'use_temperature', None)} temperature={getattr(lamp, 'temperature', None)}",
+    )
+    LightUtils.remove_lights()
+    plain = LightUtils.lights_from_geometry(grid[:1], power=50.0)
+    check(
+        "...and is left OFF when no kelvin is given",
+        not getattr(bpy.data.objects[plain[0]].data, "use_temperature", False),
+    )
+    LightUtils.remove_lights()
+    # NOT `plate` — that name is the ceiling plate the export section below still uses.
+    for grid_plate in grid:
+        bpy.data.objects.remove(grid_plate, do_unlink=True)
 
     # --- encode: linear EXR -> sRGB PNG -----------------------------------
     # A known linear ramp written as EXR, encoded, then read back.
@@ -222,16 +300,32 @@ try:
     else:
         check("denoise_image degrades without losing the map", os.path.isfile(noisy_path))
 
-    # --- bake -> wire -> GLB ----------------------------------------------
+    # --- commit -> wired_for_export -> GLB ---------------------------------
+    # The canonical flow: the BAKE commits scene state (markers incl. the map's
+    # ``dir`` locate hint); the EXPORT self-feeds from that state with no
+    # knowledge of how or whether the scene was baked.
     LightUtils.lights_from_geometry([plate], power=300.0)
     web = LightmapWebExport(resolution=64, samples=4, denoise=False, device=None)
-    glb_path = os.path.join(tmp_dir, "scene.glb")
-    result = web.bake_and_export(
-        glb_path, objects=[floor], output_dir=tmp_dir, texture_max_size=None
-    )
 
-    check("bake_and_export writes a GLB", bool(result.get("glb")) and os.path.isfile(glb_path))
-    check("...and reports its atlases", result.get("atlases", 0) >= 1, str(result.get("atlases")))
+    # An uncommitted scene must be a clean no-op (what makes wrapping every
+    # export unconditional safe).
+    with web.wired_for_export() as noop_token:
+        check("no committed bake -> wired_for_export yields None", noop_token is None)
+
+    baked = web.baker.bake_separated([floor], output_dir=tmp_dir)
+    packed = web.baker.pack_atlas(baked, output_dir=tmp_dir, suffix="_Lightmap")
+    atlas_map = {n: p for n, (p, _r) in packed.items()} if packed else baked
+    uv_rects = {n: r for n, (_p, r) in packed.items()} if packed else {}
+    web.baker.commit_lightmap(atlas_map, uv_rects=uv_rects)
+
+    glb_path = os.path.join(tmp_dir, "scene.glb")
+    with web.wired_for_export() as manifest_token:
+        check("wired_for_export self-feeds from the committed markers",
+              bool(manifest_token), str(manifest_token)[:120])
+        web.export_glb(
+            glb_path, objects=[floor], manifest=manifest_token, texture_max_size=None
+        )
+    check("export writes a GLB", os.path.isfile(glb_path))
 
     gltf = glb_json(glb_path)
     prims = [p for m in gltf.get("meshes", []) for p in m.get("primitives", [])]
@@ -299,7 +393,9 @@ try:
 
     # The budget exemption above is only real if the production path actually marks the
     # image — the unit test set the marker by hand.
-    baked_names = {os.path.basename(p) for p, _ in result.get("maps", {}).values()}
+    baked_names = {
+        v.get("map") for v in (manifest_token or {}).get("materials", {}).values()
+    }
     marked = [
         img.name
         for img in bpy.data.images

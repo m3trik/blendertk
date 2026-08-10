@@ -69,6 +69,26 @@ try:
     check("stem overrides the output base name",
           os.path.basename(out3.get("BakeCube", "")) == "CustomStem.exr", f"{out3}")
 
+    # ---- per-object output size (the atlas-footprint bake) ------------------
+    # Bake cost is linear in pixels, so a caller that knows an object will only occupy
+    # part of an atlas bakes it at that footprint. A partial map must stay safe: an
+    # object with no entry falls back to the square resolution, never to a 1px map.
+    def exr_size(path):
+        img = bpy.data.images.load(path)
+        try:
+            return tuple(img.size)
+        finally:
+            bpy.data.images.remove(img)
+
+    sized = baker.bake([cube], output_dir=tmp, stem="Sized", size={"BakeCube": (16, 8)})
+    check("size dict sets the baked map's dimensions",
+          exr_size(sized.get("BakeCube", "")) == (16, 8), f"{sized}")
+    scalar = baker.bake([cube], output_dir=tmp, stem="Scalar", size=8)
+    check("a scalar size means a square map", exr_size(scalar.get("BakeCube", "")) == (8, 8))
+    fallback = baker.bake([cube], output_dir=tmp, stem="Fallback", size={"Absent": (4, 4)})
+    check("an object missing from the size map falls back to the resolution",
+          exr_size(fallback.get("BakeCube", "")) == (32, 32))
+
     # ---- temp bake nodes are cleaned up (non-destructive) -------------------
     mat = cube.material_slots[0].material if cube.material_slots else None
     tex_nodes = sum(1 for n in mat.node_tree.nodes if n.type == "TEX_IMAGE") if mat else 0
@@ -84,10 +104,21 @@ try:
     bpy.context.scene.render.engine = "BLENDER_EEVEE"  # a non-Cycles engine to prove restore
     prior_engine = bpy.context.scene.render.engine
     prior_margin = bpy.context.scene.render.bake.margin
+    prior_persistent = bpy.context.scene.render.use_persistent_data
+    # Opposite of what this baker will set (denoise=True), so the check can actually fail.
+    bpy.context.scene.cycles.use_denoising = False
+    prior_denoise = bpy.context.scene.cycles.use_denoising
     baker.bake([c2], output_dir=tmp)
     check("bake restores the render engine", bpy.context.scene.render.engine == prior_engine,
           f"{bpy.context.scene.render.engine} vs {prior_engine}")
     check("bake restores bake.margin", bpy.context.scene.render.bake.margin == prior_margin)
+    # The batch reuses Cycles' exported scene + BVH across objects instead of rebuilding it
+    # per bake, but that is the baker's business -- the user's scene must come back as it was.
+    check("bake restores use_persistent_data",
+          bpy.context.scene.render.use_persistent_data == prior_persistent)
+    check("bake restores cycles.use_denoising",
+          bpy.context.scene.cycles.use_denoising == prior_denoise,
+          f"{bpy.context.scene.cycles.use_denoising} vs {prior_denoise}")
 
     # ---- nothing to bake -> {} ----------------------------------------------
     reset()

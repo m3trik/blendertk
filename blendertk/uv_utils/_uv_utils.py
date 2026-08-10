@@ -1022,6 +1022,7 @@ class UvUtils(_UvUtilsInternal):
             bpy.ops.object.mode_set(mode="OBJECT")
 
         done = []
+        seen_data = set()
         try:
             for o in EditUtils._meshes(objects):
                 me = o.data
@@ -1039,6 +1040,14 @@ class UvUtils(_UvUtilsInternal):
                         )
                     name = layer.name
                 me.uv_layers[name].active = True
+
+                # Linked duplicates share one mesh datablock and therefore ONE
+                # lightmap layer -- unwrap it once per call, not once per instance
+                # (identical result, N-1 redundant smart_projects saved).
+                if me.name_full in seen_data:
+                    done.append(o.name)
+                    continue
+                seen_data.add(me.name_full)
 
                 for x in CoreUtils.selected_objects():
                     x.select_set(False)

@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-10_
+_Generated: 2026-08-09_
 
 ## Index
 
@@ -100,7 +100,7 @@ _Generated: 2026-08-10_
 - [`light_utils/_light_utils.py`](#light_utils--_light_utils) — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - [`light_utils/hdr_manager.py`](#light_utils--hdr_manager) — Blender world-HDRI environment manager.
 - [`light_utils/lightmap_baker/lightmap_baker.py`](#light_utils--lightmap_baker--lightmap_baker) — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
-- [`light_utils/lightmap_baker/web_export.py`](#light_utils--lightmap_baker--web_export) — Turn a Cycles lightmap bake into a WebXR-ready GLB.
+- [`light_utils/lightmap_baker/web_export.py`](#light_utils--lightmap_baker--web_export) — Ship a committed lightmap bake in a web (GLB) deliverable.
 - [`mat_utils/_mat_utils.py`](#mat_utils--_mat_utils) — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - [`mat_utils/arnold_bridge.py`](#mat_utils--arnold_bridge) — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - [`mat_utils/emissive_groups.py`](#mat_utils--emissive_groups) — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
@@ -1290,7 +1290,7 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L85)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L102)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
   - `FbxUtils.run_export_preparers() -> None` *(static)* — Refresh every known producer's ``data_export`` channel once, right now.
   - `FbxUtils.export(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts)` *(static)* — Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.
   - `FbxUtils.import_fbx(filepath, **fbx_opts)` *(static)* — Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).
@@ -1442,15 +1442,15 @@ Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 
 Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 
-- **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L138)** — Export the Blender selection and run a chosen Maya import template.
+- **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L142)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
   - `MayaBridge.headless_app_path(self) -> Optional[str]` *(property)* — The ``mayapy`` interpreter for the blocking ``save_as`` run.
   - `MayaBridge.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
   - `MayaBridge.params_defaults(self) -> Dict[str, Any]`
   - `MayaBridge.render_context(self, params: Dict[str, Any]) -> Dict[str, str]`
   - `MayaBridge.list_templates() -> List[Path]` *(static)* — User-visible templates in ``templates/`` (skips underscore-prefixed).
-  - `MayaBridge.template_modes(template_path: Path) -> Tuple[str, ...]` *(static)* — Modes a template declares via ``BRIDGE_MODES``;
-  - `MayaBridge.list_template_modes() -> List[Tuple[str, str]]` *(static)* — ``[(stem, mode), ...]`` for every (template, mode) pairing.
+  - `MayaBridge.template_modes(cls, template_path: Path) -> Tuple[str, ...]` *(class)* — Modes a template declares via ``BRIDGE_MODES``;
+  - `MayaBridge.list_template_modes(cls) -> List[Tuple[str, str]]` *(class)* — ``[(stem, mode), ...]`` for every (template, mode) pairing.
 
 <a id="env_utils--maya_bridge--_scene_import"></a>
 ### `env_utils/maya_bridge/_scene_import.py`
@@ -1751,7 +1751,7 @@ blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Windo
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L96)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L98)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -1759,8 +1759,12 @@ Light utilities — the world-environment (HDRI) helpers behind the HDR Manager 
   - `LightUtils.set_world_importance_resolution(resolution)` *(static)* — Set the world environment's importance-sampling **map resolution** — the Cycles analogue of
   - `LightUtils.get_world_importance_resolution()` *(static)* — The world's importance-sampling map resolution when in **manual** mode, else ``None``
   - `LightUtils.clear_world_hdri()` *(static)* — Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.
-  - `LightUtils.lights_from_geometry(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False)` *(static)* — Create a real area light matched to each light-fixture *mesh*.
+  - `LightUtils.lights_from_geometry(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False, *, kelvin=None, toward=None)` *(static)* — Create a real area light matched to each light-fixture *mesh*.
   - `LightUtils.remove_lights(prefix=_FIXTURE_LIGHT_PREFIX)` *(static)* — Delete the light objects :meth:`lights_from_geometry` created;
+  - `LightUtils.set_world_environment(cls, hdri=None, strength=1.0, color=None, rotation=0.0) -> str` *(class)* — Light the world with an equirect HDRI, or a flat ambient colour.
+  - `LightUtils.lights_from_records(records)` *(static)* — Turn plain light records into real lights, reusing each one's placed Empty.
+  - `LightUtils.scale_light_energy(multiplier, lights=None)` *(static)* — Multiply the energy of light objects, returning ``{name: new_energy}``.
+  - `LightUtils.set_emission_strength(multiplier, objects=None)` *(static)* — Set Emission Strength on every material whose Emission Color is textured.
 
 <a id="light_utils--hdr_manager"></a>
 ### `light_utils/hdr_manager.py`
@@ -1790,27 +1794,26 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L59)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L55)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
   - `LightmapBaker.device(self) -> Optional[str]` *(property)*
   - `LightmapBaker.preset_store() -> 'ptk.PresetStore'` *(static)* — Shared store of lightmap quality presets (built-in + user tiers).
   - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named quality preset (``resolution`` / ``samples``).
-  - `LightmapBaker.bake_fused(self, objects=None, **kwargs) -> Dict[str, str]` — Bake a **fused** (albedo x lighting) HDR lightmap per object.
-  - `LightmapBaker.bake_separated(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]` — Bake a **lighting-only** irradiance lightmap per object (the default path).
+  - `LightmapBaker.bake_separated(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]` — Bake a **lighting-only** irradiance lightmap per object -- THE bake.
   - `LightmapBaker.commit_lightmap(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]` — Record a lighting-only bake for the engine (changes nothing about the material/UVs).
-  - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap') -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
+  - `LightmapBaker.bake_atlas(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', **kwargs) -> Dict[str, Tuple[str, List[float]]]` — Bake a material-atlased lighting-only lightmap set — plan first, then bake to plan.
+  - `LightmapBaker.atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]` — ``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
+  - `LightmapBaker.plan_sizes(self, plan: Dict[str, List[Tuple[str, List[float]]]]) -> Dict[str, Tuple[int, int]]` — ``{object_name: (width, height)}`` — the pixel footprint each object occupies.
+  - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None) -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
   - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
-  - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any atlas UV remap, drop the markers, republish.
-  - `LightmapBaker.commit_unlit(self, mapping: Dict[str, str]) -> Dict[str, str]` — Make the fused bake each object's live appearance (non-destructive).
-  - `LightmapBaker.revert_unlit(self, objects=None) -> List[str]` — Undo :meth:`commit_unlit` -- restore the source material slots + drop the marker.
-  - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo any lightmap wiring -- fused commit and/or lighting-only marker.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L907)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+  - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
+  - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo the lightmap wiring -- the spelling the panel and pre-bake use.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1069)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
-  - `LightmapBakerSlots.cmb001_init(self, widget) -> None` — Populate the bake-level (Mode) combobox;
   - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox;
   - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox;
   - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data);
@@ -1822,17 +1825,15 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 <a id="light_utils--lightmap_baker--web_export"></a>
 ### `light_utils/lightmap_baker/web_export.py`
 
-Turn a Cycles lightmap bake into a WebXR-ready GLB.
+Ship a committed lightmap bake in a web (GLB) deliverable.
 
-- **[`class LightmapWebExport(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L51)** — Bake a scene's lightmaps and emit a WebXR-ready GLB.
-  - `LightmapWebExport.set_world_environment(hdri: Optional[str] = None, strength: float = 1.0, color: Optional[Sequence[float]] = None, rotation: float = 0.0) -> str` *(static)* — Light the world with an equirect HDRI, or a flat ambient colour.
-  - `LightmapWebExport.set_emission_strength(multiplier: float, objects=None) -> List[str]` *(static)* — Set Emission Strength on every material whose Emission Color is textured.
+- **[`class LightmapWebExport(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L55)** — Ship a scene's committed lightmaps in a natively-exported GLB.
   - `LightmapWebExport.encode_for_web(cls, mapping: Dict[str, str], output_dir: Optional[str] = None, percentile: Optional[float] = None, suffix: str = '') -> Dict[str, Tuple[str, float]]` *(class)* — Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.
   - `LightmapWebExport.wire_lightmaps(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None) -> Dict[str, Any]` — Wire each lightmap into a real glTF texture slot on the lightmap UV.
   - `LightmapWebExport.unwire_lightmaps(token: Dict[str, Any]) -> List[str]` *(static)* — Remove the nodes :meth:`wire_lightmaps` added, restoring the source materials.
   - `LightmapWebExport.build_manifest(self, encoded: Dict[str, Tuple[str, float]], carrier: str, lighting: Optional[Dict[str, Any]] = None) -> Dict[str, Any]` — The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.
   - `LightmapWebExport.export_glb(self, path: str, objects=None, manifest: Optional[Dict[str, Any]] = None, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> str` — Export a GLB through Blender's native glTF exporter.
-  - `LightmapWebExport.bake_and_export(self, glb_path: str, objects=None, output_dir: Optional[str] = None, lightmap_dir: Optional[str] = None, mode: str = 'separated', carrier: str = 'occlusion', percentile: Optional[float] = None, lighting: Optional[Dict[str, Any]] = None, keep_wiring: bool = False, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> Dict[str, Any]` — Bake -> atlas -> encode -> wire -> GLB, in one call.
+  - `LightmapWebExport.wired_for_export(self, objects=None, carrier: str = 'occlusion', percentile: Optional[float] = None) -> Iterator[Optional[Dict[str, Any]]]` — The scene's COMMITTED lightmaps, wired for a native glTF export.
 
 <a id="mat_utils--_mat_utils"></a>
 ### `mat_utils/_mat_utils.py`
@@ -1994,7 +1995,7 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
 Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
-- **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L58)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
+- **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L66)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
   - `MarmosetEngine.toolbag_path(self) -> Optional[str]` *(property)* — Resolve the Toolbag executable path.
   - `MarmosetEngine.toolbag_log_path(self) -> Optional[str]` *(property)* — Resolve Toolbag's application log file (script prints + tracebacks).
   - `MarmosetEngine.preflight(self, bridge, request) -> bool` — Validate the (template, mode) before the bridge produces its payload.
@@ -2137,7 +2138,7 @@ Plain default values + literal formatting for Marmoset template tokens.
 
 Bake source detail + surface maps onto the target meshes.
 
-- [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L642)
+- [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L644)
 
 <a id="mat_utils--marmoset_bridge--templates--import"></a>
 ### `mat_utils/marmoset_bridge/templates/import.py`
@@ -2240,13 +2241,13 @@ Shader Templates tool panel — Switchboard slot wiring for the co-located
 
 Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
-- **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L143)** — The scene's high-poly bake source, stored as a stamped Collection.
+- **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L152)** — The scene's high-poly bake source, stored as a stamped Collection.
   - `HighPolySet.collection(cls)` *(class)* — The stamped high-poly collection, or ``None`` when absent.
   - `HighPolySet.exists(cls) -> bool` *(class)* — Whether the high-poly collection is present in the file.
   - `HighPolySet.members(cls) -> List[Any]` *(class)* — The set's objects (an empty list when there is no set).
   - `HighPolySet.define(cls, objects: Optional[List[Any]] = None) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
   - `HighPolySet.clear(cls) -> None` *(class)* — Remove the collection;
-- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L253)** — Export Blender selection to Substance Painter via a chosen template.
+- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L262)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.painter_path(self) -> Optional[str]` *(property)* — Resolve the Painter executable path via :func:`find_painter_exe`.
   - `SubstanceBridge.painter_log_path(self) -> Optional[str]` *(property)* — Path to Painter's application ``log.txt``, or *None* if absent.
   - `SubstanceBridge.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
@@ -2397,7 +2398,7 @@ Painter-specific system ops: version reporting and script evaluation.
 Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 
 - **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L33)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
-  - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color') -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
+  - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color') -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
   - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
   - `TextureBaker.resolve_meshes(objects) -> List[Any]` *(static)* — Normalize ``objects`` (refs / names / None=selection) to mesh objects.
   - `TextureBaker.texture_set_stem(obj) -> Optional[str]` *(static)* — Base name of *obj*'s existing texture set (e.g.

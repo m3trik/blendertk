@@ -19,6 +19,7 @@ renaming anything.
 | Channel storage | dynamic string attrs → FBX **user properties** | **custom properties** (`obj["key"]`) → FBX **user properties** |
 | Never-exports guarantee | a `network` node is structurally incapable of serialising into an FBX | `data_internal` is excluded **by name** by the export object-set builders (`env_utils.scene_exporter`, SmartBake) |
 | Carrier visibility | `data_export` stays hidden; Maya exports hidden nodes in a selection | the carrier stays **visible/selectable** — Blender's `use_selection` export can only ship selectable objects (the `export_data_node` task clears any hide state defensively) |
+| Outliner row | `data_export` is flagged `hiddenInOutliner` (transform + shape) — the Outliner never lists it | **no equivalent** — Blender's Outliner lists every object in the view layer and offers no per-object hide-from-Outliner flag; the only ways to drop the row (unlink from all collections, exclude the collection) also drop the object from the FBX export set, so the carrier stays listed |
 | Proxied authored attrs | retired (`mirror_attr`, healed by its old producer) | never existed — no attr-proxy concept in `bpy` |
 
 ## Getting it into the FBX
@@ -46,6 +47,18 @@ non-Scene-Exporter FBX export ships.
 
 The round-trip (publish → export → re-import → property intact) is pinned by
 `test/test_scene_exporter.py`.
+
+**Hand-off bridges** get there a third way: `BlenderExportMixin` exposes
+`include_data_export`, and a bridge whose *consumer* parses these channels turns
+it on — `WebXrPreview` (its GLB conversion binds `lightmap_metadata` via
+`ptk.MeshConvert.apply_glb_lightmaps`) and `UnityBridge` (its FBX lands in
+`Assets/`, where unitytk reads it). The flag also **forces** the two exporter
+options above at the point the carrier is appended, rather than declaring them in
+the overridable `_fbx_options`: a bridge that overrides that method wholesale
+(Substance / Marmoset do) must not be able to ship a carrier holding nothing.
+Off by default — to a bridge that only wants geometry the carrier is a stray
+Empty in the target's outliner — and never *created* just to ship. Pinned by
+`test/test_fbx_utils.py`; mirror of mayatk's flag of the same name.
 
 ## Channels in use (Blender side)
 

@@ -145,6 +145,88 @@ try:
         f"{kinds} {hier}",
     )
 
+    # ---- the data_export carrier: opt-in, and both halves of the opt-in ------
+    # A bridge whose consumer READS in-band metadata (the WebXR preview, whose GLB
+    # conversion binds ``lightmap_metadata``) has to ship the carrier Empty AND the
+    # custom properties on it -- Blender's exporter drops custom props by default, so
+    # half the switch would ship a named Empty carrying nothing.
+    reset()
+    from blendertk.node_utils.data_nodes import DataNodes
+    from blendertk.env_utils.webxr_preview import WebXrPreview
+
+    check(
+        "hand-off bridges do not ship the carrier by default",
+        BlenderExportMixin().include_data_export is False,
+    )
+    check("WebXrPreview opts in", WebXrPreview().include_data_export is True)
+
+    # The options that make the carrier readable are forced where it is APPENDED, not
+    # declared in _fbx_options -- a subclass overriding that method wholesale (the
+    # Substance/Marmoset bridges do) must not be able to ship a carrier holding
+    # nothing. Driven through a stubbed exporter so it pins the real call.
+    _seen_opts = {}
+
+    class _CarrierProbe(WebXrPreview):
+        def _fbx_options(self, params):  # a hostile override: neither half present
+            # `object_types` deliberately a BARE STRING -- the preset-sourced shape
+            # that set("MESH") explodes into {'M','E','S','H'}. Pins that the carrier
+            # union goes through the shared coercion.
+            return dict(object_types="MESH", use_custom_props=False)
+
+    _real_export = btk.FbxUtils.export_selection_fbx
+    try:
+        btk.FbxUtils.export_selection_fbx = (
+            lambda filepath=None, objects=None, **o: _seen_opts.update(o) or filepath
+        )
+        _CarrierProbe()._export_fbx([], os.path.join(tmp, "probe.fbx"), {})
+    finally:
+        btk.FbxUtils.export_selection_fbx = _real_export
+    check(
+        "no carrier in the scene -> a hostile override is left alone",
+        _seen_opts.get("use_custom_props") is False
+        and _seen_opts.get("object_types") == "MESH",
+        f"{_seen_opts}",
+    )
+
+    check(
+        "no carrier in the scene -> nothing added, and none invented",
+        WebXrPreview()._data_export_carrier() == []
+        and DataNodes.get_export_node(create=False) is None,
+    )
+
+    DataNodes.set_export_string("lightmap_metadata", '{"version": 1}')
+    bpy.ops.mesh.primitive_cube_add()
+    lit = bpy.context.active_object
+    lit.name = "LitMesh"
+
+    _seen_opts.clear()
+    _real_export = btk.FbxUtils.export_selection_fbx
+    try:
+        btk.FbxUtils.export_selection_fbx = (
+            lambda filepath=None, objects=None, **o: _seen_opts.update(o) or filepath
+        )
+        _CarrierProbe()._export_fbx([lit], os.path.join(tmp, "probe2.fbx"), {})
+    finally:
+        btk.FbxUtils.export_selection_fbx = _real_export
+    check(
+        "carrier shipped -> the options it needs are forced past the override",
+        _seen_opts.get("use_custom_props") is True
+        and _seen_opts.get("object_types") == {"MESH", "EMPTY"},
+        f"{_seen_opts}",
+    )
+
+    carrier_out = os.path.join(tmp, "carrier.fbx")
+    WebXrPreview()._export_fbx([lit], carrier_out, {"EMBED_TEXTURES": False})
+    reset()
+    FbxUtils.import_fbx(carrier_out, use_custom_props=True)
+    shipped = bpy.data.objects.get(DataNodes.EXPORT)
+    check(
+        "the WebXR preview export round-trips the manifest on the carrier",
+        shipped is not None
+        and shipped.get("lightmap_metadata") == '{"version": 1}',
+        f"{shipped and dict(shipped.items())}",
+    )
+
     # ---- Scene Exporter contract: the exact kwargs the tentacle slot passes -
     # (object_types set incl. CAMERA/LIGHT/ARMATURE, use_tspace, embed/path_mode).
     reset()
