@@ -52,6 +52,11 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         ("Move textures to new directory", "move"),
     )
     _FIND_MODE_ITEMS = (("Copy", "copy"), ("Move", "move"))
+    # Displayed length of a texture path while the header's "Truncate Texture Paths" toggle is
+    # on. Cut with ``mode="path"``, which drops whole middle components: the drive/root and its
+    # first directories stay readable at the front, the filename and its parents at the back
+    # (mirror of the Maya slot's constant).
+    _PATH_TRUNCATE_LENGTH = 48
     # Normalize-Paths external-texture handling.
     _NORMALIZE_MODE_ITEMS = (
         ("Leave external textures untouched", "relative"),
@@ -103,6 +108,21 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             ),
         )
         btn_reload.clicked.connect(self.reload_scene_textures)
+
+        chk_truncate = widget.menu.add(
+            "QCheckBox",
+            setText="Truncate Texture Paths",
+            setObjectName="chk_truncate_paths",
+            setChecked=False,
+            setToolTip=(
+                "Shorten long paths in the Texture Path column by dropping whole middle "
+                "folders — the drive and its first directories stay readable at the front, "
+                "the filename at the back.\n"
+                "Display only — the cell still holds the full path, so edits, path commands "
+                "and the tooltip are unaffected."
+            ),
+        )
+        chk_truncate.toggled.connect(lambda *_: self._apply_path_truncation())
 
         widget.menu.add("Separator", setTitle="Path Management")
         widget.menu.add(
@@ -219,6 +239,10 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                             "<b>Open Textures Folder</b> — Explorer shortcut.",
                             "<b>Reload Scene Textures</b> — force Blender to re-read all images "
                             "from disk (useful after relocations).",
+                            "<b>Truncate Texture Paths</b> — shorten the path column's display "
+                            "by dropping whole middle folders (drive and filename stay "
+                            "readable). The cell keeps the full path (edits, commands and the "
+                            "tooltip always use it).",
                         ],
                     ),
                     (
@@ -470,6 +494,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
             self.setup_formatting(widget, records)
             widget.apply_formatting()
+            self._apply_path_truncation(widget)
         finally:
             widget.blockSignals(False)
             widget.setUpdatesEnabled(True)
@@ -504,6 +529,38 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             item.setToolTip("\n\n".join(tooltip_lines))
 
         widget.set_column_formatter(1, format_if_invalid)
+
+    def _truncate_paths_enabled(self):
+        """State of the header's "Truncate Texture Paths" toggle.
+
+        False when the header menu hasn't been built yet, so an early refresh is safe.
+        """
+        header = getattr(self.ui, "header", None)
+        menu = getattr(header, "menu", None) if header else None
+        chk = getattr(menu, "chk_truncate_paths", None) if menu else None
+        return bool(chk and chk.isChecked())
+
+    def _apply_path_truncation(self, widget=None):
+        """Push the Truncate Texture Paths toggle onto the path column.
+
+        Display-only: ``set_column_truncation`` shortens what the delegate paints, never the
+        item's data — the cell still holds (and edits back) the full path, and
+        ``setup_formatting``'s tooltip still resolves it. Re-applied on every table rebuild so a
+        refresh can't drop it.
+        """
+        widget = widget if widget is not None else getattr(self.ui, "tbl000", None)
+        if widget is None:  # toggled before the table exists
+            return
+        widget.set_column_truncation(
+            1,
+            length=(
+                self._PATH_TRUNCATE_LENGTH if self._truncate_paths_enabled() else None
+            ),
+            mode="path",
+            # An ellipsis, not the primitive's default "..", which in a path column reads as a
+            # parent-directory segment.
+            insert="…",
+        )
 
     # ------------------------------------------------------------------ scope
     def _get_scope_images(self):

@@ -19,7 +19,7 @@ from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
     MarmosetBridge,
     MarmosetEngine,
     SEND_TO,
-    ROUNDTRIP,
+    ROUND_TRIP,
     _TEMPLATE_DIR,
 )
 from blendertk.mat_utils.marmoset_bridge import parameters as _params
@@ -96,7 +96,7 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
 
     def select_initial_template_index(self, pairs):
         """Prefer 'bake (roundtrip)' then 'bake (send_to)', else first entry."""
-        for pref in (("bake", ROUNDTRIP), ("bake", SEND_TO)):
+        for pref in (("bake", ROUND_TRIP), ("bake", SEND_TO)):
             if pref in pairs:
                 return pairs.index(pref)
         return 0

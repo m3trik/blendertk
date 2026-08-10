@@ -65,6 +65,25 @@ try:
         "template_modes parses BRIDGE_MODES",
         MayaBridge.template_modes(_TEMPLATE_DIR / "import.py") == ("send_to",),
     )
+    # The allowed-list must cover every mode a spec actually serves: the helpers filter
+    # declarations against it and silently fall back to entry [0], so a `save_as`
+    # template left out of it reads as an interactive send -- which then routes through
+    # send(), never populates __OUT_FILE__, and fails minutes into a launched Maya.
+    # Derived from the specs so it cannot fall out of step; [0] stays the fallback.
+    check(
+        "allowed modes cover every registered spec mode",
+        set(MayaBridge.template_modes_allowed)
+        == set(MayaBridge.spec.modes) | set(MayaBridge.run_spec.modes),
+        f"{MayaBridge.template_modes_allowed}",
+    )
+    check(
+        "send_to is still the lenient fallback",
+        MayaBridge.template_modes_allowed[0] == "send_to",
+    )
+    check(
+        "the blocking template's own mode survives the strict read",
+        MayaBridge.template_modes(_TEMPLATE_DIR / "_save_scene.py") == ("save_as",),
+    )
 
     # ---- raw template text (Qt-free; render_template itself needs Qt) -------
     import_txt = (_TEMPLATE_DIR / "import.py").read_text()

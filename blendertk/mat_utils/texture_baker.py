@@ -22,7 +22,7 @@ The engine surface is Qt-free and defers ``import bpy`` (headless-importable).
 
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -77,6 +77,7 @@ class TextureBaker(ptk.LoggingMixin):
         margin: Optional[int] = None,
         uv_set=None,
         stem: Optional[Any] = None,
+        size: Optional[Any] = None,
         on_progress: Optional[Callable[[int, int, str], bool]] = None,
         colorspace: str = "Non-Color",
     ) -> Dict[str, str]:
@@ -93,11 +94,16 @@ class TextureBaker(ptk.LoggingMixin):
             output_dir: Output directory (created if missing). Defaults to
                 :meth:`default_output_dir`.
             prefix / suffix: Name affix wrapped around the object's stem.
-            margin: Native gutter width in px. ``None`` → a resolution-scaled default.
+            margin: Native gutter width in px. ``None`` → a size-scaled default (per object).
             uv_set: UV layer to make active before baking — a name (str), a ``callable(obj)->str``
                 (resolved per object), or ``None`` (bake on the current active UV).
             stem: Output base-name resolver — ``{name: stem}`` dict, ``callable(obj)->str``, or
                 ``None`` (default :meth:`texture_set_stem`, falling back to the object name).
+            size: Per-object output size resolver — ``{name: (w, h) | px}`` dict,
+                ``callable(obj) -> (w, h) | px``, or ``None`` (square :attr:`resolution`). Bake
+                cost is linear in pixels, so a caller that already knows an object will only ever
+                occupy part of an atlas bakes it at that footprint instead of paying for a
+                full-resolution map it is about to downscale away.
             on_progress: ``(done, total, name) -> bool`` per-object callback (return ``False`` to
                 cancel) so a UI can drive a progress bar.
             colorspace: Image colorspace (``Non-Color`` for a linear HDR map).
@@ -110,10 +116,8 @@ class TextureBaker(ptk.LoggingMixin):
             return {}
 
         output_dir = output_dir or self.default_output_dir()
-        if margin is None:
-            margin = max(8, self.resolution // 64)
 
-        prev_state = self._configure_bake_scene(margin, use_pass_color)
+        prev_state = self._configure_bake_scene(use_pass_color)
         used: set = set()
         result: Dict[str, str] = {}
         total = len(meshes)
@@ -133,6 +137,8 @@ class TextureBaker(ptk.LoggingMixin):
                         pass_filter=pass_filter,
                         uv_set=uv_set,
                         colorspace=colorspace,
+                        size=self._resolve_size(obj, size),
+                        margin=margin,
                     )
                     if path:
                         result[obj.name] = path
@@ -157,6 +163,8 @@ class TextureBaker(ptk.LoggingMixin):
         pass_filter: Optional[set],
         uv_set,
         colorspace: str,
+        size: Tuple[int, int],
+        margin: Optional[int],
     ) -> Optional[str]:
         """Bake a single object into a fresh EXR; returns its path (cleans up temp nodes)."""
         import bpy
@@ -172,10 +180,22 @@ class TextureBaker(ptk.LoggingMixin):
         name = ptk.StrUtils.apply_affix(base, prefix, suffix)
         path = self._unique_path(output_dir, name, used)
 
+        width, height = size
+        # Derived from this map's OWN size, not the batch's. The margin is how far each
+        # island's edge pixels are extended into the surrounding empty space, so it only
+        # makes sense relative to the map it is extending across: a value picked for a
+        # full-size atlas dilates a small tile out of all proportion, and the old flat
+        # 8px floor overshot even a 256px map (its islands sit ~2% apart, i.e. ~5px, so
+        # 8px of extension had neighbours bleeding into each other).
+        bake_settings = bpy.context.scene.render.bake
+        bake_settings.margin = (
+            max(4, min(width, height) // 64) if margin is None else int(margin)
+        )
+
         image = bpy.data.images.new(
             os.path.basename(os.path.splitext(path)[0]),
-            self.resolution,
-            self.resolution,
+            width,
+            height,
             float_buffer=True,
         )
         image.colorspace_settings.name = colorspace
@@ -219,22 +239,26 @@ class TextureBaker(ptk.LoggingMixin):
             bpy.data.images.remove(image)
         return path
 
-    def _configure_bake_scene(
-        self, margin: int, use_pass_color: bool
-    ) -> Dict[str, Any]:
+    def _configure_bake_scene(self, use_pass_color: bool) -> Dict[str, Any]:
         """Switch the scene to a deterministic Cycles bake config; return the prior state.
 
         Overrides every ``scene.render.bake`` field the bake depends on (not just the passes)
         so a user's leftover settings can't corrupt it — e.g. ``use_selected_to_active`` would
         bake one object onto another, ``target='VERTEX_COLORS'`` would write to vertex colors
         instead of the image. All are restored by :meth:`_restore_bake_scene`.
+
+        ``use_persistent_data`` is the one setting here that is purely about throughput:
+        every ``bpy.ops.object.bake`` otherwise re-exports the whole scene to Cycles and
+        rebuilds its BVH, so a batch pays that once *per object* even though the geometry
+        and lighting never change between them — the dominant fixed cost of a many-object
+        lightmap bake. It trades memory for that, which is the right side of the trade for
+        a batch that is about to run the same scene N times.
         """
         import bpy
 
         scene = bpy.context.scene
         bake = scene.render.bake
         new_bake = {
-            "margin": margin,
             "use_pass_direct": True,
             "use_pass_indirect": True,
             "use_pass_color": use_pass_color,  # False excludes albedo (native white-card)
@@ -249,9 +273,12 @@ class TextureBaker(ptk.LoggingMixin):
             if has_cycles
             else None,
             "device": getattr(scene.cycles, "device", None) if has_cycles else None,
-            "bake": {k: getattr(bake, k) for k in new_bake},
+            "persistent_data": scene.render.use_persistent_data,
+            # Margin is set per object (sizes differ), so capture it here to restore.
+            "bake": {k: getattr(bake, k) for k in (*new_bake, "margin")},
         }
         scene.render.engine = "CYCLES"
+        scene.render.use_persistent_data = True
         if has_cycles:
             scene.cycles.samples = self.samples
             scene.cycles.use_denoising = self.denoise
@@ -410,8 +437,14 @@ class TextureBaker(ptk.LoggingMixin):
 
         scene = bpy.context.scene
         scene.render.engine = prev["engine"]
-        if prev["samples"] is not None and hasattr(scene, "cycles"):
-            scene.cycles.samples = prev["samples"]
+        scene.render.use_persistent_data = prev["persistent_data"]
+        if hasattr(scene, "cycles"):
+            # Every Cycles field the configure step touched -- leaving the user's scene
+            # pinned to the baker's device / denoising would silently change how their
+            # next *render* behaves, which reads as a Blender bug rather than ours.
+            for attr in ("samples", "use_denoising", "device"):
+                if prev[attr] is not None:
+                    setattr(scene.cycles, attr, prev[attr])
         bake = scene.render.bake
         for k, v in prev["bake"].items():
             setattr(bake, k, v)
@@ -461,6 +494,23 @@ class TextureBaker(ptk.LoggingMixin):
         if stem is None:
             return self.texture_set_stem(obj)
         return str(stem)
+
+    def _resolve_size(self, obj, size) -> Tuple[int, int]:
+        """``(width, height)`` for *obj*'s map — same resolver shapes as ``stem``.
+
+        Anything unresolved falls back to the square :attr:`resolution`, so a partial
+        ``{name: size}`` map is safe: an object the caller had no plan for still gets a
+        full map rather than a 1px one.
+        """
+        value = size.get(obj.name) if isinstance(size, dict) else size
+        if callable(value):
+            value = value(obj)
+        if value is None:
+            value = self.resolution
+        if isinstance(value, (int, float)):
+            value = (value, value)
+        width, height = value
+        return max(1, int(width)), max(1, int(height))
 
     @staticmethod
     def texture_set_stem(obj) -> Optional[str]:

@@ -1,22 +1,25 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Turn a Cycles lightmap bake into a WebXR-ready GLB.
+"""Ship a committed lightmap bake in a web (GLB) deliverable.
 
-:class:`~blendertk.light_utils.lightmap_baker.lightmap_baker.LightmapBaker` owns the bake
-itself (packed UV2, lighting-only vs fused passes, atlas consolidation, the HDR EXR output
-and the engine manifest). This module owns everything between that EXR and a browser:
+**Export-time only.** The bake itself is
+:class:`~blendertk.light_utils.lightmap_baker.lightmap_baker.LightmapBaker`'s job, and it is
+platform-agnostic: it commits to the *scene* (markers + the ``lightmap_metadata`` manifest
+on the ``data_export`` carrier), which the Unity/FBX path and Maya round trip read without
+this module. This module is the **web consumer** of that committed state -- what runs when a
+GLB is exported from Blender natively:
 
-* **Scene prep** -- :meth:`~LightmapWebExport.set_world_environment` (HDRI or flat ambient)
-  and :meth:`~LightmapWebExport.set_emission_strength` (emissive *geometry* as the light
-  source). They compose: a scene may be lit by an HDRI, by emissive fixtures, or by both.
-  Neither is a nicety -- a Maya scene whose lighting is StingrayPBS IBL arrives with **no
-  lights at all**, so without one of these Cycles bakes pure black.
 * **Encode** -- :meth:`~LightmapWebExport.encode_for_web`: linear HDR EXR -> sRGB PNG.
   glTF carries only PNG/JPEG (KTX2 by extension), so the EXR cannot ship as-is.
 * **Carry** -- :meth:`~LightmapWebExport.wire_lightmaps`: glTF has no lightmap slot, so the
   map rides a real texture slot on ``TEXCOORD_1`` and the viewer rebinds it.
 * **Export** -- :meth:`~LightmapWebExport.export_glb` plus the ``lightmap_web`` extras
-  manifest the viewer reads.
+  manifest the viewer reads; :meth:`~LightmapWebExport.wired_for_export` wraps all of it
+  around any native glTF export, feeding itself from the committed markers.
+
+(The Maya-side GLB path needs none of this: its deliverable converts through
+``ptk.MeshConvert.fbx_to_glb``, whose ``apply_glb_lightmaps`` reads the same manifest back
+out of the GLB itself. One committed bake, N consumers, none aware of each other.)
 
 Two facts drive the design, both measured against Blender 5.1 rather than assumed:
 
@@ -40,7 +43,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -49,16 +53,15 @@ from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
 
 
 class LightmapWebExport(ptk.LoggingMixin):
-    """Bake a scene's lightmaps and emit a WebXR-ready GLB.
+    """Ship a scene's committed lightmaps in a natively-exported GLB.
 
     Composes :class:`LightmapBaker` rather than extending it: the bake is a DCC concern the
     Unity/FBX path shares, while everything here is specific to shipping a browser
-    deliverable. Usage::
+    deliverable. Usage (a scene whose lightmaps are already committed)::
 
-        web = LightmapWebExport(resolution=1024, samples=256)
-        web.set_world_environment(hdri="interior.hdr", strength=0.3)
-        web.set_emission_strength(20.0)
-        result = web.bake_and_export("C:/out/office.glb")
+        web = LightmapWebExport()
+        with web.wired_for_export() as manifest:
+            web.export_glb("C:/out/office.glb", manifest=manifest)
     """
 
     #: glTF ``extras`` key holding the viewer manifest. Read by the bundled WebXR viewer to
@@ -95,116 +98,6 @@ class LightmapWebExport(ptk.LoggingMixin):
         self.baker = baker or LightmapBaker(
             resolution=resolution, samples=samples, denoise=denoise, device=device
         )
-
-    # ------------------------------------------------------------------ scene prep
-
-    @staticmethod
-    def set_world_environment(
-        hdri: Optional[str] = None,
-        strength: float = 1.0,
-        color: Optional[Sequence[float]] = None,
-        rotation: float = 0.0,
-    ) -> str:
-        """Light the world with an equirect HDRI, or a flat ambient colour.
-
-        Thin adapter over :meth:`blendertk.LightUtils.set_world_hdri` (which owns the
-        managed env / mapping / coord node rig and the HDR Manager panel's contract) --
-        this only adds the no-HDRI flat-ambient fallback and a description string for the
-        bake log.
-
-        The world matters here because a Maya scene lit by StingrayPBS IBL brings across
-        **no lighting at all**: the cubemaps (``TEX_diffuse_cube.dds`` /
-        ``TEX_specular_cube.dds``) are neither exported by FBX nor loadable by Blender as a
-        world. The HDRI supplied here stands in for them -- as *ambient*, alongside the
-        scene's real lights, not as a replacement for them.
-
-        Parameters:
-            hdri: Equirect ``.hdr`` / ``.exr``. ``None`` -> flat *color* ambient.
-            strength: World multiplier.
-            color: Flat background RGB when no *hdri*. Defaults to near-black.
-            rotation: Environment rotation around Z, in degrees.
-
-        Returns:
-            A short human-readable description of what was applied (for logs / the footer).
-        """
-        import bpy
-
-        from blendertk.light_utils._light_utils import LightUtils
-
-        if hdri:
-            if not os.path.isfile(hdri):
-                # Never silent: a mistyped HDRI path that quietly becomes flat ambient is
-                # a black bake the artist cannot explain.
-                raise FileNotFoundError(f"Environment HDRI not found: {hdri}")
-            LightUtils.set_world_hdri(hdri, strength=strength, rotation=rotation)
-            return f"HDRI {os.path.basename(hdri)} @ {strength}"
-
-        LightUtils.clear_world_hdri()
-        scene = bpy.context.scene
-        world = scene.world or bpy.data.worlds.new("World")
-        scene.world = world
-        world.use_nodes = True
-        nt = world.node_tree
-        background = next(
-            (n for n in nt.nodes if n.type == "BACKGROUND"), None
-        ) or nt.nodes.new("ShaderNodeBackground")
-        out = next((n for n in nt.nodes if n.type == "OUTPUT_WORLD"), None)
-        if out is None:
-            out = nt.nodes.new("ShaderNodeOutputWorld")
-        if not background.outputs["Background"].links:
-            nt.links.new(background.outputs["Background"], out.inputs["Surface"])
-        rgb = tuple(color or (0.02, 0.02, 0.024))[:3]
-        background.inputs["Color"].default_value = (*rgb, 1.0)
-        background.inputs["Strength"].default_value = float(strength)
-        return f"flat ambient {rgb} @ {strength}"
-
-    @staticmethod
-    def set_emission_strength(multiplier: float, objects=None) -> List[str]:
-        """Set Emission Strength on every material whose Emission Color is textured.
-
-        **This controls an appearance, not the lighting.** An emissive map makes a fixture
-        read as switched-on; it is not the room's light source, and driving a bake from it
-        would tie the illumination to a texture's exposure and give the artist nothing to
-        aim or re-colour. Real lights come from
-        :meth:`blendertk.LightUtils.lights_from_geometry` (or from the scene's own light
-        objects); this just keeps the glow looking right alongside them.
-
-        Because emission still contributes to a Cycles bake, the default is deliberately
-        modest -- push it only as far as the fixtures need to *look* correct.
-
-        Parameters:
-            multiplier: The Emission Strength to set (not a relative scale).
-            objects: Restrict to these objects' materials. ``None`` -> every material.
-
-        Returns:
-            Names of the materials touched.
-        """
-        import bpy
-
-        if objects is None:
-            materials = list(bpy.data.materials)
-        else:
-            materials = []
-            for obj in ptk.make_iterable(objects):
-                obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
-                for slot in getattr(obj, "material_slots", []) or []:
-                    if slot.material is not None and slot.material not in materials:
-                        materials.append(slot.material)
-
-        touched: List[str] = []
-        for material in materials:
-            if not material.use_nodes or material.node_tree is None:
-                continue
-            for node in material.node_tree.nodes:
-                if node.type != "BSDF_PRINCIPLED":
-                    continue
-                color = node.inputs.get("Emission Color")
-                strength = node.inputs.get("Emission Strength")
-                if color is not None and color.is_linked and strength is not None:
-                    strength.default_value = float(multiplier)
-                    if material.name not in touched:
-                        touched.append(material.name)
-        return touched
 
     # ------------------------------------------------------------------ encode
 
@@ -620,124 +513,75 @@ class LightmapWebExport(ptk.LoggingMixin):
             )
         return touched
 
-    # ------------------------------------------------------------------ orchestration
+    # ------------------------------------------------------------------ committed-state export
 
-    def bake_and_export(
+    @contextmanager
+    def wired_for_export(
         self,
-        glb_path: str,
         objects=None,
-        output_dir: Optional[str] = None,
-        lightmap_dir: Optional[str] = None,
-        mode: str = "separated",
         carrier: str = "occlusion",
         percentile: Optional[float] = None,
-        lighting: Optional[Dict[str, Any]] = None,
-        keep_wiring: bool = False,
-        texture_max_size: Optional[int] = 2048,
-        image_format: str = "WEBP",
-        image_quality: int = 85,
-    ) -> Dict[str, Any]:
-        """Bake -> atlas -> encode -> wire -> GLB, in one call.
+    ) -> Iterator[Optional[Dict[str, Any]]]:
+        """The scene's COMMITTED lightmaps, wired for a native glTF export.
 
-        Atlas consolidation is unconditional for the ``separated`` mode and is the reason
-        this is an orchestration rather than a list of steps: a glTF material carries one
-        lightmap, so per-object maps would force one material copy per object. ``fused``
-        needs no carrier wiring at all -- ``commit_unlit`` already makes the bake the
-        material's own appearance, which every glTF viewer renders correctly unaided.
+        The Blender-native counterpart of ``ptk.MeshConvert.apply_glb_lightmaps``: feeds
+        itself from the markers :meth:`LightmapBaker.commit_lightmap` stamped (map basename
+        + its ``dir`` locate hint), encodes, wires the carrier slot on the lightmap UV, and
+        yields the ``lightmap_web`` manifest -- pass it to :meth:`export_glb`, or export
+        with ``bpy.ops.export_scene.gltf(export_extras=True)`` directly (the manifest is
+        also stamped on the scene for the duration, so either route carries it). Materials
+        are restored on exit, wired only for the export's lifetime.
 
-        Returns a summary: ``glb``, ``maps``, ``manifest``, ``atlases``, plus the
-        round-trip payload ``lightmaps`` (``{object: hdr_exr}``), ``uv_rects``
-        (``{object: [sx, sy, ox, oy]}`` -- the atlas placement, reported for the record)
-        and ``mode``.
-
-        A host application reassembling this bake pairs ``lightmaps`` with the UV layout
-        from :meth:`UvUtils.export_uv_layout`, which is captured AFTER the atlas repack and
-        therefore already carries the placement -- ``uv_rects`` is informational there, not
-        something the receiver has to apply.
+        A scene with no committed bake yields ``None`` and touches nothing, which is what
+        makes it safe to wrap around *every* GLB export unconditionally: the exporter needs
+        no knowledge of whether, or how, the scene was baked.
         """
         import bpy
 
-        meshes = objects
-        if meshes is None:
-            meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
-        output_dir = output_dir or os.path.dirname(os.path.abspath(glb_path))
-        # The HDR bake and the web encode are separate deliverables with separate
-        # homes: a round-tripping caller points *lightmap_dir* at the host app's
-        # texture folder (Maya's sourceimages) so the returned EXRs live where that
-        # app's materials can reference them, while the throwaway 8-bit PNGs stay
-        # next to the GLB they get embedded into.
-        lightmap_dir = lightmap_dir or output_dir
+        mapping: Dict[str, str] = {}
+        for obj in objects or bpy.data.objects:
+            obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+            if obj is None or LightmapBaker.LIGHTMAP_INFO_PROP not in obj:
+                continue
+            try:
+                info = json.loads(obj[LightmapBaker.LIGHTMAP_INFO_PROP] or "{}")
+            except ValueError:
+                continue
+            basename = info.get("map")
+            if not basename:
+                continue
+            path = os.path.join(info.get("dir") or "", basename)
+            if not os.path.isfile(path):
+                self.logger.warning(
+                    "%s: committed lightmap %r not found at %r; not shipped.",
+                    obj.name,
+                    basename,
+                    path,
+                )
+                continue
+            mapping[obj.name] = path
 
-        self.baker.revert(meshes)
+        if not mapping:
+            yield None
+            return
 
-        if mode == "fused":
-            baked = self.baker.bake_fused(meshes, output_dir=lightmap_dir)
-            if not baked:
-                return {"glb": None, "maps": {}, "manifest": {}, "atlases": 0}
-            self.baker.commit_unlit(baked)
-            encoded = self.encode_for_web(baked, output_dir, percentile)
-            manifest = self.build_manifest(encoded, carrier="fused", lighting=lighting)
-            glb = self.export_glb(
-                glb_path,
-                meshes,
-                manifest,
-                texture_max_size=texture_max_size,
-                image_format=image_format,
-                image_quality=image_quality,
-            )
-            return {
-                "glb": glb,
-                "maps": encoded,
-                "manifest": manifest,
-                "atlases": len({p for p, _ in encoded.values()}),
-                # Round-trip payload: the HDR bakes, NOT the web PNGs. The PNGs are
-                # percentile-normalized and Non-Color -- lossy, web-only intermediates.
-                "lightmaps": dict(baked),
-                "uv_rects": {},
-                "mode": mode,
-            }
-
-        baked = self.baker.bake_separated(meshes, output_dir=lightmap_dir)
-        if not baked:
-            return {"glb": None, "maps": {}, "manifest": {}, "atlases": 0}
-
-        packed = self.baker.pack_atlas(
-            baked, output_dir=lightmap_dir, suffix="_Lightmap"
-        )
-        if packed:
-            atlas_map = {n: p for n, (p, _rect) in packed.items()}
-            uv_rects = {n: rect for n, (_p, rect) in packed.items()}
-            self.baker.commit_lightmap(atlas_map, uv_rects=uv_rects)
-        else:  # never lose a bake to a packing failure
-            atlas_map = baked
-            uv_rects = {}
-            self.baker.commit_lightmap(atlas_map)
-
-        encoded = self.encode_for_web(atlas_map, output_dir, percentile)
+        # The PNGs are throwaway export intermediates -- never litter the maps' home.
+        png_dir = ptk.TempArtifacts("lightmap_web").dir_path()
+        encoded = self.encode_for_web(mapping, output_dir=png_dir, percentile=percentile)
         token = self.wire_lightmaps(encoded, carrier=carrier)
-        manifest = self.build_manifest(encoded, carrier=carrier, lighting=lighting)
-        try:
-            glb = self.export_glb(
-                glb_path,
-                meshes,
-                manifest,
-                texture_max_size=texture_max_size,
-                image_format=image_format,
-                image_quality=image_quality,
-            )
-        finally:
-            if not keep_wiring:
-                self.unwire_lightmaps(token)
+        manifest = self.build_manifest(encoded, carrier=carrier)
 
-        return {
-            "glb": glb,
-            "maps": encoded,
-            "manifest": manifest,
-            "atlases": len({p for p, _ in encoded.values()}),
-            # Round-trip payload: the HDR atlases and the placement applied to reach
-            # them, NOT the web PNGs (percentile-normalized, Non-Color -- lossy and
-            # web-only). A host app replaying these gets the same atlas its GLB has.
-            "lightmaps": dict(atlas_map),
-            "uv_rects": dict(uv_rects),
-            "mode": mode,
-        }
+        scene = bpy.context.scene
+        prior = scene.get(self.EXTRAS_KEY)
+        scene[self.EXTRAS_KEY] = json.dumps(manifest)
+        try:
+            yield manifest
+        finally:
+            self.unwire_lightmaps(token)
+            if prior is None:
+                try:
+                    del scene[self.EXTRAS_KEY]
+                except KeyError:
+                    pass
+            else:
+                scene[self.EXTRAS_KEY] = prior

@@ -31,7 +31,7 @@ import pythontk as ptk
 
 from blendertk.mat_utils.marmoset_bridge._marmoset_engine import (
     MarmosetEngine,
-    ROUNDTRIP,
+    ROUND_TRIP,
 )
 
 # Re-exported so the slots/tests can ``from ._marmoset_bridge import SEND_TO, _TEMPLATE_DIR``
@@ -105,7 +105,7 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
 
     Usage::
 
-        MarmosetBridge().send(template="bake", mode="roundtrip")
+        MarmosetBridge().send(template="bake", mode="round_trip")
         MarmosetBridge().send(template="lookdev")  # mode defaults to send_to
     """
 
@@ -354,4 +354,4 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
 
 if __name__ == "__main__":
     bridge = MarmosetBridge()
-    bridge.send(template="bake", mode=ROUNDTRIP)
+    bridge.send(template="bake", mode=ROUND_TRIP)

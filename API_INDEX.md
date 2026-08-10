@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-08-08_
+_Generated: 2026-08-10_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
@@ -437,7 +437,7 @@ _Generated: 2026-08-08_
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
-  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, lights_from_geometry, remove_lights
+  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManagerSlots(ptk.LoggingMixin)`
@@ -445,13 +445,13 @@ _Generated: 2026-08-08_
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_fused, bake_separated, commit_lightmap, pack_atlas, refresh_export_metadata, revert_lightmap, commit_unlit, revert_unlit, revert
+  - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, refresh_export_metadata, revert_lightmap, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, cmb001_init, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
+  - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
 
-### `light_utils/lightmap_baker/web_export.py` — Turn a Cycles lightmap bake into a WebXR-ready GLB.
+### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
 - `class LightmapWebExport(ptk.LoggingMixin)`
-  - methods: set_world_environment, set_emission_strength, encode_for_web, wire_lightmaps, unwire_lightmaps, build_manifest, export_glb, bake_and_export
+  - methods: encode_for_web, wire_lightmaps, unwire_lightmaps, build_manifest, export_glb, wired_for_export
 
 ### `mat_utils/_mat_utils.py` — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`

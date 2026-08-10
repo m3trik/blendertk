@@ -122,6 +122,134 @@ try:
           and w.cycles.sampling_method == "AUTOMATIC"
           and btk.get_world_importance_resolution() is None)
 
+    # ---- scale_light_energy: the Maya->Cycles unit dial ----------------------
+    # Relative, so it corrects the crossing without flattening the artist's own
+    # relative brightnesses -- and must not compound on a SHARED light datablock.
+    # The factory-startup scene ships its own "Light" -- clear it so "every light in
+    # the file" is a set this test actually controls.
+    for _stray in [o for o in bpy.data.objects if o.type == "LIGHT"]:
+        bpy.data.objects.remove(_stray, do_unlink=True)
+    key = bpy.data.objects.new("KeyLight", bpy.data.lights.new("KeyData", "POINT"))
+    bpy.context.scene.collection.objects.link(key)
+    key.data.energy = 100.0
+    rim = bpy.data.objects.new("RimLight", bpy.data.lights.new("RimData", "POINT"))
+    bpy.context.scene.collection.objects.link(rim)
+    rim.data.energy = 25.0
+
+    scaled = btk.LightUtils.scale_light_energy(2.0)
+    check("scale_light_energy reports every light's NEW power",
+          scaled == {"KeyLight": 200.0, "RimLight": 50.0}, f"{scaled}")
+    check("relative brightnesses are preserved (4:1 before and after)",
+          scaled["KeyLight"] / scaled["RimLight"] == 4.0)
+    check("1.0 is a no-op",
+          btk.LightUtils.scale_light_energy(1.0) == scaled)
+
+    # A linked duplicate shares the datablock; scaling is relative, so touching it
+    # once per OBJECT would square the multiplier instead of applying it.
+    shared = bpy.data.objects.new("KeyLightCopy", key.data)
+    bpy.context.scene.collection.objects.link(shared)
+    both = btk.LightUtils.scale_light_energy(2.0, [key, shared])
+    check("a shared light datablock scales once, not once per user",
+          both == {"KeyLight": 400.0, "KeyLightCopy": 400.0}, f"{both}")
+    check("an explicit subset leaves the others alone", rim.data.energy == 50.0)
+    check("no lights matched -> empty, no raise",
+          btk.LightUtils.scale_light_energy(2.0, []) == {})
+
+    # ---- lights_from_records: rebuild a sender's lights onto placed empties -----
+    import mathutils
+
+    for _stray in [o for o in bpy.data.objects if o.type in {"LIGHT", "EMPTY"}]:
+        bpy.data.objects.remove(_stray, do_unlink=True)
+
+    # An empty standing in for what an FBX import placed: right position, and the
+    # WRONG orientation an interchange format's light-axis convention leaves behind.
+    placed = bpy.data.objects.new("keyLight", None)
+    bpy.context.scene.collection.objects.link(placed)
+    placed.location = (0.0, 0.0, 2.5)
+    placed.rotation_euler = (1.5707963, 0.0, 0.0)  # local -Z points +Y, not down
+
+    built = btk.LightUtils.lights_from_records(
+        [
+            {
+                "name": "keyLight",
+                "type": "SPOT",
+                "color": [1.0, 0.5, 0.25],
+                "energy": 1000.0,
+                "aim": [0.0, -1.0, 0.0],  # straight down in a Y-UP sender's axes
+                "axis_up": "Y",
+                "spot_size": 1.0471976,
+                "spot_blend": 0.25,
+            }
+        ]
+    )
+    check("lights_from_records reports {record: object}",
+          built == {"keyLight": "keyLight"}, f"{built}")
+    # The name is a join key downstream, so a ".001" from the empty still existing
+    # when the lamp was created would be a real defect, not cosmetic.
+    check("the lamp TOOK the empty's name (no .001 suffix)",
+          "keyLight" in bpy.data.objects
+          and bpy.data.objects["keyLight"].type == "LIGHT"
+          and "keyLight.001" not in bpy.data.objects)
+
+    lamp = bpy.data.objects["keyLight"]
+    check("position comes from the placed empty",
+          tuple(round(v, 4) for v in lamp.location) == (0.0, 0.0, 2.5),
+          f"{tuple(lamp.location)}")
+    aimed = (lamp.matrix_world.to_3x3() @ mathutils.Vector((0, 0, -1))).normalized()
+    check("aim OVERRIDES the empty's orientation, Y-up converted to Z-up",
+          all(abs(a - b) < 1e-4 for a, b in zip(aimed, (0.0, 0.0, -1.0))),
+          f"{tuple(round(v, 4) for v in aimed)}")
+    check("spot parameters applied",
+          lamp.data.type == "SPOT"
+          and abs(lamp.data.spot_size - 1.0471976) < 1e-5
+          and abs(lamp.data.spot_blend - 0.25) < 1e-6)
+    check("colour and energy applied",
+          tuple(round(c, 3) for c in lamp.data.color) == (1.0, 0.5, 0.25)
+          and lamp.data.energy == 1000.0)
+
+    # An AREA light sizes from the record's LOCAL extent times the empty's world
+    # scale, so it cannot end up in different units from the scene it lights.
+    scaled = bpy.data.objects.new("areaLight", None)
+    bpy.context.scene.collection.objects.link(scaled)
+    scaled.scale = (3.0, 0.5, 1.0)
+    btk.LightUtils.lights_from_records(
+        [{"name": "areaLight", "type": "AREA", "energy": 10.0,
+          "shape": "RECTANGLE", "local_size": [2.0, 2.0]}]
+    )
+    area = bpy.data.objects["areaLight"].data
+    check("area size = local extent x the empty's world scale",
+          abs(area.size - 6.0) < 1e-4 and abs(area.size_y - 1.0) < 1e-4,
+          f"size={area.size} size_y={area.size_y}")
+
+    check("a record naming no object is skipped, not raised",
+          btk.LightUtils.lights_from_records([{"name": "nope", "type": "POINT"}]) == {})
+
+    # Anything parented under the light must survive the swap in place: removing the
+    # empty would re-root the child, and Blender keeps its LOCAL matrix when that
+    # happens, so it would silently jump to the origin.
+    host = bpy.data.objects.new("hostLight", None)
+    bpy.context.scene.collection.objects.link(host)
+    host.location = (1.0, 2.0, 3.0)
+    kid = bpy.data.objects.new("lightChild", None)
+    bpy.context.scene.collection.objects.link(kid)
+    kid.parent = host
+    bpy.context.view_layer.update()
+    kid_world = kid.matrix_world.copy()
+
+    btk.LightUtils.lights_from_records(
+        [{"name": "hostLight", "type": "POINT", "energy": 5.0,
+          "aim": [0.0, -1.0, 0.0], "axis_up": "Y"}]
+    )
+    bpy.context.view_layer.update()
+    check("a child of the light is re-parented onto it, not re-rooted",
+          bpy.data.objects["lightChild"].parent is bpy.data.objects["hostLight"],
+          f"{bpy.data.objects['lightChild'].parent}")
+    check("the child keeps its world transform through the swap",
+          all(abs(a - b) < 1e-5 for a, b in zip(
+              bpy.data.objects["lightChild"].matrix_world.translation,
+              kid_world.translation)),
+          f"{tuple(bpy.data.objects['lightChild'].matrix_world.translation)}")
+
     for p in paths:
         os.remove(p)
     os.rmdir(tmp_dir)

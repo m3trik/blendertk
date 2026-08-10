@@ -1,5 +1,5 @@
 {
-    "description": "Fast iteration / preview — low resolution, few samples.",
+    "description": "Fast iteration / preview — low resolution, few samples (denoised).",
     "resolution": 256,
-    "samples": 2
+    "samples": 64
 }

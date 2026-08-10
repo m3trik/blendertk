@@ -87,6 +87,10 @@ _SPEC = ptk.ScriptLaunchSpec(
         "-command",
         MayaBridge._build_mel_command(script_path),
     ],
+    # The spec default, stated because it is load-bearing rather than incidental:
+    # ``template_modes_allowed`` derives from it, and its FIRST entry is what an
+    # unrecognized declaration falls back to.
+    modes=(SEND_TO,),
     payload_prefix="btk_to_maya",
     # The launched Maya inherits Blender's whole environment; an OCIO var pointing
     # inside Blender's own install (its bundled v2.5 config) fails Maya's
@@ -591,16 +595,28 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         """User-visible templates in ``templates/`` (skips underscore-prefixed)."""
         return _templates.ScriptTemplate.list_templates(_TEMPLATE_DIR, ".py")
 
-    @staticmethod
-    def template_modes(template_path: Path) -> Tuple[str, ...]:
-        """Modes a template declares via ``BRIDGE_MODES``; ``("send_to",)`` fallback."""
-        return _templates.ScriptTemplate.template_modes(template_path, (SEND_TO,))
+    #: Modes a user-visible template may declare — DERIVED from the specs that serve
+    #: them, never restated. The helpers filter declarations against this and silently
+    #: fall back to the first entry for anything outside it, so a mode a spec delivers
+    #: but this list forgot mislabels that template as an interactive send, which then
+    #: routes through ``send()`` and launches a GUI Maya on a script that never populates
+    #: ``__OUT_FILE__``. ``_SPEC`` stays first so the fallback is still ``send_to``.
+    #: (The staticmethods below need this without an instance, hence not
+    #: ``HandoffBridge.modes``.)
+    template_modes_allowed: Tuple[str, ...] = tuple(_SPEC.modes) + tuple(_RUN_SPEC.modes)
 
-    @staticmethod
-    def list_template_modes() -> List[Tuple[str, str]]:
+    @classmethod
+    def template_modes(cls, template_path: Path) -> Tuple[str, ...]:
+        """Modes a template declares via ``BRIDGE_MODES``; ``("send_to",)`` fallback."""
+        return _templates.ScriptTemplate.template_modes(
+            template_path, cls.template_modes_allowed
+        )
+
+    @classmethod
+    def list_template_modes(cls) -> List[Tuple[str, str]]:
         """``[(stem, mode), ...]`` for every (template, mode) pairing."""
         return _templates.ScriptTemplate.list_template_modes(
-            _TEMPLATE_DIR, ".py", (SEND_TO,)
+            _TEMPLATE_DIR, ".py", cls.template_modes_allowed
         )
 
 

@@ -14,6 +14,8 @@ Nodes are found-or-created by fixed names so repeated calls update in place.
 import math
 import os
 
+import pythontk as ptk
+
 # Fixed node names — the update-in-place handles for the world-HDRI rig.
 _ENV_NODE = "btk_hdri_env"
 _MAPPING_NODE = "btk_hdri_mapping"
@@ -312,6 +314,13 @@ class LightUtils(_LightUtilsInternal):
         spread=None,
         prefix=_FIXTURE_LIGHT_PREFIX,
         diffuse_only=False,
+        *,
+        # Keyword-only, and appended rather than grouped beside the parameters they
+        # read with (*kelvin* with *color*, *toward* with *direction*): inserting
+        # them there would silently rebind every positional caller of a published
+        # signature, and the ``*`` keeps that true if anything is added later.
+        kelvin=None,
+        toward=None,
     ):
         """Create a real area light matched to each light-fixture *mesh*.
 
@@ -325,8 +334,9 @@ class LightUtils(_LightUtilsInternal):
 
         Each light is an **area** light matched to the fixture's plate: the mesh's thinnest
         bounding axis is taken as the emitting normal, the other two become the light's
-        width and height, and the light is placed at the fixture's centre pushed *offset*
-        along the emission direction so it never sits inside its own housing.
+        width and height, and the light is placed clear of the plate's own half-thickness
+        plus *offset* along the emission direction, so it never sits inside its own
+        housing (where that housing would block it and the room would bake dark).
 
         The box is the **world-axis-aligned** bounding box, so a fixture rotated off the
         world axes gets a light that is correctly placed and powered but axis-aligned in
@@ -337,12 +347,21 @@ class LightUtils(_LightUtilsInternal):
         Parameters:
             objects: Fixture meshes (refs or names).
             power: Radiant power per light, in Watts.
-            color: Light RGB.
-            direction: ``"auto"`` aims each light along its thin axis toward the overall
-                centre of the set — a ceiling panel points down, a wall panel points inward,
-                with no per-object setup. Pass an explicit ``(x, y, z)`` to force one
-                direction for all of them.
-            offset: Metres to push the light off the fixture surface along its aim.
+            color: Light RGB (a tint on top of *kelvin* when both are given).
+            kelvin: (keyword-only) Colour temperature. ``None`` leaves the light white.
+                Office troffers are 3500-4100K, which against a warm interior is the
+                cue that most decides whether a bake reads as a room or as CG. Needs
+                Blender >= 4.2; silently ignored on older builds (no such property).
+            direction: ``"auto"`` aims each light along its thin axis toward *toward* —
+                a ceiling panel points down, a wall panel points inward, with no
+                per-object setup. Pass an explicit ``(x, y, z)`` to force one direction
+                for all of them.
+            toward: (keyword-only) World point the plates should face. Defaults to the
+                centre of *objects*, which is **ambiguous for a coplanar set** — a
+                ceiling grid's own centre lies in the ceiling — and resolves to "down".
+                Pass the room's centre (e.g. the centre of every mesh being baked) to
+                make ceiling AND wall fixtures aim correctly in the same call.
+            offset: Metres of clearance between the fixture's surface and the light.
             spread: Beam spread in degrees (``None`` keeps Blender's 180° default).
             prefix: Name prefix, also the handle :meth:`remove_lights` deletes by.
             diffuse_only: Drop the light's specular contribution. Useful for a *lightmap*
@@ -363,37 +382,44 @@ class LightUtils(_LightUtilsInternal):
             return []
 
         centers = {o.name: _LightUtilsInternal._world_center(o) for o in meshes}
-        group_center = sum(centers.values(), Vector((0.0, 0.0, 0.0))) / len(centers)
+        if toward is None:
+            reference = sum(centers.values(), Vector((0.0, 0.0, 0.0))) / len(centers)
+        else:
+            reference = Vector(toward)
 
         created = []
         for obj in meshes:
-            extents = _LightUtilsInternal._world_extents(obj)
-            axis = min(range(3), key=lambda i: extents[i])  # thinnest = plate normal
-            sizes = sorted(extents[i] for i in range(3) if i != axis)
-            size_y, size_x = sizes[0], sizes[1]
-
-            normal = Vector((0.0, 0.0, 0.0))
-            normal[axis] = 1.0
+            corners = _LightUtilsInternal._world_corners(obj)
+            minimum = [min(c[i] for c in corners) for i in range(3)]
+            maximum = [max(c[i] for c in corners) for i in range(3)]
+            # The plate arithmetic -- thin axis, rectangle, coplanar-aim guard and
+            # housing clearance -- is the same in every host, so it lives in
+            # pythontk rather than once here and again in mayatk's twin.
+            plate = ptk.PlateEmitter.from_bounds(
+                minimum,
+                maximum,
+                toward=reference if direction == "auto" else None,
+                offset=offset,
+                up_axis=2,
+            )
+            size_x, size_y = plate.size
             if direction == "auto":
-                # Aim along the plate's own thin axis, toward the middle of the set: a
-                # ceiling plate points down, a wall plate points inward. The aim stays ON
-                # that axis even when the position is ambiguous, because the rectangle was
-                # sized from the OTHER two — aiming somewhere else would light a shape the
-                # fixture does not have.
-                toward = group_center - centers[obj.name]
-                if toward[axis] < 0:
-                    normal = -normal
-                elif toward[axis] == 0 and axis == 2:
-                    # Dead centre along the aim axis — a lone fixture, or a co-planar row
-                    # of them. Only Z has a natural answer, and it is down; an ambiguous
-                    # X/Y plate keeps +axis, which is arbitrary but deterministic.
-                    normal = -normal
+                normal = Vector(plate.normal)
+                location = Vector(plate.position)
             else:
                 normal = Vector(direction).normalized()
+                thickness = maximum[plate.axis] - minimum[plate.axis]
+                location = centers[obj.name] + normal * (thickness * 0.5 + float(offset))
 
             data = bpy.data.lights.new(f"{prefix}{obj.name}", type="AREA")
             data.energy = float(power)
             data.color = tuple(color)[:3]
+            if kelvin and hasattr(data, "use_temperature"):
+                # Blender >= 4.2 owns the blackbody conversion; *color* stays a tint on
+                # top of it. Rolling our own Kelvin->RGB would be a second, worse copy
+                # of a conversion the renderer already agrees with.
+                data.use_temperature = True
+                data.temperature = float(kelvin)
             data.shape = "RECTANGLE"
             data.size = max(size_x, 1e-4)
             data.size_y = max(size_y, 1e-4)
@@ -403,7 +429,7 @@ class LightUtils(_LightUtilsInternal):
                 data.specular_factor = 0.0
 
             light = bpy.data.objects.new(f"{prefix}{obj.name}", data)
-            light.location = centers[obj.name] + normal * float(offset)
+            light.location = location
             # An area light emits along its local -Z, so aim that at the emission normal.
             light.rotation_euler = normal.to_track_quat("-Z", "Y").to_euler()
             bpy.context.scene.collection.objects.link(light)
@@ -426,3 +452,294 @@ class LightUtils(_LightUtilsInternal):
             if data is not None and data.users == 0:
                 bpy.data.lights.remove(data)
         return removed
+
+    @classmethod
+    def set_world_environment(
+        cls,
+        hdri=None,
+        strength=1.0,
+        color=None,
+        rotation=0.0,
+    ) -> str:
+        """Light the world with an equirect HDRI, or a flat ambient colour.
+
+        Thin adapter over :meth:`set_world_hdri` (which owns the managed env / mapping /
+        coord node rig and the HDR Manager panel's contract) -- this only adds the no-HDRI
+        flat-ambient fallback and a description string for the bake log.
+
+        The world matters to a bridged bake because a Maya scene lit by StingrayPBS IBL
+        brings across **no lighting at all**: the cubemaps (``TEX_diffuse_cube.dds`` /
+        ``TEX_specular_cube.dds``) are neither exported by FBX nor loadable by Blender as a
+        world. The HDRI supplied here stands in for them -- as *ambient*, alongside the
+        scene's real lights, not as a replacement for them.
+
+        Parameters:
+            hdri: Equirect ``.hdr`` / ``.exr``. ``None`` -> flat *color* ambient.
+            strength: World multiplier.
+            color: Flat background RGB when no *hdri*. Defaults to near-black.
+            rotation: Environment rotation around Z, in degrees.
+
+        Returns:
+            A short human-readable description of what was applied (for logs / the footer).
+        """
+        import bpy
+
+        if hdri:
+            if not os.path.isfile(hdri):
+                # Never silent: a mistyped HDRI path that quietly becomes flat ambient is
+                # a black bake the artist cannot explain.
+                raise FileNotFoundError(f"Environment HDRI not found: {hdri}")
+            cls.set_world_hdri(hdri, strength=strength, rotation=rotation)
+            return f"HDRI {os.path.basename(hdri)} @ {strength}"
+
+        cls.clear_world_hdri()
+        scene = bpy.context.scene
+        world = scene.world or bpy.data.worlds.new("World")
+        scene.world = world
+        world.use_nodes = True
+        nt = world.node_tree
+        background = next(
+            (n for n in nt.nodes if n.type == "BACKGROUND"), None
+        ) or nt.nodes.new("ShaderNodeBackground")
+        out = next((n for n in nt.nodes if n.type == "OUTPUT_WORLD"), None)
+        if out is None:
+            out = nt.nodes.new("ShaderNodeOutputWorld")
+        if not background.outputs["Background"].links:
+            nt.links.new(background.outputs["Background"], out.inputs["Surface"])
+        rgb = tuple(color or (0.02, 0.02, 0.024))[:3]
+        background.inputs["Color"].default_value = (*rgb, 1.0)
+        background.inputs["Strength"].default_value = float(strength)
+        return f"flat ambient {rgb} @ {strength}"
+
+    @staticmethod
+    def lights_from_records(records):
+        """Turn plain light records into real lights, reusing each one's placed Empty.
+
+        The rebuild half of a DCC hand-off's light transport. A light OBJECT often
+        cannot cross an interchange format -- FBX carries no plugin light types at
+        all, and Blender 5.1's bundled importer aborts the whole import on any FBX
+        containing a light -- but the light's TRANSFORM does, as a null the importer
+        places correctly. So the sender ships parameters as data and this attaches a
+        light datablock to the empty already sitting in the right place: the format
+        keeps doing placement, and no coordinate or unit conversion is written by
+        hand (an empty that arrived through a cm-to-m import is already in metres).
+
+        Records are plain dicts so any sender can produce them::
+
+            {"name": "keyLight",        # the empty to convert (required)
+             "type": "POINT"|"SPOT"|"SUN"|"AREA",
+             "color": [r, g, b], "energy": <watts>,
+             "aim": [x, y, z], "axis_up": "Y"|"Z",   # world aim, sender's axes
+             "spot_size": <radians>, "spot_blend": <0-1>,        # SPOT
+             "shape": "RECTANGLE"|"SQUARE"|"DISK",
+             "local_size": [x, y]}                               # AREA, LOCAL units
+
+        ``local_size`` is scaled by the empty's own world scale, so the emitter ends
+        up the size the source made it whatever the import did to the scene.
+
+        ``aim`` overrides the empty's own orientation, and senders should provide it:
+        a placed null carries POSITION reliably across an interchange format, but its
+        rotation may have been reconciled against that format's light-axis convention
+        on the way out (measured with Maya -> FBX: a spot aimed straight down arrives
+        aiming sideways). ``axis_up`` names the sender's up axis so the vector is
+        converted here rather than each sender guessing Blender's.
+
+        Rebalancing the result is a separate step -- compose with
+        :meth:`scale_light_energy` when the sender's intensity units are not watts::
+
+            built = LightUtils.lights_from_records(records)
+            LightUtils.scale_light_energy(2.5, list(built.values()))
+
+        Parameters:
+            records: Iterable of record dicts. A record naming no existing object is
+                skipped (it simply did not come across).
+
+        Returns:
+            ``{record name: object name}`` for the lights actually built.
+        """
+        import bpy
+        import mathutils
+
+        # ``matrix_world`` is evaluated state: an object whose transform was set since
+        # the last depsgraph update still reports identity, and every placement here
+        # is read from it. Cheap once per call, and it makes the function correct for
+        # a caller that just built the empties itself rather than only for one running
+        # after an import operator.
+        bpy.context.view_layer.update()
+
+        built = {}
+        for record in records or []:
+            name = record.get("name")
+            empty = bpy.data.objects.get(name) if name else None
+            if empty is None:
+                continue
+
+            # Capture what the empty carries, then FREE ITS NAME before creating the
+            # light: Blender uniquifies a clashing object name, so building the lamp
+            # first would leave "keyLight.001" -- and downstream joins (the lightmap
+            # manifest, a send back to Maya) key on that name, so the suffix is not
+            # cosmetic.
+            matrix = empty.matrix_world.copy()
+            parent, parent_inverse = empty.parent, empty.matrix_parent_inverse.copy()
+            collections = list(empty.users_collection)
+            # Anything parented UNDER the light comes with it. Removing the empty
+            # would re-root its children, and Blender keeps their local matrix when
+            # that happens -- so they would silently jump to the world origin.
+            children = list(empty.children)
+            child_inverses = [c.matrix_parent_inverse.copy() for c in children]
+            bpy.data.objects.remove(empty, do_unlink=True)
+
+            light = bpy.data.lights.new(name, record.get("type") or "POINT")
+            light.color = tuple(record.get("color") or (1.0, 1.0, 1.0))[:3]
+            light.energy = float(record.get("energy") or 0.0)
+            if light.type == "SPOT":
+                if record.get("spot_size") is not None:
+                    light.spot_size = float(record["spot_size"])
+                if record.get("spot_blend") is not None:
+                    light.spot_blend = float(record["spot_blend"])
+            elif light.type == "AREA":
+                light.shape = record.get("shape") or "SQUARE"
+                local = record.get("local_size") or [1.0, 1.0]
+                scale = matrix.to_scale()
+                light.size = abs(float(local[0]) * scale.x)
+                if light.shape in {"RECTANGLE", "ELLIPSE"}:
+                    light.size_y = abs(float(local[1]) * scale.y)
+
+            # The empty WAS the light's transform, so the lamp simply takes its place
+            # -- same matrix, same parent, same collections. Parent is assigned before
+            # matrix_world: assigning it after would reinterpret the local basis
+            # against the parent and move the light.
+            aim = record.get("aim")
+            if aim:
+                # Blender is Z-up: a Y-up sender's (x, y, z) is (x, -z, y) here.
+                # Applied to the world matrix's ROTATION only -- translation and
+                # scale stay as the import placed them.
+                vector = mathutils.Vector(
+                    (aim[0], -aim[2], aim[1])
+                    if str(record.get("axis_up", "Z")).upper() == "Y"
+                    else aim
+                )
+                if vector.length > 1e-9:
+                    location, _, scale = matrix.decompose()
+                    matrix = (
+                        mathutils.Matrix.Translation(location)
+                        # Lights emit down local -Z in Blender, so track -Z to the
+                        # aim; Y is the roll reference, which only a rectangular
+                        # area light can notice.
+                        @ vector.to_track_quat("-Z", "Y").to_matrix().to_4x4()
+                        @ mathutils.Matrix.Diagonal(scale).to_4x4()
+                    )
+
+            lamp = bpy.data.objects.new(name, light)
+            for collection in collections:
+                collection.objects.link(lamp)
+            lamp.parent = parent
+            lamp.matrix_parent_inverse = parent_inverse
+            lamp.matrix_world = matrix
+            # The lamp stands exactly where the empty stood, so re-parenting the
+            # children onto it with their original parent-inverse keeps every world
+            # transform -- EXCEPT when `aim` re-oriented the lamp, which is the point
+            # of the aim override and would drag the children round with it. Their
+            # world matrices are therefore restored explicitly.
+            for child, inverse in zip(children, child_inverses):
+                world = child.matrix_world.copy()
+                child.parent = lamp
+                child.matrix_parent_inverse = inverse
+                child.matrix_world = world
+            built[name] = lamp.name
+        return built
+
+    @staticmethod
+    def scale_light_energy(multiplier, lights=None):
+        """Multiply the energy of light objects, returning ``{name: new_energy}``.
+
+        Relative, not absolute, because the use case is *correcting units rather than
+        authoring them*: a light that crossed an FBX from another DCC arrives with its
+        intensity translated by that DCC's exporter and the importer's own guess, and
+        the two rarely agree on watts. The artist's relative brightnesses are intact --
+        it is the overall scale that needs a dial -- so a multiplier keeps the lighting
+        design and fixes only what the crossing got wrong. ``1.0`` is a no-op.
+
+        Distinct from :meth:`lights_from_geometry` (which CREATES lights at an explicit
+        wattage) and from :meth:`set_emission_strength` (an appearance, not a light).
+
+        Parameters:
+            multiplier: Factor applied to each light's ``data.energy``.
+            lights: Light objects or names. ``None`` -> every light in the file.
+
+        Returns:
+            ``{object name: energy after scaling}`` -- empty when there is nothing to
+            scale, so a caller can report "no lights" without a second query.
+        """
+        import bpy
+
+        import pythontk as ptk
+
+        if lights is None:
+            targets = [o for o in bpy.data.objects if o.type == "LIGHT"]
+        else:
+            targets = []
+            for light in ptk.make_iterable(lights):
+                obj = bpy.data.objects.get(light) if isinstance(light, str) else light
+                if obj is not None and obj.type == "LIGHT":
+                    targets.append(obj)
+
+        scaled, seen = {}, set()
+        for obj in targets:
+            data = obj.data
+            # Lights can share a datablock (a linked duplicate); scaling is relative,
+            # so touching one twice would COMPOUND rather than repeat.
+            if data.name_full not in seen:
+                seen.add(data.name_full)
+                data.energy = float(data.energy) * float(multiplier)
+            scaled[obj.name] = float(data.energy)
+        return scaled
+
+    @staticmethod
+    def set_emission_strength(multiplier, objects=None):
+        """Set Emission Strength on every material whose Emission Color is textured.
+
+        **This controls an appearance, not the lighting.** An emissive map makes a fixture
+        read as switched-on; it is not the room's light source, and driving a bake from it
+        would tie the illumination to a texture's exposure and give the artist nothing to
+        aim or re-colour. Real lights come from :meth:`lights_from_geometry` (or from the
+        scene's own light objects); this just keeps the glow looking right alongside them.
+
+        Because emission still contributes to a Cycles bake, keep it modest -- push it only
+        as far as the fixtures need to *look* correct.
+
+        Parameters:
+            multiplier: The Emission Strength to set (not a relative scale).
+            objects: Restrict to these objects' materials. ``None`` -> every material.
+
+        Returns:
+            Names of the materials touched.
+        """
+        import bpy
+
+        import pythontk as ptk
+
+        if objects is None:
+            materials = list(bpy.data.materials)
+        else:
+            materials = []
+            for obj in ptk.make_iterable(objects):
+                obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+                for slot in getattr(obj, "material_slots", []) or []:
+                    if slot.material is not None and slot.material not in materials:
+                        materials.append(slot.material)
+
+        touched = []
+        for material in materials:
+            if not material.use_nodes or material.node_tree is None:
+                continue
+            for node in material.node_tree.nodes:
+                if node.type != "BSDF_PRINCIPLED":
+                    continue
+                color = node.inputs.get("Emission Color")
+                strength = node.inputs.get("Emission Strength")
+                if color is not None and color.is_linked and strength is not None:
+                    strength.default_value = float(multiplier)
+                    if material.name not in touched:
+                        touched.append(material.name)
+        return touched

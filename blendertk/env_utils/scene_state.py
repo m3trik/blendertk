@@ -43,6 +43,7 @@ class SceneState:
     READERS: Dict[str, str] = {
         "base_color": "_read_base_color",
         "emissive": "_read_emissive",
+        "metallic_roughness": "_read_metallic_roughness",
     }
 
     @staticmethod
@@ -168,6 +169,31 @@ class SceneState:
                 if color and any(c > 0.0 for c in color):
                     entry["color"] = [c * strength for c in color]
 
+            if entry:
+                result[material.name] = entry
+        return result
+
+    @classmethod
+    def _read_metallic_roughness(
+        cls, materials: List[Any], textures: Dict[str, Dict[str, str]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """``{material: {"metallic": path, "roughness": path}}`` for *materials*.
+
+        Mirror of the Maya reader, for the same failure measured there: the
+        FBX->glTF chain packs a solid-white ORM when it cannot resolve the real
+        maps, which renders the material metallic=1 -- zero diffuse, so a baked
+        lightmap (a diffuse-only term) lights nothing and a lightmapped viewer
+        shows black. Texture paths only: the scalar sockets survive the FBX as
+        factors, so carrying them would re-assert values that already arrived.
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        for material in materials:
+            if cls._principled(material) is None:
+                continue
+            slots = textures.get(material.name) or {}
+            entry = {
+                key: slots[key] for key in ("metallic", "roughness") if slots.get(key)
+            }
             if entry:
                 result[material.name] = entry
         return result

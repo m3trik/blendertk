@@ -55,6 +55,23 @@ class _FbxUtilsInternal(object):
     """Internal helpers for FbxUtils."""
 
     @staticmethod
+    def _as_object_types(value):
+        """Coerce an ``object_types`` value to the set ``bpy.ops`` requires.
+
+        The enum-flag is a set to Blender, but JSON-backed option presets
+        (scene_exporter's PresetStore tier) can only store a list, and a hand-edited
+        preset may hold a bare string. ``set("MESH")`` would explode that into
+        characters and produce a baffling enum error, so a string wraps as one item.
+
+        Shared with :meth:`BlenderExportMixin._export_fbx`, which unions ``EMPTY`` in
+        when it appends the ``data_export`` carrier — same coercion, so the two cannot
+        disagree about what a caller's ``object_types`` meant.
+        """
+        if isinstance(value, set):
+            return value
+        return {value} if isinstance(value, str) else set(value or ())
+
+    @staticmethod
     def _translate_fbx_options(options):
         """Translate Maya MEL FBX option names (``FBXExport*``) in *options* to ``export_scene.fbx``
         kwargs, returning a new dict.
@@ -181,13 +198,10 @@ class FbxUtils(_FbxUtilsInternal):
         opts = dict(_EXPORT_DEFAULTS)
         opts["use_selection"] = selection_only
         opts.update(fbx_opts)
-        # ``object_types`` is an enum-flag: bpy.ops requires a set, but JSON-backed
-        # option presets (scene_exporter's PresetStore tier) can only store a list.
-        # A bare string (hand-edited preset) wraps as one item — set("MESH") would
-        # explode into characters and produce a baffling enum error.
-        if "object_types" in opts and not isinstance(opts["object_types"], set):
-            value = opts["object_types"]
-            opts["object_types"] = {value} if isinstance(value, str) else set(value)
+        if "object_types" in opts:
+            opts["object_types"] = _FbxUtilsInternal._as_object_types(
+                opts["object_types"]
+            )
         # Templates vendored from mayatk carry Maya MEL FBX names (e.g. FBXExportEmbeddedTextures);
         # translate them to export_scene.fbx kwargs so they don't fault the Blender exporter.
         opts = _FbxUtilsInternal._translate_fbx_options(opts)

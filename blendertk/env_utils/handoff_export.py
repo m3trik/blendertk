@@ -31,6 +31,37 @@ class BlenderExportMixin:
     Mirror of mayatk's :class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
     """
 
+    #: Ship the shared ``data_export`` carrier alongside the exported objects.
+    #:
+    #: ``data_export`` is the in-band metadata surface -- the lightmap manifest and
+    #: every future producer stamp custom properties onto that one Empty, and the FBX
+    #: exporter carries them as user properties. A *selection* export omits it (it is
+    #: not in the selected set nor its hierarchy closure), so a bridge whose consumer
+    #: READS that metadata must opt in or its deliverable silently arrives bare. Off
+    #: by default: to a bridge that only wants geometry the carrier is a stray empty
+    #: in the target's outliner. Mirror of mayatk's flag of the same name.
+    #:
+    #: Turning it on also forces the export options the carrier needs to mean anything
+    #: (``use_custom_props``, ``EMPTY`` in ``object_types``) -- see :meth:`_export_fbx`.
+    include_data_export: bool = False
+
+    def _data_export_carrier(self) -> List[Any]:
+        """``[data_export]`` when this bridge ships it and the scene has one, else ``[]``.
+
+        Never *creates* the carrier: absent means the scene has no in-band metadata to
+        ship, and manufacturing an empty one would only put a stray Empty in the
+        deliverable. Returned as a list so callers concatenate rather than branch.
+        """
+        if not self.include_data_export:
+            return []
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            node = DataNodes.get_export_node(create=False)
+        except ImportError:  # engine-surface tests outside Blender
+            return []
+        return [node] if node is not None else []
+
     def _resolve_objects(self, objects):
         """Return the objects to export; ``None`` -> current selection."""
         if objects is None:
@@ -150,12 +181,32 @@ class BlenderExportMixin:
         their material slots cleared on the copies, the copies exported, then removed
         -- the originals and the user's selection are untouched (Blender's FBX
         exporter has no "exclude materials" flag).
+
+        The ``data_export`` carrier (when :attr:`include_data_export`) joins the export
+        set but never the strip copy -- it holds no material slots to clear, and a copy
+        would ship under a ``.001`` name the consumer does not look for.
         """
         fbx_opts = self._fbx_options(params)
+        carrier = self._data_export_carrier()
+        if carrier:
+            # Forced HERE rather than declared in _fbx_options, which subclasses
+            # override wholesale: the exporter drops custom properties by default and
+            # excluded object types outright, so either omission ships an Empty named
+            # `data_export` carrying nothing -- the failure that looks most like
+            # success. Shipping the carrier and shipping what makes it readable are
+            # one decision, so they cannot be separated by an override.
+            fbx_opts["use_custom_props"] = True
+            # Through the shared coercion, not a bare set(): a preset-sourced
+            # `object_types` can be a list or even a single string, and set("MESH")
+            # explodes into characters.
+            types = btk.FbxUtils._as_object_types(
+                fbx_opts.get("object_types") or {"MESH"}
+            )
+            fbx_opts["object_types"] = types | {"EMPTY"}
 
         if bool(params.get("INCLUDE_MATERIALS", True)):
             btk.FbxUtils.export_selection_fbx(
-                filepath=fbx_path, objects=objects, **fbx_opts
+                filepath=fbx_path, objects=list(objects) + carrier, **fbx_opts
             )
             return
 
@@ -193,7 +244,7 @@ class BlenderExportMixin:
                 if data is not None and hasattr(data, "materials"):
                     data.materials.clear()
             btk.FbxUtils.export_selection_fbx(
-                filepath=fbx_path, objects=[d[0] for d in dups], **fbx_opts
+                filepath=fbx_path, objects=[d[0] for d in dups] + carrier, **fbx_opts
             )
         finally:
             for obj, copied_data in dups:

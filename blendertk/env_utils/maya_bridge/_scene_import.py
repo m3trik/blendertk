@@ -563,6 +563,39 @@ class MayaSceneImport(ptk.LoggingMixin):
                 tagged += 1
         return tagged
 
+    @staticmethod
+    def _rebuild_lights(manifest_path: str) -> Dict[str, str]:
+        """Rebuild the manifest's ``lights`` as real Blender lights.
+
+        Maya's lights reach Blender as DATA beside the FBX, never inside it. Two
+        independent reasons, either sufficient: Blender 5.1's bundled importer sets
+        ``lamp.cycles.cast_shadow``, which Cycles 5.x removed, so a single light in
+        the FBX raises inside ``IMPORT_SCENE_OT_fbx.execute`` and aborts the ENTIRE
+        import -- geometry and all; and FBX cannot represent Arnold light types at
+        any version. The light's TRANSFORM does cross, as a null the importer places
+        and unit-converts correctly, so :meth:`blendertk.LightUtils.lights_from_records`
+        attaches a real light to that empty.
+
+        Lives here beside the other Maya-manifest appliers rather than in either
+        template: both the bake round trip and the plain import need it, and the
+        schema knowledge belongs on the one side that already owns it.
+
+        Returns ``{record name: object name}`` -- empty when the send carried no
+        lights (the ``Include Lights`` row off, or a scene with none).
+        """
+        import json
+
+        if not os.path.isfile(manifest_path):
+            return {}
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        records = (data or {}).get("lights") or []
+        if not records:
+            return {}
+        from blendertk.light_utils._light_utils import LightUtils
+
+        return LightUtils.lights_from_records(records)
+
     def _apply_instance_manifest(self, manifest_path: str, imported: List[Any]) -> int:
         """Rebuild Blender-native linked duplicates from Maya's instance sets.
 
