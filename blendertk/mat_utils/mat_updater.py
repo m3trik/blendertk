@@ -10,17 +10,13 @@ driver. ``MatUpdaterSlots`` subclasses ``MatUpdater`` exactly like the Maya slot
 and ``self.update_materials`` are the engine's.
 
 Pillow is provisioned on demand by ``btk.ensure_image_deps`` inside the engine (Blender bundles
-numpy but not PIL). Two Maya concepts don't survive the port (see the ``# TODO(blender-parity)``
-tags at their wiring point): the ``cmb_transfer_mode`` File Management combo (the Blender engine
-always writes processed textures straight to the Output Folder — there is no separate
-copy/move-the-original-source-file step to select a mode for), and the clickable ``action://`` log
-links (mayatk's engine emits ``cls.logger.log_link(...)`` for "select material in viewport"; the
-Blender engine doesn't emit those yet — the ``UiUtils.dispatch_log_link`` counterpart already
-exists, so once the engine emits the links, wire them here like the other blendertk tools do).
-Everything else —
-including "Discover Maps" sibling discovery — is fully wired: Blender's project-folder analogue is
-the .blend's own directory (``workspace``), the same concept the engine already uses to resolve a
-relative Output Folder.
+numpy but not PIL). One Maya concept doesn't survive the port (see the ``# TODO(blender-parity)``
+tag at its wiring point): the ``cmb_transfer_mode`` File Management combo — the Blender engine
+always writes processed textures straight to the Output Folder, so there is no separate
+copy/move-the-original-source-file step to select a mode for. Everything else —
+including "Discover Maps" sibling discovery and the clickable ``action://`` log links — is fully
+wired: Blender's project-folder analogue is the .blend's own directory (``workspace``), the same
+concept the engine already uses to resolve a relative Output Folder.
 
 Served by ``BlenderUiHandler`` (``marking_menu.show("mat_updater")``); the Qt-only imports (``fmt``,
 ``QtCore``) are deferred into the call bodies — headless Blender ships no Qt binding.
@@ -36,10 +32,7 @@ from blendertk.mat_utils._mat_utils import MatUpdater
 class MatUpdaterSlots(MatUpdater):
     """Switchboard slot wiring for the Material Updater panel."""
 
-    msg_intro = (
-        "Batch-reprocess material textures (convert / resize / pack) and repath them."
-    )
-    msg_completed = '<br><hl style="color:rgb(0, 255, 255);"><b>COMPLETED.</b></hl>'
+    msg_intro = "Reconfigure existing materials for a target workflow preset."
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
@@ -52,11 +45,11 @@ class MatUpdaterSlots(MatUpdater):
             self.logger.setup_logging_redirect(self.ui.txt001)
         except Exception:
             pass
-        # TODO(blender-parity): mayatk wires txt001.anchorClicked -> UiUtils.dispatch_log_link for
-        # clickable "select material" log links (via cls.logger.log_link(...) in the engine).
-        # blendertk's UiUtils.dispatch_log_link counterpart now exists (used by Telescope Rig /
-        # hierarchy_sync / scene_exporter); the only remaining gap is the MatUpdater engine
-        # emitting the action:// links — once it does, wire txt001.anchorClicked here like those.
+        # Dispatch the engine's action:// links. The Maya twin links a material to
+        # "select"; Blender's analogue is "graph" (open it in the Shader Editor),
+        # matching what game_shader already emits for a created material.
+        if hasattr(self.ui.txt001, "anchorClicked"):
+            self.ui.txt001.anchorClicked.connect(self._on_log_link_clicked)
 
         # Mirror the Maya panel: show where textures resolve from. Maya's "sourceimages" project
         # folder has no Blender equivalent; the nearest analogue is the .blend's own folder
@@ -70,6 +63,12 @@ class MatUpdaterSlots(MatUpdater):
             self.ui.txt001.setText(self.msg_intro + info)
         except Exception:
             self.ui.txt001.setText(self.msg_intro)
+
+    def _on_log_link_clicked(self, url) -> None:
+        """Dispatch clickable ``action://`` links from the log panel."""
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        UiUtils.dispatch_log_link(url, self.logger)
 
     # ------------------------------------------------------------------ header (options)
     def header_init(self, widget):
@@ -95,46 +94,40 @@ class MatUpdaterSlots(MatUpdater):
             setText="Dry Run",
             setToolTip="Simulate the process without making changes.",
         )
+        # Reconfiguration only — file format, max size, mask/secondary scale
+        # and bit depth are NOT offered here. They duplicate the Map Converter's
+        # Optimize tool, which owns image optimization for the whole pipeline;
+        # this panel decides *which* maps a material gets and repaths to them.
         widget.menu.add("Separator", setTitle="Processing")
-        # Convert Format
-        cmb_format = widget.menu.add(
+        # Missing Maps — the policy for a packed map (ORM / MSAO) the preset
+        # calls for whose source channels aren't all resolvable. Same three
+        # rules, wording and prefixed-combo presentation as the Map Packer's
+        # control, so one vocabulary covers both ends of the pipeline.
+        cmb_missing = widget.menu.add(
             "QComboBox",
-            setObjectName="cmb_convert_format",
-            setToolTip="Convert texture file formats.",
-        )
-        cmb_format.addItem("Convert Format: None", None)
-        for ext in ptk.ImgUtils.writable:
-            cmb_format.addItem(f"Convert Format: {ext}", ext)
-
-        # Max Size
-        cmb_size = widget.menu.add(
-            "QComboBox",
-            setObjectName="cmb_max_size",
-            setToolTip="Maximum texture size.",
-        )
-        cmb_size.addItem("Max Size: None", None)
-        for size in [512, 1024, 2048, 4096, 8192]:
-            cmb_size.addItem(f"Max Size: {size}", size)
-
-        # Mask Map Scale
-        cmb_scale = widget.menu.add(
-            "QComboBox",
-            setObjectName="cmb_mask_scale",
-            setToolTip="Scale factor for Mask Maps.",
-        )
-        for scale in [1.0, 0.5, 0.25, 0.125]:
-            cmb_scale.addItem(f"Mask Scale: {scale}", scale)
-        # Force Packed Maps
-        widget.menu.add(
-            "QCheckBox",
-            setObjectName="chk_force_packed",
-            setText="Force Packed Maps",
+            setObjectName="cmb_missing_maps",
             setToolTip=(
-                "Force generation of packed maps (ORM, MSAO) even if some source maps are "
-                "missing (written to disk for engine export — Blender's Principled BSDF keeps "
-                "separate Roughness / Metallic / AO inputs, so packed maps are never rewired "
-                "into the shader graph)."
+                "What to do when a packed map (ORM, MSAO) the preset calls for is missing one "
+                "or more of its source maps (and it can't be derived from the maps that are "
+                "present). Packed maps are written to disk for engine export — Blender's "
+                "Principled BSDF keeps separate Roughness / Metallic / AO inputs, so they are "
+                "never rewired into the shader graph.\n"
+                "Skip Map (default): the packed map isn't written. A gap whose fill is harmless "
+                "still packs - an absent AO fills white - so this is about the ones that would "
+                "bake in a wrong value, like black roughness or white (mirror) smoothness.\n"
+                "Pack If 2+ Maps: pack once at least two source channels resolved - enough "
+                "that the result is still a useful packed map rather than a single map wearing "
+                "a packed name.\n"
+                "Pack Anyway: always pack; missing channels are filled with their default value."
             ),
+        )
+        cmb_missing.add(
+            [
+                ("Skip Map", ptk.MapRegistry.MISSING_SKIP),
+                ("Pack If 2+ Maps", ptk.MapRegistry.MISSING_MULTI),
+                ("Pack Anyway", ptk.MapRegistry.MISSING_FORCE),
+            ],
+            prefix="Missing Maps:",
         )
         # Use Input Fallbacks
         widget.menu.add(
@@ -150,12 +143,21 @@ class MatUpdaterSlots(MatUpdater):
             setObjectName="chk_output_fallbacks",
             setText="Use Output Fallbacks",
             setChecked=True,
-            setToolTip="Allow substituting missing output maps with alternatives (e.g. use AO map alone if Mask Map cannot be generated). Ignored if Force Packed Maps is enabled.",
+            setToolTip="Allow substituting missing output maps with alternatives (e.g. use AO map alone if Mask Map cannot be generated). Ignored when Missing Maps is set to Pack Anyway.",
         )
-        # Connect Force Packed to disable Output Fallbacks
-        widget.menu.chk_force_packed.toggled.connect(
-            lambda state: widget.menu.chk_output_fallbacks.setDisabled(state)
+
+        # Output fallbacks only have something to do while a packed map can
+        # still fail to be written: 'Pack Anyway' always emits one, so there is
+        # never a missing output left to substitute for.
+        def _update_output_fallbacks_state():
+            widget.menu.chk_output_fallbacks.setDisabled(
+                cmb_missing.currentData() == ptk.MapRegistry.MISSING_FORCE
+            )
+
+        cmb_missing.currentIndexChanged.connect(
+            lambda *_: _update_output_fallbacks_state()
         )
+        _update_output_fallbacks_state()
         # Discover Maps in sourceimages — Blender has no ``sourceimages`` project-folder
         # convention; the nearest analogue is the .blend's own directory (the same "workspace"
         # concept the engine already resolves relative Output Folders against).
@@ -205,20 +207,16 @@ class MatUpdaterSlots(MatUpdater):
             ),
         )
 
-        # Archive Folder
-        widget.menu.add(
-            "QLineEdit",
-            setObjectName="txt_old_files",
-            setPlaceholderText="Archive To (Optional)",
-            setToolTip="Optional: Folder (under Output Folder) to move original files into.",
-        )
         widget.set_help_text(
             self.sb.tooltip.fmt(
                 title="Material Updater",
-                body="Batch-process scene materials and their textures — "
-                "format conversion, max-size enforcement, mask scaling, and "
-                "packed-map (ORM / MSAO) generation — via the shared pythontk factory, "
-                "then repath each material's image nodes to the results.",
+                body="Reconfigure scene materials for a target workflow — resolve "
+                "each material's texture set and generate the packed maps the "
+                "preset calls for (ORM / MSAO) via the shared pythontk factory, "
+                "then repath each material's image nodes to the results.<br>"
+                "Image <i>optimization</i> — file format, resolution clamp, "
+                "secondary scale, bit depth, archiving originals — is not done "
+                "here: run the <b>Map Converter</b>'s <b>Optimize</b> tool for that.",
                 steps=[
                     "Pick a <b>Selection Mode</b> (Selected materials / All "
                     "scene materials).",
@@ -230,17 +228,19 @@ class MatUpdaterSlots(MatUpdater):
                     (
                         "Processing options",
                         [
-                            "<b>Max Size</b> — clamp texture resolution.",
-                            "<b>Mask Map Scale</b> — independent resolution for "
-                            "mask outputs.",
-                            "<b>Force Packed Maps</b> — emit ORM / MSAO regardless "
-                            "of whether the source channels exist (uses input fallbacks). Written "
-                            "to disk for engine export; never wired into the Principled BSDF.",
+                            "<b>Missing Maps</b> — what an ORM / MSAO does when a "
+                            "source channel can't be resolved: <i>Skip Map</i> "
+                            "writes nothing unless the gap is harmless (an absent "
+                            "AO fills white), <i>Pack If 2+ Maps</i> packs once at "
+                            "least two channels resolved, <i>Pack Anyway</i> packs "
+                            "regardless (absent channels take their default fill). "
+                            "Written to disk for engine export; never wired into the "
+                            "Principled BSDF.",
                             "<b>Use Input Fallbacks</b> — generate missing inputs "
                             "from related ones (e.g. Base Color from Diffuse).",
                             "<b>Use Output Fallbacks</b> — substitute missing "
                             "outputs (e.g. AO alone for Mask Map). Disabled when "
-                            "Force Packed Maps is on.",
+                            "Missing Maps is set to Pack Anyway.",
                             "<b>Discover Maps in sourceimages</b> — gap-fill each "
                             "material with same-base-name textures sitting in "
                             "the .blend's own folder that were never connected. Only missing "
@@ -254,8 +254,6 @@ class MatUpdaterSlots(MatUpdater):
                             "<b>Transfer Mode</b> — not used by the Blender engine "
                             "(disabled); processed textures always land directly in Output Folder.",
                             "<b>Output Folder</b> — destination for processed textures.",
-                            "<b>Archive To</b> — optional folder to move original "
-                            "files into for safekeeping.",
                         ],
                     ),
                     (
@@ -275,22 +273,6 @@ class MatUpdaterSlots(MatUpdater):
     @property
     def move_to_folder(self):
         return self.ui.txt_move_to.text() or None
-
-    @property
-    def max_size(self):
-        return self.ui.cmb_max_size.currentData()
-
-    @property
-    def mask_map_scale(self):
-        return self.ui.cmb_mask_scale.currentData()
-
-    @property
-    def output_extension(self):
-        return self.ui.cmb_convert_format.currentData()
-
-    @property
-    def old_files_folder(self):
-        return self.ui.txt_old_files.text() or None
 
     def cmb001_init(self, widget):
         """Initialize Presets"""
@@ -316,12 +298,10 @@ class MatUpdaterSlots(MatUpdater):
 
         menu = self.ui.header.menu
         dry_run = menu.chk_dry_run.isChecked()
-        force_packed = menu.chk_force_packed.isChecked()
+        missing_map_rule = menu.cmb_missing_maps.currentData()
         use_input_fallbacks = menu.chk_input_fallbacks.isChecked()
         use_output_fallbacks = menu.chk_output_fallbacks.isChecked()
         discover_sourceimages = menu.chk_discover_sourceimages.isChecked()
-
-        max_size = self.max_size
 
         # Resolve target materials from the header selection mode. `None` means "let
         # update_materials default to all scene materials".
@@ -331,11 +311,11 @@ class MatUpdaterSlots(MatUpdater):
         if mode == "Selected Objects":
             selection = btk.selected_objects()
             if not selection:
-                self.ui.txt001.append("No objects selected.")
+                self.logger.warning("No objects selected.")
                 return
             materials = btk.get_mats(selection)
             if not materials:
-                self.ui.txt001.append("No materials found on the selected objects.")
+                self.logger.warning("No materials found on the selected objects.")
                 return
         elif mode == "Browse...":
             try:
@@ -352,22 +332,22 @@ class MatUpdaterSlots(MatUpdater):
                 return
             materials = btk.materials_for_textures(paths)
             if not materials:
-                self.ui.txt001.append("No materials reference the selected textures.")
+                self.logger.warning("No materials reference the selected textures.")
                 return
 
         self.ui.txt001.clear()
-        self.ui.txt001.append(f"Starting update with preset: {config_name}...")
 
         try:
-            # Build config dictionary
+            # Reconfiguration keys only. Image-optimization keys (max_size,
+            # mask_map_scale, output_extension, old_files_folder) are
+            # deliberately absent — the factory then leaves resolution, format
+            # and bit depth alone, and the Map Converter's Optimize tool owns
+            # that pass. ``update_materials`` still accepts them, so a script
+            # can drive both in one call; the panel does not offer them.
             config = {
                 "preset": config_name,
-                "max_size": max_size,
-                "mask_map_scale": self.mask_map_scale,
-                "output_extension": self.output_extension,
                 "move_to_folder": self.move_to_folder,
-                "old_files_folder": self.old_files_folder,
-                "force_packed_maps": force_packed,
+                "missing_map_rule": missing_map_rule,
                 "use_input_fallbacks": use_input_fallbacks,
                 "use_output_fallbacks": use_output_fallbacks,
                 "discover_sourceimages": discover_sourceimages,
@@ -375,22 +355,29 @@ class MatUpdaterSlots(MatUpdater):
             }
 
             with self.sb.progress(text="Updating Materials") as update:
-                results = self.update_materials(
+                self.update_materials(
                     materials=materials,
                     config=config,
                     verbose=True,
                     progress_callback=self.sb.progress_adapter(update),
                 )
-            updated = sum(r["updated"] for r in results.values())
-            self.ui.txt001.append(
-                self.msg_completed
-                + f" {updated} texture(s) repathed across {len(results)} material(s)."
-            )
+            # No completion line appended here — update_materials closes the
+            # run with its own summary box (mirrors the scene exporter).
         except Exception as e:
-            self.ui.txt001.append(f"<br><font color='red'>ERROR: {e}</font>")
+            # Through the logger, not txt001.append: the handler is already
+            # pointed at txt001, so this lands in the same place *and* picks up
+            # ERROR colouring plus any file/ring sink the session attached.
+            # Message and traceback go out as ONE record — a formatted
+            # traceback is already a single multi-line string, and the widget
+            # handler renders it with ``white-space:pre-wrap``, so it needs no
+            # ``log_group`` to avoid per-frame paragraphs. Plain ``error``
+            # also keeps the whole thing level-filtered, which ``log_group``
+            # (via ``log_raw``) would not be.
             import traceback
 
-            self.ui.txt001.append(traceback.format_exc())
+            self.logger.error(
+                f"Material update failed: {e}\n{traceback.format_exc()}"
+            )
 
 
 # -----------------------------------------------------------------------------

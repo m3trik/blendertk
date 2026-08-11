@@ -25,20 +25,18 @@ this builds the *texture* network. Served by ``BlenderUiHandler``
 Without it the profile/format steps are skipped with a warning and the existing textures are wired
 as-is — degraded, never a hard failure.
 
-**One documented divergence from the Maya panel.** Maya's ``chk000`` (AiBridge) and ``cmb004``
-(shader type: Stingray PBS / Standard Surface / OpenPBR) are absent here, not disabled:
-
-  - *AiBridge* attaches a parallel ``aiStandardSurface`` preview network. Blender ships no
-    Arnold integration and Cycles/EEVEE read the one Principled graph — see ``arnold_bridge.py``.
-  - *Shader type* picks a Maya shader NODE. Blender has exactly one surface node, and (probed on
-    5.1.2) it is already the OpenPBR model: Principled's inputs map onto OpenPBR's nodedef, and
-    Blender's own USD/MaterialX export emits ``ND_open_pbr_surface_surfaceshader`` for it. What
-    the Maya combo really selects is the downstream *target*, which on this panel is the Output
-    Template combo (``cmb002``: Unity URP / HDRP / Unreal / glTF / Godot). A Blender "shader type"
-    combo would therefore be a second control for the same decision, with two of its three items
-    naming Maya shaders that are never created — so it is omitted rather than faked.
+**One documented divergence from the Maya panel.** Maya's ``cmb004`` (shader type: Stingray PBS /
+Standard Surface / OpenPBR) is absent here, not disabled — it picks a Maya shader NODE, and Blender
+has exactly one surface node which (probed on 5.1.2) is already the OpenPBR model: Principled's
+inputs map onto OpenPBR's nodedef, and Blender's own USD/MaterialX export emits
+``ND_open_pbr_surface_surfaceshader`` for it. What the Maya combo really selects is the downstream
+*target*, which on this panel is the Output Template combo (``cmb002``: Unity URP / HDRP / Unreal /
+glTF / Godot). A Blender "shader type" combo would therefore be a second control for the same
+decision, with two of its three items naming Maya shaders that are never created — so it is omitted
+rather than faked.
 """
 
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -176,20 +174,25 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
                 cfg[k] = v
 
         # Compact configuration banner: one boxed header + a 2-column table.
-        self.logger.log_box("Game Shader Network")
-        self.log_table(
-            [
-                ["Normal Type", cfg["normal_type"]],
-                ["Opacity", str(cfg["opacity"])],
-                ["Emissive", str(cfg["emissive"])],
-                ["Ambient Occlusion", str(cfg["ambient_occlusion"])],
-                ["Albedo Transparency", str(cfg["albedo_transparency"])],
-                ["Metallic Smoothness", str(cfg["metallic_smoothness"])],
-                ["Mask Map", str(cfg["mask_map"])],
-                ["ORM Map", str(cfg["orm_map"])],
-            ],
-            headers=["Option", "Value"],
-        )
+        # Gated: ``log_box`` / ``log_table`` write through ``log_raw``, which
+        # bypasses level filtering BY DESIGN, so a caller that quieted this
+        # logger (a batch driver, another tool running this as a step) would
+        # otherwise still get the banner and the whole settings table.
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.log_box("Game Shader Network")
+            self.log_table(
+                [
+                    ["Normal Type", cfg["normal_type"]],
+                    ["Opacity", str(cfg["opacity"])],
+                    ["Emissive", str(cfg["emissive"])],
+                    ["Ambient Occlusion", str(cfg["ambient_occlusion"])],
+                    ["Albedo Transparency", str(cfg["albedo_transparency"])],
+                    ["Metallic Smoothness", str(cfg["metallic_smoothness"])],
+                    ["Mask Map", str(cfg["mask_map"])],
+                    ["ORM Map", str(cfg["orm_map"])],
+                ],
+                headers=["Option", "Value"],
+            )
 
         # Check for large input size
         try:
@@ -264,8 +267,15 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
                     ]
                 )
 
-            self.logger.log_box("Batch Creation Summary")
-            self.log_table(created, headers=["Set Name", "Material", "Status"])
+            # Gated for the same reason as the config banner.
+            if self.logger.isEnabledFor(logging.INFO):
+                succeeded = sum(1 for r in results if r)
+                self.logger.log_box(
+                    "Batch Creation Summary",
+                    [f"{succeeded}/{total} set(s) built"],
+                    level="SUCCESS" if succeeded == total else "WARNING",
+                )
+                self.log_table(created, headers=["Set Name", "Material", "Status"])
 
             if progress_callback:
                 progress_callback(100, "Completed")
@@ -303,7 +313,6 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
         # prefix/suffix from `name` before re-applying, so a filename like "Mat_brick_Albedo.png"
         # with prefix="Mat_" yields "Mat_brick", not "Mat_Mat_brick".
         name = ptk.StrUtils.apply_affix(name, prefix=prefix, suffix=suffix)
-        self.logger.info(f"Material: {name}")
 
         # One source per slot, via the SHARED registry rules — the same call mayatk's
         # _resolve_map_conflicts makes, so the two DCCs can't drift on packed-vs-loose.
@@ -383,7 +392,17 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
             rows.append(["✗", "Unknown", self._file(path), "unrecognized map type"])
             failed += 1
 
-        self.log_table(rows, headers=["", "Map", "Source", "Conversion"])
+        # Gated — log_table bypasses level filtering. The material name is
+        # the table's TITLE rather than a preceding ``info`` record: in batch
+        # mode this runs once per set, and every record is its own paragraph,
+        # so the name-then-table pair cost an extra blank-line-separated
+        # section per material.
+        if self.logger.isEnabledFor(logging.INFO):
+            self.log_table(
+                rows,
+                headers=["", "Map", "Source", "Conversion"],
+                title=f"Material: {name}",
+            )
 
         # Clickable link — opens the material in the Shader Editor (the Blender analogue of
         # mayatk's "select the shader node in the Hypershade").

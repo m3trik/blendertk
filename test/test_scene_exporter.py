@@ -32,7 +32,12 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+# uitk is needed even though this suite drives no widgets: ``task_definitions``
+# / ``check_definitions`` build their tooltips with ``TooltipFormat`` (lazily
+# imported, Qt-free by design), and the block at "task/check definitions" below
+# renders every one of them. Same convention as the other uitk-touching suites
+# (test_smart_bake, test_hierarchy_sync, test_shots_slots, ...).
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -106,7 +111,12 @@ try:
     )
 
     # ---- load + verify: partial override merges OVER the built-in defaults -----------------
-    exp = SceneExporter()
+    # INFO, not the WARNING default: verify_fbx_preset's settings report is
+    # gated on isEnabledFor(INFO), and a gated report is dead code under a
+    # suite that never raises the level — which is how a bad reference inside
+    # one ships unnoticed. The checks below call it four times, so this alone
+    # keeps that branch executing.
+    exp = SceneExporter(log_level="INFO")
     resolved = exp.load_fbx_export_preset("lo_poly", verify=True)
     check(
         "load_fbx_export_preset merges a partial preset over the built-in defaults",
@@ -549,6 +559,142 @@ try:
         f"unlabelled={_missing}",
     )
 
+    # ---- Texture Template: check + task keyed off ONE selection (mirrors mayatk) ----
+    # The combobox (cmb005) is the single definition; b000 folds it into
+    # convert_textures (task phase) and check_material_compatibility (check
+    # phase). The check runs post-conversion, judged against the CHOSEN
+    # template: a residual MSAO fails a glTF template but is native to (and
+    # passes) an HDRP one. Patched at the scene read / MatUpdater so this pins
+    # the keying, the pass-through default, and the delegation.
+    from blendertk.env_utils import scene_state as _scene_state
+    from blendertk.mat_utils import _mat_utils as _mu
+
+    _real_read = _scene_state.SceneState.read
+    _real_update = _mu.MatUpdater.update_materials
+    try:
+        tm_mc = SceneExporter().task_manager
+
+        def _stub(sections):
+            """Patch SceneState.read to return *sections* (bound on access)."""
+            _scene_state.SceneState.read = classmethod(
+                lambda cls, *a, **k: sections
+            )
+
+        _stub({"metallic_roughness": {"M": {"metallic": "C:/tex/probe_MSAO.png"}}})
+        passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
+        check(
+            "check_material_compatibility fails a residual MSAO on a glTF template",
+            passed is False
+            and any("MSAO" in m for m in msgs)
+            and any("probe_MSAO.png" in m for m in msgs),
+            f"passed={passed} msgs={msgs}",
+        )
+
+        passed, msgs = tm_mc.check_material_compatibility("Unity HDRP")
+        check(
+            "check_material_compatibility passes the same MSAO on an HDRP template",
+            passed is True,
+            f"msgs={msgs}",
+        )
+
+        _stub({"metallic_roughness": {"M": {"metallic": "C:/tex/probe_ORM.png"}}})
+        passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
+        check(
+            "check_material_compatibility passes an ORM mask on a glTF template",
+            passed is True,
+            f"msgs={msgs}",
+        )
+
+        # A loose source set must never trip it: an AO or emissive map declares
+        # no packing workflow and is not a foreign PACKING.
+        _stub(
+            {
+                "metallic_roughness": {
+                    "M": {
+                        "metallic": "C:/tex/probe_Metallic.png",
+                        "roughness": "C:/tex/probe_Roughness.png",
+                        "occlusion": "C:/tex/probe_AO.png",
+                    }
+                },
+                "emissive": {"M": {"texture": "C:/tex/probe_Emissive.png"}},
+            }
+        )
+        passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
+        check(
+            "check_material_compatibility passes a loose source set",
+            passed is True,
+            f"msgs={msgs}",
+        )
+
+        # 'As Authored' (falsy template), and a reader failure, both pass.
+        passed, msgs = tm_mc.check_material_compatibility(None)
+        check(
+            "check_material_compatibility no-ops without a template",
+            passed is True and msgs == [],
+            f"passed={passed} msgs={msgs}",
+        )
+
+        def _boom(cls, *a, **k):
+            raise RuntimeError("boom")
+
+        _scene_state.SceneState.read = classmethod(_boom)
+        passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
+        check(
+            "check_material_compatibility survives a scene-read failure",
+            passed is True and msgs == [],
+            f"passed={passed} msgs={msgs}",
+        )
+
+        # convert_textures: delegates to MatUpdater with the template as its
+        # config, scoped to the export materials; no-template is a no-op.
+        calls = []
+        _mu.MatUpdater.update_materials = classmethod(
+            lambda cls, materials=None, config=None, **k: calls.append(
+                (list(materials or []), config)
+            )
+        )
+        tm_ct = SceneExporter().task_manager
+        tm_ct.objects = [tex_cube]
+        tm_ct.convert_textures(None)
+        check(
+            "convert_textures no-ops without a template",
+            calls == [],
+            f"calls={calls}",
+        )
+        tm_ct.convert_textures("glTF 2.0")
+        check(
+            "convert_textures delegates to MatUpdater with the template config",
+            len(calls) == 1 and calls[0][1] == "glTF 2.0" and calls[0][0],
+            f"calls={calls}",
+        )
+        check(
+            "convert_textures invalidates the material cache",
+            tm_ct._cached_materials is None,
+            f"cached={tm_ct._cached_materials}",
+        )
+
+        # A MatUpdater exception must not abort the pipeline (TaskFactory
+        # re-raises task exceptions): the guard defers to the paired check,
+        # which gates cleanly on the actual post-task state.
+        def _boom_update(cls, materials=None, config=None, **k):
+            raise RuntimeError("unreadable texture")
+
+        _mu.MatUpdater.update_materials = classmethod(_boom_update)
+        tm_ct._cached_materials = ["primed"]
+        try:
+            tm_ct.convert_textures("glTF 2.0")
+            raised = False
+        except Exception:
+            raised = True
+        check(
+            "convert_textures failure defers to the check (no raise)",
+            raised is False and tm_ct._cached_materials is None,
+            f"raised={raised} cached={tm_ct._cached_materials}",
+        )
+    finally:
+        _scene_state.SceneState.read = _real_read
+        _mu.MatUpdater.update_materials = _real_update
+
     tm_paths = SceneExporter().task_manager
     tm_paths.objects = [tex_cube]
     passed, msgs = tm_paths.check_valid_paths(True)
@@ -569,8 +715,8 @@ try:
     )
 
     # ---- packed + UDIM images in the texture checks (mirrors mayatk's semantics) ----------
-    # Bugs: a PACKED image with a stale disk path failed check_valid_paths (and its absolute
-    # path form failed check_absolute_paths) even though the FBX embeds it from memory; a
+    # Bugs: a PACKED image with a stale disk path failed check_valid_paths (and its stale
+    # path is still exempt from check_path_length) even though the FBX embeds it from memory; a
     # TILED (UDIM) image was invisible to check_valid_paths entirely (get_image_records is
     # FILE-only), so a deleted tile set passed.
     reset_scene()
@@ -603,12 +749,37 @@ try:
         passed is True,
         f"msgs={msgs}",
     )
-    passed, msgs = tm_pu.check_absolute_paths(True)
+    passed, msgs = tm_pu.check_path_length(20)
     check(
-        "check_absolute_paths skips a PACKED image (ships embedded)",
+        "check_path_length skips a PACKED image (ships embedded)",
         passed is True,
         f"msgs={msgs}",
     )
+
+    # An over-long path fails, and 0 ("OFF") disables the gate entirely.
+    long_img = bpy.data.images.new("long_path_img", 4, 4)
+    long_img.filepath = os.path.join(tex_dir, *(["d"] * 40), "long.png")
+    pu_mat.node_tree.nodes.new("ShaderNodeTexImage").image = long_img
+    passed, msgs = tm_pu.check_path_length(60)
+    check(
+        "check_path_length fails an over-long texture path",
+        passed is False and any("long_path_img" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    passed, msgs = tm_pu.check_path_length(0)
+    check(
+        "check_path_length OFF disables the gate",
+        passed is True,
+        f"msgs={msgs}",
+    )
+    pu_mat.node_tree.nodes.remove(
+        next(
+            n
+            for n in pu_mat.node_tree.nodes
+            if getattr(n, "image", None) is long_img
+        )
+    )
+    bpy.data.images.remove(long_img)
 
     # A TILED (UDIM) image whose tile set does not exist on disk must now FAIL ...
     udim_missing = bpy.data.images.new("udim_missing", 4, 4, tiled=True)

@@ -384,6 +384,33 @@ try:
     TelescopeRigSlots(sb5).remove_rig()
     check("remove_rig: guards a rig-less selection", len(sb5.messages) == 1, f"msgs={sb5.messages}")
 
+    # ---- Verbose (INFO) report path ----
+    # Every other build here runs at the default WARNING level, where the run
+    # banner / build group / summary box are gated OFF — so a typo in one of
+    # them (e.g. reading a bundle field this DCC's bundle does not have) would
+    # never execute under test while breaking every real panel run, which logs
+    # at INFO. Build and tear down once at INFO so the report actually renders.
+    reset()
+    base = empty("vbase", (0, 0, 0))
+    end = empty("vend", (0, 12, 0))
+    segs = [cube(f"v{i}", (0, 2 + i * 4, 0), 4.0) for i in range(3)]
+    try:
+        rig = TelescopeRig(log_level="INFO")
+        vbundle = rig.setup_telescope_rig(base, end, segs)
+        check("verbose build: report path renders without raising", vbundle is not None)
+        check("verbose build: teardown report renders without raising", rig.teardown(vbundle))
+    except Exception as e:
+        check("verbose build: report path renders without raising", False, repr(e))
+
+    # Auto-created handles at INFO exercise the _create_handle log_link line.
+    reset()
+    segs = [cube(f"a{i}", (0, 2 + i * 4, 0), 4.0) for i in range(3)]
+    try:
+        auto = TelescopeRig(log_level="INFO").setup_telescope_rig(segments=segs)
+        check("verbose build: auto-handle report renders", len(auto.created_locators) == 2)
+    except Exception as e:
+        check("verbose build: auto-handle report renders", False, repr(e))
+
 except Exception:
     lines.append("FAIL harness | " + traceback.format_exc().replace("\n", " | "))
 

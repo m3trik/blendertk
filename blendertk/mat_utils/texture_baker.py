@@ -264,6 +264,12 @@ class TextureBaker(ptk.LoggingMixin):
             "use_pass_color": use_pass_color,  # False excludes albedo (native white-card)
             "use_selected_to_active": False,  # bake each object onto itself
             "target": "IMAGE_TEXTURES",  # never vertex colors
+            # EXTEND replicates island-edge shading outward -- the same
+            # semantics as Arnold RTT's extend_edges on the mayatk side. Left
+            # unpinned, a scene saved with ADJACENT_FACES pads margins from
+            # geometrically-adjacent faces instead, so an interactive bake and
+            # a --factory-startup bridge bake disagreed at every island edge.
+            "margin_type": "EXTEND",
         }
         has_cycles = hasattr(scene, "cycles")
         prev = {

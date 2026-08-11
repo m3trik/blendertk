@@ -580,8 +580,12 @@ class _MatUtilsInternal:
         """
         if not (path and base):
             return False
-        p, b = _MatUtilsInternal._norm(path), _MatUtilsInternal._norm(base)
-        return p == b or p.startswith(b.rstrip(os.sep) + os.sep)
+        # The containment rule is ptk.FileUtils.is_under; _norm stays because
+        # is_under deliberately does NOT abspath (it must not resolve against
+        # the process CWD), and these callers pass blend-relative paths.
+        return ptk.FileUtils.is_under(
+            _MatUtilsInternal._norm(path), _MatUtilsInternal._norm(base)
+        )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -718,13 +722,27 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         from blendertk.core_utils._core_utils import CoreUtils
 
         cls.set_log_level(logging.INFO if verbose else logging.WARNING)
+        # ``log_box`` / ``log_group`` write through ``log_raw``, which bypasses
+        # level filtering BY DESIGN — so the run report has to gate itself or a
+        # non-verbose caller gets it anyway. That is not hypothetical: the Scene
+        # Exporter runs this as its ``convert_textures`` task with the default
+        # ``verbose=False``, and an export would otherwise carry a banner, the
+        # whole settings dump and a block per material in its log.
+        report = cls.logger.isEnabledFor(logging.INFO)
 
         cfg = ptk.MapRegistry().resolve_config(config)
         move_to = cfg.get("move_to_folder")
-        if move_to and not os.path.isabs(move_to):
-            workspace = CoreUtils.get_env_info("workspace")
-            if workspace:
-                move_to = os.path.join(workspace, move_to)
+        # Through the shared primitive (mirrors mayatk's twin), so a driveless
+        # "/optimized" in a preset stays a SUBDIRECTORY rather than resolving to
+        # the current drive's root the way os.path.isabs would have it on
+        # Windows. Guarded on a set value: an absent move_to_folder must stay
+        # absent, not become the workspace itself.
+        if move_to:
+            resolved = ptk.FileUtils.resolve_output_dir(
+                move_to, CoreUtils.get_env_info("workspace")
+            )
+            if resolved:
+                move_to = resolved
                 cfg["move_to_folder"] = move_to
 
         # Resolve opt-in sibling discovery into a concrete directory for the factory. Mirrors
@@ -752,6 +770,31 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
             return {}
 
         dry_run = bool(cfg.get("dry_run"))
+
+        # Run banner + settings, mirroring the Maya twin. Every log record
+        # renders as its own paragraph in the output panel, so a
+        # line-per-setting dump reads as ~20 blank-line-separated sections;
+        # both of these go out as a single record instead.
+        if report:
+            preset_name = (
+                config
+                if isinstance(config, str)
+                else (config or {}).get("preset") or "custom"
+            )
+            cls.logger.log_box(
+                "MATERIAL UPDATE",
+                [
+                    f"Preset     : {preset_name}",
+                    f"Materials  : {len(pool)}",
+                    f"Output     : {move_to or 'in place'}",
+                ]
+                + (["Mode       : DRY RUN (nothing written)"] if dry_run else []),
+            )
+            cls.logger.log_group(
+                "Run Settings",
+                # 24 == the longest key in a resolved preset
+                [f"{k:<24}: {v}" for k, v in sorted(cfg.items()) if k != "description"],
+            )
 
         # 1. Collect each material's on-disk image textures (deduped per material).
         mat_images = {}
@@ -849,25 +892,54 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
         # 6. Repath each material's image nodes to the matched processed output.
         results = {}
         total = len(mat_images)
+        repathed_total = 0
         for i, (mat, recs) in enumerate(mat_images.items()):
             if progress_callback:
                 progress_callback(i, total, f"Updating: {mat.name}")
             updated = skipped = 0
             out_files = []
+            # Per-material detail accumulates here and is emitted as ONE
+            # grouped record — line-by-line logging puts a paragraph break
+            # between every texture.
+            mat_log = []
             for image, orig in recs:
                 new = _matched_output(orig, file_to_set.get(_MatUtilsInternal._norm(orig)))
                 if new:
                     MatUtils.repath_image(image, new)
                     out_files.append(new)
                     updated += 1
+                    if report:
+                        mt = ptk.MapFactory.resolve_map_type(new, key=True) or "?"
+                        mat_log.append(f"{mt:<24} {os.path.basename(new)}")
                 else:
                     skipped += 1
+                    if report:
+                        mat_log.append(f"{'(no match)':<24} {os.path.basename(orig)}")
             results[mat.name] = {
                 "updated": updated,
                 "skipped": skipped,
                 "files": out_files,
             }
-            cls.logger.info(f"{mat.name}: updated {updated}, skipped {skipped}")
+            repathed_total += updated
+            if report:
+                # Clickable, like the Maya twin. Blender has no Hypershade, so
+                # the analogue of Maya's "select" is "graph" — open the material
+                # in the Shader Editor (same action game_shader emits).
+                mat_link = cls.logger.log_link(mat.name, "graph", node=mat.name)
+                cls.logger.log_group(
+                    f"Material: {mat_link}  ({updated} repathed, {skipped} skipped)",
+                    mat_log,
+                )
+
+        if report:
+            cls.logger.log_box(
+                "UPDATE COMPLETE",
+                [
+                    f"Materials updated : {len(results)}/{total}",
+                    f"Textures repathed : {repathed_total}",
+                ],
+                level="SUCCESS",
+            )
         return results
 
 
@@ -1940,9 +2012,12 @@ class MatUtils(_MatUtilsInternal):
         (:func:`blendertk.ensure_image_deps`); without one the filter keeps the packed map instead
         — also lossless.
 
-        With ``config=None`` the filter's legacy "packed always wins" branch applies, which is
-        exactly the behavior the old hardcoded block had — so direct callers that pass no config
-        are unaffected.
+        With ``config=None`` the filter's legacy "packed always wins" branch applies to packed-vs-
+        LOOSE, as the old hardcoded block did. Packed-vs-packed is decided regardless of config —
+        rival packings all drive the same Principled inputs, so keeping two was never a legitimate
+        outcome — by ``ptk.MapRegistry.packed_precedence``, which with no stated target ranks by
+        declared breadth. That restores the intent of the old ``ORM`` > ``MSAO`` >
+        ``Metallic_Smoothness`` chain without hardcoding it here.
 
         Args:
             textures: texture file paths. First file per map type wins; non-files are skipped.

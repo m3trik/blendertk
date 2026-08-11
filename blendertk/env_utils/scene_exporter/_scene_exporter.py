@@ -833,8 +833,14 @@ class SceneExporter(ptk.LoggingMixin):
             **_DEFAULT_FBX_OPTIONS,
             **(getattr(self, "_fbx_preset_options", None) or {}),
         }
-        for key, value in options.items():
-            self.logger.info(f"{key} is set to: {value}")
+        # ONE grouped record, mirroring the Maya twin: every log record is its
+        # own paragraph in the output panel, so a line per option rendered
+        # this dump as ~25 blank-line-separated sections.
+        if options and self.logger.isEnabledFor(logging.INFO):
+            self.logger.log_group(
+                "FBX Export Settings",
+                [f"{k:<34}: {v}" for k, v in sorted(options.items())],
+            )
         return options
 
 

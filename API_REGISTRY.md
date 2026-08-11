@@ -1315,9 +1315,9 @@ Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blen
 
 Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
 
-- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L54)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
+- **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L55)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
   - `HierarchyMapBuilder.build_path_map(objects) -> Dict[str, Any]` *(static)* — Map every object in ``objects`` to its hierarchy path (see :func:`build_path`).
-- **[`class HierarchySync(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L69)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
+- **[`class HierarchySync(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L70)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
   - `HierarchySync.analyze_hierarchies(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]` — Analyze differences between the current scene and a reference object set.
   - `HierarchySync.create_stubs(self, paths: Optional[List[str]] = None) -> List[str]` — Create empty placeholder Empties for missing hierarchy paths.
   - `HierarchySync.quarantine_extras(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]` — Move extra (scene-only) items to a root-level quarantine Empty.
@@ -1327,7 +1327,7 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
   - `HierarchySync.build_path(obj) -> str` *(static)* — Pipe-joined hierarchy path from the root down to ``obj`` (e.g.
   - `HierarchySync.delete_objects(objects) -> List[str]` *(static)* — Delete *objects* AND all their descendants from the blend data;
   - `HierarchySync.should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool` *(static)* — Filter by Blender object type — mirror of mayatk's shape-type filter.
-- **[`class ObjectSwapper(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L1062)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
+- **[`class ObjectSwapper(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L1070)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
   - `ObjectSwapper.pull_objects_from_reference(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool` — Append the reference objects at *target_paths* into the current scene.
 
 <a id="env_utils--hierarchy_sync--hierarchy_sync_slots"></a>
@@ -1608,6 +1608,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.cmb001_init(self, widget) -> None` — Auto-generate Export Settings UI from task definitions using WidgetComboBox.
   - `SceneExporterSlots.cmb002_init(self, widget) -> None` — Auto-generate Check Settings UI from check definitions using WidgetComboBox.
   - `SceneExporterSlots.cmb004_init(self, widget) -> None` — Init Output Format — FBX (default), GLB, or FBX + GLB.
+  - `SceneExporterSlots.cmb005_init(self, widget) -> None` — Init Texture Template (mirror of mayatk's ``cmb005_init``).
   - `SceneExporterSlots.b000(self) -> None` — Export: run the scene export with the configured tasks and settings.
   - `SceneExporterSlots.b010(self) -> None` — Set Output Directory
   - `SceneExporterSlots.b006(self) -> None` — Open Output Directory
@@ -1621,7 +1622,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L954)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1087)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1647,7 +1648,9 @@ Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of
   - `TaskManager.check_overlapping_duplicate_mesh(self, enabled) -> tuple`
   - `TaskManager.check_objects_below_floor(self, enabled, tolerance: float = 0.5) -> tuple` — Blender is Z-up natively (Maya's version checks Y).
   - `TaskManager.check_duplicate_materials(self, enabled) -> tuple`
-  - `TaskManager.check_absolute_paths(self, enabled) -> tuple` — Export textures store ``//``-relative paths.
+  - `TaskManager.convert_textures(self, template) -> None` — Convert the export materials' textures to *template* (mirror of mayatk's).
+  - `TaskManager.check_material_compatibility(self, template) -> tuple` — Every mask map matches the chosen texture template (mirror of mayatk's).
+  - `TaskManager.check_path_length(self, max_length) -> tuple` — No export path exceeds the OS path-length limit (mirror of mayatk's).
   - `TaskManager.check_valid_paths(self, enabled) -> tuple` — Every export texture and every linked library resolves on disk.
   - `TaskManager.check_texture_file_size(self, max_mb) -> tuple` — No export texture exceeds ``max_mb`` on disk.
   - `TaskManager.check_untied_keyframes(self, enabled) -> tuple` — Verify every animated channel has a bookend key at its object's own keyed extent
@@ -1794,7 +1797,7 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L55)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L56)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
@@ -1810,13 +1813,14 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo the lightmap wiring -- the spelling the panel and pre-bake use.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1069)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1156)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
   - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox;
   - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox;
   - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data);
+  - `LightmapBakerSlots.txt_output_dir_init(self, widget) -> None` — Add a directory browser to the optional output-directory field.
   - `LightmapBakerSlots.txt000_init(self, widget) -> None` — Add the Prefix / Suffix / Auto picker to the name-affix field.
   - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).
   - `LightmapBakerSlots.revert_to_source(self) -> None` — Undo the bake wiring on the selected objects (or all baked ones).
@@ -1840,9 +1844,9 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L680)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L684)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L874)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L946)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -1944,9 +1948,9 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 
 Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 
-- **[`class GameShader(ptk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L110)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
+- **[`class GameShader(ptk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L108)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
   - `GameShader.create_network(self, textures: List[str], name: str = '', prefix: str = '', suffix: str = '', config: Union[str, Dict[str, Any]] = None, progress_callback: Callable = None, **kwargs) -> Union[Optional[object], List[Optional[object]]]` — Create a PBR shader network with textures.
-- **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L406)** — Switchboard slot wiring for the Game Shader panel.
+- **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L425)** — Switchboard slot wiring for the Game Shader panel.
   - `GameShaderSlots.workspace_dir(self) -> str` *(property)*
   - `GameShaderSlots.source_images_dir(self) -> str` *(property)*
   - `GameShaderSlots.header_init(self, widget)` — Initialize the header widget.
@@ -2179,14 +2183,10 @@ Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_ut
 
 Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
 
-- **[`class MatUpdaterSlots(MatUpdater)`](blendertk/blendertk/mat_utils/mat_updater.py#L36)** — Switchboard slot wiring for the Material Updater panel.
+- **[`class MatUpdaterSlots(MatUpdater)`](blendertk/blendertk/mat_utils/mat_updater.py#L32)** — Switchboard slot wiring for the Material Updater panel.
   - `MatUpdaterSlots.header_init(self, widget)` — Format global options in the header menu (mirror of the Maya panel's, minus the
   - `MatUpdaterSlots.selection_mode(self)` *(property)*
   - `MatUpdaterSlots.move_to_folder(self)` *(property)*
-  - `MatUpdaterSlots.max_size(self)` *(property)*
-  - `MatUpdaterSlots.mask_map_scale(self)` *(property)*
-  - `MatUpdaterSlots.output_extension(self)` *(property)*
-  - `MatUpdaterSlots.old_files_folder(self)` *(property)*
   - `MatUpdaterSlots.cmb001_init(self, widget)` — Initialize Presets
   - `MatUpdaterSlots.b001(self)` — Update Materials
 
@@ -2219,7 +2219,7 @@ Switchboard slots for the Render Opacity panel (``render_opacity.ui``).
 
 Shader Templates tool panel — Switchboard slot wiring for the co-located
 
-- **[`class ShaderTemplatesSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/shader_templates.py#L49)** — Switchboard slot wiring for the Shader Templates panel.
+- **[`class ShaderTemplatesSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/shader_templates.py#L51)** — Switchboard slot wiring for the Shader Templates panel.
   - `ShaderTemplatesSlots.workspace_dir(self) -> str` *(property)*
   - `ShaderTemplatesSlots.source_images_dir(self) -> str` *(property)*
   - `ShaderTemplatesSlots.template_name(self)` *(property)*
@@ -2640,15 +2640,15 @@ Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.
 
 Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
 
-- **[`class TelescopeRigBundle`](blendertk/blendertk/rig_utils/telescope_rig.py#L48)** — Record of everything one ``setup_telescope_rig`` build created — mirror of mayatk's
+- **[`class TelescopeRigBundle`](blendertk/blendertk/rig_utils/telescope_rig.py#L49)** — Record of everything one ``setup_telescope_rig`` build created — mirror of mayatk's
   - `TelescopeRigBundle.to_json(self) -> str`
   - `TelescopeRigBundle.from_json(cls, payload: str) -> 'TelescopeRigBundle'` *(class)* — Rebuild a bundle from :meth:`to_json` output, ignoring unknown keys (a scene stamped by
-- **[`class TelescopeRig(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L83)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
+- **[`class TelescopeRig(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L84)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
   - `TelescopeRig.setup_telescope_rig(self, base_locator=None, end_locator=None, segments=None, collapsed_distance=None, aim_axis='y', lock_attributes=True, name='telescope')` — Wire a telescoping rig between two handles.
   - `TelescopeRig.scene_bundles(cls)` *(class)* — Every telescope-rig bundle stamped into the current .blend.
   - `TelescopeRig.find_bundles(cls, objects)` *(class)* — Bundles whose handles or segments intersect *objects*.
   - `TelescopeRig.teardown(self, bundle=None)` — Remove a telescope rig built by this class.
-- **[`class TelescopeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L611)** — Switchboard slot wiring for the Telescope Rig panel.
+- **[`class TelescopeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L671)** — Switchboard slot wiring for the Telescope Rig panel.
   - `TelescopeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TelescopeRigSlots.build_rig(self)`
   - `TelescopeRigSlots.remove_rig(self)`

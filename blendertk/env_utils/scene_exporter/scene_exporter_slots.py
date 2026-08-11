@@ -302,6 +302,35 @@ class SceneExporterSlots(SceneExporter):
             clear=True,
         )
 
+    def cmb005_init(self, widget) -> None:
+        """Init Texture Template (mirror of mayatk's ``cmb005_init``).
+
+        The ONE definition the conversion task and the compatibility check both
+        key off — ``b000`` folds this combo's value into the tasks payload as
+        ``convert_textures`` (task phase) and ``check_material_compatibility``
+        (check phase), so there are no separate rows to keep in sync. "As
+        Authored" (the default) sends textures exactly as the scene references
+        them and arms neither.
+
+        Populated from ``ptk.MapRegistry.get_workflow_presets()`` with each
+        preset's description as its item tooltip.
+        """
+        from qtpy import QtCore
+
+        if not widget.is_initialized:
+            widget.restore_state = True
+        presets = ptk.MapRegistry.instance().get_workflow_presets()
+        widget.add(
+            {"As Authored": None, **{name: name for name in presets}},
+            clear=True,
+        )
+        for index in range(widget.count()):
+            description = (presets.get(widget.itemData(index)) or {}).get(
+                "description"
+            )
+            if description:
+                widget.setItemData(index, description, QtCore.Qt.ToolTipRole)
+
     def b000(self) -> None:
         """Export: run the scene export with the configured tasks and settings."""
         self.ui.txt003.clear()
@@ -343,6 +372,14 @@ class SceneExporterSlots(SceneExporter):
             if widget and hasattr(widget, value_method):
                 value = getattr(widget, value_method)()
                 check_params[check_name] = value
+
+        # Texture template (cmb005, a main-layout combo like cmb004): the ONE
+        # definition both pipeline hooks reference. Folded BEFORE the override
+        # filter so "override checks" keeps the conversion but skips the gate.
+        texture_template = self.ui.cmb005.currentData()
+        if texture_template:
+            task_params["convert_textures"] = texture_template
+            check_params["check_material_compatibility"] = texture_template
 
         override = self.ui.b009.isChecked()
 

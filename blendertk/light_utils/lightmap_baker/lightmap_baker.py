@@ -31,7 +31,8 @@ The engine surface is Qt-free and defers ``import bpy`` (headless-importable); o
 :class:`LightmapBakerSlots` touches Qt, lazily.
 
 The ``.ui`` is a verbatim copy of mayatk's — same objectNames (``cmb_scope``,
-``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``, ``txt000``, ``b000``) — now that
+``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``, ``txt_output_dir``, ``txt000``,
+``b000``) — now that
 uitk host-namespaces the QSettings branch per DCC (``Switchboard.add_ui`` /
 ``MainWindow._relative_state`` via ``context_tags``), identical objectNames across mayatk's
 and blendertk's copy of the same panel no longer collide in the shared "uitk"/"shared"
@@ -89,6 +90,18 @@ class LightmapBaker(ptk.LoggingMixin):
 
     # Identity atlas transform: the object's 0-1 lightmap UVs map to the whole texture.
     _IDENTITY_SCALE_OFFSET: Tuple[float, float, float, float] = (1.0, 1.0, 0.0, 0.0)
+
+    # Rendered-dead rescue (twin of mayatk LightmapBaker._DEAD_TEXEL_*): Cycles
+    # bakes every UV texel of the target regardless of world occlusion, so
+    # geometry buried below a floor slab / behind trim bakes full-coverage
+    # ~black. Tile texels at or below max(_DEAD_TEXEL_ABS,
+    # _DEAD_TEXEL_FRACTION * the tile's median lit luminance) are treated as
+    # empty and refilled from lit neighbors -- left in, the atlas downscale
+    # and every bilinear/mip tap smear them into visible dark borders at the
+    # junctions they hide behind. 1% of median sits ~20x under real contact
+    # shadow.
+    _DEAD_TEXEL_ABS: float = 1e-4
+    _DEAD_TEXEL_FRACTION: float = 0.01
 
     def __init__(
         self,
@@ -440,9 +453,16 @@ class LightmapBaker(ptk.LoggingMixin):
             weights = [self._surface_area(bpy.data.objects.get(n)) for n in group]
             # Inset each rect by a resolution-scaled gutter and later dilate content into the
             # freed border, so mip levels / bilinear taps can't bleed across neighbours. The
-            # INSET rect is the applied UV rect, so sampling stays exact.
-            rects = ptk.ImgUtils.inset_atlas_rects(
-                ptk.ImgUtils.compute_atlas_layout(weights), self.resolution, gutter
+            # INSET rect is the applied UV rect, so sampling stays exact -- and it is then
+            # SNAPPED to the texel grid: the assembler writes at rounded pixel edges, and
+            # publishing the un-rounded float samples up to half a texel of gutter along
+            # every rect edge (a thin dark border on each shared instance edge). Twin of
+            # mayatk's ``_pack_group``.
+            rects = ptk.ImgUtils.snap_atlas_rects(
+                ptk.ImgUtils.inset_atlas_rects(
+                    ptk.ImgUtils.compute_atlas_layout(weights), self.resolution, gutter
+                ),
+                self.resolution,
             )
             plan[key] = [
                 (n, [float(v) for v in rect]) for n, rect in zip(group, rects)
@@ -572,16 +592,17 @@ class LightmapBaker(ptk.LoggingMixin):
             # here precisely BECAUSE it is renamed — the old name was the source's own, so
             # the move was a no-op when packing in place; a derived one can land on another
             # group's not-yet-consumed tile, which ``_place`` would otherwise delete.
-            out[names[0]] = (
-                self._place(
-                    mapping[names[0]],
-                    output_dir,
-                    used,
-                    stem=ptk.StrUtils.apply_affix(base, prefix, suffix),
-                    avoid=foreign,
-                ),
-                list(self._IDENTITY_SCALE_OFFSET),
+            path = self._place(
+                mapping[names[0]],
+                output_dir,
+                used,
+                stem=ptk.StrUtils.apply_affix(base, prefix, suffix),
+                avoid=foreign,
             )
+            # A solo map skips the assembly (and its rendered-dead rescue) —
+            # heal its exact-zero texels here (twin of mayatk's adopt heal).
+            self._heal_zero_texels(path)
+            out[names[0]] = (path, list(self._IDENTITY_SCALE_OFFSET))
             return
 
         name = ptk.StrUtils.apply_affix(base, prefix, suffix)
@@ -603,8 +624,22 @@ class LightmapBaker(ptk.LoggingMixin):
         for src, so, n in placements:
             # The rect is the deliverable, not a UV edit: the object's shared [0,1]
             # unwrap stays untouched and the engine applies the rect per instance
-            # (Unity lightmapScaleOffset / glTF KHR_texture_transform).
-            out[n] = (atlas_path, so)
+            # (Unity lightmapScaleOffset / glTF KHR_texture_transform). Published
+            # aimed at border-texel CENTERS (twin of mayatk _pack_group): a rect
+            # edge on a texel boundary splits every tap along a shared 3D edge
+            # onto the neighboring cell's gutter, up to half its weight on
+            # another object's lighting. Placement above used the plan's cell
+            # unchanged.
+            # (Full-span bbox: blendertk islands cover their whole unwrap; the
+            # island-bbox refinement rides the backlogged crop fold.)
+            out[n] = (
+                atlas_path,
+                list(
+                    ptk.ImgUtils.inset_rects_to_texel_centers(
+                        [so], self.resolution
+                    )[0]
+                ),
+            )
             try:  # drop the now-consolidated per-object map
                 if os.path.abspath(src) != os.path.abspath(atlas_path):
                     os.remove(src)
@@ -660,6 +695,42 @@ class LightmapBaker(ptk.LoggingMixin):
         used.add(dst)
         return dst
 
+    def _heal_zero_texels(self, path: str) -> None:
+        """Refill any exact-zero texel in *path* from its nearest non-zero one, in place.
+
+        Solo maps skip the atlas assembly (and its rendered-dead rescue), but a bake
+        target's unrendered background — and rendered-dead occluded geometry — ships
+        exact zeros that every mip level averages into the island as a dark halo.
+        A fully-black map is left alone (a black bake is a faithful render of an
+        unlit scene; the panel guard warns), as is a map with nothing to heal.
+        """
+        import bpy
+        import numpy as np
+
+        img = None
+        try:
+            img = bpy.data.images.load(path)
+            # Colorspace BEFORE any pixel write: assigned later, the save goes
+            # through a view transform and a float EXR can come out black.
+            img.colorspace_settings.name = "Non-Color"
+            buf = np.empty(len(img.pixels), dtype=np.float32)
+            img.pixels.foreach_get(buf)
+            px = buf.reshape(img.size[1], img.size[0], img.channels)
+            rgb = px[..., :3]
+            valid = (rgb > 0).any(axis=-1)
+            if valid.all() or not valid.any():
+                return
+            px[..., :3] = ptk.ImgUtils.fill_empty_texels(rgb, mask=valid)
+            img.pixels.foreach_set(px.reshape(-1))
+            img.filepath_raw = path
+            img.file_format = "OPEN_EXR"
+            img.save()
+        except Exception as e:  # never lose a finished bake to a heal
+            self.logger.warning("Zero-heal skipped for %s: %s", path, e)
+        finally:
+            if img is not None:
+                bpy.data.images.remove(img)
+
     def _assemble_atlas_exr(self, atlas_path, placements, gutter) -> None:
         """Composite each ``(source_exr, inset_rect)`` into one shared EXR at ``self.resolution``
         via bpy image I/O (no cv2): load + native-scale each source into its pixel rect, paste
@@ -696,11 +767,43 @@ class LightmapBaker(ptk.LoggingMixin):
                     bpy.data.images.remove(img)
             r0, r1 = max(row0, 0), min(row1, res)
             c0, c1 = max(col0, 0), min(col1, res)
-            atlas[r0:r1, c0:c1, :3] = rgb[: r1 - r0, : c1 - c0, :]
+            tile_rgb = rgb[: r1 - r0, : c1 - c0, :]
+            atlas[r0:r1, c0:c1, :3] = tile_rgb
             atlas[r0:r1, c0:c1, 3] = 1.0
-            mask[r0:r1, c0:c1] = True
+            # Rendered-dead rescue (see _DEAD_TEXEL_*): texels the bake
+            # RENDERED but that carry ~no radiance are occluded geometry, not
+            # signal -- excluded from the content mask, the dilate/fill below
+            # replaces them with lit neighbors instead of shipping hard black
+            # borders. An all-dark tile stays content wholesale (a black bake
+            # is a faithful render of an unlit scene; the panel guard warns).
+            lum = tile_rgb.max(axis=-1)
+            lit = lum > self._DEAD_TEXEL_ABS
+            if lit.any():
+                floor_ = max(
+                    self._DEAD_TEXEL_ABS,
+                    self._DEAD_TEXEL_FRACTION * float(np.median(lum[lit])),
+                )
+                mask[r0:r1, c0:c1] = lum > floor_
+            else:
+                mask[r0:r1, c0:c1] = True
 
-        atlas = self._dilate_gutter(atlas, mask, gutter + 1)
+        # Gutter fill via the SHARED pythontk primitives (the twin of mayatk's
+        # atlas step -- one implementation, not two that drift). The previous
+        # hand-rolled ``np.roll`` dilation WRAPPED at the image border: a rect
+        # touching the atlas frame pulled its "neighbor" content from the
+        # OPPOSITE edge of the atlas -- another object's lighting, or black.
+        rgb = ptk.ImgUtils.dilate_image(atlas[..., :3], mask=mask, iterations=gutter + 1)
+        # Then fill everything left: any background texel that survives is
+        # averaged into rect content by every coarser mip level the engine
+        # generates -- a black background reads as a dark halo on each tile
+        # at distance/grazing angles.
+        rgb = ptk.ImgUtils.fill_empty_texels(rgb, mask=mask | (rgb > 0).any(axis=-1))
+        # Sanitize before write (parity with mayatk ``_write_lightmap_exr``):
+        # one NaN/Inf ray would otherwise ride into the engine's half-float
+        # import as a garbage texel.
+        atlas[..., :3] = np.clip(
+            np.nan_to_num(rgb, nan=0.0, posinf=65504.0, neginf=0.0), 0.0, 65504.0
+        )
 
         out = bpy.data.images.new(
             os.path.basename(atlas_path),
@@ -710,6 +813,12 @@ class LightmapBaker(ptk.LoggingMixin):
             alpha=True,
         )
         try:
+            # Colorspace BEFORE the pixel write, and explicitly: an unset
+            # colorspace lets Blender's default view transform touch the save
+            # (the one write in this package that skipped it -- web_export's
+            # docstring and the test fixture both call this out as the
+            # black-map/double-transform gotcha).
+            out.colorspace_settings.name = "Non-Color"
             flat = np.ascontiguousarray(np.flipud(atlas)).reshape(
                 -1
             )  # top-down -> bottom-up
@@ -719,28 +828,6 @@ class LightmapBaker(ptk.LoggingMixin):
             out.save()
         finally:
             bpy.data.images.remove(out)
-
-    @staticmethod
-    def _dilate_gutter(atlas, mask, iterations):
-        """Grow placed content outward into the empty gutter by ``iterations`` px (numpy
-        edge-copy dilation), so taps near a rect edge sample real content instead of the black
-        border — mayatk's cv2 dilate step, done with numpy."""
-        import numpy as np
-
-        filled = atlas.copy()
-        m = mask.copy()
-        for _ in range(max(0, int(iterations))):
-            added = np.zeros_like(m)
-            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                shifted_m = np.roll(m, (dy, dx), axis=(0, 1))
-                shifted_v = np.roll(filled, (dy, dx), axis=(0, 1))
-                take = (~m) & (~added) & shifted_m
-                filled[take] = shifted_v[take]
-                added |= take
-            if not added.any():
-                break
-            m = m | added
-        return filled
 
     @staticmethod
     def _primary_material(obj) -> Optional[str]:
@@ -1155,6 +1242,10 @@ class LightmapBakerSlots(ptk.LoggingMixin):
                     "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
                     "Pick a <b>Mode</b> and <b>Packing</b> (see below) and a <b>Quality</b> "
                     "preset (fills Resolution / Samples; override either to taste).",
+                    "Optionally set an <b>Output Directory</b> — empty writes to the "
+                    "workspace's texture folder; a relative entry (e.g. <i>lightmaps</i>) "
+                    "lands under it, so the setting travels with the project; an absolute "
+                    "one is used as-is.",
                     "Press <b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
                     "Properties</b> enabled (so the hidden <i>data_export</i> Empty carries "
                     "the Unity wiring).",
@@ -1272,6 +1363,36 @@ class LightmapBakerSlots(ptk.LoggingMixin):
             cmb.setCurrentIndex(self._RESOLUTIONS.index(nearest))
         finally:
             cmb.blockSignals(False)
+
+    def txt_output_dir_init(self, widget) -> None:
+        """Add a directory browser to the optional output-directory field.
+
+        No clear button (mirrors mayatk's twin): the value arrives from the
+        browse dialog as often as it is typed, and a mis-click would drop a
+        path the user picked and can't retype -- the field's *empty* default is
+        one keystroke away anyway (see :meth:`_output_dir`).
+        """
+        widget.option_box.browse(
+            mode="directory",
+            title="Lightmap output directory",
+            tooltip="Browse for the lightmap output directory…",
+            start_dir=self._output_dir,
+            callback=self._relativize_output_dir,
+        )
+
+    def _relativize_output_dir(self, path: str) -> None:
+        """Store a browsed dir under the texture folder as a *relative* path.
+
+        The dialog can only hand back an absolute path, but the portable form
+        is the relative one: a project moved (or a teammate's copy) still bakes
+        into the same subfolder. Anything outside the texture folder is left
+        absolute -- that is what the user picked.
+        """
+        base = self._base_output_dir()
+        if not (path and base and ptk.FileUtils.is_under(path, base)):
+            return
+        rel = ptk.FileUtils.convert_to_relative_path(path, base, prepend_base=False)
+        self.ui.txt_output_dir.setText("" if rel == "." else rel)
 
     def txt000_init(self, widget) -> None:
         """Add the Prefix / Suffix / Auto picker to the name-affix field."""
@@ -1446,12 +1567,22 @@ class LightmapBakerSlots(ptk.LoggingMixin):
             self.ui.footer.setText("No output folder yet — bake first.")
 
     # ------------------------------------------------------------------ helpers
+    def _output_dir(self) -> str:
+        """The bake's output directory: the field, resolved against the texture folder.
+
+        Empty field -> :meth:`_base_output_dir` itself. A subdirectory entry is joined
+        onto it so the setting survives a project move; a full path is taken as-is. The
+        directory itself is created by the bake."""
+        base = self._base_output_dir()
+        return ptk.FileUtils.resolve_output_dir(self.ui.txt_output_dir.text(), base)
+
     @staticmethod
-    def _output_dir() -> str:
-        """Where bakes go: the workspace's texture folder (its ``sourceImages`` rule for a
-        marked workspace.mel project, else ``textures`` next to the .blend), or a temp dir
-        until the file has been saved. The header menu's "Open Output Folder" — mayatk's
-        counterpart is "Open Sourceimages Folder" — browses this."""
+    def _base_output_dir() -> str:
+        """What a relative Output Directory is relative to (and the default when it is
+        empty): the workspace's texture folder (its ``sourceImages`` rule for a marked
+        workspace.mel project, else ``textures`` next to the .blend), or a temp dir until
+        the file has been saved. The header menu's "Open Output Folder" — mayatk's
+        counterpart is "Open Sourceimages Folder" — browses the resolved output dir."""
         import tempfile
 
         from blendertk.env_utils._env_utils import EnvUtils

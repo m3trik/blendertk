@@ -398,11 +398,11 @@ _Generated: 2026-08-11_
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
+  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
-  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_absolute_paths, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
+  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, check_material_compatibility, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -447,7 +447,7 @@ _Generated: 2026-08-11_
 - `class LightmapBaker(ptk.LoggingMixin)`
   - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, refresh_export_metadata, revert_lightmap, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, txt000_init, b000, revert_to_source, open_output
+  - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
 
 ### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
 - `class LightmapWebExport(ptk.LoggingMixin)`
@@ -560,7 +560,7 @@ _Generated: 2026-08-11_
 
 ### `mat_utils/mat_updater.py` — Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
 - `class MatUpdaterSlots(MatUpdater)`
-  - methods: header_init, selection_mode, move_to_folder, max_size, mask_map_scale, output_extension, old_files_folder, cmb001_init, b001
+  - methods: header_init, selection_mode, move_to_folder, cmb001_init, b001
 
 ### `mat_utils/render_opacity/_render_opacity.py` — Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
 - `class RenderOpacity(ptk.LoggingMixin)`
