@@ -27,6 +27,7 @@ Divergence from mayatk (by design, not a gap to fill in later — see the port's
       — there is no per-curve transfer step for anim layers to complicate.
 """
 
+import logging
 import os
 import tempfile
 import traceback
@@ -712,13 +713,20 @@ class HierarchySync(ptk.LoggingMixin):
             return [p.rsplit("|", 1)[-1] for p in already_root]
 
         if self.dry_run:
+            # Collected, not logged per node, mirroring the Maya twin: every
+            # log record is its own paragraph in the output panel, so a dry
+            # run over a large tree rendered as one blank-line-separated
+            # section per item. The ``result`` line stays its own record.
+            plan = []
             for p in needs_move:
                 node = self._resolve_node(p, source="current")
                 if skip_animated and self._animation_skip(node):
-                    self.logger.info(f"[DRY-RUN] Would skip (animated): {p}")
+                    plan.append(f"skip (animated): {p}")
                     continue
-                self.logger.info(f"[DRY-RUN] Would quarantine: {p}")
+                plan.append(f"quarantine     : {p}")
                 moved.append(p.rsplit("|", 1)[-1])
+            if plan and self.logger.isEnabledFor(logging.INFO):
+                self.logger.log_group(f"[DRY-RUN] Plan ({len(plan)})", plan)
             self.logger.result(f"[DRY-RUN] Would quarantine {len(moved)} item(s).")
             return moved
 
@@ -1138,8 +1146,13 @@ class ObjectSwapper(ptk.LoggingMixin):
             ]
 
         if self.dry_run:
-            for path, _ in targets:
-                self.logger.info(f"[DRY-RUN] Would pull: {path}")
+            # ONE grouped record — a line per target rendered the plan as one
+            # blank-line-separated section per object.
+            if targets and self.logger.isEnabledFor(logging.INFO):
+                self.logger.log_group(
+                    f"[DRY-RUN] Would pull ({len(targets)})",
+                    [path for path, _ in targets],
+                )
             self.logger.result(f"[DRY-RUN] Would pull {len(targets)} object(s).")
             return True
 

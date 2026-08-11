@@ -34,6 +34,7 @@ importing the module / resolving the package surface never needs a running Blend
 """
 
 import json
+import logging
 from dataclasses import dataclass, field, fields, asdict
 from typing import Dict, List, Optional
 
@@ -91,6 +92,10 @@ class TelescopeRig(ptk.LoggingMixin):
         super().__init__()
         self.set_log_level(log_level)
         self.bundle: Optional[TelescopeRigBundle] = None
+        # Build-step accumulator; see ``setup_telescope_rig``. Defaulted here
+        # so the ``_create_handle`` / ``_build`` helpers stay callable on their
+        # own without a preceding setup call.
+        self._build_log: List[str] = []
 
     # ------------------------------------------------------------------ resolution
     @classmethod
@@ -255,7 +260,15 @@ class TelescopeRig(ptk.LoggingMixin):
         """
         import bpy
 
-        self.logger.info("Setting up Telescope Rig...", preset="header")
+        # Build detail accrues here and is emitted as ONE grouped record once
+        # the rig stands. Logged step-by-step it was ~6 records, and every log
+        # record renders as its own paragraph in the panel's output — the run
+        # read as a column of unrelated one-liners instead of one build.
+        self._build_log = []
+        # ``log_box`` / ``log_group`` write through ``log_raw``, which bypasses
+        # level filtering BY DESIGN, so the report gates itself — a caller that
+        # dropped this logger to WARNING wants the rig, not the transcript.
+        report = self.logger.isEnabledFor(logging.INFO)
 
         segs = [
             s
@@ -318,23 +331,39 @@ class TelescopeRig(ptk.LoggingMixin):
         # Two segments slide against each other — no interior to stretch, so the collapse
         # distance never enters the build.
         has_interiors = len(segs) > 2
+        auto_collapsed = False
         if not has_interiors:
             collapsed_distance = 0.0
         elif collapsed_distance is None:
             collapsed_distance = self._auto_collapsed_distance(
                 segs, direction, initial_distance
             )
-            self.logger.info(
-                f"Collapsed distance (auto): <hl>{collapsed_distance:.4f}</hl>"
-            )
+            # Reported in the run banner rather than as its own record.
+            auto_collapsed = True
         if has_interiors and not 0.0 < collapsed_distance < initial_distance:
             raise ValueError(
                 f"collapsed_distance must be between 0 and the current base-to-end "
                 f"distance ({initial_distance:.4f}); got {collapsed_distance}."
             )
 
+        rig_name = str(name) or "telescope"
+
+        # Run banner as ONE record, after validation so it reports resolved
+        # facts rather than the caller's arguments.
+        if report:
+            self.logger.log_box(
+                "TELESCOPE RIG",
+                [
+                    f"Name      : {rig_name}",
+                    f"Segments  : {len(segs)} (aim axis {str(aim_axis).upper()})",
+                    f"Extended  : {initial_distance:.4f}",
+                    f"Collapsed : {collapsed_distance:.4f}"
+                    + (" (auto)" if auto_collapsed else ""),
+                ],
+            )
+
         bundle = TelescopeRigBundle(
-            name=str(name) or "telescope",
+            name=rig_name,
             base_locator=base.name if base is not None else "",
             end_locator=end.name if end is not None else "",
             segments=[s.name for s in segs],
@@ -377,14 +406,31 @@ class TelescopeRig(ptk.LoggingMixin):
 
         self._stamp(bundle)
         self.bundle = bundle
-        self.logger.success("Telescope Rig setup complete.")
+        if report:
+            self.logger.log_group("Build", self._build_log)
+            self.logger.log_box(
+                "RIG BUILT",
+                [
+                    f"Constraints : {len(bundle.constraints)}",
+                    # ``drivers``, not mayatk's ``driven_plugs`` — Blender
+                    # drives the scale with a single clamped linear driver
+                    # per segment where Maya uses two driven-key plugs.
+                    f"Drivers     : {len(bundle.drivers)}",
+                ],
+                level="SUCCESS",
+            )
+        else:
+            self.logger.success("Telescope Rig setup complete.")
         return bundle
 
     def _create_handle(self, name, position, size, bundle):
         """Create one auto handle (Empty), recording it on *bundle* for teardown."""
         locator = RigUtils.create_locator(name, location=position, size=size)
         bundle.created_locators.append(locator.name)
-        self.logger.info(f"Created handle: <hl>{locator.name}</hl>")
+        # Clickable rather than an inert <hl> tag (Qt renders no such element,
+        # so the markup was only ever stripped) — matches every other panel.
+        link = self.logger.log_link(locator.name, "select", node=locator.name)
+        self._build_log.append(f"Created handle: {link}")
         return locator
 
     def _build(
@@ -411,7 +457,7 @@ class TelescopeRig(ptk.LoggingMixin):
         # Handles aim at each other so the chain keeps a consistent up-axis.
         record(base, RigUtils.damped_track(base, end, track))
         record(end, RigUtils.damped_track(end, base, reverse_track))
-        self.logger.info("Locators constrained.")
+        self._build_log.append("Locators constrained.")
 
         # Build-pose world positions must be read BEFORE any segment constraint exists —
         # afterwards matrix_world reports the constrained result.
@@ -450,7 +496,7 @@ class TelescopeRig(ptk.LoggingMixin):
             record(seg, RigUtils.copy_location(seg, base, 1.0, use_offset=True))
             record(seg, RigUtils.copy_location(seg, end, frac))
             record(seg, RigUtils.damped_track(seg, end, track))
-        self.logger.info("Segments constrained.")
+        self._build_log.append("Segments constrained.")
 
         # Middle segments telescope: the aim axis' scale tracks the live base->end distance,
         # clamped at the collapsed distance (Blender's continuous-driver analogue of Maya's
@@ -474,9 +520,11 @@ class TelescopeRig(ptk.LoggingMixin):
                     ),
                 )
                 bundle.drivers.append([seg.name, "scale", index])
-            self.logger.info("Driven keys set.")
+            self._build_log.append("Driven keys set.")
         else:
-            self.logger.info("Two segments — sliding strut (no interior to scale).")
+            self._build_log.append(
+                "Two segments — sliding strut (no interior to scale)."
+            )
 
         # Location & rotation are constraint-driven; only the aim axis' scale telescopes.
         if lock_attributes:
@@ -600,11 +648,23 @@ class TelescopeRig(ptk.LoggingMixin):
         if bundle is None:
             self.logger.warning("No telescope rig bundle to tear down.")
             return False
-        self.logger.info("Removing Telescope Rig...", preset="header")
+        # No separate "Removing..." record: the header/summary pair read as two
+        # unrelated paragraphs for one instantaneous op. One closing box says
+        # what happened, and says more.
         self._delete_bundle_nodes(bundle, restore=True)
         if bundle is self.bundle:
             self.bundle = None
-        self.logger.success("Telescope Rig removed.")
+        if self.logger.isEnabledFor(logging.INFO):
+            self.logger.log_box(
+                "RIG REMOVED",
+                [
+                    f"Name     : {bundle.name}",
+                    f"Segments : {len(bundle.segments)}",
+                ],
+                level="SUCCESS",
+            )
+        else:
+            self.logger.success("Telescope Rig removed.")
         return True
 
 
@@ -805,8 +865,6 @@ class TelescopeRigSlots(ptk.LoggingMixin):
         return base, segments, end
 
     def build_rig(self):
-        self.logger.log_divider()
-
         import bpy
 
         sel = CoreUtils.selected_objects()
@@ -835,16 +893,21 @@ class TelescopeRigSlots(ptk.LoggingMixin):
             # ``logger`` is a ClassProperty (no setter) — configure it, never reassign it.
             self._mirror_engine_log(rig)
 
-            for role, obj in (("Base", base), ("End", end)):
-                if obj is None:
-                    self.logger.info(f"{role} detected: <hl>auto</hl>")
-                else:
-                    link = self.logger.log_link(obj.name, "select", node=obj.name)
-                    self.logger.info(f"{role} detected: {link}")
-            self.logger.info(
-                f"Segments detected: <hl>{len(segments)}</hl> "
-                f"(aim axis: <hl>{aim_axis.upper()}</hl>)"
-            )
+            # ONE record for the whole read-back of the selection. Three
+            # separate info lines rendered as three blank-line-separated
+            # paragraphs above the engine's own banner.
+            if self.logger.isEnabledFor(logging.INFO):
+                detected = []
+                for role, obj in (("Base", base), ("End", end)):
+                    if obj is None:
+                        detected.append(f"{role:<9}: auto (created)")
+                    else:
+                        link = self.logger.log_link(obj.name, "select", node=obj.name)
+                        detected.append(f"{role:<9}: {link}")
+                detected.append(
+                    f"{'Segments':<9}: {len(segments)} (aim axis {aim_axis.upper()})"
+                )
+                self.logger.log_group("Selection", detected)
 
             self.bundle = rig.setup_telescope_rig(
                 base_locator=base,
@@ -858,8 +921,6 @@ class TelescopeRigSlots(ptk.LoggingMixin):
             self.sb.message_box(f"Error setting up rig: {str(e)}")
 
     def remove_rig(self):
-        self.logger.log_divider()
-
         sel = CoreUtils.selected_objects()
         if sel:
             bundles = TelescopeRig.find_bundles(sel)

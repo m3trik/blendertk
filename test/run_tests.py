@@ -157,12 +157,31 @@ class BlenderTestRunner:
         if not passed:
             for ln in lines:
                 if ln.startswith("FAIL"):
-                    print(f"     {ln}")
+                    self._print_detail(ln)
             if not verdicts:
                 tail = (proc.stderr or "").strip().splitlines()[-5:]
                 for ln in tail:
-                    print(f"     {ln}")
+                    self._print_detail(ln)
         return passed, ok, failed, skipped
+
+    @staticmethod
+    def _print_detail(line: str) -> None:
+        """Print a suite's failure detail without letting the console kill the run.
+
+        A detail string carries whatever the failing check chose to report, and
+        that can hold characters the console encoding has no mapping for (a log
+        box's ``╔═║``, a mangled ``\\ufffd`` from the child's own replacement).
+        On a cp1252 terminal ``print`` then raises UnicodeEncodeError from
+        inside the runner's reporting path, so a single failing check aborts the
+        whole run with a traceback instead of reporting the failure and moving
+        on to the remaining suites.
+        """
+        text = f"     {line}"
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode(encoding, "replace").decode(encoding, "replace"))
 
     def run(self, patterns: Optional[List[str]] = None) -> dict:
         """Run the selected suites and return aggregate counts."""

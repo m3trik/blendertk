@@ -384,8 +384,21 @@ try:
             ("viewer samples the manifest's UV channel", "texture.channel = uv" in viewer),
             ("viewer clears the carrier so it is not applied twice",
              "material[slot] = null" in viewer),
-            ("viewer suppresses its own lighting for a pre-lit model",
-             "scene.environment = lightmapped ? null" in viewer),
+            # The key light goes off for a pre-lit model; the ENVIRONMENT does
+            # not, it is dimmed per material instead. Killing it outright (what
+            # this asserted until 2026-08-10) takes normal maps and specular
+            # with it, because three.js adds lightmap irradiance through a
+            # Lambert term with no normal dependence — leaving nothing in the
+            # render that samples the normal at all.
+            ("viewer drops its key light for a pre-lit model",
+             "keyLight.intensity" in viewer
+             and "? 0 : DEFAULT_KEY_INTENSITY" in viewer),
+            # Asserted as "the dimming factor exists and drives envMapIntensity"
+            # rather than as one literal assignment: whether the write happens at
+            # bind time or in the lighting pass is an implementation detail this
+            # cross-package check has no business pinning.
+            ("viewer dims, rather than kills, the environment it keeps",
+             "LIGHTMAP_ENV_INTENSITY" in viewer and "envMapIntensity" in viewer),
         ):
             check(label, cond)
     else:

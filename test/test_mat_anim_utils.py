@@ -513,6 +513,42 @@ try:
     else:
         lines.append("OK   update_materials full reprocess SKIPPED (no PIL in this Blender)")
 
+    # The run report goes out through log_box/log_group, which write via log_raw
+    # and BYPASS level filtering — so a non-verbose caller (the Scene Exporter
+    # runs this as its convert_textures task with the default verbose=False)
+    # gets the whole banner + settings dump unless the engine gates it itself.
+    import logging as _logging
+
+    from blendertk.mat_utils._mat_utils import MatUpdater as _MatUpdater
+
+    class _Collector(_logging.Handler):  # no .stream -> log_raw uses emit()
+        def __init__(self):
+            super().__init__()
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    mat_q, _img_q = mat_with_texture("MU_Quiet", os.path.join(mu_tmp, "MUQuiet_Diffuse.png"))
+    for verbose, want_banner in ((False, False), (True, True)):
+        collector = _Collector()
+        _MatUpdater.logger.addHandler(collector)
+        try:
+            _MatUpdater.update_materials(
+                materials=[mat_q], config={"dry_run": True}, verbose=verbose
+            )
+        finally:
+            _MatUpdater.logger.removeHandler(collector)
+        emitted = "\n".join(str(r.msg) for r in collector.records)
+        check(
+            f"update_materials verbose={verbose}: run banner "
+            f"{'present' if want_banner else 'suppressed'}",
+            ("MATERIAL UPDATE" in emitted) == want_banner,
+            # ASCII-folded: the report is full of box-drawing glyphs, and a
+            # detail string is printed straight to the (cp1252) console.
+            emitted[:200].encode("ascii", "replace").decode("ascii"),
+        )
+
     shutil.rmtree(mu_tmp, ignore_errors=True)
 
     # ---- game shader (create_pbr_material) ----------------------------------
@@ -609,23 +645,27 @@ try:
 
     # Packed-map redundancy is decided by the SHARED ptk.MapFactory.filter_redundant_maps (the
     # registry's precedence rules), NOT a local priority chain — so Blender and Maya can't drift.
-    # Per those rules MSAO supersedes Metallic_Smoothness, while ORM and MSAO are *different*
-    # channel layouts and neither supersedes the other. (The previous local chain here had ORM
-    # pop MSAO, which was a blendertk-only invention that diverged from mayatk.)
+    # RIVAL packings collapse to ONE: ORM, MSAO and Metallic_Smoothness all drive metallic /
+    # roughness / AO, so a set carrying several used to wire those inputs several times. With no
+    # config there is no stated target, and ptk.MapRegistry.packed_precedence ranks by declared
+    # breadth — ORM ships to UE/glTF/Godot, Metallic_Smoothness to URP/SpecGloss, MSAO only to
+    # HDRP — so the ORM wins and both rivals retire (their channels are all derivable from it,
+    # so nothing has to be extracted first).
     pfiles = [gs_png("ORM"), gs_png("MaskMap"), gs_png("MetallicSmoothness")]
     pplan = btk.MatUtils.resolve_pbr_plan(pfiles)
-    check("packed redundancy follows the shared registry: MSAO supersedes MetallicSmoothness",
-          set(pplan["dropped"]) == {"Metallic_Smoothness"}
-          and set(pplan["by_type"]) == {"ORM", "MSAO"},
+    check("rival packings collapse to one: ORM supersedes MSAO + MetallicSmoothness",
+          set(pplan["dropped"]) == {"MSAO", "Metallic_Smoothness"}
+          and set(pplan["by_type"]) == {"ORM"}
+          and pplan["extracted"] == {},
           f"kept={sorted(pplan['by_type'])} dropped={sorted(pplan['dropped'])}")
     pmat = btk.create_pbr_material(pfiles, name="GSPrio")
     n_imgs = sum(1 for n in pmat.node_tree.nodes if n.type == "TEX_IMAGE")
-    check("packed redundancy: superseded MetallicSmoothness image is never loaded",
-          n_imgs == 2, f"images={n_imgs}")
-    # ORM and MSAO both carry an AO channel and both survive; the AO multiply must not stack
-    # (two chained MULTIPLY nodes would darken the albedo twice).
+    check("rival packings: only the surviving ORM image is loaded",
+          n_imgs == 1, f"images={n_imgs}")
+    # One surviving packed map -> the AO multiply appears exactly once (two chained MULTIPLY
+    # nodes would darken the albedo twice).
     n_mix = sum(1 for n in pmat.node_tree.nodes if n.type == "MIX_RGB")
-    check("two surviving packed maps apply AO exactly once (no stacked MULTIPLY)",
+    check("the surviving packed map applies AO exactly once (no stacked MULTIPLY)",
           n_mix == 1, f"mix_nodes={n_mix}")
 
     # Batch: a set of files spanning two texture sets -> two materials

@@ -249,6 +249,68 @@ try:
           all(abs(x - y) < 1e-3 for x, y in zip(before_a, uv_bbox(a))),
           f"before={before_a} after={uv_bbox(a)}")
 
+    # --- rendered-dead rescue + border-texel-center rects ------------------
+    # Twin of mayatk (test_exact_zero_cell_content_is_healed /
+    # test_published_rects_sample_border_texel_centers): Cycles bakes every
+    # UV texel of the target regardless of world occlusion, so buried
+    # geometry (below a floor slab, behind trim) bakes full-coverage ~black;
+    # shipped, those texels smear into visible dark borders. And a rect edge
+    # published ON a texel boundary splits every tap along a shared 3D edge
+    # onto the neighboring cell's gutter.
+    def _exr_dead(name, value, dead_cols):
+        path = os.path.join(tmp_dir, name)
+        img = bpy.data.images.new(name, 16, 16, float_buffer=True)
+        img.colorspace_settings.name = "Non-Color"
+        buf = np.tile(
+            np.array([value, value, value, 1.0], np.float32), 256
+        ).reshape(16, 16, 4)
+        buf[:, :dead_cols, :3] = 0.0  # rendered-dead strip (occluded geometry)
+        img.pixels.foreach_set(buf.reshape(-1))
+        img.filepath_raw = path
+        img.file_format = "OPEN_EXR"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
+
+    dead_maps = {
+        a.name: _exr_dead("deadA.exr", 1.5, 8),
+        b.name: _exr_dead("deadB.exr", 0.8, 0),
+    }
+    packed_dead = atlas_baker.pack_atlas(dead_maps, output_dir=tmp_dir, suffix="_DeadLM")
+    dpath = next(iter(p for p, _so in packed_dead.values()))
+    dimg = bpy.data.images.load(dpath)
+    dbuf = np.empty(len(dimg.pixels), np.float32)
+    dimg.pixels.foreach_get(dbuf)
+    drgb = dbuf.reshape(dimg.size[1], dimg.size[0], dimg.channels)[..., :3]
+    bpy.data.images.remove(dimg)
+    n_zero = int((~(drgb.max(axis=-1) > 0)).sum())
+    check("atlas: rendered-dead texels are healed (no exact zeros ship)",
+          n_zero == 0, f"{n_zero} zero texel(s)")
+    res_px = atlas_baker.resolution
+    check("atlas: published rects aim at border-texel centers",
+          all(
+              abs((ox * res_px) % 1.0 - 0.5) < 1e-4
+              and abs(((ox + sx) * res_px) % 1.0 - 0.5) < 1e-4
+              and abs((oy * res_px) % 1.0 - 0.5) < 1e-4
+              and abs(((oy + sy) * res_px) % 1.0 - 0.5) < 1e-4
+              for _p, (sx, sy, ox, oy) in packed_dead.values()),
+          f"{[so for _p, so in packed_dead.values()]}")
+
+    solo_dead = atlas_baker.pack_atlas(
+        {cube.name: _exr_dead("deadSolo.exr", 1.2, 4)},
+        output_dir=tmp_dir, suffix="_DeadSolo",
+    )
+    spath, srect = solo_dead[cube.name]
+    simg = bpy.data.images.load(spath)
+    sbuf = np.empty(len(simg.pixels), np.float32)
+    simg.pixels.foreach_get(sbuf)
+    srgb = sbuf.reshape(simg.size[1], simg.size[0], simg.channels)[..., :3]
+    bpy.data.images.remove(simg)
+    check("solo: adopted map healed of exact zeros (identity rect kept)",
+          int((~(srgb.max(axis=-1) > 0)).sum()) == 0
+          and srect == list(LightmapBaker._IDENTITY_SCALE_OFFSET),
+          f"zeros={int((~(srgb.max(axis=-1) > 0)).sum())} rect={srect}")
+
     # --- bake_atlas: plan first, bake to the plan, publish only results ----
     # The two-call form above bakes every object at the FULL atlas resolution and then
     # downscales it into a small rect -- N times the rays to supersample away noise the
@@ -442,6 +504,63 @@ try:
           guard._black_bake_warning({"a": black, "b": lit}) == "")
     check("a missing map never breaks a finished bake",
           guard._black_bake_warning({"a": os.path.join(tmp_dir, "nope.exr")}) == "")
+
+    # --- output directory field (panel) -----------------------------------
+    # Optional dir, resolved against the workspace's texture folder: empty is
+    # that folder, a relative entry lands under it (so the setting survives a
+    # project move), an absolute one wins outright. Mirrors mayatk's twin.
+    class _Field:
+        def __init__(self, text=""):
+            self._text = text
+
+        def text(self):
+            return self._text
+
+        def setText(self, text):
+            self._text = text
+
+    class _Ui:
+        def __init__(self, text=""):
+            self.txt_output_dir = _Field(text)
+
+    BASE = os.path.normpath("C:/proj/sourceimages" if os.name == "nt" else "/proj/sourceimages")
+
+    def _slots(text=""):
+        s = LightmapBakerSlots.__new__(LightmapBakerSlots)
+        s.ui = _Ui(text)
+        s._base_output_dir = lambda: BASE
+        return s
+
+    check("empty output dir falls back to the texture folder",
+          _slots()._output_dir() == BASE)
+    check("a relative output dir resolves under the texture folder",
+          _slots("lightmaps")._output_dir() == os.path.join(BASE, "lightmaps"))
+    check("a nested relative output dir normalizes",
+          _slots("bake/lm")._output_dir() == os.path.normpath(os.path.join(BASE, "bake/lm")))
+    abs_dir = os.path.normpath("D:/bakes/lm" if os.name == "nt" else "/bakes/lm")
+    check("an absolute output dir is used as-is",
+          _slots(abs_dir)._output_dir() == abs_dir)
+    check("a quoted/padded entry is trimmed before joining",
+          _slots('  " lightmaps "  ')._output_dir() == os.path.join(BASE, "lightmaps"))
+    # "/lightmaps" is a separator-spelled SUBDIRECTORY, but os.path.isabs calls it
+    # absolute on Windows and would resolve it to the current drive's root.
+    check("a driveless rooted entry stays a subdirectory",
+          _slots("/lightmaps")._output_dir() == os.path.join(BASE, "lightmaps"))
+
+    # The browse dialog can only hand back an absolute path; a pick inside the
+    # texture folder is rewritten to the portable relative form, anything
+    # outside it is left exactly as the dialog wrote it.
+    s = _slots()
+    s._relativize_output_dir(os.path.join(BASE, "lightmaps", "hero"))
+    check("browsing inside the texture folder stores a relative path",
+          s.ui.txt_output_dir.text() == "lightmaps/hero")
+    s._relativize_output_dir(BASE)
+    check("browsing the texture folder itself clears the field",
+          s.ui.txt_output_dir.text() == "")
+    s.ui.txt_output_dir.setText(abs_dir)
+    s._relativize_output_dir(abs_dir)
+    check("browsing outside the texture folder stays absolute",
+          s.ui.txt_output_dir.text() == abs_dir)
 
 except Exception:
     traceback.print_exc()

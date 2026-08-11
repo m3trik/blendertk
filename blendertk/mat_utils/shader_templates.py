@@ -41,6 +41,8 @@ helpers are deferred into the call bodies. Served by ``BlenderUiHandler``
 (``marking_menu.show("shader_templates")``).
 """
 
+import logging
+
 import pythontk as ptk
 
 import blendertk as btk
@@ -67,7 +69,17 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
             self.logger.setup_logging_redirect(self.ui.txt001)
         except Exception:
             pass
+        # Dispatch the action:// links the run summaries emit (graph the created
+        # material, open the saved template).
+        if hasattr(self.ui.txt001, "anchorClicked"):
+            self.ui.txt001.anchorClicked.connect(self._on_log_link_clicked)
         self.ui.txt001.setText("Pick a template, then Create Network.")
+
+    def _on_log_link_clicked(self, url) -> None:
+        """Dispatch clickable ``action://`` links from the log panel."""
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        UiUtils.dispatch_log_link(url, self.logger)
 
     # Mirror of mayatk's `EnvUtils.get_env_info("workspace_dir")` / "sourceimages" — both route
     # through the current-workspace resolver (marked workspace.mel projects get their real
@@ -211,12 +223,24 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
     def b000(self):
         """Create shader network using selected template."""
         self.ui.txt001.clear()
-        self.logger.info("Creating network based on template...")
 
         template = self.ui.cmb002.currentText()
         if not template:
             self.logger.error("No template selected.")
             return
+
+        # Run banner as ONE record, mirroring the Maya twin: every log record
+        # renders as its own paragraph in the output panel, so a line per fact
+        # reads as a stack of blank-line-separated sections.
+        report = self.logger.isEnabledFor(logging.INFO)
+        if report:
+            self.logger.log_box(
+                "CREATE SHADER NETWORK",
+                [
+                    f"Template : {template}",
+                    f"Textures : {len(self.image_files or [])}",
+                ],
+            )
 
         try:
             data = self._store.load(template)
@@ -233,7 +257,14 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
         if objects:
             btk.assign_mat(objects, mat)
 
-        self.logger.info("COMPLETED.")
+        if report:
+            # "graph" (open in the Shader Editor) is Blender's analogue of the
+            # Maya twin's "select the shader in the Hypershade".
+            summary = [f"Assigned to : {len(objects)} object(s)"]
+            if mat is not None:
+                link = self.logger.log_link(mat.name, "graph", node=mat.name)
+                summary.insert(0, f"Material    : {link}")
+            self.logger.log_box("NETWORK CREATED", summary, level="SUCCESS")
 
     def b001(self):
         """Load texture maps and update GUI."""
@@ -246,8 +277,13 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
         if image_files:
             self.image_files = image_files
             self.ui.txt001.clear()
-            for img in image_files:
-                self.logger.info(ptk.truncate(img, 60))
+            # ONE record for the whole list — a line per file put a paragraph
+            # break between every texture.
+            if self.logger.isEnabledFor(logging.INFO):
+                self.logger.log_group(
+                    f"Textures loaded ({len(image_files)})",
+                    [ptk.truncate(img, 60) for img in image_files],
+                )
 
     def b002(self):
         """Save current graph as a new shader template."""
@@ -262,7 +298,16 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
             return
 
         self._store.save(self.template_name, data)
-        self.logger.info(f"Shader template saved as: {self.template_name}")
+        # ONE record for the save, same shape as the Maya twin's engine-side
+        # announcement (``GraphSaver.save_graph``): node count plus a clickable
+        # path. Truncate the *label*, not the href — _wrap_text never
+        # hard-wraps a word containing a tag.
+        path = str(self._store.path(self.template_name, "user"))
+        link = self.logger.log_link(ptk.truncate(path, 60), "open", path=path)
+        self.logger.info(
+            f"Graph information saved to {link} "
+            f"({len(data.get('nodes') or [])} node(s))"
+        )
         self.ui.cmb002.init_slot()
 
     # ------------------------------------------------------------------ helpers

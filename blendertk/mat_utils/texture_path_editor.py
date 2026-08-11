@@ -53,10 +53,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     )
     _FIND_MODE_ITEMS = (("Copy", "copy"), ("Move", "move"))
     # Displayed length of a texture path while the header's "Truncate Texture Paths" toggle is
-    # on. Cut with ``mode="path"``, which drops whole middle components: the drive/root and its
-    # first directories stay readable at the front, the filename and its parents at the back
-    # (mirror of the Maya slot's constant).
-    _PATH_TRUNCATE_LENGTH = 48
+    # on. Cut with ``mode="path"``, which drops whole middle components: the drive/root stays
+    # readable at the front, the filename and as many of its parents as fit at the back.
+    # ``_PATH_TRUNCATE_HEAD`` caps the front to that root — what identifies a texture is the end
+    # of its path, so the whole budget goes there (mirror of the Maya slot's constants).
+    _PATH_TRUNCATE_LENGTH = 67
+    _PATH_TRUNCATE_HEAD = 1
     # Normalize-Paths external-texture handling.
     _NORMALIZE_MODE_ITEMS = (
         ("Leave external textures untouched", "relative"),
@@ -123,6 +125,22 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             ),
         )
         chk_truncate.toggled.connect(lambda *_: self._apply_path_truncation())
+
+        chk_warn_len = widget.menu.add(
+            "QCheckBox",
+            setText="Warn On Over-Long Paths",
+            setObjectName="chk_warn_path_length",
+            setChecked=True,
+            setToolTip=(
+                "Flag rows whose resolved path is longer than this OS accepts "
+                f"({ptk.FileUtils.path_length_limit()} characters).\n"
+                "Over-long paths fail late and opaquely — a texture the FBX exporter "
+                "silently cannot embed, a copy that reports success and produced nothing — "
+                "and a path that fits here still breaks on a machine without long paths "
+                "enabled (260 characters)."
+            ),
+        )
+        chk_warn_len.toggled.connect(lambda *_: self.refresh_texture_table())
 
         widget.menu.add("Separator", setTitle="Path Management")
         widget.menu.add(
@@ -499,6 +517,14 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             widget.blockSignals(False)
             widget.setUpdatesEnabled(True)
 
+        # After apply_formatting — that pass is what fills the set.
+        over_long = getattr(self, "_over_long_paths", None)
+        if over_long:
+            self.logger.warning(
+                f"Texture Path Editor: {len(over_long)} path(s) exceed this OS's "
+                f"{ptk.FileUtils.path_length_limit()}-character path limit."
+            )
+
         if self._footer_controller:
             self._footer_controller.update()
 
@@ -511,6 +537,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             exists_by_path[r["filepath"]] = r["exists"]
             abspath_by_path[r["filepath"]] = r["abspath"]
 
+        warn_long = self._warn_path_length_enabled()
+        length_limit = ptk.FileUtils.path_length_limit()
+        # Reset per rebuild; the formatter fills it as it paints, so the caller reads it only
+        # after apply_formatting.
+        self._over_long_paths = set()
+
         def format_if_invalid(item, value, row, col, *_):
             path = str(value).strip()
             exists = exists_by_path.get(path)
@@ -518,9 +550,22 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 ap = self._resolve_path(path)
                 exists = bool(ap and os.path.exists(ap))
                 abspath_by_path[path] = ap
-            widget.format_item(item, key="reset" if exists else "invalid")
             ap = abspath_by_path.get(path, path)
+            # A missing file outranks an over-long one: it's the harder failure, and an
+            # over-long path is usually WHY it went missing.
+            over_long = warn_long and len(ap or "") > length_limit
+            if over_long:
+                self._over_long_paths.add(path)
+            widget.format_item(
+                item,
+                key="invalid" if not exists else ("warning" if over_long else "reset"),
+            )
             tooltip_lines = [ap if exists else f"Missing file:\n{ap}"]
+            if over_long:
+                tooltip_lines.append(
+                    f"Path is {len(ap)} characters — over this OS's "
+                    f"{length_limit}-character limit."
+                )
             img_item = widget.item(row, 2)
             img_name = str(img_item.text()).strip() if img_item else ""
             previous = self._previous_paths.get(img_name) if img_name else None
@@ -529,6 +574,17 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             item.setToolTip("\n\n".join(tooltip_lines))
 
         widget.set_column_formatter(1, format_if_invalid)
+
+    def _warn_path_length_enabled(self):
+        """State of the header's "Warn On Over-Long Paths" toggle.
+
+        True when the header menu hasn't been built yet — an early refresh should warn, not
+        silently skip the check (opposite default to the truncation toggle, which is off).
+        """
+        header = getattr(self.ui, "header", None)
+        menu = getattr(header, "menu", None) if header else None
+        chk = getattr(menu, "chk_warn_path_length", None) if menu else None
+        return chk.isChecked() if chk is not None else True
 
     def _truncate_paths_enabled(self):
         """State of the header's "Truncate Texture Paths" toggle.
@@ -560,6 +616,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             # An ellipsis, not the primitive's default "..", which in a path column reads as a
             # parent-directory segment.
             insert="…",
+            head=self._PATH_TRUNCATE_HEAD,
         )
 
     # ------------------------------------------------------------------ scope
