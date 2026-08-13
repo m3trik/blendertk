@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-11_
+_Generated: 2026-08-13_
 
 ## Index
 
@@ -162,6 +162,7 @@ _Generated: 2026-08-11_
 - [`ui_utils/blender_ui_handler.py`](#ui_utils--blender_ui_handler)
 - [`ui_utils/blender_window.py`](#ui_utils--blender_window) — Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 - [`ui_utils/calculator.py`](#ui_utils--calculator) — Calculator tool panel — Switchboard slot wiring for the co-located ``calculator.ui``.
+- [`ui_utils/cancel_provider.py`](#ui_utils--cancel_provider) — Blender's answers to uitk's cancellation contract (mayatk parity twin).
 - [`ui_utils/menu_harvest.py`](#ui_utils--menu_harvest) — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
 - [`ui_utils/qt_dock.py`](#ui_utils--qt_dock) — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - [`ui_utils/style_setter/_style_setter.py`](#ui_utils--style_setter--_style_setter) — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
@@ -1381,7 +1382,7 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
 
 Scene-data sidecar manifest management — mirror of mayatk's
 
-- **[`class SceneDataSidecar`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L55)** — Manages scene-data sidecar files stored alongside export files.
+- **[`class SceneDataSidecar`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L57)** — Manages scene-data sidecar files stored alongside export files.
   - `SceneDataSidecar.base_stem(cls, export_path: str) -> str` *(class)* — Return the export stem with any trailing ``_vNN`` suffix stripped.
   - `SceneDataSidecar.manifest_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar manifest path for an export file.
   - `SceneDataSidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar diff report path for an export file.
@@ -1754,7 +1755,7 @@ blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Windo
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L98)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L113)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -1762,6 +1763,7 @@ Light utilities — the world-environment (HDRI) helpers behind the HDR Manager 
   - `LightUtils.set_world_importance_resolution(resolution)` *(static)* — Set the world environment's importance-sampling **map resolution** — the Cycles analogue of
   - `LightUtils.get_world_importance_resolution()` *(static)* — The world's importance-sampling map resolution when in **manual** mode, else ``None``
   - `LightUtils.clear_world_hdri()` *(static)* — Remove the btk-managed HDRI environment (env / mapping / coord nodes) from the world.
+  - `LightUtils.world_emits(world=_SCENE_WORLD) -> bool` *(static)* — True when *world* can light a render/bake (a non-black background).
   - `LightUtils.lights_from_geometry(objects, power=100.0, color=(1.0, 1.0, 1.0), direction='auto', offset=0.01, spread=None, prefix=_FIXTURE_LIGHT_PREFIX, diffuse_only=False, *, kelvin=None, toward=None)` *(static)* — Create a real area light matched to each light-fixture *mesh*.
   - `LightUtils.remove_lights(prefix=_FIXTURE_LIGHT_PREFIX)` *(static)* — Delete the light objects :meth:`lights_from_geometry` created;
   - `LightUtils.set_world_environment(cls, hdri=None, strength=1.0, color=None, rotation=0.0) -> str` *(class)* — Light the world with an equirect HDRI, or a flat ambient colour.
@@ -1797,7 +1799,7 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L56)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L57)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
@@ -1813,7 +1815,7 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo the lightmap wiring -- the spelling the panel and pre-bake use.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1156)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1198)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
@@ -2817,6 +2819,16 @@ Calculator tool panel — Switchboard slot wiring for the co-located ``calculato
   - `CalculatorSlots.get_current_time(self)`
   - `CalculatorSlots.frames_to_sec(self)`
   - `CalculatorSlots.sec_to_frames(self)`
+
+<a id="ui_utils--cancel_provider"></a>
+### `ui_utils/cancel_provider.py`
+
+Blender's answers to uitk's cancellation contract (mayatk parity twin).
+
+- **[`class BlenderCancelProvider(CancelProvider)`](blendertk/blendertk/ui_utils/cancel_provider.py#L49)** — Blender host strategy for :class:`uitk.CancelManager`.
+  - `BlenderCancelProvider.begin(self, scope, label: str = '', rollback: bool = False) -> Any` — Start Blender's progress readout for the operation.
+  - `BlenderCancelProvider.tick(self, value: Optional[int] = None, total: Optional[int] = None, text: Optional[str] = None) -> None` — Mirror progress into Blender's cursor progress readout.
+  - `BlenderCancelProvider.end(self, token: Any, cancelled: bool = False, rollback: bool = False) -> None` — End the progress readout.
 
 <a id="ui_utils--menu_harvest"></a>
 ### `ui_utils/menu_harvest.py`

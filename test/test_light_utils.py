@@ -250,6 +250,95 @@ try:
               kid_world.translation)),
           f"{tuple(bpy.data.objects['lightChild'].matrix_world.translation)}")
 
+    # --- world_emits: "is the world a light source?" ------------------------
+    # Cycles' analogue of an aiSkyDomeLight, so an HDRI-only scene has no LIGHT
+    # object yet is genuinely lit. Backs the Lightmap Baker's pre-bake guard.
+    w = bpy.data.worlds.new("emit_probe")
+    w.use_nodes = True
+    bg = next(n for n in w.node_tree.nodes if n.type == "BACKGROUND")
+
+    bg.inputs["Strength"].default_value = 1.0
+    bg.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
+    check("world_emits: a lit background is a light source",
+          btk.LightUtils.world_emits(w) is True)
+
+    bg.inputs["Strength"].default_value = 0.0
+    check("world_emits: zero strength is not",
+          btk.LightUtils.world_emits(w) is False)
+
+    bg.inputs["Strength"].default_value = 1.0
+    bg.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+    check("world_emits: a black background is not",
+          btk.LightUtils.world_emits(w) is False)
+
+    check("world_emits: no world at all is not",
+          btk.LightUtils.world_emits(None) is False)
+
+    # A linked Strength/Color (HDRI texture, driver, node group) can't be read
+    # statically -- assume lit rather than cry "unlit" at a correct setup.
+    bg.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
+    tex = w.node_tree.nodes.new("ShaderNodeTexEnvironment")
+    w.node_tree.links.new(tex.outputs["Color"], bg.inputs["Color"])
+    check("world_emits: a linked background input is assumed lit",
+          btk.LightUtils.world_emits(w) is True)
+
+    # ...but a READABLE zero strength is definitive, whatever drives the
+    # colour -- the linked-input escape hatch must not outrank it.
+    bg.inputs["Strength"].default_value = 0.0
+    check("world_emits: zero strength beats a linked colour (HDRI at 0 is dark)",
+          btk.LightUtils.world_emits(w) is False)
+
+    # The flat-colour fallback is for a TREELESS world. It can't be built on 5.x
+    # (every world ships a tree, and `use_nodes = False` is deprecated and does
+    # not stick -- probed), so the tree's presence, never `use_nodes`, is what
+    # selects the branch. Pinned here so the deprecated attribute can't creep back.
+    bg.inputs["Strength"].default_value = 1.0
+    w.use_nodes = False
+    check("world_emits: ignores the deprecated use_nodes flag (reads the tree)",
+          w.node_tree is not None and btk.LightUtils.world_emits(w) is True,
+          f"use_nodes read back as {w.use_nodes}")
+
+    # Omitted arg = "ask the scene"; an explicit None = "no world" (they must
+    # stay distinguishable -- callers forward a possibly-None scene.world).
+    bg.inputs["Strength"].default_value = 1.0
+    scene_world_backup = bpy.context.scene.world
+    bpy.context.scene.world = w
+    check("world_emits: defaults to the scene world",
+          btk.LightUtils.world_emits() is True)
+    bpy.context.scene.world = None
+    check("world_emits: a scene with no world is not lit by one",
+          btk.LightUtils.world_emits() is False)
+    bpy.context.scene.world = scene_world_backup
+    bpy.data.worlds.remove(w)
+
+    # --- set_world_environment: flat-ambient path --------------------------
+    # Untested until now, and it hand-rolled the find-or-create-world-and-tree
+    # dance (incl. an UNGUARDED deprecated `use_nodes = True`) instead of
+    # calling _world_node_tree. These pin the rerouted behaviour, especially
+    # the no-world-at-all case the hand-rolled version existed to cover.
+    bpy.context.scene.world = None
+    desc = btk.LightUtils.set_world_environment(color=(0.1, 0.2, 0.3), strength=2.0)
+    world = bpy.context.scene.world
+    check("set_world_environment creates a world when the scene has none",
+          world is not None and world.node_tree is not None, f"{world}")
+    bg = next((n for n in world.node_tree.nodes if n.type == "BACKGROUND"), None)
+    check("flat ambient wires a Background node with the requested colour/strength",
+          bg is not None
+          and all(abs(a - b) < 1e-5 for a, b in zip(bg.inputs["Color"].default_value[:3],
+                                                    (0.1, 0.2, 0.3)))
+          and abs(bg.inputs["Strength"].default_value - 2.0) < 1e-5,
+          f"{tuple(bg.inputs['Color'].default_value) if bg else None}")
+    check("the Background reaches the World Output",
+          bool(bg.outputs["Background"].links))
+    check("it reports what it applied", "flat ambient" in desc and "2.0" in desc, desc)
+    check("a flat-ambient world is a light source",
+          btk.LightUtils.world_emits(world) is True)
+    # Re-running on an EXISTING world updates in place rather than stacking nodes.
+    btk.LightUtils.set_world_environment(color=(0.5, 0.5, 0.5), strength=1.0)
+    bgs = [n for n in bpy.context.scene.world.node_tree.nodes if n.type == "BACKGROUND"]
+    check("a second call updates in place (one Background node)", len(bgs) == 1,
+          f"{len(bgs)} background node(s)")
+
     for p in paths:
         os.remove(p)
     os.rmdir(tmp_dir)

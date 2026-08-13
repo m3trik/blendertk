@@ -48,6 +48,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.light_utils._light_utils import LightUtils
 from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
 from blendertk.node_utils.data_nodes import DataNodes
 from blendertk.mat_utils.texture_baker import TextureBaker
@@ -117,6 +118,8 @@ class LightmapBaker(ptk.LoggingMixin):
         # the baker (below) as a single source of truth (no drift between the two objects).
         # ``denoise``/``device`` are Cycles quality/throughput knobs owned by the same primitive.
         self._texture_baker = TextureBaker(resolution, samples, denoise, device)
+        # Latch for the pre-bake unlit-scene guard (warn once per instance).
+        self._warned_no_lights = False
 
     @property
     def resolution(self) -> int:
@@ -251,6 +254,8 @@ class LightmapBaker(ptk.LoggingMixin):
         if not meshes:
             self.logger.error("Nothing to bake. Pass objects= or select a mesh.")
             return {}
+
+        self._warn_if_unlit_scene()
 
         uv_set = uv_set or LIGHTMAP_UV_SET
         if create_uvs:
@@ -1133,6 +1138,43 @@ class LightmapBaker(ptk.LoggingMixin):
         """
         return self.revert_lightmap(objects)
 
+    # ------------------------------------------------------------------ guards
+    def _warn_if_unlit_scene(self) -> None:
+        """Warn (once per instance) when the scene has no light source to bake.
+
+        A lightless bake silently produces a black lightmap -- worth a loud hint BEFORE the
+        rays are spent rather than only after (the panel's post-bake ``_black_bake_warning``
+        reads the finished maps; this fires for scripted callers too, which is why it lives
+        on the workflow rather than the Slots). Twin of mayatk's guard, with the Arnold
+        light-type probe replaced by Blender's own: a ``LIGHT`` object, or a world background
+        that emits (Cycles' analogue of ``aiSkyDomeLight`` -- blendertk ships an HDR Manager,
+        so an HDRI-only scene is a genuinely lit scene and must not trip this).
+
+        Emissive-material-only scenes still trip it; it is a warning, not a gate -- so an
+        unreadable scene stays SILENT rather than raising into the bake it precedes.
+        """
+        if self._warned_no_lights:
+            return
+        try:
+            import bpy
+
+            scene = bpy.context.scene
+            if scene is None:
+                return
+            if any(obj.type == "LIGHT" for obj in scene.objects):
+                return
+            if LightUtils.world_emits(scene.world):
+                return
+        except Exception:  # no runtime / unreadable scene -- nothing to warn about
+            return
+        self._warned_no_lights = True
+        self.logger.warning(
+            "No lights found in the scene -- the lightmap will bake black "
+            "(unless emissive materials are the only light source). Add a light, "
+            "or set a world environment (light_utils' HDR Manager / "
+            "LightUtils.set_world_environment)."
+        )
+
     @staticmethod
     def _marked_objects(prop: str, objects) -> List[Any]:
         """Objects carrying *prop*: ``objects=None`` -> all in scene; else the given subset."""
@@ -1153,7 +1195,7 @@ class LightmapBaker(ptk.LoggingMixin):
 # -----------------------------------------------------------------------------
 
 
-class LightmapBakerSlots(ptk.LoggingMixin):
+class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     """Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
 
     A thin driver over :class:`LightmapBaker` (composition; no bake logic here). Mirrors
@@ -1170,7 +1212,7 @@ class LightmapBakerSlots(ptk.LoggingMixin):
     (``cmb002``) picks how the maps are laid out — Per-Object or Atlas by
     Material (:meth:`~LightmapBaker.bake_atlas`); both are live.
 
-    Tentacle-independent (``ptk.LoggingMixin`` only); the Qt-only ``uitk`` ``fmt`` helper is
+    Tentacle-independent (``ptk`` mixins only); the Qt-only ``uitk`` ``fmt`` helper is
     deferred into the methods that use it (headless Blender ships no Qt binding).
     """
 
@@ -1533,13 +1575,82 @@ class LightmapBakerSlots(ptk.LoggingMixin):
             return ""
         self.logger.warning(
             "Bake is essentially BLACK (brightest map mean %.4f). The bake "
-            "renders the scene's own lights: check light power/visibility.",
+            "renders the scene's own lights: check light power (W), that the "
+            "lights are visible to the RENDER (not just the viewport), and "
+            "that the world background is not black -- an emissive material "
+            "lights a Cycles bake only while its object is render-visible.\n"
+            "Scene lights at bake time:\n%s",
             peak,
+            self._light_audit(),
         )
         return (
             "  WARNING: bake is essentially BLACK — check light power "
             "(see the console)."
         )
+
+    @staticmethod
+    def _light_audit() -> str:
+        """One line per scene light: the attrs that decide whether a bake is lit.
+
+        Attached to the black-bake warning so a dark result carries its own diagnosis --
+        power, scale, render visibility and the world strength are exactly the dials a black
+        bake traces back to, and none of them are visible in the bake output itself. Twin of
+        mayatk's ``_light_audit`` (Arnold's intensity/exposure/normalize -> Cycles' watts).
+
+        Total-failure tolerant: it is evaluated as an argument to the black-bake warning,
+        which sits OUTSIDE that guard's try/except, so a raise here would propagate out of a
+        finished bake -- the one thing the guard promises never to do.
+        """
+        try:
+            import bpy
+
+            scene = bpy.context.scene
+            if scene is None:
+                return "  <no scene>"
+            rows = LightmapBakerSlots._light_rows(scene)  # staticmethod: no self here
+            world = scene.world
+            rows.append(
+                f"  <world>: emits={LightUtils.world_emits(world)}"
+                if world is not None
+                else "  <world>: none"
+            )
+            return "\n".join(rows)
+        except Exception:
+            return "  <scene unreadable>"
+
+    @staticmethod
+    def _light_rows(scene) -> List[str]:
+        """One ``  <name>: k=v ...`` row per light in *scene* (the audit's per-light half).
+
+        Each light is read under its own guard, so a single unreadable one costs its row
+        rather than the whole table.
+        """
+        rows: List[str] = []
+        for obj in scene.objects:
+            if obj.type != "LIGHT":
+                continue
+            try:
+                data = obj.data
+                sx, sy, _sz = obj.scale
+                energy = getattr(data, "energy", float("nan"))
+                bits = [
+                    f"type={data.type}",
+                    # Blender's own label for the dial, so the artist reads the same word
+                    # the UI shows: a SUN's energy is irradiance (W/m2, "Strength"), every
+                    # other type's is radiant power in watts ("Power").
+                    f"strength={energy:g}" if data.type == "SUN" else f"power={energy:g}W",
+                    f"scale={sx:g}x{sy:g}",
+                    # hide_render is what the BAKE obeys; hide_viewport is not enough to
+                    # explain a black bake on its own, so report both separately.
+                    f"render_visible={not obj.hide_render}",
+                    f"viewport_visible={obj.visible_get()}",
+                ]
+                if data.type == "AREA":
+                    bits.append(f"size={data.size:g}")
+                rows.append(f"  {obj.name}: " + "  ".join(bits))
+            except Exception:
+                rows.append(f"  {getattr(obj, 'name', '?')}: <unreadable>")
+        return rows or ["  <no lights in the scene>"]
 
     # ------------------------------------------------------------------ header menu
     def revert_to_source(self) -> None:

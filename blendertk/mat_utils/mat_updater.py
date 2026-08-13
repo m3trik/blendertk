@@ -280,12 +280,11 @@ class MatUpdaterSlots(MatUpdater):
 
         if not widget.is_initialized:
             widget.restore_state = True
-            # Populate presets
-            presets = ptk.MapRegistry().get_workflow_presets()
+            # Names + tooltips from the OutputTemplates SSoT (shared with
+            # game_shader / the converter / compositor / scene exporter).
             widget.clear()
-            for name, settings in presets.items():
+            for name, description in ptk.OutputTemplates.profile_choices():
                 widget.addItem(name)
-                description = settings.get("description")
                 if description:
                     widget.setItemData(
                         widget.count() - 1, description, QtCore.Qt.ToolTipRole

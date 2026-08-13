@@ -24,6 +24,10 @@ _COORD_NODE = "btk_hdri_coords"
 # Name prefix (and delete handle) for lights built from fixture geometry.
 _FIXTURE_LIGHT_PREFIX = "btk_fixture_"
 
+# "argument not supplied" sentinel — lets an explicit ``None`` keep its own meaning
+# ("no world") where the default means "ask the scene". See LightUtils.world_emits.
+_SCENE_WORLD = object()
+
 
 class _LightUtilsInternal(object):
     """Internal helpers for LightUtils."""
@@ -75,10 +79,21 @@ class _LightUtilsInternal(object):
             world = bpy.data.worlds.new("World")
             scene.world = world
         nt = world.node_tree
-        if nt is None and create:
-            world.use_nodes = (
-                True  # pre-6.0 path; 5.x factory worlds already have a tree
-            )
+        # The absent-tree case is the 4.x find-or-create. The second clause is
+        # 4.x too and is the one a pure `nt is None` guard misses: there, a
+        # world can carry a tree while ``use_nodes`` is False, and the renderer
+        # ignores the tree in that state -- so the caller would edit nodes,
+        # report success, and still render flat. The old unconditional write
+        # covered it; the guard that replaced it did not. Version-gated rather
+        # than probed, because on 5.x merely READING ``use_nodes`` emits a
+        # deprecation warning and it is pinned True regardless, and 6.0 removes
+        # it (where reading raises) -- so on 5.x+ this is never evaluated and
+        # behaviour is byte-identical to the plain `nt is None` guard.
+        if create and (
+            nt is None
+            or (bpy.app.version < (5, 0) and not world.use_nodes)
+        ):
+            world.use_nodes = True
             nt = world.node_tree
         return nt
 
@@ -302,6 +317,54 @@ class LightUtils(_LightUtilsInternal):
                 removed = True
         return removed
 
+    @staticmethod
+    def world_emits(world=_SCENE_WORLD) -> bool:
+        """True when *world* can light a render/bake (a non-black background).
+
+        The world is Cycles' analogue of an ``aiSkyDomeLight``, so "is anything lit here?"
+        cannot be answered from the ``LIGHT`` objects alone -- an HDRI-only scene has none.
+        Omitting *world* asks about the scene's; passing ``None`` explicitly means "no world"
+        and is answered False (the two must stay distinguishable -- a caller forwarding a
+        possibly-``None`` ``scene.world`` would otherwise silently re-query the scene).
+
+        Deliberately CONSERVATIVE, because callers use it to decide whether to warn: anything
+        it cannot read statically (a linked Strength/Color -- HDRI texture, driver, node
+        group) counts as lit rather than risk crying "unlit" at a correctly lit setup. The
+        one exception is a readable zero strength, which is definitive -- no colour, however
+        it is driven, emits through it.
+        """
+        import bpy
+
+        if world is _SCENE_WORLD:
+            scene = getattr(bpy.context, "scene", None)
+            world = getattr(scene, "world", None) if scene is not None else None
+        if world is None:
+            return False
+        # Note ``use_nodes`` is NOT consulted: it is deprecated on 5.x (where it is pinned
+        # True, so it decides nothing) and removed in 6.0 (where READING it would raise).
+        # The tree's presence is the one test that holds on every supported version -- and
+        # the flat-colour fallback below is live, not dead: on the 4.x we also support a
+        # world can genuinely carry no tree.
+        node_tree = world.node_tree
+        if node_tree is None:
+            return any(c > 0.0 for c in world.color)
+        for node in node_tree.nodes:
+            if node.type not in {"BACKGROUND", "EMISSION"}:
+                continue
+            strength = node.inputs.get("Strength")
+            color = node.inputs.get("Color")
+            if strength is None:
+                continue
+            # Test the definitive zero BEFORE the linked-input escape hatch below, or an
+            # HDRI plugged into a strength-0 background would read as lit.
+            if not strength.is_linked and strength.default_value <= 0.0:
+                continue
+            if strength.is_linked or color is None or color.is_linked:
+                return True
+            if any(c > 0.0 for c in color.default_value[:3]):
+                return True
+        return False
+
     # ------------------------------------------------------------------ fixture lights
 
     @staticmethod
@@ -482,8 +545,6 @@ class LightUtils(_LightUtilsInternal):
         Returns:
             A short human-readable description of what was applied (for logs / the footer).
         """
-        import bpy
-
         if hdri:
             if not os.path.isfile(hdri):
                 # Never silent: a mistyped HDRI path that quietly becomes flat ambient is
@@ -493,11 +554,11 @@ class LightUtils(_LightUtilsInternal):
             return f"HDRI {os.path.basename(hdri)} @ {strength}"
 
         cls.clear_world_hdri()
-        scene = bpy.context.scene
-        world = scene.world or bpy.data.worlds.new("World")
-        scene.world = world
-        world.use_nodes = True
-        nt = world.node_tree
+        # Find-or-create the world AND its tree through the one helper that owns that
+        # dance -- hand-rolling it here duplicated the logic and, worse, wrote the
+        # deprecated ``use_nodes`` UNGUARDED (removed in Blender 6.0; the helper only
+        # touches it when there is genuinely no tree, which 5.x worlds never hit).
+        nt = _LightUtilsInternal._world_node_tree(create=True)
         background = next(
             (n for n in nt.nodes if n.type == "BACKGROUND"), None
         ) or nt.nodes.new("ShaderNodeBackground")

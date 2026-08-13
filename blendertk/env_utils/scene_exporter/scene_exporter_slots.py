@@ -319,15 +319,16 @@ class SceneExporterSlots(SceneExporter):
 
         if not widget.is_initialized:
             widget.restore_state = True
-        presets = ptk.MapRegistry.instance().get_workflow_presets()
+        # Names + tooltips from the OutputTemplates SSoT (shared with
+        # game_shader / mat_updater / the converter / compositor).
+        choices = ptk.OutputTemplates.profile_choices()
         widget.add(
-            {"As Authored": None, **{name: name for name in presets}},
+            {"As Authored": None, **{name: name for name, _ in choices}},
             clear=True,
         )
+        tooltips = dict(choices)
         for index in range(widget.count()):
-            description = (presets.get(widget.itemData(index)) or {}).get(
-                "description"
-            )
+            description = tooltips.get(widget.itemData(index))
             if description:
                 widget.setItemData(index, description, QtCore.Qt.ToolTipRole)
 

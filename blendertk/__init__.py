@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.62"
+__version__ = "0.5.65"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -164,6 +164,12 @@ DEFAULT_INCLUDE = {
     # instead of deep-importing one and namespacing the other.
     "ui_utils.blender_ui_handler": [
         "BlenderUiHandler",
+    ],
+    # Host cancellation strategy for uitk's slot dispatcher — parity twin of
+    # ``mtk.MayaCancelProvider``. Qt-side (imports uitk), so it resolves lazily
+    # and stays out of the headless engine surface.
+    "ui_utils.cancel_provider": [
+        "BlenderCancelProvider",
     ],
     "ui_utils.blender_native_menus": [
         "BlenderNativeMenus",

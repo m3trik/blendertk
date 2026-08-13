@@ -562,6 +562,78 @@ try:
     check("browsing outside the texture folder stays absolute",
           s.ui.txt_output_dir.text() == abs_dir)
 
+    # --- pre-bake unlit-scene guard (mayatk parity) ------------------------
+    # mayatk warns BEFORE spending the rays; blendertk previously only had the
+    # panel's post-bake black-map check, so a scripted bake got no hint at all.
+    scene = bpy.context.scene
+    world_backup = scene.world
+
+    lit = LightmapBaker.from_preset("preview")
+    lit._warn_if_unlit_scene()
+    check("a scene with a light does not trip the guard",
+          lit._warned_no_lights is False)
+
+    # Drop every light, drop the world (factory startup ships a grey emitting
+    # one) -> genuinely unlit.
+    for o in [o for o in scene.objects if o.type == "LIGHT"]:
+        bpy.data.objects.remove(o, do_unlink=True)
+    scene.world = None
+    dark = LightmapBaker.from_preset("preview")
+    dark._warn_if_unlit_scene()
+    check("a scene with no light and no world trips the guard",
+          dark._warned_no_lights is True)
+
+    # Latch: the warning is once per instance, not once per baked object.
+    dark._warned_no_lights = False
+    dark._warn_if_unlit_scene()
+    check("the guard re-arms when the latch is cleared", dark._warned_no_lights is True)
+
+    # An HDRI/world-lit scene IS lit -- blendertk ships an HDR Manager, so a
+    # false "unlit" cry here would fire on a correctly lit setup. (The
+    # LightUtils.world_emits primitive itself is unit-tested in
+    # test_light_utils.py; this pins that the guard consults it.)
+    w = bpy.data.worlds.new("probe_world")
+    w.use_nodes = True
+    scene.world = w
+    bg = next(n for n in w.node_tree.nodes if n.type == "BACKGROUND")
+    bg.inputs["Strength"].default_value = 1.0
+    bg.inputs["Color"].default_value = (0.5, 0.5, 0.5, 1.0)
+    worldlit = LightmapBaker.from_preset("preview")
+    worldlit._warn_if_unlit_scene()
+    check("a world-lit (HDRI) scene does not trip the guard",
+          worldlit._warned_no_lights is False)
+
+    bg.inputs["Strength"].default_value = 0.0
+    darkworld = LightmapBaker.from_preset("preview")
+    darkworld._warn_if_unlit_scene()
+    check("a world at zero strength still trips the guard",
+          darkworld._warned_no_lights is True)
+    bg.inputs["Strength"].default_value = 1.0
+
+    # --- light audit diagnostic (mayatk parity) ----------------------------
+    # mayatk attaches a per-light table to the black-bake warning so a dark
+    # result carries its own diagnosis; blendertk's warning had no diagnostic.
+    audit = LightmapBakerSlots._light_audit()
+    check("audit reports the world when the scene has no lights",
+          "<no lights in the scene>" in audit and "<world>" in audit, audit)
+
+    bpy.ops.object.light_add(type="AREA", location=(0, 0, 5))
+    area = bpy.context.active_object
+    area.data.energy = 250.0
+    area.data.size = 2.0
+    area.hide_render = True
+    audit = LightmapBakerSlots._light_audit()
+    check("audit lists the light with the dials a black bake traces to",
+          area.name in audit and "power=250W" in audit and "type=AREA" in audit
+          and "size=2" in audit and "render_visible=False" in audit, audit)
+    check("audit still reports world state alongside the lights",
+          "<world>: emits=" in audit, audit)
+
+    # Restore what the guard tests tore down.
+    bpy.data.objects.remove(area, do_unlink=True)
+    scene.world = world_backup
+    bpy.data.worlds.remove(w)
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")
