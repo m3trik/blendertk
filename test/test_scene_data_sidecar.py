@@ -60,6 +60,25 @@ try:
           os.path.isfile(mpath + ".prev") and json.load(open(mpath + ".prev"))["data_export"] == data_a)
     os.remove(mpath + ".prev")
 
+    # 2c-bis. The sidecar ships beside the deliverable, so it records no
+    #     authoring-machine paths. `lightmap_metadata.dir` is a build-time hint
+    #     for the GLB converter; a recipient can do nothing with a path on
+    #     someone else's drive but read the folder names in it.
+    hint_export = os.path.join(tmp, "hint.fbx")
+    authored = r"O:\Dropbox (Client)\Team Folder\PROD\sourceimages"
+    SD.write_manifest(hint_export, {"A"}, data={
+        "lightmap_metadata": {"version": 1, "dir": authored,
+                              "objects": [{"name": "room", "map": "room_Lightmap.exr"}]},
+        "note": "x",
+    })
+    hint_raw = open(SD.manifest_path_for(hint_export)).read()
+    written = json.loads(hint_raw)["data_export"]
+    check("authoring locate hint is not recorded",
+          "Dropbox (Client)" not in hint_raw and "dir" not in written["lightmap_metadata"])
+    check("scrub keeps the payload and sibling channels",
+          written["lightmap_metadata"]["objects"] == [{"name": "room", "map": "room_Lightmap.exr"}]
+          and written["note"] == "x")
+
     # 2d. v1 flat manifest content is still readable (hierarchy section shim).
     v1_export = os.path.join(tmp, "v1style.fbx")
     v1_paths = ["A", "A|B"]

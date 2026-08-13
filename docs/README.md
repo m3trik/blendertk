@@ -1,4 +1,4 @@
-[![Tests](https://img.shields.io/badge/Tests-3553%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-3590%20passed-brightgreen.svg)](../test/)
 
 # blendertk
 

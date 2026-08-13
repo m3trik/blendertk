@@ -437,7 +437,7 @@ _Generated: 2026-08-13_
 
 ### `light_utils/_light_utils.py` — Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 - `class LightUtils(_LightUtilsInternal)`
-  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
+  - methods: set_world_hdri, get_world_hdri, set_world_ray_visibility, get_world_ray_visibility, set_world_importance_resolution, get_world_importance_resolution, clear_world_hdri, world_emits, lights_from_geometry, remove_lights, set_world_environment, lights_from_records, scale_light_energy, set_emission_strength
 
 ### `light_utils/hdr_manager.py` — Blender world-HDRI environment manager.
 - `class HdrManagerSlots(ptk.LoggingMixin)`
@@ -446,7 +446,7 @@ _Generated: 2026-08-13_
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
   - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, refresh_export_metadata, revert_lightmap, revert
-- `class LightmapBakerSlots(ptk.LoggingMixin)`
+- `class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
 
 ### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
@@ -746,6 +746,10 @@ _Generated: 2026-08-13_
   - methods: calculate, convert_unit, get_fps_value, get_current_time, frames_to_sec, sec_to_frames
 - `class CalculatorSlots(ptk.LoggingMixin)`
   - methods: header_init, on_input, on_clear, on_backspace, on_equal, on_convert_units, get_fps, get_current_time, frames_to_sec, sec_to_frames
+
+### `ui_utils/cancel_provider.py` — Blender's answers to uitk's cancellation contract (mayatk parity twin).
+- `class BlenderCancelProvider(CancelProvider)`
+  - methods: begin, tick, end
 
 ### `ui_utils/menu_harvest.py` — Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya's wrap.
 - `class MenuHarvest(_MenuHarvestInternal)`

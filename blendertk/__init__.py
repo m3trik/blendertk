@@ -165,6 +165,12 @@ DEFAULT_INCLUDE = {
     "ui_utils.blender_ui_handler": [
         "BlenderUiHandler",
     ],
+    # Host cancellation strategy for uitk's slot dispatcher — parity twin of
+    # ``mtk.MayaCancelProvider``. Qt-side (imports uitk), so it resolves lazily
+    # and stays out of the headless engine surface.
+    "ui_utils.cancel_provider": [
+        "BlenderCancelProvider",
+    ],
     "ui_utils.blender_native_menus": [
         "BlenderNativeMenus",
     ],

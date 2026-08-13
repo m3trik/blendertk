@@ -264,8 +264,22 @@ class LightmapWebExport(ptk.LoggingMixin):
         """Add the lightmap image + UVMap nodes to *material*; return the node names added."""
         import bpy
 
-        material.use_nodes = True
+        # Find-or-create the tree, GUARDED on its absence rather than assigning
+        # ``use_nodes`` unconditionally: the attribute is deprecated on 5.x (the assignment
+        # is ignored -- it reads back True) and removed in 6.0, but it is still the only way
+        # to build a tree on the 4.x we also support, where a new material genuinely has
+        # none. Same shape as ``_LightUtilsInternal._world_node_tree``.
         nt = material.node_tree
+        # Second clause is 4.x-only and is what a bare `nt is None` guard
+        # misses: there a material can carry a tree while ``use_nodes`` is
+        # False, and both the renderer and the glTF exporter ignore the tree in
+        # that state -- so the lightmap nodes would be added to a tree nothing
+        # reads. The unconditional write this guard replaced covered that.
+        # Version-gated because reading ``use_nodes`` on 5.x warns (and it is
+        # pinned True) and 6.0 removes it, so 5.x+ never evaluates it.
+        if nt is None or (bpy.app.version < (5, 0) and not material.use_nodes):
+            material.use_nodes = True
+            nt = material.node_tree
 
         image = bpy.data.images.load(os.path.abspath(png), check_existing=True)
         image.colorspace_settings.name = "sRGB"
@@ -331,7 +345,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         restored: List[str] = []
         for record in (token or {}).get("materials", []):
             material = bpy.data.materials.get(record.get("material", ""))
-            if material is None or not material.use_nodes:
+            if material is None or material.node_tree is None:  # not use_nodes: deprecated
                 continue
             nt = material.node_tree
             for node_name in record.get("nodes", []):
