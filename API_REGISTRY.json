@@ -1,7 +1,7 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-08-13",
+  "generated_at": "2026-08-15",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -157,7 +157,7 @@
               "kind": "staticmethod",
               "signature": "(objects, interpolation='CONSTANT', handle=None)",
               "summary": "Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on",
-              "line": 1022,
+              "line": 1025,
               "deprecated": false
             },
             {
@@ -166,7 +166,7 @@
               "kind": "staticmethod",
               "signature": "(objects, stepped=True)",
               "summary": "Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.",
-              "line": 1039,
+              "line": 1042,
               "deprecated": false
             },
             {
@@ -175,7 +175,7 @@
               "kind": "staticmethod",
               "signature": "(objects, time=None)",
               "summary": "Remove animation from the given objects — mirror of ``mtk.delete_keys``.",
-              "line": 1044,
+              "line": 1047,
               "deprecated": false
             },
             {
@@ -184,7 +184,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Set the scene frame range to the keyed extent of ``objects`` (or every scene object).",
-              "line": 1086,
+              "line": 1089,
               "deprecated": false
             },
             {
@@ -193,7 +193,7 @@
               "kind": "staticmethod",
               "signature": "(source, mode='action')",
               "summary": "Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same",
-              "line": 1103,
+              "line": 1106,
               "deprecated": false
             },
             {
@@ -202,7 +202,7 @@
               "kind": "staticmethod",
               "signature": "(objects, buffer, target_time=None)",
               "summary": "Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of",
-              "line": 1148,
+              "line": 1151,
               "deprecated": false
             },
             {
@@ -211,7 +211,7 @@
               "kind": "staticmethod",
               "signature": "(objects, relative=False, optimize=False)",
               "summary": "Transfer keyframes from the first object (source) onto the rest (targets) — mirror of",
-              "line": 1197,
+              "line": 1200,
               "deprecated": false
             },
             {
@@ -220,7 +220,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)",
               "summary": "Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.",
-              "line": 1286,
+              "line": 1289,
               "deprecated": false
             },
             {
@@ -229,7 +229,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)",
               "summary": "Detect and repair corrupted animation fcurves — mirror of",
-              "line": 1342,
+              "line": 1345,
               "deprecated": false
             },
             {
@@ -238,7 +238,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, untie=False, frame_range=None, absolute=False)",
               "summary": "Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of",
-              "line": 1431,
+              "line": 1434,
               "deprecated": false
             },
             {
@@ -247,7 +247,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)",
               "summary": "Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the",
-              "line": 1489,
+              "line": 1492,
               "deprecated": false
             },
             {
@@ -256,7 +256,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, frame_range=None, step=1)",
               "summary": "Bake driven/animated blend-shape (shape-key) weights to explicit keyframes — the Blender",
-              "line": 1557,
+              "line": 1560,
               "deprecated": false
             },
             {
@@ -265,7 +265,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, by_time=False, ignore_holds=False)",
               "summary": "Per-object animation summary — mirror of ``mtk`` get-animation-info.",
-              "line": 1634,
+              "line": 1637,
               "deprecated": false
             },
             {
@@ -274,7 +274,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as CSV (paste into a spreadsheet) — mirror of",
-              "line": 1686,
+              "line": 1689,
               "deprecated": false
             },
             {
@@ -283,7 +283,7 @@
               "kind": "staticmethod",
               "signature": "(records)",
               "summary": "Render :func:`get_animation_info` records as an HTML table for the text-view dialog.",
-              "line": 1716,
+              "line": 1719,
               "deprecated": false
             },
             {
@@ -292,7 +292,7 @@
               "kind": "staticmethod",
               "signature": "(scene, file_format='PNG', container=None, codec=None, quality=None)",
               "summary": "Apply playblast/render output settings to ``scene.render`` — the engine behind the rendering",
-              "line": 1742,
+              "line": 1745,
               "deprecated": false
             }
           ]
@@ -327,7 +327,7 @@
               "kind": "method",
               "signature": "(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0)) -> List[Target]",
               "summary": "Create tweens at specific weights or evenly spaced.",
-              "line": 210,
+              "line": 214,
               "deprecated": false
             },
             {
@@ -336,7 +336,7 @@
               "kind": "method",
               "signature": "(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]",
               "summary": "Create tweens at specific animation frames.",
-              "line": 236,
+              "line": 240,
               "deprecated": false
             },
             {
@@ -345,7 +345,7 @@
               "kind": "method",
               "signature": "(self, tweens: Optional[List[Target]] = None) -> List[Target]",
               "summary": "Apply tween mesh edits back to the master shape key's correctives.",
-              "line": 267,
+              "line": 271,
               "deprecated": false
             },
             {
@@ -354,7 +354,7 @@
               "kind": "classmethod",
               "signature": "(cls, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph') -> Optional['BlendshapeAnimator']",
               "summary": "Complete basic workflow: create setup with tweens ready for editing.",
-              "line": 329,
+              "line": 333,
               "deprecated": false
             },
             {
@@ -363,7 +363,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Apply all tween edits to the current setup.",
-              "line": 362,
+              "line": 366,
               "deprecated": false
             },
             {
@@ -372,7 +372,7 @@
               "kind": "method",
               "signature": "(self, cleanup_scene: bool = True, delete_construction_history: bool = True, hide_target_mesh: bool = True, delete_inbetween_meshes: bool = True) -> bool",
               "summary": "Finalize the morph animation and clean up the scene for export.",
-              "line": 380,
+              "line": 384,
               "deprecated": false
             },
             {
@@ -381,7 +381,7 @@
               "kind": "classmethod",
               "signature": "(cls, base_obj=None) -> Optional['BlendshapeAnimator']",
               "summary": "Create an animator bound to an existing shape-key setup on ``base_obj``.",
-              "line": 470,
+              "line": 474,
               "deprecated": false
             },
             {
@@ -390,7 +390,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Recover lost animation keyframes on the master shape key's value.",
-              "line": 528,
+              "line": 533,
               "deprecated": false
             },
             {
@@ -399,7 +399,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Diagnose topology mismatches between the base mesh and in-between meshes.",
-              "line": 573,
+              "line": 578,
               "deprecated": false
             },
             {
@@ -408,7 +408,7 @@
               "kind": "method",
               "signature": "(self, delete_mismatched: bool = True, apply_valid_only: bool = True) -> bool",
               "summary": "Clean up topology mismatches by deleting bad meshes and applying good ones.",
-              "line": 639,
+              "line": 644,
               "deprecated": false
             },
             {
@@ -417,7 +417,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Remove the target mesh object for a clean export.",
-              "line": 742,
+              "line": 747,
               "deprecated": false
             }
           ]
@@ -476,7 +476,7 @@
         {
           "name": "BlendshapeAnimatorSlots",
           "summary": "Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.",
-          "line": 77,
+          "line": 79,
           "bases": [
             "BlendshapeAnimator",
             "_BlendshapeAnimatorSlotsInternal"
@@ -488,7 +488,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Configure header buttons + about menu.",
-              "line": 191,
+              "line": 193,
               "deprecated": false
             },
             {
@@ -497,7 +497,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Create Setup button — option_box exposes an alternative entrypoint.",
-              "line": 237,
+              "line": 239,
               "deprecated": false
             },
             {
@@ -506,7 +506,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Create Setup.",
-              "line": 253,
+              "line": 255,
               "deprecated": false
             },
             {
@@ -515,7 +515,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Populate the edit-mode combo.",
-              "line": 303,
+              "line": 305,
               "deprecated": false
             },
             {
@@ -524,7 +524,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Name-prefix field — optional, so an empty prefix is a real choice.",
-              "line": 317,
+              "line": 319,
               "deprecated": false
             },
             {
@@ -533,7 +533,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "CSV weights field — option_box menu offers preset lists.",
-              "line": 321,
+              "line": 323,
               "deprecated": false
             },
             {
@@ -542,7 +542,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Add Tweens — option_box exposes count + group / prefix overrides.",
-              "line": 339,
+              "line": 341,
               "deprecated": false
             },
             {
@@ -551,7 +551,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Add Tweens — dispatches by mode.",
-              "line": 367,
+              "line": 369,
               "deprecated": false
             },
             {
@@ -560,7 +560,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Diagnose Topology.",
-              "line": 420,
+              "line": 422,
               "deprecated": false
             },
             {
@@ -569,7 +569,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Cleanup Topology Mismatches — option_box for the two flags.",
-              "line": 429,
+              "line": 431,
               "deprecated": false
             },
             {
@@ -578,7 +578,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Clean up in-between meshes whose topology doesn't match the base mesh.",
-              "line": 447,
+              "line": 449,
               "deprecated": false
             },
             {
@@ -587,7 +587,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Recover Animation.",
-              "line": 459,
+              "line": 461,
               "deprecated": false
             },
             {
@@ -596,7 +596,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Apply All Edits — option_box for skip_duplicates, validate_topology.",
-              "line": 471,
+              "line": 473,
               "deprecated": false
             },
             {
@@ -605,7 +605,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Apply All Edits — bulk apply with optional flags from the option_box.",
-              "line": 493,
+              "line": 495,
               "deprecated": false
             },
             {
@@ -614,7 +614,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Remove Target Mesh.",
-              "line": 516,
+              "line": 518,
               "deprecated": false
             },
             {
@@ -623,7 +623,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Finalize for Export — option_box for the four boolean flags.",
-              "line": 526,
+              "line": 528,
               "deprecated": false
             },
             {
@@ -632,7 +632,7 @@
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Finalize the shape-key setup for export (scene cleanup, hide source).",
-              "line": 564,
+              "line": 566,
               "deprecated": false
             }
           ]
@@ -747,7 +747,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Test the shape key by temporarily setting its value to 0.5.",
-              "line": 86,
+              "line": 88,
               "deprecated": false
             },
             {
@@ -756,7 +756,7 @@
               "kind": "method",
               "signature": "(self) -> Tuple[int, int]",
               "summary": "Return (start, end) frame range from keyframes on the master key's value.",
-              "line": 103,
+              "line": 105,
               "deprecated": false
             },
             {
@@ -765,7 +765,7 @@
               "kind": "staticmethod",
               "signature": "(key_id)",
               "summary": "Snapshot every *un-driven* key block's ``value`` on ``key_id`` and restore it on exit.",
-              "line": 113,
+              "line": 115,
               "deprecated": false
             }
           ]
@@ -1039,7 +1039,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None, gap_threshold: float = 5.0) -> List[Dict[str, Any]]",
               "summary": "Gather per-object animation segments for auto shot detection.",
-              "line": 358,
+              "line": 360,
               "deprecated": false
             },
             {
@@ -1048,7 +1048,7 @@
               "kind": "staticmethod",
               "signature": "(scene=None) -> List[Tuple[float, float, str]]",
               "summary": "Gather ``(time, value, object)`` triples from currently selected keyframes.",
-              "line": 389,
+              "line": 391,
               "deprecated": false
             }
           ]
@@ -1179,7 +1179,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Build or update shots in the store from loaded steps.",
-              "line": 1652,
+              "line": 1660,
               "deprecated": false
             },
             {
@@ -1188,7 +1188,7 @@
               "kind": "method",
               "signature": "(self, skip_key_check: bool = False) -> None",
               "summary": "Compare CSV steps against the live Blender shots and color the tree.",
-              "line": 1863,
+              "line": 1871,
               "deprecated": false
             }
           ]
@@ -1196,7 +1196,7 @@
         {
           "name": "ShotManifestSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 1961,
+          "line": 1969,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -1207,7 +1207,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Header menu is configured once in controller.__init__.",
-              "line": 1974,
+              "line": 1982,
               "deprecated": false
             },
             {
@@ -1216,7 +1216,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Expand all step rows that have missing objects or behaviors.",
-              "line": 1978,
+              "line": 1986,
               "deprecated": false
             },
             {
@@ -1225,7 +1225,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Expand all step rows that have scene-discovered extra objects.",
-              "line": 1982,
+              "line": 1990,
               "deprecated": false
             },
             {
@@ -1234,7 +1234,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 1986,
+              "line": 1994,
               "deprecated": false
             },
             {
@@ -1243,7 +1243,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Assess shots against live Blender scene.",
-              "line": 1992,
+              "line": 2000,
               "deprecated": false
             },
             {
@@ -1252,7 +1252,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build shots from loaded steps (or auto-detect from scene).",
-              "line": 1996,
+              "line": 2004,
               "deprecated": false
             }
           ]
@@ -1287,7 +1287,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Expand all step rows that have scene-discovered extra objects.",
-              "line": 791,
+              "line": 789,
               "deprecated": false
             }
           ]
@@ -1847,7 +1847,7 @@
               "kind": "method",
               "signature": "(self, shot_name: str) -> None",
               "summary": "Select a shot by name when its block is clicked in the shot lane.",
-              "line": 171,
+              "line": 176,
               "deprecated": false
             }
           ]
@@ -1896,7 +1896,7 @@
               "kind": "method",
               "signature": "(self, zone: str, time: float, global_pos) -> None",
               "summary": "",
-              "line": 477,
+              "line": 482,
               "deprecated": false
             },
             {
@@ -1905,7 +1905,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[int]",
               "summary": "",
-              "line": 596,
+              "line": 601,
               "deprecated": false
             },
             {
@@ -1914,7 +1914,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Widget undo_requested — restore the shot-boundary snapshot + refresh.",
-              "line": 628,
+              "line": 633,
               "deprecated": false
             },
             {
@@ -1923,7 +1923,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "",
-              "line": 645,
+              "line": 650,
               "deprecated": false
             },
             {
@@ -1932,7 +1932,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "",
-              "line": 677,
+              "line": 682,
               "deprecated": false
             },
             {
@@ -1941,7 +1941,7 @@
               "kind": "method",
               "signature": "(self, track_names) -> None",
               "summary": "",
-              "line": 1152,
+              "line": 1157,
               "deprecated": false
             },
             {
@@ -1950,7 +1950,7 @@
               "kind": "method",
               "signature": "(self, track_name: str) -> None",
               "summary": "",
-              "line": 1161,
+              "line": 1166,
               "deprecated": false
             },
             {
@@ -1959,7 +1959,7 @@
               "kind": "method",
               "signature": "(self, track_names) -> None",
               "summary": "",
-              "line": 1167,
+              "line": 1172,
               "deprecated": false
             },
             {
@@ -1968,7 +1968,7 @@
               "kind": "method",
               "signature": "(self, clip_ids: list) -> None",
               "summary": "",
-              "line": 1176,
+              "line": 1181,
               "deprecated": false
             },
             {
@@ -1977,7 +1977,7 @@
               "kind": "method",
               "signature": "(self, track_names: list) -> None",
               "summary": "",
-              "line": 1208,
+              "line": 1213,
               "deprecated": false
             },
             {
@@ -1986,7 +1986,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, locked: bool) -> None",
               "summary": "",
-              "line": 1213,
+              "line": 1218,
               "deprecated": false
             },
             {
@@ -1995,7 +1995,7 @@
               "kind": "method",
               "signature": "(self, menu, track_names) -> None",
               "summary": "",
-              "line": 1233,
+              "line": 1238,
               "deprecated": false
             },
             {
@@ -2004,7 +2004,7 @@
               "kind": "method",
               "signature": "(self, menu) -> None",
               "summary": "Header background context menu — no domain actions this phase.",
-              "line": 1243,
+              "line": 1248,
               "deprecated": false
             },
             {
@@ -2013,7 +2013,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, new_label: str) -> None",
               "summary": "Renaming a clip is display-only in Blender (object names own identity).",
-              "line": 1246,
+              "line": 1251,
               "deprecated": false
             },
             {
@@ -2022,7 +2022,7 @@
               "kind": "method",
               "signature": "(self, frame: float) -> None",
               "summary": "Widget playhead drag → set the scene frame.",
-              "line": 1249,
+              "line": 1254,
               "deprecated": false
             },
             {
@@ -2031,7 +2031,7 @@
               "kind": "method",
               "signature": "(self, menu, clip_id: int) -> None",
               "summary": "Add Delete-key + lock actions to a clip's context menu.",
-              "line": 1260,
+              "line": 1265,
               "deprecated": false
             },
             {
@@ -2040,7 +2040,7 @@
               "kind": "method",
               "signature": "(self, menu, gap_start: float, gap_end: float) -> None",
               "summary": "Gap overlay context menu — no domain actions this phase.",
-              "line": 1283,
+              "line": 1288,
               "deprecated": false
             },
             {
@@ -2049,7 +2049,7 @@
               "kind": "method",
               "signature": "(self, key_groups: list) -> None",
               "summary": "Per-key selection changed — footer feedback only.",
-              "line": 1286,
+              "line": 1291,
               "deprecated": false
             }
           ]
@@ -2057,7 +2057,7 @@
         {
           "name": "ShotSequencerSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 1404,
+          "line": 1409,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -2068,7 +2068,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Build the header menu controls (mirror of mayatk's sequencer header).",
-              "line": 1655,
+              "line": 1660,
               "deprecated": false
             },
             {
@@ -2077,7 +2077,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the attribute color configuration dialog.",
-              "line": 1817,
+              "line": 1822,
               "deprecated": false
             },
             {
@@ -2086,7 +2086,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Set the snap interval on the sequencer widget.",
-              "line": 1849,
+              "line": 1854,
               "deprecated": false
             },
             {
@@ -2095,7 +2095,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the sequencer shortcut editor.",
-              "line": 1855,
+              "line": 1860,
               "deprecated": false
             },
             {
@@ -2104,7 +2104,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 1861,
+              "line": 1866,
               "deprecated": false
             },
             {
@@ -2113,7 +2113,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Handle direct combobox selection of a shot or marker.",
-              "line": 1865,
+              "line": 1870,
               "deprecated": false
             }
           ]
@@ -2513,7 +2513,7 @@
         {
           "name": "SmartBake",
           "summary": "Intelligent bake+restore with automatic detection of what needs baking.",
-          "line": 308,
+          "line": 309,
           "bases": [
             "_SmartBakeInternal"
           ],
@@ -2524,7 +2524,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, BakeAnalysis]",
               "summary": "Analyze objects to determine what needs baking.",
-              "line": 411,
+              "line": 412,
               "deprecated": false
             },
             {
@@ -2533,7 +2533,7 @@
               "kind": "method",
               "signature": "(self, analysis: Optional[Dict[str, BakeAnalysis]] = None) -> Tuple[int, int]",
               "summary": "Determine the optimal bake time range from driver/constraint-target animation.",
-              "line": 496,
+              "line": 503,
               "deprecated": false
             },
             {
@@ -2542,7 +2542,7 @@
               "kind": "method",
               "signature": "(self, analysis: Optional[Dict[str, BakeAnalysis]] = None, time_range: Optional[Tuple[int, int]] = None) -> BakeResult",
               "summary": "Bake every driven source :func:`analyze` found.",
-              "line": 597,
+              "line": 604,
               "deprecated": false
             },
             {
@@ -2551,7 +2551,7 @@
               "kind": "method",
               "signature": "(self) -> BakeResult",
               "summary": "High-level entry point: :func:`analyze` then :func:`bake` in one call.",
-              "line": 895,
+              "line": 915,
               "deprecated": false
             },
             {
@@ -2560,7 +2560,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "Ids of restorable bake sessions recorded on this scene's ``data_internal`` carrier,",
-              "line": 905,
+              "line": 925,
               "deprecated": false
             },
             {
@@ -2569,7 +2569,7 @@
               "kind": "classmethod",
               "signature": "(cls, session_id: Optional[str] = None) -> 'RestoreResult'",
               "summary": "Reverse a bake session recorded by ``bake(restorable=True)``.",
-              "line": 914,
+              "line": 934,
               "deprecated": false
             },
             {
@@ -2578,7 +2578,7 @@
               "kind": "classmethod",
               "signature": "(cls, **kwargs)",
               "summary": "Context manager: bake on enter, restore on exit.",
-              "line": 957,
+              "line": 977,
               "deprecated": false
             },
             {
@@ -2587,7 +2587,7 @@
               "kind": "classmethod",
               "signature": "(cls, **kwargs) -> BakeResult",
               "summary": "Quick entry point for a one-shot bake: ``cls(**kwargs).execute()``.",
-              "line": 983,
+              "line": 1003,
               "deprecated": false
             }
           ]
@@ -2602,7 +2602,7 @@
         {
           "name": "BakeSessionStore",
           "summary": "LIFO stack of bake-session manifests on the ``data_internal`` Empty.",
-          "line": 203,
+          "line": 223,
           "bases": [
             "_BakeSessionStoreInternal"
           ],
@@ -2613,7 +2613,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[dict]",
               "summary": "Return all persisted sessions (oldest first).",
-              "line": 210,
+              "line": 230,
               "deprecated": false
             },
             {
@@ -2622,7 +2622,7 @@
               "kind": "classmethod",
               "signature": "(cls, sessions: List[dict]) -> None",
               "summary": "",
-              "line": 225,
+              "line": 245,
               "deprecated": false
             },
             {
@@ -2631,7 +2631,7 @@
               "kind": "classmethod",
               "signature": "(cls, session: dict) -> None",
               "summary": "",
-              "line": 231,
+              "line": 251,
               "deprecated": false
             },
             {
@@ -2640,7 +2640,7 @@
               "kind": "classmethod",
               "signature": "(cls, session_id: Optional[str] = None) -> Optional[dict]",
               "summary": "Return the latest session (or the one matching *session_id*).",
-              "line": 237,
+              "line": 257,
               "deprecated": false
             },
             {
@@ -2649,7 +2649,7 @@
               "kind": "classmethod",
               "signature": "(cls, session_id: Optional[str] = None) -> Optional[dict]",
               "summary": "Remove and return the latest session (or the matching one).",
-              "line": 250,
+              "line": 270,
               "deprecated": false
             },
             {
@@ -2658,7 +2658,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "",
-              "line": 269,
+              "line": 289,
               "deprecated": false
             },
             {
@@ -2667,7 +2667,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "A fresh, collision-safe session id.",
-              "line": 273,
+              "line": 293,
               "deprecated": false
             },
             {
@@ -2676,7 +2676,7 @@
               "kind": "staticmethod",
               "signature": "(obj_or_action) -> Optional[Dict[str, str]]",
               "summary": "Return a plain-name reference ``{\"name\", \"kind\"}`` for a live object or action.",
-              "line": 285,
+              "line": 305,
               "deprecated": false
             },
             {
@@ -2685,7 +2685,7 @@
               "kind": "staticmethod",
               "signature": "(ref: Optional[Dict[str, str]])",
               "summary": "Resolve a :func:`node_ref` back to a live ``bpy.types.Object``/``Action``, or ``None``.",
-              "line": 300,
+              "line": 320,
               "deprecated": false
             },
             {
@@ -2694,7 +2694,7 @@
               "kind": "staticmethod",
               "signature": "(obj, constraint, bone: Optional[str] = None) -> Dict[str, Any]",
               "summary": "Reference a constraint on ``obj`` (or, for an armature, on pose bone ``bone``).",
-              "line": 315,
+              "line": 335,
               "deprecated": false
             },
             {
@@ -2703,7 +2703,7 @@
               "kind": "staticmethod",
               "signature": "(ref: Optional[Dict[str, Any]])",
               "summary": "Resolve a :func:`constraint_ref` back to a live ``bpy.types.Constraint``, or ``None``.",
-              "line": 326,
+              "line": 346,
               "deprecated": false
             },
             {
@@ -2712,7 +2712,7 @@
               "kind": "staticmethod",
               "signature": "(obj, fcurve) -> Dict[str, Any]",
               "summary": "Reference a driver ``fcurve`` on ``obj.animation_data.drivers``.",
-              "line": 341,
+              "line": 361,
               "deprecated": false
             },
             {
@@ -2721,7 +2721,7 @@
               "kind": "staticmethod",
               "signature": "(ref: Optional[Dict[str, Any]])",
               "summary": "Resolve a :func:`driver_ref` back to a live driver ``FCurve``, or ``None``.",
-              "line": 350,
+              "line": 370,
               "deprecated": false
             },
             {
@@ -2730,7 +2730,7 @@
               "kind": "staticmethod",
               "signature": "(obj, key_block, fcurve) -> Dict[str, Any]",
               "summary": "Serialize a shape-key driver before ``bake_blend_shapes`` removes it.",
-              "line": 366,
+              "line": 386,
               "deprecated": false
             },
             {
@@ -2739,7 +2739,7 @@
               "kind": "staticmethod",
               "signature": "(obj, key_block, fcurve) -> Dict[str, Any]",
               "summary": "Serialize a shape-key's own (non-driver) keyframes before ``bake_blend_shapes`` resamples",
-              "line": 400,
+              "line": 420,
               "deprecated": false
             },
             {
@@ -2748,7 +2748,7 @@
               "kind": "staticmethod",
               "signature": "(session: dict) -> 'RestoreResult'",
               "summary": "Reverse everything recorded in *session*.",
-              "line": 426,
+              "line": 446,
               "deprecated": false
             }
           ]
@@ -2756,7 +2756,7 @@
         {
           "name": "RestoreResult",
           "summary": "Result container for ``SmartBake.restore()``.",
-          "line": 527,
+          "line": 553,
           "bases": [],
           "members": []
         }
@@ -7127,7 +7127,7 @@
               "kind": "staticmethod",
               "signature": "() -> None",
               "summary": "Refresh every known producer's ``data_export`` channel once, right now.",
-              "line": 133,
+              "line": 139,
               "deprecated": false
             },
             {
@@ -7136,7 +7136,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, objects=None, selection_only=True, strict=False, **fbx_opts)",
               "summary": "Export to an FBX file — the consolidated counterpart of mayatk's ``FbxUtils.export``.",
-              "line": 162,
+              "line": 168,
               "deprecated": false
             },
             {
@@ -7145,7 +7145,7 @@
               "kind": "staticmethod",
               "signature": "(filepath, **fbx_opts)",
               "summary": "Import an FBX file (wrapper over ``bpy.ops.import_scene.fbx``).",
-              "line": 270,
+              "line": 276,
               "deprecated": false
             },
             {
@@ -7154,7 +7154,7 @@
               "kind": "staticmethod",
               "signature": "(filepath=None, objects=None, strict=False, **fbx_opts)",
               "summary": "Export the selection (or ``objects``) to an FBX file for an external-app hand-off.",
-              "line": 296,
+              "line": 302,
               "deprecated": false
             }
           ]
@@ -7701,8 +7701,8 @@
       "classes": [
         {
           "name": "SceneDataSidecar",
-          "summary": "Manages scene-data sidecar files stored alongside export files.",
-          "line": 57,
+          "summary": "Manages the scene-data sidecar file stored alongside export files.",
+          "line": 80,
           "bases": [],
           "members": [
             {
@@ -7711,7 +7711,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str) -> str",
               "summary": "Return the export stem with any trailing ``_vNN`` suffix stripped.",
-              "line": 84,
+              "line": 110,
               "deprecated": false
             },
             {
@@ -7720,7 +7720,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
               "summary": "Return the sidecar manifest path for an export file.",
-              "line": 98,
+              "line": 124,
               "deprecated": false
             },
             {
@@ -7728,8 +7728,8 @@
               "qualname": "SceneDataSidecar.diff_report_path_for",
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> str",
-              "summary": "Return the sidecar diff report path for an export file.",
-              "line": 122,
+              "summary": "Return the v2-era on-disk diff report path for an export file.",
+              "line": 148,
               "deprecated": false
             },
             {
@@ -7738,7 +7738,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str) -> Optional[str]",
               "summary": "Return the path of a legacy per-version sidecar to migrate from.",
-              "line": 133,
+              "line": 164,
               "deprecated": false
             },
             {
@@ -7747,7 +7747,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str) -> Optional[str]",
               "summary": "Migrate a legacy per-version manifest to the base-stem name.",
-              "line": 182,
+              "line": 232,
               "deprecated": false
             },
             {
@@ -7756,7 +7756,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]",
               "summary": "Idempotently bring on-disk sidecars up to the current naming.",
-              "line": 205,
+              "line": 259,
               "deprecated": false
             },
             {
@@ -7765,7 +7765,7 @@
               "kind": "classmethod",
               "signature": "(cls, old_export_path: str, new_export_path: str) -> list",
               "summary": "Rename sidecar files to match a renamed export file.",
-              "line": 228,
+              "line": 282,
               "deprecated": false
             },
             {
@@ -7774,7 +7774,7 @@
               "kind": "staticmethod",
               "signature": "(paths) -> set",
               "summary": "Dedup a set of hierarchy path strings.",
-              "line": 275,
+              "line": 330,
               "deprecated": false
             },
             {
@@ -7783,7 +7783,7 @@
               "kind": "staticmethod",
               "signature": "(objects) -> list",
               "summary": "Return hierarchy paths for *objects* plus all their descendants.",
-              "line": 285,
+              "line": 340,
               "deprecated": false
             },
             {
@@ -7792,7 +7792,7 @@
               "kind": "staticmethod",
               "signature": "(paths) -> list",
               "summary": "Return only paths whose ancestor is *not* also in the set.",
-              "line": 302,
+              "line": 357,
               "deprecated": false
             },
             {
@@ -7801,16 +7801,16 @@
               "kind": "staticmethod",
               "signature": "(missing: list, extra: list) -> list",
               "summary": "Detect nodes that were reparented rather than added/removed.",
-              "line": 314,
+              "line": 369,
               "deprecated": false
             },
             {
               "name": "write_manifest",
               "qualname": "SceneDataSidecar.write_manifest",
               "kind": "classmethod",
-              "signature": "(cls, export_path: str, paths, *, data: Optional[dict] = None, base_stem: bool = False) -> Optional[str]",
+              "signature": "(cls, export_path: str, paths, *, data: Optional[dict] = None, last_diff: Optional[dict] = None, base_stem: bool = False) -> Optional[str]",
               "summary": "Write the sidecar manifest for *export_path*.",
-              "line": 365,
+              "line": 469,
               "deprecated": false
             },
             {
@@ -7819,7 +7819,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]",
               "summary": "Read the hierarchy paths from the manifest for *export_path*.",
-              "line": 457,
+              "line": 568,
               "deprecated": false
             },
             {
@@ -7828,7 +7828,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> Optional[dict]",
               "summary": "Read the ``data_export`` snapshot from the manifest for *export_path*.",
-              "line": 477,
+              "line": 588,
               "deprecated": false
             },
             {
@@ -7837,16 +7837,16 @@
               "kind": "staticmethod",
               "signature": "(top_path: str, all_paths) -> int",
               "summary": "Count *top_path* plus its descendants in *all_paths*.",
-              "line": 499,
+              "line": 610,
               "deprecated": false
             },
             {
-              "name": "write_diff_report",
-              "qualname": "SceneDataSidecar.write_diff_report",
+              "name": "format_diff_report",
+              "qualname": "SceneDataSidecar.format_diff_report",
               "kind": "classmethod",
-              "signature": "(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]",
-              "summary": "Write a human-readable diff report to the sidecar text file.",
-              "line": 520,
+              "signature": "(cls, missing: list, extra: list, reparented: list = None) -> str",
+              "summary": "Return the human-readable hierarchy diff report as text.",
+              "line": 631,
               "deprecated": false
             },
             {
@@ -7854,8 +7854,8 @@
               "qualname": "SceneDataSidecar.clean_stale_diff",
               "kind": "classmethod",
               "signature": "(cls, export_path: str, *, base_stem: bool = False) -> None",
-              "summary": "Remove a stale diff report left over from a previous failure.",
-              "line": 584,
+              "summary": "Remove a leftover v2-era on-disk diff report.",
+              "line": 689,
               "deprecated": false
             },
             {
@@ -7864,7 +7864,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects) -> set",
               "summary": "Expand *objects* to descendants, then dedup.",
-              "line": 598,
+              "line": 708,
               "deprecated": false
             },
             {
@@ -7873,7 +7873,7 @@
               "kind": "classmethod",
               "signature": "(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]",
               "summary": "Compare *current_paths* against the stored hierarchy baseline.",
-              "line": 603,
+              "line": 713,
               "deprecated": false
             }
           ]
@@ -8890,7 +8890,7 @@
               "kind": "method",
               "signature": "(self, version_format: str = '') -> str",
               "summary": "Generate the full export file path.",
-              "line": 564,
+              "line": 658,
               "deprecated": false
             },
             {
@@ -8899,7 +8899,7 @@
               "kind": "method",
               "signature": "(self, name: str) -> str",
               "summary": "Format the export name using a regex pattern and replacement (e.g.",
-              "line": 693,
+              "line": 787,
               "deprecated": false
             },
             {
@@ -8908,7 +8908,7 @@
               "kind": "method",
               "signature": "(self, export_path: str) -> str",
               "summary": "Generate the log file path based on the export path.",
-              "line": 711,
+              "line": 805,
               "deprecated": false
             },
             {
@@ -8917,7 +8917,7 @@
               "kind": "method",
               "signature": "(self, log_file_path: str)",
               "summary": "Setup file logging to log actions during export.",
-              "line": 716,
+              "line": 810,
               "deprecated": false
             },
             {
@@ -8926,7 +8926,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Close and remove file handlers after logging is complete.",
-              "line": 732,
+              "line": 826,
               "deprecated": false
             },
             {
@@ -8935,7 +8935,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> List[str]",
               "summary": "All FBX export-option preset names (built-in + user;",
-              "line": 756,
+              "line": 850,
               "deprecated": false
             },
             {
@@ -8944,7 +8944,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> str",
               "summary": "Writable directory FBX export-option presets are saved to (the \"Open Preset",
-              "line": 762,
+              "line": 856,
               "deprecated": false
             },
             {
@@ -8953,7 +8953,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> Optional[str]",
               "summary": "Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it",
-              "line": 768,
+              "line": 862,
               "deprecated": false
             },
             {
@@ -8962,7 +8962,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str, options: Optional[Dict[str, Any]] = None) -> str",
               "summary": "Save *options* (default: :data:`_DEFAULT_FBX_OPTIONS`) as user preset *name*.",
-              "line": 776,
+              "line": 870,
               "deprecated": false
             },
             {
@@ -8971,7 +8971,7 @@
               "kind": "classmethod",
               "signature": "(cls, name: str) -> bool",
               "summary": "Delete the *user* FBX export-option preset *name* (built-ins are read-only).",
-              "line": 787,
+              "line": 881,
               "deprecated": false
             },
             {
@@ -8980,7 +8980,7 @@
               "kind": "method",
               "signature": "(self, name: Optional[str] = None, verify: bool = False) -> Optional[dict]",
               "summary": "Load a named FBX export-option preset so the next :meth:`perform_export` call",
-              "line": 792,
+              "line": 886,
               "deprecated": false
             },
             {
@@ -8989,7 +8989,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "Return (and log) the FBX export kwargs the next :meth:`perform_export` call will",
-              "line": 827,
+              "line": 961,
               "deprecated": false
             }
           ]
@@ -9091,12 +9091,30 @@
               "deprecated": false
             },
             {
+              "name": "cmb004",
+              "qualname": "SceneExporterSlots.cmb004",
+              "kind": "method",
+              "signature": "(self, index, widget) -> None",
+              "summary": "Output-format changed: the GLB Textures combo is inert without a GLB",
+              "line": 327,
+              "deprecated": false
+            },
+            {
+              "name": "cmb006_init",
+              "qualname": "SceneExporterSlots.cmb006_init",
+              "kind": "method",
+              "signature": "(self, widget) -> None",
+              "summary": "Init GLB Textures (mirror of mayatk's ``cmb006_init``).",
+              "line": 332,
+              "deprecated": false
+            },
+            {
               "name": "cmb005_init",
               "qualname": "SceneExporterSlots.cmb005_init",
               "kind": "method",
               "signature": "(self, widget) -> None",
               "summary": "Init Texture Template (mirror of mayatk's ``cmb005_init``).",
-              "line": 305,
+              "line": 397,
               "deprecated": false
             },
             {
@@ -9105,7 +9123,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Export: run the scene export with the configured tasks and settings.",
-              "line": 335,
+              "line": 427,
               "deprecated": false
             },
             {
@@ -9114,7 +9132,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Set Output Directory",
-              "line": 438,
+              "line": 542,
               "deprecated": false
             },
             {
@@ -9123,7 +9141,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open Output Directory",
-              "line": 446,
+              "line": 550,
               "deprecated": false
             },
             {
@@ -9132,7 +9150,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Open Preset Directory.",
-              "line": 452,
+              "line": 556,
               "deprecated": false
             },
             {
@@ -9141,7 +9159,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Edit Preset -- open the selected preset's JSON file in the OS's default editor so",
-              "line": 458,
+              "line": 562,
               "deprecated": false
             },
             {
@@ -9150,7 +9168,7 @@
               "kind": "method",
               "signature": "(self, output_dir: str) -> None",
               "summary": "Record the output directory into the recent values plugin.",
-              "line": 494,
+              "line": 598,
               "deprecated": false
             },
             {
@@ -9159,7 +9177,7 @@
               "kind": "method",
               "signature": "(self, output_name: str) -> None",
               "summary": "Record the output filename into the recent values plugin.",
-              "line": 499,
+              "line": 603,
               "deprecated": false
             }
           ]
@@ -9174,7 +9192,7 @@
         {
           "name": "TaskManager",
           "summary": "Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's",
-          "line": 1087,
+          "line": 1544,
           "bases": [
             "TaskFactory",
             "_TaskActionsMixin",
@@ -9187,7 +9205,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 1156,
+              "line": 1617,
               "deprecated": false
             },
             {
@@ -9196,7 +9214,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the task definitions for the UI.",
-              "line": 1166,
+              "line": 1627,
               "deprecated": false
             },
             {
@@ -9205,7 +9223,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the check definitions for the UI.",
-              "line": 1448,
+              "line": 1957,
               "deprecated": false
             },
             {
@@ -9214,7 +9232,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return all definitions combined for backward compatibility.",
-              "line": 1682,
+              "line": 2191,
               "deprecated": false
             },
             {
@@ -9223,7 +9241,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Set the scene's unit system + scale for the duration of the export.",
-              "line": 134,
+              "line": 299,
               "deprecated": false
             },
             {
@@ -9232,7 +9250,7 @@
               "kind": "method",
               "signature": "(self, enabled)",
               "summary": "No-op by design: Blender's World/Environment-Texture network is not a scene object",
-              "line": 167,
+              "line": 332,
               "deprecated": false
             },
             {
@@ -9241,7 +9259,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Remove objects under any top-level object named in the comma-separated ``value``",
-              "line": 178,
+              "line": 343,
               "deprecated": false
             },
             {
@@ -9250,7 +9268,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Reassign every object using a duplicate material to the group's canonical material.",
-              "line": 205,
+              "line": 370,
               "deprecated": false
             },
             {
@@ -9259,7 +9277,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Copy external textures into the project's textures folder, then convert their paths",
-              "line": 218,
+              "line": 383,
               "deprecated": false
             },
             {
@@ -9268,7 +9286,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Attempt to resolve missing texture paths by searching the .blend's directory.",
-              "line": 234,
+              "line": 399,
               "deprecated": false
             },
             {
@@ -9277,7 +9295,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Pre-bake constrained/driven objects before export.",
-              "line": 253,
+              "line": 418,
               "deprecated": false
             },
             {
@@ -9286,7 +9304,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Remove redundant animation keys from all exported objects.",
-              "line": 289,
+              "line": 454,
               "deprecated": false
             },
             {
@@ -9295,7 +9313,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Tie (bookend) keyframes at the union keyed extent across all exported objects.",
-              "line": 305,
+              "line": 470,
               "deprecated": false
             },
             {
@@ -9304,7 +9322,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Snap all keyframes to the nearest whole frame.",
-              "line": 317,
+              "line": 482,
               "deprecated": false
             },
             {
@@ -9313,7 +9331,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Set the scene's playback range to the exported objects' keyframe extent.",
-              "line": 329,
+              "line": 494,
               "deprecated": false
             },
             {
@@ -9322,7 +9340,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Include the shared ``data_export`` carrier in the export (default on).",
-              "line": 361,
+              "line": 526,
               "deprecated": false
             },
             {
@@ -9331,7 +9349,7 @@
               "kind": "method",
               "signature": "(self, target_key) -> tuple",
               "summary": "",
-              "line": 596,
+              "line": 761,
               "deprecated": false
             },
             {
@@ -9340,7 +9358,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "",
-              "line": 613,
+              "line": 778,
               "deprecated": false
             },
             {
@@ -9349,7 +9367,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Informational only -- always succeeds (mirrors mayatk's contract).",
-              "line": 626,
+              "line": 791,
               "deprecated": false
             },
             {
@@ -9358,7 +9376,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Empties sharing a base name once Blender's auto ``.001``-style suffix is stripped --",
-              "line": 640,
+              "line": 805,
               "deprecated": false
             },
             {
@@ -9367,7 +9385,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Root groups (an Empty with children) should sit at identity transform.",
-              "line": 659,
+              "line": 824,
               "deprecated": false
             },
             {
@@ -9376,7 +9394,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "",
-              "line": 689,
+              "line": 854,
               "deprecated": false
             },
             {
@@ -9385,7 +9403,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "",
-              "line": 707,
+              "line": 872,
               "deprecated": false
             },
             {
@@ -9394,7 +9412,7 @@
               "kind": "method",
               "signature": "(self, enabled, tolerance: float = 0.5) -> tuple",
               "summary": "Blender is Z-up natively (Maya's version checks Y).",
-              "line": 722,
+              "line": 887,
               "deprecated": false
             },
             {
@@ -9403,7 +9421,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "",
-              "line": 740,
+              "line": 905,
               "deprecated": false
             },
             {
@@ -9412,7 +9430,16 @@
               "kind": "method",
               "signature": "(self, template) -> None",
               "summary": "Convert the export materials' textures to *template* (mirror of mayatk's).",
-              "line": 755,
+              "line": 920,
+              "deprecated": false
+            },
+            {
+              "name": "optimize_textures",
+              "qualname": "TaskManager.optimize_textures",
+              "kind": "method",
+              "signature": "(self, template)",
+              "summary": "Optimize the maps shipping with this export, by map type (mirror",
+              "line": 971,
               "deprecated": false
             },
             {
@@ -9421,7 +9448,16 @@
               "kind": "method",
               "signature": "(self, template) -> tuple",
               "summary": "Every mask map matches the chosen texture template (mirror of mayatk's).",
-              "line": 806,
+              "line": 1198,
+              "deprecated": false
+            },
+            {
+              "name": "check_texture_optimization",
+              "qualname": "TaskManager.check_texture_optimization",
+              "kind": "method",
+              "signature": "(self, template) -> tuple",
+              "summary": "Every shipping texture is optimized for its map type (mirror of mayatk's).",
+              "line": 1245,
               "deprecated": false
             },
             {
@@ -9430,7 +9466,7 @@
               "kind": "method",
               "signature": "(self, max_length) -> tuple",
               "summary": "No export path exceeds the OS path-length limit (mirror of mayatk's).",
-              "line": 853,
+              "line": 1310,
               "deprecated": false
             },
             {
@@ -9439,7 +9475,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Every export texture and every linked library resolves on disk.",
-              "line": 910,
+              "line": 1367,
               "deprecated": false
             },
             {
@@ -9448,7 +9484,7 @@
               "kind": "method",
               "signature": "(self, max_mb) -> tuple",
               "summary": "No export texture exceeds ``max_mb`` on disk.",
-              "line": 958,
+              "line": 1415,
               "deprecated": false
             },
             {
@@ -9457,7 +9493,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Verify every animated channel has a bookend key at its object's own keyed extent",
-              "line": 1025,
+              "line": 1482,
               "deprecated": false
             },
             {
@@ -9466,7 +9502,7 @@
               "kind": "method",
               "signature": "(self, enabled) -> tuple",
               "summary": "Detect keyframes that don't sit on a whole frame.",
-              "line": 1059,
+              "line": 1516,
               "deprecated": false
             }
           ]
@@ -14498,7 +14534,7 @@
               "kind": "staticmethod",
               "signature": "(create=True)",
               "summary": "The ``data_internal`` Empty (created + linked to the scene when *create*).",
-              "line": 75,
+              "line": 91,
               "deprecated": false
             },
             {
@@ -14507,7 +14543,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Get or create the ``data_internal`` Empty.",
-              "line": 80,
+              "line": 96,
               "deprecated": false
             },
             {
@@ -14516,7 +14552,7 @@
               "kind": "staticmethod",
               "signature": "(key, value)",
               "summary": "Set custom property *key* on the internal carrier to *value* (string) — see",
-              "line": 85,
+              "line": 101,
               "deprecated": false
             },
             {
@@ -14525,7 +14561,7 @@
               "kind": "staticmethod",
               "signature": "(key)",
               "summary": "The internal carrier's *key* custom property, or ``None`` — see ``_get_string``;",
-              "line": 92,
+              "line": 108,
               "deprecated": false
             },
             {
@@ -14534,7 +14570,7 @@
               "kind": "staticmethod",
               "signature": "(create=True)",
               "summary": "The ``data_export`` Empty (created + linked to the scene when *create*).",
-              "line": 98,
+              "line": 114,
               "deprecated": false
             },
             {
@@ -14543,7 +14579,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Get or create the ``data_export`` Empty.",
-              "line": 103,
+              "line": 119,
               "deprecated": false
             },
             {
@@ -14552,7 +14588,7 @@
               "kind": "staticmethod",
               "signature": "(key, value)",
               "summary": "Set custom property *key* on the carrier to *value* (string) — see ``_set_string``",
-              "line": 113,
+              "line": 129,
               "deprecated": false
             },
             {
@@ -14561,7 +14597,16 @@
               "kind": "staticmethod",
               "signature": "(key)",
               "summary": "The carrier's *key* custom property, or ``None`` — see ``_get_string``;",
-              "line": 119,
+              "line": 135,
+              "deprecated": false
+            },
+            {
+              "name": "set_export_json",
+              "qualname": "DataNodes.set_export_json",
+              "kind": "staticmethod",
+              "signature": "(key, payload)",
+              "summary": "Publish *payload* as a JSON export channel — the one-call form of the producer",
+              "line": 141,
               "deprecated": false
             },
             {
@@ -14570,7 +14615,7 @@
               "kind": "staticmethod",
               "signature": "(decode=True)",
               "summary": "Every tool-authored channel on both carriers, grouped by object — mirror of",
-              "line": 149,
+              "line": 178,
               "deprecated": false
             },
             {
@@ -14579,7 +14624,7 @@
               "kind": "staticmethod",
               "signature": "(decode=True)",
               "summary": "Pretty-printed JSON of :meth:`dump`, or ``\"\"`` when nothing is stored — mirror of",
-              "line": 183,
+              "line": 212,
               "deprecated": false
             }
           ]

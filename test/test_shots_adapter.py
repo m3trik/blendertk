@@ -108,6 +108,26 @@ def _run_shots_adapter_checks():
         "iter_action_fcurves yields CubeA fcurves", len(fcs_a) >= 1, f"n={len(fcs_a)}"
     )
 
+    # ---- fcurve walk (legacy pre-4.4 action: no ``layers``, flat fcurves) ----
+    # Blender 5.1 can't create a legacy action, so the fallback is proven against a
+    # minimal stand-in — the function's contract is iteration, not the bpy types.
+    class _LegacyAction:
+        fcurves = ["fc_x", "fc_y"]
+
+    class _LegacyAnimData:
+        action = _LegacyAction()
+        action_slot = None
+
+    class _LegacyObj:
+        animation_data = _LegacyAnimData()
+
+    legacy_fcs = list(BlenderShotStore.iter_action_fcurves(_LegacyObj()))
+    check(
+        "iter_action_fcurves falls back to flat fcurves on a layer-less action",
+        legacy_fcs == ["fc_x", "fc_y"],
+        f"got {legacy_fcs}",
+    )
+
     # ---- collect_transform_segments (flat cube excluded) -----------------
     segs = BlenderShotStore.collect_transform_segments(gap_threshold=5.0)
     seg_objs = sorted({s["obj"] for s in segs})

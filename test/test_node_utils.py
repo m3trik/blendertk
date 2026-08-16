@@ -302,6 +302,32 @@ try:
           DataNodes.set_export_string("wire", "") == DataNodes.EXPORT
           and DataNodes.get_export_string("wire") is None)
 
+    # --- set_export_json: the one-call producer publish/clear idiom (mayatk parity) ---
+    reset()
+    DataNodes.set_export_json("probe", {"version": 1, "items": [1, 2]})
+    check("set_export_json publishes serialized payload",
+          _json.loads(DataNodes.get_export_string("probe")) == {"version": 1, "items": [1, 2]})
+    DataNodes.set_export_json("probe", None)
+    check("set_export_json falsy -> clears channel",
+          DataNodes.get_export_string("probe") is None)
+    reset()
+    check("set_export_json falsy -> never creates carrier",
+          DataNodes.set_export_json("probe", {}) is None
+          and DataNodes.get_export_node(create=False) is None)
+    check("channel name constants (mtk parity)",
+          DataNodes.FBX_TAKES == "fbx_takes" and DataNodes.SHOT_METADATA == "shot_metadata")
+
+    # --- unlinked-carrier heal: a write must never target an object the exporter can't see ---
+    reset()
+    DataNodes.set_export_string("wire", "abc")
+    carrier = DataNodes.get_export_node(create=False)
+    bpy.context.scene.collection.objects.unlink(carrier)   # orphan it (still in bpy.data)
+    check("unlinked carrier setup", carrier.name not in bpy.context.scene.objects)
+    DataNodes.set_export_string("wire2", "def")
+    check("write relinks an unlinked carrier into the scene",
+          carrier.name in bpy.context.scene.objects
+          and DataNodes.get_export_string("wire2") == "def")
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

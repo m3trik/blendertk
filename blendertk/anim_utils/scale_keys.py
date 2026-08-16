@@ -155,17 +155,22 @@ class ScaleKeys(_ScaleKeysInternal):
         if factor is None or factor <= 0:
             return 0
 
-        # One unit per unique action across the given objects (dedupes objects that share an
-        # action), each carrying a representative object for speed-mode motion sampling.
+        # One unit per unique ``(action, slot)`` pair across the given objects (dedupes
+        # objects that share a slot — one slotted action can drive several objects through
+        # different slots, the same idiom as ``_AnimUtilsInternal._actions``), each carrying
+        # a representative object for speed-mode motion sampling.
         units = []
-        seen_actions = []
+        seen = []
         for o in ptk.make_iterable(objects):
             ad = getattr(o, "animation_data", None)
             action = ad.action if ad else None
-            if action is None or any(action is a for a, _o in seen_actions):
+            if action is None:
                 continue
-            seen_actions.append((action, o))
-            fcurves = AnimUtils._slot_fcurves(action, getattr(ad, "action_slot", None))
+            slot = getattr(ad, "action_slot", None)
+            if any(action is a and slot == s for a, s in seen):
+                continue
+            seen.append((action, slot))
+            fcurves = AnimUtils._slot_fcurves(action, slot)
             times = [k.co.x for fc in fcurves for k in fc.keyframe_points]
             if times:
                 units.append(
@@ -203,7 +208,12 @@ class ScaleKeys(_ScaleKeysInternal):
         else:  # "per_object" (also the fallback for an unrecognized group_mode)
             groups = [[b] for b in blocks]
 
-        keys_scaled = 0
+        # Every group's pivot/factor is resolved BEFORE any key moves (speed-mode motion
+        # sampling reads the un-scaled scene), and each block's span is applied against the
+        # pre-scale key positions in a single pass per fcurve: blocks from one object share
+        # a single fcurves list, so an earlier block's scaled keys could otherwise drift
+        # into a later block's range and scale twice.
+        spans_by_fc = {}
         for group in groups:
             g_start = min(b["start"] for b in group)
             g_end = max(b["end"] for b in group)
@@ -234,17 +244,26 @@ class ScaleKeys(_ScaleKeysInternal):
                 continue
 
             p = g_start if pivot is None else pivot
-            touched = set()
             for b in group:
                 for fc in b["fcurves"]:
-                    for k in fc.keyframe_points:
-                        if b["start"] - 1e-6 <= k.co.x <= b["end"] + 1e-6:
-                            k.co.x = p + (k.co.x - p) * block_factor
-                            k.handle_left.x = p + (k.handle_left.x - p) * block_factor
-                            k.handle_right.x = p + (k.handle_right.x - p) * block_factor
-                            keys_scaled += 1
-                            touched.add(fc)
-            for fc in touched:
+                    spans_by_fc.setdefault(id(fc), (fc, []))[1].append(
+                        (b["start"], b["end"], p, block_factor)
+                    )
+
+        keys_scaled = 0
+        for fc, spans in spans_by_fc.values():
+            touched = False
+            for k in fc.keyframe_points:
+                x = k.co.x
+                for s, e, p, block_factor in spans:
+                    if s - 1e-6 <= x <= e + 1e-6:
+                        k.co.x = p + (x - p) * block_factor
+                        k.handle_left.x = p + (k.handle_left.x - p) * block_factor
+                        k.handle_right.x = p + (k.handle_right.x - p) * block_factor
+                        keys_scaled += 1
+                        touched = True
+                        break
+            if touched:
                 fc.update()
 
         if keys_scaled and snap_mode and snap_mode != "none":

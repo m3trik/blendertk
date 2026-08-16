@@ -455,9 +455,14 @@ class ShotSequencerController(
         for o in list(bpy.context.selected_objects):
             o.select_set(False)
         active = None
+        # Selection state is a view-layer concept: ``select_set`` raises on objects
+        # outside the active view layer (excluded collection, another scene — the
+        # ``bpy.data.objects`` lookup is scene-wide), so skip those instead of
+        # letting one abort the loop mid-way.
+        view_layer = bpy.context.view_layer
         for name in obj_names:
             o = bpy.data.objects.get(name)
-            if o is not None:
+            if o is not None and o.name in view_layer.objects:
                 o.select_set(True)
                 active = o
         try:

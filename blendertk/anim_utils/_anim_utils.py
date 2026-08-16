@@ -1012,7 +1012,10 @@ class AnimUtils(_AnimUtilsInternal):
                 r = ptk.MathUtils.round_value(k.co.x, mode=method)
                 if r != k.co.x:
                     snapped += 1
+                delta = r - k.co.x
                 k.co.x = r
+                k.handle_left.x += delta
+                k.handle_right.x += delta
                 touched = True
             if touched:
                 fc.update()

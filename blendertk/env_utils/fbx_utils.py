@@ -111,6 +111,12 @@ class FbxUtils(_FbxUtilsInternal):
     # ship). Shots / Audio join here when their ports land. Add new producers
     # HERE — nothing else needs to change. Resolved lazily; an unimportable
     # producer is skipped (never blocks an export).
+    #
+    # ORDER IS A CONTRACT (dict insertion order = run order, same as mayatk's
+    # rank sort): a producer that reads another's channel must come after it.
+    # The mayatk twin runs shots before audio because audio scopes its events
+    # against the freshly published ``fbx_takes`` — the port must land them
+    # in that order here too.
     _KNOWN_PRODUCERS = {
         "shadow": (
             "blendertk.rig_utils.shadow_rig",

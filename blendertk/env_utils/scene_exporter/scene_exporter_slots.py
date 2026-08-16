@@ -294,13 +294,105 @@ class SceneExporterSlots(SceneExporter):
         widget.add(widget_items, header="Validation Checks", clear=True)
 
     def cmb004_init(self, widget) -> None:
-        """Init Output Format — FBX (default), GLB, or FBX + GLB."""
+        """Init Output Format — FBX (default), GLB, or FBX + GLB.
+
+        The GLB texture carrier (``cmb006``) hangs off this combo's option box
+        rather than the main layout: it only qualifies a GLB write, so it stays
+        out of the way for the common FBX case. A menu item registers by
+        objectName, so it keeps the same ``self.ui.cmb006`` / ``cmb006_init``
+        wiring — and the same template coverage — a main-layout combo has.
+        """
         if not widget.is_initialized:
             widget.restore_state = True
+            # Built once: unlike the combo's own items (`add(clear=True)` is
+            # idempotent), a menu add on a re-init would stack a SECOND cmb006
+            # and rebind self.ui.cmb006 to the copy the user never touched.
+            widget.option_box.menu.setTitle("GLB Options:")
+            widget.option_box.menu.add_defaults_button = False
+            widget.option_box.menu.add(
+                self.sb.registered_widgets.ComboBox,
+                setObjectName="cmb006",
+                setToolTip=(
+                    "How the GLB deliverable carries its textures: Original "
+                    "(byte-stable), WebP (transport size, broad compatibility), "
+                    "or KTX2 (GPU-compressed for web/XR runtimes; requires "
+                    "toktx). Inert for FBX-only output."
+                ),
+            )
         widget.add(
             {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb"},
             clear=True,
         )
+
+    def cmb004(self, index, widget) -> None:
+        """Output-format changed: the GLB Textures combo is inert without a GLB
+        (mirror of mayatk's ``cmb004``)."""
+        self._sync_glb_texture_combo()
+
+    def cmb006_init(self, widget) -> None:
+        """Init GLB Textures (mirror of mayatk's ``cmb006_init``).
+
+        Lives in ``cmb004``'s option box (created there); this runs when the
+        menu item is registered by objectName.
+
+        The *carrier* axis, distinct from cmb005's *workflow* axis: cmb005
+        decides what the maps ARE (channel packing / shading model, re-authored
+        in the scene pre-export); this decides how the finished GLB embeds
+        whatever they became. "Original" (default) keeps the conversion
+        byte-stable. WebP / KTX2 run ``MeshConvert.optimize_glb_textures`` on
+        the converted GLB — container only (``max_size=0``), resolution is
+        never resampled. Inert unless the output format (cmb004) produces a
+        GLB; ``b000`` folds the value into the tasks payload as
+        ``glb_texture_format``.
+
+        KTX2 output is a terminal delivery artifact: no fallback images ride
+        along (``KHR_texture_basisu`` lands in ``extensionsRequired``), so it
+        opens in web/XR runtimes (three.js / Babylon / model-viewer, the
+        bundled WebXR preview) but will NOT re-import into Blender, Unreal, or
+        stock Unity — pair it with FBX + GLB so the FBX stays the working
+        artifact. Requires KTX-Software's ``toktx``; the export fails upfront
+        with the install URL when it is missing.
+        """
+        from qtpy import QtCore
+
+        if not widget.is_initialized:
+            widget.restore_state = True
+        # Index 0 = Original is a TEMPLATE contract (templates persist combos
+        # by index) — never reorder or insert above it.
+        widget.add(
+            {
+                "Original Textures": None,
+                "WebP Textures": "WEBP",
+                "KTX2 Textures": "KTX2",
+            },
+            clear=True,
+        )
+        tooltips = {
+            "WEBP": (
+                "Re-encode embedded textures as WebP (lossy q85; lightmaps "
+                "stay lossless) — transport-size win with the broadest viewer "
+                "compatibility, and the GLB still re-imports into Blender."
+            ),
+            "KTX2": (
+                "GPU-compressed Basis (UASTC for normals/data, ETC1S for "
+                "color; lightmaps stay lossless WebP) for web/XR runtimes. "
+                "NOT re-importable into Blender/Unreal/stock Unity — a final "
+                "delivery artifact. Requires KTX-Software's toktx."
+            ),
+        }
+        for index in range(widget.count()):
+            tip = tooltips.get(widget.itemData(index))
+            if tip:
+                widget.setItemData(index, tip, QtCore.Qt.ToolTipRole)
+        self._sync_glb_texture_combo(widget)
+
+    def _sync_glb_texture_combo(self, combo=None) -> None:
+        """Enable cmb006 only when the output format (cmb004) produces a GLB."""
+        combo = combo or getattr(self.ui, "cmb006", None)
+        fmt_widget = getattr(self.ui, "cmb004", None)
+        if combo is None or fmt_widget is None:
+            return
+        combo.setEnabled((fmt_widget.currentData() or "fbx") != "fbx")
 
     def cmb005_init(self, widget) -> None:
         """Init Texture Template (mirror of mayatk's ``cmb005_init``).
@@ -382,6 +474,17 @@ class SceneExporterSlots(SceneExporter):
             task_params["convert_textures"] = texture_template
             check_params["check_material_compatibility"] = texture_template
 
+        # Optimize Textures (checkbox, mirror of mayatk): the pass rides
+        # cmb005's template when one is selected — the template's per-map-type
+        # output spec drives container/bit depth, its budget stays advisory —
+        # else it is the generic per-map-type pass (True). Folded BEFORE the
+        # override filter for the same reason as the template: "override
+        # checks" keeps the optimization, skips the gate.
+        if task_params.get("optimize_textures"):
+            optimize_value = texture_template or True
+            task_params["optimize_textures"] = optimize_value
+            check_params["check_texture_optimization"] = optimize_value
+
         override = self.ui.b009.isChecked()
 
         if override:
@@ -415,6 +518,7 @@ class SceneExporterSlots(SceneExporter):
 
         export_tasks = {**task_params, **check_params}
         export_tasks["output_format"] = self.ui.cmb004.currentData()
+        export_tasks["glb_texture_format"] = self.ui.cmb006.currentData()
 
         # Success/failure is already surfaced via the log panel (self.logger routes there);
         # nothing else here consumes perform_export's return value.

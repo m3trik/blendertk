@@ -2064,6 +2064,284 @@ def _run_blend_shape_driver_restore_checks():
     return lines
 
 
+def _run_session_fidelity_checks():
+    """bpy-driven checks for the session-fidelity fixes (2026-08-14 backlog entry): (a) a
+    shape-keys datablock carrying BOTH drivers and a hand-keyed action gets both snapshotted
+    (the old ``if drivers … elif action`` skipped the action, so restore left the dense
+    resample in place, and ``get_time_range`` ignored the action's own key extent); (b) the
+    ``use_fake_user`` keep-alive flip only happens when a session can record the prior value,
+    and is undone on the skip path (bake produced no new action); (c) ``restore_session``
+    reports an object in ``restored_actions`` only when an action was actually reassigned
+    (not when ``animation_data`` is gone); (d) restoring a blend-shape driver over one the
+    user re-added since the bake completes with a warning — never a raise, never a clobber.
+    Returns ``"OK ..."``/``"FAIL ..."`` lines, same convention as
+    :func:`_run_data_internal_export_exclusion_checks`.
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
+
+    try:
+        import bpy
+
+        from blendertk.anim_utils import _anim_utils
+        from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
+
+        def reset():
+            for session_id in list(SmartBake.list_sessions()):
+                SmartBake.restore(session_id)
+            if (
+                bpy.context.view_layer.objects.active
+                and bpy.context.view_layer.objects.active.mode != "OBJECT"
+            ):
+                bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.select_all(action="DESELECT")
+            for o in list(bpy.data.objects):
+                bpy.data.objects.remove(o, do_unlink=True)
+            for a in list(bpy.data.actions):
+                bpy.data.actions.remove(a)
+            bpy.context.scene.frame_start = 1
+            bpy.context.scene.frame_end = 250
+
+        def keyed_target(name, frames=((1, 0.0), (10, 10.0))):
+            bpy.ops.mesh.primitive_cube_add()
+            t = bpy.context.active_object
+            t.name = name
+            for frame, x in frames:
+                t.location.x = x
+                t.keyframe_insert(data_path="location", index=0, frame=frame)
+            return t
+
+        def scripted_driver(key_block, target, data_path="location.x", expr="x / 10.0"):
+            drv = key_block.driver_add("value").driver
+            drv.type = "SCRIPTED"
+            drv.expression = expr
+            var = drv.variables.new()
+            var.name = "x"
+            var.type = "SINGLE_PROP"
+            var.targets[0].id_type = "OBJECT"
+            var.targets[0].id = target
+            var.targets[0].data_path = data_path
+            return drv
+
+        # ============ (a) drivers + action on ONE shape-keys datablock ============
+        reset()
+        target = keyed_target("FidTarget")
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        mesh = bpy.context.active_object
+        mesh.name = "FidMesh"
+        mesh.shape_key_add(name="Basis")
+        kb_a = mesh.shape_key_add(name="KeyA")
+        kb_b = mesh.shape_key_add(name="KeyB")
+        scripted_driver(kb_a, target)
+        # Hand-keyed action on the SAME datablock, extending past the driver
+        # target's own key range (1-10) so range detection is distinguishable.
+        kb_b.value = 0.0
+        kb_b.keyframe_insert(data_path="value", frame=1)
+        kb_b.value = 1.0
+        kb_b.keyframe_insert(data_path="value", frame=20)
+
+        baker = SmartBake(objects=[mesh, target], bake_blend_shapes=True, sample_by=1)
+        analysis = baker.analyze()
+        bs_names = (
+            analysis["FidMesh"].driven_sources.get("blend_shape", [])
+            if "FidMesh" in analysis
+            else []
+        )
+        check(
+            "analyze() lists BOTH the driver path and the action path",
+            'key_blocks["KeyA"].value' in bs_names
+            and 'key_blocks["KeyB"].value' in bs_names,
+            f"{bs_names}",
+        )
+        rng = baker.get_time_range(analysis)
+        check(
+            "get_time_range() covers the datablock's own action keys too (1-20)",
+            rng[0] <= 1 and rng[1] >= 20,
+            f"{rng}",
+        )
+
+        result = baker.bake(analysis)
+        check("drivers+action bake succeeded", result.success, f"{result.baked}")
+        check("drivers+action session recorded", result.session_id is not None)
+
+        sk = mesh.data.shape_keys
+        fc_b = next(
+            (
+                fc
+                for fc in _anim_utils.AnimUtils._slot_fcurves(sk.animation_data.action)
+                if fc.data_path == 'key_blocks["KeyB"].value'
+            ),
+            None,
+        )
+        check(
+            "fixture: bake densely resampled the hand-keyed KeyB fcurve",
+            fc_b is not None and len(fc_b.keyframe_points) > 2,
+            f"n={len(fc_b.keyframe_points) if fc_b else None}",
+        )
+
+        restore_result = SmartBake.restore(result.session_id)
+        fc_b = next(
+            (
+                fc
+                for fc in _anim_utils.AnimUtils._slot_fcurves(sk.animation_data.action)
+                if fc.data_path == 'key_blocks["KeyB"].value'
+            ),
+            None,
+        )
+        keys_b = sorted(kp.co.x for kp in fc_b.keyframe_points) if fc_b else []
+        check(
+            "restore rebuilt KeyB's hand-keyed action (original 2 keys, not the resample)",
+            keys_b == [1.0, 20.0],
+            f"keys={keys_b}",
+        )
+        check(
+            "restore also rebuilt KeyA's driver in the same session",
+            f"{mesh.name}.KeyA" in restore_result.blend_shapes_restored,
+            f"{restore_result.blend_shapes_restored}",
+        )
+
+        # ============ (b) use_fake_user: flip only when recordable ============
+        reset()
+        target = keyed_target("FakeUserTarget")
+        bpy.ops.mesh.primitive_cube_add()
+        driven = bpy.context.active_object
+        driven.name = "FakeUserDriven"
+        driven.location = (1.0, 0.0, 0.0)
+        driven.keyframe_insert(data_path="location", frame=1)  # own pre-bake action
+        con = driven.constraints.new("COPY_LOCATION")
+        con.target = target
+        original_action = driven.animation_data.action
+        check(
+            "fixture: pre-bake action starts with use_fake_user False",
+            original_action.use_fake_user is False,
+        )
+
+        result = SmartBake(
+            objects=[driven, target], bake_blend_shapes=False, restorable=False
+        ).execute()
+        check("non-restorable bake succeeded", result.success, f"{result.baked}")
+        check(
+            "non-restorable bake leaves use_fake_user untouched (no session to record it)",
+            original_action.use_fake_user is False,
+            f"use_fake_user={original_action.use_fake_user}",
+        )
+
+        # Skip path: a restorable bake whose bake pass produces NO new action must
+        # undo the keep-alive flip (no session entry records it otherwise).
+        reset()
+        target = keyed_target("SkipTarget")
+        bpy.ops.mesh.primitive_cube_add()
+        skip_obj = bpy.context.active_object
+        skip_obj.name = "SkipDriven"
+        skip_obj.location = (1.0, 0.0, 0.0)
+        skip_obj.keyframe_insert(data_path="location", frame=1)
+        con = skip_obj.constraints.new("COPY_LOCATION")
+        con.target = target
+        skip_action = skip_obj.animation_data.action
+
+        orig_bake_keys = _anim_utils.AnimUtils.__dict__["bake_keys"]
+        _anim_utils.AnimUtils.bake_keys = staticmethod(lambda *a, **k: None)
+        try:
+            result = SmartBake(
+                objects=[skip_obj, target], bake_blend_shapes=False, restorable=True
+            ).execute()
+        finally:
+            _anim_utils.AnimUtils.bake_keys = orig_bake_keys
+        check(
+            "skip path (bake produced no new action) reports nothing baked",
+            not result.baked,
+            f"{result.baked}",
+        )
+        check(
+            "skip path leaves use_fake_user unchanged",
+            skip_action.use_fake_user is False,
+            f"use_fake_user={skip_action.use_fake_user}",
+        )
+
+        # ============ (c) restore with animation_data gone ============
+        reset()
+        target = keyed_target("AdNoneTarget")
+        bpy.ops.mesh.primitive_cube_add()
+        gone = bpy.context.active_object
+        gone.name = "AdNoneDriven"
+        gone.location = (1.0, 0.0, 0.0)
+        gone.keyframe_insert(data_path="location", frame=1)
+        con = gone.constraints.new("COPY_LOCATION")
+        con.target = target
+
+        result = SmartBake(objects=[gone, target], bake_blend_shapes=False).execute()
+        check("ad-None fixture bake succeeded", result.success, f"{result.baked}")
+        gone.animation_data_clear()
+        restore_result = SmartBake.restore(result.session_id)
+        check(
+            "restore with ad=None does NOT report the object as restored",
+            "AdNoneDriven" not in restore_result.restored_actions,
+            f"{restore_result.restored_actions}",
+        )
+        check(
+            "restore with ad=None warns about the missing animation data",
+            any("animation data" in w for w in restore_result.warnings),
+            f"{restore_result.warnings}",
+        )
+
+        # ============ (d) restore over a user re-added driver ============
+        reset()
+        target = keyed_target("ReAddTarget")
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        mesh = bpy.context.active_object
+        mesh.name = "ReAddMesh"
+        mesh.shape_key_add(name="Basis")
+        kb1 = mesh.shape_key_add(name="Key1")
+        scripted_driver(kb1, target)
+
+        result = SmartBake.run(
+            objects=[mesh, target], bake_blend_shapes=True, sample_by=1
+        )
+        check("re-add fixture bake succeeded", result.success, f"{result.baked}")
+        # The user re-adds their own driver on the same weight before restoring.
+        sk = mesh.data.shape_keys
+        user_drv = scripted_driver(sk.key_blocks["Key1"], target, expr="0.42")
+        restore_result = SmartBake.restore(result.session_id)
+        check(
+            "restore over a re-added driver completes (never raises)",
+            restore_result.success,
+        )
+        check(
+            "restore warns about the re-added driver instead of clobbering it",
+            any("already has a driver" in w for w in restore_result.warnings),
+            f"{restore_result.warnings}",
+        )
+        drv_now = next(
+            (
+                fc.driver
+                for fc in sk.animation_data.drivers
+                if fc.data_path == 'key_blocks["Key1"].value'
+            ),
+            None,
+        )
+        check(
+            "the user's re-added driver is left in place",
+            drv_now is not None and drv_now.expression == "0.42",
+            f"expr={getattr(drv_now, 'expression', None)}",
+        )
+        check(
+            "the untouched driver is not falsely reported restored",
+            f"{mesh.name}.Key1" not in restore_result.blend_shapes_restored,
+            f"{restore_result.blend_shapes_restored}",
+        )
+    except Exception as e:  # pragma: no cover - failure path prints its own traceback
+        import traceback
+
+        traceback.print_exc()
+        check("session-fidelity harness raised", False, repr(e))
+
+    return lines
+
+
 if __name__ == "__main__":
     import importlib
 
@@ -2082,6 +2360,7 @@ if __name__ == "__main__":
         result_lines += _run_task_manager_wiring_checks()
         result_lines += _run_exporter_bake_restore_checks()
         result_lines += _run_blend_shape_driver_restore_checks()
+        result_lines += _run_session_fidelity_checks()
         # Saves a REAL .blend under temp_tests/ — run last so its bpy.data.filepath side
         # effect (persists for the rest of this process) can't affect any earlier check.
         result_lines += _run_backup_mode_checks()

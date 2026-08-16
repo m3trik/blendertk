@@ -651,6 +651,76 @@ def _run_sequencer_checks():
         f"{key_edit}",
     )
 
+    # ---- select paths guard objects outside the active view layer ----
+    # (pre-fix: select_set raised RuntimeError mid-loop on an object in an
+    # excluded collection, aborting shot selection / the context-menu action)
+    from types import SimpleNamespace
+
+    from blendertk.anim_utils.shots.shot_sequencer.shot_nav import ShotNavMixin
+
+    bpy.ops.mesh.primitive_cube_add()
+    vlg_vis = bpy.context.active_object
+    vlg_vis.name = "VlgVisible"
+    vlg_col = bpy.data.collections.new("VlgExcluded")
+    bpy.context.scene.collection.children.link(vlg_col)
+    vlg_out = bpy.data.objects.new("VlgOutside", None)
+    vlg_col.objects.link(vlg_out)
+    bpy.context.view_layer.layer_collection.children["VlgExcluded"].exclude = True
+    bpy.context.view_layer.update()
+
+    vlg_raises = False
+    try:
+        vlg_out.select_set(True)
+    except RuntimeError:
+        vlg_raises = True
+    check(
+        "fixture: select_set on an excluded-collection object raises RuntimeError",
+        vlg_raises,
+    )
+
+    class _NavHost(ShotNavMixin):
+        def __init__(self, sequencer):
+            self.sequencer = sequencer
+            self._syncing = False
+            self._playback_range_mode = "off"
+
+    vlg_shot = SimpleNamespace(objects=["VlgVisible", "VlgOutside"], start=1.0, end=10.0)
+    vlg_seq = SimpleNamespace(
+        shot_by_id=lambda sid: vlg_shot,
+        store=SimpleNamespace(set_active_shot=lambda sid: None, select_on_load=True),
+    )
+    nav_err = ""
+    try:
+        _NavHost(vlg_seq).select_shot(1)
+        nav_ok = True
+    except RuntimeError as e:
+        nav_ok, nav_err = False, repr(e)
+    check(
+        "select_shot skips an outside-view-layer object without raising", nav_ok, nav_err
+    )
+    check("select_shot still selected the in-layer object", vlg_vis.select_get())
+    check(
+        "select_shot active object = the in-layer object",
+        bpy.context.view_layer.objects.active is vlg_vis,
+    )
+
+    for o in list(bpy.context.selected_objects):
+        o.select_set(False)
+    sel_err = ""
+    try:
+        ShotSequencerController._select_and_show(
+            SimpleNamespace(), ["VlgVisible", "VlgOutside"]
+        )
+        sel_ok = True
+    except RuntimeError as e:
+        sel_ok, sel_err = False, repr(e)
+    check(
+        "_select_and_show skips an outside-view-layer object without raising",
+        sel_ok,
+        sel_err,
+    )
+    check("_select_and_show still selected the in-layer object", vlg_vis.select_get())
+
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
     return lines

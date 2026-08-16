@@ -218,8 +218,65 @@ class SceneExporter(ptk.LoggingMixin):
         create_glb_enabled = output_format in ("glb", "fbx_glb")
         glb_only = output_format == "glb"
 
+        # GLB texture delivery: None (Original) keeps the conversion
+        # byte-stable; "WEBP"/"KTX2" re-encode the finished GLB's embedded
+        # textures (``MeshConvert.optimize_glb_textures``, container only —
+        # ``max_size=0``, resolution is never resampled behind the user's
+        # back). Parsed here so the KTX2 gate can fail BEFORE any scene work;
+        # stamped on the engine (mirror of mayatk, which stamps its task
+        # manager — blendertk's ``_create_glb`` lives here) for it to read.
+        glb_texture_format = (
+            str(tasks.pop("glb_texture_format", "") or "").upper() or None
+        )
+        if glb_texture_format and glb_texture_format not in ("WEBP", "KTX2"):
+            # A hand-edited template / headless caller can send anything; an
+            # unknown value discovered here is a config error and aborts
+            # loudly — discovered at encode time it would fail per-image and
+            # ship an effectively-unencoded GLB behind warning noise.
+            self.logger.error(
+                f"Export aborted: unknown glb_texture_format "
+                f"{glb_texture_format!r} (expected 'WEBP', 'KTX2', or empty "
+                f"for Original)."
+            )
+            return False
+        if glb_texture_format and not create_glb_enabled:
+            # A hand-edited template can pair this with FBX-only output; the
+            # setting is inert there, not an error — no GLB will exist.
+            self.logger.info(
+                f"GLB texture format {glb_texture_format!r} ignored: "
+                "output format produces no GLB."
+            )
+            glb_texture_format = None
+        if glb_texture_format == "KTX2":
+            # Encoder presence is ENVIRONMENT state, so this gate is
+            # unconditional (never a user-toggleable check row) and runs
+            # before the first scene mutation — a missing toktx fails the
+            # batch in second zero with the install URL, not after N-1
+            # objects already exported. Abort idiom, not a raise: the panel's
+            # export button reads the return value and the log.
+            try:
+                ptk.ImgUtils.resolve_ktx2_encoder(required=True)
+            except FileNotFoundError as e:
+                self.logger.error(f"Export aborted: {e}")
+                return False
+        self._glb_texture_format = glb_texture_format
+
+        # Texture-budget write-back mode: a UI row rather than a pipeline
+        # task, popped here (mirror of mayatk) and stamped on the task
+        # manager for the optimize_textures task to read.
+        self.task_manager._optimize_textures_write_back = bool(
+            tasks.pop("optimize_textures_write_back", False)
+        )
+
         self.export_path = self.generate_export_path(version_format=version_format)
         self.logger.debug(f"Generated export path: {self.export_path}")
+        # Texture-budget staging inputs (mirror of mayatk's stamps): the
+        # optimize_textures task keys its staging policy off whether the
+        # deliverable carries its own texture copies, and needs the export
+        # path to place durable staging beside the deliverable. Stamping the
+        # path also lets check_path_length measure it, as the Maya twin does.
+        self.task_manager.export_path = self.export_path
+        self.task_manager._glb_only = glb_only
 
         if self.create_log_file:
             self._setup_file_logging()
@@ -233,6 +290,16 @@ class SceneExporter(ptk.LoggingMixin):
         # built-in defaults, or the defaults alone when no preset is selected. Called
         # unconditionally so a prior run's loaded preset never leaks into one with none picked.
         self.load_fbx_export_preset(self.preset_name)
+
+        # Whether the FBX deliverable carries its own texture copies —
+        # ``embed_textures`` packs them inside the file; ``path_mode COPY``
+        # makes the exporter copy the (possibly staged) sources beside it.
+        # Either way nothing references staged files after the write, so the
+        # optimize_textures task may stage into a temp dir and clean up.
+        fbx_options = self._resolved_fbx_options()
+        self.task_manager._fbx_media_selfcontained = bool(
+            fbx_options.get("embed_textures")
+        ) or str(fbx_options.get("path_mode", "")).upper() == "COPY"
 
         # Everything from here on can stage export-transient state (scene units,
         # the bake frame range, EmissiveGroups' keyed-weight curve proxies) that
@@ -373,6 +440,7 @@ class SceneExporter(ptk.LoggingMixin):
                 fbx_write_path = self.export_path
 
             fbx_options = self.verify_fbx_preset()
+            self._force_carrier_readability(export_objects, fbx_options)
             FbxUtils.export_selection_fbx(
                 filepath=fbx_write_path,
                 objects=export_objects,
@@ -556,6 +624,32 @@ class SceneExporter(ptk.LoggingMixin):
         except (FileNotFoundError, RuntimeError) as e:
             self.logger.error(f"GLB conversion failed: {e}")
             return None
+
+        # GLB texture delivery (stamped per run by ``perform_export`` — mirror
+        # of mayatk's ``TaskManager.create_glb``). Runs LAST: a KTX2 GLB is
+        # opaque to every PIL-based post-tool, so nothing may follow the
+        # encode. Container only (``max_size=0``): the pass's own 2048 default
+        # is preview policy, not production policy. A failure fails the
+        # deliverable — the user asked for this container, so shipping the
+        # unencoded GLB anyway would be a silent fallback.
+        texture_format = getattr(self, "_glb_texture_format", None)
+        if texture_format:
+            try:
+                summary = ptk.MeshConvert.optimize_glb_textures(
+                    glb_path, max_size=0, image_format=texture_format
+                )
+            except Exception as e:  # noqa: BLE001 — deliverable must not lie
+                self.logger.error(
+                    f"GLB texture delivery ({texture_format}) failed: {e}"
+                )
+                return None
+            if summary:
+                self.logger.info(
+                    f"GLB textures delivered as {texture_format}: "
+                    f"{summary['images']} image(s), "
+                    f"{summary['bytes_before'] / 1e6:.1f} MB -> "
+                    f"{summary['bytes_after'] / 1e6:.1f} MB."
+                )
 
         if announce:
             self.logger.success(f"GLB created: {glb_path}")
@@ -824,15 +918,52 @@ class SceneExporter(ptk.LoggingMixin):
 
         return self.verify_fbx_preset() if verify else None
 
+    def _resolved_fbx_options(self) -> dict:
+        """The FBX export kwargs the next write will use — the active preset's options
+        merged over the built-in defaults. The single home of that merge, shared by
+        :meth:`verify_fbx_preset` (which logs it) and :meth:`perform_export`'s
+        media-selfcontained probe."""
+        return {
+            **_DEFAULT_FBX_OPTIONS,
+            **(getattr(self, "_fbx_preset_options", None) or {}),
+        }
+
+    def _force_carrier_readability(self, export_objects, fbx_options: dict) -> None:
+        """When the ``data_export`` carrier is in the export set, force the two exporter
+        options that make it readable — Blender's FBX exporter drops custom properties by
+        default and excluded object types outright, so a user preset carrying
+        ``use_custom_props: false`` or an ``object_types`` without ``EMPTY`` would ship a
+        carrier holding nothing (or no carrier at all) with no signal: the failure that
+        looks most like success. Same rule as the hand-off bridges (``handoff_export``):
+        shipping the carrier and shipping what makes it readable are one decision, so a
+        preset override cannot separate them. Mutates *fbx_options* in place and logs any
+        repair."""
+        from blendertk.node_utils.data_nodes import DataNodes
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        names = {getattr(o, "name", str(o)) for o in export_objects or []}
+        if DataNodes.EXPORT not in names:
+            return
+        repaired = []
+        if not fbx_options.get("use_custom_props"):
+            fbx_options["use_custom_props"] = True
+            repaired.append("use_custom_props=True")
+        types = FbxUtils._as_object_types(fbx_options.get("object_types") or {"MESH"})
+        if "EMPTY" not in types:
+            fbx_options["object_types"] = types | {"EMPTY"}
+            repaired.append("object_types+=EMPTY")
+        if repaired:
+            self.logger.warning(
+                "The active FBX preset would ship an unreadable data_export "
+                "carrier — forced " + ", ".join(repaired) + "."
+            )
+
     def verify_fbx_preset(self) -> dict:
         """Return (and log) the FBX export kwargs the next :meth:`perform_export` call will
         use -- the active preset's options merged over the built-in defaults, or the
         defaults alone when no preset is loaded. Mirrors mayatk's ``verify_fbx_preset``,
         which logs Maya's live global FBX-exporter settings the same way."""
-        options = {
-            **_DEFAULT_FBX_OPTIONS,
-            **(getattr(self, "_fbx_preset_options", None) or {}),
-        }
+        options = self._resolved_fbx_options()
         # ONE grouped record, mirroring the Maya twin: every log record is its
         # own paragraph in the output panel, so a line per option rendered
         # this dump as ~25 blank-line-separated sections.

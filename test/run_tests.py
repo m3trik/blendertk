@@ -16,6 +16,7 @@ Run with:
     python run_tests.py --list                # list available suites
     python run_tests.py --blender <path>      # explicit blender.exe
     python run_tests.py --no-badge            # skip the README badge update
+    python run_tests.py --suite-timeout 900   # per-suite kill timer (default 600s)
 """
 import argparse
 import re
@@ -80,9 +81,12 @@ def find_blender(explicit: Optional[str] = None) -> Optional[str]:
 class BlenderTestRunner:
     """Runs each blendertk suite in its own fresh headless Blender."""
 
-    def __init__(self, blender: str, test_dir: Path = TEST_DIR):
+    def __init__(
+        self, blender: str, test_dir: Path = TEST_DIR, suite_timeout: int = 600
+    ):
         self.blender = blender
         self.test_dir = test_dir
+        self.suite_timeout = suite_timeout
         self.venv_python = find_venv_python()
 
     def discover(self, patterns: Optional[List[str]] = None) -> List[Path]:
@@ -128,12 +132,22 @@ class BlenderTestRunner:
                 str(suite),
             ]
         )
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            errors="replace",
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=self.suite_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            # A hung suite must cost a failure, not stall the whole run: with
+            # no timeout, one wedged Blender blocked every suite behind it.
+            self._print_detail(
+                f"TIMEOUT {suite.name}: no result after {self.suite_timeout}s "
+                "(process killed)"
+            )
+            return False, 0, 1, False
         lines = (proc.stdout or "").splitlines()
 
         verdicts = [m for m in map(SENTINEL.match, lines) if m]
@@ -284,6 +298,12 @@ def main() -> int:
     parser.add_argument(
         "--no-badge", action="store_true", help="Skip the README badge update"
     )
+    parser.add_argument(
+        "--suite-timeout",
+        type=int,
+        default=600,
+        help="Seconds before a hung suite is killed and charged a failure",
+    )
     args = parser.parse_args()
 
     blender = find_blender(args.blender)
@@ -291,7 +311,7 @@ def main() -> int:
         print("[ERROR] Blender not found (pass --blender or set BLENDERTK_BLENDER)")
         return 1
 
-    runner = BlenderTestRunner(blender)
+    runner = BlenderTestRunner(blender, suite_timeout=args.suite_timeout)
 
     if args.list:
         for suite in runner.discover():

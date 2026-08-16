@@ -333,7 +333,8 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         5.1) into per-slot channelbags: ``action.layers[*].strips[*].channelbag(slot)``
         where the slot is ``obj.animation_data.action_slot``.  This is the single
         place that walks that structure; every acquisition helper below goes through
-        it so the traversal has one definition.
+        it so the traversal has one definition.  Legacy (pre-4.4) actions carry no
+        ``layers`` — their flat ``action.fcurves`` is yielded directly.
         """
         ad = getattr(obj, "animation_data", None)
         if ad is None or ad.action is None:
@@ -341,7 +342,8 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         act = ad.action
         slot = getattr(ad, "action_slot", None)
         layers = getattr(act, "layers", None)
-        if layers is None:
+        if not layers:
+            yield from getattr(act, "fcurves", None) or ()
             return
         for layer in layers:
             for strip in layer.strips:

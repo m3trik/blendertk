@@ -307,6 +307,49 @@ A03.),Fuselage fades out,fuselage_geo,
         f"{zero_result}",
     )
 
+    # ---- _show_in_outliner guards objects outside the active view layer ----
+    # (pre-fix: select_set raised RuntimeError on an object in an excluded
+    # collection, killing the context-menu reveal action)
+    from types import SimpleNamespace
+
+    from blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots import (
+        ShotManifestController,
+    )
+
+    vlg_col = bpy.data.collections.new("VlgExcluded")
+    bpy.context.scene.collection.children.link(vlg_col)
+    vlg_out = bpy.data.objects.new("VlgOutside", None)
+    vlg_col.objects.link(vlg_out)
+    bpy.context.view_layer.layer_collection.children["VlgExcluded"].exclude = True
+    bpy.context.view_layer.update()
+
+    footer_msgs = []
+    stub = SimpleNamespace(
+        _set_footer=lambda text, **kw: footer_msgs.append(text)
+    )
+    reveal_err = ""
+    try:
+        ShotManifestController._show_in_outliner(stub, "VlgOutside")
+        reveal_ok = True
+    except RuntimeError as e:
+        reveal_ok, reveal_err = False, repr(e)
+    check(
+        "_show_in_outliner: outside-view-layer object doesn't raise",
+        reveal_ok,
+        reveal_err,
+    )
+    check(
+        "_show_in_outliner: outside-view-layer object reported via footer",
+        any("view layer" in m for m in footer_msgs),
+        f"{footer_msgs}",
+    )
+    ShotManifestController._show_in_outliner(stub, "aileron_geo")
+    check(
+        "_show_in_outliner: in-layer object selected + active",
+        bpy.data.objects["aileron_geo"].select_get()
+        and bpy.context.view_layer.objects.active is bpy.data.objects["aileron_geo"],
+    )
+
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
     return lines

@@ -43,3 +43,11 @@ include = ["blendertk*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.ui", "*.xml", "*.json", "*.txt", "*.md", "*.bat", "*.lua"]
+
+[tool.pytest.ini_options]
+# blendertk suites are standalone Blender scripts driven by test/run_tests.py.
+# pytest must never collect them: importing a suite module executes it.
+# norecursedirs, not --ignore: an --ignore path resolves against the CWD, so it
+# silently stops guarding when pytest is invoked from outside this repo.
+# Overriding norecursedirs drops its defaults - they are restated here.
+norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "node_modules", "test"]

@@ -142,6 +142,29 @@ try:
     except RuntimeError:
         check("load_fbx_export_preset(unknown name) raises RuntimeError", True)
 
+    # ---- a user preset cannot ship an unreadable carrier -----------------------------------
+    # A preset carrying use_custom_props: false (or an object_types without EMPTY)
+    # would export the data_export Empty holding nothing — the failure that looks
+    # most like success. The write-site guard forces both halves back on whenever
+    # the carrier is in the export set, same rule as the hand-off bridges.
+    from blendertk.node_utils.data_nodes import DataNodes as _DN
+
+    _carrier = _DN.ensure_export()
+    hostile = dict(object_types="MESH", use_custom_props=False)
+    exp._force_carrier_readability([_carrier], hostile)
+    check(
+        "carrier in export set -> hostile preset options repaired",
+        hostile["use_custom_props"] is True and "EMPTY" in hostile["object_types"],
+        f"{hostile}",
+    )
+    untouched = dict(use_custom_props=False)
+    exp._force_carrier_readability([], untouched)
+    check(
+        "carrier not in export set -> preset options left alone",
+        untouched["use_custom_props"] is False,
+    )
+    bpy.data.objects.remove(_carrier, do_unlink=True)
+
     # ---- a user preset shadows a built-in of the same name ("duplicate to edit") -----------
     SceneExporter.save_fbx_preset("default", {"path_mode": "STRIP"})
     check(
@@ -910,6 +933,128 @@ try:
         ),
     )
 
+    # ---- GLB texture delivery (glb_texture_format): stamped by perform_export, consumed
+    # LAST by _create_glb; a failure fails the deliverable; FBX-only leaves it inert;
+    # a missing toktx aborts before any file is written (mirror of mayatk's tests). --------
+    import pythontk as ptk
+    from unittest import mock
+
+    def _fake_convert(src, **kw):
+        p = os.path.splitext(src)[0] + ".glb"
+        with open(p, "wb") as fh:
+            fh.write(b"GLBDATA")
+        return p
+
+    delivered = {}
+
+    def _fake_optimize(path, **kw):
+        delivered.update(kw, path=path)
+        return {"images": 1, "bytes_before": 2e6, "bytes_after": 1e6}
+
+    exp10 = SceneExporter()
+    with mock.patch.object(
+        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
+    ), mock.patch.object(
+        ptk.MeshConvert, "optimize_glb_textures", side_effect=_fake_optimize
+    ):
+        result = exp10.perform_export(
+            export_dir=glb_dir,
+            objects=[gcube],
+            output_name="glb_delivery",
+            export_visible=True,
+            tasks={"output_format": "glb", "glb_texture_format": "WEBP"},
+        )
+    check(
+        "glb texture delivery runs the optimize pass container-only (max_size=0)",
+        result is True
+        and delivered.get("image_format") == "WEBP"
+        and delivered.get("max_size") == 0
+        and os.path.isfile(os.path.join(glb_dir, "glb_delivery.glb")),
+        f"result={result}, delivered={delivered}",
+    )
+
+    # WEBP, deliberately: KTX2 would hit the real toktx gate on machines
+    # without the encoder and abort BEFORE _create_glb — passing this check
+    # for the wrong reason. WEBP has no gate, so the delivery-failure branch
+    # itself (format-agnostic) is what runs everywhere.
+    exp11 = SceneExporter()
+    with mock.patch.object(
+        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
+    ), mock.patch.object(
+        ptk.MeshConvert,
+        "optimize_glb_textures",
+        side_effect=RuntimeError("encode failed (test)"),
+    ):
+        result = exp11.perform_export(
+            export_dir=glb_dir,
+            objects=[gcube],
+            output_name="glb_delivery_fail",
+            export_visible=True,
+            tasks={"output_format": "glb", "glb_texture_format": "WEBP"},
+        )
+    check(
+        "a failed texture delivery fails the deliverable (no silent fallback)",
+        result is False
+        and not os.path.isfile(os.path.join(glb_dir, "glb_delivery_fail.glb")),
+        f"result={result}",
+    )
+
+    exp12 = SceneExporter()
+    with mock.patch.object(
+        ptk.ImgUtils,
+        "resolve_ktx2_encoder",
+        side_effect=AssertionError("gate must not run for FBX-only output"),
+    ):
+        result = exp12.perform_export(
+            export_dir=glb_dir,
+            objects=[gcube],
+            output_name="fbx_only_inert",
+            export_visible=True,
+            tasks={"output_format": "fbx", "glb_texture_format": "KTX2"},
+        )
+    check(
+        "KTX2 setting is inert for FBX-only output (no gate; stamp cleared)",
+        result is True and exp12._glb_texture_format is None,
+        f"result={result}, stamp={getattr(exp12, '_glb_texture_format', 'unset')!r}",
+    )
+
+    exp_bad = SceneExporter()
+    result = exp_bad.perform_export(
+        export_dir=glb_dir,
+        objects=[gcube],
+        output_name="bad_format",
+        export_visible=True,
+        tasks={"output_format": "glb", "glb_texture_format": "PNG"},
+    )
+    check(
+        "an unknown glb_texture_format aborts loudly at parse (config error)",
+        result is False
+        and not os.path.exists(os.path.join(glb_dir, "bad_format.fbx"))
+        and not os.path.exists(os.path.join(glb_dir, "bad_format.glb")),
+        f"result={result}",
+    )
+
+    gate_dir = os.path.join(tmp, "ktx2_gate")
+    os.makedirs(gate_dir, exist_ok=True)
+    exp13 = SceneExporter()
+    with mock.patch.object(
+        ptk.ImgUtils,
+        "resolve_ktx2_encoder",
+        side_effect=FileNotFoundError("toktx missing (test)"),
+    ):
+        result = exp13.perform_export(
+            export_dir=gate_dir,
+            objects=[gcube],
+            output_name="ktx2_gate",
+            export_visible=True,
+            tasks={"output_format": "glb", "glb_texture_format": "KTX2"},
+        )
+    check(
+        "missing toktx aborts the export before any file is written",
+        result is False and os.listdir(gate_dir) == [],
+        f"result={result}, files={os.listdir(gate_dir)}",
+    )
+
     # ---- export funnel: unselectable objects are surfaced, never silently lost ------------
     # FbxUtils.export selects with use_selection=True: a HIDDEN object silently fails
     # select_set (dropped from the FBX with no trace), and one in a view-layer-EXCLUDED
@@ -1093,6 +1238,195 @@ try:
         cc_imp_carrier is not None
         and cc_imp_carrier.get("hidden_coll_probe") == json.dumps({"v": 42}),
         f"imported={[o.name for o in cc_imported]}",
+    )
+
+    # ---- optimize_textures / check_texture_optimization: the Optimize pair ----------------
+    # Engine decisions (the per-map-type plan, template spec resolution) are pythontk's,
+    # covered by test_map_optimizer; this exercises the Blender glue — image gathering,
+    # repathing + deferred restore, temp-staging cleanup, and the paired gate reading
+    # post-task state.
+    try:
+        # --factory-startup leaves the user-modules dir off sys.path; this is
+        # the production provisioning call (idempotent, never raises) that the
+        # material tools run, so the glue is tested the way it ships.
+        from blendertk.core_utils._core_utils import CoreUtils as _BtkCore
+
+        _BtkCore.ensure_image_deps()
+        from PIL import Image as _PILImage
+    except Exception:
+        _PILImage = None
+
+    if _PILImage is None:
+        check(
+            "texture optimization: SKIPPED — Pillow not provisioned in this "
+            "Blender (CoreUtils.ensure_image_deps)",
+            True,
+        )
+    else:
+        reset_scene()
+        bpy.ops.mesh.primitive_cube_add()
+        tb_cube = bpy.context.active_object
+        tb_cube.name = "OptimizeCube"
+        tb_mat = bpy.data.materials.new("OptimizeMat")
+        # 5.x+: use_nodes is deprecated (reading warns) and pinned True
+        # regardless — materials already carry a node_tree; 6.0 removes the
+        # attribute (reading raises). Version-gated, not probed, so the
+        # attribute is never touched where it no longer behaves as a toggle
+        # (mirror of light_utils._LightUtilsInternal._world_node_tree).
+        if bpy.app.version < (5, 0):
+            tb_mat.use_nodes = True
+        tb_tex_node = tb_mat.node_tree.nodes.new("ShaderNodeTexImage")
+        # A palette-mode normal map — the per-map-type pass must coerce
+        # P->RGB (palette transparency reads as alpha downstream); its
+        # dimensions must NEVER be resampled (no size dial by design).
+        tb_src = os.path.join(tmp, "opt_src_Normal.png")
+        _PILImage.new("RGB", (256, 256), (128, 128, 128)).convert("P").save(tb_src)
+        tb_tex_node.image = bpy.data.images.load(tb_src)
+        tb_bsdf = next(
+            n for n in tb_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
+        )
+        tb_mat.node_tree.links.new(
+            tb_tex_node.outputs["Color"], tb_bsdf.inputs["Base Color"]
+        )
+        tb_cube.data.materials.append(tb_mat)
+
+        tb_tm = SceneExporter().task_manager
+        tb_tm.objects = [tb_cube]
+        tb_tm._glb_only = True  # temp staging; the GLB embeds its own copies
+        tb_tm._optimize_textures_write_back = False
+        tb_orig_fp = tb_tex_node.image.filepath
+        tb_src_size = os.path.getsize(tb_src)
+
+        passed, msgs = tb_tm.check_texture_optimization(True)
+        check(
+            "texture optimization: gate fails on an unoptimized source",
+            passed is False and any("opt_src_Normal.png" in m for m in msgs),
+            f"{msgs}",
+        )
+        check(
+            "texture optimization: OFF (None/False) skips cleanly",
+            tb_tm.check_texture_optimization(None) == (True, [])
+            and tb_tm.check_texture_optimization(False) == (True, []),
+        )
+
+        tb_tm.optimize_textures(True)
+        tb_staged = tb_tex_node.image.filepath
+        with _PILImage.open(tb_staged) as _img:
+            staged_dims, staged_mode = _img.size, _img.mode
+        with _PILImage.open(tb_src) as _img:
+            src_mode = _img.mode
+        check(
+            "optimize_textures stages an RGB copy, never resampled, and "
+            "repoints the image",
+            os.path.normcase(tb_staged) != os.path.normcase(tb_orig_fp)
+            and os.path.isfile(tb_staged)
+            and staged_mode == "RGB"
+            and staged_dims == (256, 256),
+            f"staged={tb_staged} mode={staged_mode} dims={staged_dims}",
+        )
+        check(
+            "the scene's source file is untouched",
+            src_mode == "P" and os.path.getsize(tb_src) == tb_src_size,
+        )
+        passed, msgs = tb_tm.check_texture_optimization(True)
+        check(
+            "the gate passes on the staged post-task state",
+            passed is True,
+            f"{msgs}",
+        )
+
+        tb_tm.run_deferred_restores()
+        check(
+            "deferred restore repoints the image and deletes the temp staging",
+            tb_tex_node.image.filepath == tb_orig_fp
+            and not os.path.exists(tb_staged),
+            f"filepath={tb_tex_node.image.filepath}",
+        )
+
+    # ---- tiled-token substitution: <uvtile>/<f> must not collapse onto "1001" -------------
+    # Bug: the single-token substitution used "1001" for every token kind. <udim> -> "1001"
+    # is right; <uvtile>'s own first-tile convention is "u1_v1" (a UDIM tile number is not a
+    # UV-tile coordinate); <f> (frame sequences) has no fixed "first" value at all -- it must
+    # glob for whatever frame is actually on disk.
+    tb_tm2 = SceneExporter(log_level="INFO").task_manager
+    udim_rep = tb_tm2._tiled_representative(os.path.join(tex_dir, "tex.<UDIM>.png"))
+    check(
+        "_tiled_representative: <udim> resolves to its own first tile (1001)",
+        os.path.normcase(udim_rep or "")
+        == os.path.normcase(os.path.join(tex_dir, "tex.1001.png")),
+        f"{udim_rep}",
+    )
+    uvtile_rep = tb_tm2._tiled_representative(os.path.join(tex_dir, "tex.<uvtile>.png"))
+    check(
+        "_tiled_representative: <uvtile> resolves to ITS OWN first tile (u1_v1), not 1001",
+        os.path.normcase(uvtile_rep or "")
+        == os.path.normcase(os.path.join(tex_dir, "tex.u1_v1.png")),
+        f"{uvtile_rep}",
+    )
+
+    for frame in ("0007", "0008"):
+        with open(os.path.join(tex_dir, f"seq.{frame}.exr"), "wb") as fh:
+            fh.write(b"EXRDATA")
+    frame_rep = tb_tm2._tiled_representative(os.path.join(tex_dir, "seq.<f>.exr"))
+    check(
+        "_tiled_representative: <f> globs for the first frame actually on disk",
+        os.path.normcase(frame_rep or "")
+        == os.path.normcase(os.path.join(tex_dir, "seq.0007.exr")),
+        f"{frame_rep}",
+    )
+    missing_rep = tb_tm2._tiled_representative(os.path.join(tex_dir, "nope.<f>.exr"))
+    check(
+        "_tiled_representative: <f> with no frame on disk reports None, not a fabricated path",
+        missing_rep is None,
+        f"{missing_rep}",
+    )
+
+    # Integration: a <f> image with frames on disk resolves; one with none is skipped and
+    # logged (never silently dropped, never collapsed onto "1001" like a UDIM would be).
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    seq_cube = bpy.context.active_object
+    seq_mat = bpy.data.materials.new("SeqMat")
+    if bpy.app.version < (5, 0):
+        seq_mat.use_nodes = True
+    seq_cube.data.materials.append(seq_mat)
+
+    found_img = bpy.data.images.new("found_seq", 4, 4)
+    found_img.filepath = os.path.join(tex_dir, "found_seq.<f>.exr")
+    seq_mat.node_tree.nodes.new("ShaderNodeTexImage").image = found_img
+
+    missing_img = bpy.data.images.new("missing_seq", 4, 4)
+    missing_img.filepath = os.path.join(tex_dir, "missing_seq.<f>.exr")
+    seq_mat.node_tree.nodes.new("ShaderNodeTexImage").image = missing_img
+
+    for frame in ("0010", "0011"):
+        with open(os.path.join(tex_dir, f"found_seq.{frame}.exr"), "wb") as fh:
+            fh.write(b"EXRDATA")
+
+    tm_seq = SceneExporter(log_level="INFO").task_manager
+    tm_seq.objects = [seq_cube]
+    seq_handler = _ListHandler()
+    tm_seq.logger.addHandler(seq_handler)
+    try:
+        seq_sources = tm_seq._export_texture_sources(include_tiled=True)
+    finally:
+        tm_seq.logger.removeHandler(seq_handler)
+
+    seq_paths = {os.path.normcase(e["path"]) for e in seq_sources.values()}
+    check(
+        "_export_texture_sources: <f> image with frames on disk resolves to the first frame",
+        os.path.normcase(os.path.join(tex_dir, "found_seq.0010.exr")) in seq_paths,
+        f"{seq_paths}",
+    )
+    check(
+        "_export_texture_sources: <f> image with no frame on disk is not silently included",
+        all("missing_seq" not in p for p in seq_paths),
+        f"{seq_paths}",
+    )
+    check(
+        "_export_texture_sources: the skipped <f>-with-no-frame image is logged",
+        any("missing_seq" in m for m in seq_handler.messages),
+        f"{seq_handler.messages}",
     )
 
     shutil.rmtree(tmp, ignore_errors=True)
