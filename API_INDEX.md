@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a name; for full signatures/docs, slice [API_REGISTRY.md](API_REGISTRY.md) (never Read it whole)._
 
-_Generated: 2026-08-13_
+_Generated: 2026-08-17_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
@@ -329,7 +329,7 @@ _Generated: 2026-08-13_
 
 ### `env_utils/hierarchy_sync/scene_data_sidecar.py` — Scene-data sidecar manifest management — mirror of mayatk's
 - `class SceneDataSidecar`
-  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, migrate_legacy, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, read_data, count_descendants, write_diff_report, clean_stale_diff, build_full_path_set, compare
+  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, migrate_legacy, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, read_data, count_descendants, format_diff_report, clean_stale_diff, build_full_path_set, compare
 
 ### `env_utils/hierarchy_sync/tree_renderer.py` — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 - `class HierarchyTreeRenderer(ptk.LoggingMixin)`
@@ -398,11 +398,11 @@ _Generated: 2026-08-13_
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
+  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, cmb004, cmb006_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
-  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, check_material_compatibility, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
+  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, optimize_textures, check_material_compatibility, check_texture_optimization, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -457,7 +457,7 @@ _Generated: 2026-08-13_
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
   - methods: update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -655,7 +655,7 @@ _Generated: 2026-08-13_
 
 ### `node_utils/data_nodes.py` — Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes`
-  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string, dump, format_dump
+  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string, set_export_json, dump, format_dump
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -768,7 +768,7 @@ _Generated: 2026-08-13_
 
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - `class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`

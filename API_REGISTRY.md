@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-13_
+_Generated: 2026-08-17_
 
 ## Index
 
@@ -249,7 +249,7 @@ Applies tween mesh edits back to the master shape key — mirror of mayatk's
 
 Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
 
-- **[`class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L77)** — Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.
+- **[`class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L79)** — Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.
   - `BlendshapeAnimatorSlots.header_init(self, widget) -> None` — Configure header buttons + about menu.
   - `BlendshapeAnimatorSlots.b000_init(self, widget) -> None` — Create Setup button — option_box exposes an alternative entrypoint.
   - `BlendshapeAnimatorSlots.b000(self, widget) -> None` — Create Setup.
@@ -375,7 +375,7 @@ Switchboard slots for the Shot Manifest UI (Blender).
   - `ShotManifestController.remove_callbacks(self) -> None` — Remove store listener and invalidation subscription (call on teardown).
   - `ShotManifestController.build(self) -> None` — Build or update shots in the store from loaded steps.
   - `ShotManifestController.assess(self, skip_key_check: bool = False) -> None` — Compare CSV steps against the live Blender shots and color the tree.
-- **[`class ShotManifestSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L1961)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotManifestSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L1969)** — Switchboard slot class — routes UI events to the controller.
   - `ShotManifestSlots.header_init(self, widget)` — Header menu is configured once in controller.__init__.
   - `ShotManifestSlots.btn_expand_missing(self)` — Expand all step rows that have missing objects or behaviors.
   - `ShotManifestSlots.btn_expand_extra(self)` — Expand all step rows that have scene-discovered extra objects.
@@ -512,7 +512,7 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Gap overlay context menu — no domain actions this phase.
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Per-key selection changed — footer feedback only.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L1404)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L1409)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -573,7 +573,7 @@ Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` a
 - **[`class BakeResult`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L92)** — Result container for ``SmartBake.bake()``.
   - `BakeResult.baked_count(self) -> int` *(property)* — Number of objects successfully baked.
   - `BakeResult.success(self) -> bool` *(property)* — True if any objects were baked.
-- **[`class SmartBake(_SmartBakeInternal)`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L308)** — Intelligent bake+restore with automatic detection of what needs baking.
+- **[`class SmartBake(_SmartBakeInternal)`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L309)** — Intelligent bake+restore with automatic detection of what needs baking.
   - `SmartBake.analyze(self) -> Dict[str, BakeAnalysis]` — Analyze objects to determine what needs baking.
   - `SmartBake.get_time_range(self, analysis: Optional[Dict[str, BakeAnalysis]] = None) -> Tuple[int, int]` — Determine the optimal bake time range from driver/constraint-target animation.
   - `SmartBake.bake(self, analysis: Optional[Dict[str, BakeAnalysis]] = None, time_range: Optional[Tuple[int, int]] = None) -> BakeResult` — Bake every driven source :func:`analyze` found.
@@ -588,7 +588,7 @@ Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` a
 
 Persistence and restore engine for SmartBake's nondestructive manifest — mirror of mayatk's
 
-- **[`class BakeSessionStore(_BakeSessionStoreInternal)`](blendertk/blendertk/anim_utils/smart_bake/bake_session.py#L203)** — LIFO stack of bake-session manifests on the ``data_internal`` Empty.
+- **[`class BakeSessionStore(_BakeSessionStoreInternal)`](blendertk/blendertk/anim_utils/smart_bake/bake_session.py#L223)** — LIFO stack of bake-session manifests on the ``data_internal`` Empty.
   - `BakeSessionStore.load(cls) -> List[dict]` *(class)* — Return all persisted sessions (oldest first).
   - `BakeSessionStore.save(cls, sessions: List[dict]) -> None` *(class)*
   - `BakeSessionStore.push(cls, session: dict) -> None` *(class)*
@@ -605,7 +605,7 @@ Persistence and restore engine for SmartBake's nondestructive manifest — mirro
   - `BakeSessionStore.snapshot_blend_shape_driver(obj, key_block, fcurve) -> Dict[str, Any]` *(static)* — Serialize a shape-key driver before ``bake_blend_shapes`` removes it.
   - `BakeSessionStore.snapshot_blend_shape_action(obj, key_block, fcurve) -> Dict[str, Any]` *(static)* — Serialize a shape-key's own (non-driver) keyframes before ``bake_blend_shapes`` resamples
   - `BakeSessionStore.restore_session(session: dict) -> 'RestoreResult'` *(static)* — Reverse everything recorded in *session*.
-- **[`class RestoreResult`](blendertk/blendertk/anim_utils/smart_bake/bake_session.py#L527)** — Result container for ``SmartBake.restore()``.
+- **[`class RestoreResult`](blendertk/blendertk/anim_utils/smart_bake/bake_session.py#L553)** — Result container for ``SmartBake.restore()``.
 
 <a id="anim_utils--smart_bake--smart_bake_slots"></a>
 ### `anim_utils/smart_bake/smart_bake_slots.py`
@@ -927,7 +927,7 @@ Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 
 Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 
-- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L524)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L639)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
   - `EditUtils.hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')` *(static)* — Hook control point *point_index* of *curve* to *target* so moving the target moves that point
   - `EditUtils.decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
@@ -1083,25 +1083,25 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `DisplayMacros.m_cycle_display_state(cls)` *(class)* — Cycle the selected objects' draw type: Textured -> Wireframe -> Bounds (driven by the
   - `DisplayMacros.m_smooth_preview(cls)` *(class)* — Toggle a live Subdivision-Surface preview on the selected meshes.
   - `DisplayMacros.m_frame(cls, steps: int = 2, adjust_clipping: bool = True) -> None` *(class)* — Frame the selection at the ideal working distance;
-- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L313)**
+- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L315)**
   - `EditMacros.m_multi_component()` *(static)* — Multi-component selection — enable vertex+edge+face select together (edit mode).
   - `EditMacros.m_paste_and_rename(cls)` *(class)* — Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
   - `EditMacros.m_ungroup()` *(static)* — Ungroup the selected group Empties — children keep their world transforms
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L366)**
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L368)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L419)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L421)**
   - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L462)**
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L464)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L488)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L490)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1130,7 +1130,7 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1173)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1175)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--mirror"></a>
 ### `edit_utils/mirror.py`
@@ -1382,10 +1382,10 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
 
 Scene-data sidecar manifest management — mirror of mayatk's
 
-- **[`class SceneDataSidecar`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L57)** — Manages scene-data sidecar files stored alongside export files.
+- **[`class SceneDataSidecar`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L80)** — Manages the scene-data sidecar file stored alongside export files.
   - `SceneDataSidecar.base_stem(cls, export_path: str) -> str` *(class)* — Return the export stem with any trailing ``_vNN`` suffix stripped.
   - `SceneDataSidecar.manifest_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar manifest path for an export file.
-  - `SceneDataSidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar diff report path for an export file.
+  - `SceneDataSidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the v2-era on-disk diff report path for an export file.
   - `SceneDataSidecar.find_legacy_manifest(cls, export_path: str) -> Optional[str]` *(class)* — Return the path of a legacy per-version sidecar to migrate from.
   - `SceneDataSidecar.ensure_base_name(cls, export_path: str) -> Optional[str]` *(class)* — Migrate a legacy per-version manifest to the base-stem name.
   - `SceneDataSidecar.migrate_legacy(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]` *(class)* — Idempotently bring on-disk sidecars up to the current naming.
@@ -1394,12 +1394,12 @@ Scene-data sidecar manifest management — mirror of mayatk's
   - `SceneDataSidecar.expand_to_descendants(objects) -> list` *(static)* — Return hierarchy paths for *objects* plus all their descendants.
   - `SceneDataSidecar.get_top_level(paths) -> list` *(static)* — Return only paths whose ancestor is *not* also in the set.
   - `SceneDataSidecar.detect_reparenting(missing: list, extra: list) -> list` *(static)* — Detect nodes that were reparented rather than added/removed.
-  - `SceneDataSidecar.write_manifest(cls, export_path: str, paths, *, data: Optional[dict] = None, base_stem: bool = False) -> Optional[str]` *(class)* — Write the sidecar manifest for *export_path*.
+  - `SceneDataSidecar.write_manifest(cls, export_path: str, paths, *, data: Optional[dict] = None, last_diff: Optional[dict] = None, base_stem: bool = False) -> Optional[str]` *(class)* — Write the sidecar manifest for *export_path*.
   - `SceneDataSidecar.read_manifest(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]` *(class)* — Read the hierarchy paths from the manifest for *export_path*.
   - `SceneDataSidecar.read_data(cls, export_path: str, *, base_stem: bool = False) -> Optional[dict]` *(class)* — Read the ``data_export`` snapshot from the manifest for *export_path*.
   - `SceneDataSidecar.count_descendants(top_path: str, all_paths) -> int` *(static)* — Count *top_path* plus its descendants in *all_paths*.
-  - `SceneDataSidecar.write_diff_report(cls, export_path: str, missing: list, extra: list, reparented: list = None, *, base_stem: bool = False) -> Optional[str]` *(class)* — Write a human-readable diff report to the sidecar text file.
-  - `SceneDataSidecar.clean_stale_diff(cls, export_path: str, *, base_stem: bool = False) -> None` *(class)* — Remove a stale diff report left over from a previous failure.
+  - `SceneDataSidecar.format_diff_report(cls, missing: list, extra: list, reparented: list = None) -> str` *(class)* — Return the human-readable hierarchy diff report as text.
+  - `SceneDataSidecar.clean_stale_diff(cls, export_path: str, *, base_stem: bool = False) -> None` *(class)* — Remove a leftover v2-era on-disk diff report.
   - `SceneDataSidecar.build_full_path_set(cls, objects) -> set` *(class)* — Expand *objects* to descendants, then dedup.
   - `SceneDataSidecar.compare(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]` *(class)* — Compare *current_paths* against the stored hierarchy baseline.
 
@@ -1609,6 +1609,8 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.cmb001_init(self, widget) -> None` — Auto-generate Export Settings UI from task definitions using WidgetComboBox.
   - `SceneExporterSlots.cmb002_init(self, widget) -> None` — Auto-generate Check Settings UI from check definitions using WidgetComboBox.
   - `SceneExporterSlots.cmb004_init(self, widget) -> None` — Init Output Format — FBX (default), GLB, or FBX + GLB.
+  - `SceneExporterSlots.cmb004(self, index, widget) -> None` — Output-format changed: the GLB Textures combo is inert without a GLB
+  - `SceneExporterSlots.cmb006_init(self, widget) -> None` — Init GLB Textures (mirror of mayatk's ``cmb006_init``).
   - `SceneExporterSlots.cmb005_init(self, widget) -> None` — Init Texture Template (mirror of mayatk's ``cmb005_init``).
   - `SceneExporterSlots.b000(self) -> None` — Export: run the scene export with the configured tasks and settings.
   - `SceneExporterSlots.b010(self) -> None` — Set Output Directory
@@ -1623,7 +1625,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1087)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1605)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1650,7 +1652,9 @@ Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of
   - `TaskManager.check_objects_below_floor(self, enabled, tolerance: float = 0.5) -> tuple` — Blender is Z-up natively (Maya's version checks Y).
   - `TaskManager.check_duplicate_materials(self, enabled) -> tuple`
   - `TaskManager.convert_textures(self, template) -> None` — Convert the export materials' textures to *template* (mirror of mayatk's).
+  - `TaskManager.optimize_textures(self, template)` — Optimize the maps shipping with this export, by map type (mirror
   - `TaskManager.check_material_compatibility(self, template) -> tuple` — Every mask map matches the chosen texture template (mirror of mayatk's).
+  - `TaskManager.check_texture_optimization(self, template) -> tuple` — Every shipping texture is optimized for its map type (mirror of mayatk's).
   - `TaskManager.check_path_length(self, max_length) -> tuple` — No export path exceeds the OS path-length limit (mirror of mayatk's).
   - `TaskManager.check_valid_paths(self, enabled) -> tuple` — Every export texture and every linked library resolves on disk.
   - `TaskManager.check_texture_file_size(self, max_mb) -> tuple` — No export texture exceeds ``max_mb`` on disk.
@@ -1846,9 +1850,9 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L684)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L685)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L946)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L947)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -1869,6 +1873,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.delete_unused_materials()` *(static)* — Delete materials assigned to no object — mirror of Maya's *Delete Unused Materials*.
   - `MatUtils.graph_materials(materials, mode=None)` *(static)* — Open the Shader Editor focused on ``materials`` — the Blender analogue of Maya's
   - `MatUtils.get_image_records()` *(static)* — Every FILE-backed image datablock as a record for the Texture Path Editor:
+  - `MatUtils.image_paths_scope(cls, images, new_path=None)` *(class)* — Context manager: hold the ``filepath`` of *images* for the block, restore on exit.
   - `MatUtils.repath_image(image, new_path, reload=True)` *(static)* — Point ``image`` (datablock or name) at ``new_path`` and reload it — mirror of the Texture
   - `MatUtils.to_project_relative(abspath, blenddir=None, project_root=None)` *(static)* — Convert an absolute path to a Blender ``//``-relative path when it falls inside the
   - `MatUtils.resolve_missing_textures(search_dir, recursive=True, stem=False, texture=False, fuzzy=False, images=None)` *(static)* — Repath missing FILE images within ``search_dir`` — the Blender analogue of Maya's Texture
@@ -2515,6 +2520,7 @@ Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_node
   - `DataNodes.ensure_export()` *(static)* — Get or create the ``data_export`` Empty.
   - `DataNodes.set_export_string(key, value)` *(static)* — Set custom property *key* on the carrier to *value* (string) — see ``_set_string``
   - `DataNodes.get_export_string(key)` *(static)* — The carrier's *key* custom property, or ``None`` — see ``_get_string``;
+  - `DataNodes.set_export_json(key, payload)` *(static)* — Publish *payload* as a JSON export channel — the one-call form of the producer
   - `DataNodes.dump(decode=True)` *(static)* — Every tool-authored channel on both carriers, grouped by object — mirror of
   - `DataNodes.format_dump(decode=True)` *(static)* — Pretty-printed JSON of :meth:`dump`, or ``""`` when nothing is stored — mirror of
 
@@ -2883,7 +2889,7 @@ External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
 
 UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 
-- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L335)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
+- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L414)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
   - `UvUtils.get_uv_bounds(objects)` *(static)* — The UV-space bounding box of *objects*, as one box over the whole input —
@@ -2892,7 +2898,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.scale_uvs(objects, su=1.0, sv=1.0, pivot=(0.0, 0.0))` *(static)* — Scale the UVs of the given mesh object(s) by ``(su, sv)`` about ``pivot`` (UV-space
   - `UvUtils.transform_uvs(objects, flip_u=False, flip_v=False, angle=0.0, per_shell=False)` *(static)* — Flip and/or rotate (``angle`` degrees, CCW) the UVs of the given mesh object(s).
   - `UvUtils.mirror_uvs(objects, axis='u', per_shell=True, preserve_position=True)` *(static)* — Mirror UVs across U or V — mirror of ``mtk.UvUtils.mirror_uvs``.
-  - `UvUtils.pin_uvs(objects, pin=True, selected_only=True)` *(static)* — Pin/unpin UVs (bmesh ``pin_uv``).
+  - `UvUtils.pin_uvs(objects, pin=True, selected_only=True, whole_shells=False)` *(static)* — Pin/unpin UVs (bmesh ``pin_uv``).
   - `UvUtils.get_texel_density(objects, map_size)` *(static)* — Texel density (px per scene unit) of the meshes' faces against a ``map_size`` map —
   - `UvUtils.set_texel_density(objects, density=1.0, map_size=4096)` *(static)* — Scale each object's UVs (about its own UV bbox center) to the target texel density —
   - `UvUtils.delete_extra_uv_sets(objects)` *(static)* — Remove all but the first UV map on the given mesh object(s) — "Cleanup UV Sets".
@@ -2902,8 +2908,9 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
   - `UvUtils.create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True)` *(static)* — Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).
   - `UvUtils.auto_unwrap(cls, objects=None, method: str = 'hard', map_size: int = 4096, pack: bool = None, orient: bool = True, engine_params: dict = None)` *(class)* — Automatically unwrap meshes with an external unwrapping engine.
   - `UvUtils.transfer_uvs(cls, source, target, tolerance=0.1, match_by_similarity=True)` *(class)* — Copy the active UV layer from *source* mesh(es) onto *target* mesh(es).
-  - `UvUtils.get_uv_coords(objects)` *(static)* — Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in
+  - `UvUtils.get_uv_coords(objects, pins=False)` *(static)* — Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in
   - `UvUtils.set_uv_coords(objects, snapshot)` *(static)* — Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the
+  - `UvUtils.get_similar_uv_shells(objects, tolerance=1.0, include_reference=False, select=False)` *(static)* — The UV islands of *objects* (EDIT mode) that share the topology and shape of the
   - `UvUtils.stack_uv_shells(objects, tolerance=None)` *(static)* — Stack UV islands on top of each other.
   - `UvUtils.straighten_uv_shells(objects, mode='LENGTH_AVERAGE')` *(static)* — Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via
   - `UvUtils.derive_auto_seams(objects, angle=66.0, margin=0.0)` *(static)* — Auto-detect UV seams via a temporary Smart UV Project pass — mirror of Maya's
@@ -2935,7 +2942,7 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
-- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L452)** — Parameters — module namespace.
+- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L479)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).

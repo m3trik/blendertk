@@ -2,8 +2,8 @@
 
 > Mirror of mayatk's shared scene-data-node system — concepts, channel
 > registry, and the engine-side contract are owned by
-> **[mayatk/docs/data_nodes.md](../../mayatk/docs/data_nodes.md)**. This page
-> documents only what diverges on Blender.
+> **[mayatk/docs/data_nodes.md](https://github.com/m3trik/mayatk/blob/main/docs/data_nodes.md)**.
+> This page documents only what diverges on Blender.
 
 `blendertk.node_utils.data_nodes.DataNodes` gives Blender tools the same two
 shared carriers (`data_internal` / `data_export`) and the same string-channel
@@ -17,7 +17,9 @@ renaming anything.
 |---|---|---|
 | Carrier node | `data_internal` = `network` node; `data_export` = locked, hidden `transform` + zero-scale locator shape | both are plain **Empty objects** (custom properties) |
 | Channel storage | dynamic string attrs → FBX **user properties** | **custom properties** (`obj["key"]`) → FBX **user properties** |
-| Never-exports guarantee | a `network` node is structurally incapable of serialising into an FBX | `data_internal` is excluded **by name** by the export object-set builders (`env_utils.scene_exporter`, SmartBake) |
+| Never-exports guarantee | a `network` node is structurally incapable of serialising into an FBX | excluded **by name** where a builder could sweep it in — the Scene Exporter's *selected* branch, SmartBake's scope filter, and the hand-off bridges' hierarchy closure (`handoff_export`, covering whole-scene sends); *all* and *visible* exclude it by type filter (geometry-only collection) |
+| Shots app state | `shot_store` channel on `data_internal` | `scene["shot_store"]` — a scene ID property, not the carrier (predates the mayatk consolidation; folds in when the shots port lands) |
+| Duplicate carrier | duplicate *short names* possible at different DAG levels — every accessor resolves to the shallowest path | object names are globally unique (`bpy.data.objects`); an FBX re-import lands as `data_export.001`, which the API deliberately ignores. An **unlinked** carrier (collection deleted) is relinked into the scene collection on the next write, so a producer can never publish to an object the exporter won't ship |
 | Carrier visibility | `data_export` stays hidden; Maya exports hidden nodes in a selection | the carrier stays **visible/selectable** — Blender's `use_selection` export can only ship selectable objects (the `export_data_node` task clears any hide state defensively) |
 | Outliner row | `data_export` is flagged `hiddenInOutliner` (transform + shape) — the Outliner never lists it | **no equivalent** — Blender's Outliner lists every object in the view layer and offers no per-object hide-from-Outliner flag; the only ways to drop the row (unlink from all collections, exclude the collection) also drop the object from the FBX export set, so the carrier stays listed |
 | Proxied authored attrs | retired (`mirror_attr`, healed by its old producer) | never existed — no attr-proxy concept in `bpy` |
@@ -33,6 +35,12 @@ Exporter's `_DEFAULT_FBX_OPTIONS` (and its shipped `default` preset):
   the FBX (and its children re-rooted), so without `"EMPTY"` the carrier Empty itself
   is filtered out of the export. Pinned here rather than inherited from the
   bridge-oriented `FbxUtils` defaults: the carrier is a hard requirement of this task.
+
+A **user preset cannot silently defeat either option**: the write site
+(`_force_carrier_readability`) repairs both — with a warning — whenever the
+carrier is in the export set, the same "shipping the carrier and shipping what
+makes it readable are one decision" rule the bridges enforce. Pinned by
+`test/test_scene_exporter.py`.
 
 The Scene Exporter's default-on **"Export Scene Data Node"** task
 (`export_data_node`) first refreshes every known producer's channel from live

@@ -10,6 +10,7 @@ call bodies (no import side effects). The material/texture *report* formatting i
 Blender image datablock directly (Blender's bundled Python ships no PIL).
 """
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -1411,6 +1412,50 @@ class MatUtils(_MatUtilsInternal):
                 }
             )
         return records
+
+    @classmethod
+    @contextlib.contextmanager
+    def image_paths_scope(cls, images, new_path=None):
+        """Context manager: hold the ``filepath`` of *images* for the block, restore on exit.
+
+        The Blender ``snapshot -> mutate -> restore`` scope for texture paths — the analogue of
+        mayatk's ``Attributes.pinned(file_node, fileTextureName=...)`` and, because Blender's
+        Map Updater only repaths datablocks (never rewires the graph), of its
+        ``MatSnapshot.network_scope`` too. With *new_path* every image is repathed to it on
+        entry (:meth:`repath_image`); without it the body does the repathing (a MatUpdater
+        run). On exit each image is put back — a datablock freed since is skipped, and a
+        failing restore is logged, never raised. Composable under a ``contextlib.ExitStack``
+        (LIFO), which the Scene Exporter hands to ``TaskFactory.stage_deferred_context`` when
+        the write must still see the staged paths.
+
+        Args:
+            images: one image datablock or name, or an iterable of them.
+            new_path: optional path to repath every image to for the block.
+        """
+        import bpy
+
+        # make_iterable: every other public entry point here takes one datablock
+        # or many (cf. repath_image), and a bare bpy.types.Image is not iterable,
+        # so iterating the argument directly made the single-image call -- the
+        # natural one -- raise TypeError before the body ran.
+        resolved = [
+            bpy.data.images.get(i) if isinstance(i, str) else i
+            for i in ptk.make_iterable(images)
+        ]
+        originals = {img: img.filepath for img in resolved if img is not None}
+        if new_path is not None:
+            for img in originals:
+                cls.repath_image(img, new_path)
+        try:
+            yield
+        finally:
+            for img, original in originals.items():
+                with ptk.CoreUtils.teardown_guard(logging.getLogger(__name__), f"image path {original!r}"):
+                    try:
+                        if img.filepath != original:
+                            cls.repath_image(img, original)
+                    except ReferenceError:
+                        pass  # datablock freed since the write
 
     @staticmethod
     def repath_image(image, new_path, reload=True):

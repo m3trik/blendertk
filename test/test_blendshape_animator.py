@@ -567,6 +567,93 @@ try:
         bpy.data.objects.get(frown_tween_name) is None,
     )
 
+    # ==================== renamed reference key (basis != "Basis") ====================
+    # Imported/renamed meshes carry a reference key under any name; matching on the
+    # literal "Basis" appended a spurious block in create() and let a KeyError escape
+    # the applicator's (ValueError, ReferenceError) net.
+    from blendertk.anim_utils.blendshape_animator.applicator import Applicator
+
+    reset()
+    base_rn = make_cube("BaseRenamed")
+    target_rn = make_cube("TargetRenamed", z_scale=2.0)
+    base_rn.shape_key_add(name="Base", from_mix=False)  # reference key NOT named "Basis"
+
+    animator_rn = BlendshapeAnimator()
+    create_rn_ok = animator_rn.create(
+        base_obj=base_rn, target_obj=target_rn, name="morphRN", test_setup=False
+    )
+    check("renamed basis: create() succeeds", create_rn_ok is True)
+    sk_rn = base_rn.data.shape_keys
+    check(
+        "renamed basis: create() adds NO spurious 'Basis' block",
+        "Basis" not in sk_rn.key_blocks,
+        f"blocks={[kb.name for kb in sk_rn.key_blocks]}",
+    )
+    check(
+        "renamed basis: reference key identity preserved",
+        sk_rn.reference_key.name == "Base",
+    )
+
+    tweens_rn = animator_rn.edit_weight_based(weights=[0.5])
+    check("renamed basis: tween created at weight 0.5", len(tweens_rn) == 1)
+    if tweens_rn:
+        for v in tweens_rn[0].obj.data.vertices:
+            v.co.x += 0.25  # sculpt a real delta so the corrective is non-trivial
+    applied_rn = animator_rn.edit_apply_tweens()
+    check(
+        "renamed basis: full create->apply path works (no KeyError escape)",
+        len(applied_rn) == 1,
+        f"applied={applied_rn}",
+    )
+    corr_rn = next(
+        (kb for kb in sk_rn.key_blocks if Applicator._CORRECTIVE_INFIX in kb.name),
+        None,
+    )
+    check(
+        "renamed basis: corrective's relative_key is the reference key",
+        corr_rn is not None and corr_rn.relative_key == sk_rn.reference_key,
+        f"relative={getattr(getattr(corr_rn, 'relative_key', None), 'name', None)}",
+    )
+    check(
+        "renamed basis: still no 'Basis' block after apply",
+        "Basis" not in sk_rn.key_blocks,
+        f"blocks={[kb.name for kb in sk_rn.key_blocks]}",
+    )
+
+    # from_existing's pre-custom-property fallback heuristic must skip the
+    # reference key by IDENTITY, not by the literal name "Basis".
+    del base_rn["blendshape_animator_key"]
+    animator_fb = BlendshapeAnimator.from_existing(base_rn)
+    check(
+        "renamed basis: from_existing heuristic binds the master key, not the reference",
+        animator_fb is not None and animator_fb.key_name == "morphRN",
+        f"key_name={getattr(animator_fb, 'key_name', None)}",
+    )
+
+    # create_keyframes over an fcurve already carrying many keys exercises the
+    # remove-all path (clear(), not remove-over-a-stale-snapshot — the latter
+    # dangles PyRNA wrappers when the points array reallocs).
+    kf_rn = animator_rn.keyframes
+    kb_master = kf_rn.key_block
+    for f in range(1, 61):
+        kb_master.keyframe_insert(data_path="value", frame=f)
+    fc_rn = kf_rn._value_fcurve()
+    check(
+        "renamed basis: fixture fcurve carries many keys",
+        fc_rn is not None and len(fc_rn.keyframe_points) >= 60,
+        f"n={len(fc_rn.keyframe_points) if fc_rn else None}",
+    )
+    rekey_ok = kf_rn.create_keyframes(10, 20)
+    fc_rn = kf_rn._value_fcurve()
+    frames_rn = (
+        sorted(kp.co.x for kp in fc_rn.keyframe_points) if fc_rn is not None else []
+    )
+    check(
+        "create_keyframes clears every prior key without error (clear() path)",
+        rekey_ok is True and frames_rn == [10.0, 20.0],
+        f"frames={frames_rn}",
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

@@ -1,6 +1,46 @@
-# Changelog
+# blendertk — Changelog
 
-## [Unreleased]
+## 2026
+
+- **2026-08-16 — Pre-push review fixes: `image_paths_scope` rejected the single-datablock call, and the vendored Rizom Lua carried a false warning plus Maya-specific wording.**
+
+  **`MatUtils.image_paths_scope` iterated its argument directly**, so the natural `with MatUtils.image_paths_scope(tex_node.image, new_path=p):` raised `TypeError: 'Image' object is not iterable` before the body ran — every other public entry point here takes one datablock or many (cf. `repath_image`). Only the two in-repo callers happened to pass lists, which is why nothing caught it. Now routed through `ptk.make_iterable`, matching the rest of the package's contract.
+
+  **The `optimize_textures_write_back` -> `texture_write_back` rename now has the legacy mapping mayatk's twin got.** Without it a preset saved before the rename reached the task dispatch as an unknown task and the run silently fell back to Export Copies, losing the user's saved setting with only a log line.
+
+  **Rizom Lua comments corrected (shared with mayatk, byte-identical).** `pack.lua` and the new `keep_stacked_block.lua` warned that "the include tokens must NOT be named in any comment — the expander is a blind string replace". False: `Parameters.expand_includes` expands only a line whose SOLE non-whitespace content is the token, and an in-comment mention is left untouched (verified empirically). The warning had forced a hyphenated "KEEP-STACKED-BLOCK" workaround. `pack_block.lua` also regained its DCC-neutral wording ("the DCC-side pack operation" / "an in-DCC repack") — byte-parity with mayatk had dragged "the Maya pack operation" / "an in-Maya repack" into this package's vendored copy, where it is simply wrong; the neutral wording is true in both, so parity now holds on correct text. Verified with mayatk's `rizom_headless_probe.py` against RizomUV 2020.1 (10/10 cases green); the four Lua files remain byte-identical across the two packages.
+
+- **2026-08-16 — `MatUtils.image_paths_scope(images, new_path=None)`: the Blender `snapshot -> mutate -> restore` scope for texture paths (mirror of mayatk's `Attributes.pinned` / `MatSnapshot.network_scope` — Blender's updater only repaths datablocks, so the paths ARE the state), guarded by `ptk.CoreUtils.teardown_guard`; the Scene Exporter's staged `convert_textures` / `optimize_textures` now stage an ExitStack of these via `TaskFactory.stage_deferred_context` instead of hand-rolled closures.** Verified: test_scene_exporter 99/99 headless (new: scope repath/restore, restore despite a raise), parity sweep clean.
+- **2026-08-16 — Scene Exporter: texture processing is non-destructive by default, governed by ONE `Texture Output` combo — `Export Copies (Scene Untouched)` / `Scene Files (In Place)` — read by BOTH the `Textures` template conversion and `Optimize Textures` (mirror of mayatk; `env_utils/scene_exporter/task_manager.py`, `_scene_exporter.py`, `scene_exporter_slots.py`).** At `Export Copies` `convert_textures` records the export images' `filepath`s, runs the Map Updater into this run's staging dir (`_texture_staging_dir`, shared with `optimize_textures`) and a deferred restore repaths them back after the write (Blender's updater only repaths datablocks, so the paths ARE the state — no graph snapshot needed). `Scene Files` is the old in-place migration. The pair now runs AFTER `convert_to_relative_paths`; write-back relativizes its own repaths when that task is on. `Optimize Textures` is a checkbox again; the engine flag is `_texture_write_back` (`texture_write_back` kwarg). Verified: test_scene_exporter 97/97 headless, parity sweep clean.
+- **2026-08-16 — `UvUtils.stack_uv_shells(tolerance=…)` stacks similar shells the way Maya's `polyUVStackSimilarShells` does, and `UvUtils.get_similar_uv_shells` finds them.** The similarity signature is now rotation- and scale-invariant (loop-cloud elongation + compactness over exact face/loop counts — Maya treats a half-size copy as similar, probed) and a match is fitted with one rotate + uniform-scale + translate (2D Procrustes over the loop-order correspondence duplicates share, `_fit_island_onto`); a pair with no correspondence (mirrored copy) falls back to the center stack. `get_similar_uv_shells(objects, tolerance, include_reference, select)` returns `{object: [face indices]}` of the islands sharing the selected islands' topology + shape (edit mode; same oracle as the stack, nothing moved) and can select them — mirror of mayatk's. `pin_uvs(whole_shells=True)` pins the touched islands whole; `get_uv_coords(pins=True)` / `set_uv_coords` round-trip pin state. RizomUV bridge mirrors mayatk's `Keep Stacked` pack knob (`PACK_KEEP_STACKED` + vendored `keep_stacked_block.lua` shrink→group→unshrink recipe, `pack.lua`, `optimize.lua`, `pack_block.lua`). Tests: `test_uv_shells.py` (rotated / rotated+scaled fit, mirrored fallback, shape-not-size, whole-shell pin, pin snapshot, similar-shell query + select), `test_rizom_construction.py` (knob visibility, gating incl. the MultiCOG bracket, Lua byte-parity with mayatk).
+- **2026-08-16 — `decimate` / `dissolve_coplanar` are mode-aware: a mesh in Edit Mode reduces / dissolves only across its SELECTED components** — the mirror of mayatk's components-in, matching Blender's own edit-mode Decimate Geometry semantics (`percentage` is of the selected faces, unselected geometry and the region's outline are held, an empty selection is a no-op). Collapse drives the Decimate modifier through a temporary vertex group with the ratio folded to the region's share of the mesh (an unadjusted whole-mesh ratio collapsed the region as far as it could go — 400→220 vs the native 313); `preserve_quads=False` pre-triangulates only the region; the group is removed again on `apply` (a live `apply=False` modifier keeps its `Decimate` group). Planar runs bmesh `dissolve_limit` on the selected verts/edges (the PLANAR modifier has no vertex-group input). Object Mode is unchanged (whole mesh). Both now return the processed objects (`crease_edges`-style mode-awareness; `test_edit_utils.py` pins the scoping, mode restore, and no-leftovers).
+- **2026-08-16 — `m_frame` mirrors mayatk's fix: the first press is the ideal frame (the step ramp no longer starts short of it) and a press after a pause frames again instead of restoring the pre-frame view (`edit_utils/macros.py`, `StepToggle` ``stale="restart"``).** The "stale → home" rule made the frame key teleport the user back to a stale view after they had worked for a while; home is now only the last press of a rapid cycle. `test_macros` 80/80 (2 checks added, 1 rewritten).
+
+- **2026-08-15 — PyPI index-propagation cover widened from 3x30s to 8x30s (`.github/workflows/publish.yml`).** The post-publish step installs the freshly uploaded wheel WITH dependencies, to prove its pins resolve on PyPI exactly as users will install them. Its retry budget was measured too short on 2026-08-13: the simple index lagged past the old ~1.5-minute window and the release cascade aborted on "No matching distribution found" for an upstream published minutes earlier in the same run — a red run on a wheel that was fine. Eight attempts give ~3.5 minutes of cover; the retry only absorbs propagation lag, so a genuinely unresolvable pin still fails exactly as before, just later. Landed identically across pythontk / uitk / mayatk / blendertk / tentacle, since the cascade fails as a unit.
+
+- **2026-08-14 — Scene Exporter review-fix pass (mayatk parity twin): tiled-token substitution collapsed everything to "1001", plus test-infra fixes (`env_utils/scene_exporter/task_manager.py`, `test/test_scene_exporter.py`, `pyproject.toml`).** Same review as mayatk's entry of the same date. (1) **`_export_texture_sources`'s tiled-token collapse used `"1001"` for every token kind** — right for `<udim>`, wrong for `<uvtile>` (Blender's own first-tile convention is `u1_v1`, not a UDIM number) and wrong for `<f>` (frame sequences have no fixed "first" frame). New `_tiled_representative` (mirror of mayatk's) resolves each token kind on its own terms — `<udim>`/`<uvtile>` to their own first tile, `<f>` by globbing for the first frame actually on disk (a miss is reported as `None` and logged, never silently dropped or collapsed onto "1001"). (2) The Optimize Textures test fixture's unguarded `tb_mat.use_nodes = True` now follows the version-gated idiom (`light_utils._LightUtilsInternal._world_node_tree`'s precedent — 5.x+ pins `use_nodes` True and deprecates reading it, 6.0 removes the attribute). (3) `pyproject.toml`'s `norecursedirs` override — which restates pytest's defaults so recursion into `test/` stays blocked from any CWD — was missing `node_modules` from that restated list; added. New/extended tests: `_tiled_representative` unit checks (`<udim>`/`<uvtile>`/`<f>`, found and not-found), an `_export_texture_sources` integration check for a `<f>`-tokened image with and without a frame on disk. Verified headless in Blender 5.1: `test_scene_exporter.py` 93/93 (5 new checks, all failed against the pre-fix single-token substitution, confirmed by reverting the change in isolation).
+
+- **2026-08-14 — anim_utils correctness pass, part 2: view-layer-safe selection, the basis key stops being a name, smart_bake restores what it actually touched (`anim_utils/shots/*`, `blendshape_animator/*`, `smart_bake/*`).** Second batch from the audit follow-up, all TDD failing-first. (1) **Three `select_set(True)` sites raised RuntimeError for any object outside the active view layer** (excluded collection, other scene — `bpy.data.objects.get` finds them scene-wide), aborting shot selection and the manifest context menu mid-loop; all three now guard membership via `o.name in view_layer.objects` (the `select_by_material`/color_id precedent), the manifest site reporting through its footer. (2) **The basis shape key was resolved by the literal name "Basis"** — a renamed or imported reference key raised KeyError out of the applicator (whose except caught only ValueError/ReferenceError) while `create()` appended a spurious non-reference "Basis" block that then masked the applicator bug by feeding its lookup — the corrective keys' `relative_key` pointed at the fake block, corrupting every setup on such meshes; `shape_keys.reference_key` is now used everywhere (applicator, create(), `from_existing`'s heuristic, the slots' base-candidate gate), and create() only adds a basis when the mesh has no shape keys at all. Also `keyframes.py`'s remove-over-a-stale-PyRNA-snapshot loop became `keyframe_points.clear()` (undefined-behavior class; regression-pinned). (3) **Manifest presenter**: additional-object rows carried 5 texts + a stray "scene" tag in the Behaviors column of a 6-column tree (mayatk row shape restored) and `expand_missing` reported via bare print() with no in-panel feedback (now logger + footer, mirroring mayatk). (4) **smart_bake session fidelity, safe subset**: the three `if drivers … elif action` asymmetries snapshot BOTH states now (a datablock carrying drivers AND a hand-keyed action used to lose the action snapshot — densely resampled, unrestorable); `use_fake_user` is only flipped when a session records the prior value and the skip path restores it; `restored_actions` no longer reports restores that never happened (`ad=None`); and driver restore checks for a user re-added driver first — probing showed Blender 5.1's `driver_add` over an existing driver silently CLOBBERS it rather than raising, so the guard warns and leaves the user's driver in place. Driver-mute scoping, `action_slot` restore, and dense-key cleanup remain backlogged (session-schema changes). Verified headless in Blender 5.1: 397 checks green across the 8 affected suites (85 blendshape / 27+9 manifest / 71 sequencer / 158 smart_bake / 47 adjacent).
+
+- **2026-08-14 — anim_utils correctness pass, part 1 of the audit follow-up: `snap_keys` handle lock-step, legacy-action fallback in shot acquisition, `scale_keys` double-scale + shared-slot drop (`anim_utils/_anim_utils.py`, `shots/_shots.py`, `scale_keys.py`).** Three fixes from the 2026-08-14 full anim_utils audit, each landed TDD (failing test first). (1) `snap_keys` moved `co.x` without its handles, so FREE/ALIGNED tangents stayed at the old frame and the curve distorted around every snapped key; handles now shift by the same delta, the lock-step idiom every other mover in the module already used. (2) `BlenderShotStore.iter_action_fcurves` walked only the 4.4+ slotted-action structure and returned silently when `action.layers` was absent, so pre-4.4 Blender (still inside the declared 4.x floor) saw NO animation anywhere — `has_animation()` False, shot detection empty; a layer-less action now yields its flat `action.fcurves` directly, slotted path unchanged. (3) `ScaleKeys.scale_segments` tested block membership against the *current* `co.x` while an object's blocks share one fcurves list, so an expanding factor pushed an earlier block's keys into a later block's range where they were scaled AGAIN — and `fc.update()` then merged the drifted key with a co-located one, silently deleting a keyframe; the loop is now two-pass (all pivots/factors resolved first — speed-mode motion sampling now also reads the fully un-scaled scene — then one sweep per fcurve matching each key against its pre-scale position, first span wins). Bonus from the same pass: unit dedup keyed on action identity alone dropped every slot after the first when several objects share one slotted action; it now dedupes by `(action, slot)`, the `_AnimUtilsInternal._actions` idiom. Verified headless in Blender 5.1: 4 new pins (all confirmed failing before their fix) inside a 566/566 sweep across the 11 anim/shots suites.
+
+- **2026-08-14 — Data-node pipeline pass (mayatk parity twin): preset-proof carrier readability, `data_internal` bridge leak closed, unlinked-carrier heal, `set_export_json` mirror (`node_utils/data_nodes.py`, `env_utils/scene_exporter`, `env_utils/handoff_export.py`).** Three fixes and an API mirror from the same cross-DCC review as mayatk's entry of this date. (1) **A user preset can no longer ship an unreadable carrier**: the Scene Exporter merged `{**defaults, **preset}` and wrote — a preset carrying `use_custom_props: false` or an `object_types` without `EMPTY` shipped the `data_export` Empty holding nothing (or nothing at all) with no signal, the failure that looks most like success; the write site now repairs both with a warning whenever the carrier is in the export set (`_force_carrier_readability`), the same "shipping the carrier and shipping what makes it readable are one decision" rule the hand-off bridges already enforced, and the duplicated defaults-merge collapsed into one `_resolved_fbx_options` home. (2) **`data_internal` no longer rides a hand-off FBX**: the bridges' whole-scene send swept every scene object into the hierarchy closure — with `include_data_export` forcing `use_custom_props`, a Unity "Entire Scene" push exported SmartBake manifests and the emissive registry as user properties; the closure (every bridge path) now drops the carrier by name, restoring the never-exports guarantee that is structural in Maya. (3) **An unlinked carrier heals on write**: `bpy.data.objects` can hold an Empty no collection references (its collection deleted) — producer writes succeeded while the exporter never shipped it; `_get_node`'s create path now relinks it into the scene collection. Mirror parity: `set_export_json` (falsy clears, never creates — the producer publish/clear idiom) and the `FBX_TAKES`/`SHOT_METADATA` name constants land, closing the API delta with `mtk.DataNodes`; `_KNOWN_PRODUCERS` gains the run-order-is-a-contract note mayatk's rank sort encodes (audio must follow shots when the port lands). Docs: `data_nodes.md` corrects the by-name-exclusion overstatement (per-builder reality), adds the `shot_store` carrier divergence and duplicate/`.001`/unlinked semantics. Verified headless in Blender 5.1: node_utils 67, scene_exporter 86, fbx_utils 21 — 174 checks green, including new pins for all three fixes and the JSON mirror.
+
+- **2026-08-14 — The front door grows up, the test suite gets its README, and the repo gets its LICENSE.** `docs/README.md` was a 25-line stub against mayatk's 187-line product README; it is now a full front door — package table distilled from `STRUCTURE.md`'s verified rows, a usage example whose every symbol was resolved against the live package before citing, highlights (bidirectional Maya bridge, lightmap pipeline, hierarchy sync, shared `workspace.mel` workspaces), the parity-measurement story, session safety, guides, license — then claim-verified end-to-end (drift caught in the fresh rewrite itself: the Unity bridge was omitted, `selected_objects` is wildcard-exposed off `CoreUtils`, not a module function). New `test/README.md` (~105 lines) documents the sentinel-based check-script harness for the first time — fresh `--background --factory-startup` per suite, `===RESULT===` aggregation, the Qt-only-suites-under-venv redirect, badge semantics — every claim traced to the runner. `STRUCTURE.md` ghost bare-forms corrected (`btk.auto_instance` → `AutoInstancer`; `import_maya_scene`/`import_blender_scene` → their class forms — none of the bare names ever resolved in either package). `data_nodes.md`'s owner-doc link made GitHub-absolute (cross-repo relative links 404 outside the monorepo checkout); its "Shots/Audio not yet producing" caveat re-verified as still true. Housekeeping: `LICENSE` file added (pyproject promised MIT with no file), `MANIFEST.in`'s dead `include README.md` fixed to `docs/README.md`.
+
+- **2026-08-14 — `run_tests.py` gains a per-suite kill timer (`--suite-timeout`, default 600s), and pytest can no longer execute the suites by collecting them.** A hung suite used to stall the whole 89-suite run indefinitely — `subprocess.run` had no timeout — behind every suite queued after it; now it is killed, charged one failure (so it can never read as green), and the run moves on. Verified both ways: a normal suite passes unchanged, and a forced 1s timeout kills, charges, and exits 1. Separately, the suites are standalone scripts that execute at import, so a bare `pytest` invocation actually RAN them mid-collection (observed: a suite's `sys.exit` aborted collection as INTERNALERROR); `pyproject` now blocks recursion into `test/` via `norecursedirs` — not `--ignore`, whose relative path resolves against the CWD and silently stops guarding when pytest is invoked from any other directory.
+
+- **2026-08-14 — Scene Exporter Optimize Textures (mayatk parity twin): `optimize_textures` + `check_texture_optimization` (`env_utils/scene_exporter`).** Same contract as mayatk's entry of the same date — one checkbox arms task + gate, tiered like the Map Converter's Target combo: with cmb005's template selected, the template's per-map-type `OutputSpec` drives container/bit depth (clamped to scene-readable containers; delivery containers like KTX2 stay with cmb006); with "As Authored", a generic per-map-type pass. **No size dial by design** — the template's `DeliveryBudget` stays advisory (reported, never resampled; a first cut shipped a Texture Budget clamp combo and was reverted the same day). Task and gate judge through the shared `_assess_optimization` reader; already-optimal maps ship untouched, `check_existing` reuse is re-verified against the current run's settings; non-destructive by default with image datablocks repointed at staged copies and ONE post-write deferred restore; write-back opt-in archives originals in `original_textures/`; ordered last in the material phase. The Blender-idiomatic halves: gathering walks the export materials' image datablocks (packed and library-linked images skip aloud — no on-disk file to optimize / read-only datablock; `TILED`/`<UDIM>` images skip in the task and are measured via their 1001 tile by the gate's informational tier), and the temp-vs-durable staging decision keys off the resolved FBX kwargs rather than a MEL query — `embed_textures` *or* `path_mode COPY` means the exporter itself embeds or copies the staged files, so staging may be temp. `perform_export` now also stamps `task_manager.export_path`, which activates `check_path_length`'s export-path clause exactly as the Maya twin measures it. Verified headless in Blender 5.1 (`test_scene_exporter.py` +6: gate fails on a palette-mode normal map pre-task, OFF skips, staged RGB copy never resampled with source untouched, gate clears post-task, deferred restore repoints and deletes the temp staging — Pillow provisioned via the production `CoreUtils.ensure_image_deps` path) with the parity sweep clean.
+
+- **2026-08-14 — Changelog headers conform to the repo standard: `## [Unreleased]` is gone.** The top-level header becomes `## 2026` like every sibling package, and the 28 dated `## [Unreleased] — <date> (<title>)` section headers from the greenfield era drop the `[Unreleased]` half (their dates already answered "when"; nothing else changed). Root CLAUDE.md has forbidden the `[Unreleased]` ritual all along — release notes are cut from the lines ADDED since the last release, so a header that never changes never reaches them, but it left this file alone unable to answer which release shipped an entry. `check_docs.py`'s workspace sweep now FAILs any repo changelog carrying a `## [Unreleased]` header, so it cannot come back (see m3trik's changelog).
+
+- **2026-08-13 — Scene Exporter GLB texture delivery (`cmb006`, mayatk parity twin): Original / WebP / KTX2.** Same contract as mayatk's entry of the same date: carrier axis beside cmb005's workflow axis; "Original" at index 0 is byte-stable and the template default; WebP/KTX2 run `MeshConvert.optimize_glb_textures` container-only (`max_size=0`) inside the engine's `_create_glb`, as the LAST step (a KTX2 GLB is opaque to every PIL-based post-tool); the unconditional toktx gate aborts `perform_export` before any scene work when KTX2 is selected without an encoder; a failed delivery fails the deliverable; FBX-only output leaves the setting inert with a log line. The one structural divergence from the twin is where the per-run value lands — stamped on the engine itself rather than a task manager, since blendertk's `_create_glb` lives on the engine. Like the twin, the combo lives in the Format combo's **option box** rather than the main layout (a menu item registers by objectName, so `self.ui.cmb006`, `cmb006_init`, the `cmb004` enabled-state sync and template coverage are unchanged). Verified headless in Blender 5.1 (`test_scene_exporter.py`: container-only args, failure path, inert FBX-only, gate-before-any-file) with the parity sweep clean.
+
+- **2026-08-13 — One sidecar per export: the scene-data manifest absorbs its `.prev` backup and diff report (format v3, mayatk parity twin).** `SceneDataSidecar` mirrors mayatk's single-file contract: no `.prev` rotation (the v3 write never displaces the live manifest — tmp + atomic replace only — so the failure window that rotation insured no longer exists), a `last_diff` slot on `write_manifest` (unused here until the exporter-side hierarchy check is ported; the engine's `_write_scene_data_sidecar` passes nothing and stays untouched), `format_diff_report` replacing the file-writing `write_diff_report`, a write-time sweep of v2-era companions so delivery folders self-clean as assets re-export, and `FILE_ATTRIBUTE_HIDDEN` on Windows re-applied after every write. Reads stay transition-safe (v1/v2 manifests and surviving `.prev` files load until swept). The port also closes two drifts mayatk had already fixed: migration renames route through `_safe_replace` (a cloud-sync-locked sidecar used to raise into the exporter and mislabel a successful FBX write as failed), and a failed final replace no longer strands the `.tmp` beside the deliverable. Verified 51/51 in headless Blender 5.1 plus the scene-exporter suite (glb-only ordering, carrier gating) — including hidden-attribute persistence and the companion sweep.
+
+- **2026-08-13 — The bridge panels' log pane is collapsible (mayatk parity twin).** The Marmoset, Substance, Unity, Maya and RizomUV bridges each held `txt000` as a bare child of the form, so the log occupied its minimum height whether or not anything had been logged; the Scene Exporter, Hierarchy Sync, Telescope Rig, Game Shader, Mat Updater and Smart Bake panels have long wrapped the same pane in a uitk `CollapsableGroup` toggled by its `• • •` title. The five `.ui` files now carry that group (`output_grp`), byte-identical to their mayatk twins in the wrapped region, so `compare_panel_surface.py` stays clean.
+
+  Pure `.ui` change — `CollapsableGroup` persists its own collapse state from its objectName and Switchboard resolves `self.ui.txt000` at any nesting depth, so `BridgeSlotsBase._redirect_log_to_panel` is untouched. See mayatk's entry for why the group cannot collide with the preset/session layer, and for the shared-state caveat on the `output_grp` name.
 
 - **2026-08-12 — The new cancel-provider suite was reported FAILED by the harness, and the `use_nodes` sweep left a 4.x hole.** Both caught in the release review.
 
@@ -801,7 +841,7 @@
   (`marking_menu.show("channels")`). Tests: `test_channels.py` (engine, headless harness) +
   `test_blender_ui_handler` extended (panel discovery + load, .venv).
 
-## [Unreleased] — 2026-06-14 (Full mayatk parity port — kickoff + Phases 1–3)
+## 2026-06-14 (Full mayatk parity port — kickoff + Phases 1–3)
 
 Began a full structural mirror of mayatk in blendertk (decided: 1:1 file tree incl. subpackages;
 extend native ops the way mayatk does unless little benefit; DRY the package-manager into pythontk).
@@ -1105,7 +1145,7 @@ Tracking doc: [`docs/PARITY_BACKLOG.md`](docs/PARITY_BACKLOG.md) (triage of ever
 - `STRUCTURE.md` updated: the tool-layout convention is now "mirror mayatk's subpackage tree"
   (was "lean one-module-per-tool").
 
-## [Unreleased] — 2026-06-14 (ScriptJobManager — Blender event-subscription manager)
+## 2026-06-14 (ScriptJobManager — Blender event-subscription manager)
 
 Closed a real infrastructure gap: blendertk had **no** event-subscription manager, while mayatk's
 `ScriptJobManager` backs ~17 tools/slots (auto-refresh on selection/scene change, etc.) and the
@@ -1130,7 +1170,7 @@ Blender panels could only pull-refresh on show.
   ephemeral prune + handler teardown, `unsubscribe_all`, unknown-event `ValueError`, selection-diff
   gating/debounce, `reset` detaches all masters. `btk.ScriptJobManager` resolves; registry refreshed.
 
-## [Unreleased] — 2026-06-14 (Structural parity with mayatk — easy 1:1 mapping)
+## 2026-06-14 (Structural parity with mayatk — easy 1:1 mapping)
 
 Aligned blendertk's layout with mayatk so a change in one mirrors mechanically to the other (and
 documented the correspondence as the SSoT).
@@ -1154,7 +1194,7 @@ documented the correspondence as the SSoT).
   resolve to the expected modules; `test_node_utils` / `test_macros` (30/30) / `test_lightmap_baker`
   (21/21) PASS; API registry refreshed (`DataNodes` now attributed to `data_nodes.py`).
 
-## [Unreleased] — 2026-06-14 (Slot option-box parity: extend built-ins to restore Maya widgets)
+## 2026-06-14 (Slot option-box parity: extend built-ins to restore Maya widgets)
 
 Restoring dropped Maya slot **options** by extending Blender built-ins in blendertk (mirroring how
 mayatk backs its slots), retaining Maya's exact widgets/objectNames/labels for a seamless transition.
@@ -1180,7 +1220,7 @@ mayatk backs its slots), retaining Maya's exact widgets/objectNames/labels for a
   zero-length, get_similar_mesh ×7, separate_objects ×3, detach_components ×9, hardness upper/lower
   ×2) — all PASS.
 
-## [Unreleased] — 2026-06-13 (Co-located tool panels: faithful mayatk layout parity)
+## 2026-06-13 (Co-located tool panels: faithful mayatk layout parity)
 
 Rebuilt the co-located tool-panel `.ui` files to mirror their **mayatk** counterparts (the
 panels had diverged into simpler one-off layouts). Faithful structure, custom Blender logic
@@ -1207,7 +1247,7 @@ where needed, dropping only what genuinely has no Blender analogue (documented p
   Blender headless); handler discovery + `.ui` load-wiring 38/38; mat/light/bridge/ui suites green.
   3 panels now **identical** widget surfaces to mayatk; the rest differ only in documented drops.
 
-## [Unreleased] — 2026-06-13 (Game Shader: PBR-texture → Principled material)
+## 2026-06-13 (Game Shader: PBR-texture → Principled material)
 
 - **`btk.create_pbr_material(textures, name=None, normal_direction="OpenGL")`** (`mat_utils`) +
   co-located **Game Shader** panel (`mat_utils/game_shader`, `marking_menu.show("game_shader")`).
@@ -1226,7 +1266,7 @@ where needed, dropping only what genuinely has no Blender analogue (documented p
   glossiness-invert, DirectX green-flip, ORM split, no-classifiable → None); handler discovery +
   `.ui` load-wiring 38/38.
 
-## [Unreleased] — 2026-06-13 (external-app bridges: Substance / Marmoset / RizomUV)
+## 2026-06-13 (external-app bridges: Substance / Marmoset / RizomUV)
 
 The Blender bridge tools — export the selection and hand it to an external app. Substance/Marmoset
 **reuse the DCC-agnostic extapps workflows**; RizomUV (no extapps equivalent) gets a focused bundled
@@ -1251,7 +1291,7 @@ bridge.
   (resolved the installed `RizomUV 2020.1` on the dev box, returns None gracefully otherwise); handler
   discovery + `.ui` load-wiring 34/34; uv_utils suite green.
 
-## [Unreleased] — 2026-06-13 (Material Updater + on-demand image-lib provisioning)
+## 2026-06-13 (Material Updater + on-demand image-lib provisioning)
 
 Co-located **Material Updater** panel (`mat_utils/mat_updater.{ui,py}`) mirroring mayatk's, plus the
 provisioning + engine that make the whole texture-tool class actually work in Blender's Python.
@@ -1284,7 +1324,7 @@ provisioning + engine that make the whole texture-tool class actually work in Bl
   node repathed) + dry-run/empty/no-op paths; handler discovery + `.ui` load-wiring 30/30; the
   Pillow provision into Blender 5.1's Python 3.13 (cp313 wheel) succeeds.
 
-## [Unreleased] — 2026-06-13 (material tool panels: Texture Path Editor + Shader Templates)
+## 2026-06-13 (material tool panels: Texture Path Editor + Shader Templates)
 
 Co-located tool panels mirroring mayatk's material tools (discovered by `BlenderUiHandler`,
 served via `marking_menu.show("<tool>")`; engines in `MatUtils`, headless-tested).
@@ -1303,7 +1343,7 @@ served via `marking_menu.show("<tool>")`; engines in `MatUtils`, headless-tested
 - **Tests**: `test_mat_anim_utils` extended (texture-path engine on real temp files + shader
   templates); `test_blender_ui_handler` panel count 23/23. Full suite **20/20**.
 
-## [Unreleased] — 2026-06-13 (slot-gap helpers + mtk library parity)
+## 2026-06-13 (slot-gap helpers + mtk library parity)
 
 Backs the next round of tentacle Blender slot parity (animation / scene Get-Info,
 Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headless-testable.
@@ -1327,7 +1367,7 @@ Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headle
 - **Tests**: `test_mat_anim_utils` (anim + scene-info/cleanup), `test_xform_utils`,
   `test_node_utils` extended — **all 20 suites pass**.
 
-## [Unreleased] — 2026-06-13 (MatUtils Maya mirror)
+## 2026-06-13 (MatUtils Maya mirror)
 
 - **`mat_utils` grown to mirror mayatk's `MatUtils` material workflow** (backs the rewritten
   tentacle Blender materials slot). New, all datablock-level (headless-testable, no PIL —
@@ -1352,7 +1392,7 @@ Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headle
     format delegation, duplicate detect/reassign, delete-unused + fake-user protection);
     full suite 20/20.
 
-## [Unreleased] — 2026-06-13 (slot option parity)
+## 2026-06-13 (slot option parity)
 
 - **New helpers backing the tentacle Blender slot option-restoration pass** (see the tentacle
   CHANGELOG for the per-menu UI detail):
@@ -1375,7 +1415,7 @@ Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headle
     `test_mat_anim_utils` (+interpolation/handle/scale-pivot), `test_ui_utils` 21/21; full suite
     20/20.
 
-## [Unreleased] — 2026-06-13 (lightmap baker)
+## 2026-06-13 (lightmap baker)
 
 - **`light_utils.lightmap_baker` (new): the Blender counterpart of mayatk's `LightmapBaker`.**
   Bakes scene lighting → a texture per object for game engines (Unity-first). Where the Maya
@@ -1417,7 +1457,7 @@ Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headle
     discovery 21/21 (`.venv`, panel deep-loads + combos populate); uv_utils/node_utils/uv_shells
     suites regression-clean.
 
-## [Unreleased] — 2026-06-13 (hotkey macros)
+## 2026-06-13 (hotkey macros)
 
 - `edit_utils.macros` (new): the Blender counterpart of `mayatk.edit_utils.macros`. A `Macros`
   class of 22 `m_*` viewport/edit/selection/animation toggles (back-face culling, isolate/local
@@ -1449,7 +1489,7 @@ Optimize/Bake, Cleanup) and deepens the `btk ↔ mtk` public surface. All headle
   (ctl+g) parents under an Empty at the **selection center** keeping world transforms (Maya's
   group + center-pivot) via a new `center=` option on the shared `_group_under_empty`.
 
-## [Unreleased] — 2026-06-13 (parity gap sweep: Calculator)
+## 2026-06-13 (parity gap sweep: Calculator)
 
 A full side-by-side audit of every tentacle Blender slot vs. its Maya counterpart (shared-`.ui`
 widget coverage + every co-located panel referenced by `marking_menu.show`) found one real
@@ -1466,7 +1506,7 @@ lived only in mayatk — so the button did nothing in Blender. Now closed:
   `test_calculator.py` 16/16; discovery test extended to 10 panels (deep-loads the calculator,
   20/20).
 
-## [Unreleased] — 2026-06-12 (parity batch: Color Manager + transfer_pivot)
+## 2026-06-12 (parity batch: Color Manager + transfer_pivot)
 
 Closing remaining mayatk↔blendertk feature gaps driven by the tentacle slots.
 
@@ -1485,7 +1525,7 @@ Closing remaining mayatk↔blendertk feature gaps driven by the tentacle slots.
   but no-op. `test_xform_utils.py` extended (origin moved, geometry preserved at zero drift).
 - `test_blender_ui_handler.py`: now asserts all **nine** co-located panels discover (+ color_manager).
 
-## [Unreleased] — 2026-06-12 (structure: tool panels co-located in blendertk, mirroring mayatk)
+## 2026-06-12 (structure: tool panels co-located in blendertk, mirroring mayatk)
 
 Brought the Blender tool-panel layout in line with the mayatk/tentacle split — panels now live
 in blendertk next to their engine, not in tentacle.
@@ -1513,7 +1553,7 @@ in blendertk next to their engine, not in tentacle.
   `.venv`, skips→PASS under Blender). Full suite 16/16; tentacle structural suites 29/29; panel
   slot harness 25/25.
 
-## [Unreleased] — 2026-06-12 (ui_utils: native-menu bridge for the Blender both-button menu)
+## 2026-06-12 (ui_utils: native-menu bridge for the Blender both-button menu)
 
 - `ui_utils._ui_utils` (new helpers): `call_native_menu(menu_idname)` — pop Blender's
   **own** native menu (e.g. `VIEW3D_MT_add`) at the cursor via `bpy.ops.wm.call_menu`
@@ -1533,7 +1573,7 @@ in blendertk next to their engine, not in tentacle.
   real/bogus, both `call_native_menu` guards (unknown menu + headless-safe), the editor-name
   map, and surface resolution (module-level + on `UiUtils`). 19/19 headless.
 
-## [Unreleased] — 2026-06-12 (gap batch 4: curtain over the shared ptk drape engine)
+## 2026-06-12 (gap batch 4: curtain over the shared ptk drape engine)
 
 - `edit_utils._curtain_utils` (new): `create_curtain` — the Blender build over
   `ptk.CurtainDrape` (the drape engine extracted from mayatk's curtain tool the same
@@ -1547,7 +1587,7 @@ in blendertk next to their engine, not in tentacle.
 - Headless suite: `test_curtain_utils.py` 14/14 (engine-grid position parity at zero
   drift, post-ops, rail resolution); full aggregate 14/14 suites.
 
-## [Unreleased] — 2026-06-12 (gap batch 3: world-HDRI light_utils)
+## 2026-06-12 (gap batch 3: world-HDRI light_utils)
 
 - `light_utils` (new): `set_world_hdri` / `get_world_hdri` — the world-environment
   backend for the tentacle HDR Manager panel (mirror of mayatk's ``light_utils`` skydome
@@ -1560,7 +1600,7 @@ in blendertk next to their engine, not in tentacle.
   — compare bpy nodes with ``==``, never ``is``: RNA wrappers are recreated per access);
   full aggregate 13/13 suites.
 
-## [Unreleased] — 2026-06-12 (gap batch 2: wedge / snap / explode / UV shells)
+## 2026-06-12 (gap batch 2: wedge / snap / explode / UV shells)
 
 - `edit_utils`: + `wedge` (Maya ``WedgePolygon`` via ``bmesh.ops.spin`` — selected faces
   sweep about a selected hinge edge of those faces, active edge wins; sweep oriented
@@ -1586,7 +1626,7 @@ in blendertk next to their engine, not in tentacle.
 - Headless suites: `test_wedge_snap_explode.py` 15/15, `test_uv_shells.py` 13/13; full
   aggregate 12/12 suites.
 
-## [Unreleased] — 2026-06-12 (tool-panel backends: mirror / cut-on-axis / duplicate arrays + Preview)
+## 2026-06-12 (tool-panel backends: mirror / cut-on-axis / duplicate arrays + Preview)
 
 - `edit_utils`: + `mirror` (bmesh duplicate+reflect across an axis plane; merge modes —
   `-1` separate `<name>_mirror` object, `0` in-mesh unwelded, `1` in-mesh with the seam
@@ -1622,7 +1662,7 @@ in blendertk next to their engine, not in tentacle.
   shared verts; edit-mode selection-based like `crease_edges`; tuple factors scale in
   local axes, documented divergence). xform suite 23/23.
 
-## [Unreleased] — 2026-06-12 (final anim helpers + aggregate test runner)
+## 2026-06-12 (final anim helpers + aggregate test runner)
 
 - `anim_utils`: + `add_intermediate_keys` (sampled key every ``step`` frames between each
   fcurve's endpoints, bisect-guarded against existing keys), `remove_intermediate_keys`
@@ -1631,7 +1671,7 @@ in blendertk next to their engine, not in tentacle.
 - `test/Run-Tests.ps1`: aggregate runner — every suite in its own fresh background Blender,
   `===RESULT===` sentinels collected, non-zero exit on any failure.
 
-## [Unreleased] — 2026-06-12 (stub-deepening batch: uv + anim helpers)
+## 2026-06-12 (stub-deepening batch: uv + anim helpers)
 
 - `uv_utils`: + `get_texel_density` / `set_texel_density` (mirror of mtk — density =
   `sqrt(uv_area / world_area) * map_size`; world area via Newell's method, UV area via the
@@ -1646,7 +1686,7 @@ in blendertk next to their engine, not in tentacle.
   one fcurve merge, as expected), `set_visibility_keys` (keys `hide_viewport`+`hide_render`).
 - Headless suites: uv 15/15, mat/anim 25/25.
 
-## [Unreleased] — 2026-06-12 (post-completion stub deepening)
+## 2026-06-12 (post-completion stub deepening)
 
 - `anim_utils`: + `move_keys_to_frame(objects, frame=None, retain_spacing=True)` — mirror of
   `mtk.move_keys_to_frame` (backs the shared `animation tb006` Move Keys): one global offset
@@ -1655,7 +1695,7 @@ in blendertk next to their engine, not in tentacle.
   extracted to `_shift_fcurves` (now shared by `shift_keys`/`stagger_keys`/
   `move_keys_to_frame`). Headless suite extended to 20/20.
 
-## [Unreleased] — 2026-06-12 (Phase-4 completion)
+## 2026-06-12 (Phase-4 completion)
 
 The full tentacle Blender slot surface is now backed — blendertk = 9 util modules:
 
@@ -1673,7 +1713,7 @@ The full tentacle Blender slot surface is now backed — blendertk = 9 util modu
   (temp-dir scan), mirroring the mayatk names.
 - New headless suite `test_mat_anim_utils.py` (16 checks); edit_utils suite extended.
 
-## [Unreleased] — 2026-06-12 (review fixes)
+## 2026-06-12 (review fixes)
 
 Full-port review fixes (regression cases added to `test/test_edit_utils.py`):
 
@@ -1687,7 +1727,7 @@ Full-port review fixes (regression cases added to `test/test_edit_utils.py`):
   so e.g. invoking `decimate(B)` while editing `A` previously put `B` into edit mode on exit.
   Guards `ReferenceError` for the case where the helper deleted the original active.
 
-## [Unreleased] — 2026-06-12
+## 2026-06-12
 
 Util modules added to back the tentacle Blender slot ports (all headless-tested via
 `blender --background`):

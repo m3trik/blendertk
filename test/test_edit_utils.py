@@ -629,6 +629,139 @@ try:
         f"keep={keep_count} drop={drop_count}",
     )
 
+    # ---- component-scoped decimate / dissolve (EDIT mode = act on the selection) ----
+    def _select_where(obj, pred):
+        """Select the verts of ``obj`` passing ``pred(co)`` (edges/faces flush from them), as an
+        Edit-Mode user selection would leave the mesh data."""
+        me = obj.data
+        for v in me.vertices:
+            v.select = pred(v.co)
+        for e in me.edges:
+            e.select = all(me.vertices[i].select for i in e.vertices)
+        for f in me.polygons:
+            f.select = all(me.vertices[i].select for i in f.vertices)
+
+    def _positions(obj, pred):
+        return {tuple(round(c, 5) for c in v.co) for v in obj.data.vertices if pred(v.co)}
+
+    # decimate in EDIT mode: only the selected half of a grid collapses; the other half keeps every
+    # vertex position; the reduction is ~half the SELECTED faces (Blender's own edit-mode Decimate
+    # semantics), not half the mesh; nothing (modifier / vertex group) is left behind; the caller's
+    # Edit Mode is restored.
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=20, y_subdivisions=20, size=2)
+    o = bpy.context.active_object
+    _select_where(o, lambda co: co.x > 0.0)
+    n_tot = len(o.data.polygons)
+    n_sel = sum(p.select for p in o.data.polygons)
+    left_before = _positions(o, lambda co: co.x < -1e-6)
+    bpy.ops.object.mode_set(mode="EDIT")
+    result = btk.decimate(o, percentage=50.0)
+    check("decimate (edit) restores Edit Mode", o.mode == "EDIT", f"mode={o.mode}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    n_after = len(o.data.polygons)
+    check(
+        "decimate (edit) removes ~half the SELECTED faces only",
+        n_tot - n_sel < n_after < n_tot - 0.25 * n_sel,
+        f"{n_tot}->{n_after} (sel={n_sel}, target~{n_tot - 0.5 * n_sel:.0f})",
+    )
+    check(
+        "decimate (edit) leaves the unselected half untouched",
+        left_before <= _positions(o, lambda co: co.x < -1e-6),
+    )
+    check("decimate (edit) leaves no modifier", len(o.modifiers) == 0, f"mods={len(o.modifiers)}")
+    check(
+        "decimate (edit) leaves no temp vertex group",
+        len(o.vertex_groups) == 0,
+        f"vgroups={[g.name for g in o.vertex_groups]}",
+    )
+    check("decimate (edit) returns the processed object", result == [o], f"{result!r}")
+
+    # decimate in EDIT mode with preserve_quads=False: the pre-triangulation is scoped to the
+    # selection too — the unselected half stays quads.
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=20, y_subdivisions=20, size=2)
+    o = bpy.context.active_object
+    _select_where(o, lambda co: co.x > 0.0)
+    bpy.ops.object.mode_set(mode="EDIT")
+    btk.decimate(o, percentage=50.0, preserve_quads=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    left_faces = [
+        f for f in o.data.polygons if all(o.data.vertices[i].co.x < -1e-6 for i in f.vertices)
+    ]
+    check(
+        "decimate (edit, preserve_quads=False) triangulates only the selection",
+        left_faces and all(len(f.vertices) == 4 for f in left_faces),
+        f"left faces={len(left_faces)} quads={sum(len(f.vertices) == 4 for f in left_faces)}",
+    )
+
+    # decimate in EDIT mode with NOTHING selected is a no-op (Blender's own semantics), not a
+    # silent whole-mesh reduce.
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=10, y_subdivisions=10, size=2)
+    o = bpy.context.active_object
+    _select_where(o, lambda co: False)
+    n_tot = len(o.data.polygons)
+    bpy.ops.object.mode_set(mode="EDIT")
+    result = btk.decimate(o, percentage=50.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "decimate (edit, empty selection) is a no-op",
+        len(o.data.polygons) == n_tot and result == [],
+        f"{n_tot}->{len(o.data.polygons)} result={result!r}",
+    )
+
+    # decimate in OBJECT mode ignores stale mesh-data selection flags: whole mesh reduces.
+    reset()
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=20, y_subdivisions=20, size=2)
+    o = bpy.context.active_object
+    _select_where(o, lambda co: co.x > 0.0)
+    n_tot = len(o.data.polygons)
+    left_before = _positions(o, lambda co: co.x < -1e-6)
+    result = btk.decimate(o, percentage=50.0)
+    check(
+        "decimate (object) reduces the WHOLE mesh despite selection flags",
+        len(o.data.polygons) < 0.6 * n_tot
+        and not (left_before <= _positions(o, lambda co: co.x < -1e-6)),
+        f"{n_tot}->{len(o.data.polygons)}",
+    )
+    check("decimate (object) returns the processed object", result == [o], f"{result!r}")
+
+    # dissolve_coplanar in EDIT mode: only the selected top of a subdivided cube collapses:
+    # 6 sides x 25 quads -> that side becomes 1 face, the other 125 stay.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    btk.subdivide_mesh(o, cuts=4)
+    _select_where(o, lambda co: co.z > 0.999)
+    bpy.ops.object.mode_set(mode="EDIT")
+    result = btk.dissolve_coplanar(o, angle_tolerance=1.0)
+    check("dissolve_coplanar (edit) restores Edit Mode", o.mode == "EDIT", f"mode={o.mode}")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "dissolve_coplanar (edit) collapses only the selected side (150 -> 126)",
+        len(o.data.polygons) == 126,
+        f"faces={len(o.data.polygons)}",
+    )
+    check("dissolve_coplanar (edit) leaves no modifier", len(o.modifiers) == 0)
+    check("dissolve_coplanar (edit) returns the processed object", result == [o], f"{result!r}")
+
+    # dissolve_coplanar in EDIT mode: two adjacent sides selected — each collapses to one face but
+    # the 90-degree edge between them survives (150 -> 102).
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    o = bpy.context.active_object
+    btk.subdivide_mesh(o, cuts=4)
+    _select_where(o, lambda co: co.z > 0.999 or co.x > 0.999)
+    bpy.ops.object.mode_set(mode="EDIT")
+    btk.dissolve_coplanar(o, angle_tolerance=1.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "dissolve_coplanar (edit) keeps the corner between two selected sides (150 -> 102)",
+        len(o.data.polygons) == 102,
+        f"faces={len(o.data.polygons)}",
+    )
+
     # custom split normals = Blender's normal lock. add/clear/has back the Un/Lock Normals toggle,
     # so the COUNTS must be honest: the add/clear operators return {'CANCELLED'} (they do NOT raise)
     # for a mesh already in the target state, so a mesh-count loop reports untouched meshes as changed.

@@ -855,6 +855,14 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         if obj is None:
             self._set_footer(f"'{obj_name}' not found in scene.", color="#D4908F")
             return
+        # Selection state is a view-layer concept: ``select_set`` raises on objects
+        # outside the active view layer (excluded collection, another scene — the
+        # ``bpy.data.objects`` lookup is scene-wide), so report instead of raising.
+        if obj.name not in bpy.context.view_layer.objects:
+            self._set_footer(
+                f"'{obj_name}' is outside the active view layer.", color="#D4908F"
+            )
+            return
         for o in list(bpy.context.selected_objects):
             o.select_set(False)
         obj.select_set(True)

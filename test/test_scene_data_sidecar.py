@@ -1,8 +1,10 @@
 """blendertk Scene-Data Sidecar headless test — mirror of mayatk's ``test_scene_data_sidecar``.
 
-Covers the DCC-agnostic sidecar manifest I/O (format-v2 sections, atomic write, versioned
-base-stem sharing, rename, legacy-name + per-version migration, compare, diff report) plus the
-one bpy-backed helper (``expand_to_descendants``).
+Covers the DCC-agnostic sidecar manifest I/O (format-v3 single-file contract: no ``.prev``
+companions, write-time sweep of v2-era leftovers, ``last_diff`` record, hidden attribute on
+Windows, atomic write, versioned base-stem sharing, rename, legacy-name + per-version
+migration, compare, diff report text) plus the one bpy-backed helper
+(``expand_to_descendants``).
 
 Run: blender --background --factory-startup --python blendertk/test/test_scene_data_sidecar.py
 """
@@ -36,15 +38,16 @@ try:
           os.path.basename(SD.manifest_path_for(export, base_stem=True)) == ".shot.scene_data.json")
     check("base_stem doesn't strip mid-name v", SD.base_stem(os.path.join(tmp, "arch_v2_proxy.fbx")) == "arch_v2_proxy")
 
-    # 2. write -> read round trip; format-v2 sectioned structure on disk.
+    # 2. write -> read round trip; format-v3 sectioned structure on disk.
     paths_a = {"Grp", "Grp|A", "Grp|B"}
     mpath = SD.write_manifest(export, paths_a)
     check("write_manifest returns the manifest path", mpath and os.path.isfile(mpath))
     check("read_manifest round-trips the paths", SD.read_manifest(export) == paths_a)
     raw = json.load(open(mpath))
-    check("manifest is format 2 with a hierarchy section",
-          raw.get("format") == 2 and raw["hierarchy"]["object_count"] == 3 and bool(raw["hierarchy"]["hash"]))
+    check("manifest is format 3 with a hierarchy section",
+          raw.get("format") == 3 and raw["hierarchy"]["object_count"] == 3 and bool(raw["hierarchy"]["hash"]))
     check("empty data section is omitted", "data_export" not in raw and "paths" not in raw)
+    check("no diff section when none recorded", "last_diff" not in raw["hierarchy"])
 
     # 2b. data snapshot round-trip; hierarchy read unaffected.
     data_a = {"lightmap_metadata": {"sets": [1, 2]}, "note": "x"}
@@ -53,12 +56,10 @@ try:
     check("hierarchy read unaffected by data section", SD.read_manifest(export) == paths_a)
 
     # 2c. data churn: hash covers only paths — the hierarchy check must not trip,
-    #     and .prev keeps the previous export's full record.
+    #     and the single-file contract means no .prev shadow copy appears.
     SD.write_manifest(export, paths_a, data={"lightmap_metadata": {"sets": [3]}})
     check("data-only change keeps hierarchy compare matching", SD.compare(export, paths_a) == (True, [], []))
-    check("data-only change rolls the old record to .prev",
-          os.path.isfile(mpath + ".prev") and json.load(open(mpath + ".prev"))["data_export"] == data_a)
-    os.remove(mpath + ".prev")
+    check("data-only change creates no .prev", not os.path.exists(mpath + ".prev"))
 
     # 2c-bis. The sidecar ships beside the deliverable, so it records no
     #     authoring-machine paths. `lightmap_metadata.dir` is a build-time hint
@@ -88,20 +89,41 @@ try:
     check("v1 flat manifest has no data section", SD.read_data(v1_export) is None)
     check("v1 flat manifest compares via hash fast-path", SD.compare(v1_export, set(v1_paths)) == (True, [], []))
 
-    # 3. atomic write: a differing rewrite preserves the old baseline as .prev, and never leaves a
-    #    stray .tmp behind. (The regression this guards: moving current->.prev BEFORE writing left
-    #    no manifest at all if the write failed.)
+    # 3. single-file contract: a differing rewrite lands atomically (tmp+replace, the live
+    #    manifest is never displaced), leaves no .prev and no stray .tmp.
     paths_b = {"Grp", "Grp|A", "Grp|B", "Grp|C"}
     SD.write_manifest(export, paths_b)
     check("rewrite updates the manifest", SD.read_manifest(export) == paths_b)
-    prev = mpath + ".prev"
-    check("prior baseline preserved as .prev", os.path.isfile(prev) and set(json.load(open(prev))["hierarchy"]["paths"]) == paths_a)
+    check("rewrite creates no .prev", not os.path.exists(mpath + ".prev"))
     check("no stray .tmp left behind", not os.path.isfile(mpath + ".tmp"))
 
-    # 4. identical rewrite doesn't churn .prev.
-    os.remove(prev)
+    # 3b. last_diff: recorded when passed, dropped by the next clean write, invisible to reads.
+    a_diff = {"missing": ["Grp|Gone"], "extra": ["Grp|New"], "reparented": []}
+    SD.write_manifest(export, paths_b, last_diff=a_diff)
+    check("last_diff recorded under hierarchy", json.load(open(mpath))["hierarchy"].get("last_diff") == a_diff)
+    check("last_diff invisible to compare", SD.compare(export, paths_b) == (True, [], []))
     SD.write_manifest(export, paths_b)
-    check("identical rewrite skips .prev churn", not os.path.isfile(prev))
+    check("clean write drops last_diff", "last_diff" not in json.load(open(mpath))["hierarchy"])
+
+    # 3c. Windows: the manifest carries the hidden attribute through rewrites
+    #     (dot-prefix hides nothing on Windows; os.replace strips the flag, so
+    #     the writer re-applies it).
+    if os.name == "nt":
+        import stat
+        check("manifest hidden after write",
+              bool(os.stat(mpath).st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN))
+
+    # 4. write-time sweep: v2-era companions (.prev, v1 names, on-disk diff report)
+    #    disappear on the next successful write.
+    for leftover in (mpath + ".prev", os.path.join(tmp, ".shot_v003.hierarchy.json.prev"),
+                     os.path.join(tmp, ".shot_v003.hierarchy_diff.txt")):
+        with open(leftover, "w") as f:
+            f.write("{}")
+    SD.write_manifest(export, paths_b)
+    check("write sweeps v2-era companions",
+          not any(os.path.exists(p) for p in (mpath + ".prev",
+                                              os.path.join(tmp, ".shot_v003.hierarchy.json.prev"),
+                                              os.path.join(tmp, ".shot_v003.hierarchy_diff.txt"))))
 
     # 5. compare: hash fast-path + missing/extra.
     match, missing, extra = SD.compare(export, paths_b)
@@ -113,12 +135,16 @@ try:
     check("compare with no manifest → match (nothing to diff)",
           SD.compare(os.path.join(tmp, "never.fbx"), {"X"}) == (True, [], []))
 
-    # 5b. .prev fallback: a deleted or corrupt manifest compares against the preserved backup
-    #     instead of silently passing; the intact manifest always wins over .prev.
+    # 5b. .prev fallback (transition): v3 never writes .prev, but one left by a v2 writer is
+    #     still the last-known-good baseline — a deleted or corrupt manifest compares against
+    #     it instead of silently passing; the intact manifest always wins over it.
     fb_export = os.path.join(tmp, "fallback.fbx")
-    SD.write_manifest(fb_export, {"A", "A|B"})
-    SD.write_manifest(fb_export, {"A", "A|B", "A|C"})  # differing -> rolls {A, A|B} to .prev
+    SD.write_manifest(fb_export, {"A", "A|B", "A|C"})
     fb_manifest = SD.manifest_path_for(fb_export)
+    fb_old = ["A", "A|B"]
+    with open(fb_manifest + ".prev", "w") as f:  # hand-placed, as a v2 writer left it
+        json.dump({"format": 2, "hierarchy": {"paths": fb_old, "object_count": 2,
+                                              "hash": SD._paths_hash(fb_old)}}, f)
     match, missing, extra = SD.compare(fb_export, {"A", "A|B"})
     check("intact manifest wins over .prev", not match and missing == ["A|C"])
     os.remove(fb_manifest)
@@ -127,14 +153,15 @@ try:
     match, missing, extra = SD.compare(fb_export, {"A"})
     check("fallback baseline still detects drift", not match and missing == ["A|B"])
     check("read_manifest falls back to .prev", SD.read_manifest(fb_export) == {"A", "A|B"})
-    with open(fb_manifest, "w") as f:
+    with open(fb_manifest, "w") as f:  # fresh file (the hidden original was removed above)
         f.write("not json{")
     match, missing, extra = SD.compare(fb_export, {"A", "A|B"})
     check("corrupt manifest falls back to .prev", match and not missing and not extra)
 
-    # 6. rename covers per-file, base-stem, and .prev variants.
-    SD.write_manifest(export, paths_b)  # ensure a .prev exists
-    SD.write_manifest(export, paths_a)  # differing -> creates .prev
+    # 6. rename covers per-file, base-stem, and surviving v2-era .prev variants.
+    SD.write_manifest(export, paths_a)
+    with open(mpath + ".prev", "w") as f:  # hand-placed v2-era leftover rides along
+        json.dump({"paths": ["stale"]}, f)
     new_export = os.path.join(tmp, "shot_v004.fbx")
     renamed = SD.rename(export, new_export)
     check("rename moves the manifest", SD.read_manifest(new_export) == paths_a and SD.read_manifest(export) is None)
@@ -196,9 +223,11 @@ try:
     check("expand_to_descendants includes root + all descendants",
           expanded == {"Root", "Root|Kid", "Root|Kid|Grand"}, str(expanded))
 
-    # 11. write_diff_report writes a readable file.
-    dpath = SD.write_diff_report(export, ["Grp|Gone"], ["Grp|New"])
-    check("write_diff_report writes the report", dpath and os.path.isfile(dpath) and "Missing" in open(dpath).read())
+    # 11. format_diff_report returns the report text; nothing lands beside the export.
+    report = SD.format_diff_report(["Grp|Gone"], ["Grp|New"])
+    check("format_diff_report renders the report",
+          "Hierarchy Diff Report" in report and "Missing:  1" in report and "  + Grp|New" in report)
+    check("no report file beside the export", not os.path.isfile(SD.diff_report_path_for(export)))
 
 except Exception as e:
     traceback.print_exc()

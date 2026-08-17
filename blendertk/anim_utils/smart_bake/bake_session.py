@@ -109,7 +109,27 @@ class _BakeSessionStoreInternal(object):
 
         from blendertk.rig_utils._rig_utils import RigUtils
 
-        fcurve = key_block.driver_add("value")
+        # The user may have re-added a driver on this weight since the bake —
+        # ``driver_add`` can raise over an existing one, breaking the documented
+        # "never raises" restore contract. Their driver is newer intent than the
+        # snapshot: warn and leave it in place rather than clobbering it.
+        ad = getattr(shape_keys, "animation_data", None)
+        driver_path = f'key_blocks["{key_block.name}"].value'
+        if ad is not None and any(fc.data_path == driver_path for fc in ad.drivers):
+            warnings.append(
+                f"'{obj.name}' shape key '{key_block.name}' already has a driver "
+                "(re-added since the bake) — left in place, snapshot not rebuilt."
+            )
+            return None
+
+        try:
+            fcurve = key_block.driver_add("value")
+        except RuntimeError as e:
+            warnings.append(
+                f"Could not rebuild driver on '{obj.name}' shape key "
+                f"'{key_block.name}': {e}"
+            )
+            return None
         drv = fcurve.driver
         drv.type = entry.get("driver_type", "SCRIPTED")
         drv.expression = entry.get("expression", "")
@@ -453,6 +473,13 @@ class BakeSessionStore(_BakeSessionStoreInternal):
             original_action = BakeSessionStore.resolve_ref(entry.get("original_action"))
             if ad is not None:
                 ad.action = original_action
+                result.restored_actions.append(obj.name)
+            else:
+                # Nothing was reassigned — the object lost its animation_data since
+                # the bake. Don't report a restore that never happened.
+                result.warnings.append(
+                    f"'{obj.name}' has no animation data — original action not reassigned."
+                )
             if (
                 original_action is not None
                 and "original_action_prior_fake_user" in entry
@@ -468,7 +495,6 @@ class BakeSessionStore(_BakeSessionStoreInternal):
                     result.warnings.append(
                         f"Could not remove baked action '{baked_action.name}': {e}"
                     )
-            result.restored_actions.append(obj.name)
 
         # 2. Unmute constraints to their recorded prior state (may already have been muted before the
         # bake for unrelated reasons — restoring the recorded value, not forcing False, honors that).

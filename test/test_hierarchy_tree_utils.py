@@ -4,7 +4,7 @@ Covers ``_extract_object_name_from_item``'s UserRole-object preference and place
 parity fix mirroring mayatk's audit). Qt-only: no Blender runtime needed, so it runs under the
 .venv rather than the Blender harness.
 
-Run:  o:/Cloud/Code/_scripts/.venv/Scripts/python.exe blendertk/test/test_hierarchy_tree_utils.py
+Run (from the workspace root):  .venv/Scripts/python.exe blendertk/test/test_hierarchy_tree_utils.py
 """
 
 import os

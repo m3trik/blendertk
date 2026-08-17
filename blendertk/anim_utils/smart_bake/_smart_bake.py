@@ -194,8 +194,9 @@ class _SmartBakeInternal(object):
     @staticmethod
     def _blend_shape_source_frames(sk, data_paths: List[str]) -> List[float]:
         """Driving-animation frames for a shape-keys datablock's driven/animated weights: driver
-        variable targets when live drivers exist, else the shape-keys' own action key range (a
-        directly-keyed weight IS its own driving animation)."""
+        variable targets for live drivers, plus the shape-keys' own action key range (a
+        directly-keyed weight IS its own driving animation). Both contribute — a datablock can
+        carry drivers on some keys AND an action keying others, so neither may shadow the other."""
         frames: List[float] = []
         ad = getattr(sk, "animation_data", None) if sk is not None else None
         if ad is None:
@@ -204,7 +205,7 @@ class _SmartBakeInternal(object):
             frames.extend(
                 _SmartBakeInternal._driver_variable_target_frames(ad, data_paths)
             )
-        elif ad.action is not None:
+        if ad.action is not None:
             from blendertk.anim_utils._anim_utils import AnimUtils
 
             own = AnimUtils._key_range(AnimUtils._slot_fcurves(ad.action))
@@ -476,11 +477,17 @@ class SmartBake(_SmartBakeInternal):
             ad = getattr(sk, "animation_data", None) if sk is not None else None
             if ad is None:
                 continue
-            if ad.drivers:
-                names = [fc.data_path for fc in ad.drivers]
-            elif ad.action is not None and AnimUtils._slot_fcurves(ad.action):
-                names = [fc.data_path for fc in AnimUtils._slot_fcurves(ad.action)]
-            else:
+            # Drivers AND action fcurves both count — a datablock can carry both
+            # (drivers on some keys, an action keying others, or both on one key),
+            # and bake_blend_shapes touches both, so neither may shadow the other.
+            names = [fc.data_path for fc in ad.drivers]
+            if ad.action is not None:
+                names.extend(
+                    fc.data_path
+                    for fc in AnimUtils._slot_fcurves(ad.action)
+                    if fc.data_path not in names
+                )
+            if not names:
                 continue
 
             entry = results.get(obj.name)
@@ -694,7 +701,11 @@ class SmartBake(_SmartBakeInternal):
             for obj in objects_to_bake:
                 ad = getattr(obj, "animation_data", None)
                 original_action = ad.action if ad is not None else None
-                if original_action is not None:
+                if original_action is not None and session is not None:
+                    # The keep-alive flip exists solely so restore() can swap the
+                    # original action back in — only flip it when a session will
+                    # record the prior value (a non-restorable bake has no restore
+                    # path, so pinning the action against orphans_purge would leak).
                     prior_fake_user[obj.name] = original_action.use_fake_user
                     original_action.use_fake_user = True
                 pre_bake_actions[obj.name] = original_action
@@ -720,6 +731,11 @@ class SmartBake(_SmartBakeInternal):
                 baked_action = ad.action if ad is not None else None
                 original_action = pre_bake_actions.get(obj.name)
                 if baked_action is None or baked_action is original_action:
+                    # Skipped: the bake produced no new action, so no session entry
+                    # will record the keep-alive flip — undo it here or the prior
+                    # use_fake_user value is silently lost.
+                    if original_action is not None and obj.name in prior_fake_user:
+                        original_action.use_fake_user = prior_fake_user[obj.name]
                     continue
                 baked_names.add(obj.name)
                 baked_objects_actual.append(obj)
@@ -824,6 +840,10 @@ class SmartBake(_SmartBakeInternal):
                     ad = getattr(sk, "animation_data", None) if sk is not None else None
                     if ad is None:
                         continue
+                    # Independent ifs, NOT if/elif — a datablock can carry drivers AND
+                    # an action at once (drivers on some keys, hand-keys on others),
+                    # and bake_blend_shapes() touches both, so restore needs BOTH
+                    # snapshots to rebuild the pre-bake state.
                     if ad.drivers:
                         for fc in list(ad.drivers):
                             key_block = _SmartBakeInternal._shape_key_block_for_fcurve(
@@ -835,12 +855,12 @@ class SmartBake(_SmartBakeInternal):
                                         obj, key_block, fc
                                     )
                                 )
-                    elif ad.action is not None:
-                        # No driver to snapshot-and-rebuild — this key's weight is animated by
-                        # its OWN action, which bake_blend_shapes() resamples densely IN PLACE
-                        # (same fcurve, no fresh Action datablock the way the transform bake
-                        # gets one). The only way back is recording every existing key so
-                        # restore can clear the dense resample and rebuild the originals.
+                    if ad.action is not None:
+                        # This key's weight is animated by its OWN action, which
+                        # bake_blend_shapes() resamples densely IN PLACE (same fcurve, no
+                        # fresh Action datablock the way the transform bake gets one). The
+                        # only way back is recording every existing key so restore can
+                        # clear the dense resample and rebuild the originals.
                         from blendertk.anim_utils._anim_utils import AnimUtils
 
                         for fc in AnimUtils._slot_fcurves(ad.action):

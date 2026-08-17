@@ -62,8 +62,10 @@ class Keyframes(ptk.LoggingMixin):
         try:
             existing = self._value_fcurve()
             if existing is not None:
-                for kp in reversed(list(existing.keyframe_points)):
-                    existing.keyframe_points.remove(kp, fast=True)
+                # Remove-all via clear(): removing while iterating a snapshot list
+                # dangles the remaining PyRNA wrappers (the points array reallocs
+                # under them), which can crash or corrupt on larger key sets.
+                existing.keyframe_points.clear()
                 existing.update()
 
             kb.value = 0.0

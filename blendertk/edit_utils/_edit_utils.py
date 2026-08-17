@@ -173,6 +173,121 @@ class _EditUtilsInternal(object):
         bpy.ops.object.modifier_apply(modifier=mod_name)
 
     @staticmethod
+    @CoreUtils._object_mode
+    def _decimate_meshes(meshes, scoped, percentage, preserve_quads, symmetry, apply):
+        """Worker for :meth:`EditUtils.decimate` — ``scoped`` are the meshes (a subset of ``meshes``)
+        that were in Edit Mode at call time and so decimate only across their selected components.
+        Runs in Object Mode (``modifier_apply`` needs it); the Edit-Mode selection is flushed onto
+        ``Mesh.vertices[].select`` on the way out, so it is still readable here. Returns the
+        processed objects."""
+        import bmesh
+
+        pct = max(0.0, min(99.0, float(percentage)))
+        done = []
+        for o in meshes:
+            me = o.data
+            vgroup = None
+            ratio = 1.0 - pct / 100.0
+            if o in scoped:
+                selected = [v.index for v in me.vertices if v.select]
+                if not selected:
+                    continue  # empty selection: Blender's own edit-mode Decimate is a no-op
+                # Selected verts weight 1, everything else 0: an edge with an unweighted end never
+                # collapses, so the collapsible region is exactly the faces whose verts are all
+                # selected (Blender's edit-mode Decimate scopes by vertex selection the same way).
+                is_sel = [False] * len(me.vertices)
+                for i in selected:
+                    is_sel[i] = True
+                if not preserve_quads:  # scope the pre-triangulation to that region too
+                    _EditUtilsInternal._bmesh_edit(
+                        o,
+                        lambda bm: bmesh.ops.triangulate(
+                            bm,
+                            faces=[
+                                f for f in bm.faces if all(is_sel[v.index] for v in f.verts)
+                            ],
+                        ),
+                    )
+                n_region = sum(
+                    1 for f in me.polygons if all(is_sel[i] for i in f.vertices)
+                )
+                if not n_region:
+                    continue  # verts/edges only — nothing the collapse could remove
+                # The modifier's ratio is against the WHOLE mesh's face count, so an unadjusted
+                # ratio would collapse the region as far as it can go. Fold the region's share in
+                # so ``percentage`` reads as "of the SELECTED faces" (what edit-mode Decimate does).
+                ratio = 1.0 - (pct / 100.0) * (n_region / len(me.polygons))
+                vgroup = o.vertex_groups.new(name="Decimate")
+                vgroup.add(selected, 1.0, "REPLACE")
+            mod = o.modifiers.new(name="Decimate", type="DECIMATE")
+            mod.decimate_type = "COLLAPSE"
+            mod.ratio = max(0.0, min(1.0, ratio))
+            # (a whole-mesh pre-triangulate would reach outside the selection — done above instead)
+            mod.use_collapse_triangulate = not preserve_quads and vgroup is None
+            if vgroup is not None:
+                mod.vertex_group = vgroup.name
+                mod.vertex_group_factor = 1.0  # 0 disables the weighting entirely
+            if symmetry:
+                mod.use_symmetry = True
+                mod.symmetry_axis = "X"
+            if apply:
+                vg_name = vgroup.name if vgroup is not None else None
+                _EditUtilsInternal._apply_modifier(o, mod.name)
+                if vg_name is not None:  # (re-fetch: the apply invalidates the RNA handle)
+                    o.vertex_groups.remove(o.vertex_groups[vg_name])
+            done.append(o)
+        if apply:  # ``_apply_modifier`` narrows the selection to its last target; re-select what
+            for o in done:  # we touched so the mode restore re-enters multi-object Edit Mode.
+                o.select_set(True)
+        return done
+
+    @staticmethod
+    @CoreUtils._object_mode
+    def _dissolve_coplanar_meshes(meshes, scoped, angle_tolerance, delimit, preserve_borders, apply):
+        """Worker for :meth:`EditUtils.dissolve_coplanar` — ``scoped`` are the meshes that were in
+        Edit Mode at call time; those dissolve only among their selected verts/edges (bmesh
+        ``dissolve_limit``, the same solver the PLANAR Decimate modifier runs, which itself has no
+        vertex-group input). Returns the processed objects."""
+        import bmesh
+
+        limit = math.radians(angle_tolerance)
+        delimit = set(delimit or ())
+        done = []
+        narrowed = False
+        for o in meshes:
+            if o in scoped:
+                if not any(e.select for e in o.data.edges):
+                    continue  # nothing to dissolve between
+
+                def _dissolve(bm):
+                    bmesh.ops.dissolve_limit(
+                        bm,
+                        angle_limit=limit,
+                        use_dissolve_boundaries=not preserve_borders,
+                        verts=[v for v in bm.verts if v.select],
+                        edges=[e for e in bm.edges if e.select],
+                        delimit=delimit,
+                    )
+
+                _EditUtilsInternal._bmesh_edit(o, _dissolve)
+                done.append(o)
+                continue
+            mod = o.modifiers.new(name="Decimate", type="DECIMATE")
+            mod.decimate_type = "DISSOLVE"
+            mod.angle_limit = limit
+            mod.use_dissolve_boundaries = not preserve_borders
+            if delimit:
+                mod.delimit = delimit
+            if apply:
+                _EditUtilsInternal._apply_modifier(o, mod.name)
+                narrowed = True
+            done.append(o)
+        if narrowed:  # see _decimate_meshes
+            for o in done:
+                o.select_set(True)
+        return done
+
+    @staticmethod
     def _edge_is_uv_seam(edge, uv_layer):
         """True when ``edge`` lies on a UV-island boundary — the UV coords of its shared verts differ
         between the two adjacent faces (the standard UV-seam test). Interior, exactly-two-face edges only."""
@@ -559,7 +674,6 @@ class EditUtils(_EditUtilsInternal):
         return mod
 
     @staticmethod
-    @CoreUtils._object_mode
     def decimate(
         objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True
     ):
@@ -569,20 +683,22 @@ class EditUtils(_EditUtilsInternal):
         ``ratio = 1 - percentage/100``. ``preserve_quads`` keeps quads (skips collapse-triangulate);
         ``symmetry`` reduces symmetrically about X. ``apply`` bakes the modifier (destructive, matching
         Maya's ``replaceOriginal``); pass ``False`` to keep it live.
+
+        **Mode-aware** (like :meth:`crease_edges`): a mesh that is in **Edit Mode** is decimated only
+        across its **selected components** — the mayatk twin's "handed faces, reduce those" — with
+        Blender's own edit-mode Decimate semantics: ``percentage`` is of the SELECTED faces, unselected
+        geometry (and so the region's outline) is held fixed, and an empty selection is a no-op. That
+        path drives the modifier through a temporary vertex group (removed again on ``apply``; with
+        ``apply=False`` the live modifier keeps a ``Decimate`` group). In Object Mode the whole mesh
+        reduces. Returns the processed objects.
         """
-        for o in _EditUtilsInternal._meshes(objects):
-            mod = o.modifiers.new(name="Decimate", type="DECIMATE")
-            mod.decimate_type = "COLLAPSE"
-            mod.ratio = max(0.0, min(1.0, 1.0 - percentage / 100.0))
-            mod.use_collapse_triangulate = not preserve_quads
-            if symmetry:
-                mod.use_symmetry = True
-                mod.symmetry_axis = "X"
-            if apply:
-                _EditUtilsInternal._apply_modifier(o, mod.name)
+        meshes = _EditUtilsInternal._meshes(objects)
+        scoped = [o for o in meshes if o.mode == "EDIT"]  # read BEFORE the worker leaves Edit Mode
+        return _EditUtilsInternal._decimate_meshes(
+            meshes, scoped, percentage, preserve_quads, symmetry, apply
+        )
 
     @staticmethod
-    @CoreUtils._object_mode
     def dissolve_coplanar(
         objects, angle_tolerance=1.0, delimit=None, preserve_borders=True, apply=True
     ):
@@ -594,16 +710,17 @@ class EditUtils(_EditUtilsInternal):
         ``preserve_borders`` (default True) holds open mesh boundaries fixed (the Blender analogue of
         Maya reduce's *Keep Border* — it drives the modifier's ``use_dissolve_boundaries`` inverse).
         ``apply`` bakes the modifier.
+
+        **Mode-aware** (like :meth:`decimate`): a mesh in **Edit Mode** dissolves only among its
+        **selected** verts/edges — a selected face region collapses within itself and keeps its outline
+        (bmesh ``dissolve_limit``, always applied: the PLANAR modifier has no vertex-group input). In
+        Object Mode the whole mesh. Returns the processed objects.
         """
-        for o in _EditUtilsInternal._meshes(objects):
-            mod = o.modifiers.new(name="Decimate", type="DECIMATE")
-            mod.decimate_type = "DISSOLVE"
-            mod.angle_limit = math.radians(angle_tolerance)
-            mod.use_dissolve_boundaries = not preserve_borders
-            if delimit:
-                mod.delimit = set(delimit)
-            if apply:
-                _EditUtilsInternal._apply_modifier(o, mod.name)
+        meshes = _EditUtilsInternal._meshes(objects)
+        scoped = [o for o in meshes if o.mode == "EDIT"]  # read BEFORE the worker leaves Edit Mode
+        return _EditUtilsInternal._dissolve_coplanar_meshes(
+            meshes, scoped, angle_tolerance, delimit, preserve_borders, apply
+        )
 
     @staticmethod
     @CoreUtils._object_mode

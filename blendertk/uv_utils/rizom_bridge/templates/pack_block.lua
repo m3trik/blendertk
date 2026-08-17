@@ -27,8 +27,10 @@
 -- Rizom round-trip and an in-DCC repack agree on the gutter.
 
 -- Group every island under RootGroup and distribute across tiles.
--- MergingPolicy=8322 is the canonical bitmask RizomUV's reference bridges
--- use to auto-merge mirrored / stacked islands.
+-- MergingPolicy=8322 is only the properties-tree merge policy (the
+-- documented default "A_ADD|AIB_ADD_A_VALUE_B|B_CLONE" as a bitmask, the
+-- value RizomUV's reference bridges emit) -- it does NOT merge or stack
+-- islands. Keeping stacked islands together is templates/keep_stacked_block.lua.
 ZomIslandGroups({
     Mode="DistributeInTilesEvenly",
     MergingPolicy=8322,

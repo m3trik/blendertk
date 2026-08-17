@@ -116,7 +116,16 @@ class BlenderExportMixin:
                 if child not in seen:
                     seen.add(child)
                     closure.append(child)
-        return closure
+
+        # ``data_internal`` must never ride a hand-off FBX. In Maya that
+        # guarantee is structural (a network node can't enter a DAG export
+        # set); here the carrier is a plain Empty that a whole-scene send
+        # sweeps in — and ``include_data_export`` forcing ``use_custom_props``
+        # would then ship SmartBake manifests and the emissive registry as
+        # FBX user properties on the far side.
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return [o for o in closure if o.name != DataNodes.INTERNAL]
 
     def _scene_objects(self) -> List[Any]:
         """Every object in the CURRENT scene (the whole-scene hand-off).

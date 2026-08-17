@@ -116,7 +116,11 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 self.key_name = name
                 self.logger.info(f"Found existing shape key: {self.key_name}")
             else:
-                if shape_keys is None or "Basis" not in shape_keys.key_blocks:
+                # Only a mesh with NO shape keys at all needs a basis created; an
+                # existing setup already has a reference key (under whatever name —
+                # matching on the literal "Basis" appended a spurious non-reference
+                # block on imported/renamed-basis meshes).
+                if shape_keys is None or not shape_keys.key_blocks:
                     base_obj.shape_key_add(name="Basis", from_mix=False)
 
                 bpy.ops.object.select_all(action="DESELECT")
@@ -489,12 +493,13 @@ class BlendshapeAnimator(ptk.LoggingMixin):
         key_name = base_obj.get(_KEY_PROP)
         if not key_name or key_name not in shape_keys.key_blocks:
             # Fallback heuristic for scenes created before the custom-property convention
-            # existed: the first non-Basis, non-corrective key.
+            # existed: the first non-reference, non-corrective key (reference matched by
+            # identity — it isn't necessarily named "Basis" on imported/renamed meshes).
             key_name = next(
                 (
                     kb.name
                     for kb in shape_keys.key_blocks
-                    if kb.name != "Basis"
+                    if kb != shape_keys.reference_key
                     and Applicator._CORRECTIVE_INFIX not in kb.name
                 ),
                 None,

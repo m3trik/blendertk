@@ -92,6 +92,14 @@ try:
     check("without split_static the whole object scales as one block",
           frames(fc) == [1, 3, 5, 19, 21, 23], f"{frames(fc)}")
 
+    # ---- split_static: an expanding factor pushes segment-1 keys into segment 2's original
+    # range — membership is pre-scale, so each key still scales exactly once ----
+    reset()
+    o, fc = keyed_at([(1, 0), (2, 5), (3, 10), (10, 10), (11, 5), (12, 0)])
+    n = btk.scale_keys([o], factor=5.0, group_mode="per_object", split_static=True)
+    check("expanding factor scales each key exactly once across adjacent segments",
+          frames(fc) == [1, 6, 10, 11, 15, 20] and n == 6, f"{frames(fc)} n={n}")
+
     # ---- single_group: identical result whether split_static is on or off (one shared pivot) ----
     reset()
     o, fc = keyed_at([(1, 0), (2, 5), (3, 10), (10, 10), (11, 5), (12, 0)])
@@ -114,6 +122,26 @@ try:
           frames(fa) == [1, 9] and frames(fb) == [5, 13], f"A={frames(fa)} B={frames(fb)}")
     check("overlap_groups scales the separate object about its own pivot",
           frames(fc_) == [20, 24], f"C={frames(fc_)}")
+
+    # ---- one slotted action shared by two objects through two slots: both slots scale ----
+    reset()
+    a_obj, fa = keyed_at([(10, 0), (20, 1)], "SlotA")
+    act = a_obj.animation_data.action
+    b_obj = bpy.data.objects.new("SlotB", None)
+    bpy.context.collection.objects.link(b_obj)
+    b_obj.animation_data_create()
+    b_obj.animation_data.action = act
+    b_obj.animation_data.action_slot = act.slots.new(id_type="OBJECT", name="SlotB")
+    for f, v in ((10, 0), (20, 1)):
+        b_obj.location.x = v
+        b_obj.keyframe_insert("location", index=0, frame=f)
+    fb = next(fc for fc in btk.get_fcurves([b_obj]) if fc.array_index == 0)
+    for k in fb.keyframe_points:
+        k.interpolation = "LINEAR"
+    n = btk.scale_keys([a_obj, b_obj], factor=2.0, group_mode="per_object")
+    check("shared slotted action scales every slot's curves (dedupe is per (action, slot))",
+          frames(fa) == [10, 30] and frames(fb) == [10, 30] and n == 4,
+          f"A={frames(fa)} B={frames(fb)} n={n}")
 
     # ---- snap_mode composes with the result (post-scale rounding) ----
     reset()

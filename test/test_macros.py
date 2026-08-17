@@ -269,12 +269,38 @@ try:
         ptk.StepToggle.clear("btk_m_frame")
         M.m_frame(steps=1)
         single = rv3d.view_distance
-        # steps=1 lands on the raw ideal; a 2-step cycle starts a little further out.
-        check("more steps start the cycle further out", single < framed,
-              f"1-step={single} vs 2-step first press={framed}")
+        # The first press is the ideal frame however long the cycle is — a softened start read as
+        # the key undershooting ("the first zooms are way out").
+        check("the first press is the ideal frame regardless of step count",
+              abs(single - framed) < 1e-6, f"1-step={single} vs 2-step first press={framed}")
         M.m_frame(steps=1)
         check("steps=1 is a plain frame/restore toggle",
               abs(rv3d.view_distance - start_dist) < 1e-3, f"dist={rv3d.view_distance}")
+
+        # A stale press (the user framed, then worked for a while) frames AGAIN — it must never
+        # restore the pre-frame view: bound to a frame key that teleported the user to a stale
+        # view and left the orbit centre nowhere near the selection.
+        class _Clock:
+            now = 0.0
+            def __call__(self):
+                return self.now
+        clock = _Clock()
+        ptk.StepToggle.clear("btk_m_frame")
+        ptk.StepToggle.get("btk_m_frame", clock=clock)  # the macro reuses this instance
+        rv3d.view_distance = start_dist
+        M.m_frame()  # frame
+        clock.now += M.FRAME_STEP_TIMEOUT + 5.0  # ... tumble around, work ...
+        rv3d.view_distance = 123.0
+        M.m_frame()  # frame again — NOT "back"
+        # (view_selected is a no-op headless, so "re-framed" is only observable as "did not
+        # restore the pre-frame distance".)
+        check("a stale press re-frames instead of restoring the old view",
+              abs(rv3d.view_distance - start_dist) > 1e-3,
+              f"dist={rv3d.view_distance} start={start_dist}")
+        M.m_frame()  # step 2
+        M.m_frame()  # home = the view being left at the stale press (123), not the original
+        check("home after a stale press is the view that press left",
+              abs(rv3d.view_distance - 123.0) < 1e-3, f"dist={rv3d.view_distance}")
 
         # Selecting something else restarts the cycle instead of stepping deeper / going back.
         ptk.StepToggle.clear("btk_m_frame")

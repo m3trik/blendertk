@@ -196,7 +196,10 @@ class Applicator(ptk.LoggingMixin):
         corr_name = self._corrective_key_name(weight)
 
         shape_keys = base_obj.data.shape_keys
-        basis = shape_keys.key_blocks["Basis"]
+        # The reference key by identity, not the literal name "Basis" — imported or
+        # renamed meshes carry a reference key under any name, and a KeyError here
+        # would escape _apply_single_tween's (ValueError, ReferenceError) net.
+        basis = shape_keys.reference_key
         key_target = shape_keys.key_blocks[self.keyframes.key_name]
         tween_obj = tween.obj
 

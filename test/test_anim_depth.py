@@ -237,6 +237,20 @@ try:
     check("snap method=none is a documented no-op (no keys touched, count 0)",
           frames(fc) == [10.7] and n == 0, f"{frames(fc)} n={n}")
 
+    # ---- snap_keys: handles travel with the key (curve shape preserved) ----
+    reset()
+    o, fc = keyed_at([(1.4, 0), (5, 1)])
+    k = next(k for k in fc.keyframe_points if abs(k.co.x - 1.4) < 1e-3)
+    k.handle_left_type = k.handle_right_type = "FREE"
+    k.handle_left.x = k.co.x - 2.0
+    k.handle_right.x = k.co.x + 2.0
+    btk.snap_keys([o])
+    check("snap moves FREE handles in lock-step with the key",
+          abs(k.co.x - 1.0) < 1e-6
+          and abs(k.handle_left.x - (k.co.x - 2.0)) < 1e-4
+          and abs(k.handle_right.x - (k.co.x + 2.0)) < 1e-4,
+          f"co={k.co.x} hl={k.handle_left.x} hr={k.handle_right.x}")
+
     # ---- tie_keyframes: absolute uses the keyed extent, not the scene range ----
     reset()
     o, fc = keyed_at([(5, 0), (6, 1), (7, 2)])

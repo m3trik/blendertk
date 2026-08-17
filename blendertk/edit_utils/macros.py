@@ -236,16 +236,15 @@ class DisplayMacros(_ViewportMixin):
         ``FRAME_STEP_TIMEOUT`` seconds steps *into* the selection, and the press after the last step
         returns the view exactly where it started.
 
-        Pausing collapses the cycle: once the timer lapses, the next press just goes back — so
-        framing once and working for a while still leaves the key as a plain there-and-back toggle.
-        Selecting something else restarts the cycle instead of stepping deeper; after a pause that
-        also re-homes it to the view you are leaving, so "back" never teleports you to a stale one.
+        Pausing forgets the cycle: after the timer lapses the next press simply frames again — the
+        key behaves like a plain frame key however long you've worked, and never teleports you back
+        to a view you left minutes ago (that "back" step is only ever the last press of a rapid
+        cycle). Selecting something else restarts the cycle instead of stepping deeper.
 
         Parameters:
             steps (int): Framing steps before the cycle returns home, i.e. the toggle has
                 ``steps + 1`` states. ``1`` gives frame / restore; the default ``2`` adds a closer
-                step. More steps start the cycle a little further out so the extra presses have
-                somewhere to go.
+                step.
             adjust_clipping (bool): Widen the viewport's clip planes as needed so the framed
                 selection is never drawn clipped (with slack to orbit and pan around it). The
                 original planes come back with the view on the final press.
@@ -270,7 +269,10 @@ class DisplayMacros(_ViewportMixin):
             active.name if active is not None else "",
         )
         state = toggle.advance(
-            steps=steps, context=context, timeout=cls.FRAME_STEP_TIMEOUT
+            steps=steps,
+            context=context,
+            timeout=cls.FRAME_STEP_TIMEOUT,
+            stale="restart",  # a stale press frames again, it never restores
         )
 
         if state == 0:  # cycle complete -> back where the user started
@@ -300,7 +302,7 @@ class DisplayMacros(_ViewportMixin):
                 pass
 
         # The framing op lands on the ideal distance (mayatk's per-element fit factor); the step
-        # ramp then dollies in — a larger fit factor there is a shorter view distance here.
+        # ramp then dollies in — the first step is the ideal itself, each further one closer.
         rv3d = getattr(space, "region_3d", None)
         scale = ptk.StepToggle.scales(steps)[state - 1]
         if rv3d is not None and scale != 1.0:

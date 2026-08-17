@@ -132,6 +132,89 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.assertEqual(len(HEADERS), 6)
         self.assertEqual(HEADERS[0], "Step")
 
+    def _populate_one_step(self, ctrl):
+        """Load one synthetic step into the tree (shared by the presenter tests)."""
+        from pythontk import BuilderStep, BuilderObject
+
+        ctrl._steps = [
+            BuilderStep(
+                step_id="A01",
+                section="A",
+                section_title="Test",
+                description="step one",
+                objects=[BuilderObject(name="Obj1", behaviors=[])],
+            )
+        ]
+        ctrl._populate_table()
+
+    def test_additional_object_row_matches_column_count(self):
+        """Additional-object rows mirror the mayatk reference shape (6 texts, EMPTY
+        Behaviors cell — table_presenter.py:705 uses ["", "", display, "", "", ""];
+        a stray 'scene' tag landed in the Behaviors column here)."""
+        from pythontk.core_utils.engines.shots.manifest.manifest_model import (
+            StepStatus,
+        )
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
+            HEADERS,
+            COL_DESC,
+        )
+
+        ctrl = self.ui.slots.controller
+        self._populate_one_step(ctrl)
+        ctrl._apply_assessment(
+            [
+                StepStatus(
+                    step_id="A01",
+                    built=True,
+                    objects=[],
+                    additional_objects=["ExtraObj"],
+                )
+            ]
+        )
+        tree = self.ui.tbl_steps
+        parent = tree.topLevelItem(0)
+        extra = next(
+            (
+                parent.child(j)
+                for j in range(parent.childCount())
+                if parent.child(j).text(COL_DESC) == "ExtraObj"
+            ),
+            None,
+        )
+        self.assertIsNotNone(extra, "additional-object row not created")
+        texts = [extra.text(c) for c in range(len(HEADERS))]
+        self.assertEqual(texts, ["", "", "ExtraObj", "", "", ""])
+
+    def test_expand_missing_uses_logger_and_footer(self):
+        """expand_missing reports through the logger + footer exactly as the mayatk
+        reference (table_presenter.py:764-765) — never bare print()."""
+        import io
+        from contextlib import redirect_stdout
+        from pythontk.core_utils.engines.shots.manifest.manifest_model import (
+            StepStatus,
+        )
+
+        ctrl = self.ui.slots.controller
+        self._populate_one_step(ctrl)
+        ctrl._last_results = [StepStatus(step_id="A01", built=False, objects=[])]
+        footers = []
+        orig_footer = ctrl._set_footer
+        ctrl._set_footer = lambda *a, **kw: footers.append(a[0] if a else "")
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                ctrl.expand_missing()
+        finally:
+            ctrl._set_footer = orig_footer
+            ctrl._last_results = []
+        self.assertEqual(
+            buf.getvalue(), "", "expand_missing must not print to stdout"
+        )
+        self.assertTrue(
+            any("expanded" in m for m in footers),
+            f"expected the mayatk-style footer feedback, got {footers}",
+        )
+
 
 if __name__ == "__main__":
     runner = unittest.TextTestRunner(verbosity=2)

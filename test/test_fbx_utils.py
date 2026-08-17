@@ -227,6 +227,24 @@ try:
         f"{shipped and dict(shipped.items())}",
     )
 
+    # ---- data_internal must never ride a hand-off -----------------------------
+    # In Maya the guarantee is structural (network node); here the carrier is a
+    # plain Empty a whole-scene send would sweep in — with use_custom_props forced
+    # on by include_data_export, it would ship SmartBake/emissive state as user
+    # properties. The hierarchy closure (every bridge path) drops it by name.
+    reset()
+    DataNodes.set_internal_string("smart_bake_sessions", "[]")
+    bpy.ops.mesh.primitive_cube_add()
+    _mesh = bpy.context.active_object
+    _mesh.name = "HandoffMesh"
+    _closure = BlenderExportMixin()._hierarchy_closure(list(bpy.context.scene.objects))
+    _names = {o.name for o in _closure}
+    check(
+        "hierarchy closure drops data_internal (whole-scene send)",
+        "HandoffMesh" in _names and DataNodes.INTERNAL not in _names,
+        f"{_names}",
+    )
+
     # ---- Scene Exporter contract: the exact kwargs the tentacle slot passes -
     # (object_types set incl. CAMERA/LIGHT/ARMATURE, use_tspace, embed/path_mode).
     reset()

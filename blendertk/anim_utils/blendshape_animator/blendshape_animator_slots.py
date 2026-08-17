@@ -59,8 +59,9 @@ class _BlendshapeAnimatorSlotsInternal(object):
 
     @staticmethod
     def _is_valid_base_candidate(obj) -> bool:
-        """A mesh object carrying a usable (non-Basis, non-corrective) shape key — i.e. one that
-        :meth:`BlendshapeAnimator.from_existing` could bind to."""
+        """A mesh object carrying a usable (non-reference, non-corrective) shape key — i.e. one
+        that :meth:`BlendshapeAnimator.from_existing` could bind to. The reference key is matched
+        by identity, not the literal name "Basis" (imported/renamed meshes name it anything)."""
         if obj is None or getattr(obj, "type", None) != "MESH":
             return False
         if "isInbetweenTarget" in obj.keys():
@@ -70,7 +71,8 @@ class _BlendshapeAnimatorSlotsInternal(object):
             return False
         infix = Applicator._CORRECTIVE_INFIX
         return any(
-            kb.name != "Basis" and infix not in kb.name for kb in shape_keys.key_blocks
+            kb != shape_keys.reference_key and infix not in kb.name
+            for kb in shape_keys.key_blocks
         )
 
 

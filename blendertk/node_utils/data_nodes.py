@@ -31,15 +31,31 @@ class DataNodes:
     INTERNAL = "data_internal"
     EXPORT = "data_export"
 
+    # Well-known export channels — mirror of ``mtk.DataNodes``. No Blender
+    # producer writes them until the shots/audio port lands; the names exist
+    # now so that port (and any cross-DCC consumer) can import them
+    # symbolically instead of re-hardcoding the strings.
+    FBX_TAKES = "fbx_takes"
+    SHOT_METADATA = "shot_metadata"
+
     @staticmethod
     def _get_node(name, create=True):
         """Get-or-create the Empty named *name* (created + linked to the scene when *create*) —
-        shared mechanism behind both the internal and export carriers (see class docstring)."""
+        shared mechanism behind both the internal and export carriers (see class docstring).
+
+        Heals an *unlinked* carrier on the create path: ``bpy.data.objects`` can hold an
+        Empty no collection references (e.g. after its collection was deleted) — writes to
+        it would succeed while the exporter never ships it, so a carrier a producer is
+        about to write to is relinked into the scene collection.
+        """
         import bpy
 
         obj = bpy.data.objects.get(name)
-        if obj is None and create:
-            obj = bpy.data.objects.new(name, None)  # None data → Empty
+        if obj is None:
+            if create:
+                obj = bpy.data.objects.new(name, None)  # None data → Empty
+                bpy.context.scene.collection.objects.link(obj)
+        elif create and obj.name not in bpy.context.scene.objects:
             bpy.context.scene.collection.objects.link(obj)
         return obj
 
@@ -120,6 +136,19 @@ class DataNodes:
         """The carrier's *key* custom property, or ``None`` — see ``_get_string``; matches
         mayatk's ``get_export_string`` absent/empty semantics."""
         return DataNodes._get_string(DataNodes.EXPORT, key)
+
+    @staticmethod
+    def set_export_json(key, payload):
+        """Publish *payload* as a JSON export channel — the one-call form of the producer
+        publish/clear idiom (mirror of ``mtk.DataNodes.set_export_json``). A falsy *payload*
+        clears the channel (never creating the carrier just to hold an empty manifest);
+        anything else is ``json.dumps``-ed onto the channel. Returns the carrier name, or
+        ``None`` when a clear had nothing to do."""
+        import json
+
+        return DataNodes.set_export_string(
+            key, json.dumps(payload) if payload else ""
+        )
 
     # -- inspection (mirror of mtk.DataNodes.dump / format_dump) --------------------------
 

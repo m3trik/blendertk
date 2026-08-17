@@ -147,6 +147,41 @@ try:
     check("param override changes the rendered script",
           "RecursionDepth=5" in full_ovr2 and "RecursionDepth=5" not in full_ovr)
 
+    # ---- keep-stacked: pack-only opt-in behind a Lua literal, Lua vendored from mayatk ----
+    keys = lambda name: P.Parameters.referenced_keys(  # noqa: E731
+        (_SCRIPT_DIR / f"{name}.lua").read_text(encoding="utf-8"))
+    check("PACK_KEEP_STACKED is a bool knob, off by default",
+          P.PARAMS["PACK_KEEP_STACKED"].kind == "bool"
+          and P.PARAMS["PACK_KEEP_STACKED"].default is False)
+    check("keep-stacked shows for the pack-type presets only",
+          all("PACK_KEEP_STACKED" in keys(n) for n in ("pack", "optimize"))
+          and not any("PACK_KEEP_STACKED" in keys(n)
+                      for n in ("unwrap_hard", "unwrap_organic", "unwrap_hybrid")))
+    b._params = {"PACK_KEEP_STACKED": True}
+    on = code_lines(b._construct_full_script(pack))
+    b._params = {"PACK_KEEP_STACKED": False}
+    off = code_lines(b._construct_full_script(pack))
+    check("keep-stacked renders the overlap grouping gated by the knob",
+          'Mode="DefineGroupsByOverlapness"' in on and "if true then" in on
+          and "Properties={Pack={Stacked=true}}" in on
+          and "if false then" in off and "__KEEP_STACKED_BLOCK__" not in on + off)
+    check("keep-stacked grouping precedes the pack",
+          on.index('Mode="DefineGroupsByOverlapness"') < on.index("ZomPack("))
+    _grp = on.index('Mode="DefineGroupsByOverlapness"')
+    check("keep-stacked brackets the grouping with the MultiCOG shrink / unshrink",
+          on.index('CenterMode="MultiCOG"') < _grp < on.index('CenterMode="MultiCOG"', _grp)
+          and "Transform={0.001, 0, 0, 0, 0.001, 0, 0, 0, 1}" in on
+          and "Transform={1000, 0, 0, 0, 1000, 0, 0, 0, 1}" in on)
+    b._params = {}
+    import filecmp
+    _maya_rb = _SCRIPT_DIR.parents[4] / "mayatk" / "mayatk" / "uv_utils" / "rizom_bridge"
+    if _maya_rb.is_dir():
+        vendored = ("scripts/pack.lua", "scripts/optimize.lua",
+                    "templates/pack_block.lua", "templates/keep_stacked_block.lua")
+        stale = [f for f in vendored
+                 if not filecmp.cmp(_maya_rb / f, _SCRIPT_DIR.parent / f, shallow=False)]
+        check("pack-side Lua stays byte-identical to mayatk's", not stale, str(stale))
+
     # ---- a script that carries its own ZomLoad/ZomSave bypasses the wrapper -------
     custom = 'ZomLoad({File={Path="p"}})\nZomSave({File={Path="p"}})\n'
     passthru = b._construct_full_script(custom)

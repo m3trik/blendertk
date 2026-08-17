@@ -717,7 +717,7 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                         else extra_name
                     )
                     extra_item = tree.create_item(
-                        ["", "", display, "scene", ""],
+                        ["", "", display, "", "", ""],
                         parent=parent,
                     )
                     tip = "Unexpected: object is in the shot but not listed in the manifest CSV."
@@ -776,10 +776,8 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
             self._set_footer("No issues found.")
             return
 
-        print(f"\n--- Expand Missing ({len(lines)} steps) ---")
-        for line in lines:
-            print(line)
-        print("---")
+        self.logger.info("Expand Missing (%d steps):\n%s", len(lines), "\n".join(lines))
+        self._set_footer(f"{len(problem_ids)} step(s) with issues expanded.")
 
         tree = self.ui.tbl_steps
         for i in range(tree.topLevelItemCount()):
