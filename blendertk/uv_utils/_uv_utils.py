@@ -219,43 +219,122 @@ class _UvUtilsInternal(object):
 
     @staticmethod
     def _island_signature(island, uv_layer):
-        """Cheap shape/size signature for similarity matching: (long side, short side, UV area,
-        face count) of the island's bbox — approximates Maya's ``polyUVStackSimilarShells``
-        grouping (its internal matching algorithm is undocumented/native, so there is nothing to
-        port faithfully; long/short rather than width/height so a 90-degree-rotated copy of the
-        same shell still matches)."""
-        us = [loop[uv_layer].uv.x for f in island for loop in f.loops]
-        vs = [loop[uv_layer].uv.y for f in island for loop in f.loops]
-        width, height = max(us) - min(us), max(vs) - min(vs)
+        """Cheap shape signature for similarity matching, invariant to the island's rotation,
+        scale and position — the "same topology and shape" test behind Maya's
+        ``polyUVStackSimilarShells`` (probed: it stacks a rotated AND a half-size copy onto
+        the reference, so size is not part of "similar"). ``(face count, loop count,
+        elongation, compactness)``: elongation = sqrt of the ratio of the loop cloud's
+        principal variances (1 = isotropic, e.g. a square; 0.5 = a 2:1 rectangle),
+        compactness = UV area / total variance (dimensionless; 2 for a single square face,
+        1.6 for a 2:1 rectangle). Both are moments of the loop point cloud, so any two
+        duplicates agree to floating-point precision whatever their placement."""
+        pts = _UvUtilsInternal._island_points(island, uv_layer)
+        n = len(pts)
+        if n == 0:
+            return (len(island), 0, 0.0, 0.0)
+        cu = sum(u for u, _ in pts) / n
+        cv = sum(v for _, v in pts) / n
+        suu = svv = suv = 0.0
+        for u, v in pts:
+            du, dv = u - cu, v - cv
+            suu += du * du
+            svv += dv * dv
+            suv += du * dv
+        suu, svv, suv = suu / n, svv / n, suv / n
+        mean = (suu + svv) / 2.0
+        half = ((suu - svv) ** 2 / 4.0 + suv * suv) ** 0.5
+        lam1, lam2 = mean + half, max(mean - half, 0.0)
+        elongation = (lam2 / lam1) ** 0.5 if lam1 > 0.0 else 0.0
         area = 0.0
         for f in island:
-            pts = [loop[uv_layer].uv for loop in f.loops]
+            fpts = [loop[uv_layer].uv for loop in f.loops]
             shoelace = 0.0
-            for i in range(len(pts)):
-                j = (i + 1) % len(pts)
-                shoelace += pts[i].x * pts[j].y - pts[j].x * pts[i].y
+            for i in range(len(fpts)):
+                j = (i + 1) % len(fpts)
+                shoelace += fpts[i].x * fpts[j].y - fpts[j].x * fpts[i].y
             area += abs(shoelace) / 2.0
-        return (max(width, height), min(width, height), area, len(island))
+        total_var = suu + svv
+        compactness = area / total_var if total_var > 0.0 else 0.0
+        return (len(island), n, elongation, compactness)
 
     @staticmethod
     def _islands_similar(sig_a, sig_b, tolerance):
         """True when two :func:`_island_signature` results match within *tolerance* — Maya's
-        ``polyUVStackSimilarShells -tolerance`` UI range (0 = near-exact, 10 = very loose),
-        normalized here to a 0-1 fractional difference."""
-        long_a, short_a, area_a, faces_a = sig_a
-        long_b, short_b, area_b, faces_b = sig_b
-        if faces_a != faces_b:
+        ``polyUVStackSimilarShells -tolerance`` UI range (0 = practically identical, 10 = very
+        loose), normalized here to a 0-1 fractional difference of the shape descriptors
+        (topology — face and loop counts — must match exactly)."""
+        faces_a, loops_a, elong_a, comp_a = sig_a
+        faces_b, loops_b, elong_b, comp_b = sig_b
+        if faces_a != faces_b or loops_a != loops_b:
             return False
         tol = max(tolerance, 0.0) / 10.0
 
         def _close(x, y):
-            return abs(x - y) <= tol * max(abs(x), abs(y), 1e-9)
+            # 1e-6 floor: duplicates computed from different coordinates agree only to
+            # floating-point precision, and tolerance 0 must still accept them.
+            return abs(x - y) <= max(tol * max(abs(x), abs(y)), 1e-6)
 
-        return (
-            _close(long_a, long_b)
-            and _close(short_a, short_b)
-            and _close(area_a, area_b)
+        return _close(elong_a, elong_b) and _close(comp_a, comp_b)
+
+    @staticmethod
+    def _island_points(island, uv_layer):
+        """The island's loop UVs as ``(u, v)`` tuples in face/loop order — the correspondence
+        two duplicated islands share (islands come out of :func:`_uv_islands` in face-index
+        order, and a duplicate keeps its face and loop order)."""
+        return [(loop[uv_layer].uv.x, loop[uv_layer].uv.y) for f in island for loop in f.loops]
+
+    @staticmethod
+    def _fit_island_onto(island, uv_layer, ref_points, tolerance):
+        """Move *island* onto *ref_points* with one rotate + uniform-scale + translate (a 2D
+        Procrustes fit over the loop-order correspondence — Maya's ``polyUVStackSimilarShells``
+        result for identical shells: rotated / scaled copies land vertex-for-vertex on the
+        reference). Returns the largest UV displacement applied, or ``None`` when the islands
+        don't correspond (loop counts differ, or the best fit still leaves a residual above
+        the tolerance's fraction of the reference size — a mirrored copy, or a different
+        shell that merely shares the bbox signature) — the island is left untouched then and
+        the caller falls back to the center stack."""
+        from math import atan2, cos, hypot, sin
+
+        pts = _UvUtilsInternal._island_points(island, uv_layer)
+        n = len(pts)
+        if n == 0 or n != len(ref_points):
+            return None
+        pu = sum(u for u, _ in pts) / n
+        pv = sum(v for _, v in pts) / n
+        qu = sum(u for u, _ in ref_points) / n
+        qv = sum(v for _, v in ref_points) / n
+        sxx = sxy = pp = 0.0
+        for (u, v), (ru, rv) in zip(pts, ref_points):
+            du, dv, eu, ev = u - pu, v - pv, ru - qu, rv - qv
+            sxx += du * eu + dv * ev
+            sxy += du * ev - dv * eu
+            pp += du * du + dv * dv
+        if pp <= 0.0:
+            return None
+        theta = atan2(sxy, sxx)
+        scale = hypot(sxx, sxy) / pp
+        c, s = cos(theta) * scale, sin(theta) * scale
+        fitted = [
+            (qu + c * (u - pu) - s * (v - pv), qv + s * (u - pu) + c * (v - pv))
+            for u, v in pts
+        ]
+        rus, rvs = [u for u, _ in ref_points], [v for _, v in ref_points]
+        size = max(max(rus) - min(rus), max(rvs) - min(rvs), 1e-9)
+        residual = max(
+            hypot(fu - ru, fv - rv) for (fu, fv), (ru, rv) in zip(fitted, ref_points)
         )
+        if residual > (max(tolerance, 0.0) / 10.0 + 1e-3) * size:
+            return None
+        moved = 0.0
+        it = iter(fitted)
+        for f in island:
+            for loop in f.loops:
+                u, v = next(it)
+                moved = max(
+                    moved, hypot(loop[uv_layer].uv.x - u, loop[uv_layer].uv.y - v)
+                )
+                loop[uv_layer].uv = (u, v)
+        return moved
 
     @staticmethod
     def _reset_face_uv_rect(face, uv_layer):
@@ -745,12 +824,21 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_edit(o, _write)
 
     @staticmethod
-    def pin_uvs(objects, pin=True, selected_only=True):
+    def pin_uvs(objects, pin=True, selected_only=True, whole_shells=False):
         """Pin/unpin UVs (bmesh ``pin_uv``). ``selected_only`` restricts to the UVs of selected
-        verts (the 3D-edit-mode workflow — no UV editor needed); object mode pins all."""
+        verts (the 3D-edit-mode workflow — no UV editor needed); object mode pins all.
+        ``whole_shells`` widens ``selected_only`` to every UV of the islands the selection
+        touches (:func:`_target_islands` — the set shell operations such as
+        :func:`stack_uv_shells` act on), so a shell pins as a whole."""
 
-        def _pin(bm):
+        def _pin(bm, obj):
             uvl = bm.loops.layers.uv.verify()
+            if selected_only and whole_shells:
+                for island in _UvUtilsInternal._target_islands(obj, bm, uvl):
+                    for face in island:
+                        for loop in face.loops:
+                            loop[uvl].pin_uv = pin
+                return
             for face in bm.faces:
                 for loop in face.loops:
                     if selected_only and not loop.vert.select:
@@ -758,7 +846,7 @@ class UvUtils(_UvUtilsInternal):
                     loop[uvl].pin_uv = pin
 
         for o in EditUtils._meshes(objects):
-            _UvUtilsInternal._uv_edit(o, _pin)
+            _UvUtilsInternal._uv_edit(o, lambda bm, obj=o: _pin(bm, obj))
 
     @staticmethod
     def get_texel_density(objects, map_size):
@@ -1282,9 +1370,11 @@ class UvUtils(_UvUtilsInternal):
             )
 
     @staticmethod
-    def get_uv_coords(objects):
+    def get_uv_coords(objects, pins=False):
         """Snapshot the active-layer UV coordinates per object (``{name: [(u, v), …]}`` in
-        face/loop order) — pairs with :func:`set_uv_coords` for stack/unstack-style toggles."""
+        face/loop order) — pairs with :func:`set_uv_coords` for stack/unstack-style toggles.
+        ``pins=True`` captures the pin state too (``(u, v, pinned)`` triples) so a restore also
+        puts back the pins as they were."""
         snapshot = {}
         for o in EditUtils._meshes(objects):
             coords = []
@@ -1296,7 +1386,9 @@ class UvUtils(_UvUtilsInternal):
                 for f in sorted(bm.faces, key=lambda f: f.index):
                     for loop in f.loops:
                         uv = loop[uvl].uv
-                        coords.append((uv.x, uv.y))
+                        coords.append(
+                            (uv.x, uv.y, bool(loop[uvl].pin_uv)) if pins else (uv.x, uv.y)
+                        )
 
             _UvUtilsInternal._uv_read(o, _read)
             if coords:
@@ -1306,7 +1398,8 @@ class UvUtils(_UvUtilsInternal):
     @staticmethod
     def set_uv_coords(objects, snapshot):
         """Restore a :func:`get_uv_coords` snapshot (objects whose topology changed since the
-        capture restore as far as the loop counts still line up)."""
+        capture restore as far as the loop counts still line up). Entries captured with
+        ``pins=True`` restore the pin state as well."""
         for o in EditUtils._meshes(objects):
             coords = snapshot.get(o.name)
             if not coords:
@@ -1320,27 +1413,91 @@ class UvUtils(_UvUtilsInternal):
                 for f in sorted(bm.faces, key=lambda f: f.index):
                     for loop in f.loops:
                         try:
-                            u, v = next(it)
+                            entry = next(it)
                         except StopIteration:
                             return
-                        loop[uvl].uv = (u, v)
+                        loop[uvl].uv = (entry[0], entry[1])
+                        if len(entry) > 2:
+                            loop[uvl].pin_uv = bool(entry[2])
 
             _UvUtilsInternal._uv_edit(o, _write)
+
+    @staticmethod
+    def get_similar_uv_shells(objects, tolerance=1.0, include_reference=False, select=False):
+        """The UV islands of *objects* (EDIT mode) that share the topology and shape of the
+        selected island(s) — the same :func:`_islands_similar` oracle :func:`stack_uv_shells`
+        stacks by, so what this finds is exactly what Stack (Similar) will stack. Mirror of
+        ``mtk.UvUtils.get_similar_uv_shells``.
+
+        Reference islands are the islands touched by the face selection (the
+        :func:`_target_islands` rule — the scope every shell operation here acts on). Returns
+        ``{object name: [face indices]}`` of the similar islands (the reference islands too with
+        ``include_reference``); ``select=True`` also selects their faces, replacing the current
+        selection unless ``include_reference``. Nothing is moved.
+        """
+        found = {}
+
+        for o in EditUtils._meshes(objects):
+            if o.mode != "EDIT":
+                continue
+
+            def _find(bm, obj=o):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                islands = _UvUtilsInternal._uv_islands(bm, uvl)
+                # Reference = islands touched by the face selection (same rule as
+                # _target_islands, over THIS island list so identity compares hold).
+                refs = [isl for isl in islands if any(f.select for f in isl)]
+                if not refs:
+                    return
+                ref_sigs = [_UvUtilsInternal._island_signature(isl, uvl) for isl in refs]
+                ref_ids = {id(isl) for isl in refs}
+                hits = []
+                for isl in islands:
+                    is_ref = id(isl) in ref_ids
+                    if is_ref and not include_reference:
+                        continue
+                    if is_ref or any(
+                        _UvUtilsInternal._islands_similar(
+                            _UvUtilsInternal._island_signature(isl, uvl), rs, tolerance
+                        )
+                        for rs in ref_sigs
+                    ):
+                        hits.append(isl)
+                if not hits:
+                    return
+                found[obj.name] = sorted(f.index for isl in hits for f in isl)
+                if select:
+                    if not include_reference:
+                        for f in bm.faces:
+                            f.select = False
+                    for isl in hits:
+                        for f in isl:
+                            f.select = True
+                    bm.select_flush_mode()
+
+            _UvUtilsInternal._uv_edit(o, _find)
+        return found
 
     @staticmethod
     def stack_uv_shells(objects, tolerance=None):
         """Stack UV islands on top of each other.
 
         ``tolerance=None`` (default): every targeted island stacks onto the first one found —
-        Maya's plain ``texStackShells`` (no similarity gate). ``tolerance`` given (0-10, Maya's
-        ``polyUVStackSimilarShells -tolerance`` range): islands only stack onto others whose
-        :func:`_island_signature` matches within that tolerance; a shape with no match anywhere
-        starts its own group and keeps its position — ``polyUVStackSimilarShells``.
+        Maya's plain ``texStackShells`` (center stack, no similarity gate). ``tolerance`` given
+        (0-10, Maya's ``polyUVStackSimilarShells -tolerance`` range): islands only stack onto
+        others whose :func:`_island_signature` matches within that tolerance, and a match is
+        rotated / scaled onto the first island of its group so the two overlap exactly
+        (:func:`_fit_island_onto`); when the pair has no vertex correspondence (mirrored copy,
+        or a look-alike that only shares the signature) it falls back to the center stack. A
+        shape with no match anywhere starts its own group and keeps its position — the
+        ``polyUVStackSimilarShells`` result.
 
         In EDIT mode only islands touched by the selection move; object mode targets every
         island. Returns the number of islands moved.
         """
-        groups = []  # each: {"sig": signature-or-None, "center": (u, v)}
+        groups = []  # each: {"sig": signature-or-None, "center": (u, v), "ref": [(u, v), ...]}
         moved = 0
 
         for o in EditUtils._meshes(objects):
@@ -1371,13 +1528,27 @@ class UvUtils(_UvUtilsInternal):
                             None,
                         )
                     if group is None:
-                        groups.append({"sig": sig, "center": center})
-                        continue
-                    cu, cv = group["center"]
-                    if abs(center[0] - cu) > 1e-9 or abs(center[1] - cv) > 1e-9:
-                        _UvUtilsInternal._move_island(
-                            island, uvl, cu - center[0], cv - center[1]
+                        groups.append(
+                            {
+                                "sig": sig,
+                                "center": center,
+                                "ref": _UvUtilsInternal._island_points(island, uvl),
+                            }
                         )
+                        continue
+                    displaced = None
+                    if tolerance is not None:
+                        displaced = _UvUtilsInternal._fit_island_onto(
+                            island, uvl, group["ref"], tolerance
+                        )
+                    if displaced is None:
+                        cu, cv = group["center"]
+                        displaced = max(abs(center[0] - cu), abs(center[1] - cv))
+                        if displaced > 1e-9:
+                            _UvUtilsInternal._move_island(
+                                island, uvl, cu - center[0], cv - center[1]
+                            )
+                    if displaced > 1e-9:
                         moved += 1
 
             _UvUtilsInternal._uv_edit(o, _stack)

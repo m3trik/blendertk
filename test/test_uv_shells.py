@@ -166,23 +166,14 @@ try:
     )
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    # ---- stack_uv_shells(tolerance=...): only similar-sized islands group together
+    # ---- stack_uv_shells(tolerance=...): only same-shape islands group together (shape, not
+    #      size -- Maya's polyUVStackSimilarShells stacks a half-size copy too, probed)
     reset()
     o = quads_object(
         [
             (0.0, 0.0, 0.2, 0.2),  # A: 0.2x0.2 square
-            (
-                0.5,
-                0.5,
-                0.7,
-                0.7,
-            ),  # B: 0.2x0.2 square -- same size as A, should stack onto it
-            (
-                0.0,
-                0.5,
-                0.6,
-                1.1,
-            ),  # C: 0.6x0.6 square -- different size, should stay put
+            (0.5, 0.5, 0.7, 0.7),  # B: 0.2x0.2 square -- same shape, stacks onto A
+            (0.0, 0.5, 0.6, 0.8),  # C: 0.6x0.3 rectangle -- different shape, stays put
         ]
     )
     moved = btk.stack_uv_shells([o], tolerance=1.0)
@@ -190,24 +181,41 @@ try:
     check("stack_similar moves only the matching island", moved == 1, f"moved={moved}")
     check(
         "stack_similar leaves the dissimilar island in place",
-        (0.3, 0.8) in centers,
+        (0.3, 0.65) in centers,
         f"{centers}",
     )
     check(
-        "stack_similar groups same-size islands together",
+        "stack_similar groups same-shape islands together",
         centers.count((0.1, 0.1)) == 2,
         f"{centers}",
     )
 
-    # ---- stack_uv_shells(tolerance=0): near-exact match required -- a small size gap no longer groups
+    # ---- a same-shape island of a different SIZE is similar (scaled onto the reference)
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.2), (0.5, 0.5, 1.1, 1.1)])  # 0.2 vs 0.6 squares
+    moved = btk.stack_uv_shells([o], tolerance=0.0)
+    centers = island_centers(o)
+    check(
+        "stack_similar treats a scaled copy as similar and fits it onto the reference",
+        moved == 1 and centers.count((0.1, 0.1)) == 2,
+        f"moved={moved} {centers}",
+    )
+
+    # ---- stack_uv_shells(tolerance=0): near-exact SHAPE required -- a 5% aspect gap no longer groups
     reset()
     o = quads_object(
-        [(0.0, 0.0, 0.2, 0.2), (0.5, 0.5, 0.71, 0.71)]
-    )  # 0.2 vs 0.21 -- 5% off
+        [(0.0, 0.0, 0.2, 0.2), (0.5, 0.5, 0.7, 0.71)]
+    )  # square vs 0.2x0.21 -- 5% off
     moved = btk.stack_uv_shells([o], tolerance=0.0)
     check(
-        "stack_similar tolerance=0 rejects a near-but-not-exact match",
+        "stack_similar tolerance=0 rejects a near-but-not-exact shape",
         moved == 0,
+        f"moved={moved}",
+    )
+    moved = btk.stack_uv_shells([o], tolerance=1.0)
+    check(
+        "stack_similar tolerance=1 accepts that 5% shape gap",
+        moved == 1,
         f"moved={moved}",
     )
 
@@ -311,6 +319,155 @@ try:
         centers.count((0.1, 0.1)) == 2,
         f"{centers}",
     )
+
+    # ---- stack_uv_shells(tolerance): a rotated / scaled twin is fitted onto the reference
+    #      vertex-for-vertex (Maya's polyUVStackSimilarShells), not just center-aligned
+    import math
+
+    def island_loops(o):
+        """Per-island loop UV lists (face-index order), sorted by island bbox center."""
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        uvl = bm.loops.layers.uv.active
+        from blendertk.uv_utils._uv_utils import UvUtils
+
+        out = sorted(
+            (
+                UvUtils._island_bbox_center(isl, uvl),
+                [(l[uvl].uv.x, l[uvl].uv.y) for f in isl for l in f.loops],
+            )
+            for isl in UvUtils._uv_islands(bm, uvl)
+        )
+        bm.free()
+        return [pts for _, pts in out]
+
+    def transform_island_uvs(o, face_index, angle_deg, scale=1.0, du=0.0, dv=0.0):
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bm.faces.ensure_lookup_table()
+        uvl = bm.loops.layers.uv.active
+        f = bm.faces[face_index]
+        cu = sum(l[uvl].uv.x for l in f.loops) / len(f.loops)
+        cv = sum(l[uvl].uv.y for l in f.loops) / len(f.loops)
+        a = math.radians(angle_deg)
+        for l in f.loops:
+            x, y = l[uvl].uv.x - cu, l[uvl].uv.y - cv
+            l[uvl].uv = (
+                cu + du + scale * (x * math.cos(a) - y * math.sin(a)),
+                cv + dv + scale * (x * math.sin(a) + y * math.cos(a)),
+            )
+        bm.to_mesh(o.data)
+        bm.free()
+
+    def max_pair_dist(pa, pb):
+        return max(math.dist(x, y) for x, y in zip(pa, pb))
+
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.1), (0.5, 0.5, 0.7, 0.6)])  # two 0.2x0.1 rects
+    transform_island_uvs(o, 1, 37.0)  # rotate the twin (bbox no longer matches naively)
+    moved = btk.stack_uv_shells([o], tolerance=1.0)
+    ref, twin = island_loops(o)
+    check("similar stack fits a rotated twin", moved == 1, f"moved={moved}")
+    check(
+        "rotated twin lands vertex-for-vertex on the reference",
+        max_pair_dist(ref, twin) < 1e-6,
+        f"max dist {max_pair_dist(ref, twin):.6f}",
+    )
+
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.1), (0.5, 0.5, 0.7, 0.6)])
+    transform_island_uvs(o, 1, 90.0, scale=0.5)  # rotated AND half-size
+    moved = btk.stack_uv_shells([o], tolerance=1.0)
+    ref, twin = island_loops(o)
+    check(
+        "similar stack fits a rotated + scaled twin exactly",
+        moved == 1 and max_pair_dist(ref, twin) < 1e-6,
+        f"moved={moved} max dist {max_pair_dist(ref, twin):.6f}",
+    )
+
+    # a mirrored copy has no rigid correspondence -> falls back to the center stack
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.1), (0.7, 0.5, 0.5, 0.6)])  # second: u0 > u1 = mirrored
+    moved = btk.stack_uv_shells([o], tolerance=1.0)
+    centers = island_centers(o)
+    check(
+        "mirrored look-alike falls back to the center stack",
+        moved == 1 and centers.count((0.1, 0.05)) == 2,
+        f"moved={moved} {centers}",
+    )
+
+    # ---- get_uv_coords(pins=True) round-trips pin state; pin_uvs(whole_shells) pins islands
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.2), (0.6, 0.6, 0.8, 0.8)])
+
+    def pins(o):
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        uvl = bm.loops.layers.uv.active
+        out = [bool(l[uvl].pin_uv) for f in sorted(bm.faces, key=lambda f: f.index) for l in f.loops]
+        bm.free()
+        return out
+
+    snap = btk.get_uv_coords([o], pins=True)
+    check(
+        "pins=True snapshot carries a pin flag per loop",
+        all(len(e) == 3 for e in snap[o.name]) and not any(e[2] for e in snap[o.name]),
+    )
+    bpy.ops.object.mode_set(mode="EDIT")
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        f.select = False
+    bm.faces[0].select = True  # island 0 touched (the stack's own _target_islands scope)
+    bmesh.update_edit_mesh(o.data)
+    btk.pin_uvs([o], pin=True, selected_only=True, whole_shells=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check(
+        "whole_shells pins every loop of the touched island only",
+        pins(o) == [True] * 4 + [False] * 4,
+        f"{pins(o)}",
+    )
+    btk.set_uv_coords([o], snap)
+    check("restoring a pins=True snapshot unpins again", pins(o) == [False] * 8, f"{pins(o)}")
+
+    # ---- get_similar_uv_shells: the Stack (Similar) oracle as a query; select=True applies it
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.1), (0.5, 0.5, 0.7, 0.6), (0.0, 0.5, 0.6, 0.65), (0.7, 0.0, 0.9, 0.1)])
+    transform_island_uvs(o, 1, 37.0)          # island 1: rotated twin of 0
+    # island 2: 0.6x0.15 (4:1) -> different shape (a 3x scaled 2:1 rect WOULD be similar --
+    # shape, not size); island 3: another twin of 0
+    bpy.ops.object.mode_set(mode="EDIT")
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        f.select = False
+    bm.faces[0].select = True                  # reference = island 0
+    bmesh.update_edit_mesh(o.data)
+    before = btk.get_uv_coords([o])
+    found = btk.get_similar_uv_shells([o], tolerance=1.0)
+    check("get_similar_uv_shells finds the twins of the selected island",
+          found.get(o.name) == [1, 3], f"{found}")
+    check("get_similar_uv_shells moves nothing", btk.get_uv_coords([o]) == before)
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    check("get_similar_uv_shells without select leaves the selection alone",
+          [f.index for f in bm.faces if f.select] == [0])
+    found = btk.get_similar_uv_shells([o], tolerance=1.0, include_reference=True, select=True)
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    sel_faces = [f.index for f in bm.faces if f.select]
+    check("select=True selects the similar islands, reference included",
+          found.get(o.name) == [0, 1, 3] and sel_faces == [0, 1, 3], f"faces={sel_faces} found={found}")
+    for f in bm.faces:                         # back to reference = island 0
+        f.select = f.index == 0
+    bmesh.update_edit_mesh(o.data)
+    found = btk.get_similar_uv_shells([o], tolerance=1.0, select=True)  # replace: twins only
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    check("select=True without include_reference replaces the selection with the twins",
+          [f.index for f in bm.faces if f.select] == [1, 3])
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check("get_similar_uv_shells is edit-mode only", btk.get_similar_uv_shells([o]) == {})
 
 except Exception:
     traceback.print_exc()

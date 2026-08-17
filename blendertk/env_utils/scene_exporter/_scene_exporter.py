@@ -261,12 +261,20 @@ class SceneExporter(ptk.LoggingMixin):
                 return False
         self._glb_texture_format = glb_texture_format
 
-        # Texture-budget write-back mode: a UI row rather than a pipeline
-        # task, popped here (mirror of mayatk) and stamped on the task
-        # manager for the optimize_textures task to read.
-        self.task_manager._optimize_textures_write_back = bool(
-            tasks.pop("optimize_textures_write_back", False)
-        )
+        # Texture Output write-back flag: a mode read by convert_textures and
+        # optimize_textures, never a dispatched task — popped here (mirror of
+        # mayatk) and stamped on the task manager.
+        # Legacy key (mirror of mayatk): presets saved before the rename carry
+        # ``optimize_textures_write_back``. Left unmapped it survives the pop,
+        # reaches the task dispatch as an unknown task, and the run silently
+        # falls back to Export Copies -- losing the user's saved setting with
+        # only a log line.
+        _write_back = tasks.pop("texture_write_back", None)
+        if _write_back is None:
+            _write_back = tasks.pop("optimize_textures_write_back", False)
+        else:
+            tasks.pop("optimize_textures_write_back", None)  # new key wins
+        self.task_manager._texture_write_back = bool(_write_back)
 
         self.export_path = self.generate_export_path(version_format=version_format)
         self.logger.debug(f"Generated export path: {self.export_path}")

@@ -582,6 +582,30 @@ try:
         f"unlabelled={_missing}",
     )
 
+    # ---- image_paths_scope: the snapshot -> mutate -> restore scope ------------
+    # Added: 2026-08-16
+    from blendertk.mat_utils._mat_utils import MatUtils as _MU
+
+    _ip_orig = tex_node.image.filepath
+    with _MU.image_paths_scope([tex_node.image], new_path="//staged/x.png"):
+        _ip_inside = tex_node.image.filepath
+    check(
+        "image_paths_scope repaths on entry and restores on exit",
+        _ip_inside.endswith("x.png") and tex_node.image.filepath == _ip_orig,
+        f"inside={_ip_inside} after={tex_node.image.filepath}",
+    )
+    try:
+        with _MU.image_paths_scope([tex_node.image]):
+            tex_node.image.filepath = "//elsewhere/y.png"
+            raise RuntimeError("body failed halfway")
+    except RuntimeError:
+        pass
+    check(
+        "image_paths_scope restores despite a raise in the body",
+        tex_node.image.filepath == _ip_orig,
+        f"after={tex_node.image.filepath}",
+    )
+
     # ---- Texture Template: check + task keyed off ONE selection (mirrors mayatk) ----
     # The combobox (cmb005) is the single definition; b000 folds it into
     # convert_textures (task phase) and check_material_compatibility (check
@@ -669,7 +693,9 @@ try:
         )
 
         # convert_textures: delegates to MatUpdater with the template as its
-        # config, scoped to the export materials; no-template is a no-op.
+        # config, scoped to the export materials; no-template is a no-op. In
+        # write-back mode (Texture Output = Scene Files) the config IS the
+        # template — the plain in-place migration.
         calls = []
         _mu.MatUpdater.update_materials = classmethod(
             lambda cls, materials=None, config=None, **k: calls.append(
@@ -678,6 +704,7 @@ try:
         )
         tm_ct = SceneExporter().task_manager
         tm_ct.objects = [tex_cube]
+        tm_ct._texture_write_back = True
         tm_ct.convert_textures(None)
         check(
             "convert_textures no-ops without a template",
@@ -694,6 +721,55 @@ try:
             "convert_textures invalidates the material cache",
             tm_ct._cached_materials is None,
             f"cached={tm_ct._cached_materials}",
+        )
+        check(
+            "convert_textures write-back stages no restore (permanent)",
+            "convert_textures" not in tm_ct._deferred_restores,
+            f"restores={list(tm_ct._deferred_restores)}",
+        )
+
+        # Texture Output = Export Copies (the default): the updater writes into
+        # this run's staging dir, the images are repathed for the write, and
+        # the deferred restore puts every original filepath back and removes
+        # a temp staging dir. Added: 2026-08-16
+        calls.clear()
+        img_orig = tex_node.image.filepath
+        seen = {}
+
+        def _fake_repath(cls, materials=None, config=None, **k):
+            seen["config"] = config
+            tex_node.image.filepath = os.path.join(
+                config["move_to_folder"], "PathScope_ORM.png"
+            )
+            return {}
+
+        _mu.MatUpdater.update_materials = classmethod(_fake_repath)
+        tm_st = SceneExporter().task_manager
+        tm_st.objects = [tex_cube]
+        tm_st._glb_only = True  # temp staging
+        tm_st._texture_write_back = False
+        tm_st.convert_textures("glTF 2.0")
+        cfg = seen.get("config") or {}
+        staging = cfg.get("move_to_folder")
+        check(
+            "convert_textures (Export Copies) runs the updater into a staging dir",
+            isinstance(cfg, dict)
+            and cfg.get("preset") == "glTF 2.0"
+            and bool(staging)
+            and os.path.isdir(staging),
+            f"config={cfg}",
+        )
+        check(
+            "convert_textures (Export Copies) repaths the export images for the write",
+            tex_node.image.filepath != img_orig
+            and "convert_textures" in tm_st._deferred_restores,
+            f"filepath={tex_node.image.filepath}",
+        )
+        tm_st.run_deferred_restores()
+        check(
+            "convert_textures (Export Copies) restores the original paths + temp dir",
+            tex_node.image.filepath == img_orig and not os.path.exists(staging),
+            f"filepath={tex_node.image.filepath} staging_exists={os.path.exists(staging)}",
         )
 
         # A MatUpdater exception must not abort the pipeline (TaskFactory
@@ -1293,7 +1369,7 @@ try:
         tb_tm = SceneExporter().task_manager
         tb_tm.objects = [tb_cube]
         tb_tm._glb_only = True  # temp staging; the GLB embeds its own copies
-        tb_tm._optimize_textures_write_back = False
+        tb_tm._texture_write_back = False
         tb_orig_fp = tb_tex_node.image.filepath
         tb_src_size = os.path.getsize(tb_src)
 

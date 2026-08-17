@@ -479,7 +479,10 @@ class SceneExporterSlots(SceneExporter):
         # output spec drives container/bit depth, its budget stays advisory —
         # else it is the generic per-map-type pass (True). Folded BEFORE the
         # override filter for the same reason as the template: "override
-        # checks" keeps the optimization, skips the gate.
+        # checks" keeps the optimization, skips the gate. Where both land
+        # (export copies vs the scene's files) is the Texture Output combo,
+        # collected above as the ``texture_write_back`` flag perform_export
+        # pops.
         if task_params.get("optimize_textures"):
             optimize_value = texture_template or True
             task_params["optimize_textures"] = optimize_value
