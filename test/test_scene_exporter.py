@@ -1419,6 +1419,82 @@ try:
             f"filepath={tb_tex_node.image.filepath}",
         )
 
+        # Max Texture Size (mirror of mayatk): the pass's one size dial. A
+        # combo row popped by perform_export like Texture Output — OFF first
+        # (falsy), pixel ceilings, the template-budget sentinel LAST.
+        # Added: 2026-08-17
+        tb_defs = tb_tm.task_definitions
+        tb_sizes = list(tb_defs["texture_max_size"]["add"].values())
+        tb_keys = list(tb_defs)
+        check(
+            "texture_max_size: ComboBox row between Optimize Textures and "
+            "Texture Output; OFF=0 first, template sentinel last",
+            tb_defs["texture_max_size"]["widget_type"] == "ComboBox"
+            and tb_sizes[0] == 0
+            and tb_sizes[-1] == tb_tm.TEXTURE_MAX_SIZE_TEMPLATE
+            and tb_sizes[1:-1] == [512, 1024, 2048, 4096, 8192]
+            and "texture_max_size" not in tb_tm.TASK_ORDER
+            and tb_keys.index("optimize_textures")
+            < tb_keys.index("texture_max_size")
+            < tb_keys.index("texture_write_back"),
+            f"sizes={tb_sizes}",
+        )
+        tb_tm._texture_max_size = tb_tm.TEXTURE_MAX_SIZE_TEMPLATE
+        check(
+            "_texture_size_clamp: sentinel enforces the template budget "
+            "(no POT), no-op without a template; ceiling = max_size; OFF = {}",
+            tb_tm._texture_size_clamp("glTF 2.0")
+            == {"enforce_budget": True, "force_pot": False}
+            and tb_tm._texture_size_clamp(None) == {}
+            and (
+                setattr(tb_tm, "_texture_max_size", "1024")
+                or tb_tm._texture_size_clamp(None)
+                == {"max_size": 1024}
+            )
+            and (
+                setattr(tb_tm, "_texture_max_size", "OFF")
+                or tb_tm._texture_size_clamp("glTF 2.0") == {}
+            ),
+        )
+
+        # A 512x256 source under a 128 ceiling: the staged copy is 128x64
+        # (aspect kept), the source keeps its dimensions, and the paired
+        # check judges through the same clamp (fails before, passes after).
+        tb_big = os.path.join(tmp, "clamp_src_Normal.png")
+        _PILImage.new("RGB", (512, 256), (128, 128, 128)).save(tb_big)
+        tb_tex_node.image = bpy.data.images.load(tb_big)
+        tb_big_fp = tb_tex_node.image.filepath
+        tb_tm._texture_max_size = 128
+        passed, msgs = tb_tm.check_texture_optimization(True)
+        check(
+            "max size: over-size source fails the gate before the task",
+            passed is False and any("clamp_src_Normal.png" in m for m in msgs),
+            f"{msgs}",
+        )
+        tb_tm.optimize_textures(True)
+        tb_clamped = tb_tex_node.image.filepath
+        with _PILImage.open(tb_clamped) as _img:
+            clamped_dims = _img.size
+        with _PILImage.open(tb_big) as _img:
+            big_dims = _img.size
+        passed, msgs = tb_tm.check_texture_optimization(True)
+        check(
+            "max size: staged copy clamped to 128x64, source untouched, gate "
+            "passes after",
+            os.path.normcase(tb_clamped) != os.path.normcase(tb_big_fp)
+            and clamped_dims == (128, 64)
+            and big_dims == (512, 256)
+            and passed is True,
+            f"staged={clamped_dims} src={big_dims} msgs={msgs}",
+        )
+        tb_tm.run_deferred_restores()
+        tb_tm._texture_max_size = None
+        check(
+            "max size: restore repoints the image",
+            tb_tex_node.image.filepath == tb_big_fp,
+            f"filepath={tb_tex_node.image.filepath}",
+        )
+
     # ---- tiled-token substitution: <uvtile>/<f> must not collapse onto "1001" -------------
     # Bug: the single-token substitution used "1001" for every token kind. <udim> -> "1001"
     # is right; <uvtile>'s own first-tile convention is "u1_v1" (a UDIM tile number is not a

@@ -333,6 +333,13 @@ class SceneDataSidecar:
         Blender paths (see ``_hierarchy_sync.build_path``) already carry no namespace
         prefix to strip, unlike Maya's DAG long paths — so unlike mayatk's version,
         this is a plain dedup rather than a namespace-stripping pass.
+
+        Deliberately NOT closed under ancestors, unlike mayatk's (2026-08-17):
+        Maya's ``exportSelected`` writes the parent chain of every selected node, so
+        there a group ships whether it or only its leaves are in the export set;
+        Blender's ``use_selection`` export drops unselected parents (probe-verified,
+        Blender 5.1), so here the export set alone IS what ships and a bare group
+        entry is a real difference.
         """
         return set(paths)
 
