@@ -502,6 +502,16 @@ try:
         "unsupported format is rejected",
         HierarchySync.stage_reference_blend(os.path.join(tmp, "x.obj")) == (None, None),
     )
+    # The staging gate and the reference browser share ONE format contract
+    # (mirror of mayatk's NamespaceSandbox.get_supported_formats): every listed
+    # extension is accepted, everything else refused -- so the dialog filter
+    # built from this list can never offer a file the gate then rejects.
+    formats = HierarchySync.get_supported_formats()
+    check(
+        "get_supported_formats lists exactly the gate's formats (.blend, .fbx)",
+        set(formats) == {".blend", ".fbx"},
+        str(formats),
+    )
 
     reset()
     empty("UserObj")  # pre-existing user content that staging must not disturb

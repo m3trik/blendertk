@@ -939,6 +939,18 @@ class HierarchySync(ptk.LoggingMixin):
         bpy.data.objects.remove(old_parent, do_unlink=True)
         self.logger.debug(f"Deleted empty source parent: {old_name}")
 
+    @classmethod
+    def get_supported_formats(cls) -> List[str]:
+        """Extensions (``.blend``, ``.fbx``) a reference may have (mirror of mayatk's
+        ``NamespaceSandbox.get_supported_formats``).
+
+        The one place the panel asks before offering a file: the reference
+        browser builds its dialog filter from this list, and
+        :meth:`stage_reference_blend` gates on it, so a format staged here shows
+        up there without a second, drifting copy.
+        """
+        return [".blend", ".fbx"]
+
     @staticmethod
     def stage_reference_blend(reference_path: str, logger=None):
         """Return a ``.blend`` path to link as the reference, converting other scene formats.
@@ -970,10 +982,12 @@ class HierarchySync(ptk.LoggingMixin):
         ext = os.path.splitext(reference_path)[1].lower()
         if ext == ".blend":
             return reference_path, None
-        if ext != ".fbx":
+        if ext not in HierarchySync.get_supported_formats():
             _log(
                 "error",
-                f"Unsupported reference format '{ext}'. Use a .blend or .fbx file.",
+                f"Unsupported reference format '{ext}'. Use a "
+                + " or ".join(HierarchySync.get_supported_formats())
+                + " file.",
             )
             return None, None
 

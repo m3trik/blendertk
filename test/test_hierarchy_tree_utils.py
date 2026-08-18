@@ -1,8 +1,9 @@
 """blendertk Hierarchy Sync tree_utils test (Qt, no bpy) — runs under the workspace .venv.
 
 Covers ``_extract_object_name_from_item``'s UserRole-object preference and placeholder guard (the
-parity fix mirroring mayatk's audit). Qt-only: no Blender runtime needed, so it runs under the
-.venv rather than the Blender harness.
+parity fix mirroring mayatk's audit), the renderer's Hide Ignored toggle, and the panel's two file
+dialogs (reference browse must offer every ``HierarchySync.get_supported_formats`` entry at once).
+Qt-only: no Blender runtime needed, so it runs under the .venv rather than the Blender harness.
 
 Run (from the workspace root):  .venv/Scripts/python.exe blendertk/test/test_hierarchy_tree_utils.py
 """
@@ -159,6 +160,52 @@ try:
     check(
         "toggling hide back off reveals the ignored items again",
         not g.isHidden() and not c.isHidden(),
+    )
+
+    # (6) File dialogs: the reference browser offers EVERY stageable format in ONE
+    #     filter (regression 2026-08-17: a pre-formatted Qt filter string handed to
+    #     ``sb.file_dialog`` -- which takes a glob list + one description -- came out
+    #     offering only ``*.blend``, so an .fbx reference could not be picked at all).
+    from blendertk.env_utils.hierarchy_sync._hierarchy_sync import HierarchySync
+    from blendertk.env_utils.hierarchy_sync.hierarchy_sync_slots import HierarchySyncSlots
+
+    dialog_calls = []
+
+    class _FakeDialogSb:
+        def file_dialog(self, **kwargs):
+            dialog_calls.append(kwargs)
+            return []  # cancelled -- nothing downstream runs
+
+    class _FakeDialogCtrl:
+        workspace = os.getcwd()
+
+    slots = HierarchySyncSlots.__new__(HierarchySyncSlots)  # no full UI init needed
+    slots.sb = _FakeDialogSb()
+    slots.controller = _FakeDialogCtrl()
+
+    slots.b003()
+    ref_kw = dialog_calls[-1]
+    ref_globs = ref_kw.get("file_types")
+    check(
+        "reference browse passes a glob LIST (never a pre-formatted Qt filter string)",
+        isinstance(ref_globs, list)
+        and all(g.startswith("*.") and ";;" not in g for g in ref_globs),
+        str(ref_globs),
+    )
+    check(
+        "reference browse offers every HierarchySync.get_supported_formats entry at once",
+        set(ref_globs or []) == {f"*{ext}" for ext in HierarchySync.get_supported_formats()},
+        str(ref_globs),
+    )
+    check("reference browse offers *.fbx", "*.fbx" in (ref_globs or []))
+    check("reference browse names its filter", bool(ref_kw.get("filter_description")))
+
+    slots._open_scene_dialog()
+    open_kw = dialog_calls[-1]
+    check(
+        "open-scene dialog offers .blend as a glob list",
+        open_kw.get("file_types") == ["*.blend"] and bool(open_kw.get("filter_description")),
+        str(open_kw.get("file_types")),
     )
 
 except Exception as e:

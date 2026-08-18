@@ -1084,7 +1084,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
             f"Scene: {scene_name}<br>"
             f"Workspace: {workspace}<br><br>"
             "<b>Workflow:</b><br>"
-            "&nbsp;&nbsp;1. Browse for a reference .blend (folder icon in the source tree header).<br>"
+            "&nbsp;&nbsp;1. Browse for a reference scene (folder icon in the source tree header).<br>"
             "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Open or switch scenes via the folder/history icons on the current scene tree header.<br>"
             "&nbsp;&nbsp;2. <b>Diff</b> &mdash; compare current scene against reference<br>"
             "&nbsp;&nbsp;3. <b>Fix</b> &mdash; auto-repair stubs, quarantine extras, fix reparented/renamed<br><br>"
@@ -1123,10 +1123,12 @@ class HierarchySyncSlots(ptk.LoggingMixin):
             self.sb.tooltip.fmt(
                 title="Hierarchy Sync",
                 body="Compare, diff, and synchronise the scene hierarchy against a reference "
-                ".blend file.",
+                "file.",
                 steps=[
                     "Click the <b>folder icon</b> in the source tree header to browse for a "
-                    "reference .blend.",
+                    "reference scene ("
+                    + " / ".join(HierarchySync.get_supported_formats())
+                    + ").",
                     "Press <b>Diff</b> to compare the current scene against the reference. "
                     "Differences are highlighted in the tree views and logged below.",
                     "Press <b>Fix</b> to auto-repair: create stub placeholders for missing "
@@ -1232,9 +1234,10 @@ class HierarchySyncSlots(ptk.LoggingMixin):
     def _open_scene_dialog(self):
         """Browse for and open a Blender scene file."""
         scene_files = self.sb.file_dialog(
-            file_types="Blender Files (*.blend);;All Files (*.*)",
+            file_types=["*.blend"],
             title="Open Scene:",
             start_dir=self.controller.workspace,
+            filter_description="Blender Files",
         )
         if scene_files:
             import bpy
@@ -1847,11 +1850,19 @@ class HierarchySyncSlots(ptk.LoggingMixin):
                 self.ui.footer.setText("Fix: nothing to repair")
 
     def b003(self):
-        """Browse for reference scene file."""
+        """Browse for reference scene file.
+
+        One combined filter listing every format the reference staging accepts
+        (``HierarchySync.get_supported_formats``): ``file_dialog`` takes a glob
+        list + one description, so the pre-formatted Qt filter string it used
+        to get offered only ``*.blend`` -- an ``.fbx`` reference (staged via
+        ``stage_reference_blend``) could not be picked at all.
+        """
         reference_file = self.sb.file_dialog(
-            file_types="Blender Files (*.blend);;All Files (*.*)",
+            file_types=[f"*{ext}" for ext in HierarchySync.get_supported_formats()],
             title="Select Reference Scene:",
             start_dir=self.controller.workspace,
+            filter_description="Scene Files",
         )
         if reference_file:
             self.controller.reference_path = reference_file[0]

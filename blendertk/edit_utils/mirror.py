@@ -71,7 +71,7 @@ class MirrorSlots(ptk.LoggingMixin):
         # Instance output shares the source's mesh data, so the geometry-level options
         # (merge / delete half / uninstance) have nothing to act on. Same connect-before-
         # preview ordering rationale as the axis sign.
-        self.ui.chk007.toggled.connect(self._sync_instance_mode)
+        self.sb.enable_when(self.ui, "cmb001,chk006", "chk007", invert=True)
 
         # Connect combos and checkboxes to preview refresh function
         self.sb.connect_multi(
@@ -93,7 +93,6 @@ class MirrorSlots(ptk.LoggingMixin):
         # Settle the '-' toggle's enabled state for the initial (default / restored) pivot
         # before the user interacts.
         self._sync_axis_sign_enabled()
-        self._sync_instance_mode()
 
     def _disable_unsupported_merge_mode(self) -> None:
         """Disable the "Merge:  Extrude" item (cmb001 index 3) — it needs a bmesh
@@ -252,16 +251,6 @@ class MirrorSlots(ptk.LoggingMixin):
         toggle is disabled.
         """
         return pivot_index in (3, 4)
-
-    def _sync_instance_mode(self, *args) -> None:
-        """Gray out the geometry-only options while Instance output is on.
-
-        A linked duplicate shares the source's mesh data, so there is nothing to merge,
-        no second half to delete, and breaking the link is self-contradictory.
-        """
-        geometry_mode = not self.ui.chk007.isChecked()
-        for widget in (self.ui.cmb001, self.ui.chk006):
-            widget.setEnabled(geometry_mode)
 
     def _sync_axis_sign_enabled(self, *args) -> None:
         """Enable the '-' toggle only where the sign matters; uncheck it when disabling so

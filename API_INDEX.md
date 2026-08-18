@@ -317,7 +317,7 @@ _Generated: 2026-08-18_
 - `class HierarchyMapBuilder`
   - methods: build_path_map
 - `class HierarchySync(ptk.LoggingMixin)`
-  - methods: analyze_hierarchies, create_stubs, quarantine_extras, fix_fuzzy_renames, fix_reparented, stage_reference_blend, build_path, delete_objects, should_keep_node_by_type
+  - methods: analyze_hierarchies, create_stubs, quarantine_extras, fix_fuzzy_renames, fix_reparented, get_supported_formats, stage_reference_blend, build_path, delete_objects, should_keep_node_by_type
 - `class ObjectSwapper(ptk.LoggingMixin)`
   - methods: pull_objects_from_reference
 
@@ -398,7 +398,7 @@ _Generated: 2026-08-18_
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb004_init, cmb004, cmb006_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
+  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, cmb004_init, cmb006_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`

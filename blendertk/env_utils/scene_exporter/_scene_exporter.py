@@ -275,6 +275,11 @@ class SceneExporter(ptk.LoggingMixin):
         else:
             tasks.pop("optimize_textures_write_back", None)  # new key wins
         self.task_manager._texture_write_back = bool(_write_back)
+        # Max Texture Size: the optimization pass's size dial (OFF / a pixel
+        # ceiling / the template-budget sentinel), read by optimize_textures
+        # and its paired check through _texture_size_clamp — a mode like the
+        # write-back flag, never a dispatched task. Falsy = OFF. Mirrors mayatk.
+        self.task_manager._texture_max_size = tasks.pop("texture_max_size", None)
 
         self.export_path = self.generate_export_path(version_format=version_format)
         self.logger.debug(f"Generated export path: {self.export_path}")
