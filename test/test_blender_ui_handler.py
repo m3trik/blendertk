@@ -466,6 +466,19 @@ try:
                 rm_tbl.rowCount() == 3,
                 f"rows={rm_tbl.rowCount()}",
             )
+            # The FILES cell tooltip names the file in full: the row label can hide the
+            # suffix/extension (header toggles) and elides in a narrow column, so hovering
+            # must still identify the file (mirror of mayatk's table).
+            _tips = {
+                rm_tbl.item(_r, rm.COL_NAME).toolTip()
+                for _r in range(rm_tbl.rowCount())
+                if rm_tbl.item(_r, rm.COL_NAME)
+            }
+            check(
+                "reference_manager FILES tooltips carry the full file name",
+                _tips == {"alpha.blend", "beta.blend", "gamma.blend"},
+                f"tooltips={sorted(_tips)}",
+            )
             check(
                 "reference_manager icon columns are Fixed, visible squares (not collapsed)",
                 all(

@@ -7,7 +7,7 @@ Mirror of mayatk's ``env_utils.scene_state.SceneState``
 the scene-data grid. Every section of scene state that FBX translation drops
 is read here, once, and handed to whichever carrier the caller is filling
 (the WebXR preview's in-process envelope, the Scene Exporter's GLB
-conversion, a ``.scene.json`` handoff file). The matching *applier column*
+conversion, embedded in the GLB's ``extras``). The matching *applier column*
 is :attr:`pythontk.MeshConvert.SIDECAR_APPLIERS`, and the envelope wire
 format is :meth:`pythontk.MeshConvert.build_scene_sidecar` -- a new kind of
 extended setup is one reader here (mirrored in mayatk) plus one applier row

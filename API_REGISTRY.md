@@ -2,7 +2,7 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-18_
+_Generated: 2026-08-19_
 
 ## Index
 
@@ -172,6 +172,7 @@ _Generated: 2026-08-18_
 - [`uv_utils/rizom_bridge/parameters.py`](#uv_utils--rizom_bridge--parameters) — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`uv_utils/rizom_bridge/rizom_bridge_slots.py`](#uv_utils--rizom_bridge--rizom_bridge_slots) — Slots for the RizomUV bridge panel.
 - [`uv_utils/shell_xform.py`](#uv_utils--shell_xform) — Dedicated UV shell-transform panel (Blender).
+- [`uv_utils/texture_transfer.py`](#uv_utils--texture_transfer) — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 - [`xform_utils/_xform_utils.py`](#xform_utils--_xform_utils) — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - [`xform_utils/matrices.py`](#xform_utils--matrices) — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 
@@ -273,7 +274,7 @@ Switchboard slots controller for the co-located ``blendshape_animator.ui`` — B
 
 Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
 
-- **[`class Creator(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/creator.py#L22)** — Creates in-between target mesh objects for custom morph curves.
+- **[`class Creator(ptk.LoggingMixin, _CreatorInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/creator.py#L71)** — Creates in-between target mesh objects for custom morph curves.
   - `Creator.create_weight_based_tweens(self, weights: List[float], group_name: str = Targets.GROUP_NAME, name_prefix: str = 'morph_ib') -> List[Target]` — Create tween meshes at specific weight values.
   - `Creator.create_frame_based_tween(self, target_frame: int) -> Optional[Target]` — Create a tween mesh at a specific animation frame.
   - `Creator.tag_tween_mesh(self, obj, weight: float, target_frame: Optional[int] = None) -> None` — Add metadata custom properties to ``obj``.
@@ -901,7 +902,7 @@ Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui`
 
 Per-object **outliner text colour** for Blender — the true analogue of Maya's
 
-- **[`class OutlinerTint(_OutlinerTintInternal)`](blendertk/blendertk/display_utils/outliner_tint.py#L249)** — Per-object outliner text colour (Maya ``outlinerColor`` analogue).
+- **[`class OutlinerTint(_OutlinerTintInternal)`](blendertk/blendertk/display_utils/outliner_tint.py#L256)** — Per-object outliner text colour (Maya ``outlinerColor`` analogue).
   - `OutlinerTint.set_color(objects: Sequence, color: Color) -> int` *(static)* — Stamp ``color`` as each object's outliner colour;
   - `OutlinerTint.get_color(obj) -> Optional[Color]` *(static)* — The object's stored outliner colour, or None.
   - `OutlinerTint.clear(objects: Sequence) -> int` *(static)* — Remove the outliner colour from each object;
@@ -1459,7 +1460,7 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 
-- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L158)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L174)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
   - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
@@ -1518,7 +1519,7 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L341) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
 - [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L427) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
 - [`write_manifest(entries, visibility, node_types, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L458) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L590)
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L748)
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
@@ -1616,6 +1617,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.cmb005_init(self, widget) -> None` — Init Texture Template (mirror of mayatk's ``cmb005_init``).
   - `SceneExporterSlots.b000(self) -> None` — Export: run the scene export with the configured tasks and settings.
   - `SceneExporterSlots.b010(self) -> None` — Set Output Directory
+  - `SceneExporterSlots.b012(self) -> None` — Browse for Output File -- name the export after an existing file.
   - `SceneExporterSlots.b006(self) -> None` — Open Output Directory
   - `SceneExporterSlots.b007(self) -> None` — Open Preset Directory.
   - `SceneExporterSlots.b008(self) -> None` — Edit Preset -- open the selected preset's JSON file in the OS's default editor so
@@ -1627,7 +1629,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1685)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1662)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1884,7 +1886,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.materials_for_textures(paths)` *(static)* — Scene materials whose shader graph references an image at one of ``paths`` (matched by
   - `MatUtils.fix_color_spaces(images=None, force_update=False, dry_run=False)` *(static)* — Assign each texture image its correct color space by map type — the Blender counterpart of
   - `MatUtils.set_texture_directory(images=None, target_dir=None, mode='rewrite')` *(static)* — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
-  - `MatUtils.find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy')` *(static)* — Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),
+  - `MatUtils.find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy', use_valid_paths=True)` *(static)* — Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
   - `MatUtils.format_texture_paths_html(records=None)` *(static)* — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
   - `MatUtils.get_shader_templates()` *(static)* — The available Principled-BSDF template names (mirror of Maya's Shader Templates list).
   - `MatUtils.apply_shader_template(material, template)` *(static)* — Apply a Principled-BSDF template preset to ``material``'s shader.
@@ -2001,6 +2003,7 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
   - `MarmosetBridge.toolbag_path(self) -> Optional[str]` *(property)*
   - `MarmosetBridge.params_defaults(self) -> Dict[str, Any]`
   - `MarmosetBridge.render_template(self, *args, **kwargs) -> Optional[str]` — Render a Toolbag script body (delegates to the engine deliverer).
+  - `MarmosetBridge.baked_texture_dir(cls) -> str` *(class)* — ``<blend dir>/baked_textures`` -- where a roundtrip's maps land.
   - `MarmosetBridge.build_bake_pairs_manifest(objects: Sequence, high_suffix: str, low_suffix: str, include_children: bool = True) -> Dict[str, str]` *(static)* — Build the ``{mesh_name: 'source'|'target'}`` sidecar for the bake -- mirror of mayatk's
 
 <a id="mat_utils--marmoset_bridge--_marmoset_engine"></a>
@@ -2008,12 +2011,12 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
 Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
-- **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L66)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
+- **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L79)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
   - `MarmosetEngine.toolbag_path(self) -> Optional[str]` *(property)* — Resolve the Toolbag executable path.
   - `MarmosetEngine.toolbag_log_path(self) -> Optional[str]` *(property)* — Resolve Toolbag's application log file (script prints + tracebacks).
   - `MarmosetEngine.preflight(self, bridge, request) -> bool` — Validate the (template, mode) before the bridge produces its payload.
   - `MarmosetEngine.deliver(self, bridge, payload, request) -> Optional[Dict[str, Any]]` — Hand the produced model + manifests to Toolbag via :meth:`send`.
-  - `MarmosetEngine.send(self, model_path: str, manifest_path: Optional[str] = None, pairs_path: Optional[str] = None, source_model_path: Optional[str] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, toolbag_exe: Optional[str] = None, template: str = 'import', mode: str = SEND_TO, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]` — Render *template* in *mode* against *model_path* and hand off to Toolbag.
+  - `MarmosetEngine.send(self, model_path: str, manifest_path: Optional[str] = None, pairs_path: Optional[str] = None, source_model_path: Optional[str] = None, output_dir: Optional[str] = None, texture_dir: Optional[str] = None, texture_set_aliases: Optional[Dict[str, str]] = None, output_name: Optional[str] = None, toolbag_exe: Optional[str] = None, template: str = 'import', mode: str = SEND_TO, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]` — Render *template* in *mode* against *model_path* and hand off to Toolbag.
   - `MarmosetEngine.render_template(self, template: str, model_path: str, manifest_path: str, output_dir: str, mode: str = SEND_TO, params: Optional[Dict[str, Any]] = None, headless: Optional[bool] = None, pairs_path: Optional[str] = None, source_model_path: Optional[str] = None) -> Optional[str]` — Return the rendered Toolbag Python script body, or *None* on miss.
   - `MarmosetEngine.list_templates() -> List[Path]` *(static)* — Return user-visible templates in ``templates/`` (skips underscore-prefixed).
   - `MarmosetEngine.template_modes(template_path: Path) -> Tuple[str, ...]` *(static)* — Return the modes declared by *template_path*'s ``BRIDGE_MODES`` constant.
@@ -2151,7 +2154,7 @@ Plain default values + literal formatting for Marmoset template tokens.
 
 Bake source detail + surface maps onto the target meshes.
 
-- [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L644)
+- [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L662)
 
 <a id="mat_utils--marmoset_bridge--templates--import"></a>
 ### `mat_utils/marmoset_bridge/templates/import.py`
@@ -2250,13 +2253,13 @@ Shader Templates tool panel — Switchboard slot wiring for the co-located
 
 Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
-- **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L152)** — The scene's high-poly bake source, stored as a stamped Collection.
+- **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L153)** — The scene's high-poly bake source, stored as a stamped Collection.
   - `HighPolySet.collection(cls)` *(class)* — The stamped high-poly collection, or ``None`` when absent.
   - `HighPolySet.exists(cls) -> bool` *(class)* — Whether the high-poly collection is present in the file.
   - `HighPolySet.members(cls) -> List[Any]` *(class)* — The set's objects (an empty list when there is no set).
   - `HighPolySet.define(cls, objects: Optional[List[Any]] = None) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
   - `HighPolySet.clear(cls) -> None` *(class)* — Remove the collection;
-- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L262)** — Export Blender selection to Substance Painter via a chosen template.
+- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L263)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.painter_path(self) -> Optional[str]` *(property)* — Resolve the Painter executable path via :func:`find_painter_exe`.
   - `SubstanceBridge.painter_log_path(self) -> Optional[str]` *(property)* — Path to Painter's application ``log.txt``, or *None* if absent.
   - `SubstanceBridge.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
@@ -2275,7 +2278,7 @@ Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
 Substance 3D Painter connection module.
 
-- **[`class SubstanceConnection(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L56)** — Launch Painter and expose its stdio, log, and RPC under one object.
+- **[`class SubstanceConnection(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L64)** — Launch Painter and expose its stdio, log, and RPC under one object.
   - `SubstanceConnection.open(self) -> 'SubstanceConnection'` — Launch Painter and start readers, tailer, and RPC client.
   - `SubstanceConnection.close(self, terminate: bool = False, timeout: float = 5.0) -> None` — Stop readers and tailer;
   - `SubstanceConnection.is_alive(self) -> bool` — True if Painter is reachable through this connection.
@@ -2299,7 +2302,8 @@ Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 
 Slots for the Substance Painter bridge panel -- mirror of mayatk's
 
-- **[`class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/substance_bridge/substance_bridge_slots.py#L34)** — Slots wired to ``substance_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/substance_bridge/substance_bridge_slots.py#L35)** — Slots wired to ``substance_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+  - `SubstanceBridgeSlots.live_param_tooltips(self)` — Make the Bake Source row report the file's CURRENT members.
   - `SubstanceBridgeSlots.set_bake_source_from_selection(self) -> None` — Store the current selection as this file's high-poly bake source.
   - `SubstanceBridgeSlots.select_bake_source(self) -> None` — Select the high-poly set's members.
   - `SubstanceBridgeSlots.clear_bake_source(self) -> None` — Remove the high-poly collection;
@@ -2429,7 +2433,7 @@ Texture Path Editor tool panel — Switchboard slot wiring for the co-located
   - `TexturePathEditorSlots.open_source_images(self)` — Open the project's textures directory in the file explorer.
   - `TexturePathEditorSlots.reload_scene_textures(self)` — Force Blender to re-read every image from disk.
   - `TexturePathEditorSlots.tb_set_texture_directory(self, widget=None)` — Repath images (selection or all) so their files live under a chosen directory.
-  - `TexturePathEditorSlots.tb_find_and_copy_textures(self, widget=None)` — Search a folder for the images' textures, copy/move to a destination, repath.
+  - `TexturePathEditorSlots.tb_find_and_copy_textures(self, widget=None)` — Gather the images' textures, copy/move them into one destination, repath.
   - `TexturePathEditorSlots.tb_normalize_paths(self, widget=None)` — Rewrite (selected, or all) paths relative to the saved .blend;
   - `TexturePathEditorSlots.make_paths_absolute(self)` — Rewrite (selected, or all) ``//`` relative paths to absolute — inverse of
   - `TexturePathEditorSlots.tb_resolve_missing_textures(self, widget=None)` — Search a folder for replacements for missing (selected, or all) textures.
@@ -2929,7 +2933,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 
 RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
-- **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L97)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
+- **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L110)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
   - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
   - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
@@ -3002,6 +3006,26 @@ Dedicated UV shell-transform panel (Blender).
   - `ShellXformSlots.gather_shells(self)` — Gather the selected shells together toward the 0-1 UV space.
   - `ShellXformSlots.randomize_shells(self)` — Randomly offset the selected shells.
   - `ShellXformSlots.open_uv_editor(self)` — Open Blender's UV Editor.
+
+<a id="uv_utils--texture_transfer"></a>
+### `uv_utils/texture_transfer.py`
+
+Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
+
+- **[`class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L305)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
+  - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_suffix: str = '_TRANSFER') -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
+  - `TextureTransfer.default_output_dir(cls) -> str` *(class)* — Where the maps go when the caller names no directory.
+  - `TextureTransfer.output_base_dir() -> Optional[str]` *(static)* — The directory a RELATIVE output entry is resolved against.
+  - `TextureTransfer.resolve_output_dir(cls, entry: Optional[str] = None) -> str` *(class)* — The absolute output directory for a user-typed *entry*.
+  - `TextureTransfer.assign_results(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None) -> Dict[str, str]` — One ``<layout><suffix>`` material per output, assigned to its faces.
+  - `TextureTransfer.topology_matches(cls, a, b) -> Tuple[bool, str]` *(class)* — ``(ok, why)`` -- same polygon loop lists on both meshes.
+  - `TextureTransfer.positions_match(cls, a, b, tolerance: float = 0.0001) -> bool` *(class)*
+  - `TextureTransfer.auto_source_uv_set(cls, obj) -> str` *(class)* — The UV map *obj*'s materials actually sample their textures through.
+  - `TextureTransfer.correspondence(cls, target, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None) -> Dict[str, Any]` *(class)* — Per-triangle ``(src_uv, dst_uv, face)`` for *target* vs *source*.
+  - `TextureTransfer.face_materials(cls, obj) -> Tuple[List[Any], 'np.ndarray']` *(class)* — ``(materials, per-face index into materials)`` for *obj*.
+  - `TextureTransfer.material_maps(material) -> Dict[str, str]` *(static)* — ``{channel: absolute texture path}`` for the material's mapped slots.
+  - `TextureTransfer.material_constant(material, channel: str) -> Optional[Tuple[float, ...]]` *(static)* — The channel's Principled BSDF default value on *material*, or None.
+  - `TextureTransfer.pair_by_name(targets: Sequence, sources: Sequence) -> Dict[Any, Any]` *(static)* — Target -> source, by matching object name;
 
 <a id="xform_utils--_xform_utils"></a>
 ### `xform_utils/_xform_utils.py`

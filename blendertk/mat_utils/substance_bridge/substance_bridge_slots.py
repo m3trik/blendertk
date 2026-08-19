@@ -18,6 +18,7 @@ import traceback
 from pathlib import Path
 
 from uitk.bridge.spec import KindFactory
+from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.substance_bridge._substance_bridge import (
@@ -135,6 +136,36 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     # ------------------------------------------------------------------
     # Bake Source set (param-row actions)
     # ------------------------------------------------------------------
+
+    def live_param_tooltips(self):
+        """Make the Bake Source row report the file's CURRENT members.
+
+        The set is a stamped Collection in the .blend, not panel state, so it
+        moves under an open panel -- a new file, a redefine, an unlink in the
+        Outliner. A build-time tooltip would describe the set the panel opened
+        on, which is exactly the case the user is trying to check. Mirrors
+        ``MayaBridgeSlotsBase.live_param_tooltips``, including its extend-don't-
+        replace contract: the hook is a registry, so a subclass that has to
+        remember to merge is one that will forget.
+        """
+        tips = dict(super().live_param_tooltips() or {})
+        tips["BAKE_SOURCE_SET"] = self._bake_source_tooltip
+        return tips
+
+    def _bake_source_tooltip(self) -> str:
+        """The Bake Source row's static tooltip plus its live member list."""
+        spec = self.params_module.PARAMS["BAKE_SOURCE_SET"]
+        static = self.format_param_tooltip(spec)
+        try:
+            members = HighPolySet.members()
+        except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
+            return static
+        return static + TooltipFormat.stored_items(
+            members,
+            formatter=lambda o: o.name,
+            noun="object(s) in this file's set",
+            empty_text="No bake source defined in this file.",
+        )
 
     def set_bake_source_from_selection(self) -> None:
         """Store the current selection as this file's high-poly bake source.
@@ -254,10 +285,10 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
             return
 
         if not self.bridge.painter_path:
-            self.bridge.logger.error(
-                "Substance Painter not found. Install Painter, or pass "
-                "painter_exe= when instantiating SubstanceBridge."
-            )
+            # The spec's sentence, not a panel-local copy: the engine's ``APP``
+            # already owns it, and the tentacle gate that greys this tool's
+            # entry shows the same one.
+            self.bridge.logger.error(self.bridge.APP.not_found_message)
             return
 
         output_dir = self.require_output_dir()

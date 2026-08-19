@@ -261,6 +261,22 @@ class SceneExporter(ptk.LoggingMixin):
                 return False
         self._glb_texture_format = glb_texture_format
 
+        # GLB texture RESOLUTION, the axis the carrier above is not (mirror of
+        # mayatk): OFF (default) ships the authored resolution; ON hands the
+        # finished GLB to ``MeshConvert.optimize_glb_textures`` at its own
+        # delivery ceiling — the web-handoff pass, opt-in because downsizing is
+        # unrecoverable from the deliverable. Popped here so it never reaches
+        # the task pipeline as an unknown task.
+        glb_optimize_textures = bool(tasks.pop("glb_optimize_textures", False))
+        if glb_optimize_textures and not create_glb_enabled:
+            # Same shape as the carrier's guard: inert, not an error — no GLB
+            # will exist to optimize.
+            self.logger.info(
+                "Optimize GLB Textures ignored: output format produces no GLB."
+            )
+            glb_optimize_textures = False
+        self._glb_optimize_textures = glb_optimize_textures
+
         # Texture Output write-back flag: a mode read by convert_textures and
         # optimize_textures, never a dispatched task — popped here (mirror of
         # mayatk) and stamped on the task manager.
@@ -638,30 +654,60 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.error(f"GLB conversion failed: {e}")
             return None
 
-        # GLB texture delivery (stamped per run by ``perform_export`` — mirror
-        # of mayatk's ``TaskManager.create_glb``). Runs LAST: a KTX2 GLB is
-        # opaque to every PIL-based post-tool, so nothing may follow the
-        # encode. Container only (``max_size=0``): the pass's own 2048 default
-        # is preview policy, not production policy. A failure fails the
-        # deliverable — the user asked for this container, so shipping the
-        # unencoded GLB anyway would be a silent fallback.
+        # GLB texture pass (both dials stamped per run by ``perform_export`` —
+        # mirror of mayatk's ``TaskManager.create_glb``). Runs LAST: a KTX2 GLB
+        # is opaque to every PIL-based post-tool, so nothing may follow the
+        # encode.
+        #
+        # Two orthogonal dials, ONE ``optimize_glb_textures`` call — a second
+        # call would re-decode and re-encode every image, and a KTX2 payload
+        # cannot be re-encoded at all:
+        #
+        # * CARRIER (cmb006 → ``_glb_texture_format``) — the container. None
+        #   is "Original Textures", which writes PNG: glTF-core, lossless, no
+        #   extension added, and the pass keeps the original bytes for any
+        #   image the re-encode cannot beat. So Original stays Original.
+        # * RESOLUTION (Optimize GLB Textures → ``_glb_optimize_textures``) —
+        #   ON omits ``max_size`` entirely, taking ``optimize_glb_textures``'
+        #   own default ceiling: the exact call shape the WebXR preview uses,
+        #   so this panel authors no second resize policy (the optimizer
+        #   already exempts lightmaps, re-encodes them losslessly, and keeps
+        #   original bytes when a re-encode comes out larger). OFF pins
+        #   ``max_size=0`` — resolution is never resampled behind the user,
+        #   which is what an archival / engine-import export needs.
+        #
+        # Neither dial set = no pass at all (byte-stable conversion, the
+        # default). A failure fails the deliverable — the user asked for this
+        # pass, so shipping the untouched GLB anyway would be a silent
+        # fallback.
         texture_format = getattr(self, "_glb_texture_format", None)
-        if texture_format:
+        optimize = bool(getattr(self, "_glb_optimize_textures", False))
+        if texture_format or optimize:
+            carrier = texture_format or "PNG"
+            params = {"image_format": carrier}
+            if not optimize:
+                params["max_size"] = 0
             try:
-                summary = ptk.MeshConvert.optimize_glb_textures(
-                    glb_path, max_size=0, image_format=texture_format
-                )
+                summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
             except Exception as e:  # noqa: BLE001 — deliverable must not lie
-                self.logger.error(
-                    f"GLB texture delivery ({texture_format}) failed: {e}"
-                )
+                self.logger.error(f"GLB texture pass ({carrier}) failed: {e}")
                 return None
+            scope = "resized" if optimize else "container only"
             if summary:
                 self.logger.info(
-                    f"GLB textures delivered as {texture_format}: "
+                    f"GLB textures delivered as {carrier} ({scope}): "
                     f"{summary['images']} image(s), "
                     f"{summary['bytes_before'] / 1e6:.1f} MB -> "
                     f"{summary['bytes_after'] / 1e6:.1f} MB."
+                )
+            else:
+                # An empty summary means the pass ran and replaced nothing —
+                # no images, no Pillow, or every re-encode came out larger
+                # than the source it would replace. Said out loud so "asked
+                # for and got nothing" is distinguishable from "never ran".
+                self.logger.info(
+                    f"GLB texture pass ({carrier}, {scope}) changed nothing: "
+                    "no embedded image improved on its original bytes."
                 )
 
         if announce:

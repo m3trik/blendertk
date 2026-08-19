@@ -51,6 +51,10 @@ from blendertk.env_utils.maya_bridge._maya_bridge import (
 _IMPORT_TEMPLATE = _TEMPLATE_DIR / "_import_scene.py"
 _IMPORT_TEMPLATE_USD = _TEMPLATE_DIR / "_import_scene_usd.py"
 _BAKE_TEMPLATE = _TEMPLATE_DIR / "_bake_scene.py"
+# The bake template imports THIS module in the child Blender for its tagging and
+# manifest replays, so a baked .blend's content depends on it too -- part of the
+# bake cache key beside the template (see bake_scene).
+_BAKE_ENGINE = Path(__file__).resolve()
 
 # Conversion intermediates by route: "fbx" = classic material model + texture-
 # manifest sidecar rebuilt via create_pbr_material; "usd" = native materials /
@@ -77,6 +81,18 @@ BAKE_SOURCE_SUFFIX = ".source.json"
 # Child-process argv for the bake Blender: headless, factory settings (deterministic,
 # and skips any startup toolkit the user's Blender autoloads), then our rendered script.
 _BAKE_LAUNCH_ARGS = ("--background", "--factory-startup", "--python")
+
+# Display size stamped on an imported Empty that was a Maya GROUP (shapeless
+# transform). A Maya group draws nothing in the viewport; Blender has no "no
+# display" Empty type, so the group is shrunk to the property's hard minimum
+# (``Object.empty_display_size`` clamps at 0.0001) -- sub-pixel at any working
+# zoom, yet still selectable (outliner / pick-walk), transformable, and showing
+# its origin dot when selected, exactly like a Maya group's pivot. Locators keep
+# the importer's size: Maya draws those. Deliberately NOT ``hide_viewport`` /
+# ``hide_set``: both make the Empty untransformable and would fight the animated
+# ``hide_viewport`` keys the visibility replay stamps. Kept in step by hand with
+# the dependency-free copy in mayatk's ``blender_bridge/templates/import.py``.
+MAYA_GROUP_EMPTY_DISPLAY_SIZE = 0.0001
 
 # USD sources short-circuit the whole pipeline: both DCCs speak USD natively,
 # so there is no conversion (and no Maya install/license) involved at all.
@@ -534,15 +550,20 @@ class MayaSceneImport(ptk.LoggingMixin):
 
     @staticmethod
     def _tag_maya_node_types(manifest_path: str, imported: List[Any]) -> int:
-        """Stamp ``maya_node_type`` custom props from the manifest's ``transforms``.
+        """Stamp ``maya_node_type`` custom props from the manifest's ``transforms``
+        and give each Empty its Maya node type's LOOK.
 
         Maya groups (shapeless transforms) and locators travel as identical FBX
         nulls and arrive as look-alike Empties; the conversion sidecar records
         which was which (``scene_node_types`` in the conversion template). The
         custom property persists in the .blend, so the send direction's
         ``empties`` manifest can restore each one as the CORRECT Maya node
-        type instead of guessing from the children heuristic. Returns the
-        number of Empties tagged. Mirror of the tagging in mayatk's
+        type instead of guessing from the children heuristic. A ``group`` is
+        also shrunk to :data:`MAYA_GROUP_EMPTY_DISPLAY_SIZE` so it reads as
+        Maya's invisible group transform instead of a full-size axes cross
+        (see the constant for why size, not visibility); a ``locator`` keeps
+        the importer's display, since Maya draws those. Returns the number of
+        Empties tagged. Mirror of the tagging in mayatk's
         ``blender_bridge/templates/import.py`` (the Maya->Blender send).
         """
         import json
@@ -559,7 +580,10 @@ class MayaSceneImport(ptk.LoggingMixin):
             # Tolerate Blender's rename-on-collision suffix ("grp1.001").
             node_type = types.get(obj.name) or types.get(obj.name.rsplit(".", 1)[0])
             if node_type:
-                obj["maya_node_type"] = str(node_type)
+                node_type = str(node_type)
+                obj["maya_node_type"] = node_type
+                if node_type == "group":
+                    obj.empty_display_size = MAYA_GROUP_EMPTY_DISPLAY_SIZE
                 tagged += 1
         return tagged
 
@@ -1226,7 +1250,8 @@ class MayaSceneImport(ptk.LoggingMixin):
         Blender. An ``.fbx`` source skips straight to the bake — no Maya, no license.
 
         Both stages are cached independently, and the bake's key includes the
-        intermediate's identity **and the bake template's**, so a template fix
+        intermediate's identity **and the bake template's and this engine module's**
+        (the template calls back into the engine), so a template or engine fix
         invalidates stale bakes (a retry after an upgrade must not replay the old bug).
 
         Parameters:
@@ -1287,8 +1312,12 @@ class MayaSceneImport(ptk.LoggingMixin):
                     "instancing); clear the conversion cache or bake via FBX."
                 )
 
+        # Keyed on the template AND this engine module: the template calls back into
+        # the engine for the tagging / manifest replays, so an engine fix (group
+        # Empties shrunk, a material rebuild repaired) must invalidate stale bakes
+        # too, or a linked scene keeps showing the old bug after the upgrade.
         got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(
-            ptk.CachedArtifact.key(files=[inter_path, _BAKE_TEMPLATE]),
+            ptk.CachedArtifact.key(files=[inter_path, _BAKE_TEMPLATE, _BAKE_ENGINE]),
             lambda out: self.bake(inter_path, out, timeout=timeout),
             use_cache=use_cache,
         )

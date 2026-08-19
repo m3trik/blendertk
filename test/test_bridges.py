@@ -251,6 +251,92 @@ try:
         and "TexA_Diffuse.png" in script_t.replace("\\", "/"),
     )
 
+    # ---- marmoset hand-off scratch lifetime ---------------------------------
+    # A bake ROUNDTRIP consumes its own hand-off artifacts (Toolbag runs
+    # blocking, the maps are relocated beside the .blend), so they must stage
+    # in a temp dir the run then removes -- not beside the .blend, where they
+    # used to silt up the project. A send_to's Toolbag reads them AFTER we
+    # return, so those must survive. Added: 2026-08-18
+    import pythontk as ptk
+
+    from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
+        MarmosetBridge as _MarBridge,
+        ROUND_TRIP as _RT,
+        SEND_TO as _ST,
+    )
+
+    def _request(mode):
+        return ptk.HandoffRequest(template="bake", mode=mode, params={}, extras={})
+
+    # The maps are the roundtrip's ONE durable output and get a destination of
+    # their own beside the .blend -- so the hand-off dir is free to be scratch.
+    check(
+        "baked_texture_dir is empty while the .blend is unsaved",
+        _MarBridge.baked_texture_dir() == "",
+        repr(_MarBridge.baked_texture_dir()),
+    )
+    _blend = os.path.join(tmp, "asset.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_blend)
+    check(
+        "baked_texture_dir is <blend dir>/baked_textures once saved",
+        os.path.normcase(_MarBridge.baked_texture_dir())
+        == os.path.normcase(
+            os.path.join(tmp, _MarBridge.BAKED_TEXTURE_SUBDIR).replace("\\", "/")
+        ),
+        _MarBridge.baked_texture_dir(),
+    )
+
+    _bridge = _MarBridge()
+    _bridge.logger.setLevel("CRITICAL")
+
+    check(
+        "a roundtrip stages scoped, a send_to detached",
+        _bridge._scratch_policy(_request(_RT)) == "scoped"
+        and _bridge._scratch_policy(_request(_ST)) == "detached",
+    )
+
+    rt_req = _request(_RT)
+    rt_dir = _bridge._scratch_dir(rt_req, "handoff")
+    check(
+        "roundtrip scratch is a real dir under the system temp dir",
+        os.path.isdir(rt_dir)
+        and os.path.normcase(rt_dir).startswith(
+            os.path.normcase(tempfile.gettempdir())
+        ),
+        rt_dir,
+    )
+    # Every dir the run opens shares ONE root, so one cleanup takes them all.
+    rt_stage = _bridge._scratch_dir(rt_req, "asset_staging")
+    check(
+        "a run's scratch dirs share one root",
+        os.path.dirname(rt_stage) == os.path.dirname(rt_dir),
+        f"{rt_dir} | {rt_stage}",
+    )
+    _bridge._discard_scratch(rt_req, {})
+    check(
+        "a clean roundtrip takes its whole scratch away",
+        not os.path.exists(rt_dir) and not os.path.exists(rt_stage),
+        rt_dir,
+    )
+
+    # The guard: with the .blend unsaved the maps land IN the scratch, so it
+    # must survive -- deleting it would destroy the bake. Routed through the
+    # real ``_delivered_paths``, which is what reads the result dict.
+    keep_req = _request(_RT)
+    keep_dir = _bridge._scratch_dir(keep_req, "handoff")
+    _bridge._discard_scratch(
+        keep_req,
+        {"outputs": [os.path.join(keep_dir, "MAT_Base_Color.tga")], "texture_dir": ""},
+    )
+    check("scratch holding the run's output is kept", os.path.isdir(keep_dir), keep_dir)
+    __import__("shutil").rmtree(os.path.dirname(keep_dir), ignore_errors=True)
+
+    # send_to hands its files to a DETACHED Toolbag: nothing may delete them.
+    st_req = _request(_ST)
+    st_dir = _bridge._scratch_dir(st_req, "handoff")
+    _bridge._discard_scratch(st_req, {})
+    check("send_to hand-off artifacts outlive the call", os.path.isdir(st_dir), st_dir)
+
     # ---- exe discovery: graceful, never raises ------------------------------
     resolved = RizomUVBridge().rizom_path
     check(

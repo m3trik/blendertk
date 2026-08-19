@@ -508,7 +508,51 @@ def _detect_complex_anim(cmds):
     return False
 
 
-def _collect_baked_visibility(cmds, result):
+def _inherited_visibility_targets(cmds):
+    """Transforms the inherited-visibility bake may touch: those whose OWN
+    ``.visibility`` is UNKEYED but that sit under an ancestor whose IS keyed.
+
+    Scoping matters because the bake writes ``.visibility`` keys. Run over every
+    transform (``objects=None``) it also re-keys objects that already carry an
+    authored visibility curve -- and ``RenderOpacity`` encodes an opacity fade as
+    the GAP between two opposite-value ``.visibility`` keys, so any key inserted
+    in that gap splits one ramp into several (measured in Unity: two authored
+    ramps came back as four, the object flickering in/out/in/out). An object with
+    its own curve must NOT be re-keyed for that reason -- but it still has to
+    reach Blender, and the FBX cannot carry it (Blender's importer drops
+    visibility curves outright -- see :func:`_collect_baked_visibility`). So such
+    an object is excluded from the BAKE and collected verbatim instead;
+    excluding it from BOTH is how its animation silently stopped arriving. An
+    UNKEYED child under a keyed ancestor is the other case: its visibility exists
+    only at evaluation time, so only a bake can materialise it.
+
+    Returns long names, the form ``SmartBake`` reports its results under."""
+    transforms = cmds.ls(type="transform", long=True) or []
+    animated = set()
+    for transform in transforms:
+        if cmds.listConnections(
+            transform + ".visibility",
+            source=True,
+            destination=False,
+            type="animCurve",
+        ):
+            animated.add(transform)
+    if not animated:
+        return []
+    targets = []
+    for transform in transforms:
+        if transform in animated:  # own curve -- leave the artist's keys alone
+            continue
+        ancestor = transform.rsplit("|", 1)[0]
+        while ancestor:
+            if ancestor in animated:
+                targets.append(transform)
+                break
+            ancestor = ancestor.rsplit("|", 1)[0]
+    return targets
+
+
+def _collect_baked_visibility(cmds, result, authored):
     """Read the baked base-layer visibility curves into a serializable
     ``{short_name: [[frame, value], ...]}`` map.
 
@@ -524,15 +568,28 @@ def _collect_baked_visibility(cmds, result):
     baked objects sharing a short name are ambiguous: the replay would land ONE
     object's curve on BOTH. Identical curves merge fine; differing ones are
     dropped for that name with a warning -- no keys beats wrong keys, and never
-    silently (the manifest's named-warning rule)."""
+    silently (the manifest's named-warning rule).
+
+    *authored* is :func:`_authored_visibility_curves` taken BEFORE the bake --
+    passed in rather than re-scanned here, because the scoped pass writes real
+    ``.visibility`` curves onto its targets, so a scan run at this point reports
+    the keys the bake just made as authored ones."""
     vis = {}
     first_source = {}  # short name -> first contributing long name
+    sources = []
     for obj_long, curve in (getattr(result, "visibility_curves", None) or {}).items():
         if not (curve and cmds.objExists(curve)):
             continue
         times = cmds.keyframe(curve, query=True, timeChange=True) or []
         values = cmds.keyframe(curve, query=True, valueChange=True) or []
-        keys = [[t, v] for t, v in zip(times, values)]
+        sources.append((obj_long, [[t, v] for t, v in zip(times, values)]))
+    # The bake deliberately skips objects that already own a visibility
+    # curve; their authored keys still have to be carried, and the FBX
+    # cannot carry them.
+    for obj_long, keys in (authored or {}).items():
+        sources.append((obj_long, keys))
+
+    for obj_long, keys in sources:
         if not keys:
             continue
         short = obj_long.split("|")[-1].split(":")[-1]
@@ -551,6 +608,33 @@ def _collect_baked_visibility(cmds, result):
     return {short: keys for short, keys in vis.items() if keys is not None}
 
 
+def _authored_visibility_curves(cmds):
+    """``{long_name: [[frame, value], ...]}`` for transforms whose OWN
+    ``.visibility`` is keyed.
+
+    Deliberately NOT baked -- re-keying them is what split RenderOpacity fade
+    ramps -- but they must still reach Blender: the FBX route cannot carry
+    visibility at all, so anything missing from the sidecar never arrives.
+
+    Call it BEFORE the inherited-visibility bake: that pass keys ``.visibility``
+    on its targets, and after it "owns a curve" no longer distinguishes an
+    artist's keys from the ones the bake just wrote.
+    """
+    curves = {}
+    for transform in cmds.ls(type="transform", long=True) or []:
+        plug = transform + ".visibility"
+        if not cmds.listConnections(
+            plug, source=True, destination=False, type="animCurve"
+        ):
+            continue
+        times = cmds.keyframe(plug, query=True, timeChange=True) or []
+        values = cmds.keyframe(plug, query=True, valueChange=True) or []
+        keys = [[t, v] for t, v in zip(times, values)]
+        if keys:
+            curves[transform] = keys
+    return curves
+
+
 def _run_smart_bake(cmds):
     """Bake driven channels (inherited visibility, SDKs, constraints, IK, motion
     paths, driven blend shapes) to real keys via mayatk's ``SmartBake`` so the FBX
@@ -559,19 +643,82 @@ def _run_smart_bake(cmds):
     manifest is skipped. Guarded: without mayatk on ``PYTHONPATH`` the conversion
     falls back to the plain FBX bake.
 
-    Returns the baked-visibility map (see :func:`_collect_baked_visibility`) for the
-    manifest's ``visibility`` section — empty when mayatk is absent or nothing was
-    baked."""
+    TWO passes, deliberately. The whole-scene pass leaves ``.visibility`` alone
+    (``bake_inherited_visibility=False``); inherited visibility is a second pass
+    SCOPED to :func:`_inherited_visibility_targets` and narrowed to the
+    inherited-visibility channel only, so it neither re-keys an authored fade nor
+    duplicates the first pass's work into a second override layer.
+
+    Returns the visibility map (see :func:`_collect_baked_visibility`) for the
+    manifest's ``visibility`` section — the scoped bake's curves PLUS the authored
+    ones it refuses to touch, so it is non-empty whenever the scene keys
+    ``.visibility`` at all. Empty only when mayatk is absent."""
     try:
         from mayatk.anim_utils.smart_bake._smart_bake import SmartBake
     except Exception as error:
         print("smart_bake: mayatk unavailable ({}); plain FBX bake.".format(error))
         return {}
+    baked = None
+    authored = {}
+    # Snapshot the artist's own curves BEFORE the scoped bake writes any -- run
+    # afterwards, this same scan re-reads the keys that bake just created (and it
+    # repeats the transform walk `_inherited_visibility_targets` does). Its own
+    # guard, so the message below never claims a carry that did not happen.
+    try:
+        authored = _authored_visibility_curves(cmds)
+    except Exception:
+        print("smart_bake: authored-visibility scan failed; those fades cannot travel.")
+        traceback.print_exc()
+
+    # Each pass guards itself: the whole-scene bake below carries constraints, IK,
+    # SDKs, motion paths and driven blend shapes, and sharing one `try` with this
+    # narrow scoped pass meant a raise here silently cost the export all of them.
+    try:
+        vis_targets = _inherited_visibility_targets(cmds)
+        if vis_targets:
+            vis_baker = SmartBake(
+                objects=vis_targets,
+                use_override_layer=True,
+                bake_blend_shapes=False,
+                bake_inherited_visibility=True,
+                optimize_keys=False,
+                restorable=False,
+            )
+            # Keep the scoped pass to the inherited-visibility channel: these
+            # objects ride the whole-scene pass below for everything else.
+            vis_only = {}
+            for obj, data in vis_baker.analyze().items():
+                channel = data.driven_channels.get("inherited_visibility")
+                if not channel:
+                    continue
+                data.driven_channels = {"inherited_visibility": channel}
+                data.source_nodes = {
+                    k: v
+                    for k, v in data.source_nodes.items()
+                    if k.startswith("inherited_visibility")
+                }
+                vis_only[obj] = data
+            if vis_only:
+                baked = vis_baker.bake(analysis=vis_only)
+        print(
+            "smart_bake: inherited visibility baked for {} of {} candidate "
+            "object(s).".format(
+                len(getattr(baked, "visibility_curves", None) or {}),
+                len(vis_targets),
+            )
+        )
+    except Exception:
+        print(
+            "smart_bake: inherited-visibility pre-pass failed; scoped visibility "
+            "not baked (authored curves, collected above, still travel)."
+        )
+        traceback.print_exc()
+
     try:
         result = SmartBake(
             use_override_layer=True,
             bake_blend_shapes=True,
-            bake_inherited_visibility=True,
+            bake_inherited_visibility=False,
             optimize_keys=True,
             restorable=False,
         ).execute()
@@ -580,9 +727,20 @@ def _run_smart_bake(cmds):
                 result.baked_count, result.time_range, len(result.skipped)
             )
         )
-        return _collect_baked_visibility(cmds, result)
     except Exception:
-        print("smart_bake: pre-pass failed; plain FBX bake.")
+        print("smart_bake: whole-scene bake failed; plain FBX bake.")
+        traceback.print_exc()
+    # Collected LAST and UNCONDITIONALLY, because this call also folds in the
+    # AUTHORED visibility curves the bake deliberately refuses to touch (see
+    # `_authored_visibility_curves`). Those have to travel whether or not the
+    # scoped bake found a candidate -- gating the collection on a bake having
+    # happened dropped every authored fade in a scene with no unkeyed child
+    # under a keyed ancestor, which is the common case, and the FBX cannot
+    # carry visibility at all, so anything missing here never arrives.
+    try:
+        return _collect_baked_visibility(cmds, baked, authored)
+    except Exception:
+        print("smart_bake: visibility collection failed; none carried.")
         traceback.print_exc()
         return {}
 

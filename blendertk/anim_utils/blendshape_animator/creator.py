@@ -9,7 +9,13 @@ given weight (or frame) — the Blender analogue of Maya's
 or modifiers of its own; the user hand-sculpts it, then :class:`~.applicator.Applicator` reads
 its final vertex positions back into a driver-driven corrective shape key (see that module's
 docstring for the interpolation math).
+
+It is taken from the base's shape-key state *alone*: the base's modifier stack is suppressed
+for the evaluation, because a generative modifier (subsurf/mirror/array/...) would give the
+tween a vertex count that can never match the basis, and a shape key is a per-vertex delta
+against the basis by definition — see :meth:`_CreatorInternal._suppressed_modifiers`.
 """
+from contextlib import contextmanager
 from typing import List, Optional, Set
 
 import pythontk as ptk
@@ -19,7 +25,50 @@ from blendertk.anim_utils.blendshape_animator.target import Target, Targets
 from pythontk import Weights
 
 
-class Creator(ptk.LoggingMixin):
+class _CreatorInternal(object):
+    """Internal helpers for :class:`Creator`."""
+
+    @staticmethod
+    @contextmanager
+    def _suppressed_modifiers(obj):
+        """Switch ``obj``'s whole modifier stack off in the viewport for the duration.
+
+        A tween exists only to be read back as a corrective SHAPE KEY, and a shape key is
+        a per-vertex delta against the basis — it is defined only when the tween carries
+        exactly the base mesh's vertex count and order. Any *generative* modifier (subsurf,
+        mirror, array, solidify, …) changes that count, so a tween taken from the evaluated
+        stack is a topology mismatch that ``Applicator._apply_one`` and
+        ``diagnose_topology_issues`` must reject *permanently*, no matter what the artist
+        sculpts onto it. *Deforming* modifiers (armature, lattice, …) are suppressed for
+        the mirror-image reason: shape-key deltas live in the base mesh's own rest space,
+        so baking the current pose into a tween would store a pose-dependent delta that
+        then fires at every pose. Excluding the whole stack is therefore the only contract
+        a tween can actually satisfy: the alternatives ("bake the modifiers in", "refuse
+        loudly") are both unsatisfiable-by-definition, since the shape key the tween becomes
+        must match the basis vertex count. Maya's twin needs no equivalent — ``duplicate`` +
+        ``delete -ch`` there yields the base shape's own topology, which is exactly this.
+
+        Blender applies shape keys *before* the modifier stack, so the suppressed
+        evaluation still yields exactly what the tween wants — the shape-key mix at the
+        current key values — computed by Blender's own evaluator (relative keys, per-key
+        vertex groups, mutes, slider ranges), none of which hand-rolled key math would get
+        right for free.
+
+        Each modifier's previous flag is restored exactly, so one that was already disabled
+        stays disabled and the visible stack is unchanged on exit.
+        """
+        modifiers = list(getattr(obj, "modifiers", None) or ())
+        previous = [mod.show_viewport for mod in modifiers]
+        for mod in modifiers:
+            mod.show_viewport = False
+        try:
+            yield
+        finally:
+            for mod, state in zip(modifiers, previous):
+                mod.show_viewport = state
+
+
+class Creator(ptk.LoggingMixin, _CreatorInternal):
     """Creates in-between target mesh objects for custom morph curves."""
 
     def __init__(self, keyframes: Keyframes):
@@ -27,7 +76,12 @@ class Creator(ptk.LoggingMixin):
         self.keyframes = keyframes
 
     def _duplicate_at_weight(self, name: str, weight: float):
-        """A standalone, shape-key-free mesh object frozen at ``weight`` on the master key."""
+        """A standalone, shape-key-free mesh object frozen at ``weight`` on the master key.
+
+        Evaluated with the base's modifier stack suppressed — see
+        :meth:`_CreatorInternal._suppressed_modifiers` for why a tween can never be allowed
+        to carry the modified topology.
+        """
         import bpy
 
         base_obj = self.keyframes.base_obj
@@ -35,15 +89,16 @@ class Creator(ptk.LoggingMixin):
         original_value = kb.value
         kb.value = weight
 
-        depsgraph = bpy.context.evaluated_depsgraph_get()
-        depsgraph.update()
-        obj_eval = base_obj.evaluated_get(depsgraph)
-        mesh_eval = obj_eval.to_mesh()
-        try:
-            coords = [v.co.copy() for v in mesh_eval.vertices]
-            polys = [list(p.vertices) for p in mesh_eval.polygons]
-        finally:
-            obj_eval.to_mesh_clear()
+        with _CreatorInternal._suppressed_modifiers(base_obj):
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            depsgraph.update()
+            obj_eval = base_obj.evaluated_get(depsgraph)
+            mesh_eval = obj_eval.to_mesh()
+            try:
+                coords = [v.co.copy() for v in mesh_eval.vertices]
+                polys = [list(p.vertices) for p in mesh_eval.polygons]
+            finally:
+                obj_eval.to_mesh_clear()
 
         # Restore BEFORE creating/linking the new mesh+object on a base mesh that may carry a
         # SIBLING master key (another BlendshapeAnimator session sharing this base mesh): once

@@ -218,10 +218,10 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
             return
 
         if not self.bridge.rizom_path:
-            self.bridge.logger.error(
-                "RizomUV not found. Install RizomUV and ensure it is on PATH, "
-                "or set RizomUVBridge.rizom_path manually."
-            )
+            # The spec's sentence, not a panel-local copy: the engine's ``APP``
+            # already owns it, and the tentacle gate that greys this tool's
+            # entry shows the same one.
+            self.bridge.logger.error(self.bridge.APP.not_found_message)
             return
 
         self.bridge.logger.info(f"--- {preset} on {len(selection)} object(s) ---")

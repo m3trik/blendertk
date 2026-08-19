@@ -43,6 +43,13 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
     # (unsaved file) — the FBX + baked maps are transient hand-off artifacts Toolbag
     # reads once, so the user shouldn't be forced to pick a path.
     TEMP_OUTPUT_FALLBACK = True
+    # A roundtrip runs Toolbag blocking and puts its only durable output (the
+    # maps) beside the .blend, so its hand-off artifacts are intermediates of
+    # the run itself. Left to the .blend-dir default they silted up the
+    # project beside the scene file; with the field blank the bridge stages
+    # them in a temp dir and removes it when the run succeeds. A folder named
+    # here still wins -- and is still kept. Mirror of mayatk's slots.
+    TRANSIENT_OUTPUT_MODES = (ROUND_TRIP,)
 
     HELP_SPEC = {
         "title": "Marmoset Bridge",
@@ -123,13 +130,13 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
         template, mode = pair
 
         if not self.bridge.toolbag_path:
-            self.bridge.logger.error(
-                "Marmoset Toolbag not found. Install Toolbag and ensure it "
-                "is on PATH, or set MarmosetBridge.toolbag_path manually."
-            )
+            # The spec's sentence, not a panel-local copy: the engine's ``APP``
+            # already owns it, and the tentacle gate that greys this tool's
+            # entry shows the same one.
+            self.bridge.logger.error(self.bridge.APP.not_found_message)
             return
 
-        output_dir = self.require_output_dir()
+        output_dir = self.require_output_dir(mode)
         if output_dir is None:
             return
 

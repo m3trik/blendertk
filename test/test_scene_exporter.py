@@ -1131,6 +1131,141 @@ try:
         f"result={result}, files={os.listdir(gate_dir)}",
     )
 
+    # ---- Optimize GLB Textures (glb_optimize_textures): the RESOLUTION dial, orthogonal
+    # to the cmb006 CARRIER dial above and sharing its single optimize pass. Mirror of
+    # mayatk's TestGlbTextureOptimizeOption. BACKLOG 2026-08-12: the exporter converted to
+    # GLB and stopped, shipping authored 4096-square PNGs while the pass that closes the
+    # gap was already wired into the WebXR preview. Defaults OFF -- downsizing is
+    # unrecoverable from the deliverable. Added: 2026-08-17 --------------------------------
+    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
+        SceneExporterSlots as _Slots,
+    )
+
+    _opt_defs = SceneExporter().task_manager.task_definitions
+    _opt_spec = _opt_defs.get("glb_optimize_textures", {})
+    _opt_output = dict(_Slots._SETTINGS_LAYOUT)["Output"]
+    check(
+        "glb_optimize_textures: OFF-by-default settings row under the GLB carrier, "
+        "never a dispatched task",
+        _opt_spec.get("panel") == "settings"
+        and _opt_spec.get("widget_type") == "QCheckBox"
+        and _opt_spec.get("setChecked") is False
+        and "glb_optimize_textures" not in SceneExporter().task_manager.TASK_ORDER
+        and _opt_output[_opt_output.index("cmb006") + 1] == "glb_optimize_textures",
+        f"spec={_opt_spec.get('setChecked')!r}, output={_opt_output}",
+    )
+
+    def _run_optimize(name, tasks):
+        """perform_export with the conversion + pass mocked -> (result, kwargs)."""
+        seen = {}
+
+        def _capture(path, **kw):
+            seen.update(kw, path=path)
+            return {"images": 3, "bytes_before": 51.5e6, "bytes_after": 1.2e6}
+
+        exporter = SceneExporter()
+        with mock.patch.object(
+            ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
+        ), mock.patch.object(
+            ptk.MeshConvert, "optimize_glb_textures", side_effect=_capture
+        ):
+            result = exporter.perform_export(
+                export_dir=glb_dir,
+                objects=[gcube],
+                output_name=name,
+                export_visible=True,
+                tasks=tasks,
+            )
+        return exporter, result, seen
+
+    _e, _result, _seen = _run_optimize(
+        "glb_opt_off", {"output_format": "glb", "glb_optimize_textures": False}
+    )
+    check(
+        "OFF with the Original carrier keeps today's behaviour: no pass at all",
+        _result is True and _seen == {},
+        f"result={_result}, seen={_seen}",
+    )
+
+    _e, _result, _seen = _run_optimize(
+        "glb_opt_on", {"output_format": "glb", "glb_optimize_textures": True}
+    )
+    check(
+        "ON runs the pass at the optimizer's OWN ceiling (no max_size argument -- the "
+        "WebXR preview's call shape) and keeps Original in the lossless glTF-core container",
+        _result is True
+        and "max_size" not in _seen
+        and _seen.get("image_format") == "PNG",
+        f"result={_result}, seen={_seen}",
+    )
+
+    _e, _result, _seen = _run_optimize(
+        "glb_opt_webp",
+        {
+            "output_format": "glb",
+            "glb_optimize_textures": True,
+            "glb_texture_format": "WEBP",
+        },
+    )
+    check(
+        "carrier and resolution are orthogonal and share ONE pass",
+        _result is True
+        and "max_size" not in _seen
+        and _seen.get("image_format") == "WEBP",
+        f"result={_result}, seen={_seen}",
+    )
+
+    import logging as _logging
+
+    class _OptLogHandler(_logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    _opt_log = SceneExporter()
+    _opt_handler = _OptLogHandler()
+    _opt_log.logger.addHandler(_opt_handler)
+    with mock.patch.object(
+        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
+    ), mock.patch.object(
+        ptk.MeshConvert, "optimize_glb_textures", return_value={}
+    ):
+        # log_level, not a handler-side setLevel: perform_export's own
+        # _setup_logging resets the logger level, so anything set beforehand is
+        # overwritten and every INFO line after it would be filtered out.
+        result = _opt_log.perform_export(
+            export_dir=glb_dir,
+            objects=[gcube],
+            output_name="glb_opt_noop",
+            export_visible=True,
+            log_level="INFO",
+            tasks={"output_format": "glb", "glb_optimize_textures": True},
+        )
+    _opt_log.logger.removeHandler(_opt_handler)
+    check(
+        "a pass that replaced nothing says so (distinguishable from never running)",
+        result is True
+        and any("changed nothing" in m for m in _opt_handler.messages),
+        f"result={result}, messages={_opt_handler.messages[-3:]}",
+    )
+
+    exp_opt_inert = SceneExporter()
+    result = exp_opt_inert.perform_export(
+        export_dir=glb_dir,
+        objects=[gcube],
+        output_name="glb_opt_inert",
+        export_visible=True,
+        tasks={"output_format": "fbx", "glb_optimize_textures": True},
+    )
+    check(
+        "Optimize GLB Textures is inert for FBX-only output (stamp cleared, no error)",
+        result is True and exp_opt_inert._glb_optimize_textures is False,
+        f"result={result}, stamp={getattr(exp_opt_inert, '_glb_optimize_textures', 'unset')!r}",
+    )
+
     # ---- export funnel: unselectable objects are surfaced, never silently lost ------------
     # FbxUtils.export selects with use_selection=True: a HIDDEN object silently fails
     # select_set (dropped from the FBX with no trace), and one in a view-layer-EXCLUDED

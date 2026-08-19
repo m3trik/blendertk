@@ -172,7 +172,7 @@ class DuplicateGridSlots(ptk.LoggingMixin):
                     "the per-axis <b>Spacing X/Y/Z</b> gap added to the bounding-box step.",
                     "Each field has a reset button; each spacing field also has a "
                     "<b>lock</b> — lock two or more to move them together by the "
-                    "same amount.",
+                    "same amount. Resetting a field clears its lock.",
                     "Toggle <b>Preview</b> to iterate, or press <b>Duplicate</b> "
                     "to commit.",
                 ],

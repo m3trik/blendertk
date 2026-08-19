@@ -92,9 +92,9 @@ def run():
             head_ok = False
             rows = []
             try:
-                from blendertk.display_utils import outliner_tint as ot
-
-                head = ot._qword(space.as_pointer() + OutlinerTint._LAYOUT["tree_head"])
+                head = OutlinerTint._qword(
+                    space.as_pointer() + OutlinerTint._LAYOUT["tree_head"]
+                )
                 head_ok = bool(head)
                 rows = OutlinerTint._walk(head) if head else []
             except Exception:

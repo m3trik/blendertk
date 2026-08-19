@@ -1797,56 +1797,82 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, mode="copy"
+        images=None, search_dir=None, dest_dir=None, mode="copy", use_valid_paths=True
     ):
-        """Search ``search_dir`` recursively for the textures used by ``images`` (matched by basename),
-        relocate the matches into ``dest_dir`` (``mode`` copy/move), and repath — mirror of the Texture
-        Path Editor's *Find & Copy Textures*. A match whose destination already holds a different-size
-        file is skipped (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
+        """Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
+        copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
+
+        With ``use_valid_paths`` (default) an image whose filepath already resolves on disk is
+        its own source: a walk could only rediscover the same bytes, so ``search_dir`` is walked
+        only for what does not resolve, and may be omitted entirely when nothing does. A
+        resolving path outranks a walk hit of the same basename — it is the file the scene is
+        rendering with. A match whose destination already holds a different-size file is skipped
+        (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
         import bpy
 
-        if not (search_dir and os.path.isdir(search_dir) and dest_dir):
+        if not dest_dir:
             return 0
-        wanted = {}  # basename -> image datablock
+        wanted = {}  # basename -> [image datablocks]
         for img in _MatUtilsInternal._resolve_images(images):
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
             # ``os.path`` (ntpath) misreads as a UNC root — yielding an empty tail.
             base = bpy.path.basename(getattr(img, "filepath", "") or "").lower()
             if base:
-                wanted.setdefault(base, img)
+                wanted.setdefault(base, []).append(img)
         if not wanted:
             return 0
-        # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive walk
-        # routinely turns up versioned / archived / cloud-conflict copies of the same filename, and
-        # taking whichever the walk reached first binds to an arbitrary stale one.
-        found = {}
-        for root, _dirs, files in os.walk(search_dir):
-            for f in files:
-                key = f.lower()
-                if key not in wanted:
-                    continue
-                path = os.path.join(root, f)
-                try:
-                    mtime = os.path.getmtime(path)
-                except OSError:
-                    mtime = 0.0
-                current = found.get(key)
-                if current is None or mtime > current[0]:
-                    found[key] = (mtime, path)
-        if not found:
+
+        sources = {}  # basename -> source path
+        unresolved = dict(wanted)
+        if use_valid_paths:
+            unresolved = {}
+            for base, imgs in wanted.items():
+                hit = ""
+                for img in imgs:
+                    path = _MatUtilsInternal._abspath(img)
+                    if path and os.path.isfile(path):
+                        hit = path
+                        break
+                if hit:
+                    sources[base] = hit
+                else:
+                    unresolved[base] = imgs
+
+        if unresolved and search_dir and os.path.isdir(search_dir):
+            # basename -> (mtime, source path). NEWEST wins, matching mayatk's dedup: a recursive
+            # walk routinely turns up versioned / archived / cloud-conflict copies of the same
+            # filename, and taking whichever the walk reached first binds to an arbitrary stale one.
+            found = {}
+            for root, _dirs, files in os.walk(search_dir):
+                for f in files:
+                    key = f.lower()
+                    if key not in unresolved:
+                        continue
+                    path = os.path.join(root, f)
+                    try:
+                        mtime = os.path.getmtime(path)
+                    except OSError:
+                        mtime = 0.0
+                    current = found.get(key)
+                    if current is None or mtime > current[0]:
+                        found[key] = (mtime, path)
+            for key, (_mtime, path) in found.items():
+                sources[key] = path
+        if not sources:
             return 0
         os.makedirs(dest_dir, exist_ok=True)
         count = 0
-        for key, (_mtime, src) in found.items():
+        for key, src in sources.items():
             dst = os.path.join(dest_dir, os.path.basename(src))
             if _MatUtilsInternal._safe_relocate(src, dst, mode) in ("skip", "error"):
                 continue  # different-size collision — don't clobber / wrong-rebind
-            wanted[key].filepath = MatUtils.to_project_relative(dst)
-            try:
-                wanted[key].reload()
-            except RuntimeError:
-                pass
-            count += 1
+            for img in wanted[key]:
+                img.filepath = MatUtils.to_project_relative(dst)
+                try:
+                    img.reload()
+                except RuntimeError:
+                    pass
+                count += 1
         return count
 
     @staticmethod
