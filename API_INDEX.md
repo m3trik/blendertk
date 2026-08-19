@@ -22,7 +22,7 @@ _Generated: 2026-08-19_
   - methods: header_init, b000_init, b000, cmb000_init, le000_init, le001_init, b001_init, b001, b003, b004_init, b004, b005, b006_init, b006, b007, b008_init, b008
 
 ### `anim_utils/blendshape_animator/creator.py` — Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
-- `class Creator(ptk.LoggingMixin)`
+- `class Creator(ptk.LoggingMixin, _CreatorInternal)`
   - methods: create_weight_based_tweens, create_frame_based_tween, tag_tween_mesh, get_existing_weights, find_nearby_weight
 
 ### `anim_utils/blendshape_animator/keyframes.py` — Master shape-key value keyframe animation — mirror of mayatk's
@@ -398,7 +398,7 @@ _Generated: 2026-08-19_
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, cmb004_init, cmb006_init, cmb005_init, b000, b010, b006, b007, b008, save_output_dir, save_output_name
+  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, cmb004_init, cmb006_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
@@ -487,7 +487,7 @@ _Generated: 2026-08-19_
 
 ### `mat_utils/marmoset_bridge/_marmoset_bridge.py` — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 - `class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal)`
-  - methods: toolbag_path, params_defaults, render_template, build_bake_pairs_manifest
+  - methods: toolbag_path, params_defaults, render_template, baked_texture_dir, build_bake_pairs_manifest
 
 ### `mat_utils/marmoset_bridge/_marmoset_engine.py` — Drive Marmoset Toolbag from the outside -- launch + templated automation.
 - `class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`
@@ -590,7 +590,7 @@ _Generated: 2026-08-19_
 
 ### `mat_utils/substance_bridge/substance_bridge_slots.py` — Slots for the Substance Painter bridge panel -- mirror of mayatk's
 - `class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`
-  - methods: set_bake_source_from_selection, select_bake_source, clear_bake_source, params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
+  - methods: live_param_tooltips, set_bake_source_from_selection, select_bake_source, clear_bake_source, params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
 
 ### `mat_utils/substance_bridge/substance_rpc/client.py` — HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 - `class PainterRpcClient(RpcClient)`
@@ -785,6 +785,10 @@ _Generated: 2026-08-19_
 ### `uv_utils/shell_xform.py` — Dedicated UV shell-transform panel (Blender).
 - `class ShellXformSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb_move_scope_init, b023, b024, b025, b026, gather_to_udim, b034, b035, b036, b037, s041, tb005_init, tb005, tb006_init, tb006, tb008_init, tb008, align_u_min, align_u_avg, align_u_max, align_v_min, align_v_avg, align_v_max, linear_align, orient_shells, orient_edges, gather_shells, randomize_shells, open_uv_editor
+
+### `uv_utils/texture_transfer.py` — Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
+- `class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal)`
+  - methods: transfer, default_output_dir, output_base_dir, resolve_output_dir, assign_results, topology_matches, positions_match, auto_source_uv_set, correspondence, face_materials, material_maps, material_constant, pair_by_name
 
 ### `xform_utils/_xform_utils.py` — Transform utilities — object-level transform ops (world bbox, freeze, drop-to-grid,
 - `class XformUtils(_XformUtilsInternal)`

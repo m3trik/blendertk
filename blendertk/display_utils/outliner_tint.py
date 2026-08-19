@@ -112,31 +112,6 @@ class _MemGuard:
 _GUARD = _MemGuard()
 
 
-def _qword(addr: int) -> Optional[int]:
-    return ctypes.c_uint64.from_address(addr).value if _GUARD.readable(addr, 8) else None
-
-
-def _int32(addr: int) -> Optional[int]:
-    return ctypes.c_int32.from_address(addr).value if _GUARD.readable(addr, 4) else None
-
-
-def _cstr(addr: int, limit: int = 66) -> Optional[str]:
-    """Read a NUL-terminated printable-ASCII string, or None if it isn't one."""
-    if not _GUARD.readable(addr, 8):
-        return None
-    out = bytearray()
-    for i in range(limit):
-        if not _GUARD.readable(addr + i, 1):
-            return None
-        b = ctypes.c_ubyte.from_address(addr + i).value
-        if b == 0:
-            return out.decode("ascii", "replace") if out else None
-        if not (0x20 <= b < 0x7F):
-            return None
-        out.append(b)
-    return None
-
-
 class _OutlinerTintInternal(ptk.LoggingMixin):
     """Struct-layout calibration, tree walking, and the draw handler."""
 
@@ -165,6 +140,38 @@ class _OutlinerTintInternal(ptk.LoggingMixin):
     _walk_budget = 20000  # hard cap on elements visited per redraw
     _walk_max_depth = 200  # tree nesting cap (recursion guard; real trees are <<50)
 
+    # ── guarded reads ──────────────────────────────────────────────────────
+    @staticmethod
+    def _qword(addr: int) -> Optional[int]:
+        """The 64-bit word at ``addr``, or None when it isn't readable memory."""
+        if not _GUARD.readable(addr, 8):
+            return None
+        return ctypes.c_uint64.from_address(addr).value
+
+    @staticmethod
+    def _int32(addr: int) -> Optional[int]:
+        """The signed 32-bit int at ``addr``, or None when it isn't readable memory."""
+        if not _GUARD.readable(addr, 4):
+            return None
+        return ctypes.c_int32.from_address(addr).value
+
+    @staticmethod
+    def _cstr(addr: int, limit: int = 66) -> Optional[str]:
+        """Read a NUL-terminated printable-ASCII string, or None if it isn't one."""
+        if not _GUARD.readable(addr, 8):
+            return None
+        out = bytearray()
+        for i in range(limit):
+            if not _GUARD.readable(addr + i, 1):
+                return None
+            b = ctypes.c_ubyte.from_address(addr + i).value
+            if b == 0:
+                return out.decode("ascii", "replace") if out else None
+            if not (0x20 <= b < 0x7F):
+                return None
+            out.append(b)
+        return None
+
     # ── calibration ────────────────────────────────────────────────────────
     @classmethod
     def _calibrate(cls, space_ptr: int) -> bool:
@@ -173,7 +180,7 @@ class _OutlinerTintInternal(ptk.LoggingMixin):
         import bpy
 
         _GUARD.invalidate()
-        head = _qword(space_ptr + cls._LAYOUT["tree_head"])
+        head = cls._qword(space_ptr + cls._LAYOUT["tree_head"])
         if not head:
             cls._state = "no tree pointer at the expected offset"
             return False
@@ -212,22 +219,22 @@ class _OutlinerTintInternal(ptk.LoggingMixin):
             if not _GUARD.readable(elem, 0x60):
                 return
             id_name = None
-            store = _qword(elem + L["store"])
+            store = cls._qword(elem + L["store"])
             if store and _GUARD.readable(store, 0x10):
-                idp = _qword(store + L["store_id"])
+                idp = cls._qword(store + L["store_id"])
                 if idp:
-                    id_name = _cstr(idp + L["id_name"])
+                    id_name = cls._cstr(idp + L["id_name"])
             out.append(
                 _Row(
                     id_name=id_name,
-                    xs=_int32(elem + L["xs"]),
-                    ys=_int32(elem + L["ys"]),
+                    xs=cls._int32(elem + L["xs"]),
+                    ys=cls._int32(elem + L["ys"]),
                 )
             )
-            sub = _qword(elem + L["subtree"])
+            sub = cls._qword(elem + L["subtree"])
             if sub and sub != elem:
                 cls._walk_chain(sub, out, budget, seen, depth + 1)
-            elem = _qword(elem + L["next"]) or 0
+            elem = cls._qword(elem + L["next"]) or 0
 
 
 class _Row:
@@ -414,7 +421,7 @@ class OutlinerTint(_OutlinerTintInternal):
             return
 
         _GUARD.invalidate()  # regions can be freed/reprotected between redraws
-        head = _qword(space_ptr + cls._LAYOUT["tree_head"])
+        head = cls._qword(space_ptr + cls._LAYOUT["tree_head"])
         if not head:
             return
         rows = cls._walk(head)

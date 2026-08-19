@@ -36,6 +36,7 @@ from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
 from blendertk.mat_utils.substance_bridge.connection import SubstanceConnection
 from blendertk.mat_utils.substance_bridge.substance_rpc import DEFAULT_RPC_PORT
+from .connection import APP
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,12 @@ class SubstanceBridge(ptk.HandoffBridge):
     (``headless``, ``enable_remote``) are accepted and ignored if not
     meaningful to the template-driven model.
     """
+
+    #: Executable discovery for this bridge's target app (:class:`pythontk.AppSpec`),
+    #: re-exposed from the engine module so callers reach it through the class
+    #: namespace: a panel's ``*_init`` gates its launch button on
+    #: ``<Bridge>.APP.available`` and shows ``APP.not_found_message`` when unmet.
+    APP = APP
 
     # Default ceiling for roundtrip RPC calls.
     ROUNDTRIP_TIMEOUT = 1800  # 30 minutes

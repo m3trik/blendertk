@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
@@ -49,6 +48,7 @@ from . import template_params
 from blendertk.edit_utils._edit_utils import EditUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
+from ._marmoset_engine import APP
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,31 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         MarmosetBridge().send(template="lookdev")  # mode defaults to send_to
     """
 
+    #: Executable discovery for this bridge's target app (:class:`pythontk.AppSpec`),
+    #: re-exposed from the engine module so callers reach it through the class
+    #: namespace: a panel's ``*_init`` gates its launch button on
+    #: ``<Bridge>.APP.available`` and shows ``APP.not_found_message`` when unmet.
+    APP = APP
+
+    #: Namespace for this bridge's temp payload + run scratch
+    #: (``<temp>/blender_marmoset_bridge_*``), and the scope its stale-leftover
+    #: sweep runs over.
+    payload_prefix = "blender_marmoset_bridge"
+
+    #: Furthest source standoff, as a fraction of the target diagonal, at or
+    #: below which the source IS the target surface (see _cage_measurements).
+    #: Mirror of mayatk.
+    COINCIDENT_FRACTION = 1e-4
+
+    #: A ROUNDTRIP consumes what it stages: Toolbag runs BLOCKING and its only
+    #: durable output -- the maps -- is relocated beside the .blend, so the FBX
+    #: hand-off, the manifest, the bake-pairs sidecar, the rendered script and
+    #: the saved ``.tbscene`` are all intermediates of the run itself and go to
+    #: a scratch dir it then removes. A ``send_to`` launches a DETACHED Toolbag
+    #: that reads those files after we return, so no delete is safe there.
+    #: Mirror of mayatk. Panel-side twin: ``TRANSIENT_OUTPUT_MODES``.
+    scoped_scratch_modes = (ROUND_TRIP,)
+
     def __init__(self, toolbag_path: Optional[str] = None):
         super().__init__()
         self.deliverer = MarmosetEngine(toolbag_path)
@@ -142,11 +167,36 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             objects = btk.selected_objects()
         return objects or []
 
+    #: Subfolder next to the saved ``.blend`` that bake roundtrips write their
+    #: maps into -- blendertk's own convention (``TextureBaker`` uses the same
+    #: name), and the mirror of mayatk's ``sourceimages/baked``. A subfolder,
+    #: not the .blend dir itself: a bake's output for material ``M`` carries
+    #: the SAME ``<material>_<map>`` name as the source maps that fed it.
+    BAKED_TEXTURE_SUBDIR = "baked_textures"
+
+    @classmethod
+    def baked_texture_dir(cls) -> str:
+        """``<blend dir>/baked_textures`` -- where a roundtrip's maps land.
+
+        Baked maps are production textures the .blend's materials reference,
+        so they belong beside it rather than in with the transient hand-off
+        artifacts. Returns ``""`` when the .blend is unsaved (no directory to
+        be beside); the engine then falls back to the run's ``output_dir``.
+        Mirror of mayatk's ``MarmosetBridge.baked_texture_dir``.
+        """
+        import bpy
+
+        from blendertk.mat_utils.texture_baker import TextureBaker
+
+        if not bpy.data.filepath:
+            return ""
+        return TextureBaker.default_output_dir(cls.BAKED_TEXTURE_SUBDIR).replace(
+            "\\", "/"
+        )
+
     def _produce(self, objects, request) -> Optional[ptk.Payload]:
         """Export the FBX + material manifest (+ bake-pairs sidecar) into ``output_dir``."""
-        output_dir = request.get("output_dir") or os.path.join(
-            tempfile.gettempdir(), "blender_marmoset_bridge"
-        )
+        output_dir = request.get("output_dir") or self._scratch_dir(request, "handoff")
         os.makedirs(output_dir, exist_ok=True)
         base = request.get("output_name") or self._scene_base_name()
         request.extras["output_dir"] = output_dir
@@ -181,6 +231,12 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             f'<a href="action://open?path={manifest_path}">{manifest_path}</a>'
         )
 
+        # Maps go beside the .blend rather than in with the hand-off
+        # artifacts (``baked_texture_dir``) -- unless the caller named a
+        # destination of its own, which always wins.
+        if request.template == "bake" and not request.get("texture_dir"):
+            request.extras["texture_dir"] = self.baked_texture_dir()
+
         # Fall back to the registry defaults for any key a programmatic caller
         # left out -- one source of truth for what "_source" is.
         pairing = {**template_params.DEFAULTS, **request.params}
@@ -213,6 +269,18 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             primary=fbx_path,
             extras={"manifest": manifest_path, "pairs": actual_pairs_path},
         )
+
+    def _delivered_paths(self, result):
+        """The maps, and the folder they were destined for.
+
+        With the .blend unsaved ``baked_texture_dir`` is empty and the engine
+        writes the maps into the run's own output dir -- which for a scratch
+        run IS the scratch, so this is what stops the cleanup from taking the
+        bake with it.
+        """
+        delivered = list((result or {}).get("outputs") or [])
+        delivered.append((result or {}).get("texture_dir"))
+        return delivered
 
     @staticmethod
     def _split_by_pairs(objects: Sequence, bake_pairs: Dict[str, str]) -> Tuple:
@@ -270,6 +338,18 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             f"Cage measured over {len(distances)} source mesh(es): the furthest "
             f"stands {furthest[1]:.4g} off the bake target ({furthest[0]})."
         )
+        if furthest[1] <= diagonal * self.COINCIDENT_FRACTION:
+            # Every source point lies ON the target: the same surface twice (a
+            # UV re-layout / material consolidation), not a high->low bake. A
+            # ray-cast bake bleeds wherever the mesh touches itself and no cage
+            # value can fix a contact region; that job is the UV Transfer tool.
+            self.logger.warning(
+                "Bake source and target are COINCIDENT (furthest source point "
+                f"{furthest[1]:.4g} off the target, {len(distances)} mesh(es)). "
+                "A ray-cast bake bleeds wherever the mesh touches itself and "
+                "no cage offset can prevent it; for a UV re-layout use "
+                "UV > Transfer Textures (blendertk TextureTransfer) instead."
+            )
         return {"CAGE_STANDOFFS": dict(distances), "CAGE_HOST_DIAGONAL": diagonal}
 
     @staticmethod

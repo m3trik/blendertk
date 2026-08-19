@@ -1,7 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/blendertk.svg)](https://pypi.org/project/blendertk/)
 [![Blender](https://img.shields.io/badge/Blender-4.x+-orange.svg)](https://www.blender.org/)
-[![Tests](https://img.shields.io/badge/Tests-3723%20passed-brightgreen.svg)](../test/)
+[![Tests](https://img.shields.io/badge/Tests-3806%20passed-brightgreen.svg)](../test/)
 
 # blendertk
 

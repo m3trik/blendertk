@@ -51,6 +51,14 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         ("Copy textures to new directory", "copy"),
         ("Move textures to new directory", "move"),
     )
+    # Colour markers leading the two Find & Copy directory dialogs. The native OS picker draws
+    # its caption through the shell — plain text, no rich text — but it renders emoji in colour,
+    # so the marker is the one channel that carries colour without giving up the shell browser.
+    # Blue/amber rather than green/red: it survives the common colour-vision deficiencies, and
+    # the words carry the meaning anyway — the glyph is redundancy, never the only signal.
+    _DIALOG_MARK_SOURCE = "🔵"
+    _DIALOG_MARK_DEST = "🟠"
+
     _FIND_MODE_ITEMS = (("Copy", "copy"), ("Move", "move"))
     # Displayed length of a texture path while the header's "Truncate Texture Paths" toggle is
     # on. Cut with ``mode="path"``, which drops whole middle components: the drive/root stays
@@ -158,10 +166,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             setText="Find && Copy Textures…",
             setObjectName="tb_find_and_copy_textures",
             setToolTip=(
-                "Search recursively from a source directory for textures used by (selected, "
-                "or all) images, relocate them to a destination, and repath. Paths become // "
-                "relative when the destination is inside the .blend's own folder. Option box "
-                "(▸) toggles Copy / Move."
+                "Gather the textures used by (selected, or all) images, relocate them into one "
+                "destination, and repath. Paths become // relative when the destination is "
+                "inside the .blend's own folder.\n\n"
+                "By default a path that already resolves is its own source, so the search "
+                "dialog only opens for what is unresolved — with every path valid the "
+                "destination picker is the only prompt. Option box (▸) has Copy / Move plus "
+                "both dialog-skipping toggles."
             ),
         )
         widget.menu.add(
@@ -238,9 +249,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                         [
                             "<b>Set Directory…</b> — repath to a chosen folder. Option box (▸) "
                             "chooses leave / copy / move.",
-                            "<b>Find &amp; Copy Textures…</b> — search an external folder for "
-                            "matching textures, copy or move them into a destination. Option box "
-                            "(▸) toggles Copy / Move.",
+                            "<b>Find &amp; Copy Textures…</b> — gather every texture the "
+                            "images use and relocate them into one destination. Option box (▸): "
+                            "Copy / Move, <i>Use Valid Paths As Source</i> (on — a path that "
+                            "already resolves is its own source, so the search dialog opens only "
+                            "for what is unresolved, and cancelling it skips just those), "
+                            "<i>Always Relocate To The Textures Folder</i> (off — on, the "
+                            "destination dialog is skipped).",
                             "<b>Normalize Paths</b> — rewrite paths relative to the saved .blend. "
                             "Option box (▸) controls external textures: leave / copy / move into "
                             "the project.",
@@ -275,6 +290,9 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                     ),
                 ],
                 notes=[
+                    "Find &amp; Copy opens at most two directory dialogs and either one can be "
+                    "the only one shown — read the title bar: <b>SOURCE</b> is the folder "
+                    "searched, <b>DESTINATION</b> is where files are written.",
                     "<b>Right-click</b> any row for per-texture actions: Browse for File, "
                     "scene selection, Shader Editor graph, delete. <i>Select File Node</i> is "
                     "disabled — Blender images have no node-name handle distinct from the "
@@ -335,6 +353,34 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
         cmb.currentIndexChanged.connect(_sync_text)
         _sync_text(cmb.currentIndex())  # initial sync
+
+        widget.option_box.menu.add(
+            "QCheckBox",
+            setText="Use Valid Paths As Source",
+            setObjectName="chk_use_valid_paths",
+            setChecked=True,
+            setToolTip=(
+                "Treat an image whose path already resolves on disk as its own source, instead "
+                "of hunting for that file under the search folder.\n\n"
+                "The search dialog then only appears when something is actually unresolved, and "
+                "counts only those textures; cancelling it skips them and relocates the rest. "
+                "With every path valid, the only dialog left is the destination.\n\n"
+                "A valid path always outranks a search hit of the same name — that file is "
+                "the one the scene is rendering with."
+            ),
+        )
+        widget.option_box.menu.add(
+            "QCheckBox",
+            setText="Always Relocate To The Textures Folder",
+            setObjectName="chk_dest_sourceimages",
+            setChecked=False,
+            setToolTip=(
+                "Send every match to the project's textures folder without asking, skipping the "
+                "destination dialog (the folder is created if missing).\n\n"
+                "Paths land // relative, since that folder is inside the project. Off: pick the "
+                "destination each run."
+            ),
+        )
 
     def tb_normalize_paths_init(self, widget):
         """Populate the Normalize Paths option-box with the external-mode combobox."""
@@ -575,26 +621,39 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
         widget.set_column_formatter(1, format_if_invalid)
 
+    @staticmethod
+    def _menu_flag(menu, name, default):
+        """State of a checkbox on ``menu``; ``default`` when it isn't there.
+
+        Every toggle in this panel is read from a menu that may not exist yet — a refresh can
+        fire before ``header_init`` builds it, and a workflow can be driven without an option
+        box at all (programmatic calls, tests). One lookup for all of them, so the per-toggle
+        readers carry only the thing that actually differs: the default.
+        """
+        chk = getattr(menu, name, None) if menu is not None else None
+        try:
+            return bool(chk.isChecked())
+        except AttributeError:
+            return default
+
+    def _header_menu(self):
+        """The header's menu, or None while it is still unbuilt."""
+        return getattr(getattr(self.ui, "header", None), "menu", None)
+
     def _warn_path_length_enabled(self):
         """State of the header's "Warn On Over-Long Paths" toggle.
 
         True when the header menu hasn't been built yet — an early refresh should warn, not
         silently skip the check (opposite default to the truncation toggle, which is off).
         """
-        header = getattr(self.ui, "header", None)
-        menu = getattr(header, "menu", None) if header else None
-        chk = getattr(menu, "chk_warn_path_length", None) if menu else None
-        return chk.isChecked() if chk is not None else True
+        return self._menu_flag(self._header_menu(), "chk_warn_path_length", True)
 
     def _truncate_paths_enabled(self):
         """State of the header's "Truncate Texture Paths" toggle.
 
         False when the header menu hasn't been built yet, so an early refresh is safe.
         """
-        header = getattr(self.ui, "header", None)
-        menu = getattr(header, "menu", None) if header else None
-        chk = getattr(menu, "chk_truncate_paths", None) if menu else None
-        return bool(chk and chk.isChecked())
+        return self._menu_flag(self._header_menu(), "chk_truncate_paths", False)
 
     def _apply_path_truncation(self, widget=None):
         """Push the Truncate Texture Paths toggle onto the path column.
@@ -719,8 +778,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             "copy": "copy files",
             "move": "move files",
         }.get(mode, mode)
+        # Same marker as Find & Copy's destination picker: another TARGET, so it
+        # must not read as "pick a folder to look in".
         target_dir = self.sb.dir_dialog(
-            title=f"Set Texture Directory — {mode_hint} — {scope_label}",
+            title=(
+                f"{self._DIALOG_MARK_DEST} DESTINATION — Set Texture Directory "
+                f"({mode_hint}) for {scope_label}"
+            ),
             start_dir=self._resolve_source_images_path(),
         )
         if not target_dir:
@@ -732,13 +796,25 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         self.ui.tbl000.init_slot()
 
     def tb_find_and_copy_textures(self, widget=None):
-        """Search a folder for the images' textures, copy/move to a destination, repath."""
+        """Gather the images' textures, copy/move them into one destination, repath.
+
+        Both option-box checkboxes exist to remove a dialog: Use Valid Paths drops the search
+        prompt when nothing needs finding, Always Relocate To The Textures Folder drops the
+        destination prompt.
+        """
         images, _scope = self._get_scope_images()
         if not images:
             self.sb.message_box("No textures to process.")
             return
         mode = self._read_combo_mode(widget, "cmb_relocate_mode", self._FIND_MODE_ITEMS)
-        self._find_and_copy_workflow(images, relocate_mode=mode)
+        self._find_and_copy_workflow(
+            images,
+            relocate_mode=mode,
+            use_valid_paths=self._read_option_flag(widget, "chk_use_valid_paths", True),
+            dest_sourceimages=self._read_option_flag(
+                widget, "chk_dest_sourceimages", False
+            ),
+        )
 
     def _read_combo_mode(self, button, combo_name, mode_items):
         """Read a relocate/external combobox by index → mode key (safe default = first)."""
@@ -747,6 +823,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         except AttributeError:
             return mode_items[0][1]
         return mode_items[idx][1] if 0 <= idx < len(mode_items) else mode_items[0][1]
+
+    @classmethod
+    def _read_option_flag(cls, button, name, default):
+        """State of a checkbox in ``button``'s option box; ``default`` if absent."""
+        return cls._menu_flag(
+            getattr(getattr(button, "option_box", None), "menu", None), name, default
+        )
 
     def tb_normalize_paths(self, widget=None):
         """Rewrite (selected, or all) paths relative to the saved .blend; option box handles
@@ -824,7 +907,10 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             )
             return
         search_dir = self.sb.dir_dialog(
-            title="Resolve Missing Textures — pick a search folder",
+            title=(
+                f"{self._DIALOG_MARK_SOURCE} SOURCE — SEARCH this folder (and subfolders) "
+                f"for the missing texture(s)"
+            ),
             start_dir=self._resolve_source_images_path(),
         )
         if not search_dir:
@@ -1085,7 +1171,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 self.logger.warning(f"Failed to rename image: {e}")
 
     # ------------------------------------------------------------------ workflows
-    def _find_and_copy_workflow(self, images, relocate_mode="copy"):
+    def _find_and_copy_workflow(
+        self,
+        images,
+        relocate_mode="copy",
+        use_valid_paths=True,
+        dest_sourceimages=False,
+    ):
         """Run find/copy-or-move/repath with a re-entry guard.
 
         Modal dir dialogs occasionally deliver trailing release events that retrigger the slot,
@@ -1096,7 +1188,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             return
         self._find_copy_in_progress = True
         try:
-            self._do_find_and_copy_workflow(images, relocate_mode=relocate_mode)
+            self._do_find_and_copy_workflow(
+                images,
+                relocate_mode=relocate_mode,
+                use_valid_paths=use_valid_paths,
+                dest_sourceimages=dest_sourceimages,
+            )
         finally:
             from qtpy.QtCore import QTimer
 
@@ -1104,28 +1201,100 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 250, lambda: setattr(self, "_find_copy_in_progress", False)
             )
 
-    def _do_find_and_copy_workflow(self, images, relocate_mode="copy"):
+    def _path_resolves(self, image):
+        """True when the image's stored path already points at a file on disk.
+
+        Resolved the way the engine resolves it (library-aware), so the count in the search
+        dialog matches what ``find_and_copy_textures`` then treats as unresolved.
+        """
+        path = self._resolve_path(
+            getattr(image, "filepath", "") or "",
+            library=getattr(image, "library", None),
+        )
+        return bool(path) and os.path.isfile(path)
+
+    def _do_find_and_copy_workflow(
+        self,
+        images,
+        relocate_mode="copy",
+        use_valid_paths=True,
+        dest_sourceimages=False,
+    ):
+        """Collect sources, relocate them into one directory, repath the images.
+
+        Two dialogs at most, and each is skippable: ``use_valid_paths`` sources every
+        already-resolving image from its own path, so the *search* dialog only opens for what is
+        unresolved (cancelling it skips exactly those, keeping the rest of the run);
+        ``dest_sourceimages`` pins the destination to the project's textures folder, so the
+        *destination* dialog never opens.
+
+        Both dialogs are dir pickers on the same widget, one meaning "search here", the other
+        "write here" — so their titles lead with SOURCE / DESTINATION and name the operation.
+        Either can be the only dialog a run shows, and the title bar is all that tells them apart.
+        """
         start_dir = self._resolve_source_images_path()
-        source_dir = self.sb.dir_dialog(
-            title="Find & Copy — pick a folder to search recursively",
-            start_dir=start_dir,
+        verb = "MOVE" if relocate_mode == "move" else "COPY"
+
+        unresolved = (
+            [img for img in images if not self._path_resolves(img)]
+            if use_valid_paths
+            else list(images)
         )
-        if not source_dir:
-            return
-        dest_dir = self.sb.dir_dialog(
-            title="Find & Copy — pick the destination folder", start_dir=start_dir
-        )
-        if not dest_dir:
-            return
+        search_dir = None
+        if unresolved:
+            resolved_count = len(images) - len(unresolved)
+            search_dir = self.sb.dir_dialog(
+                title=(
+                    f"{self._DIALOG_MARK_SOURCE} SOURCE — SEARCH this folder "
+                    f"(and subfolders) for {len(unresolved)} unresolved texture(s)"
+                    + ("   [Cancel = skip them]" if resolved_count else "")
+                ),
+                start_dir=start_dir,
+            )
+            # Cancel skips the unresolved images rather than aborting the run: with 48 of 50
+            # paths valid, those 48 should still relocate. With nothing resolved there is no
+            # run left to keep.
+            if not search_dir and not resolved_count:
+                return
+
+        if dest_sourceimages:
+            dest_dir = start_dir
+            if not dest_dir:
+                self.sb.message_box(
+                    "'Always Relocate To The Textures Folder' is enabled but the project's "
+                    "textures folder is unknown — save the .blend first."
+                )
+                return
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+            except OSError as e:
+                self.sb.message_box(f"Cannot create <hl>{dest_dir}</hl>: {e}")
+                return
+        else:
+            dest_dir = self.sb.dir_dialog(
+                title=(
+                    f"{self._DIALOG_MARK_DEST} DESTINATION — {verb} {len(images)} texture "
+                    f"file(s) INTO this folder (this is the target, not a search folder)"
+                ),
+                start_dir=start_dir,
+            )
+            if not dest_dir:
+                return
+
         record = self._snapshot_for_tracking(images)
         count = btk.find_and_copy_textures(
-            images, source_dir, dest_dir, mode=relocate_mode
+            images,
+            search_dir,
+            dest_dir,
+            mode=relocate_mode,
+            use_valid_paths=use_valid_paths,
         )
         record()
         self.sb.message_box(
-            f"{relocate_mode.title()}d + repathed <hl>{count}</hl> texture(s)."
+            f"{'Moved' if relocate_mode == 'move' else 'Copied'} + repathed "
+            f"<hl>{count}</hl> texture(s)."
             if count
-            else "No matching textures found in the search folder."
+            else "No textures to relocate — nothing resolved and nothing matched."
         )
         self.ui.tbl000.init_slot()
 
@@ -1203,12 +1372,22 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         return record
 
     @staticmethod
-    def _resolve_path(path):
-        """Resolve a raw path string (// project-relative included) to an absolute path."""
+    def _resolve_path(path, library=None):
+        """Resolve a raw path string (// project-relative included) to an absolute path.
+
+        ``library`` is handed to ``bpy.path.abspath``: a datablock linked from a library .blend
+        stores its ``//`` path relative to the LIBRARY file, so resolving it against the open
+        file finds nothing. ``None`` (a local datablock) is a no-op — this mirrors the engine's
+        own ``_abspath``, so the panel and ``find_and_copy_textures`` agree on what resolves.
+        """
         import bpy
 
         try:
-            return os.path.normpath(bpy.path.abspath(path)) if path else ""
+            return (
+                os.path.normpath(bpy.path.abspath(path, library=library))
+                if path
+                else ""
+            )
         except Exception:
             return os.path.normpath(path) if path else ""
 
@@ -1224,12 +1403,29 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
             return FooterStatusController(
                 footer=footer,
-                resolver=self._resolve_source_images_path,
+                resolver=self._footer_status_text,
                 default_text="",
                 truncate_kwargs={"length": 96, "mode": "middle"},
             )
         except Exception:
             return None
+
+    def _footer_status_text(self) -> str:
+        """Footer line: the texture directory every path command resolves against.
+
+        Labelled, because a bare path in a status strip reads as "some path" — the label is
+        what makes a wrong project obvious at a glance.
+
+        The label is the resolved folder's own name, not a fixed word: the ``sourceImages``
+        rule may map anywhere, and a footer reading TEXTURES over a path ending in
+        ``/sourceimages`` would be the panel disagreeing with itself. Same derivation as
+        mayatk's footer, so a project shared between the two reads identically in both.
+        """
+        path = self._resolve_source_images_path()
+        if not path:
+            return ""
+        label = ptk.FileUtils.format_path(path, "dir").upper()
+        return f"{label}: {path}" if label else path
 
     def _resolve_source_images_path(self) -> str:
         """The project's texture folder — Blender analogue of mayatk's

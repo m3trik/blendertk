@@ -173,6 +173,35 @@ try:
           and "Transform={0.001, 0, 0, 0, 0.001, 0, 0, 0, 1}" in on
           and "Transform={1000, 0, 0, 0, 1000, 0, 0, 0, 1}" in on)
     b._params = {}
+
+    # ---- optimize repacks in-tile instead of rescaling to the 3D metric -----------
+    # Backlog 2026-08-05: the preset shipped KeepMetric=true (which rescales the
+    # optimised result to the mesh's 3D metric) on top of a hand-rolled
+    # ZomIslandGroups + ZomPack tail that no-opped for want of an island selection --
+    # so its hardcoded preserve-scale invariants never reached the packer. Measured
+    # through a real 2020.1 on three projection-UV spheres: UV area 0.8100 in-tile ->
+    # 29.0800 spanning u[0.004,5.686] v[0.004,6.835] (~6x7 UDIM tiles; 84x / ~9x9
+    # through the Maya path). With pack.lua's selection opener, the shared pack block
+    # and KeepMetric=false the same input lands at area 0.6142 inside u[0.002,0.828]
+    # v[0.002,0.998], and the optimisation itself is unchanged (per-face UV/3D area
+    # spread, coefficient of variation 0.9301 -> 0.4269, identical either way).
+    optimize = (_SCRIPT_DIR / "optimize.lua").read_text(encoding="utf-8")
+    opt_code = code_lines(optimize)
+    check("optimize drops the 3D-metric rescale that inflated the layout",
+          "KeepMetric=false" in opt_code and "KeepMetric=true" not in opt_code)
+    check("optimize selects islands BEFORE ZomOptimize (after it access-violates 2020.1)",
+          "ZomSelect(" in opt_code and "ZomOptimize(" in opt_code
+          and opt_code.index("ZomSelect(") < opt_code.index("ZomOptimize("))
+    check("optimize pulls the shared pack block instead of inlining its own pack",
+          "__PACK_BLOCK__" in optimize and "ZomPack(" not in opt_code
+          and "ZomIslandGroups(" not in opt_code)
+    opt_full = b._construct_full_script(optimize)
+    opt_left = re.findall(r"__[A-Z][A-Z0-9_]*__", opt_full)
+    check("optimize: no unresolved __KEY__ placeholders left", not opt_left, str(opt_left))
+    check("optimize: pack knobs come from the panel, not hardcoded invariants",
+          f"LayoutScalingMode={P.PARAMS['LAYOUT_SCALING_MODE'].default}" in opt_full
+          and f"Scaling={{Mode={P.PARAMS['SCALING_MODE'].default}," in opt_full)
+
     import filecmp
     _maya_rb = _SCRIPT_DIR.parents[4] / "mayatk" / "mayatk" / "uv_utils" / "rizom_bridge"
     if _maya_rb.is_dir():

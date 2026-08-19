@@ -63,6 +63,8 @@ DEFAULT_INCLUDE = {
         "CameraVisibility",
     ],
     "uv_utils._uv_utils": "*",
+    # UV-to-UV texture transfer adapter -- mirror of mayatk.uv_utils.texture_transfer
+    "uv_utils.texture_transfer": ["TextureTransfer"],
     # RizomUV bridge engine — mirror of mayatk's ``uv_utils.rizom_bridge._rizom_bridge.RizomUVBridge``
     # (the ``RizomBridgeSlots`` panel class is discovered by the handler, not registered).
     "uv_utils.rizom_bridge._rizom_bridge": [
@@ -138,10 +140,13 @@ DEFAULT_INCLUDE = {
     ],
     # Hierarchy Sync — diff/repair a scene hierarchy against a reference .blend linked as a
     # library (mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``; the
-    # ``HierarchySyncSlots`` panel is discovered by BlenderUiHandler, not registered). Pull
-    # (mayatk's ``ObjectSwapper``) isn't ported — see the slots module docstring.
+    # ``HierarchySyncSlots`` panel is discovered by BlenderUiHandler, not registered).
     "env_utils.hierarchy_sync._hierarchy_sync": [
         "HierarchySync",
+        # Pull IS ported: hierarchy_sync_slots imports and drives this class, and the
+        # mayatk twin registers ``mtk.ObjectSwapper`` — leaving it out broke the
+        # name-level mirror the tentacle slots rely on.
+        "ObjectSwapper",
     ],
     "env_utils.hierarchy_sync.scene_data_sidecar": "SceneDataSidecar",
     "light_utils._light_utils": "*",
@@ -196,6 +201,9 @@ DEFAULT_INCLUDE = {
         "StyleSetter",
     ],
     "mat_utils._mat_utils": "*",
+    # Structural mirror of ``mtk.ArnoldBridge`` — a documented no-op on Blender, kept
+    # registered (not just importable) so duck-typed code across the twins needs no branch.
+    "mat_utils.arnold_bridge": "ArnoldBridge",
     # Generic Cycles bake-to-texture primitive — mirror of mayatk's ``mat_utils.texture_baker``.
     # ``LightmapBaker`` (light_utils) composes this; use it directly for one-off/preview bakes.
     "mat_utils.texture_baker": [

@@ -56,14 +56,27 @@ _PKG_DIR = Path(__file__).resolve().parent
 _SCRIPT_DIR = _PKG_DIR / "scripts"
 _TEMPLATE_DIR = _PKG_DIR / "templates"
 
-# Candidate RizomUV executable names (AppLauncher.find_app), newest install wins on the dir scan.
-_RIZOM_APP_NAMES = ("Rizomuv_VS", "rizomuv", "RizomUV")
-# Install-dir fallback (the Rizom installer doesn't register the exe with the Windows App-Paths
-# key). Newest ``Rizom Lab\<version>`` folder wins. Shared scan via ``AppLauncher.resolve_app_path``.
-_RIZOM_SCAN_GLOBS = (
-    r"{program_files}\Rizom Lab\*\Rizomuv_VS.exe",
-    r"{program_files}\Rizom Lab\*\rizomuv_RS.exe",
-    r"{program_files}\Rizom Lab\*\rizomuv.exe",
+# Declarative RizomUV discovery. ONE AppSpec carries the candidate names, the
+# install-dir fallback (the Rizom installer doesn't register the exe with the Windows App-Paths
+# key; newest ``Rizom Lab\<version>`` folder wins) AND the user-facing "couldn't find it"
+# sentence -- so launch, the availability gate that greys the panel's launch button, and the
+# message explaining why all read one declaration. Mirrors mayatk's ``APP``.
+#
+# Glob ORDER is load-bearing: ``resolve_app_path`` treats pattern order as priority, so
+# ``Rizomuv_VS.exe`` must precede ``rizomuv_RS.exe`` -- pooling them let ASCII order pick RS
+# out of the same install dir.
+APP = ptk.AppSpec(
+    name="RizomUV",
+    app_names=("Rizomuv_VS", "rizomuv", "RizomUV"),
+    scan_globs=(
+        r"{program_files}\Rizom Lab\*\Rizomuv_VS.exe",
+        r"{program_files}\Rizom Lab\*\rizomuv_RS.exe",
+        r"{program_files}\Rizom Lab\*\rizomuv.exe",
+    ),
+    not_found_msg=(
+        "RizomUV not found. Install it, or set RizomUVBridge().rizom_path "
+        "to the executable."
+    ),
 )
 
 # Version segment inside a Rizom install-dir name. Anchored on a 4-digit year (every supported
@@ -99,6 +112,13 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
     Named to mirror mayatk's ``RizomUVBridge`` (``btk.RizomUVBridge`` ↔ ``mtk.RizomUVBridge``)."""
 
+    #: Executable discovery for this bridge's target app (:class:`pythontk.AppSpec`).
+    #: Exposed on the class so callers reach it through the class namespace: a
+    #: panel's ``*_init`` gates its launch button on ``<Bridge>.APP.available`` and
+    #: shows ``APP.not_found_message`` when it is unmet. Class-body ``APP = APP``
+    #: binds the module-level spec (class bodies fall back to globals on the RHS).
+    APP = APP
+
     # Suffix appended to the temporary export copies so the FBX re-import maps cleanly back onto
     # the originals (and never collides with a real object name).
     _TEMP_SUFFIX = "__RZTMP"
@@ -108,7 +128,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         Parameters:
             rizom_path: Explicit path to the RizomUV executable. If *None*, ``AppLauncher`` searches
-                PATH / registry / the standard install dirs using ``_RIZOM_APP_NAMES``.
+                PATH / registry / the standard install dirs using ``APP``.
             timeout: Max seconds to wait for the headless round-trip run before killing RizomUV.
                 Simple meshes finish in seconds; dense meshes with high pack mutations take minutes.
         """
@@ -136,10 +156,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         ``Rizom Lab\\<version>`` folder wins)."""
         if self._rizom_path:
             return self._rizom_path
-        found = ptk.AppLauncher.resolve_app_path(
-            app_names=_RIZOM_APP_NAMES,
-            scan_globs=_RIZOM_SCAN_GLOBS,
-        )
+        found = APP.path
         if found:
             self._rizom_path = found
         return found
@@ -303,9 +320,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             raise ValueError("No objects specified for sending.")
         exe = self.rizom_path
         if not exe:
-            raise RuntimeError(
-                "RizomUV executable not found. Install RizomUV (Rizom Lab) or set rizom_path."
-            )
+            raise RuntimeError(self.APP.not_found_message)
         # One store, two payloads: they share a tag prefix and a sweep scope, and the store's
         # monotonic tag can't repeat -- ``time.time_ns()`` alone can, its Windows resolution
         # (~15ms) being coarser than two back-to-back sends.
@@ -584,9 +599,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         exe = self.rizom_path
         if not exe:
-            raise RuntimeError(
-                "RizomUV executable not found. Pass rizom_path= or add RizomUV to PATH."
-            )
+            raise RuntimeError(self.APP.not_found_message)
 
         export_file = Path(self.export_path)
         if not export_file.exists():

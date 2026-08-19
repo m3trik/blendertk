@@ -363,6 +363,9 @@ class UnityBridgeSlots(BlenderBridgeSlotsBase):
             return
 
         params = self.collect_param_values()
+        # Same default `scoped_objects` resolves with, so the header line always
+        # names the scope the objects were actually collected under.
+        scope = params.get("SCOPE", "selected")
         objects = self.scoped_objects(params)
         if not objects:
             return

@@ -654,6 +654,115 @@ try:
         f"frames={frames_rn}",
     )
 
+    # ============ generative modifiers must NOT bake into a tween ============
+    # A tween is a sculpt source for a shape key, and a shape key MUST match the
+    # basis vertex count by definition -- so evaluating the base through its
+    # modifier stack (subsurf/mirror) can only ever yield a permanent topology
+    # mismatch that validate/apply rejects forever. The tween is therefore taken
+    # from the shape-key state alone, with the modifier stack suppressed.
+    reset()
+    base_mod = make_cube("BaseMod")
+    target_mod = make_cube("TargetMod", z_offset=4.0)
+
+    animator_mod = BlendshapeAnimator()
+    check(
+        "modifiers: create() succeeds",
+        animator_mod.create(
+            base_obj=base_mod, target_obj=target_mod, start_frame=1, end_frame=50,
+            name="morphMod", test_setup=False,
+        )
+        is True,
+    )
+
+    sk_mod = base_mod.data.shape_keys
+    basis_mod_z = sk_mod.reference_key.data[0].co.z
+    target_mod_z = sk_mod.key_blocks["morphMod"].data[0].co.z
+    base_vert_count = len(base_mod.data.vertices)
+
+    subsurf = base_mod.modifiers.new("Subsurf", "SUBSURF")
+    subsurf.levels = 2
+    mirror_mod = base_mod.modifiers.new("Mirror", "MIRROR")
+    dg_mod = bpy.context.evaluated_depsgraph_get()
+    dg_mod.update()
+    ev_mod = base_mod.evaluated_get(dg_mod)
+    me_mod = ev_mod.to_mesh()
+    evaluated_count = len(me_mod.vertices)
+    ev_mod.to_mesh_clear()
+    check(
+        "modifiers: fixture stack really changes the evaluated vertex count",
+        evaluated_count != base_vert_count,
+        f"evaluated={evaluated_count} base={base_vert_count}",
+    )
+
+    tweens_mod = animator_mod.edit_weight_based(weights=[0.5])
+    check("modifiers: tween created at weight 0.5", len(tweens_mod) == 1)
+
+    if tweens_mod:
+        tw_mod = tweens_mod[0].obj
+        check(
+            "modifiers: tween vertex count matches the BASE, not the modified result",
+            len(tw_mod.data.vertices) == base_vert_count,
+            f"tween={len(tw_mod.data.vertices)} base={base_vert_count} "
+            f"evaluated={evaluated_count}",
+        )
+        check(
+            "modifiers: tween polygon count matches the base",
+            len(tw_mod.data.polygons) == len(base_mod.data.polygons),
+            f"tween={len(tw_mod.data.polygons)} base={len(base_mod.data.polygons)}",
+        )
+        # The point of _duplicate_at_weight is the WEIGHT, not the base mesh: at
+        # 0.5 the tween must sit on the basis->target midpoint, never on the basis.
+        expected_tween_z = basis_mod_z + 0.5 * (target_mod_z - basis_mod_z)
+        got_tween_z = tw_mod.data.vertices[0].co.z
+        check(
+            "modifiers: tween is the shape-key mix at w=0.5, not the basis",
+            abs(got_tween_z - expected_tween_z) < 1e-4
+            and abs(got_tween_z - basis_mod_z) > 1.0,
+            f"got={got_tween_z} expected={expected_tween_z} basis={basis_mod_z}",
+        )
+
+    check(
+        "modifiers: base modifier stack survives tween creation intact",
+        [m.name for m in base_mod.modifiers] == ["Subsurf", "Mirror"]
+        and all(m.show_viewport for m in base_mod.modifiers),
+        f"mods={[(m.name, m.show_viewport) for m in base_mod.modifiers]}",
+    )
+    check(
+        "modifiers: diagnose_topology_issues reports no mismatch",
+        animator_mod.diagnose_topology_issues() is True,
+    )
+
+    # A modifier already OFF must stay off (restore is exact, not a blanket re-enable).
+    subsurf.show_viewport = False
+    animator_mod.edit_weight_based(weights=[0.25])
+    check(
+        "modifiers: an already-disabled modifier is restored to disabled",
+        subsurf.show_viewport is False,
+    )
+    subsurf.show_viewport = True
+
+    # And the tween round-trips through APPLY (the count check at applicator.py:207).
+    if tweens_mod:
+        for v in tweens_mod[0].obj.data.vertices:
+            v.co.z += 1.5
+        applied_mod = animator_mod.edit_apply_tweens([tweens_mod[0]])
+        check(
+            "modifiers: tween applies back as a corrective (no topology rejection)",
+            len(applied_mod) == 1,
+            str(len(applied_mod)),
+        )
+
+    # Frame-based tweens take the same path.
+    frame_tweens_mod = animator_mod.edit_frame_based(target_frame=30)
+    check(
+        "modifiers: frame-based tween also matches the base vertex count",
+        len(frame_tweens_mod) == 1
+        and len(frame_tweens_mod[0].obj.data.vertices) == base_vert_count,
+        f"n={len(frame_tweens_mod)} verts="
+        f"{len(frame_tweens_mod[0].obj.data.vertices) if frame_tweens_mod else None}",
+    )
+
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

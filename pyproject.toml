@@ -17,8 +17,12 @@ classifiers = [
 
 # bpy is provided by the Blender runtime, not pip-installed.
 dependencies = [
-    "pythontk>=0.9.24",
-    "uitk>=1.3.84",
+    # 0.9.25 floor: the delta consumes pythontk APIs absent from 0.9.24, one of
+    # them evaluated at import time (see mayatk's twin for the detail).
+    "pythontk>=0.9.25",
+    # 1.3.85 floor: marmoset_bridge_slots calls require_output_dir(mode) and sets
+    # TRANSIENT_OUTPUT_MODES, neither of which exists in 1.3.84.
+    "uitk>=1.3.85",
 ]
 
 # unitytk is OPTIONAL: it only backs the Unity Bridge panel, for users who take
@@ -51,3 +55,15 @@ include = ["blendertk*"]
 # silently stops guarding when pytest is invoked from outside this repo.
 # Overriding norecursedirs drops its defaults - they are restated here.
 norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "venv", "node_modules", "test"]
+
+[tool.ruff]
+# House formatter/linter - rule set, exemptions and gate status: m3trik/docs/CODE_STANDARD.md section 1.
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]  # house pattern: try-guarded DCC imports precede the other imports
+
+[tool.ruff.lint.per-file-ignores]
+"**/templates/**" = ["F821"]  # exec-templates carry __PLACEHOLDER__ tokens substituted at run time

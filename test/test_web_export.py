@@ -18,6 +18,7 @@ Regression anchors (each cost a debugging session to find, all measured on Blend
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -390,9 +391,18 @@ try:
             # with it, because three.js adds lightmap irradiance through a
             # Lambert term with no normal dependence — leaving nothing in the
             # render that samples the normal at all.
+            # Asserted as the BEHAVIOUR -- zero when lightmapped, the standing
+            # key intensity otherwise -- not as one literal right-hand side.
+            # Pinning the spelling broke the moment the viewer routed its numbers
+            # through a published rendering policy (DEFAULT_KEY_INTENSITY ->
+            # policy.keyIntensity, the same value via POLICY_FALLBACK) -- a refactor
+            # this cross-package check has no business failing on, which is exactly
+            # the reasoning its environment sibling below already carries. The
+            # default is still named separately so it cannot quietly disappear.
             ("viewer drops its key light for a pre-lit model",
-             "keyLight.intensity" in viewer
-             and "? 0 : DEFAULT_KEY_INTENSITY" in viewer),
+             bool(re.search(r"keyLight\.intensity\s*=\s*lightmapped\s*\?\s*0\s*:",
+                            viewer))
+             and "DEFAULT_KEY_INTENSITY" in viewer),
             # Asserted as "the dimming factor exists and drives envMapIntensity"
             # rather than as one literal assignment: whether the write happens at
             # bind time or in the lighting pass is an implementation detail this

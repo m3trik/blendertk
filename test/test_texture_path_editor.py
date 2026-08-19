@@ -215,6 +215,53 @@ try:
           abs(os.path.getmtime(picked) - os.path.getmtime(deep)) < 1.0,
           f"picked={os.path.getmtime(picked)} deep={os.path.getmtime(deep)} shallow={os.path.getmtime(shallow)}")
 
+    # 7g. Find & Copy sources a VALID path directly: an image whose filepath resolves is its own
+    # source, so no search dir is needed at all (the panel skips that dialog on the same rule).
+    reset()
+    valid_src = write_png(os.path.join(tmp, "valid_src", "keep_DIFF.png"))
+    img7 = bpy.data.images.load(valid_src)
+    vp_dest = os.path.join(tmp, "vp_dest")
+    n = btk.find_and_copy_textures([img7], None, vp_dest, mode="copy")
+    check("find_and_copy_textures relocates from a valid path with no search dir",
+          n == 1 and os.path.exists(os.path.join(vp_dest, "keep_DIFF.png")), f"n={n}")
+    check("find_and_copy_textures repaths the image to the destination",
+          os.path.normcase(_abspath(img7))
+          == os.path.normcase(os.path.normpath(os.path.join(vp_dest, "keep_DIFF.png"))),
+          _abspath(img7))
+
+    # use_valid_paths=False is the old contract — nothing but the walk is a source.
+    reset()
+    img8 = bpy.data.images.load(write_png(os.path.join(tmp, "off_src", "off_DIFF.png")))
+    n = btk.find_and_copy_textures(
+        [img8], None, os.path.join(tmp, "off_dest"), mode="copy", use_valid_paths=False
+    )
+    check("use_valid_paths=False ignores the valid path and needs a search dir", n == 0, f"n={n}")
+
+    # 7h. A valid path outranks a NEWER same-name hit under the search tree: it is the file the
+    # scene is actually rendering with, so the newest-wins walk rule must not displace it.
+    reset()
+    real = write_png(os.path.join(tmp, "real_src", "dup2_DIFF.png"))
+    stale = write_png(os.path.join(tmp, "stale_src", "dup2_DIFF.png"))
+    os.utime(stale, (3_000_000, 3_000_000))
+    os.utime(real, (1_000_000, 1_000_000))
+    img9 = bpy.data.images.load(real)
+    rank_dest = os.path.join(tmp, "rank_dest")
+    btk.find_and_copy_textures([img9], os.path.join(tmp, "stale_src"), rank_dest, mode="copy")
+    picked9 = os.path.join(rank_dest, "dup2_DIFF.png")
+    check("a valid path outranks a newer search hit of the same name",
+          os.path.exists(picked9) and abs(os.path.getmtime(picked9) - 1_000_000) < 1.0,
+          f"picked={os.path.getmtime(picked9) if os.path.exists(picked9) else None}")
+
+    # 7i. Move with the source already AT the destination is a self-relocation — the file must
+    # survive it (the guard that makes 'Always Relocate To The Textures Folder' safe to repeat).
+    reset()
+    inplace_dir = os.path.join(tmp, "inplace_dest")
+    in_place = write_png(os.path.join(inplace_dir, "here_DIFF.png"))
+    img10 = bpy.data.images.load(in_place)
+    n = btk.find_and_copy_textures([img10], None, inplace_dir, mode="move")
+    check("move leaves a texture already at the destination intact",
+          n == 1 and os.path.exists(in_place), f"n={n}")
+
     # 8. _abspath is LIBRARY-aware — an image linked from a library .blend stores its
     # ``//`` path relative to the LIBRARY file, not the current .blend, so resolving it
     # without ``library=img.library`` yields a wrong path (false "missing" in

@@ -1,11 +1,16 @@
 name: Static Analysis
 
 # blendertk's runtime tests require the Blender runtime (bpy), which isn't available in CI.
-# This workflow runs the Blender-free check: an AST parse-walk that catches syntax errors
+# This workflow runs the Blender-free checks: an AST parse-walk that catches syntax errors
 # without importing anything (imports are deferred into call bodies precisely so the package
-# surface resolves without a running Blender — see CLAUDE.md). Pyflakes is deliberately NOT
-# run here: the deferred `import bpy` / Qt idiom reads as "undefined name" to a static import
-# checker and would false-positive across the package.
+# surface resolves without a running Blender — see CLAUDE.md), plus ruff's undefined-name
+# rule. Only F821 is selected, not the whole F set: the rest still has residual findings
+# across the ecosystem (tracked in .claude/BACKLOG.md), and turning them on here would gate
+# PRs on an unrelated burn-down. F821 itself is safe against the deferred-import idiom -- a
+# deferred `import bpy` binds the name in the function scope ruff resolves against, so it
+# reads as defined; what it does catch is the real thing (a slot formatting a name nothing
+# binds NameErrors at click time, past every headless test, because the Qt-bound Slots
+# modules cannot be imported without a Qt binding).
 
 on:
   pull_request:
@@ -44,3 +49,52 @@ jobs:
               for line in failed: print(f'  {line}')
               sys.exit(1)
           "
+
+      - name: Undefined names (ruff F821)
+        run: |
+          python -m pip install --upgrade pip
+          pip install 'ruff>=0.15,<0.16'
+          # templates/ is F821-exempt via pyproject (__PLACEHOLDER__ tokens).
+          ruff check --select F821 blendertk
+
+  api-registry:
+    # Content-hash staleness gate for the committed API_INDEX.md /
+    # API_REGISTRY.md (root CLAUDE.md documents --check as the CI gate; before
+    # this it was wired into no workflow). Its own job because the generator
+    # lives in the m3trik repo and expects the monorepo layout - <pkg>/ and
+    # m3trik/ as siblings - so the repos are checked out into sibling paths,
+    # the same shape tentacle's parity job uses. pythontk is checked out for
+    # one stdlib file: it owns the SymbolRecord DTO the generator loads from
+    # source (SSoT for the registry's symbol shape).
+    #
+    # AST-only: no package install, no DCC, no git history. Deterministic in a
+    # fresh checkout because --check hashes CONTENT, not mtimes, and normalizes
+    # away the generation date and #L line numbers (see StalenessGate) - only a
+    # real public-surface delta fails this.
+    name: API registry up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: blendertk
+
+      - uses: actions/checkout@v4
+        with:
+          repository: m3trik/m3trik
+          ref: main
+          path: m3trik
+
+      - uses: actions/checkout@v4
+        with:
+          repository: m3trik/pythontk
+          ref: dev
+          path: pythontk
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Registry matches source
+        run: python m3trik/scripts/generate_api_registry.py blendertk --check

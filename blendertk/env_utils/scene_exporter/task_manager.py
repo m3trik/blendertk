@@ -90,58 +90,35 @@ class _TaskDataMixin:
         return None
 
     #: ``_texture_max_size`` sentinel: clamp to the active template's own
-    #: :class:`~pythontk.DeliveryBudget` (``enforce_budget``). Negative so it
-    #: stays truthy (0 / None already mean "no clamp") and can never collide
-    #: with a real pixel dimension. Mirrors mayatk.
-    TEXTURE_MAX_SIZE_TEMPLATE = -1
+    #: :class:`~pythontk.DeliveryBudget` (``enforce_budget``) rather than to a
+    #: pixel ceiling. Aliases the shared resolver's own sentinel so the combo
+    #: row, the exporter and the optimizer cannot drift apart on its value —
+    #: and so this cannot drift from mayatk's twin either.
+    TEXTURE_MAX_SIZE_TEMPLATE = ptk.MapOptimizer.SIZE_CLAMP_TEMPLATE
 
     def _texture_size_clamp(self, template) -> Dict[str, Any]:
         """The resize rule the optimization pass applies under *template*
         (mirror of mayatk's).
 
-        Reads the per-run ``_texture_max_size`` mode (the Max Texture Size
-        combo, stamped by ``perform_export`` — never a dispatched task):
-        falsy / ``"OFF"`` = no clamp (a template's budget stays advisory); a
-        positive int = hard longest-edge ceiling; :attr:`TEXTURE_MAX_SIZE_TEMPLATE`
-        = enforce the template's own ``DeliveryBudget`` size ceiling (no-op
-        without a template; the budget's POT rule is deliberately NOT adopted
-        — ``force_pot=False`` — the optimizer snaps each axis independently
-        and would break a non-square map's aspect ratio).
+        Binds the per-run ``_texture_max_size`` mode (the Max Texture Size
+        combo, stamped by ``perform_export`` — never a dispatched task) to
+        the shared resolver, which owns the rule: see
+        :meth:`pythontk.MapOptimizer.resolve_size_clamp` for the modes and
+        why the budget's POT flag is deliberately not adopted.
 
         Returns:
             dict of keyword arguments for ``MapOptimizer.assess`` /
-            ``optimize_map`` — ``max_size`` or ``enforce_budget`` (+
-            ``force_pot=False``). Empty when no clamp applies.
+            ``optimize_map``. Empty when no clamp applies.
         """
-        raw = getattr(self, "_texture_max_size", None)
-        if not raw or isinstance(raw, bool) or str(raw).upper() == "OFF":
-            return {}
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            self.logger.warning(
-                f"Invalid max texture size {raw!r} — no size clamp applied."
-            )
-            return {}
-        if value == self.TEXTURE_MAX_SIZE_TEMPLATE:
-            if not template:
-                return {}
-            return {"enforce_budget": True, "force_pot": False}
-        if value <= 0:
-            return {}
-        return {"max_size": value}
+        return ptk.MapOptimizer.resolve_size_clamp(
+            getattr(self, "_texture_max_size", None), template, logger=self.logger
+        )
 
     def _texture_size_clamp_desc(self, template) -> str:
         """Human-readable form of :meth:`_texture_size_clamp` for log lines."""
-        clamp = self._texture_size_clamp(template)
-        if not clamp:
-            return ""
-        if clamp.get("enforce_budget"):
-            budget = ptk.OutputTemplates.budget(template)
-            size = getattr(budget, "max_size", None)
-            limit = f"{size} px" if size else "no size limit"
-            return f"clamped to the template's budget ({limit})"
-        return f"clamped to {clamp['max_size']} px"
+        return ptk.MapOptimizer.describe_size_clamp(
+            getattr(self, "_texture_max_size", None), template, logger=self.logger
+        )
 
     def _assess_optimization(self, path, template):
         """What the optimization pass would do to *path* (mirror of mayatk's).
@@ -2146,6 +2123,41 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                     ],
                 ),
                 "setChecked": True,
+            },
+            # NOTE: `glb_optimize_textures` and `version` are UI-only fields —
+            # consumed by SceneExporter (pop'd before the task dispatch), never
+            # executed by the task pipeline. Mirrors mayatk.
+            "glb_optimize_textures": {
+                "widget_type": "QCheckBox",
+                "panel": "settings",
+                "setText": "Optimize GLB Textures",
+                "setToolTip": TooltipFormat.fmt(
+                    title="Optimize GLB Textures",
+                    body="Cap the resolution of the textures embedded in the "
+                    "GLB deliverable — the same web-delivery pass the WebXR "
+                    "preview runs, which is why a preview of a scene is a "
+                    "fraction of that scene's exported GLB.",
+                    bullets=[
+                        "<b>OFF</b> (default) — the GLB ships the authored "
+                        "resolution, whatever it is.",
+                        "<b>ON</b> — every embedded image is downsized to the "
+                        "optimizer's delivery ceiling and re-encoded into the "
+                        "container <b>GLB Textures</b> selects.",
+                    ],
+                    notes=[
+                        "OFF by default because downsizing is unrecoverable "
+                        "from the deliverable — an archival or engine-import "
+                        "export wants the authored resolution.",
+                        "Lightmaps are exempt from the resize and re-encode "
+                        "losslessly; any image the re-encode cannot beat keeps "
+                        "its original bytes.",
+                        "Independent of <b>Max Texture Size</b>, which is the "
+                        "scene-texture pass's dial — this one only ever "
+                        "touches the finished GLB.",
+                        "Inert for FBX-only output.",
+                    ],
+                ),
+                "setChecked": False,
             },
             "version": {
                 "widget_type": "QLineEdit",

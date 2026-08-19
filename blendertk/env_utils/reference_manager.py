@@ -89,6 +89,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     FOREIGN_EXTENSIONS = (".ma", ".mb", ".fbx")
     # Default-checked include types for this panel — its own native scene type.
     _INCLUDE_DEFAULTS = (".blend",)
+    # Max file names listed verbatim in the delete confirmation (the rest fold into
+    # an "...and N more" line).
+    DELETE_PROMPT_MAX_NAMES = 10
 
     def __init__(self, switchboard, log_level="WARNING"):
         self.sb = switchboard
@@ -1229,6 +1232,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
                     if name_item:
                         name_item.setFlags(name_item.flags() & ~qt.ItemIsEditable)
+                        # The row label can hide the suffix/extension, and a long name
+                        # elides in the column, so the tooltip names the file in full
+                        # (widget.add defaults it to the truncated label).
+                        name_item.setToolTip(os.path.basename(path))
                         if (
                             is_current
                         ):  # current scene: italic + not selectable (mirror of Maya)
@@ -1724,16 +1731,36 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             )
         self._refresh()
 
+    @classmethod
+    def _delete_prompt(cls, paths) -> str:
+        """Confirmation text for deleting *paths* (mirror of mayatk's).
+
+        Names each file in full: the row label can hide the suffix/extension, so a
+        count alone ("Delete 1 file(s)?") gives no way to confirm WHICH file is about
+        to be removed -- and deletion is permanent (no trash).
+
+        Parameters:
+            paths (list): Full paths of the files queued for deletion.
+
+        Returns:
+            str: HTML prompt naming the file(s).
+        """
+        names = [os.path.basename(p) for p in paths]
+        if len(names) == 1:
+            return f"Delete <hl>{names[0]}</hl> from disk?"
+        shown = names[: cls.DELETE_PROMPT_MAX_NAMES]
+        listed = "<br>".join(f"&bull; {n}" for n in shown)
+        if len(names) > len(shown):
+            listed += f"<br>&bull; ...and {len(names) - len(shown)} more"
+        return f"Delete {len(names)} file(s) from disk?<br>{listed}"
+
     def delete_selected(self):
         """Delete the selected .blend file(s) from disk (confirmed)."""
         paths = [p for p in self._selected_paths() if os.path.isfile(p)]
         if not paths:
             self.sb.message_box("Select a file to delete.")
             return
-        if (
-            self.sb.message_box(f"Delete {len(paths)} file(s) from disk?", "Yes", "No")
-            != "Yes"
-        ):
+        if self.sb.message_box(self._delete_prompt(paths), "Yes", "No") != "Yes":
             return
         done = sum(1 for p in paths if btk.delete_scene_file(p))
         self.logger.info(f"Deleted {done} of {len(paths)} file(s).")

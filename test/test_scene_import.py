@@ -179,6 +179,201 @@ try:
         and "bake_inherited_visibility=True" in txt
         and "restorable=False" in txt,  # throwaway conversion scene
     )
+    # BACKLOG 2026-08-02: the pre-pass used to enable bake_inherited_visibility
+    # over objects=None (EVERY transform), so a scene carrying RenderOpacity
+    # fades (a fade = the GAP between two opposite .visibility keys) came back
+    # with keys inserted inside the gap. The whole-scene pass must leave
+    # visibility alone; the inherited-vis bake is a SECOND, scoped pass.
+    check(
+        "template: whole-scene pass never enables the inherited-vis bake",
+        "bake_inherited_visibility=False" in txt
+        and "def _inherited_visibility_targets" in txt
+        and "objects=vis_targets" in txt,
+    )
+    import ast as _ast
+
+    # The scoped bake is the ONLY consumer of `vis_targets`, but
+    # `_collect_baked_visibility` also folds in the AUTHORED curves the bake
+    # deliberately refuses to touch -- and those are carried by nothing else,
+    # since the FBX route cannot express visibility at all. So the collection
+    # must NOT sit inside the `if vis_targets:` / `if vis_only:` branch: gated
+    # there, a scene with authored fades but no unkeyed child under a keyed
+    # ancestor (the common case) shipped no visibility whatsoever. Checked
+    # structurally rather than by string, because the defect IS the nesting.
+    _bake_fn = next(
+        (
+            n
+            for n in _ast.parse(txt).body
+            if isinstance(n, _ast.FunctionDef) and n.name == '_run_smart_bake'
+        ),
+        None,
+    )
+    if _bake_fn is None:
+        check(
+            'template: visibility collected regardless of what the bake found',
+            False,
+            '_run_smart_bake missing from the template',
+        )
+    else:
+        def _calls(node):
+            return [
+                c
+                for c in _ast.walk(node)
+                if isinstance(c, _ast.Call)
+                and isinstance(c.func, _ast.Name)
+                and c.func.id == '_collect_baked_visibility'
+            ]
+
+        _all = _calls(_bake_fn)
+        # A call is GATED when it lives inside some `if`. Walking the whole
+        # function and asking 'is it in the body?' does not work -- `ast.walk`
+        # descends through the If, so the buggy nesting reads as ungated too.
+        # Subtracting the conditional calls is what actually separates them.
+        _conditional = {
+            id(c)
+            for n in _ast.walk(_bake_fn)
+            if isinstance(n, _ast.If)
+            for c in _calls(n)
+        }
+        _ungated = [c for c in _all if id(c) not in _conditional]
+        check(
+            'template: visibility collected regardless of what the bake found',
+            bool(_all) and bool(_ungated),
+            'calls={} ungated={}'.format(len(_all), len(_ungated)),
+        )
+
+        # The scoped visibility pre-pass was inserted AHEAD of the whole-scene
+        # `SmartBake(...).execute()` inside the SAME `try`, so a raise anywhere
+        # in the narrow new pass skipped the bake that carries constraints, IK,
+        # SDKs, motion paths and driven blend shapes -- the FBX shipped those
+        # unbaked while the log blamed the pre-pass. One guard per pass;
+        # structural, because the defect IS the shared `try`.
+        def _calls_named(node, name):
+            return [
+                c
+                for c in _ast.walk(node)
+                if isinstance(c, _ast.Call)
+                and isinstance(c.func, _ast.Name)
+                and c.func.id == name
+            ]
+
+        _execute_tries = [
+            t
+            for t in _ast.walk(_bake_fn)
+            if isinstance(t, _ast.Try)
+            and any(
+                isinstance(c.func, _ast.Attribute) and c.func.attr == 'execute'
+                for c in _ast.walk(t)
+                if isinstance(c, _ast.Call)
+            )
+        ]
+        _shared = [
+            t for t in _execute_tries if _calls_named(t, '_inherited_visibility_targets')
+        ]
+        check(
+            'template: the whole-scene bake is guarded apart from the vis pre-pass',
+            bool(_execute_tries) and not _shared,
+            'execute-tries={} shared={}'.format(len(_execute_tries), len(_shared)),
+        )
+
+        # The authored-curve snapshot has to be taken BEFORE the scoped pass
+        # writes any: `SmartBake` keys `.visibility` directly on its targets, so
+        # a scan run afterwards reports the bake's own keys as authored ones
+        # (and repeats the whole-scene transform walk the scoping helper just
+        # did). So `_run_smart_bake` snapshots it up front and hands it to the
+        # collector; the collector must not re-scan.
+        _collect_fn = next(
+            (
+                n
+                for n in _ast.parse(txt).body
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == '_collect_baked_visibility'
+            ),
+            None,
+        )
+        _snapshot = _calls_named(_bake_fn, '_authored_visibility_curves')
+        _bakes = [
+            c
+            for c in _ast.walk(_bake_fn)
+            if isinstance(c, _ast.Call)
+            and isinstance(c.func, _ast.Attribute)
+            and c.func.attr in ('bake', 'execute')
+        ]
+        check(
+            'template: authored visibility snapshotted BEFORE the bake writes curves',
+            len(_snapshot) == 1
+            and bool(_bakes)
+            and _snapshot[0].lineno < min(c.lineno for c in _bakes)
+            and _collect_fn is not None
+            and not _calls_named(_collect_fn, '_authored_visibility_curves'),
+            'snapshots={} bakes={}'.format(len(_snapshot), len(_bakes)),
+        )
+
+    # Behavioural: run the template's scoping helper against a stub ``cmds``
+    # (no Maya needed) -- only children whose OWN visibility is unkeyed but
+    # that sit under an animated-visibility ancestor may be baked.
+
+    _scope_fn = next(
+        (
+            n
+            for n in _ast.parse(txt).body
+            if isinstance(n, _ast.FunctionDef)
+            and n.name == "_inherited_visibility_targets"
+        ),
+        None,
+    )
+    if _scope_fn is None:
+        check(
+            "scoping helper: unkeyed children under a keyed ancestor only",
+            False,
+            "_inherited_visibility_targets missing from the template",
+        )
+    else:
+        _scope_ns = {}
+        exec(
+            compile(
+                _ast.Module(body=[_scope_fn], type_ignores=[]), "<template>", "exec"
+            ),
+            _scope_ns,
+        )
+        _scope = _scope_ns["_inherited_visibility_targets"]
+
+        class _StubCmds:
+            """Minimal ``cmds`` stand-in: a flat transform list + an animated set."""
+
+            def __init__(self, transforms, animated):
+                self._transforms, self._animated = transforms, set(animated)
+
+            def ls(self, *args, **kwargs):
+                return list(self._transforms)
+
+            def listConnections(self, plug, **kwargs):
+                return ["curve1"] if plug.rsplit(".", 1)[0] in self._animated else []
+
+        _targets = _scope(
+            _StubCmds(
+                [
+                    "|keyed_grp",
+                    "|keyed_grp|child_geo",
+                    "|keyed_grp|own_keyed_geo",
+                    "|keyed_grp|child_geo|grandchild_geo",
+                    "|free_geo",
+                ],
+                {"|keyed_grp", "|keyed_grp|own_keyed_geo"},
+            )
+        )
+        check(
+            "scoping helper: unkeyed children under a keyed ancestor only",
+            sorted(_targets)
+            == ["|keyed_grp|child_geo", "|keyed_grp|child_geo|grandchild_geo"],
+            str(sorted(_targets)),
+        )
+        _none = _scope(_StubCmds(["|a", "|a|b"], set()))
+        check(
+            "scoping helper: no animated ancestor anywhere -> nothing to bake",
+            _none == [],
+            str(_none),
+        )
     # Blender's FBX importer drops visibility animation outright (verified live:
     # even directly-keyed vis arrives as nothing) — baked visibility must travel
     # in the ONE conversion manifest's ``visibility`` section (not a second
@@ -366,8 +561,19 @@ try:
             return name in self._curves
 
         def keyframe(self, name, query=True, timeChange=False, valueChange=False):
-            times, values = self._curves[name]
+            key = getattr(self, 'authored', {}).get(name.rsplit('.', 1)[0], name)
+            times, values = self._curves[key]
             return list(times) if timeChange else list(values)
+
+        # _authored_visibility_curves sweeps the scene for transforms that
+        # already own a .visibility curve. `authored` maps such a transform to
+        # the curve key this double serves keyframe() from.
+        def ls(self, *a, **k):
+            return list(getattr(self, 'authored', {}))
+
+        def listConnections(self, plug, **k):
+            transform = plug.rsplit('.', 1)[0]
+            return ['curve'] if transform in getattr(self, 'authored', {}) else []
 
     _fake_cmds = _FakeCmds(
         {
@@ -386,12 +592,30 @@ try:
             "|grpB|hub": "cC",  # same short name, identical keys -> kept
         }
     )
-    _vis = _collect(_fake_cmds, _fake_result)
+    _vis = _collect(_fake_cmds, _fake_result, {})
     check(
         "visibility collect: ambiguous duplicate short name dropped (never one curve on both)",
         "wheel" not in _vis,
         str(_vis),
     )
+    # The bake deliberately skips objects that already own a visibility curve
+    # (re-keying them splits RenderOpacity fade ramps). They must still reach
+    # the manifest: Blender's FBX importer drops visibility outright, so the
+    # sidecar is the ONLY route, and excluding them from both dropped their
+    # animation silently.
+    _authored_cmds = _FakeCmds({"cFade": ([1.0, 11.0], [0.0, 1.0])})
+    _authored_cmds.authored = {"|fx|glow": "cFade"}
+    _vis_authored = _collect(
+        _authored_cmds,
+        SimpleNamespace(visibility_curves={}),
+        ns_exec["_authored_visibility_curves"](_authored_cmds),
+    )
+    check(
+        "visibility collect: an un-baked authored curve still reaches the manifest",
+        _vis_authored.get("glow") == [[1.0, 0.0], [11.0, 1.0]],
+        str(_vis_authored),
+    )
+
     check(
         "visibility collect: unambiguous + identical-duplicate names kept",
         _vis.get("solo") == [[5.0, 0.0]]
@@ -414,7 +638,10 @@ try:
     check("render: USD route omits SMART_BAKE (FBX-only feature)", "SMART_BAKE" not in usd)
 
     dirs = _smart_bake_syspath()
-    _holds = lambda d, pkg: os.path.isfile(os.path.join(d, pkg, "__init__.py"))
+
+    def _holds(d, pkg):
+        return os.path.isfile(os.path.join(d, pkg, "__init__.py"))
+
     check(
         "syspath: resolves parents that actually HOLD pythontk + mayatk (not namespace dirs)",
         any(_holds(d, "pythontk") for d in dirs)
@@ -1134,10 +1361,38 @@ try:
 
         with open(_bake_usd + ".manifest.json", "w") as f:
             _json.dump({"version": 2, "format": "paths", "instances": []}, f)
-        _baked2 = _BakeManifestStub().bake_scene(_bake_src, via="usd", use_cache=False)
+        # Capture the bake's cache-key inputs: the bake template calls back into
+        # the ENGINE (tagging, manifest replays), so a baked .blend depends on the
+        # engine module as much as on the template -- an engine fix must invalidate
+        # cached bakes or a linked scene keeps showing the old bug.
+        _key_files = []
+        _orig_key = ptk.CachedArtifact.__dict__["key"]  # the staticmethod object
+
+        def _capture_key(*parts, files=(), length=16):
+            _key_files.append(list(files))
+            return _orig_key.__func__(*parts, files=files, length=length)
+
+        ptk.CachedArtifact.key = staticmethod(_capture_key)
+        try:
+            _baked2 = _BakeManifestStub().bake_scene(
+                _bake_src, via="usd", use_cache=False
+            )
+        finally:
+            ptk.CachedArtifact.key = _orig_key
         check(
             "bake_scene: USD intermediate WITH sidecar bakes",
             _bake_ran.get("ran") and _baked2.endswith(".blend"),
+        )
+        from blendertk.env_utils.maya_bridge import _scene_import as _si
+
+        check(
+            "bake cache key: intermediate + template + ENGINE module (engine fix invalidates)",
+            any(
+                _si._BAKE_TEMPLATE in fs and _si._BAKE_ENGINE in fs and _bake_usd in fs
+                for fs in _key_files
+            )
+            and _si._BAKE_ENGINE.name == "_scene_import.py",
+            str(_key_files),
         )
     finally:
         from blendertk.env_utils.maya_bridge._scene_import import BAKE_SOURCE_SUFFIX
@@ -1377,6 +1632,80 @@ try:
             "name reclaim: a name still in use is never stolen",
             _other.name == "M_held.001" and _holder.name == "M_held",
             f"{_other.name} / {_holder.name}",
+        )
+
+        # ---- Maya groups arrive invisible (live user report) ------------------
+        # A Maya group draws nothing in its viewport, but its FBX null lands as a
+        # full-size PLAIN_AXES Empty. The node-type tagger (the one path every
+        # Maya->Blender route funnels through: direct import, the reference bake,
+        # mayatk's round-trip templates) shrinks a tagged group to the property's
+        # hard minimum -- invisible, yet still selectable and transformable, and
+        # with its display TYPE untouched (the send-back classification keys on
+        # it). Locators keep the importer's display: Maya draws those.
+        from blendertk.env_utils.maya_bridge._scene_import import (
+            MAYA_GROUP_EMPTY_DISPLAY_SIZE,
+        )
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _grp = _mk_obj("asset_GRP")
+        _grp_dup = _mk_obj("asset_GRP.001")  # Blender's collision rename of a twin
+        _loc = _mk_obj("snap_LOC")
+        _body = _mk_obj("body", _mk_mesh("M_body"), _grp)
+        for _o in (_grp, _grp_dup, _loc):
+            _o.empty_display_size = 1.0  # what the FBX importer hands us
+        _tag_manifest = os.path.join(tempfile.gettempdir(), "btk_grp_tag.manifest.json")
+        with open(_tag_manifest, "w") as f:
+            _json.dump(
+                {
+                    "version": 1,
+                    "transforms": {
+                        "asset_GRP": "group",
+                        "snap_LOC": "locator",
+                        "body": "group",  # a MESH is never an Empty -- must be skipped
+                    },
+                },
+                f,
+            )
+        try:
+            _tagged = MayaSceneImport._tag_maya_node_types(
+                _tag_manifest, [_grp, _grp_dup, _loc, _body]
+            )
+        finally:
+            os.remove(_tag_manifest)
+        check(
+            "group tag: Maya groups shrink to the invisible display size",
+            _tagged == 3
+            and abs(_grp.empty_display_size - MAYA_GROUP_EMPTY_DISPLAY_SIZE) < 1e-9
+            and abs(_grp_dup.empty_display_size - MAYA_GROUP_EMPTY_DISPLAY_SIZE) < 1e-9
+            and _grp["maya_node_type"] == "group",
+            f"tagged={_tagged} grp={_grp.empty_display_size} dup={_grp_dup.empty_display_size}",
+        )
+        check(
+            "group tag: locators keep the importer's display size",
+            _loc.empty_display_size == 1.0 and _loc["maya_node_type"] == "locator",
+            f"loc={_loc.empty_display_size}",
+        )
+        check(
+            "group tag: display TYPE untouched (send-back classification keys on it)",
+            _grp.empty_display_type == "PLAIN_AXES",
+            _grp.empty_display_type,
+        )
+        check(
+            "group tag: a shrunk group is size-hidden, never visibility-hidden",
+            not _grp.hide_viewport and not _grp.hide_get() and not _grp.hide_select,
+        )
+        check(
+            "group tag: a mesh named like a group is never tagged",
+            "maya_node_type" not in _body.keys(),
+        )
+        check(
+            "group tag: the constant is Blender's hard minimum (sub-pixel, still drawn)",
+            abs(
+                _grp.bl_rna.properties["empty_display_size"].hard_min
+                - MAYA_GROUP_EMPTY_DISPLAY_SIZE
+            )
+            < 1e-9,
+            str(_grp.bl_rna.properties["empty_display_size"].hard_min),
         )
 
 

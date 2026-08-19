@@ -262,10 +262,11 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
         )
         if ok:
             self._set_status(
-                f"Setup created: {self.base_obj.name} -> {self.target_obj.name}"
+                f"Setup created: {self.base_obj.name} -> {self.target_obj.name}",
+                level="success",
             )
         else:
-            self._set_status("Create Setup failed — see the log.")
+            self._set_status("Create Setup failed — see the log.", level="error")
         self._refresh_tree()
         self._update_setup_active()
 
@@ -293,7 +294,8 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
         self._set_status(
             f"Loaded existing setup on {self.base_obj.name}"
             if ok
-            else "Load From Existing failed — see the log."
+            else "Load From Existing failed — see the log.",
+            level="success" if ok else "error",
         )
         self._refresh_tree()
         self._update_setup_active()
@@ -369,7 +371,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b001(self, widget) -> None:
         """Add Tweens — dispatches by mode."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
 
         mode = self.ui.cmb000.currentText()
@@ -380,7 +384,8 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
                     weights = [float(p.strip()) for p in csv.split(",") if p.strip()]
                 except ValueError:
                     self._set_status(
-                        "Invalid CSV in Weights — expected comma-separated floats."
+                        "Invalid CSV in Weights — expected comma-separated floats.",
+                        level="warning",
                     )
                     return
             else:
@@ -403,14 +408,20 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
                 pass
 
             tweens = self.tween_creator.create_weight_based_tweens(weights, **kwargs)
-            self._set_status(f"Added {len(tweens)} weight-based tween(s).")
+            self._set_status(
+                f"Added {len(tweens)} weight-based tween(s)."
+                if tweens
+                else "No tweens added — see the log.",
+                level="success" if tweens else "error",
+            )
         else:
             frame = self.ui.s003.value()
             tween = self.tween_creator.create_frame_based_tween(frame)
             self._set_status(
                 f"Added frame-based tween at frame {frame}"
                 if tween
-                else "Frame-based tween creation failed — see the log."
+                else "Frame-based tween creation failed — see the log.",
+                level="success" if tween else "error",
             )
 
         self._refresh_tree()
@@ -422,10 +433,15 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b003(self, widget) -> None:
         """Diagnose Topology."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         ok = self.diagnose_topology_issues()
-        self._set_status("Topology OK" if ok else "Topology mismatches detected.")
+        self._set_status(
+            "Topology OK" if ok else "Topology mismatches detected.",
+            level="success" if ok else "warning",
+        )
         self._refresh_tree()
 
     def b004_init(self, widget) -> None:
@@ -449,22 +465,29 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b004(self, widget) -> None:
         """Clean up in-between meshes whose topology doesn't match the base mesh."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         self.cleanup_topology_mismatches(
             delete_mismatched=widget.option_box.menu.delete_mismatched.isChecked(),
             apply_valid_only=widget.option_box.menu.apply_valid_only.isChecked(),
         )
-        self._set_status("Cleanup complete.")
+        self._set_status("Cleanup complete.", level="success")
         self._refresh_tree()
 
     def b005(self, widget) -> None:
         """Recover Animation."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         ok = self.recover_animation()
-        self._set_status("Animation recovered." if ok else "Animation recovery failed.")
+        self._set_status(
+            "Animation recovered." if ok else "Animation recovery failed.",
+            level="success" if ok else "error",
+        )
 
     # =========================================================================
     # Export section (b006, b007, b008)
@@ -495,7 +518,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b006(self, widget) -> None:
         """Apply All Edits — bulk apply with optional flags from the option_box."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         try:
             skip = widget.option_box.menu.skip_duplicates.isChecked()
@@ -510,7 +535,10 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
         applied = sum(1 for _, s in results if s is ApplyStatus.APPLIED)
         errors = sum(1 for _, s in results if s is ApplyStatus.ERROR)
         if results:
-            self._set_status(f"Applied {applied}/{len(results)} — errors {errors}")
+            self._set_status(
+                f"Applied {applied}/{len(results)} — errors {errors}",
+                level="warning" if errors else "success",
+            )
         else:
             self._set_status("No tweens to apply.")
         self._refresh_tree()
@@ -518,11 +546,14 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b007(self, widget) -> None:
         """Remove Target Mesh."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         ok = self.remove_target_for_export()
         self._set_status(
-            "Target mesh removed." if ok else "Removal failed — see the log."
+            "Target mesh removed." if ok else "Removal failed — see the log.",
+            level="success" if ok else "error",
         )
 
     def b008_init(self, widget) -> None:
@@ -566,7 +597,9 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     def b008(self, widget) -> None:
         """Finalize the shape-key setup for export (scene cleanup, hide source)."""
         if not self._validate_setup():
-            self._set_status("Setup not complete — Create or Load first.")
+            self._set_status(
+                "Setup not complete — Create or Load first.", level="warning"
+            )
             return
         ok = self.finalize_for_export(
             cleanup_scene=widget.option_box.menu.cleanup_scene.isChecked(),
@@ -574,7 +607,10 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
             hide_target_mesh=widget.option_box.menu.hide_target_mesh.isChecked(),
             delete_inbetween_meshes=widget.option_box.menu.delete_inbetween_meshes.isChecked(),
         )
-        self._set_status("Finalized for export." if ok else "Finalize failed.")
+        self._set_status(
+            "Finalized for export." if ok else "Finalize failed.",
+            level="success" if ok else "error",
+        )
         self._refresh_tree()
 
     # =========================================================================
@@ -862,10 +898,13 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
     # Footer / status
     # =========================================================================
 
-    def _set_status(self, text: str) -> None:
+    def _set_status(self, text: str, level: str = "info") -> None:
+        """Write ``text`` to the footer, colour-coded by ``level`` (one of
+        uitk Footer's ``LEVEL_COLORS``: info/success/warning/error)."""
         try:
-            self.ui.footer.set_status(text)
-        except (AttributeError, RuntimeError):
+            self.ui.footer.setText(text, level=level)
+        except RuntimeError:
+            # Footer widget already deleted (teardown race) — log instead.
             self.logger.info(text)
 
 

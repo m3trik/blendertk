@@ -314,6 +314,28 @@ try:
     check("folder-structure filter resolves {scenes} (keeps scenes/<name>, drops loose)",
           [os.path.normcase(p) for p in kept] == [os.path.normcase(in_scenes)], str(kept))
 
+    # Delete confirmation must NAME the file(s): the row label can hide the suffix/extension,
+    # so a bare count gave no way to confirm which file was about to be removed (permanent).
+    check("delete prompt names a single file in full",
+          "hero_lod0.blend" in ReferenceManagerSlots._delete_prompt(["C:/proj/scenes/hero_lod0.blend"]))
+    _multi = ReferenceManagerSlots._delete_prompt(["C:/proj/a.blend", "C:/proj/b.blend"])
+    check("delete prompt lists every file in a multi-selection",
+          "2 file(s)" in _multi and "a.blend" in _multi and "b.blend" in _multi, _multi)
+    _cap = ReferenceManagerSlots.DELETE_PROMPT_MAX_NAMES
+    _long = ReferenceManagerSlots._delete_prompt([f"C:/proj/f{i}.blend" for i in range(_cap + 3)])
+    check("delete prompt caps the listing and folds the rest",
+          f"f{_cap}.blend" not in _long and "and 3 more" in _long, _long)
+    # The prompt is what delete_selected actually shows (declined -> nothing deleted).
+    _del_ws = os.path.join(tmp, "del_ws")
+    os.makedirs(_del_ws, exist_ok=True)
+    _victim = os.path.join(_del_ws, "victim_lod0.blend")
+    open(_victim, "w").close()
+    s, sb = make_slots("No")
+    s._selected_paths = lambda: [_victim]
+    s.delete_selected()
+    check("delete_selected shows the file name and honors 'No'",
+          os.path.exists(_victim) and any("victim_lod0.blend" in m for m in sb.messages), str(sb.messages))
+
     # --- Include Types / foreign classification (mirror of mayatk's, inverted) ----------------
     from blendertk.env_utils.maya_bridge._scene_import import (
         MayaSceneImport, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX,
