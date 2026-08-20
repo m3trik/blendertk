@@ -188,6 +188,24 @@ try:
     check("normalize(copy) leaves the path relative, not absolute",
           img4.filepath.startswith("//"), f"{img4.filepath!r}")
 
+    # 7d2. Normalize Paths / move with duplicated datablocks — two images (a `.001` twin)
+    # storing the SAME external file: the first move stages it and removes the original, so
+    # the second finds no source on disk. It must rebind to the same staged twin — before
+    # the 2026-08-20 fix it read "shared" as "missing" and stayed absolute on a deleted
+    # file (mirror of mayatk's moved_this_run rule).
+    shared_tex = write_png(os.path.join(tmp, "external", "shared_DIFF.png"))
+    img4a = bpy.data.images.load(shared_tex)
+    img4b = bpy.data.images.load(shared_tex, check_existing=False)  # the .001 twin
+    n_mv = btk.normalize_texture_paths("move", project_dir=si_dir, images=[img4a, img4b])
+    check("normalize(move) rebinds BOTH twins sharing the external path",
+          n_mv == 2
+          and img4a.filepath.startswith("//")
+          and img4b.filepath == img4a.filepath,
+          f"n={n_mv} a={img4a.filepath!r} b={img4b.filepath!r}")
+    check("and the external original was moved, not copied",
+          not os.path.exists(shared_tex)
+          and os.path.exists(os.path.join(si_dir, "shared_DIFF.png")))
+
     # 7e. Ambiguity guard — the same basename in two folders must NOT auto-resolve (mayatk skips
     # with a warning rather than binding to whichever copy the walk reached first).
     amb_dir = os.path.join(tmp, "ambiguous")

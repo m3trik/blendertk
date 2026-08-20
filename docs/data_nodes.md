@@ -26,8 +26,11 @@ renaming anything.
 
 ## Getting it into the FBX
 
-Two exporter options make the hand-off work, both defaults in the Scene
-Exporter's `_DEFAULT_FBX_OPTIONS` (and its shipped `default` preset):
+Two exporter options make the hand-off work, both on in the Scene Exporter's
+engine baseline `_DEFAULT_FBX_OPTIONS` (shipped as the `game_asset` preset, and
+what an export with no preset selected uses). The shipped `default` preset is
+Blender's own `export_scene.fbx` defaults, which have **neither** — the repair
+below is what keeps the carrier readable under it:
 
 - `use_custom_props=True` — Blender's FBX exporter drops custom properties
   unless asked (`bpy.ops.export_scene.fbx` defaults it off).
@@ -36,11 +39,12 @@ Exporter's `_DEFAULT_FBX_OPTIONS` (and its shipped `default` preset):
   is filtered out of the export. Pinned here rather than inherited from the
   bridge-oriented `FbxUtils` defaults: the carrier is a hard requirement of this task.
 
-A **user preset cannot silently defeat either option**: the write site
-(`_force_carrier_readability`) repairs both — with a warning — whenever the
-carrier is in the export set, the same "shipping the carrier and shipping what
-makes it readable are one decision" rule the bridges enforce. Pinned by
-`test/test_scene_exporter.py`.
+**No preset can silently defeat either option** — not a user's, and not the
+stock-defaults `default`: the write site (`_force_carrier_readability`) repairs
+both — with a warning — whenever the carrier is in the export set, the same
+"shipping the carrier and shipping what makes it readable are one decision" rule
+the bridges enforce. The settings report is emitted *after* that repair, so it
+discloses the values actually written. Pinned by `test/test_scene_exporter.py`.
 
 The Scene Exporter's default-on **"Export Scene Data Node"** task
 (`export_data_node`) first refreshes every known producer's channel from live

@@ -87,12 +87,21 @@ def import_fbx(cmds, mel, engine):
     The FBX plugin's import options are global and sticky, and the factory "merge" mode
     can RETARGET animation onto same-named nodes -- the engine's ``_import_fbx`` resets
     them; the fallback below repeats that reset inline for a bare mayapy.
+
+    The reset restores Maya 2025's factory "No Animation" take selector, so it must be
+    followed by a take re-select or every animCurve is dropped. Index ``-1`` resolves
+    per file at import time (last take, or none when the file has none); a FIXED index
+    aborts a takeless import. See mayatk ``FbxUtils.reset_import``.
     """
     if engine is not None:
         return engine._import_fbx(FBX_PATH)
     if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
         cmds.loadPlugin("fbxmaya")
-    for command in ("FBXResetImport", "FBXImportMode -v add"):
+    for command in (
+        "FBXResetImport",
+        "FBXImportMode -v add",
+        "FBXImportSetTake -ti -1",
+    ):
         try:
             mel.eval(command)
         except Exception:
