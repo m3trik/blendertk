@@ -67,23 +67,148 @@ try:
 
     tmp = tempfile.mkdtemp(prefix="btk_scnexp_")
 
+    # ---- store identity: the FBX tier must NOT be the window-template dir ------------------
+    # REGRESSION (2026-08-19): PRESET_NAME was "scene_exporter", which resolved the user
+    # tier to the SAME directory the panel's uitk PresetManager stores window templates
+    # in — the FBX combo listed window templates, a template named like a shipped preset
+    # shadowed it, and the two stores fought over one .active sidecar.
+    from pathlib import Path as _Path
+
+    _store = SceneExporter._preset_store()
+    check(
+        "FBX preset user tier is blendertk/fbx_presets, not the window-template dir",
+        str(_store.user_dir).replace("\\", "/").endswith("blendertk/fbx_presets"),
+        f"{_store.user_dir}",
+    )
+
+    # ---- legacy migration: FBX presets stranded in the window-template dir ----------------
+    _legacy = _Path(_PRESETS_ROOT) / "blendertk" / "scene_exporter"
+    _legacy.mkdir(parents=True, exist_ok=True)
+    (_legacy / "wintemplate.json").write_text(
+        json.dumps({"_meta": {"version": 1}, "chk001": True}), encoding="utf-8"
+    )
+    (_legacy / "stranded_fbx.json").write_text(
+        json.dumps({"bake_anim": False, "global_scale": 3.0}), encoding="utf-8"
+    )
+    (_legacy / "default.json").write_text(  # value-equal shadow of the shipped built-in
+        json.dumps(_DEFAULT_FBX_OPTIONS), encoding="utf-8"
+    )
+    (_legacy / ".active").write_text(
+        json.dumps({"name": "stranded_fbx"}), encoding="utf-8"
+    )
+    SceneExporter._legacy_fbx_presets_migrated = False  # re-arm the one-shot guard
+    _store = SceneExporter._preset_store()
+    check(
+        "migration moves a stranded FBX preset into the fbx_presets tier",
+        (_Path(_store.user_dir) / "stranded_fbx.json").is_file()
+        and not (_legacy / "stranded_fbx.json").exists(),
+    )
+    check(
+        "migration leaves window templates in place",
+        (_legacy / "wintemplate.json").is_file(),
+    )
+    check(
+        "migration drops a built-in-identical shadow instead of promoting it",
+        not (_legacy / "default.json").exists()
+        and not (_Path(_store.user_dir) / "default.json").exists(),
+    )
+    check(
+        "migration clears the cross-store .active pointer",
+        not (_legacy / ".active").exists(),
+    )
+    check(
+        "migrated preset loads through the store",
+        SceneExporter._preset_store().load("stranded_fbx")
+        == {"bake_anim": False, "global_scale": 3.0},
+    )
+
     # ---- built-in "default" preset is discoverable + matches _DEFAULT_FBX_OPTIONS ----------
     names = SceneExporter.list_fbx_presets()
-    check("list_fbx_presets() includes the shipped 'default' built-in", "default" in names, f"{names}")
+    check(
+        "list_fbx_presets() includes both shipped built-ins (default + game_asset)",
+        {"default", "game_asset"} <= set(names),
+        f"{names}",
+    )
 
     default_path = SceneExporter.fbx_preset_path("default")
     check(
         "fbx_preset_path resolves the built-in default.json",
-        bool(default_path) and os.path.isfile(default_path) and default_path.endswith("default.json"),
+        bool(default_path)
+        and os.path.isfile(default_path)
+        and default_path.endswith("default.json"),
         f"{default_path}",
     )
     with open(default_path, "r", encoding="utf-8") as fh:
         on_disk_default = json.load(fh)
+
+    # The shipped "default" preset must be Blender's OWN export_scene.fbx defaults --
+    # what the user gets from File > Export > FBX -- not this tool's opinion (which
+    # ships as "game_asset"). Pinned against the LIVE operator RNA so the file cannot
+    # drift from the running Blender, and cannot be hand-fabricated.
+    _rna = bpy.ops.export_scene.fbx.get_rna_type()
+    _live_defaults = {}
+    for _k in on_disk_default:
+        _p = _rna.properties[_k]
+        _live_defaults[_k] = (
+            sorted(_p.default_flag)
+            if (_p.type == "ENUM" and _p.is_enum_flag)
+            else _p.default
+        )
     check(
-        "shipped default.json matches _DEFAULT_FBX_OPTIONS",
-        on_disk_default == _DEFAULT_FBX_OPTIONS,
-        f"{on_disk_default} != {_DEFAULT_FBX_OPTIONS}",
+        "shipped default.json IS Blender's live export_scene.fbx defaults",
+        on_disk_default == _live_defaults,
+        f"{on_disk_default} != {_live_defaults}",
     )
+    check(
+        "default preset carries no pipeline-owned props (scope/path stay the panel's)",
+        not (
+            {"use_selection", "use_visible", "filepath", "check_existing"}
+            & set(on_disk_default)
+        ),
+        f"{sorted(on_disk_default)}",
+    )
+
+    game_asset_path = SceneExporter.fbx_preset_path("game_asset")
+    with open(game_asset_path, "r", encoding="utf-8") as fh:
+        on_disk_game_asset = json.load(fh)
+    check(
+        "shipped game_asset.json matches _DEFAULT_FBX_OPTIONS (the engine baseline)",
+        on_disk_game_asset == _DEFAULT_FBX_OPTIONS,
+        f"{on_disk_game_asset} != {_DEFAULT_FBX_OPTIONS}",
+    )
+
+    # The take-structure invariant survives a preset carrying Blender's own values:
+    # both bake_anim_* flags default True, which makes the exporter skip the
+    # scene-range take entirely (per-action, start-zeroed takes instead). Checked
+    # through the PUBLIC path -- verify_fbx_preset is what perform_export writes
+    # from and what the settings report discloses, so the guarantee has to hold
+    # there, not merely in the private helper.
+    _exp_take = SceneExporter(log_level="INFO")
+    _exp_take.load_fbx_export_preset("default")
+    _resolved_default = _exp_take.verify_fbx_preset()
+    check(
+        "the stock 'default' preset still resolves to ONE scene-range take",
+        _resolved_default["bake_anim"] is True
+        and _resolved_default["bake_anim_use_nla_strips"] is False
+        and _resolved_default["bake_anim_use_all_actions"] is False,
+        f"{_resolved_default}",
+    )
+    check(
+        "the rest of the stock preset survives the take invariant untouched",
+        all(
+            _resolved_default[k] == v
+            for k, v in on_disk_default.items()
+            if k not in ("bake_anim_use_nla_strips", "bake_anim_use_all_actions")
+        ),
+        f"{_resolved_default}",
+    )
+    _opts_off = {"bake_anim": False, "bake_anim_use_all_actions": True}
+    _exp_take._force_scene_range_take(_opts_off)
+    check(
+        "the take invariant is a no-op when animation isn't baked",
+        _opts_off["bake_anim_use_all_actions"] is True,
+    )
+    _exp_take.load_fbx_export_preset(None)
 
     # ---- save_fbx_preset seeds from _DEFAULT_FBX_OPTIONS when options=None -----------------
     default_copy_path = SceneExporter.save_fbx_preset("my_default_copy")
@@ -1009,11 +1134,19 @@ try:
         ),
     )
 
-    # ---- GLB texture delivery (glb_texture_format): stamped by perform_export, consumed
-    # LAST by _create_glb; a failure fails the deliverable; FBX-only leaves it inert;
-    # a missing toktx aborts before any file is written (mirror of mayatk's tests). --------
+    # ---- Texture File Type: ONE container dial for every texture the export ships -------
+    # Replaces the GLB-only carrier (glb_texture_format) and its redundant companion
+    # "Optimize GLB Textures" flag (the general Optimize Textures covers resolution now).
+    # Each destination clamps what it cannot carry: no scene image or FBX importer reads
+    # KTX2, and a GLB can only embed what glTF accepts. Mirror of mayatk's
+    # TestGeneralTextureFileType. BACKLOG 2026-08-12 is why the resize half exists at all:
+    # the exporter converted to GLB and stopped, shipping authored 4096-square PNGs while
+    # the pass that closes the gap was already wired into the WebXR preview.
     import pythontk as ptk
     from unittest import mock
+    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
+        SceneExporterSlots as _Slots,
+    )
 
     def _fake_convert(src, **kw):
         p = os.path.splitext(src)[0] + ".glb"
@@ -1021,249 +1154,344 @@ try:
             fh.write(b"GLBDATA")
         return p
 
+    _tf_defs = SceneExporter().task_manager.task_definitions
+    check(
+        "texture_file_type is a Textures-group dial, never a dispatched task",
+        _tf_defs.get("texture_file_type", {}).get("group") == "Textures"
+        and _tf_defs["texture_file_type"]["widget_type"] == "ComboBox"
+        and "texture_file_type" not in SceneExporter().task_manager.TASK_ORDER,
+        f"{_tf_defs.get('texture_file_type')}",
+    )
+    check(
+        "the redundant Optimize GLB Textures row is gone",
+        "glb_optimize_textures" not in _tf_defs,
+    )
+    _tf_options = list(SceneExporter().task_manager._texture_file_type_options.items())
+    check(
+        "Original is index 0 and falsy (templates persist combos by index)",
+        _tf_options[0][0] == "Original" and not _tf_options[0][1],
+        f"{_tf_options[:2]}",
+    )
+    check(
+        "KTX2 is offered (a GLB can carry it even though the scene cannot)",
+        "ktx2" in dict(_tf_options).values(),
+    )
+    check(
+        "texture template moved to the Tasks combo as convert_textures (cmb005)",
+        _tf_defs.get("convert_textures", {}).get("object_name") == "cmb005"
+        and _tf_defs["convert_textures"].get("group") == "Textures"
+        and _tf_defs["convert_textures"].get("panel") != "settings",
+        f"{_tf_defs.get('convert_textures', {}).get('object_name')}",
+    )
+    check(
+        "the Settings combo has no Textures section (the whole texture block "
+        "lives in the Tasks combo, gate row first)",
+        "Textures" not in dict(_Slots._SETTINGS_LAYOUT)
+        and [k for k in _tf_defs if _tf_defs[k].get("group") == "Textures"]
+        == [
+            "texture_write_back",
+            "convert_textures",
+            "optimize_textures",
+            "texture_file_type",
+        ],
+        f"{list(dict(_Slots._SETTINGS_LAYOUT))}",
+    )
+
+    # The manager's class-shared logger never reaches the panel's txt003 sink
+    # (setup_logging_redirect wires the SLOTS logger only), so cmb007_init
+    # hands it the slots logger BEFORE wire_combo -- whose active-preset
+    # restore is exactly the load that emits the schema-drift "preset doesn't
+    # cover N new panel settings" warning. Mirror of mayatk's
+    # test_preset_manager_adopts_the_panel_logger.
+    _events = []
+
+    class _PresetMgrStub:
+        def use_logger(self, logger):
+            _events.append(("use_logger", logger))
+
+        def setup(self, **kw):
+            _events.append(("setup", None))
+
+        def exclude(self, *names):
+            _events.append(("exclude", names))
+
+        def wire_combo(self, widget, placeholder=None):
+            _events.append(("wire_combo", widget))
+
+    class _UIStub:
+        presets = _PresetMgrStub()
+
+    _sl = _Slots.__new__(_Slots)
+    _sl.ui = _UIStub()
+    _sl.cmb007_init(object())
+    _kinds = [k for k, _ in _events]
+    check(
+        "cmb007_init adopts the panel logger on the preset manager before wire_combo",
+        "use_logger" in _kinds
+        and _kinds.index("use_logger") < _kinds.index("wire_combo")
+        and _events[_kinds.index("use_logger")][1] is _Slots.logger,
+        f"{_kinds}",
+    )
+
+    # -- the GLB half: both dials resolve through _glb_texture_params ---------------------
+    _tm = SceneExporter().task_manager
+
+    def _glb_params(file_type=None, optimize=False, max_size=None, template=None):
+        _tm._texture_file_type = file_type
+        _tm._optimize_textures_enabled = optimize
+        _tm._texture_max_size = max_size
+        _tm._texture_template = template
+        return _tm._glb_texture_params()
+
+    check(
+        "neither dial set = no GLB texture pass at all (byte-stable)",
+        _glb_params() is None,
+    )
+    _p = _glb_params(file_type="webp")
+    check(
+        "file type alone is container-only (Optimize Textures off = no resample)",
+        _p == {"image_format": "WEBP", "max_size": 0},
+        f"{_p}",
+    )
+    _p = _glb_params(optimize=True, max_size=2048)
+    check(
+        "optimize alone caps resolution in the lossless glTF-core container",
+        _p == {"image_format": "PNG", "max_size": 2048},
+        f"{_p}",
+    )
+    _p = _glb_params(file_type="webp", optimize=True, max_size=1024)
+    check(
+        "the GLB honors the general Max Texture Size dial (ONE size policy)",
+        _p == {"image_format": "WEBP", "max_size": 1024},
+        f"{_p}",
+    )
+    _p = _glb_params(file_type="tga", optimize=False)
+    check(
+        "a container glTF cannot embed falls back to PNG for the GLB",
+        _p == {"image_format": "PNG", "max_size": 0},
+        f"{_p}",
+    )
+
+    # REGRESSION: the dial's value is a file EXTENSION, but optimize_glb_textures
+    # passes image_format straight to Pillow and builds the glTF mime as
+    # image/<lowercased>. "JPG" raises KeyError in Pillow, and would be an invalid
+    # glTF mime if it didn't.
+    check(
+        "jpg/jpeg reach the encoder as the JPEG format id",
+        _glb_params(file_type="jpg")["image_format"] == "JPEG"
+        and _glb_params(file_type="jpeg")["image_format"] == "JPEG",
+        f"{_glb_params(file_type='jpg')}",
+    )
+
+    # -- the scene half: _resolved_output_type ------------------------------------------
+    _tm._texture_file_type = "tga"
+    check(
+        "a chosen container outranks the template's per-map spec",
+        _tm._resolved_output_type("C:/tex/rock_Base_color.png", "glTF 2.0") == "tga",
+    )
+    _tm._texture_file_type = "ktx2"
+    check(
+        "a delivery-only container never reaches a scene image (source kept)",
+        _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) == "png",
+    )
+    _tm._texture_file_type = None
+    check(
+        "Original defers to the template",
+        _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) is None,
+    )
+
+    # -- parse + stamp -------------------------------------------------------------------
+    exp_tf = SceneExporter(log_level="DEBUG")
+    tf_dir = os.path.join(tmp, "texture_file_type")
+    os.makedirs(tf_dir, exist_ok=True)
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+
+    result = exp_tf.perform_export(
+        objects=[bpy.context.object],
+        export_dir=tf_dir,
+        tasks={"output_format": "glb", "texture_file_type": "pngg"},
+    )
+    check(
+        "an unknown texture_file_type aborts loudly at parse (config error)",
+        result is False and os.listdir(tf_dir) == [],
+        f"result={result}, dir={os.listdir(tf_dir)}",
+    )
+
+    exp_ktx = SceneExporter(log_level="DEBUG")
+    with mock.patch.object(
+        ptk.ImgUtils,
+        "resolve_ktx2_encoder",
+        side_effect=AssertionError("gate must not run without a GLB"),
+    ):
+        exp_ktx.perform_export(
+            objects=[bpy.context.object],
+            export_dir=tf_dir,
+            tasks={"output_format": "fbx", "texture_file_type": "ktx2"},
+        )
+    check(
+        "KTX2 is inert (and ungated) for FBX-only output — it ships only in a GLB",
+        exp_ktx.task_manager._texture_file_type is None,
+        f"{exp_ktx.task_manager._texture_file_type!r}",
+    )
+
+    gate_dir = os.path.join(tmp, "ktx2_gate")
+    os.makedirs(gate_dir, exist_ok=True)
+    exp_gate = SceneExporter(log_level="DEBUG")
+    with mock.patch.object(
+        ptk.ImgUtils,
+        "resolve_ktx2_encoder",
+        side_effect=FileNotFoundError("toktx missing (test)"),
+    ):
+        gate_result = exp_gate.perform_export(
+            objects=[bpy.context.object],
+            export_dir=gate_dir,
+            tasks={"output_format": "glb", "texture_file_type": "ktx2"},
+        )
+    check(
+        "a missing toktx aborts before any file is written",
+        gate_result is False and os.listdir(gate_dir) == [],
+        f"result={gate_result}, dir={os.listdir(gate_dir)}",
+    )
+
+    legacy_dir = os.path.join(tmp, "legacy_glb_format")
+    os.makedirs(legacy_dir, exist_ok=True)
+    exp_legacy = SceneExporter(log_level="DEBUG")
     delivered = {}
 
     def _fake_optimize(path, **kw):
         delivered.update(kw, path=path)
         return {"images": 1, "bytes_before": 2e6, "bytes_after": 1e6}
 
-    exp10 = SceneExporter()
-    with mock.patch.object(
-        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
-    ), mock.patch.object(
-        ptk.MeshConvert, "optimize_glb_textures", side_effect=_fake_optimize
+    with (
+        mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert),
+        mock.patch.object(
+            ptk.MeshConvert, "optimize_glb_textures", side_effect=_fake_optimize
+        ),
     ):
-        result = exp10.perform_export(
-            export_dir=glb_dir,
-            objects=[gcube],
-            output_name="glb_delivery",
-            export_visible=True,
-            tasks={"output_format": "glb", "glb_texture_format": "WEBP"},
+        legacy_result = exp_legacy.perform_export(
+            objects=[bpy.context.object],
+            export_dir=legacy_dir,
+            tasks={
+                "output_format": "glb",
+                "glb_texture_format": "WEBP",
+                "glb_optimize_textures": True,
+            },
         )
     check(
-        "glb texture delivery runs the optimize pass container-only (max_size=0)",
-        result is True
-        and delivered.get("image_format") == "WEBP"
-        and delivered.get("max_size") == 0
-        and os.path.isfile(os.path.join(glb_dir, "glb_delivery.glb")),
-        f"result={result}, delivered={delivered}",
+        "a template saved before the unification still loads (legacy key mapped)",
+        legacy_result is True
+        and exp_legacy.task_manager._texture_file_type == "webp"
+        and delivered.get("image_format") == "WEBP",
+        f"result={legacy_result}, stamp={exp_legacy.task_manager._texture_file_type!r}, "
+        f"delivered={delivered}",
     )
 
-    # WEBP, deliberately: KTX2 would hit the real toktx gate on machines
-    # without the encoder and abort BEFORE _create_glb — passing this check
-    # for the wrong reason. WEBP has no gate, so the delivery-failure branch
-    # itself (format-agnostic) is what runs everywhere.
-    exp11 = SceneExporter()
-    with mock.patch.object(
-        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
-    ), mock.patch.object(
-        ptk.MeshConvert,
-        "optimize_glb_textures",
-        side_effect=RuntimeError("encode failed (test)"),
+    exp_both = SceneExporter(log_level="DEBUG")
+    with mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert):
+        exp_both.perform_export(
+            objects=[bpy.context.object],
+            export_dir=legacy_dir,
+            tasks={
+                "output_format": "glb",
+                "texture_file_type": "png",
+                "glb_texture_format": "WEBP",
+            },
+        )
+    check(
+        "the new key wins over the legacy one",
+        exp_both.task_manager._texture_file_type == "png",
+        f"{exp_both.task_manager._texture_file_type!r}",
+    )
+
+    # REGRESSION: run_tasks returns early on an empty task dict, so a run with
+    # nothing checked never reaches _execute_tasks_and_checks. Stamping the
+    # texture dials there let the PREVIOUS run's Optimize Textures survive and
+    # re-encode the next GLB behind the user; perform_export stamps them now.
+    exp_stale = SceneExporter(log_level="DEBUG")
+    stale_dir = os.path.join(tmp, "stale_state")
+    os.makedirs(stale_dir, exist_ok=True)
+    with mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert):
+        exp_stale.perform_export(
+            objects=[bpy.context.object],
+            export_dir=stale_dir,
+            tasks={"output_format": "glb", "optimize_textures": True},
+        )
+    first = exp_stale.task_manager._optimize_textures_enabled
+    with mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert):
+        exp_stale.perform_export(
+            objects=[bpy.context.object],
+            export_dir=stale_dir,
+            tasks={"output_format": "glb"},
+        )
+    check(
+        "a run with no tasks does not inherit the prior run's texture pass",
+        first is True
+        and exp_stale.task_manager._optimize_textures_enabled is False
+        and exp_stale.task_manager._glb_texture_params() is None,
+        f"first={first}, second={exp_stale.task_manager._optimize_textures_enabled}",
+    )
+
+    fail_dir = os.path.join(tmp, "glb_delivery_fail")
+    os.makedirs(fail_dir, exist_ok=True)
+    exp_fail = SceneExporter(log_level="DEBUG")
+    with (
+        mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert),
+        mock.patch.object(
+            ptk.MeshConvert,
+            "optimize_glb_textures",
+            side_effect=RuntimeError("encode failed (test)"),
+        ),
     ):
-        result = exp11.perform_export(
-            export_dir=glb_dir,
-            objects=[gcube],
-            output_name="glb_delivery_fail",
-            export_visible=True,
-            tasks={"output_format": "glb", "glb_texture_format": "WEBP"},
+        fail_result = exp_fail.perform_export(
+            objects=[bpy.context.object],
+            export_dir=fail_dir,
+            tasks={"output_format": "glb", "texture_file_type": "webp"},
         )
     check(
         "a failed texture delivery fails the deliverable (no silent fallback)",
-        result is False
-        and not os.path.isfile(os.path.join(glb_dir, "glb_delivery_fail.glb")),
-        f"result={result}",
+        fail_result is False,
+        f"result={fail_result}",
     )
 
-    exp12 = SceneExporter()
-    with mock.patch.object(
-        ptk.ImgUtils,
-        "resolve_ktx2_encoder",
-        side_effect=AssertionError("gate must not run for FBX-only output"),
-    ):
-        result = exp12.perform_export(
-            export_dir=glb_dir,
-            objects=[gcube],
-            output_name="fbx_only_inert",
-            export_visible=True,
-            tasks={"output_format": "fbx", "glb_texture_format": "KTX2"},
-        )
+    # ---- convert_to_relative_paths: scoped to the project; externals untouched ----------
+    # An external reference is usually deliberate (a shared library, another project's
+    # published maps), so the task must not relocate it. The copy pass that used to
+    # consolidate externals into the project textures folder was dropped 2026-08-20;
+    # MatUtils.to_project_relative already returns an out-of-project path unchanged.
+    reset_scene()
+    _rp_dir = os.path.join(tmp, "relpath_external")
+    os.makedirs(_rp_dir, exist_ok=True)
+    _ext_tex = os.path.join(_rp_dir, "wood_ext.png")
+    with open(_ext_tex, "wb") as fh:
+        fh.write(b"PNGDATA")
+
+    bpy.ops.mesh.primitive_cube_add()
+    _rp_obj = bpy.context.object
+    _rp_mat = bpy.data.materials.new("RelPathMat")
+    _rp_mat.use_nodes = True
+    _rp_img = bpy.data.images.new("wood_ext", 4, 4)
+    _rp_img.filepath = _ext_tex
+    _rp_node = _rp_mat.node_tree.nodes.new("ShaderNodeTexImage")
+    _rp_node.image = _rp_img
+    _rp_obj.data.materials.append(_rp_mat)
+
+    _rp_exp = SceneExporter(log_level="DEBUG")
+    _rp_exp.task_manager.objects = [_rp_obj]
+    _rp_exp.task_manager.convert_to_relative_paths()
+
     check(
-        "KTX2 setting is inert for FBX-only output (no gate; stamp cleared)",
-        result is True and exp12._glb_texture_format is None,
-        f"result={result}, stamp={getattr(exp12, '_glb_texture_format', 'unset')!r}",
-    )
-
-    exp_bad = SceneExporter()
-    result = exp_bad.perform_export(
-        export_dir=glb_dir,
-        objects=[gcube],
-        output_name="bad_format",
-        export_visible=True,
-        tasks={"output_format": "glb", "glb_texture_format": "PNG"},
+        "an external texture keeps its absolute path (never relocated)",
+        _rp_img.filepath == _ext_tex and os.path.isfile(_ext_tex),
+        f"filepath={_rp_img.filepath!r}",
     )
     check(
-        "an unknown glb_texture_format aborts loudly at parse (config error)",
-        result is False
-        and not os.path.exists(os.path.join(glb_dir, "bad_format.fbx"))
-        and not os.path.exists(os.path.join(glb_dir, "bad_format.glb")),
-        f"result={result}",
-    )
-
-    gate_dir = os.path.join(tmp, "ktx2_gate")
-    os.makedirs(gate_dir, exist_ok=True)
-    exp13 = SceneExporter()
-    with mock.patch.object(
-        ptk.ImgUtils,
-        "resolve_ktx2_encoder",
-        side_effect=FileNotFoundError("toktx missing (test)"),
-    ):
-        result = exp13.perform_export(
-            export_dir=gate_dir,
-            objects=[gcube],
-            output_name="ktx2_gate",
-            export_visible=True,
-            tasks={"output_format": "glb", "glb_texture_format": "KTX2"},
-        )
-    check(
-        "missing toktx aborts the export before any file is written",
-        result is False and os.listdir(gate_dir) == [],
-        f"result={result}, files={os.listdir(gate_dir)}",
-    )
-
-    # ---- Optimize GLB Textures (glb_optimize_textures): the RESOLUTION dial, orthogonal
-    # to the cmb006 CARRIER dial above and sharing its single optimize pass. Mirror of
-    # mayatk's TestGlbTextureOptimizeOption. BACKLOG 2026-08-12: the exporter converted to
-    # GLB and stopped, shipping authored 4096-square PNGs while the pass that closes the
-    # gap was already wired into the WebXR preview. Defaults OFF -- downsizing is
-    # unrecoverable from the deliverable. Added: 2026-08-17 --------------------------------
-    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
-        SceneExporterSlots as _Slots,
-    )
-
-    _opt_defs = SceneExporter().task_manager.task_definitions
-    _opt_spec = _opt_defs.get("glb_optimize_textures", {})
-    _opt_output = dict(_Slots._SETTINGS_LAYOUT)["Output"]
-    check(
-        "glb_optimize_textures: OFF-by-default settings row under the GLB carrier, "
-        "never a dispatched task",
-        _opt_spec.get("panel") == "settings"
-        and _opt_spec.get("widget_type") == "QCheckBox"
-        and _opt_spec.get("setChecked") is False
-        and "glb_optimize_textures" not in SceneExporter().task_manager.TASK_ORDER
-        and _opt_output[_opt_output.index("cmb006") + 1] == "glb_optimize_textures",
-        f"spec={_opt_spec.get('setChecked')!r}, output={_opt_output}",
-    )
-
-    def _run_optimize(name, tasks):
-        """perform_export with the conversion + pass mocked -> (result, kwargs)."""
-        seen = {}
-
-        def _capture(path, **kw):
-            seen.update(kw, path=path)
-            return {"images": 3, "bytes_before": 51.5e6, "bytes_after": 1.2e6}
-
-        exporter = SceneExporter()
-        with mock.patch.object(
-            ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
-        ), mock.patch.object(
-            ptk.MeshConvert, "optimize_glb_textures", side_effect=_capture
-        ):
-            result = exporter.perform_export(
-                export_dir=glb_dir,
-                objects=[gcube],
-                output_name=name,
-                export_visible=True,
-                tasks=tasks,
+        "and nothing was copied into the project textures folder",
+        not os.path.isfile(
+            os.path.join(
+                os.path.dirname(bpy.data.filepath or tmp), "textures", "wood_ext.png"
             )
-        return exporter, result, seen
-
-    _e, _result, _seen = _run_optimize(
-        "glb_opt_off", {"output_format": "glb", "glb_optimize_textures": False}
-    )
-    check(
-        "OFF with the Original carrier keeps today's behaviour: no pass at all",
-        _result is True and _seen == {},
-        f"result={_result}, seen={_seen}",
-    )
-
-    _e, _result, _seen = _run_optimize(
-        "glb_opt_on", {"output_format": "glb", "glb_optimize_textures": True}
-    )
-    check(
-        "ON runs the pass at the optimizer's OWN ceiling (no max_size argument -- the "
-        "WebXR preview's call shape) and keeps Original in the lossless glTF-core container",
-        _result is True
-        and "max_size" not in _seen
-        and _seen.get("image_format") == "PNG",
-        f"result={_result}, seen={_seen}",
-    )
-
-    _e, _result, _seen = _run_optimize(
-        "glb_opt_webp",
-        {
-            "output_format": "glb",
-            "glb_optimize_textures": True,
-            "glb_texture_format": "WEBP",
-        },
-    )
-    check(
-        "carrier and resolution are orthogonal and share ONE pass",
-        _result is True
-        and "max_size" not in _seen
-        and _seen.get("image_format") == "WEBP",
-        f"result={_result}, seen={_seen}",
-    )
-
-    import logging as _logging
-
-    class _OptLogHandler(_logging.Handler):
-        def __init__(self):
-            super().__init__()
-            self.messages = []
-
-        def emit(self, record):
-            self.messages.append(record.getMessage())
-
-    _opt_log = SceneExporter()
-    _opt_handler = _OptLogHandler()
-    _opt_log.logger.addHandler(_opt_handler)
-    with mock.patch.object(
-        ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert
-    ), mock.patch.object(
-        ptk.MeshConvert, "optimize_glb_textures", return_value={}
-    ):
-        # log_level, not a handler-side setLevel: perform_export's own
-        # _setup_logging resets the logger level, so anything set beforehand is
-        # overwritten and every INFO line after it would be filtered out.
-        result = _opt_log.perform_export(
-            export_dir=glb_dir,
-            objects=[gcube],
-            output_name="glb_opt_noop",
-            export_visible=True,
-            log_level="INFO",
-            tasks={"output_format": "glb", "glb_optimize_textures": True},
-        )
-    _opt_log.logger.removeHandler(_opt_handler)
-    check(
-        "a pass that replaced nothing says so (distinguishable from never running)",
-        result is True
-        and any("changed nothing" in m for m in _opt_handler.messages),
-        f"result={result}, messages={_opt_handler.messages[-3:]}",
-    )
-
-    exp_opt_inert = SceneExporter()
-    result = exp_opt_inert.perform_export(
-        export_dir=glb_dir,
-        objects=[gcube],
-        output_name="glb_opt_inert",
-        export_visible=True,
-        tasks={"output_format": "fbx", "glb_optimize_textures": True},
-    )
-    check(
-        "Optimize GLB Textures is inert for FBX-only output (stamp cleared, no error)",
-        result is True and exp_opt_inert._glb_optimize_textures is False,
-        f"result={result}, stamp={getattr(exp_opt_inert, '_glb_optimize_textures', 'unset')!r}",
+        ),
     )
 
     # ---- export funnel: unselectable objects are surfaced, never silently lost ------------
@@ -1549,29 +1777,32 @@ try:
         tb_tm.run_deferred_restores()
         check(
             "deferred restore repoints the image and deletes the temp staging",
-            tb_tex_node.image.filepath == tb_orig_fp
-            and not os.path.exists(tb_staged),
+            tb_tex_node.image.filepath == tb_orig_fp and not os.path.exists(tb_staged),
             f"filepath={tb_tex_node.image.filepath}",
         )
 
-        # Max Texture Size (mirror of mayatk): the pass's one size dial. A
-        # combo row popped by perform_export like Texture Output — OFF first
-        # (falsy), pixel ceilings, the template-budget sentinel LAST.
-        # Added: 2026-08-17
+        # Optimize Textures combined combo (mirror of mayatk, 2026-08-20):
+        # the pass switch and its ceiling are ONE ComboBox — OFF=0 first
+        # (falsy), plain True second, pixel ceilings, the template-budget
+        # sentinel LAST; the old texture_max_size row is gone (b000 decomposes
+        # the choice back into the optimize_textures + texture_max_size
+        # inputs). A fresh objectName (texture_optimize) so an old preset's
+        # bool trips the uncovered-keys warning instead of silently dropping
+        # its ceiling. Added: 2026-08-17 (as Max Texture Size); merged.
         tb_defs = tb_tm.task_definitions
-        tb_sizes = list(tb_defs["texture_max_size"]["add"].values())
-        tb_keys = list(tb_defs)
+        tb_sizes = list(tb_defs["optimize_textures"]["add"].values())
         check(
-            "texture_max_size: ComboBox row between Optimize Textures and "
-            "Texture Output; OFF=0 first, template sentinel last",
-            tb_defs["texture_max_size"]["widget_type"] == "ComboBox"
+            "optimize_textures: ONE ComboBox (texture_optimize) — OFF=0 "
+            "first, True second, template sentinel last; texture_max_size "
+            "row gone",
+            tb_defs["optimize_textures"]["widget_type"] == "ComboBox"
+            and tb_defs["optimize_textures"]["object_name"] == "texture_optimize"
+            and "texture_max_size" not in tb_defs
             and tb_sizes[0] == 0
+            and tb_sizes[1] is True
             and tb_sizes[-1] == tb_tm.TEXTURE_MAX_SIZE_TEMPLATE
-            and tb_sizes[1:-1] == [512, 1024, 2048, 4096, 8192]
-            and "texture_max_size" not in tb_tm.TASK_ORDER
-            and tb_keys.index("optimize_textures")
-            < tb_keys.index("texture_max_size")
-            < tb_keys.index("texture_write_back"),
+            and tb_sizes[2:-1] == [512, 1024, 2048, 4096, 8192]
+            and "texture_max_size" not in tb_tm.TASK_ORDER,
             f"sizes={tb_sizes}",
         )
         tb_tm._texture_max_size = tb_tm.TEXTURE_MAX_SIZE_TEMPLATE

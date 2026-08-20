@@ -61,8 +61,18 @@ def import_fbx():
     RETARGET animation onto same-named nodes already in the scene -- reset,
     then pin "add". Mirror of the pull engine's ``_import_fbx``; best-effort
     per command so a plugin build missing one can't block the import.
+
+    ``FBXResetImport`` restores the factory take selector, which on Maya 2025
+    is "No Animation" -- so the reset itself drops every animCurve unless the
+    take is re-selected. Index ``-1`` is resolved per file at import time (last
+    take, or none for a takeless file); a FIXED index aborts a takeless import
+    and empties it. See mayatk ``FbxUtils.reset_import``.
     """
-    for command in ("FBXResetImport", 'FBXImportMode -v add'):
+    for command in (
+        "FBXResetImport",
+        "FBXImportMode -v add",
+        "FBXImportSetTake -ti -1",
+    ):
         try:
             mel.eval(command)
         except Exception:

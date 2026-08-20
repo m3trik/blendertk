@@ -46,10 +46,12 @@ engine API -- see that module's docstring.
 
 import os
 import re
+import json
 import shutil
 import time
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Optional, Callable, Union, Any
 
 import pythontk as ptk
@@ -57,10 +59,15 @@ import pythontk as ptk
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
 from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
-# Built-in default FBX options (also shipped as the "default" built-in preset -- see
-# presets/default.json): embedded textures so nothing ships missing; baked animation since
+# The engine's game-asset baseline (also shipped as the "game_asset" built-in preset -- see
+# presets/game_asset.json): embedded textures so nothing ships missing; baked animation since
 # there's no bake-pipeline task in this cut to have pre-baked it. Used whenever no preset is
 # loaded, and as the seed a fresh "Add Preset" saves from when nothing is selected.
+#
+# NOT the "default" built-in preset: that one is Blender's OWN export_scene.fbx defaults,
+# generated from the operator's live RNA (presets/default.json, drift-guarded by
+# test_scene_exporter.py) -- a preset named "default" has to mean what the user gets from
+# File > Export > FBX, not this tool's opinion. Select "game_asset" for these values.
 #
 # ``use_custom_props`` + ``object_types`` are what let the shared ``data_export`` Empty's
 # metadata channels (``lightmap_metadata``, ...) ride into the FBX as user properties --
@@ -71,7 +78,10 @@ from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidec
 # silently tracking. Stored as a list (JSON presets can't hold a set); ``FbxUtils.export``
 # coerces it.
 #
-# ``bake_anim_use_nla_strips`` / ``bake_anim_use_all_actions`` are pinned OFF for
+# ``bake_anim_use_nla_strips`` / ``bake_anim_use_all_actions`` are pinned OFF here AND
+# enforced for every resolved option set by ``_force_scene_range_take`` (no preset may
+# separate "export animation" from "export it in one coherent take" -- Blender's own
+# defaults, which the "default" preset now carries verbatim, turn BOTH on) for
 # a reason that is invisible until you read ``export_fbx_bin.fbx_animations``:
 # with EITHER left at Blender's default (both are ``True``) the exporter writes
 # one FBX take *per action*, each baked over that action's own frame range and
@@ -106,8 +116,17 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
 
 class SceneExporter(ptk.LoggingMixin):
     # PresetStore identity for FBX export-option presets (see module docstring).
-    PRESET_NAME = "scene_exporter"
+    # NOT "scene_exporter": that name is taken by the panel's uitk window-template
+    # store (PresetManager preset_dir="blendertk/scene_exporter" resolves under the
+    # same user_config_root), and sharing the directory made the FBX combo list
+    # window templates, let a same-named template shadow a shipped FBX preset, and
+    # crossed the two stores' ``.active`` sidecars.
+    PRESET_NAME = "fbx_presets"
     PRESET_PACKAGE = "blendertk"
+
+    #: One-shot guard for :meth:`_migrate_legacy_preset_dir` (the legacy scan is
+    #: pure filesystem work; once per process is enough).
+    _legacy_fbx_presets_migrated = False
 
     def __init__(
         self, log_level: str = "WARNING", log_handler: Optional[object] = None
@@ -218,64 +237,62 @@ class SceneExporter(ptk.LoggingMixin):
         create_glb_enabled = output_format in ("glb", "fbx_glb")
         glb_only = output_format == "glb"
 
-        # GLB texture delivery: None (Original) keeps the conversion
-        # byte-stable; "WEBP"/"KTX2" re-encode the finished GLB's embedded
-        # textures (``MeshConvert.optimize_glb_textures``, container only —
-        # ``max_size=0``, resolution is never resampled behind the user's
-        # back). Parsed here so the KTX2 gate can fail BEFORE any scene work;
-        # stamped on the engine (mirror of mayatk, which stamps its task
-        # manager — blendertk's ``_create_glb`` lives here) for it to read.
-        glb_texture_format = (
-            str(tasks.pop("glb_texture_format", "") or "").upper() or None
-        )
-        if glb_texture_format and glb_texture_format not in ("WEBP", "KTX2"):
+        # Texture File Type: ONE container dial for every texture the export
+        # ships — the scene maps the optimization pass writes AND a GLB's
+        # embedded copies (each destination clamps what it cannot carry; see
+        # TaskManager._resolved_output_type / _glb_texture_params). Parsed here
+        # so the KTX2 gate can fail BEFORE any scene work, and stamped on the
+        # task manager (mirror of mayatk).
+        #
+        # ``glb_texture_format`` is the legacy key this replaced (it drove the
+        # GLB alone, beside a redundant "Optimize GLB Textures" flag that the
+        # general Optimize Textures now covers); an older template keeps
+        # working, with the new key winning when both are present.
+        texture_file_type = str(tasks.pop("texture_file_type", "") or "").lower()
+        legacy_glb_format = str(tasks.pop("glb_texture_format", "") or "").lower()
+        tasks.pop("glb_optimize_textures", None)  # redundant: see Optimize Textures
+        if not texture_file_type and legacy_glb_format:
+            texture_file_type = legacy_glb_format
+            self.logger.debug(
+                f"Legacy 'glb_texture_format' {legacy_glb_format!r} read as "
+                "'texture_file_type'."
+            )
+        texture_file_type = texture_file_type.lstrip(".") or None
+        known = set(TaskManager._texture_file_type_options.values()) - {None, ""}
+        if texture_file_type and texture_file_type not in known:
             # A hand-edited template / headless caller can send anything; an
             # unknown value discovered here is a config error and aborts
             # loudly — discovered at encode time it would fail per-image and
-            # ship an effectively-unencoded GLB behind warning noise.
+            # ship an effectively-unencoded texture set behind warning noise.
             self.logger.error(
-                f"Export aborted: unknown glb_texture_format "
-                f"{glb_texture_format!r} (expected 'WEBP', 'KTX2', or empty "
-                f"for Original)."
+                f"Export aborted: unknown texture_file_type "
+                f"{texture_file_type!r} (expected one of "
+                f"{', '.join(sorted(known))}, or empty for Original)."
             )
             return False
-        if glb_texture_format and not create_glb_enabled:
-            # A hand-edited template can pair this with FBX-only output; the
-            # setting is inert there, not an error — no GLB will exist.
-            self.logger.info(
-                f"GLB texture format {glb_texture_format!r} ignored: "
-                "output format produces no GLB."
-            )
-            glb_texture_format = None
-        if glb_texture_format == "KTX2":
-            # Encoder presence is ENVIRONMENT state, so this gate is
-            # unconditional (never a user-toggleable check row) and runs
-            # before the first scene mutation — a missing toktx fails the
-            # batch in second zero with the install URL, not after N-1
-            # objects already exported. Abort idiom, not a raise: the panel's
-            # export button reads the return value and the log.
-            try:
-                ptk.ImgUtils.resolve_ktx2_encoder(required=True)
-            except FileNotFoundError as e:
-                self.logger.error(f"Export aborted: {e}")
-                return False
-        self._glb_texture_format = glb_texture_format
-
-        # GLB texture RESOLUTION, the axis the carrier above is not (mirror of
-        # mayatk): OFF (default) ships the authored resolution; ON hands the
-        # finished GLB to ``MeshConvert.optimize_glb_textures`` at its own
-        # delivery ceiling — the web-handoff pass, opt-in because downsizing is
-        # unrecoverable from the deliverable. Popped here so it never reaches
-        # the task pipeline as an unknown task.
-        glb_optimize_textures = bool(tasks.pop("glb_optimize_textures", False))
-        if glb_optimize_textures and not create_glb_enabled:
-            # Same shape as the carrier's guard: inert, not an error — no GLB
-            # will exist to optimize.
-            self.logger.info(
-                "Optimize GLB Textures ignored: output format produces no GLB."
-            )
-            glb_optimize_textures = False
-        self._glb_optimize_textures = glb_optimize_textures
+        if texture_file_type == "ktx2":
+            if not create_glb_enabled:
+                # KTX2 is a delivery-only container: no scene image or FBX
+                # importer reads it, so with no GLB to carry it the choice has
+                # nowhere to land. Inert, not an error.
+                self.logger.info(
+                    "Texture File Type 'KTX2' ignored: it can only ship inside "
+                    "a GLB, and the output format produces none."
+                )
+                texture_file_type = None
+            else:
+                # Encoder presence is ENVIRONMENT state, so this gate is
+                # unconditional (never a user-toggleable check row) and runs
+                # before the first scene mutation — a missing toktx fails the
+                # batch in second zero with the install URL, not after N-1
+                # objects already exported. Abort idiom, not a raise: the panel's
+                # export button reads the return value and the log.
+                try:
+                    ptk.ImgUtils.resolve_ktx2_encoder(required=True)
+                except FileNotFoundError as e:
+                    self.logger.error(f"Export aborted: {e}")
+                    return False
+        self.task_manager._texture_file_type = texture_file_type
 
         # Texture Output write-back flag: a mode read by convert_textures and
         # optimize_textures, never a dispatched task — popped here (mirror of
@@ -291,11 +308,28 @@ class SceneExporter(ptk.LoggingMixin):
         else:
             tasks.pop("optimize_textures_write_back", None)  # new key wins
         self.task_manager._texture_write_back = bool(_write_back)
-        # Max Texture Size: the optimization pass's size dial (OFF / a pixel
-        # ceiling / the template-budget sentinel), read by optimize_textures
-        # and its paired check through _texture_size_clamp — a mode like the
-        # write-back flag, never a dispatched task. Falsy = OFF. Mirrors mayatk.
+        # The optimization pass's size dial (OFF / a pixel ceiling / the
+        # template-budget sentinel), read by optimize_textures and its paired
+        # check through _texture_size_clamp — a mode like the write-back flag,
+        # never a dispatched task. In the panel it rides the Optimize Textures
+        # combo (b000 decomposes the choice into this key); headless callers
+        # pass it explicitly. Falsy = OFF. Mirrors mayatk.
         self.task_manager._texture_max_size = tasks.pop("texture_max_size", None)
+        # What the texture pass was asked for, read (not popped — they are real
+        # tasks) so the GLB half can resolve the same two dials after the
+        # pipeline has run (``TaskManager._glb_texture_params``). Stamped HERE
+        # with every other per-run mode rather than inside
+        # ``_execute_tasks_and_checks``: ``run_tasks`` returns early on an empty
+        # task dict, so a run with nothing checked would otherwise leave the
+        # PREVIOUS run's values standing and re-encode the GLB behind the user.
+        optimize_textures = tasks.get("optimize_textures")
+        self.task_manager._optimize_textures_enabled = bool(optimize_textures)
+        template = tasks.get("convert_textures")
+        self.task_manager._texture_template = (
+            template
+            if isinstance(template, str)
+            else (optimize_textures if isinstance(optimize_textures, str) else None)
+        )
 
         self.export_path = self.generate_export_path(version_format=version_format)
         self.logger.debug(f"Generated export path: {self.export_path}")
@@ -468,8 +502,12 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 fbx_write_path = self.export_path
 
-            fbx_options = self.verify_fbx_preset()
+            # Resolve -> repair -> report -> write, in that order: the settings
+            # report must describe the kwargs actually handed to the exporter,
+            # so the carrier repair (which needs the export set) runs first.
+            fbx_options = self._resolved_fbx_options()
             self._force_carrier_readability(export_objects, fbx_options)
+            self._log_fbx_options(fbx_options)
             FbxUtils.export_selection_fbx(
                 filepath=fbx_write_path,
                 objects=export_objects,
@@ -654,39 +692,20 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.error(f"GLB conversion failed: {e}")
             return None
 
-        # GLB texture pass (both dials stamped per run by ``perform_export`` —
-        # mirror of mayatk's ``TaskManager.create_glb``). Runs LAST: a KTX2 GLB
+        # GLB texture pass — the GLB's half of the panel's TWO general texture
+        # dials (Texture File Type + Optimize Textures),
+        # resolved by ``TaskManager._glb_texture_params`` (mirror of mayatk's,
+        # whose ``create_glb`` lives on the task manager). Runs LAST: a KTX2 GLB
         # is opaque to every PIL-based post-tool, so nothing may follow the
-        # encode.
-        #
-        # Two orthogonal dials, ONE ``optimize_glb_textures`` call — a second
-        # call would re-decode and re-encode every image, and a KTX2 payload
-        # cannot be re-encoded at all:
-        #
-        # * CARRIER (cmb006 → ``_glb_texture_format``) — the container. None
-        #   is "Original Textures", which writes PNG: glTF-core, lossless, no
-        #   extension added, and the pass keeps the original bytes for any
-        #   image the re-encode cannot beat. So Original stays Original.
-        # * RESOLUTION (Optimize GLB Textures → ``_glb_optimize_textures``) —
-        #   ON omits ``max_size`` entirely, taking ``optimize_glb_textures``'
-        #   own default ceiling: the exact call shape the WebXR preview uses,
-        #   so this panel authors no second resize policy (the optimizer
-        #   already exempts lightmaps, re-encodes them losslessly, and keeps
-        #   original bytes when a re-encode comes out larger). OFF pins
-        #   ``max_size=0`` — resolution is never resampled behind the user,
-        #   which is what an archival / engine-import export needs.
-        #
-        # Neither dial set = no pass at all (byte-stable conversion, the
-        # default). A failure fails the deliverable — the user asked for this
-        # pass, so shipping the untouched GLB anyway would be a silent
-        # fallback.
-        texture_format = getattr(self, "_glb_texture_format", None)
-        optimize = bool(getattr(self, "_glb_optimize_textures", False))
-        if texture_format or optimize:
-            carrier = texture_format or "PNG"
-            params = {"image_format": carrier}
-            if not optimize:
-                params["max_size"] = 0
+        # encode. ONE ``optimize_glb_textures`` call — a second would re-decode
+        # and re-encode every image, and a KTX2 payload cannot be re-encoded at
+        # all. ``None`` = no pass at all (byte-stable conversion). A failure
+        # fails the deliverable — the user asked for this pass, so shipping the
+        # untouched GLB anyway would be a silent fallback.
+        params = self.task_manager._glb_texture_params()
+        if params is not None:
+            carrier = params["image_format"]
+            optimize = params.get("max_size") != 0
             try:
                 summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
             except Exception as e:  # noqa: BLE001 — deliverable must not lie
@@ -901,9 +920,86 @@ class SceneExporter(ptk.LoggingMixin):
         """Two-tier store for FBX export-option presets: shipped ``presets/`` (built-in,
         read-only) + a writable user tier under ``user_config_root()``."""
         builtin_dir = os.path.join(os.path.dirname(__file__), "presets")
-        return ptk.PresetStore(
+        store = ptk.PresetStore(
             cls.PRESET_NAME, package=cls.PRESET_PACKAGE, builtin_dir=builtin_dir
         )
+        cls._migrate_legacy_preset_dir(store)
+        return store
+
+    @classmethod
+    def _migrate_legacy_preset_dir(cls, store: ptk.PresetStore) -> None:
+        """One-time move of FBX presets out of the window-template directory.
+
+        ``PRESET_NAME`` used to be ``"scene_exporter"``, which resolved the user
+        tier to the SAME directory the panel's uitk ``PresetManager`` keeps its
+        window templates in. This relocates any stranded FBX kwarg dicts to the
+        new ``fbx_presets`` tier and leaves the window templates untouched:
+
+        * a JSON **with** a ``_meta`` block is a window template — skipped;
+        * a JSON **without** one is an FBX preset — moved (unless the new tier
+          already has the name, or its payload equals ANY shipped built-in's, in
+          which case it carries no user intent — it is a copy of something we
+          ship — and promoting it would only pin a stale shadow of that built-in
+          when its shipped values later change; deleted instead);
+        * the shared ``.active`` sidecar is removed when it names a preset this
+          migration took away (it belonged to the FBX store's combo, and the
+          template combo would otherwise restore an FBX preset name as the
+          "active template").
+        """
+        if cls._legacy_fbx_presets_migrated:
+            return
+        cls._legacy_fbx_presets_migrated = True
+        legacy = (
+            Path(ptk.UserConfig.user_config_root())
+            / cls.PRESET_PACKAGE
+            / "scene_exporter"
+        )
+        log = logging.getLogger(__name__)
+        try:
+            if not legacy.is_dir():
+                return
+            # Read the shipped payloads ONCE: the "is this just a copy of something
+            # we ship?" test is by CONTENT, not by name — a stale ``default.json``
+            # written when the built-in of that name held different values is still
+            # a copy of a shipped preset (today's ``game_asset``), and promoting it
+            # would shadow the built-in forever.
+            builtin_payloads = []
+            builtin_dir = Path(store.builtin_dir) if store.builtin_dir else None
+            if builtin_dir is not None and builtin_dir.is_dir():
+                for bf in builtin_dir.glob(f"*{store.ext}"):
+                    try:
+                        builtin_payloads.append(
+                            json.loads(bf.read_text(encoding="utf-8"))
+                        )
+                    except (ValueError, OSError):
+                        continue
+            for f in legacy.glob(f"*{store.ext}"):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                except (ValueError, OSError):
+                    continue
+                if not isinstance(data, dict) or "_meta" in data:
+                    continue  # window template (or not ours) — leave in place
+                target = Path(store.user_dir) / f.name
+                if target.exists():
+                    f.unlink()  # already migrated on a previous run
+                elif data in builtin_payloads:
+                    f.unlink()  # a copy of a shipped built-in — no user intent
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    f.replace(target)
+                    log.info(f"Migrated legacy FBX preset: {f.name}")
+            active = legacy / ".active"
+            if active.is_file():
+                try:
+                    name = json.loads(active.read_text(encoding="utf-8")).get("name")
+                except (ValueError, OSError, AttributeError):
+                    name = None
+                if name and not (legacy / f"{name}{store.ext}").exists():
+                    active.unlink()
+                    log.info(f"Cleared cross-store .active pointer ({name!r}).")
+        except OSError as e:
+            log.warning(f"Legacy FBX preset migration incomplete: {e}")
 
     @classmethod
     def list_fbx_presets(cls) -> List[str]:
@@ -979,13 +1075,20 @@ class SceneExporter(ptk.LoggingMixin):
 
     def _resolved_fbx_options(self) -> dict:
         """The FBX export kwargs the next write will use — the active preset's options
-        merged over the built-in defaults. The single home of that merge, shared by
-        :meth:`verify_fbx_preset` (which logs it) and :meth:`perform_export`'s
-        media-selfcontained probe."""
-        return {
+        merged over the built-in defaults, with the scene-range-take invariant applied.
+        The single home of that merge, shared by :meth:`verify_fbx_preset` (which logs
+        it) and :meth:`perform_export`'s media-selfcontained probe.
+
+        The invariant is applied HERE rather than at the write so every consumer — the
+        settings report included — sees what is actually written; a repair applied after
+        the report would make that report lie about the very values it exists to
+        disclose."""
+        options = {
             **_DEFAULT_FBX_OPTIONS,
             **(getattr(self, "_fbx_preset_options", None) or {}),
         }
+        self._force_scene_range_take(options)
+        return options
 
     def _force_carrier_readability(self, export_objects, fbx_options: dict) -> None:
         """When the ``data_export`` carrier is in the export set, force the two exporter
@@ -1017,12 +1120,62 @@ class SceneExporter(ptk.LoggingMixin):
                 "carrier — forced " + ", ".join(repaired) + "."
             )
 
+    def _force_scene_range_take(self, fbx_options: dict) -> None:
+        """Force the ONE scene-range animation take this exporter's contract rests on.
+
+        With ``bake_anim_use_nla_strips`` or ``bake_anim_use_all_actions`` left at
+        Blender's own default (both ``True``), ``export_fbx_bin.fbx_animations``
+        writes one take *per action*, each start-zeroed, and **skips the
+        scene-range take entirely** — so ``set_bake_animation_range`` cannot affect
+        the file and independently-authored curves (a mesh's action vs.
+        EmissiveGroups' staged weight proxies) land in separate takes, silently
+        time-misaligned in the engine. One scene-range take is also what mayatk's
+        FBX path produces, so it is the parity-correct shape; per-shot takes are the
+        opt-in job of ``apply_declared_takes``, never an accident of the defaults.
+
+        Same rule as :meth:`_force_carrier_readability`: this is a pipeline-owned
+        property, so no preset may separate "export animation" from "export it in
+        one coherent take" — including the stock-defaults ``default`` preset and any
+        preset a user saves from Blender's own exporter. Mutates *fbx_options* in
+        place; no-op when animation isn't being baked.
+
+        DEBUG, not WARNING, precisely because the shipped ``default`` preset carries
+        Blender's own values: this fires on every animated export under it, and the
+        settings report already discloses the enforced values (the repair runs inside
+        :meth:`_resolved_fbx_options`, before anything reads them)."""
+        if not fbx_options.get("bake_anim"):
+            return
+        repaired = [
+            key
+            for key in ("bake_anim_use_nla_strips", "bake_anim_use_all_actions")
+            if fbx_options.get(key)
+        ]
+        for key in repaired:
+            fbx_options[key] = False
+        if repaired:
+            self.logger.debug(
+                "Forced one scene-range animation take: "
+                + ", ".join(f"{k}=False" for k in repaired)
+                + "."
+            )
+
     def verify_fbx_preset(self) -> dict:
         """Return (and log) the FBX export kwargs the next :meth:`perform_export` call will
         use -- the active preset's options merged over the built-in defaults, or the
         defaults alone when no preset is loaded. Mirrors mayatk's ``verify_fbx_preset``,
         which logs Maya's live global FBX-exporter settings the same way."""
         options = self._resolved_fbx_options()
+        self._log_fbx_options(options)
+        return options
+
+    def _log_fbx_options(self, options: dict) -> None:
+        """Report the FBX export settings the write will use.
+
+        Split from :meth:`verify_fbx_preset` so ``perform_export`` can report AFTER
+        :meth:`_force_carrier_readability` has run — that repair depends on the export
+        set, so it cannot live in the merge, and reporting before it would disclose
+        values the write then contradicts.
+        """
         # ONE grouped record, mirroring the Maya twin: every log record is its
         # own paragraph in the output panel, so a line per option rendered
         # this dump as ~25 blank-line-separated sections.
@@ -1031,7 +1184,6 @@ class SceneExporter(ptk.LoggingMixin):
                 "FBX Export Settings",
                 [f"{k:<34}: {v}" for k, v in sorted(options.items())],
             )
-        return options
 
 
 # -----------------------------------------------------------------------------

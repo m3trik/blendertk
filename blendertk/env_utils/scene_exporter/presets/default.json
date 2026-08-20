@@ -1,11 +1,18 @@
 {
-    "mesh_smooth_type": "FACE",
-    "use_tspace": true,
-    "embed_textures": true,
-    "path_mode": "COPY",
+    "mesh_smooth_type": "OFF",
+    "use_tspace": false,
+    "embed_textures": false,
+    "path_mode": "AUTO",
     "bake_anim": true,
-    "bake_anim_use_nla_strips": false,
-    "bake_anim_use_all_actions": false,
-    "use_custom_props": true,
-    "object_types": ["EMPTY", "ARMATURE", "MESH"]
+    "bake_anim_use_nla_strips": true,
+    "bake_anim_use_all_actions": true,
+    "use_custom_props": false,
+    "object_types": [
+        "ARMATURE",
+        "CAMERA",
+        "EMPTY",
+        "LIGHT",
+        "MESH",
+        "OTHER"
+    ]
 }

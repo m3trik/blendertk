@@ -116,6 +116,14 @@ try:
         "import template: deterministic import (reset + add mode, new-node diff)",
         "FBXResetImport" in import_txt and "returnNewNodes=True" in import_txt,
     )
+    # FBXResetImport restores Maya 2025's factory "No Animation" take selector, so a
+    # reset with no take re-select drops every animCurve (probed: 0 curves before,
+    # 1 after). Index -1 resolves per file; a FIXED index aborts a takeless import
+    # and returns no nodes at all -- pin the exact form, not just the command name.
+    check(
+        "import template: reset re-selects the take (-ti -1, never a fixed index)",
+        "FBXImportSetTake -ti -1" in import_txt,
+    )
 
     # ---- MEL command builder (Qt-free) --------------------------------------
     mel = MayaBridge._build_mel_command(r"C:\tmp\btk_to_maya.py")
@@ -152,6 +160,10 @@ try:
         "save template: same paired-engine repairs as the interactive import",
         "_apply_texture_manifest" in save_txt
         and "restore_empty_groups" in save_txt,
+    )
+    check(
+        "save template: bare-mayapy fallback re-selects the take (see import twin)",
+        "FBXImportSetTake -ti -1" in save_txt,
     )
     check(
         "save template: .mb only when asked for, else mayaAscii",

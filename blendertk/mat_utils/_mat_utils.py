@@ -1640,9 +1640,24 @@ class MatUtils(_MatUtilsInternal):
                 if not project_dir:
                     return 0
             os.makedirs(project_dir, exist_ok=True)
+            # Source path -> repathed form, MOVE mode. Blender dedupes a shared
+            # file into ONE datablock, but duplicated datablocks (`.001` twins)
+            # pointing at the same file are routine — after the first twin's
+            # move the source is gone, and re-checking the disk would misread
+            # "shared" as "missing" and strand the second twin absolute on a
+            # deleted file (mirror of mayatk's moved_this_run rule).
+            moved_this_run = {}
             for img in images:
                 ap = _MatUtilsInternal._abspath(img)
                 if not (ap and os.path.exists(ap)):
+                    moved_rel = moved_this_run.get(os.path.normcase(ap)) if ap else None
+                    if moved_rel is not None:
+                        img.filepath = moved_rel
+                        try:
+                            img.reload()
+                        except RuntimeError:
+                            pass
+                        changed += 1
                     continue
                 if _MatUtilsInternal._is_within(ap, project_dir):
                     continue
@@ -1650,6 +1665,8 @@ class MatUtils(_MatUtilsInternal):
                 if _MatUtilsInternal._safe_relocate(ap, dst, mode) in ("skip", "error"):
                     continue  # different-size collision — don't clobber / wrong-rebind
                 img.filepath = MatUtils.to_project_relative(dst, blenddir)
+                if mode == "move":
+                    moved_this_run[os.path.normcase(ap)] = img.filepath
                 # The file moved out from under the datablock; re-read it so the buffer matches the
                 # new path (the other three relocate ops already do this).
                 try:

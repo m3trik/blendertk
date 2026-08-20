@@ -693,7 +693,8 @@ try:
                 # (b) Open on a REFERENCED, non-current file -> just open it (opening replaces the
                 # session, so the reference is discarded for free — NO explicit remove_library,
                 # which would wrongly persist if the unsaved-changes prompt were then declined).
-                _log["open"].clear(); _log["removed"].clear()
+                _log["open"].clear()
+                _log["removed"].clear()
                 rm._current_scene_path = lambda: ""
                 _fake_lib = object()
                 rm._library_for_path = lambda p: _fake_lib
@@ -707,7 +708,8 @@ try:
                     f"{_log}",
                 )
                 # (c) Reference on the CURRENT scene -> close it first, then link.
-                _log["new"] = 0; _log["linked"].clear()
+                _log["new"] = 0
+                _log["linked"].clear()
                 rm._current_scene_path = lambda: os.path.normpath(_native).lower()
                 rm._library_for_path = lambda p: None
                 rm._toggle_reference_at_row(_row, rm.COL_REF)
@@ -1330,6 +1332,89 @@ try:
             "channels exposes slots + table for compact-view check",
             False,
             "missing slots/tbl000",
+        )
+
+    # scene_exporter: the FBX Preset row (cmb000) carries its own option box
+    # (2026-08-19 — Open/Edit moved off the Settings combo's actions section).
+    # The wrap swaps the combo for its container INSIDE a WidgetComboBox row
+    # (replaceWidget), a structure nothing else covers — pin it: row intact,
+    # menu buttons registered by objectName for slot wiring, actions section
+    # gone, and the two preset stores on different dirs (the 2026-08-19
+    # window-template/FBX-store collision).
+    se_ui = sb.get_ui("scene_exporter")
+    se_ui.show()  # offscreen; drives row registration -> cmb000_init -> wrap
+    app.processEvents()
+    se_cmb000 = getattr(se_ui, "cmb000", None)
+    se_cmb008 = getattr(se_ui, "cmb008", None)
+    if se_cmb000 is not None and se_cmb008 is not None:
+        check(
+            "scene_exporter cmb000 is still a Settings row after the option-box wrap",
+            se_cmb000 in se_cmb008._widget_items.values(),
+        )
+        se_btns = sorted(
+            b.text()
+            for b in se_cmb000.option_box.menu.findChildren(QtWidgets.QPushButton)
+            if b.text()
+        )
+        check(
+            "scene_exporter cmb000 option box carries Open/Edit preset buttons",
+            "Open FBX Preset Directory" in se_btns and "Edit FBX Preset" in se_btns,
+            f"{se_btns}",
+        )
+        check(
+            "scene_exporter Settings combo carries no actions section anymore",
+            not se_cmb008.actions,
+        )
+        from blendertk.env_utils.scene_exporter._scene_exporter import SceneExporter
+
+        se_fbx = str(SceneExporter._preset_store().user_dir).replace("\\", "/")
+        se_tpl = str(se_ui.presets.preset_dir).replace("\\", "/")
+        check(
+            "scene_exporter FBX store dir is fbx_presets, distinct from the template dir",
+            se_fbx.endswith("blendertk/fbx_presets") and se_fbx != se_tpl,
+            f"fbx={se_fbx} tpl={se_tpl}",
+        )
+
+        # 2026-08-20: the window PresetManager's user-facing lines must land
+        # in the panel's Log Output. The manager warns on its class-shared
+        # logger, which setup_logging_redirect never wires, so cmb007_init
+        # adopts the panel logger (ptk.LoggingMixin.use_logger). End-to-end
+        # symptom pin: loading a preset missing one covered key must put the
+        # schema-drift warning in txt003 — console-only before the adoption.
+        import json
+        import shutil
+        import tempfile
+
+        se_mgr = se_ui.presets
+        _orig_preset_dir = se_mgr.preset_dir
+        _probe_dir = tempfile.mkdtemp(prefix="btk_uih_presets_")
+        try:
+            se_mgr.preset_dir = _probe_dir  # keep the probe off the live store
+            _probe_path = se_mgr.save("stale_probe")
+            with open(_probe_path, "r", encoding="utf-8") as fh:
+                _data = json.load(fh)
+            _covered = [k for k in _data if not k.startswith("_")]
+            del _data[_covered[0]]
+            with open(_probe_path, "w", encoding="utf-8") as fh:
+                json.dump(_data, fh)
+            se_ui.txt003.clear()
+            se_mgr.load("stale_probe")
+            app.processEvents()
+            _panel_log = se_ui.txt003.toPlainText()
+            check(
+                "preset schema-drift warning reaches the panel's txt003 log sink",
+                "doesn't cover" in _panel_log and "Re-save the preset" in _panel_log,
+                f"txt003={_panel_log[:160]!r}",
+            )
+        finally:
+            se_mgr.preset_dir = _orig_preset_dir  # a later check may read it
+            shutil.rmtree(_probe_dir, ignore_errors=True)
+        se_ui.close()
+    else:
+        check(
+            "scene_exporter exposes cmb000/cmb008 for the option-box check",
+            False,
+            "missing cmb000/cmb008",
         )
 
 except Exception as e:
