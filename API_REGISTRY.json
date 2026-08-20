@@ -8635,7 +8635,7 @@
           "kind": "function",
           "signature": "(cmds, engine, new_nodes)",
           "summary": "Restore imported Empties as the correct Maya node types (see module docstring).",
-          "line": 106,
+          "line": 115,
           "deprecated": false
         },
         {
@@ -8644,7 +8644,7 @@
           "kind": "function",
           "signature": "(engine, new_nodes)",
           "summary": "Replay the sidecar manifest through mayatk's applier (see module docstring).",
-          "line": 132,
+          "line": 141,
           "deprecated": false
         },
         {
@@ -8653,7 +8653,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "",
-          "line": 148,
+          "line": 157,
           "deprecated": false
         }
       ],
@@ -8678,7 +8678,7 @@
           "kind": "function",
           "signature": "(new_nodes)",
           "summary": "Restore imported Empties as the CORRECT Maya node types (see module docstring).",
-          "line": 126,
+          "line": 136,
           "deprecated": false
         },
         {
@@ -8687,7 +8687,7 @@
           "kind": "function",
           "signature": "(new_nodes)",
           "summary": "Replay the sidecar manifest through mayatk's applier (see module docstring).",
-          "line": 171,
+          "line": 181,
           "deprecated": false
         },
         {
@@ -8696,7 +8696,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "",
-          "line": 193,
+          "line": 203,
           "deprecated": false
         }
       ],

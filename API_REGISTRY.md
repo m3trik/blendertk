@@ -1538,9 +1538,9 @@ Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 
 - [`import_fbx(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L83) — Import the payload deterministically;
-- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L106) — Restore imported Empties as the correct Maya node types (see module docstring).
-- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L132) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L148)
+- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L115) — Restore imported Empties as the correct Maya node types (see module docstring).
+- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L141) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L157)
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
@@ -1548,9 +1548,9 @@ Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
 
 - [`import_fbx()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L56) — Import the payload deterministically;
-- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L126) — Restore imported Empties as the CORRECT Maya node types (see module docstring).
-- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L171) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L193)
+- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L136) — Restore imported Empties as the CORRECT Maya node types (see module docstring).
+- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L181) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L203)
 
 <a id="env_utils--reference_manager"></a>
 ### `env_utils/reference_manager.py`
