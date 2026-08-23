@@ -42,6 +42,24 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: blendertk
+
+      # Five suites below resolve uitk/test/conftest.py -- which owns the
+      # QSettings sandbox -- as a SIBLING of this repo, and refuse to run
+      # without it: loading real panels through Switchboard otherwise reads and
+      # writes the developer's live uitk\shared store. A pip-installed uitk
+      # ships no test/ dir, so the wheel alone can never satisfy them; before
+      # this checkout test_blender_ui_handler and test_naming_slots self-skipped
+      # (243 + 37 checks) and three panel suites collected zero. uitk is public,
+      # so no token is needed. `main` is the ref the published wheel is built
+      # from, so the sibling that ends up shadowing it on sys.path is the same
+      # code the install resolved.
+      - uses: actions/checkout@v4
+        with:
+          repository: m3trik/uitk
+          ref: main
+          path: uitk
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -50,6 +68,7 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        working-directory: blendertk
         run: |
           python -m pip install --upgrade pip
           # bpy is NOT installed - that is the point of this job. qtpy/PySide6
@@ -78,6 +97,7 @@ jobs:
 
       - name: Run the Qt-only suites
         shell: bash
+        working-directory: blendertk
         env:
           QT_QPA_PLATFORM: offscreen
           # A suite printing one glyph outside the pipe's locale codec died with
