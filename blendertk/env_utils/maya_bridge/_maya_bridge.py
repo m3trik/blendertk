@@ -48,6 +48,7 @@ _TEMPLATE_DIR = _PKG_DIR / "templates"
 # need a UI toolkit to know that materials default to on. Mirror of mayatk's.
 DEFAULTS: Dict[str, Any] = {
     "SCOPE": "selected",
+    "CARRIER": "fbx",
     "INCLUDE_MATERIALS": True,
     # GameShader's own vocabulary (standard_surface / open_pbr / stingray) -- the
     # Maya side passes it straight to that engine rather than translating.
@@ -157,6 +158,11 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
 
     spec = _SPEC
     run_spec = _RUN_SPEC
+    # Both carriers: Maya reads USD natively through mayaUsd (the receiving
+    # templates route on the payload's extension). FBX first -- the shipped
+    # default; USD is the opt-in parallel, refused for linked duplicates (the
+    # mixin's ``usd_flattens_instances`` stays False: this is a scene hand-off).
+    carriers = ("fbx", "usd")
     # ``save_as`` writes Maya's native scene format; a bare path gets ".ma" (ascii is
     # diffable, greppable, and survives a version bump -- ``.mb`` only on request).
     save_extensions = (".ma", ".mb")

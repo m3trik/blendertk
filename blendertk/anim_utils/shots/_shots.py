@@ -30,24 +30,52 @@ Divergence from mayatk (by design):
       a held/flat channel and excluded; an object with only flat channels
       contributes no segment.  Held sub-intervals *within* a moving channel are
       not split out — coarser than Maya but correct for boundary detection.
-    * **No export-view / auto-FBX-take projection.** :meth:`publish_export_view`
-      keeps the pure no-op default; the Blender FBX-take pipeline is out of this
-      phase's scope (a documented follow-up, not a silent gap).
+    * **Export-view projection targets the carrier Empty.**
+      :meth:`publish_export_view` mirrors the Maya original — the same
+      ``fbx_takes`` / ``shot_metadata`` JSON channels from the same
+      :meth:`~pythontk.ShotStore.to_export_view` pass — written as custom
+      properties on the ``data_export`` Empty (:class:`blendertk.node_utils.
+      data_nodes.DataNodes`) instead of string attrs on a Maya transform.
+      Take realization diverges too: no before-export hook exists in bpy, so
+      the Scene Exporter's ``apply_declared_takes`` task is what arms
+      ``FbxUtils`` with the declared takes (see that module's docstring).
     * **Cross-scene prefs** use the engine's zero-dep JSON store (pythontk user
-      config), not QSettings — inherited unchanged from the base.
+      config), not QSettings — inherited unchanged from the base.  The Maya
+      twin's one-time QSettings → JSON migration is N/A (Blender never had
+      QSettings prefs), as is its legacy ``shotStore`` carrier-node fold.
+    * **Framerate-change hook rides ``bpy.msgbus``.** Maya's ``timeUnitChanged``
+      scriptJob has no ``bpy.app.handlers`` analogue; the persistence backend
+      subscribes ``RenderSettings.fps`` / ``fps_base`` via ``bpy.msgbus``
+      (owner = the backend, so ``remove_callbacks`` clears it).  msgbus
+      subscriptions are dropped on file load, so the backend re-subscribes in
+      its ``SceneOpened`` handler — which also makes Maya's
+      ``MFileIO.isReadingFile()`` guard unnecessary: nothing can fire mid-load.
+      Python-side writes (``scene.render.fps = 30``) do not notify msgbus
+      (Blender only publishes RNA edits from the UI / operators); the hook is
+      public as :meth:`BlenderScenePersistence._on_time_unit_changed` for
+      callers that change the framerate from script.
+    * **Deferred flush uses ``bpy.app.timers``** in a GUI session (one
+      coalesced write per burst of mutations, mirror of ``cmds.evalDeferred``).
+      In ``--background`` the timer loop never runs, so the flush is immediate.
+    * **Export preparer hooks are static.** bpy has no before-FBX-export event;
+      ``FbxUtils._KNOWN_PRODUCERS["shots"]`` already routes every Scene
+      Exporter write through :meth:`~pythontk.ShotStore.refresh_export_view`,
+      so the base's ``_register_export_preparer`` / ``_unregister_export_preparer``
+      no-ops are the Blender twins of Maya's session-hook install/remove.
 """
 
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from pythontk import ShotDetection, ShotStore
+from pythontk import ShotStore
+
+from blendertk.anim_utils.shots._detection import Detection
+from blendertk.anim_utils._anim_utils import AnimUtils
 
 _log = logging.getLogger(__name__)
 
-#: Scene custom-property channel carrying the serialized store (rides the
-#: ``.blend``; a plain ID custom prop never serializes into an FBX export).
-ATTR_NAME = "shot_store"
+_DEFAULT_FPS = 24.0
 
 #: Object-transform animation channels (top-level object *and* pose-bone forms).
 #: A pose-bone channel data_path is e.g. ``pose.bones["Arm"].location``, so the
@@ -60,13 +88,7 @@ _TRANSFORM_CHANNELS: Tuple[str, ...] = (
     "scale",
 )
 
-__all__ = ["BlenderShotStore", "BlenderScenePersistence"]
-
-
-# ---------------------------------------------------------------------------
-# fcurve acquisition (5.1 slotted-action API)
-# ---------------------------------------------------------------------------
-
+__all__ = ["BlenderShotStore", "BlenderScenePersistence", "Detection"]
 
 # ---------------------------------------------------------------------------
 # Persistence backend
@@ -82,24 +104,38 @@ class BlenderScenePersistence:
     being a plain ID custom prop on a non-exported datablock — never leaks into
     an FBX/glTF export.
 
-    Registers a ``SceneOpened`` subscription via :class:`ScriptJobManager`
-    (mirror of mayatk's ``MayaScenePersistence`` scene jobs) so that
-    :attr:`BlenderShotStore._active` is invalidated when the user opens or
-    creates a file — without it, the previous file's store would stay active
-    and its next save would write the OLD file's shots JSON into the NEW
-    scene's ``shot_store`` property.  The manager's master handlers are
-    ``@persistent``, so the subscription survives File ▸ New/Open.
+    Mirror of mayatk's ``MayaScenePersistence`` scene jobs, registered via
+    :class:`ScriptJobManager`:
+
+    * ``SceneOpened`` → :meth:`_on_scene_changed` invalidates
+      :attr:`BlenderShotStore._active` — without it the previous file's store
+      would stay active and its next save would write the OLD file's shots
+      JSON into the NEW scene's ``shot_store`` property.
+    * ``SceneBeforeSave`` → :meth:`_on_before_save` flushes a dirty store
+      before the ``.blend`` is written (the deferred-flush timer may not have
+      fired yet).
+    * ``RenderSettings.fps`` / ``fps_base`` (``bpy.msgbus``) →
+      :meth:`_on_time_unit_changed` rescales shot timings to the new framerate.
+
+    The manager's master handlers are ``@persistent``, so the subscriptions
+    survive File ▸ New/Open; the msgbus subscription does not and is renewed
+    from :meth:`_on_scene_changed`.
     """
 
-    def __init__(self, attr_name: str = ATTR_NAME):
-        self._attr_name = attr_name
+    #: Scene custom-property channel carrying the serialized store (rides the
+    #: ``.blend``; a plain ID custom prop never serializes into an FBX export).
+    ATTR_NAME = "shot_store"
+
+    def __init__(self, attr_name: Optional[str] = None):
+        self._attr_name = attr_name or self.ATTR_NAME
         self._scene_subs_installed = False
+        self._fps_sub_installed = False
         self._install_scene_jobs()
 
     # ---- scene lifecycle subscriptions ------------------------------------
 
     def _install_scene_jobs(self) -> None:
-        """Register the persistent scene-open subscription (mirror of mayatk).
+        """Register the persistent scene subscriptions (mirror of mayatk).
 
         ``SceneOpened`` and ``NewSceneOpened`` both back onto ``load_post`` in
         Blender and the manager dispatches every event mapped to a fired
@@ -108,19 +144,50 @@ class BlenderScenePersistence:
         manager records the subscription and installs the master handler on
         the first subscribe under a real runtime.
         """
-        if self._scene_subs_installed:
-            return
         try:
             from blendertk.core_utils.script_job_manager import ScriptJobManager
         except Exception:
             return
-        ScriptJobManager.instance().subscribe(
-            "SceneOpened", self._on_scene_changed, owner=self
-        )
-        self._scene_subs_installed = True
+        mgr = ScriptJobManager.instance()
+        if not self._scene_subs_installed:
+            mgr.subscribe("SceneOpened", self._on_scene_changed, owner=self)
+            mgr.subscribe("SceneBeforeSave", self._on_before_save, owner=self)
+            self._scene_subs_installed = True
+        self._install_fps_watch()
+
+    def _install_fps_watch(self) -> None:
+        """Subscribe the framerate watch (``bpy.msgbus``; no app handler exists).
+
+        Idempotent per file session: msgbus drops every subscription on file
+        load, so :meth:`_on_scene_changed` resets the flag and calls this again.
+        """
+        if self._fps_sub_installed:
+            return
+        try:
+            import bpy
+        except ImportError:
+            return
+
+        def _notify(*_args):
+            # msgbus accepts plain functions only (a bound method raises
+            # TypeError), so the hook is reached through this closure.
+            self._on_time_unit_changed()
+
+        try:
+            for prop in ("fps", "fps_base"):
+                bpy.msgbus.subscribe_rna(
+                    key=(bpy.types.RenderSettings, prop),
+                    owner=self,
+                    args=(),
+                    notify=_notify,
+                )
+        except Exception:
+            _log.debug("shot_store: msgbus fps watch unavailable", exc_info=True)
+            return
+        self._fps_sub_installed = True
 
     def remove_callbacks(self) -> None:
-        """Tear down every SJM subscription owned by this backend.
+        """Tear down every SJM subscription + msgbus watch owned by this backend.
 
         Called by :meth:`pythontk.ShotStore.clear_active` when the backend is
         dropped — a leaked subscription would keep firing invalidations after
@@ -128,10 +195,18 @@ class BlenderScenePersistence:
         """
         try:
             from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+            ScriptJobManager.instance().unsubscribe_all(self)
         except Exception:
-            return
-        ScriptJobManager.instance().unsubscribe_all(self)
+            pass
+        try:
+            import bpy
+
+            bpy.msgbus.clear_by_owner(self)
+        except Exception:
+            pass
         self._scene_subs_installed = False
+        self._fps_sub_installed = False
 
     def _on_scene_changed(self) -> None:
         """Invalidate the cached store when a different file is loaded.
@@ -140,9 +215,34 @@ class BlenderScenePersistence:
         next ``active()`` loads the NEW file's property through this same
         backend) and fire the class-level invalidation listeners so open
         panels rebind + re-register their non-persistent ``bpy.app`` handlers.
+        The msgbus framerate watch is renewed here (file load clears it).
         """
         BlenderShotStore._active = None
         BlenderShotStore._notify_invalidated()
+        self._fps_sub_installed = False
+        self._install_fps_watch()
+
+    def _on_time_unit_changed(self, *args) -> None:
+        """Rescale shot timings when the scene framerate changes (mirror of mayatk).
+
+        No ``isReadingFile`` guard is needed: the msgbus watch is cleared at
+        the start of a file load and only re-armed after the ``SceneOpened``
+        invalidation, so the OLD scene's store can never be rescaled onto the
+        NEW scene's carrier.
+        """
+        store = BlenderShotStore._active
+        if store is None or not store.shots:
+            return
+        new_fps = _BlenderShotStoreInternal._get_scene_fps()
+        old_fps = store.scene_fps
+        if old_fps and abs(new_fps - old_fps) > 0.01:
+            store.rescale_to_fps(new_fps)
+
+    def _on_before_save(self, *args) -> None:
+        """Flush dirty store data to the scene property before the file is written."""
+        store = BlenderShotStore._active
+        if store is not None and store._dirty:
+            store.save()
 
     def _scene(self):
         try:
@@ -180,6 +280,19 @@ class _BlenderShotStoreInternal(object):
     """Internal helpers for BlenderShotStore."""
 
     @staticmethod
+    def _get_scene_fps() -> float:
+        """Effective scene framerate ``render.fps / render.fps_base``, or 24.0 outside Blender."""
+        try:
+            import bpy
+        except ImportError:
+            return _DEFAULT_FPS
+        scene = bpy.context.scene
+        if scene is None:
+            return _DEFAULT_FPS
+        base = scene.render.fps_base or 1.0
+        return float(scene.render.fps) / float(base)
+
+    @staticmethod
     def _is_transform_path(data_path: str) -> bool:
         """True if *data_path* drives an object/bone transform channel."""
         if data_path in _TRANSFORM_CHANNELS:
@@ -187,7 +300,25 @@ class _BlenderShotStoreInternal(object):
         return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
 
     @staticmethod
-    def _transform_key_times(obj, value_tol: float = 1e-6) -> List[float]:
+    def _is_ignored_path(data_path: str, ignore) -> bool:
+        """True if *data_path*'s channel leaf matches any *ignore* pattern.
+
+        *ignore* is a ``fnmatch`` pattern or an iterable of them (``"scale"``,
+        ``"rotation_*"``) — the Blender reading of Maya's attribute-pattern
+        ``ignore`` argument.  ``None`` / empty ignores nothing.
+        """
+        if not ignore:
+            return False
+        from fnmatch import fnmatchcase
+
+        patterns = [ignore] if isinstance(ignore, str) else list(ignore)
+        leaf = data_path.rsplit(".", 1)[-1]
+        return any(
+            fnmatchcase(leaf, pat) or fnmatchcase(data_path, pat) for pat in patterns
+        )
+
+    @staticmethod
+    def _transform_key_times(obj, value_tol: float = 1e-6, ignore=None) -> List[float]:
         """Sorted unique key times over *obj*'s **moving** transform fcurves.
 
         A transform channel whose values never vary (``max - min <= value_tol``
@@ -198,17 +329,54 @@ class _BlenderShotStoreInternal(object):
         for fc in BlenderShotStore.iter_action_fcurves(obj):
             if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
                 continue
-            kps = fc.keyframe_points
-            n = len(kps)
-            if n == 0:
+            if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
                 continue
-            if n >= 2:
-                vals = [kp.co[1] for kp in kps]
-                if (max(vals) - min(vals)) <= value_tol:
-                    continue  # flat/held channel — no motion
-            for kp in kps:
-                times.add(round(float(kp.co[0]), 6))
+            kt, vals = AnimUtils.key_arrays(fc)
+            if not kt:
+                continue
+            if len(kt) >= 2 and (max(vals) - min(vals)) <= value_tol:
+                continue  # flat/held channel — no motion
+            times.update(round(t, 6) for t in kt)
         return sorted(times)
+
+    @staticmethod
+    def _transform_motion_intervals(
+        obj, motion_rate: float = 1e-3, ignore=None
+    ) -> List[Tuple[float, float]]:
+        """Merged ``(start, end)`` intervals where *obj*'s transform channels move.
+
+        The Blender stand-in for Maya's ``SegmentKeys`` static-interval
+        splitting: on every transform fcurve, each consecutive key pair whose
+        per-frame rate of change ``|dv| / dt`` exceeds *motion_rate* is a moving
+        interval; held spans (baked flat keys) between them are dropped, so a
+        hold hidden inside a channel still splits the object's segment.
+        Overlapping / touching intervals across channels are merged.
+        """
+        raw: List[Tuple[float, float]] = []
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
+            if not _BlenderShotStoreInternal._is_transform_path(fc.data_path):
+                continue
+            if _BlenderShotStoreInternal._is_ignored_path(fc.data_path, ignore):
+                continue
+            kt, kv = AnimUtils.key_arrays(fc)
+            keys = [(round(t, 6), v) for t, v in zip(kt, kv)]
+            for (t0, v0), (t1, v1) in zip(keys, keys[1:]):
+                dt = t1 - t0
+                if dt <= 0:
+                    continue
+                if abs(v1 - v0) / dt > motion_rate:
+                    raw.append((t0, t1))
+        if not raw:
+            return []
+        raw.sort()
+        merged: List[Tuple[float, float]] = [raw[0]]
+        for t0, t1 in raw[1:]:
+            last0, last1 = merged[-1]
+            if t0 <= last1:
+                merged[-1] = (last0, max(last1, t1))
+            else:
+                merged.append((t0, t1))
+        return merged
 
     @staticmethod
     def _active_scene(scene=None):
@@ -232,6 +400,9 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
     loads any store saved in the current ``.blend``.
     """
 
+    #: A deferred flush is already queued on ``bpy.app.timers`` (coalescing flag).
+    _flush_pending: bool = False
+
     @classmethod
     def active(cls) -> "BlenderShotStore":
         """Return the active store, auto-installing the Blender backend once."""
@@ -248,15 +419,38 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
 
     def _scene_fps(self) -> float:
         """Effective scene framerate: ``render.fps / render.fps_base``."""
+        return _BlenderShotStoreInternal._get_scene_fps()
+
+    def _schedule_flush(self) -> None:
+        """Coalesce rapid mutations into a single deferred write (mirror of mayatk).
+
+        GUI session: one ``bpy.app.timers`` callback per burst — every
+        ``mark_dirty`` during the same event-loop turn shares it.  Headless
+        (``bpy.app.background`` — the timer loop never runs) or no ``bpy``:
+        flush immediately, exactly like the Maya store outside Maya.
+        """
         try:
             import bpy
         except ImportError:
-            return super()._scene_fps()
-        scene = bpy.context.scene
-        if scene is None:
-            return super()._scene_fps()
-        base = scene.render.fps_base or 1.0
-        return float(scene.render.fps) / float(base)
+            self._flush_dirty()
+            return
+        if bpy.app.background:
+            self._flush_dirty()
+            return
+        if self._flush_pending:
+            return
+        self._flush_pending = True
+
+        def _run():
+            self._flush_pending = False
+            self._flush_dirty()
+            return None  # one-shot
+
+        try:
+            bpy.app.timers.register(_run, first_interval=0.0)
+        except Exception:
+            self._flush_pending = False
+            self._flush_dirty()
 
     @staticmethod
     def has_animation() -> bool:
@@ -284,27 +478,24 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         return False
 
     def detect_regions(self) -> List[Dict[str, Any]]:
-        """Detect shot candidates from the scene using the store's settings.
+        """Detect shot candidates using the store's detection settings.
 
-        Dispatches exactly as the Maya store does: the selected-key filter modes
-        (``all`` / ``skip_zero`` / ``zero_as_end``) build boundaries from
-        currently-selected keys; ``auto`` clusters per-object motion segments.
-        Both paths gather plain data here and delegate the boundary math to
-        pythontk.
+        Dispatches exactly as the Maya store does: to
+        :meth:`Detection.regions_from_selected_keys` for the selected-key
+        filter modes (``all`` / ``skip_zero`` / ``zero_as_end``) or to
+        :meth:`Detection.detect_shot_regions` for ``auto``, using
+        :attr:`detection_mode` and :attr:`detection_threshold`.
+
+        Returns:
+            List of candidate dicts with ``"name"``, ``"start"``, ``"end"``,
+            and ``"objects"`` keys.
         """
         if self.detection_mode != "auto":
-            entries = BlenderShotStore.collect_selected_key_entries()
-            return ShotDetection.boundaries_from_key_entries(
-                entries,
+            return Detection.regions_from_selected_keys(
                 gap_threshold=self.detection_threshold,
                 key_filter=self.detection_mode,
             )
-        segments = BlenderShotStore.collect_transform_segments(
-            gap_threshold=self.detection_threshold
-        )
-        return ShotDetection.cluster_segments_by_gap(
-            segments, gap_threshold=self.detection_threshold
-        )
+        return Detection.detect_shot_regions(gap_threshold=self.detection_threshold)
 
     def assess(self) -> Dict[int, str]:
         """Flag shots whose stored objects no longer exist in the file.
@@ -324,6 +515,40 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
             )
             for s in self.shots
         }
+
+    # ---- export-view projection (Blender carrier) --------------------------
+
+    def publish_export_view(self, strategy: Optional[str] = None) -> Optional[str]:
+        """Project the export view onto the shared ``data_export`` carrier.
+
+        Writes the ``fbx_takes`` and ``shot_metadata`` channels as JSON custom
+        properties (mirror of the Maya store's projection — same channels, same
+        single :meth:`to_export_view` resolution pass, so the FBX take name and
+        the metadata ``clip`` join-key cannot drift).  Idempotent; regenerated
+        from the live store so it can't go stale.  An empty store **clears**
+        both channels (never creating the carrier just to hold them) — deleting
+        the last shot must not leave the previous takes riding into the next
+        export.  Returns the carrier name, or ``None`` outside Blender / when
+        a clear had nothing to do.
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return None
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        view = self.to_export_view(strategy=strategy or self.clip_name_strategy)
+        # shot_metadata is envelope-shaped ({"version": …, "shots": []}) and
+        # therefore truthy even when empty — gate both channels on the store.
+        has_shots = bool(self.shots)
+        DataNodes.set_export_json(
+            DataNodes.FBX_TAKES, view["fbx_takes"] if has_shots else None
+        )
+        return DataNodes.set_export_json(
+            DataNodes.SHOT_METADATA, view["shot_metadata"] if has_shots else None
+        )
+
+    # ---- scene acquisition (5.1 slotted-action API) -----------------------
 
     @staticmethod
     def iter_action_fcurves(obj):
@@ -358,33 +583,46 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
 
     @staticmethod
     def collect_transform_segments(
-        scene=None, gap_threshold: float = 5.0
+        scene=None,
+        gap_threshold: float = 5.0,
+        objects: Optional[List[str]] = None,
+        ignore=None,
+        motion_rate: float = 1e-3,
     ) -> List[Dict[str, Any]]:
-        """Gather per-object animation segments for auto shot detection.
+        """Gather per-object **motion** segments for auto shot detection.
 
-        For every object in *scene* with moving transform animation, its key times
-        are split into runs separated by gaps larger than *gap_threshold*; each run
-        becomes a ``{"start", "end", "obj"}`` segment.  The segments are the plain-data
-        input to :func:`pythontk.cluster_segments_by_gap`, which does the cross-object
-        clustering and ``min_duration`` filtering — this function only reaches the
-        scene; the boundary math stays pure.
+        For every object in *scene* (or only the named *objects*), the moving
+        intervals of its transform channels (:meth:`_transform_motion_intervals`
+        — key pairs whose per-frame rate exceeds *motion_rate*; *ignore*
+        channel patterns skipped) are joined into runs separated by gaps larger
+        than *gap_threshold*; each run becomes a ``{"start", "end", "obj"}``
+        segment.  The segments are the plain-data input to
+        :meth:`pythontk.ShotDetection.cluster_segments_by_gap`, which does the
+        cross-object clustering and ``min_duration`` filtering — this function
+        only reaches the scene; the boundary math stays pure.
         """
         scene = _BlenderShotStoreInternal._active_scene(scene)
         if scene is None:
             return []
+        wanted = set(objects) if objects is not None else None
         segments: List[Dict[str, Any]] = []
         for obj in scene.objects:
-            times = _BlenderShotStoreInternal._transform_key_times(obj)
-            if not times:
+            if wanted is not None and obj.name not in wanted:
                 continue
-            run_start = times[0]
-            prev = times[0]
-            for t in times[1:]:
-                if t - prev > gap_threshold:
-                    segments.append({"start": run_start, "end": prev, "obj": obj.name})
-                    run_start = t
-                prev = t
-            segments.append({"start": run_start, "end": prev, "obj": obj.name})
+            intervals = _BlenderShotStoreInternal._transform_motion_intervals(
+                obj, motion_rate=motion_rate, ignore=ignore
+            )
+            if not intervals:
+                continue
+            run_start, run_end = intervals[0]
+            for t0, t1 in intervals[1:]:
+                if t0 - run_end > gap_threshold:
+                    segments.append(
+                        {"start": run_start, "end": run_end, "obj": obj.name}
+                    )
+                    run_start = t0
+                run_end = max(run_end, t1)
+            segments.append({"start": run_start, "end": run_end, "obj": obj.name})
         return segments
 
     @staticmethod
@@ -395,7 +633,7 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         marker — mirroring Maya's ``regions_from_selected_keys`` (which takes all
         selected keys, not just transform channels, so custom trigger/marker attrs
         such as an audio cue drive the shot boundaries).  The triples feed
-        :func:`pythontk.boundaries_from_key_entries`.
+        :meth:`pythontk.ShotDetection.boundaries_from_key_entries`.
         """
         scene = _BlenderShotStoreInternal._active_scene(scene)
         if scene is None:
@@ -403,7 +641,13 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         entries: List[Tuple[float, float, str]] = []
         for obj in scene.objects:
             for fc in BlenderShotStore.iter_action_fcurves(obj):
-                for kp in fc.keyframe_points:
-                    if kp.select_control_point:
-                        entries.append((float(kp.co[0]), float(kp.co[1]), obj.name))
+                n = len(fc.keyframe_points)
+                if not n:
+                    continue
+                sel = [False] * n
+                fc.keyframe_points.foreach_get("select_control_point", sel)
+                if not any(sel):
+                    continue
+                kt, kv = AnimUtils.key_arrays(fc)
+                entries.extend((kt[i], kv[i], obj.name) for i in range(n) if sel[i])
         return entries

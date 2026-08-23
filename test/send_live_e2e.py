@@ -161,7 +161,7 @@ def shader_types(mesh):
 
 
 state = {{}}
-for leg in ("closure", "scene", "openpbr", "standard"):
+for leg in ("closure", "scene", "openpbr", "standard", "scene_usd"):
     if not os.path.isfile(os.path.join(OUT_DIR, leg + ".ma")):
         continue
     cmds.file(os.path.join(OUT_DIR, leg + ".ma").replace(chr(92), "/"),
@@ -358,6 +358,18 @@ try:
         shader_legs[leg] = want
         check(f"{leg} save_as produced a .ma", bool(result))
 
+    # Leg 5 -- the whole scene again on the USD carrier (opt-in beside FBX):
+    # same hierarchy, same node-type and texture verdicts, a different payload.
+    r_usd = bridge.save_as(
+        os.path.join(TEMP, "scene_usd.ma"), params={"CARRIER": "usd"}, timeout=900
+    )
+    check("usd-carrier save_as produced a .ma", bool(r_usd))
+    check(
+        "usd-carrier payload is a USD layer",
+        bool(r_usd) and str(r_usd.get("payload", "")).lower().endswith(".usd"),
+        str((r_usd or {}).get("payload")),
+    )
+
     if r1 and r2:
         mayapy = bridge.headless_app_path
         got = ptk.ScriptRunner.run_script_to_artifact(
@@ -403,7 +415,7 @@ try:
             str(closure["grp_sub_t"]),
         )
 
-        want = {
+        want_kinds = want = {
             "grp_root": "group", "grp_sub": "group", "loc_parent": "locator",
             "loc_marker": "locator", "stray_empty": "locator",
             "mesh_a": "mesh", "mesh_b": "mesh", "mesh_c": "mesh",
@@ -485,6 +497,43 @@ try:
                 lines.append(
                     f"     note: {want} unavailable in this Maya — fallback taken"
                 )
+
+        usd = state.get("scene_usd")
+        if usd:
+            check(
+                "usd: every node arrived as the CORRECT Maya node type (locators "
+                "CREATED -- every Empty is shapeless off a USD layer)",
+                all(usd["kinds"].get(n) == k for n, k in want_kinds.items()),
+                json.dumps(usd["kinds"]),
+            )
+            check(
+                "usd: nesting intact",
+                usd["parents"].get("mesh_a") == "grp_sub"
+                and usd["parents"].get("grp_sub") == "grp_root",
+                json.dumps(usd["parents"]),
+            )
+            check(
+                "usd: transform values survived (cm layer: scale 100 on the ROOT, "
+                "children keep their local values -- exactly the FBX route's shape)",
+                usd["grp_sub_t"]
+                and all(abs(a - b) < 1e-3
+                        for a, b in zip(usd["grp_sub_t"], (1.0, 2.0, 3.0))),
+                str(usd["grp_sub_t"]),
+            )
+            u_texs = usd["textures"]
+            u_product = next((v for k, v in u_texs.items() if "Agilent" in k), None)
+            check(
+                "usd: product-named map rescued through the manifest into the color slot",
+                u_product and any(_is_color_slot(d) for d in u_product[1]),
+                json.dumps(u_product),
+            )
+            check(
+                "usd: rebuilt materials keep their EXACT source names (native SG purged)",
+                set(usd["materials"]) == {"E2E_product_mat", "E2E_cutout_mat"},
+                json.dumps(usd["materials"]),
+            )
+        else:
+            check("usd: inspect state present", False, "scene_usd.ma not inspected")
 
     if GUI_LEG:
         run_gui_leg(bridge, ptk, ("mesh_a", "loc_parent"))

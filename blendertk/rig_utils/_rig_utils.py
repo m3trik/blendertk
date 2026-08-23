@@ -113,7 +113,6 @@ class RigUtils:
         sits on the centerline regardless of where the armature object is. *radius* (optional) sets
         each bone's ``head_radius``/``tail_radius`` — Maya's per-joint ``.radius`` (viewport display
         size, also reused as control scale)."""
-        import bpy
         from mathutils import Vector
 
         mw_inv = armature.matrix_world.inverted()
@@ -143,7 +142,6 @@ class RigUtils:
         it). ``deform`` flags it for Armature-deform (``use_deform``). Points are converted to the
         armature's local space (like :meth:`add_bone_chain`). Returns the created bone name — Blender
         uniquifies collisions, so use the return value (e.g. as the deform vertex-group name)."""
-        import bpy
         from mathutils import Vector
 
         mw_inv = armature.matrix_world.inverted()

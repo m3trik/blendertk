@@ -295,9 +295,17 @@ class XformUtils(_XformUtilsInternal):
         of ``{"translate", "rotate", "scale"}`` (unlisted channels keep their bake history for
         later calls); ``traverse`` also restores every descendant, parents first — mirror of
         ``mtk.restore_transforms(traverse=True)``. ``prefix`` selects which bake history to
-        consume (default: the user-facing freeze). Returns the objects restored."""
+        consume (default: the user-facing freeze). Returns the objects restored.
+
+        Instancing-safe: an object whose data is shared with another object is
+        SKIPPED (named on stdout) and keeps its bake history, because the restore
+        writes the datablock and every linked duplicate would move with it —
+        ``freeze_transforms`` refuses the same state. Break the link first
+        (``NodeUtils.uninstance``) to restore in place. A bake whose delta is the
+        identity writes nothing and is still consumed, so it cannot strand."""
         import bpy
         from mathutils import Matrix, Quaternion, Vector
+        from blendertk.xform_utils.matrices import Matrices
 
         bake_t, bake_r, bake_s = _XformUtilsInternal._bake_keys(prefix)
         valid_channels = {"translate", "rotate", "scale"}
@@ -347,15 +355,34 @@ class XformUtils(_XformUtilsInternal):
             if has_s:
                 scl = Vector([obj[bake_s][i] * scl[i] for i in range(3)])
             new_basis = Matrix.LocRotScale(loc, rot, scl)
+            # One delta undoes both halves of the freeze: the geometry bake, and
+            # the compensation freeze (transform_apply) folded into each child's
+            # matrix_parent_inverse to keep children in place. Invert that or
+            # children double-inherit the restored transform (child world =
+            # restored parent @ frozen compensation).
+            delta = new_basis.inverted() @ old_basis
+            # Never write a datablock shared with another object. The sibling
+            # keeps its own matrix, so undoing THIS object's freeze drags every
+            # linked duplicate's world geometry by the delta (measured: 3.84u on
+            # a linked cube pair). freeze_transforms already refuses the same
+            # state above; this is the mirror of mayatk's restore-side guard.
+            # An identity delta writes nothing, so it stays restorable -- else a
+            # bake taken at identity channels could never be consumed once the
+            # object was linked, leaving Un-Freeze enabled and silently inert.
+            if not Matrices.is_identity(delta) and _XformUtilsInternal._is_multi_user(
+                obj
+            ):
+                print(
+                    f"XformUtils.restore_transforms: skipping multi-user object "
+                    f"({obj.name}) — restoring would displace the other users of "
+                    f"its data; bake history retained. Run "
+                    f"NodeUtils.uninstance([{obj.name!r}]) first to restore in place."
+                )
+                continue
             if obj.data is not None and hasattr(obj.data, "transform"):
-                obj.data.transform(new_basis.inverted() @ old_basis)
+                obj.data.transform(delta)
                 obj.data.update()
             obj.matrix_basis = new_basis
-            # Freeze (transform_apply) folded the applied basis into each
-            # child's matrix_parent_inverse to keep children in place; invert
-            # that compensation here or children double-inherit the restored
-            # transform (child world = restored parent @ frozen compensation).
-            delta = new_basis.inverted() @ old_basis
             for child in obj.children:
                 child.matrix_parent_inverse = delta @ child.matrix_parent_inverse
             if delete_attrs:

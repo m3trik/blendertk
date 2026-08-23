@@ -254,7 +254,12 @@ class AssemblyReconstructor(_AssemblyReconstructorInternal):
         The pre-canonicalization local frame is recorded by the
         ``center_transform_on_geometry`` call below (prefix
         :data:`CANONICAL_BAKE_PREFIX`), so the re-basing stays reversible via
-        ``XformUtils.restore_transforms(obj, prefix=CANONICAL_BAKE_PREFIX)``.
+        ``XformUtils.restore_transforms(obj, prefix=CANONICAL_BAKE_PREFIX)``
+        — while the object still owns its data. Canonicalization runs BEFORE
+        the objects are instanced, so once a prototype has linked duplicates
+        that restore SKIPS it (writing the shared datablock would move every
+        duplicate); the bake is retained, and ``NodeUtils.uninstance`` first
+        makes it reversible again.
         """
         import bpy
         from mathutils import Matrix

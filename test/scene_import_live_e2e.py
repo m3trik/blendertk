@@ -55,7 +55,9 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-TEMP = os.path.join(HERE, "temp_tests")
+# Its OWN subfolder: the teardown rmtree's TEMP, and temp_tests is the shared
+# scratch dir every session repros in (wiping it once cost a day of probes).
+TEMP = os.path.join(HERE, "temp_tests", "scene_import_e2e")
 
 lines = []
 
@@ -383,8 +385,29 @@ try:
         )
     sting_u = next((o for n, o in objs_u.items() if "e2e_stingray" in n), None)
     check(
-        "USD route: stingray packed metallic wired NATIVELY (no manifest)",
+        "USD route: stingray packed metallic wired (native or manifest replay)",
         sting_u is not None and metallic_linked(sting_u),
+    )
+    # The FBX route's manifest rides the USD too (2026-08-22): mayaUsd's
+    # exporter writes no normal off a bump2d chain, so without the replay a
+    # production pull landed every material with normal=None.
+    check(
+        "USD route: e2e_stingray normal map arrived (manifest replay on top of USD)",
+        sting_u is not None and usable_images(sting_u) >= 3
+        and any(
+            n.type == "NORMAL_MAP"
+            for m in sting_u.data.materials if m and m.use_nodes
+            for n in m.node_tree.nodes
+        ),
+        f"{usable_images(sting_u) if sting_u else 0} image(s)",
+    )
+    check(
+        "USD route: materials carry their SHADER names, not the shading group's",
+        not any(
+            m.name.endswith("SG") for o in objs_u.values()
+            for m in getattr(o.data, "materials", []) if m
+        ),
+        str(sorted({m.name for o in objs_u.values() for m in getattr(o.data, "materials", []) if m})),
     )
 
     # --- instancing regression (user report 2026-08-02) ------------------------

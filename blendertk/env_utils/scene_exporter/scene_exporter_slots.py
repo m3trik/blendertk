@@ -162,13 +162,25 @@ class SceneExporterSlots(SceneExporter):
         clears any loaded preset -- exports fall back to the built-in defaults)."""
         return {"None": None, **{name: name for name in self.list_fbx_presets()}}
 
+    def _refresh_presets(self) -> None:
+        """Re-scan the FBX preset directory (the ``cmb000`` refresh button).
+
+        Mirror of mayatk's ``_refresh_presets``, minus its cache-invalidation step:
+        ``PresetStore.list()`` globs both tiers on every call, so re-running
+        :meth:`cmb000_init` -- which re-reads :attr:`presets` and restores the current
+        selection if it survived -- is the whole refresh.
+        """
+        self.ui.cmb000.init_slot()
+        self.logger.debug("Refreshed the FBX preset list.")
+
     def cmb000_init(self, widget) -> None:
         """Init FBX export-option preset combo (mirror of mayatk's ``cmb000_init`` -- see
         ``_scene_exporter.py``'s module docstring for the PresetStore-backed design).
 
         A Settings row (``cmb008``), created by :meth:`cmb008_init` and registered by
-        objectName; Open / Edit live in this row's own option box (mirror of mayatk's;
-        Blender's preset directory is fixed, so no directory-switch entries)."""
+        objectName; Open / Edit and a refresh button live in this row's own option box
+        (mirror of mayatk's; both preset directories are fixed, so neither side carries
+        directory-switch entries)."""
         if not widget.is_initialized:
             widget.restore_state = True  # Enable state restore
             widget.refresh_on_show = True  # Call this method on show
@@ -196,6 +208,19 @@ class SceneExporterSlots(SceneExporter):
                     "Open the selected preset's JSON file for hand-editing. "
                     "A built-in preset is copied to the user tier first."
                 ),
+            )
+
+            # Sorts ahead of the option-box menu button (DEFAULT_OPTION_ORDER:
+            # "action" before "menu"). ``refresh_on_show`` already re-scans when
+            # the panel opens; this is for a preset added, renamed or deleted
+            # while it is sitting open -- a JSON file dropped into (or removed
+            # from) the directory b007 opens is the common case, and the panel
+            # has no way to hear about it. An in-place content edit needs no
+            # refresh: the list is keyed on names, which such an edit leaves be.
+            widget.option_box.add_action(
+                callback=self._refresh_presets,
+                icon="refresh",
+                tooltip="Re-scan the FBX preset directory for presets added, renamed or removed since the panel opened.",
             )
 
         # Store current selection before refresh
@@ -451,7 +476,7 @@ class SceneExporterSlots(SceneExporter):
     def cmb008_init(self, widget) -> None:
         """Settings — what is written and from what (the scene-prep steps are
         Tasks). Rows come from :attr:`_SETTINGS_LAYOUT`; the FBX-preset
-        directory management lives on the ``cmb000`` row's own option box
+        management lives on the ``cmb000`` row's own option box
         (``cmb000_init``)."""
         definitions = self.task_manager.task_definitions
         rows = []
@@ -470,7 +495,7 @@ class SceneExporterSlots(SceneExporter):
         widget.add(rows, header="Settings", clear=True)
 
     def cmb004_init(self, widget) -> None:
-        """Init Output Format — FBX (default), GLB, or FBX + GLB.
+        """Init Output Format — FBX (default), GLB, FBX + GLB, or USD.
 
         A Settings row (``cmb008``) (mirror of mayatk's ``cmb004_init``). The
         container its embedded textures are written in is the general
@@ -480,7 +505,7 @@ class SceneExporterSlots(SceneExporter):
         if not widget.is_initialized:
             widget.restore_state = True
         widget.add(
-            {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb"},
+            {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb", "USD": "usd"},
             clear=True,
         )
 
@@ -670,7 +695,8 @@ class SceneExporterSlots(SceneExporter):
             "fbx": ["*.fbx"],
             "glb": ["*.glb"],
             "fbx_glb": ["*.fbx", "*.glb"],
-        }.get(self.ui.cmb004.currentData(), ["*.fbx", "*.glb"])
+            "usd": ["*.usd", "*.usda", "*.usdc"],
+        }.get(self.ui.cmb004.currentData(), ["*.fbx", "*.glb", "*.usd"])
 
         file_path = self.sb.file_dialog(
             file_types=file_types,

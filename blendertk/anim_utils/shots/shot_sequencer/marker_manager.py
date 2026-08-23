@@ -7,12 +7,30 @@ fully DCC-agnostic (it only reads the shared ``SequencerWidget``'s markers and
 writes them to the ``ShotSequencer`` model), so no Maya→Blender translation is
 needed.
 """
+
 from __future__ import annotations
 
 __all__ = ["MarkerManagerMixin"]
 
 
-class MarkerManagerMixin:
+class _MarkerManagerMixinInternal(object):
+    """Internal helpers for MarkerManagerMixin."""
+
+    @staticmethod
+    def _marker_to_dict(md) -> dict:
+        """Serialize a widget marker into the store's marker dict shape."""
+        return {
+            "time": md.time,
+            "note": md.note,
+            "color": md.color,
+            "draggable": md.draggable,
+            "style": md.style,
+            "line_style": md.line_style,
+            "opacity": md.opacity,
+        }
+
+
+class MarkerManagerMixin(_MarkerManagerMixinInternal):
     """Mixin supplying marker CRUD persistence.
 
     Expects the host class to provide ``sequencer`` (a :class:`ShotSequencer`)
@@ -29,17 +47,7 @@ class MarkerManagerMixin:
         md = widget.get_marker(marker_id)
         if md is None:
             return
-        self.sequencer.markers.append(
-            {
-                "time": md.time,
-                "note": md.note,
-                "color": md.color,
-                "draggable": md.draggable,
-                "style": md.style,
-                "line_style": md.line_style,
-                "opacity": md.opacity,
-            }
-        )
+        self.sequencer.markers.append(_MarkerManagerMixinInternal._marker_to_dict(md))
         # Markers serialize with the store — without marking it dirty the edit
         # is silently dropped on the next save cycle.
         self.sequencer.store.mark_dirty()
@@ -64,15 +72,6 @@ class MarkerManagerMixin:
         if widget is None:
             return
         self.sequencer.markers = [
-            {
-                "time": md.time,
-                "note": md.note,
-                "color": md.color,
-                "draggable": md.draggable,
-                "style": md.style,
-                "line_style": md.line_style,
-                "opacity": md.opacity,
-            }
-            for md in widget.markers()
+            _MarkerManagerMixinInternal._marker_to_dict(md) for md in widget.markers()
         ]
         self.sequencer.store.mark_dirty()

@@ -93,6 +93,100 @@ try:
               set(btk.selected_objects()) == {a, b},
               f"got={ sorted(o.name for o in btk.selected_objects()) }")
 
+    # --- 6. _rebind_pil_globals repairs BOTH un-provisioned states ------------------------
+    # Blender's bundled Python ships no Pillow, so ``import pythontk`` at startup takes the
+    # ImportError branch of its guarded PIL imports; ``ensure_image_deps`` pip-installs Pillow
+    # later in the session and calls this to make the already-imported modules see it.
+    # A guard that binds only ``Image = None`` leaves its other names UNDEFINED, and an
+    # undefined name is a NameError at the call site — which is how the Material Updater died
+    # with "name 'ImageOps' is not defined" while Pillow was installed and importable.
+    # pythontk binds them all now; blendertk still runs against whatever pythontk is installed,
+    # so the repair must cover the absent case too.
+    import types
+    from blendertk.core_utils._core_utils import _CoreUtilsInternal
+
+    def _pil_importable():
+        try:
+            import PIL  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    if not _pil_importable():  # --factory-startup drops the user-modules dir from sys.path
+        _mods = bpy.utils.user_resource("SCRIPTS", path="modules", create=False)
+        if _mods and os.path.isdir(_mods) and _mods not in sys.path:
+            sys.path.insert(0, _mods)
+
+    if not _pil_importable():
+        check("_rebind_pil_globals (SKIPPED — no Pillow in this interpreter)", True)
+    else:
+        WATCHED = (
+            "pythontk.img_utils._img_utils",
+            "pythontk.core_utils.engines.textures.map_factory._map_factory",
+            "pythontk.core_utils.engines.textures.map_factory.processor",
+        )
+        # Single-name guards (``Image`` only), deliberately NOT in the repair's
+        # hand-listed set — pass 1 has to reach them by walking loaded pythontk
+        # modules, or the Map Converter's optimize/mask paths stay dead in Blender
+        # while Pillow is installed.
+        UNLISTED = (
+            "pythontk.core_utils.engines.textures.map_optimizer",
+            "pythontk.core_utils.engines.textures.region_masks",
+            "pythontk.img_utils.mask_generator",
+            "pythontk.img_utils.ktx2_encoder",
+        )
+        NEEDED = ("Image", "ImageOps", "ImageEnhance", "ImageFilter",
+                  "ImageChops", "ImageDraw", "ImageMode")
+        saved = {name: sys.modules.get(name) for name in WATCHED + UNLISTED}
+        try:
+            # Stub each watched module in the OLD pythontk shape: only ``Image`` exists (as
+            # None); every other PIL name was never created by the failed ``from PIL import``.
+            for name in WATCHED + UNLISTED:
+                stub = types.ModuleType(name)
+                stub.Image = None
+                sys.modules[name] = stub
+
+            _CoreUtilsInternal._rebind_pil_globals()
+
+            check(
+                "_rebind_pil_globals reaches guards outside its hand-listed set",
+                all(getattr(sys.modules[n], "Image", None) is not None for n in UNLISTED),
+                f"unrepaired={[n for n in UNLISTED if getattr(sys.modules[n], 'Image', None) is None]}",
+            )
+
+            unrepaired = [
+                f"{name.rsplit('.', 1)[-1]}.{n}"
+                for name in WATCHED
+                for n in NEEDED
+                if getattr(sys.modules[name], n, None) is None
+            ]
+            check("_rebind_pil_globals binds names that were never created (not just None)",
+                  not unrepaired, f"unrepaired={unrepaired}")
+
+            # And it must never clobber a binding that already works.
+            sentinel = object()
+            for name in WATCHED + UNLISTED:
+                sys.modules[name].ImageOps = sentinel
+            _CoreUtilsInternal._rebind_pil_globals()
+            check("_rebind_pil_globals leaves an already-bound name alone",
+                  all(sys.modules[n].ImageOps is sentinel for n in WATCHED + UNLISTED))
+        finally:
+            for name, mod in saved.items():
+                if mod is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = mod
+
+    # ---- user_config_path: the one resolver behind every config-dir sidecar
+    # (recent-files.txt, blendertk_script_output.json, blendertk_ui_state.json)
+    cfg = btk.user_config_path("x.json")
+    check("user_config_path resolves under Blender's CONFIG dir",
+          cfg is not None and os.path.basename(cfg) == "x.json"
+          and os.path.dirname(cfg) == bpy.utils.user_resource("CONFIG"), str(cfg))
+    check("user_config_path(base=...) honors the sandbox override",
+          btk.user_config_path("x.json", base=os.path.join("a", "b")) == os.path.join("a", "b", "x.json"))
+    check("get_recent_files still reads through it (list)", isinstance(btk.get_recent_files(), list))
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

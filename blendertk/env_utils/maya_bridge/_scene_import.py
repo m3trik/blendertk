@@ -379,6 +379,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         timeout: float = 600,
         fbx_options: Optional[Dict[str, Any]] = None,
         smart_bake: Union[bool, str] = "auto",
+        scene_settings: Union[bool, str] = "auto",
         **script_opts: Any,
     ) -> List[Any]:
         """Import the Maya scene at *src_path*; return the objects created.
@@ -433,10 +434,25 @@ class MayaSceneImport(ptk.LoggingMixin):
                 bakes animation natively); needs mayatk importable (auto-located,
                 or ``mayatk_path`` on the constructor) and degrades to the plain
                 bake without it.
+            scene_settings: Adopt the source scene's time setup — fps, playback
+                + animation ranges, current frame (the manifest's ``scene``
+                section, else what the intermediate itself carries; see
+                :meth:`_apply_scene_manifest`). ``"auto"`` (default) adopts it
+                only into a scene with no content of its own (a fresh file
+                takes the source's clock; a populated scene keeps its own —
+                retiming someone's existing animation is never implicit);
+                ``True`` always, ``False`` never.
             **script_opts: Maya-side knobs (``embed_textures`` /
                 ``include_animation``; ``embed_textures`` is FBX-route only).
         """
+        from blendertk.env_utils._env_utils import EnvUtils
         from blendertk.env_utils.fbx_utils import FbxUtils
+
+        # Decided BEFORE the import: "no content" must describe the scene the
+        # user had, not the one the import just filled.
+        adopt_scene = scene_settings is True or (
+            scene_settings == "auto" and not EnvUtils.scene_has_content()
+        )
 
         # smart_bake shapes only the FBX template; keep it out of the USD route's
         # cache key so identical USD conversions can't fragment on an inert option.
@@ -459,7 +475,10 @@ class MayaSceneImport(ptk.LoggingMixin):
             self.logger.info(
                 f"USD source — importing natively (no Maya conversion): {src}"
             )
-            imported = UsdUtils.import_usd(src)
+            imported = UsdUtils.import_scene(src)
+            self._own_usd_animation(src, imported)
+            if adopt_scene:
+                self._apply_scene_manifest(None, src)
             self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
             return imported
 
@@ -488,7 +507,11 @@ class MayaSceneImport(ptk.LoggingMixin):
             if via == "usd":
                 from blendertk.env_utils.usd import UsdUtils
 
-                imported = UsdUtils.import_usd(out_path)
+                # Every prim, the invisible ones landing hidden (a Maya-hidden
+                # bake-source set vanished from a production pull when the
+                # importer's visible-only default skipped it), Maya's primary
+                # UV set render-active.
+                imported = UsdUtils.import_scene(out_path)
             else:
                 imported = FbxUtils.import_fbx(out_path, **(fbx_options or {}))
         except Exception:
@@ -515,6 +538,13 @@ class MayaSceneImport(ptk.LoggingMixin):
             # Cosmetic, after the structural work: drop the Empty Blender
             # materializes for the exporter's materials Scope prim ("mtl").
             imported = self._strip_materials_scope(imported, out_path)
+            self._own_usd_animation(out_path, imported)
+            # Materials: the native UsdPreviewSurface networks are the baseline;
+            # the manifest is the FBX route's proven rebuild on top (mayaUsd's
+            # exporter writes no normal off a bump2d chain and no packed /
+            # AO maps -- probed), after the shading-group-named materials are
+            # renamed to their shader. Non-fatal, like the FBX branch.
+            self._apply_usd_materials(manifest_path, imported)
         elif os.path.isfile(manifest_path):
             # Node-type tags first (cheap, structural): a ``maya_node_type``
             # custom property on each Empty that was a Maya group/locator, so
@@ -543,10 +573,137 @@ class MayaSceneImport(ptk.LoggingMixin):
                 )
             except Exception as e:  # noqa: BLE001
                 self.logger.warning(f"Visibility replay failed ({e}); skipped.")
+        if adopt_scene:
+            # Same frame shift as the visibility replay: FBX-imported curves land
+            # anim_offset frames late, so the ranges must follow them; USD time
+            # codes map 1:1 onto frames.
+            self._apply_scene_manifest(
+                manifest_path,
+                out_path,
+                frame_offset=(
+                    float((fbx_options or {}).get("anim_offset", 1.0))
+                    if via == "fbx"
+                    else 0.0
+                ),
+            )
         if cleanup and tmp is not None:
             tmp.cleanup()
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
         return imported
+
+    def _own_usd_animation(self, usd_path: str, imported: List[Any]) -> int:
+        """Bake the USD importer's Transform Cache constraints into keyframes so the
+        imported animation is owned data, not a by-path stream from *usd_path*.
+
+        Measured: a Maya scene pulled via USD arrived with every animated object
+        driven by a ``TRANSFORM_CACHE`` constraint pointing at the temp
+        intermediate — the conversion cache the scoped store deletes right after
+        an uncached run and the detached store sweeps by age — so the opened or
+        linked scene lost its motion as soon as that file went. The bake range is
+        the stage's authored time-code range (exactly the frames the conversion
+        sampled), else the scene range. Best-effort: a failed bake keeps the
+        constraint (and logs), never the import.
+        """
+        from blendertk.env_utils.usd import UsdUtils
+
+        try:
+            stage = UsdUtils.scene_settings(usd_path)
+            frame_range = (
+                (stage["anim_start"], stage["anim_end"])
+                if "anim_start" in stage and "anim_end" in stage
+                else None
+            )
+            baked = UsdUtils.bake_transform_caches(imported, frame_range)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                f"Transform-cache bake failed ({e}); animation still streams from {usd_path}."
+            )
+            return 0
+        if baked:
+            self.logger.info(
+                f"Baked USD transform caches to keys on {baked} object(s)."
+            )
+        return baked
+
+    # Manifest section carrying the source scene's time setup (see the Maya-side
+    # templates' ``scene_settings`` and ``EnvUtils.SCENE_SETTINGS_KEYS``).
+    SCENE_SECTION = "scene"
+    _SCENE_FRAME_KEYS = (
+        "frame_start",
+        "frame_end",
+        "anim_start",
+        "anim_end",
+        "frame_current",
+    )
+
+    def _apply_scene_manifest(
+        self,
+        manifest_path: Optional[str],
+        intermediate: Optional[str] = None,
+        frame_offset: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Adopt the source scene's time setup: the manifest's ``scene`` section,
+        else what *intermediate* itself carries (``FbxUtils.scene_settings`` /
+        ``UsdUtils.scene_settings`` — a raw ``.fbx`` row or a hand-fed USD has
+        no manifest, and the formats do embed the fps and an animation span).
+        Applied through ``EnvUtils.apply_scene_settings``; returns the record
+        applied (``{}`` when nothing was found).
+
+        Measured before this existed: the USD route dropped the fps (30 → 24,
+        Blender's USD importer never reads ``timeCodesPerSecond``) and the FBX
+        route dropped the range (1-250, the importer ignores ``TimeSpan``) — a
+        Maya scene opened in Blender never kept its clock.
+
+        *frame_offset* shifts every frame key (FBX route: the importer's
+        ``anim_offset``, so the ranges track the curves it already shifted).
+        Best-effort by contract — a bad record must never cost the import.
+        """
+        import json
+
+        settings: Dict[str, Any] = {}
+        if manifest_path and os.path.isfile(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                section = (
+                    data.get(self.SCENE_SECTION) if isinstance(data, dict) else None
+                )
+                settings = dict(section) if isinstance(section, dict) else {}
+            except (OSError, ValueError) as e:
+                self.logger.warning(f"Unreadable manifest {manifest_path}: {e}")
+        if not settings and intermediate and os.path.isfile(intermediate):
+            ext = os.path.splitext(intermediate)[1].lower()
+            try:
+                if ext == ".fbx":
+                    from blendertk.env_utils.fbx_utils import FbxUtils
+
+                    settings = FbxUtils.scene_settings(intermediate)
+                elif ext in USD_EXTENSIONS:
+                    from blendertk.env_utils.usd import UsdUtils
+
+                    settings = UsdUtils.scene_settings(intermediate)
+            except Exception as e:  # noqa: BLE001 — a record, never a failed import
+                self.logger.warning(
+                    f"Could not read scene settings from {intermediate}: {e}"
+                )
+        if not settings:
+            return {}
+        if frame_offset:
+            for key in self._SCENE_FRAME_KEYS:
+                if settings.get(key) is not None:
+                    settings[key] = float(settings[key]) + frame_offset
+        try:
+            from blendertk.env_utils._env_utils import EnvUtils
+
+            applied = EnvUtils.apply_scene_settings(settings)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f"Scene settings not applied ({e}); skipped.")
+            return {}
+        self.logger.info(
+            "Adopted scene settings: "
+            + ", ".join(f"{k}={settings[k]}" for k in applied if k in settings)
+        )
+        return settings
 
     @staticmethod
     def _tag_maya_node_types(manifest_path: str, imported: List[Any]) -> int:
@@ -653,7 +810,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         Returns the number of objects re-linked.
         """
         import json
-        import re
 
         with open(manifest_path, encoding="utf-8") as fh:
             data = json.load(fh) or {}
@@ -669,19 +825,14 @@ class MayaSceneImport(ptk.LoggingMixin):
         if not groups:
             return 0
 
-        def stripped(name: str) -> str:
-            return re.sub(r"\.\d+$", "", name)
+        from blendertk.env_utils.usd import UsdUtils
 
         by_path: Dict[str, Any] = {}
         ambiguous: set = set()
         for o in imported:
             if getattr(o, "type", None) != "MESH":
                 continue
-            parts, cur = [], o
-            while cur is not None:
-                parts.append(stripped(cur.name))
-                cur = cur.parent
-            path = "/" + "/".join(reversed(parts))
+            path = UsdUtils.prim_path(o)
             if path in by_path:
                 ambiguous.add(path)
             else:
@@ -784,17 +935,20 @@ class MayaSceneImport(ptk.LoggingMixin):
         """Drop the Empty Blender materializes for a pure-materials Scope prim
         (mayaUSDExport's ``mtl``) and return the surviving imported objects.
 
-        PRIM-PATH KEYED, never name-keyed: only a root-level ``Scope`` prim
-        whose whole subtree is material machinery qualifies, so a user object
-        that happens to be named ``mtl`` (not in *imported*), or a real
-        Xform/Mesh prim named ``mtl``, is untouched. Blender's ``.001``
-        collision suffix is stripped before comparing, since the Empty may
-        arrive renamed when the open scene already holds that name.
+        PRIM-PATH KEYED, never name-keyed: only a ``Scope`` prim whose whole
+        subtree is material machinery qualifies, so a user object that happens
+        to be named ``mtl`` (not in *imported*), or a real Xform/Mesh prim named
+        ``mtl``, is untouched. Any depth: a whole-scene export puts the scope at
+        the root, a selection export (the send direction) nests it under the
+        first exported root. Each candidate Empty is matched by its own prim
+        path -- the parent chain with Blender's ``.001`` collision suffixes
+        stripped, since the Empty may arrive renamed when the open scene already
+        holds that name.
 
         Cosmetic by contract: any failure logs and keeps everything --
         structural fidelity is the replay's job, not this sweep's.
         """
-        import re
+        from blendertk.env_utils.usd import UsdUtils
 
         try:
             from pxr import Usd
@@ -806,16 +960,17 @@ class MayaSceneImport(ptk.LoggingMixin):
         if not stage:
             return imported
         material_types = {"Scope", "Material", "Shader", "NodeGraph"}
-        scope_names = set()
-        for prim in stage.GetPseudoRoot().GetChildren():
+        scope_paths = set()
+        for prim in Usd.PrimRange(stage.GetPseudoRoot()):
             if prim.GetTypeName() != "Scope":
                 continue
+            # An EMPTY scope qualifies too: a scene with only default shading
+            # still gets an ``mtl`` Scope from mayaUSDExport (measured), and
+            # nothing under it is ever user data.
             descendants = list(Usd.PrimRange(prim))[1:]
-            if descendants and all(
-                p.GetTypeName() in material_types for p in descendants
-            ):
-                scope_names.add(prim.GetName())
-        if not scope_names:
+            if all(p.GetTypeName() in material_types for p in descendants):
+                scope_paths.add(str(prim.GetPath()))
+        if not scope_paths:
             return imported
 
         import bpy
@@ -824,9 +979,8 @@ class MayaSceneImport(ptk.LoggingMixin):
         for o in imported:
             if (
                 getattr(o, "type", None) == "EMPTY"
-                and o.parent is None
                 and not o.children
-                and re.sub(r"\.\d+$", "", o.name) in scope_names
+                and UsdUtils.prim_path(o) in scope_paths
             ):
                 try:
                     bpy.data.objects.remove(o, do_unlink=True)
@@ -838,7 +992,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         if removed:
             self.logger.info(
                 f"Removed {removed} materials-scope Empty(ies) "
-                f"({', '.join(sorted(scope_names))})."
+                f"({', '.join(sorted(scope_paths))})."
             )
         return kept
 
@@ -891,7 +1045,123 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         return plan
 
-    def _apply_texture_manifest(self, manifest_path: str, imported: List[Any]) -> None:
+    def _rename_usd_materials(self, manifest_path: str, imported: List[Any]) -> int:
+        """Rename the imported materials from their SHADING GROUP to their shader,
+        merging the per-shading-group duplicates of one Maya material.
+
+        ``mayaUSDExport`` names a Material prim after the shading engine, so off
+        a USD layer every Blender material arrives as ``wall_matSG`` -- and a Maya
+        material feeding several shading groups (per-object splits, merged
+        imports) arrives as one Blender material PER GROUP. The manifest's
+        ``shading_groups`` section (``{prim-spelled SG: shader short name}``)
+        gives each its real name back; the second and later groups of one shader
+        are folded onto the first (every slot re-pointed, the duplicate removed),
+        which is Blender's one-datablock model and the FBX route's ONE-per-source
+        rule. Only materials on *imported* objects are touched; a name held by a
+        material some scene object wears is left alone (logged), a leftover no
+        object wears is purged out of the way. Returns the rename + merge count.
+        """
+        import json
+        import re
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                mapping = (json.load(fh) or {}).get("shading_groups") or {}
+        except (OSError, ValueError):
+            return 0
+        if not mapping:
+            return 0
+        import bpy
+
+        materials = {}
+        for obj in imported:
+            for slot in getattr(obj, "material_slots", []):
+                if slot.material is not None:
+                    materials[slot.material.name] = slot.material
+        wants = {
+            name: mapping.get(re.sub(r"\.\d+$", "", name)) for name in materials
+        }
+        # shader name -> the material that owns it now; one already bearing its
+        # name owns it whatever its slot order, so its twins fold onto it.
+        owners: Dict[str, Any] = {
+            want: materials[name] for name, want in wants.items() if want == name
+        }
+        changed = 0
+        for name, material in materials.items():
+            want = wants[name]
+            if not want or want == name:
+                continue
+            owner = owners.get(want)
+            if owner is not None and owner is not material:
+                # A second shading group of the same Maya material: fold it in.
+                for obj in imported:
+                    for slot in getattr(obj, "material_slots", []):
+                        if slot.material is material:
+                            slot.material = owner
+                bpy.data.materials.remove(material)
+                changed += 1
+                continue
+            taken = bpy.data.materials.get(want)
+            if taken is not None and taken is not material:
+                # A leftover no scene object wears (an earlier import's orphan --
+                # deleted objects keep their mesh datablocks, and those keep the
+                # material's user count up until the orphan purge) must not hold
+                # the name; a material a scene object actually wears does.
+                worn = any(
+                    slot.material is taken
+                    for obj in bpy.context.scene.objects
+                    for slot in getattr(obj, "material_slots", [])
+                )
+                if not worn:
+                    bpy.data.materials.remove(taken)
+                else:
+                    self.logger.info(
+                        f"Material {name} keeps its shading-group name: {want} is "
+                        "in use by another material."
+                    )
+                    continue
+            material.name = want
+            owners[want] = material
+            changed += 1
+        return changed
+
+    def _apply_usd_materials(self, manifest_path: str, imported: List[Any]) -> None:
+        """The USD branch's material step: rename, then replay the texture manifest.
+
+        Both halves are non-fatal -- the native USD materials already landed, so
+        a bad sidecar costs fidelity, never the import.
+        """
+        import json
+
+        if not os.path.isfile(manifest_path):
+            return
+        try:
+            self._rename_usd_materials(manifest_path, imported)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f"Material rename from the sidecar failed ({e}); skipped.")
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                has_materials = bool((json.load(fh) or {}).get("materials"))
+        except (OSError, ValueError):
+            has_materials = False
+        if not has_materials:
+            return
+        try:
+            # The USD already bound every object to its material by prim path;
+            # the rebuild swaps materials by IDENTITY only. The FBX route's
+            # whole-object fallback matches by short name, and a scene that
+            # carries one leaf name under two hierarchies (a module beside
+            # its hidden bake-source set, 2026-08-22) would land the wrong
+            # set's textures on both.
+            self._apply_texture_manifest(manifest_path, imported, object_fallback=False)
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(
+                f"Texture-manifest rebuild failed ({e}); keeping the USD materials."
+            )
+
+    def _apply_texture_manifest(
+        self, manifest_path: str, imported: List[Any], object_fallback: bool = True
+    ) -> None:
         """Rebuild translated materials natively from the conversion's sidecar.
 
         The FBX carries only the classic-model approximation (color / normal /
@@ -905,6 +1175,12 @@ class MayaSceneImport(ptk.LoggingMixin):
         Maya-side), so conventionally named sets round-trip; an entry whose
         files classify to nothing keeps its FBX material (logged). Per-entry
         failures degrade, never abort the import.
+
+        *object_fallback*: when no slot carries the entry's material, assign it
+        whole-object to the entry's ``objects`` by SHORT name -- the FBX
+        route's rescue for a material the importer renamed. Off for a carrier
+        whose bindings are already exact (USD: by prim path), where a short
+        name is ambiguous across hierarchies.
         """
         import json
 
@@ -986,11 +1262,15 @@ class MayaSceneImport(ptk.LoggingMixin):
                     continue
 
                 # Fallback (importer renamed the material): whole-object assign.
-                targets = [
-                    obj
-                    for member in entry.get("objects", [])
-                    for obj in by_short.get(member, [])
-                ]
+                targets = (
+                    [
+                        obj
+                        for member in entry.get("objects", [])
+                        for obj in by_short.get(member, [])
+                    ]
+                    if object_fallback
+                    else []
+                )
                 if not targets:
                     self._purge_orphans([material])  # nothing to attach it to
                     self.logger.warning(f"{name}: no matching slot or object found.")

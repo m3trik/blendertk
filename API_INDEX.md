@@ -6,7 +6,7 @@ _Generated: 2026-08-23_
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output
+  - methods: key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, unbake_keys, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(ptk.LoggingMixin)`
@@ -43,19 +43,35 @@ _Generated: 2026-08-23_
 - `class ScaleKeys(_ScaleKeysInternal)`
   - methods: scale_keys
 
+### `anim_utils/segment_keys.py` — Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``).
+- `class SegmentKeys(_SegmentKeysInternal)`
+  - methods: collect_segments, shift_curves
+
+### `anim_utils/shots/_detection.py` — Shot-region detection — Blender scene acquisition over the pure engine math.
+- `class Detection(_DetectionInternal)`
+  - methods: resolve_to_transform, detect_shot_regions, regions_from_selected_keys
+
 ### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 - `class BlenderScenePersistence`
   - methods: remove_callbacks, save, load
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
-  - methods: active, has_animation, detect_regions, assess, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: active, has_animation, detect_regions, assess, publish_export_view, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
-- `class BlenderShotManifest(ShotManifest)`
-  - methods: apply_behaviors, reapply_object, from_csv
+- `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
+  - methods: apply_behaviors, rewire_audio, reapply_object, from_csv
+
+### `anim_utils/shots/shot_manifest/behaviors/_behaviors.py` — Behaviors — Blender appliers over the engine's pure keying-recipe core.
+- `class Behaviors(_PyBehaviors, _BehaviorsInternal)`
+  - methods: apply_behavior, verify_behavior, apply_audio_clip, compute_duration, apply_to_shots
 
 ### `anim_utils/shots/shot_manifest/manifest_data.py` — Constants, column layout, and pure helper functions for the Shot Manifest UI.
 - `class ManifestData`
   - methods: fmt_behavior, format_behavior_html, try_load_blender_icons
+
+### `anim_utils/shots/shot_manifest/range_resolver.py` — Range resolution for the Shot Manifest build pipeline (Blender-bound facade).
+- `class RangeResolver`
+  - methods: resolve_ranges
 
 ### `anim_utils/shots/shot_manifest/shot_manifest_slots.py` — Switchboard slots for the Shot Manifest UI (Blender).
 - `class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin)`
@@ -67,9 +83,9 @@ _Generated: 2026-08-23_
 - `class ManifestTableMixin(_ManifestTableMixinInternal)`
   - methods: expand_missing, expand_extra
 
-### `anim_utils/shots/shot_sequencer/_shot_sequencer.py` — Blender shot sequencer engine — timeline moves over the shared shots planner.
-- `class ShotSequencer`
-  - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, define_shot, reconcile_all_shots, ripple_downstream, ripple_upstream, respace, slide_shot, move_shot, move_object_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, resize_object, set_shot_duration, resize_shot, apply_gap, move_shot_to_position, collect_object_segments, fit_shot_to_content, trim_shot_to_content
+### `anim_utils/shots/shot_sequencer/_shot_sequencer.py` — Blender shot sequencer engine — ripple editing + key motion over the shared planner.
+- `class ShotSequencer(_ShotSequencerInternal)`
+  - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, reconcile_all_shots, define_shot, collect_object_segments, collect_shot_sequences, move_sequences_to_shot, fit_shot_to_content, trim_shot_to_content, extend_shot_to_fit, detect_shots, detect_next_shot, move_curve_keys, recreate_curve_keys, move_object_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, move_shot, slide_shot, ripple_downstream, ripple_upstream, expand_shot, resize_object, set_shot_duration, resize_shot, set_shot_start, move_shot_to_position, respace, apply_gap, to_dict, from_dict
 
 ### `anim_utils/shots/shot_sequencer/clip_motion.py` — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 - `class ClipMotionMixin(_ClipMotionMixinInternal)`
@@ -80,12 +96,12 @@ _Generated: 2026-08-23_
   - methods: on_range_highlight_changed, on_gap_resized, on_gap_left_resized, on_gap_moved, on_gap_lock_changed, on_gap_lock_all, on_gap_unlock_all
 
 ### `anim_utils/shots/shot_sequencer/marker_manager.py` — Marker persistence for the shot sequencer controller (Blender).
-- `class MarkerManagerMixin`
+- `class MarkerManagerMixin(_MarkerManagerMixinInternal)`
   - methods: on_marker_added, on_marker_moved, on_marker_changed, on_marker_removed
 
 ### `anim_utils/shots/shot_sequencer/segment_collector.py` — Segment collection and attribute extraction for the shot sequencer (Blender).
 - `class SegmentCollector`
-  - methods: attr_label, collect_segments, active_object_set, extract_attributes, build_curve_preview
+  - methods: attr_label, abbreviate_attrs, collect_segments, active_object_set, extract_attributes, build_curve_preview
 
 ### `anim_utils/shots/shot_sequencer/shot_nav.py` — Shot navigation and combobox synchronization (Blender).
 - `class ShotNavMixin`
@@ -94,6 +110,8 @@ _Generated: 2026-08-23_
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
 - `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`
   - methods: sequencer, remove_callbacks, on_zone_context_menu, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_gap_menu, on_key_selection_changed
+- `class ShotEditDialog`
+  - methods: show
 - `class ShotSequencerSlots(ptk.LoggingMixin)`
   - methods: header_init, btn_colors, spn_snap, btn_shortcuts, btn_shot_settings, cmb_shot
 
@@ -126,11 +144,15 @@ _Generated: 2026-08-23_
 
 ### `audio_utils/_audio_utils.py` — Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 - `class AudioUtils(ptk.LoggingMixin)`
-  - methods: ensure_sequence_editor, get_sequence_editor, list_clips, get_clip, add_clip, remove_clip, remove_all_clips, rename_clip, replace_clip, move_clip, trim_clip, sync_scene_range
+  - methods: ensure_sequence_editor, get_sequence_editor, list_clips, get_clip, add_clip, remove_clip, remove_all_clips, rename_clip, replace_clip, move_clip, trim_clip, get_fps, clips_in_range, shift_clips_in_range, cached_waveform, clear_waveform_cache, sync_scene_range
 
 ### `audio_utils/audio_clips.py` — Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
 - `class AudioClipsSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb000_init, cmb000, b001, b002, b005, b006, tb001_init, tb001, b003, b004_init, b004
+
+### `audio_utils/segments.py` — Consumer-facing audio-segment discovery for the sequencer + manifest (Blender).
+- `class AudioSegment(_AudioSegmentInternal)`
+  - methods: is_audio, collect_all_segments, collect_segments_for_track
 
 ### `cam_utils/_cam_utils.py` — Camera utilities — clip-plane adjustment (mirror of mayatk's ``cam_utils``) plus interactive
 - `class CamUtils(_CamUtilsInternal)`
@@ -142,7 +164,7 @@ _Generated: 2026-08-23_
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override
+  - methods: strip_dup_suffix, undo_chunk, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -256,7 +278,7 @@ _Generated: 2026-08-23_
 
 ### `edit_utils/macros.py` — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - `class DisplayMacros(_ViewportMixin)`
-  - methods: m_back_face_culling, m_isolate_selected, m_wireframe, m_shading, m_lighting, m_grid, m_grid_and_image_planes, m_cycle_display_state, m_smooth_preview, m_frame
+  - methods: m_back_face_culling, m_isolate_selected, m_wireframe, m_shading, m_lighting, m_cycle_background, m_grid, m_grid_and_image_planes, m_cycle_display_state, m_smooth_preview, m_frame
 - `class EditMacros(_ViewportMixin)`
   - methods: m_multi_component, m_paste_and_rename, m_merge_vertices, m_group, m_ungroup
 - `class SelectionMacros`
@@ -274,12 +296,12 @@ _Generated: 2026-08-23_
   - methods: header_init, prepare_operation, perform_operation
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
-- `class Naming(ptk.HelpMixin)`
-  - methods: rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, suffix_by_type, append_location_based_suffix
+- `class Naming(ptk.HelpMixin, ptk.LoggingMixin)`
+  - methods: scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, suffix_by_type, append_location_based_suffix
 
 ### `edit_utils/naming/naming_slots.py` — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
-- `class NamingSlots(Naming, ptk.LoggingMixin)`
-  - methods: header_init, valid_suffixes, txt000_init, txt000, txt001_init, txt001, tb000_init, tb000, tb001_init, tb001, tb002_init, tb002, tb003_init, tb003
+- `class NamingSlots(Naming)`
+  - methods: header_init, scope, dry_run, file_scope, valid_suffixes, txt000_init, txt000, txt001_init, txt001, tb000_init, tb000, tb001_init, tb001, tb002_init, tb002, tb003_init, tb003
 
 ### `edit_utils/selection.py` — Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
 - `class Selection`
@@ -297,7 +319,7 @@ _Generated: 2026-08-23_
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - `class BlenderConnection`
@@ -305,9 +327,9 @@ _Generated: 2026-08-23_
 
 ### `env_utils/fbx_utils.py` — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 - `class FbxUtils(_FbxUtilsInternal)`
-  - methods: run_export_preparers, export, import_fbx, export_selection_fbx
+  - methods: run_export_preparers, reset_takes, apply_takes, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
 
-### `env_utils/handoff_export.py` — Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
+### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
 
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
@@ -361,29 +383,39 @@ _Generated: 2026-08-23_
 - `tag_node_types(engine, imported)`
 - `apply_instances(engine, imported)`
 - `apply_visibility(engine, imported)`
+- `apply_scene(engine, is_usd)`
 - `main()`
 
 ### `env_utils/maya_bridge/templates/_import_scene.py` — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - `fbx_safe_materials(cmds)`
 - `scene_node_types(cmds)`
-- `write_manifest(entries, visibility, node_types, path)`
+- `scene_settings(cmds)`
+- `write_manifest(entries, visibility, node_types, scene, path)`
 - `main()`
 
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - `usd_safe_materials(cmds)`
 - `export_usd(cmds)`
+- `collect_materials(cmds)`
 - `collect_instance_groups(cmds)`
-- `write_manifest(cmds)`
+- `scene_settings(cmds)`
+- `write_manifest(cmds, materials=None, shading_groups=None)`
 - `main()`
 
 ### `env_utils/maya_bridge/templates/_save_scene.py` — Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
+- `import_usd(cmds)`
+- `import_payload(cmds, mel, engine)`
+- `restore_usd_locators(cmds, engine, new_nodes)`
 - `import_fbx(cmds, mel, engine)`
 - `restore_empty_groups(cmds, engine, new_nodes)`
 - `rebuild_materials(engine, new_nodes)`
 - `main()`
 
-### `env_utils/maya_bridge/templates/import.py` — Import the bridged FBX into Maya, with optional clean-slate and frame-on-import behaviors.
+### `env_utils/maya_bridge/templates/import.py` — Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
 - `import_fbx()`
+- `import_usd()`
+- `import_payload()`
+- `restore_usd_locators(new_nodes)`
 - `restore_empty_groups(new_nodes)`
 - `rebuild_materials(new_nodes)`
 - `main()`
@@ -402,7 +434,7 @@ _Generated: 2026-08-23_
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
-  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, optimize_textures, check_material_compatibility, check_texture_optimization, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
+  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, optimize_textures, check_material_compatibility, check_texture_optimization, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -426,7 +458,7 @@ _Generated: 2026-08-23_
 
 ### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - `class UsdUtils(_UsdUtilsInternal)`
-  - methods: is_usd_file, export, import_usd, export_selection_usd
+  - methods: is_usd_file, export, sampling_frame_range, fold_single_mesh_xforms, sanitize_prim_name, hidden_objects, export_prim_path, prim_path, mark_invisible, apply_visibility, activate_uv_map, import_scene, import_usd, bake_transform_caches, scene_settings, export_selection_usd
 
 ### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
 - `class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`
@@ -457,7 +489,7 @@ _Generated: 2026-08-23_
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
   - methods: update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -723,7 +755,7 @@ _Generated: 2026-08-23_
 
 ### `ui_utils/_ui_utils.py` — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - `class UiUtils(_UiUtilsInternal)`
-  - methods: get_editor_types, open_editor, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, dispatch_log_link, call_native_menu, popup_message
+  - methods: get_editor_types, open_editor, reveal_in_outliner, main_window, find_editor, close_area, close_editor, dock_editor, toggle_editor, toggle_fullscreen_area, toggle_window_bars, menu_exists, dispatch_log_link, call_native_menu, popup_message
 
 ### `ui_utils/blender_bridge_slots_base.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
@@ -755,6 +787,10 @@ _Generated: 2026-08-23_
 - `class MenuHarvest(_MenuHarvestInternal)`
   - methods: harvest_menu, invoke_operator, refill_qmenu
 
+### `ui_utils/node_icons.py` — Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
+- `class NodeIcons`
+  - methods: icon_name_for_type, icon_name_for_node, get_icon, get_pixmap
+
 ### `ui_utils/qt_dock.py` — Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 - `class QtDock`
   - methods: supported, docked, widget, area, content_region, dock, undock, teardown
@@ -762,6 +798,10 @@ _Generated: 2026-08-23_
 ### `ui_utils/style_setter/_style_setter.py` — Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 - `class StyleSetter(_StyleSetterInternal)`
   - methods: list_styles, user_preset_dir, user_preset_path, is_installed, install, list_templates, apply_template, apply_theme_preset, set_style
+
+### `ui_utils/ui_state.py` — Persist Blender's per-session UI visibility state across sessions (``btk.UiState``).
+- `class UiState(_UiStateInternal)`
+  - methods: state_path, load, save, clear, snapshot_spaces, snapshot_workspace, apply_spaces, close_hidden, apply_workspace, install, uninstall
 
 ### `uv_utils/_auto_unwrap.py` — External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
 - `class AutoUnwrapResult`

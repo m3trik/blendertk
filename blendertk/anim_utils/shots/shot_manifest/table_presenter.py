@@ -8,17 +8,19 @@ so the presentation ports 1:1).  DCC swaps versus the Maya original:
 
 - model types (``BuilderStep`` / ``BuilderObject``) and behavior helpers come
   from the shared ``pythontk`` engine, not mayatk;
-- per-node-type icons degrade to uitk's named-icon fallback (Blender has no
-  ``:/`` node-type icon resources — see :func:`manifest_data.try_load_blender_icons`);
+- per-object-type icons come from blendertk's ``NodeIcons`` (``Object.type`` →
+  uitk named icon; see :meth:`ManifestData.try_load_blender_icons`);
 - object-name display uses a flat ``_leaf_name`` (Blender names carry no DAG path);
 - behavior re-apply routes through :meth:`BlenderShotManifest.reapply_object`
-  (opacity/visibility fades + VSE audio), not Maya's ``apply_behavior``.
+  (the Blender ``Behaviors.apply_behavior`` applier with distributed anchors,
+  in one undo step) rather than inlining the loop here.
 
 Mixed into :class:`ShotManifestController` via MRO.
 """
 
 from pythontk import BuilderStep, BuilderObject
-from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
+
+from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
 
 from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
     ManifestData,
@@ -71,14 +73,23 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
     def _resolve_object_icon(obj_data, obj_name):
         """Return a QIcon for a BuilderObject row, or ``None``.
 
-        Blender ships no node-type icon resources, so this returns ``None`` and
-        the presenter falls back to uitk's named-icon set.  Kept as a hook (see
-        :func:`try_load_blender_icons`) so a future object-type icon map drops in
-        without touching callers.
+        Audio rows use the known type directly (a VSE strip is not a
+        ``bpy.data.objects`` entry) so the icon resolves even before the strip
+        is placed.  Scene rows go through the standard :class:`NodeIcons`
+        scene-object lookup.
         """
         node_icons_cls = ManifestData.try_load_blender_icons()
         if node_icons_cls is None:
             return None
+        if isinstance(obj_data, BuilderObject) and obj_data.kind == "audio":
+            from uitk.managers.icon_manager import IconManager
+            from blendertk.ui_utils.node_icons import ICON_COLOR
+
+            name = node_icons_cls.icon_name_for_type("SPEAKER")
+            icon = (
+                IconManager.get(name, size=(16, 16), color=ICON_COLOR) if name else None
+            )
+            return icon if (icon is not None and not icon.isNull()) else None
         return node_icons_cls.get_icon(obj_name)
 
     # -- display settings --------------------------------------------------
@@ -688,10 +699,6 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                     for b in obj_st.broken_behaviors or obj_st.behaviors:
                         desc = ""
                         try:
-                            from pythontk.core_utils.engines.shots.manifest.behaviors import (
-                                Behaviors,
-                            )
-
                             desc = Behaviors.load_behavior(b).get("description", "")
                         except Exception:
                             pass

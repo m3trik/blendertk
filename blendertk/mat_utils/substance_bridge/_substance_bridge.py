@@ -33,6 +33,7 @@ from pythontk.core_utils import script_template
 from pythontk.str_utils._str_utils import StrUtils
 
 from blendertk.env_utils.fbx_utils import FbxUtils
+from blendertk.env_utils.usd import UsdUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
 from blendertk.mat_utils.substance_bridge.connection import SubstanceConnection
 from blendertk.mat_utils.substance_bridge.substance_rpc import DEFAULT_RPC_PORT
@@ -86,6 +87,15 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "global_scale": 1.0,
     "axis_up": "Y",
 }
+
+# USD options tuned for Substance Painter (the USD carrier): the shared interchange
+# set (Painter's texture sets come from the UsdPreviewSurface bindings), geometry
+# only like the FBX set. Mirror of mayatk's ``_DEFAULT_USD_OPTIONS`` intent.
+_DEFAULT_USD_OPTIONS: Dict[str, Any] = dict(
+    UsdUtils.INTERCHANGE_EXPORT_OPTIONS,
+    export_armatures=False,
+    export_shapekeys=False,
+)
 
 
 # -- Template introspection ------------------------------------------------
@@ -595,6 +605,29 @@ class SubstanceBridge(ptk.HandoffBridge):
         request.extras["_template_path"] = template_path
         return True
 
+    # Both carriers: Painter creates a project from USD (8.3+) beside FBX. Flat
+    # is fine here -- every duplicate paints as its own mesh, and nothing comes
+    # back as geometry. Mirror of mayatk's.
+    carriers = ("fbx", "usd")
+    usd_flattens_instances = True
+
+    def _export_model(
+        self, path: str, objects, request: ptk.HandoffRequest, fbx_options
+    ) -> None:
+        """Write *objects* to *path* in the carrier its extension names (keyed on
+        the EXTENSION: a reimport overwrites the file Painter's project was created
+        from, whatever carrier that was). Mirror of mayatk's."""
+        writers = {"fbx": self._export_model_fbx, "usd": self._export_model_usd}
+        writers[self.carrier_of(path)](path, objects, request, fbx_options)
+
+    def _export_model_usd(self, path, objects, request, fbx_options) -> None:
+        options = dict(_DEFAULT_USD_OPTIONS)
+        options.update(request.get("usd_options") or {})
+        UsdUtils.export_selection_usd(filepath=path, objects=objects, **options)
+
+    def _export_model_fbx(self, path, objects, request, fbx_options) -> None:
+        FbxUtils.export_selection_fbx(filepath=path, objects=objects, **fbx_options)
+
     def _produce(self, objects, request) -> Optional[ptk.Payload]:
         """Export the FBX, stage textures, and build the material manifest."""
         meta = request.extras["_meta"]
@@ -633,7 +666,7 @@ class SubstanceBridge(ptk.HandoffBridge):
                 )
             base = request.get("output_name") or self._scene_base_name()
             base = StrUtils.sanitize(base, preserve_case=True)
-            fbx_path = os.path.join(output_dir, f"{base}.fbx")
+            fbx_path = os.path.join(output_dir, f"{base}{self.payload_extension(request)}")
         os.makedirs(output_dir, exist_ok=True)
         manifest_path = os.path.join(output_dir, f"{base}.materials.json")
 
@@ -661,16 +694,15 @@ class SubstanceBridge(ptk.HandoffBridge):
             if request.get("fbx_options"):
                 merged_options.update(request.get("fbx_options"))
 
-            self.logger.info("Exporting FBX ...")
+            carrier = os.path.splitext(fbx_path)[1].lstrip(".").upper()
+            self.logger.info(f"Exporting {carrier} ...")
             try:
-                FbxUtils.export_selection_fbx(
-                    filepath=fbx_path, objects=objects, **merged_options
-                )
+                self._export_model(fbx_path, objects, request, merged_options)
             except Exception as e:
-                self.logger.error(f"FBX export failed: {e}")
+                self.logger.error(f"{carrier} export failed: {e}")
                 return None
             self.logger.info(
-                f'FBX written: <a href="action://open?path={fbx_path}">{fbx_path}</a>'
+                f'{carrier} written: <a href="action://open?path={fbx_path}">{fbx_path}</a>'
             )
             # Remember where this scene's mesh went so a later reimport --
             # even from a fresh Blender session -- overwrites the same file.
@@ -682,7 +714,7 @@ class SubstanceBridge(ptk.HandoffBridge):
             # fail it -- and reading nothing from the export scope, so
             # "Visible Only" stays exactly as wide as the user set it.
             high_poly_path = self._export_high_poly(
-                fbx_path, merged_options, referenced, merged_params
+                fbx_path, merged_options, referenced, merged_params, request
             )
         else:
             self.logger.info(
@@ -1145,6 +1177,7 @@ class SubstanceBridge(ptk.HandoffBridge):
         fbx_options: Dict[str, Any],
         referenced: set,
         params: Dict[str, Any],
+        request: ptk.HandoffRequest,
     ) -> Optional[str]:
         """Export :class:`HighPolySet`'s members to ``<stem>_high.fbx``.
 
@@ -1179,11 +1212,9 @@ class SubstanceBridge(ptk.HandoffBridge):
         high_path = self.high_poly_path_for(fbx_path)
         self.logger.info(f"Exporting high poly ({len(members)} object(s)) ...")
         try:
-            FbxUtils.export_selection_fbx(
-                filepath=high_path, objects=members, **options
-            )
+            self._export_model(high_path, members, request, options)
         except Exception as e:  # noqa: BLE001 -- optional leg, never fatal
-            self.logger.error(f"High-poly FBX export failed: {e}")
+            self.logger.error(f"High-poly export failed: {e}")
             return None
         self.logger.info(
             f'High poly written: <a href="action://open?path={high_path}">{high_path}</a>'

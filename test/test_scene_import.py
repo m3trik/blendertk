@@ -1080,6 +1080,28 @@ try:
             "manifest: object-level fallback when no slot matches",
             calls.get("assigned") == ([obj_b], "M_fb"),
         )
+        # The USD route replays by material IDENTITY only: its bindings are
+        # exact per prim path, and a short-name fallback lands the wrong set's
+        # textures on a scene carrying one leaf name under two hierarchies.
+        import json as _json_ident
+
+        _ident_manifest = os.path.join(tempfile.gettempdir(), "btk_ident.manifest.json")
+        with open(_ident_manifest, "w", encoding="utf-8") as _mf:
+            _json_ident.dump(
+                {"materials": [{"name": "M_fb2", "fbx_material": "M_not_on_any_slot",
+                                "objects": ["objB"], "files": [tex]}]},
+                _mf,
+            )
+        calls.pop("assigned", None)
+        MayaSceneImport()._apply_texture_manifest(
+            _ident_manifest, [obj_a, obj_b], object_fallback=False
+        )
+        check(
+            "manifest: object_fallback=False never assigns by short object name",
+            calls.get("assigned") is None,
+            str(calls.get("assigned")),
+        )
+        os.remove(_ident_manifest)
         check("intermediate FBX removed on success", not os.path.exists(calls["fbx"]))
         check(
             "manifest sidecar removed on success",
@@ -1253,6 +1275,74 @@ try:
         "USD template: sanitize-collisions fail the export loudly",
         "collide" in usd_txt,
     )
+    # ---- the USD route ships the FBX route's texture manifest -----------------
+    # mayaUsd's registry exporter writes no normal off a bump2d chain (nor any
+    # packed / AO map) -- probed: every UsdPreviewSurface in a production pull
+    # arrived normal=None. The native USD materials are the baseline; the
+    # manifest rebuild on top is what guarantees parity with FBX.
+    check(
+        "USD template: collects the texture manifest off the ORIGINAL shaders",
+        "def collect_materials" in usd_txt
+        and "materials, shading_groups = collect_materials(cmds)" in usd_txt
+        and usd_txt.index("collect_materials(cmds)") < usd_txt.index("usd_safe_materials(cmds)" + "\n")
+        and '"materials": materials or []' in usd_txt
+        and '"shading_groups": shading_groups or {}' in usd_txt,
+    )
+    check(
+        "USD template: normal maps wire straight into normalCamera (no bump2d chain)",
+        "def _flatten_normal_chain" in usd_txt
+        and "_usdsafe_bump" not in usd_txt
+        and 'f"{file_node}.outColor", f"{ss}.normalCamera"' in usd_txt,
+    )
+    check(
+        "USD template: Stingray data maps export raw",
+        "STINGRAY_DATA_SLOTS" in usd_txt and '"Raw", type="string"' in usd_txt,
+    )
+    check(
+        "USD template: Maya's primary UV set travels by NAME (preserveUVSetNames)",
+        '"preserveUVSetNames": True' in usd_txt,
+    )
+    import inspect as _inspect_usd
+
+    _engine_src = _inspect_usd.getsource(MayaSceneImport.import_scene)
+    check(
+        "engine: the USD route imports through UsdUtils.import_scene (every prim, hidden stay hidden, map1 active)",
+        _engine_src.count("UsdUtils.import_scene(") == 2
+        and "UsdUtils.import_usd(" not in _engine_src,
+    )
+    check(
+        "engine: the USD material replay is identity-only (no short-name fallback)",
+        "object_fallback=False" in _inspect_usd.getsource(MayaSceneImport._apply_usd_materials),
+    )
+    check(
+        "bake template: a USD source imports through UsdUtils.import_scene",
+        "UsdUtils.import_scene(SRC_FILE)" in bake_txt
+        and '"merge_parent_xform": False' in bake_txt,
+    )
+    # The collectors are copies of the FBX template's -- identical by AST.
+    import ast as _ast2
+
+    def _fn_dump(text, name):
+        for node in _ast2.walk(_ast2.parse(text)):
+            if isinstance(node, _ast2.FunctionDef) and node.name == name:
+                node.body = [n for n in node.body if not isinstance(n, _ast2.Expr)]
+                return _ast2.dump(node)
+        return None
+
+    from blendertk.env_utils.maya_bridge._scene_import import _IMPORT_TEMPLATE as _FBX_TEMPLATE
+
+    fbx_txt = _FBX_TEMPLATE.read_text()
+    for fn in ("_resolved_file", "_material_slots", "_material_files"):
+        check(
+            f"USD template: {fn} is the FBX template's copy (AST-identical)",
+            _fn_dump(usd_txt, fn) is not None and _fn_dump(usd_txt, fn) == _fn_dump(fbx_txt, fn),
+        )
+    check(
+        "engine: the USD branch renames SG materials and replays the manifest",
+        "_apply_usd_materials(manifest_path, imported)" in _inspect.getsource(MayaSceneImport.import_scene)
+        and "_apply_usd_materials" in bake_txt,
+    )
+
     check(
         "bake template: USD sidecar replay is loud (no flattened .blend saved)",
         "raise RuntimeError" in bake_txt
@@ -1567,7 +1657,102 @@ try:
         )
         os.remove(_xform_usda)
 
-        # ---- atomic rollback: a failed replay removes everything it imported --
+        # A materials Scope NESTED under an exported root (what a SELECTION export
+        # -- the send direction -- writes) is stripped too; prim-path keyed.
+        _nested_usda = os.path.join(tempfile.gettempdir(), "btk_strict_nested_scope.usda")
+        with open(_nested_usda, "w") as f:
+            f.write(
+                '#usda 1.0\n'
+                'def Xform "asset_grp" {\n'
+                '    def Mesh "wall" {\n'
+                '        int[] faceVertexCounts = [3]\n'
+                '        int[] faceVertexIndices = [0, 1, 2]\n'
+                '        point3f[] points = [(0,0,0), (1,0,0), (0,1,0)]\n'
+                '    }\n'
+                '    def Scope "mtl" {\n'
+                '        def Material "wall_mat" {\n'
+                '        }\n'
+                '    }\n'
+                '}\n'
+            )
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _imp3 = UsdUtils.import_usd(_nested_usda)
+        _imp3_names = [o.name for o in _imp3]  # before the strip frees one
+        _kept3 = _eng2._strip_materials_scope(_imp3, _nested_usda)
+        check(
+            "scope strip: a materials Scope nested under the exported root is removed",
+            sorted(o.name for o in _kept3) == ["asset_grp", "wall"]
+            and "mtl" not in bpy.data.objects,
+            str(_imp3_names) + " -> " + str([o.name for o in _kept3]),
+        )
+        os.remove(_nested_usda)
+
+        # ---- SG-named USD materials get their shader's name back ----------------
+        _rn_manifest = os.path.join(tempfile.gettempdir(), "btk_usd_rename.manifest.json")
+        with open(_rn_manifest, "w", encoding="utf-8") as f:
+            _json.dump({"shading_groups": {"wall_matSG": "wall_mat", "post_matSG": "taken_mat"}}, f)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _taken = bpy.data.materials.new("taken_mat")  # a scene object WEARS this name
+        _mk_obj("bystander", _mk_mesh("RN0")).data.materials.append(_taken)
+        _orphan = bpy.data.materials.new("wall_mat")  # nobody wears this leftover
+        _rn_obj = _mk_obj("wall", _mk_mesh("RN1"))
+        _rn_obj.data.materials.append(bpy.data.materials.new("wall_matSG"))
+        _rn_obj2 = _mk_obj("post", _mk_mesh("RN2"))
+        _rn_obj2.data.materials.append(bpy.data.materials.new("post_matSG"))
+        _renamed = _eng2._rename_usd_materials(_rn_manifest, [_rn_obj, _rn_obj2])
+        check(
+            "usd rename: wall_matSG -> wall_mat (unworn leftover purged); a WORN name is left alone",
+            _renamed == 1
+            and _rn_obj.data.materials[0].name == "wall_mat"
+            and _rn_obj.data.materials[0] is not _orphan
+            and _rn_obj2.data.materials[0].name == "post_matSG"
+            and _taken.name == "taken_mat",
+            f"{_renamed} {_rn_obj.data.materials[0].name} {_rn_obj2.data.materials[0].name}",
+        )
+        _eng2._apply_usd_materials(_rn_manifest, [_rn_obj, _rn_obj2])  # no materials section: no-op, no raise
+        check("usd materials: a manifest without entries is a quiet no-op", True)
+        os.remove(_rn_manifest)
+
+        # One Maya material feeding TWO shading groups arrives as two Blender
+        # materials; they fold onto one (the FBX route's one-per-source rule).
+        _mg_manifest = os.path.join(tempfile.gettempdir(), "btk_usd_merge.manifest.json")
+        with open(_mg_manifest, "w", encoding="utf-8") as f:
+            _json.dump({"shading_groups": {"e2e_ssSG": "e2e_ss", "e2e_ssSG2": "e2e_ss"}}, f)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _mg_a = _mk_obj("a", _mk_mesh("MG1"))
+        _mg_a.data.materials.append(bpy.data.materials.new("e2e_ssSG"))
+        _mg_b = _mk_obj("b", _mk_mesh("MG2"))
+        _mg_b.data.materials.append(bpy.data.materials.new("e2e_ssSG2"))
+        _mg_changed = _eng2._rename_usd_materials(_mg_manifest, [_mg_a, _mg_b])
+        check(
+            "usd rename: per-shading-group duplicates fold onto ONE named material",
+            _mg_changed == 2
+            and _mg_a.data.materials[0] is _mg_b.data.materials[0]
+            and _mg_a.data.materials[0].name == "e2e_ss"
+            and "e2e_ssSG2" not in bpy.data.materials,
+            f"{_mg_changed} {_mg_a.data.materials[0].name} {_mg_b.data.materials[0].name}",
+        )
+        # ...whatever the slot order: a material already bearing the name wins
+        # even when it is visited AFTER its SG-named twin.
+        with open(_mg_manifest, "w", encoding="utf-8") as f:
+            _json.dump({"shading_groups": {"e2e_ssSG": "e2e_ss", "e2e_ss": "e2e_ss"}}, f)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _mg_a = _mk_obj("a", _mk_mesh("MG1"))
+        _mg_a.data.materials.append(bpy.data.materials.new("e2e_ssSG"))
+        _mg_b = _mk_obj("b", _mk_mesh("MG2"))
+        _mg_b.data.materials.append(bpy.data.materials.new("e2e_ss"))
+        _mg_changed = _eng2._rename_usd_materials(_mg_manifest, [_mg_a, _mg_b])
+        check(
+            "usd rename: the SG-named twin folds onto the already-named material regardless of order",
+            _mg_changed == 1
+            and _mg_a.data.materials[0] is _mg_b.data.materials[0]
+            and _mg_b.data.materials[0].name == "e2e_ss"
+            and "e2e_ssSG" not in bpy.data.materials,
+            f"{_mg_changed} {_mg_a.data.materials[0].name} {_mg_b.data.materials[0].name}",
+        )
+        os.remove(_mg_manifest)
+
+    # ---- atomic rollback: a failed replay removes everything it imported --
         _rb_usda = os.path.join(tempfile.gettempdir(), "btk_strict_rollback.usda")
         with open(_rb_usda, "w") as f:
             f.write(
@@ -1707,6 +1892,153 @@ try:
             < 1e-9,
             str(_grp.bl_rna.properties["empty_display_size"].hard_min),
         )
+
+        # ---- scene settings: the manifest's ``scene`` section + file fallbacks ----
+        # Measured before this existed: the USD route dropped the fps (30 -> 24),
+        # the FBX route the range (1-250) -- a Maya scene never kept its clock.
+        from blendertk.env_utils.fbx_utils import FbxUtils
+        from blendertk.env_utils.usd import UsdUtils
+
+        _tmp_scene = tempfile.mkdtemp(prefix="btk_scene_settings_")
+        _rec = {
+            "fps": 30.0,
+            "frame_start": 10.0,
+            "frame_end": 90.0,
+            "anim_start": 5.0,
+            "anim_end": 100.0,
+            "frame_current": 42.0,
+        }
+        _man = os.path.join(_tmp_scene, "x.fbx.manifest.json")
+        with open(_man, "w", encoding="utf-8") as fh:
+            _json.dump({"version": 1, "materials": [], "scene": _rec}, fh)
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _scn = bpy.context.scene
+        _got = MayaSceneImport()._apply_scene_manifest(_man, None, frame_offset=1.0)
+        check(
+            "scene manifest: fps adopted",
+            _scn.render.fps == 30 and _scn.render.fps_base == 1.0,
+        )
+        check(
+            "scene manifest: ranges shifted by the FBX importer's anim_offset",
+            (_scn.frame_start, _scn.frame_end) == (6, 101)
+            and (_scn.frame_preview_start, _scn.frame_preview_end) == (11, 91)
+            and _scn.use_preview_range
+            and _scn.frame_current == 43,
+            f"{_scn.frame_start}-{_scn.frame_end} / {_scn.frame_preview_start}-{_scn.frame_preview_end} @ {_scn.frame_current}",
+        )
+        check("scene manifest: the applied record is returned", _got.get("fps") == 30.0)
+        check(
+            "scene manifest: no manifest, no intermediate -> nothing applied, no raise",
+            MayaSceneImport()._apply_scene_manifest(None, None) == {},
+        )
+
+        # File fallbacks: an FBX / USD written at 30 fps over 10-90 by Blender itself.
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _scn = bpy.context.scene
+        _scn.render.fps, _scn.render.fps_base = 30, 1.0
+        _scn.frame_start, _scn.frame_end = 10, 90
+        bpy.ops.mesh.primitive_cube_add()
+        _anim_cube = bpy.context.active_object
+        _anim_cube.name = "anim_cube"
+        _anim_cube.location.x = 0.0
+        _anim_cube.keyframe_insert("location", frame=10)
+        _anim_cube.location.x = 2.0
+        _anim_cube.keyframe_insert("location", frame=90)
+        _fbx_out = os.path.join(_tmp_scene, "clock.fbx")
+        FbxUtils.export(
+            _fbx_out,
+            objects=[_anim_cube],
+            bake_anim=True,
+            bake_anim_use_nla_strips=False,
+            bake_anim_use_all_actions=False,
+        )
+        _fbx_rec = FbxUtils.scene_settings(_fbx_out)
+        check(
+            "FbxUtils.scene_settings: fps + animation span from GlobalSettings",
+            _fbx_rec.get("fps") == 30.0
+            and (_fbx_rec.get("anim_start"), _fbx_rec.get("anim_end")) == (10, 90),
+            f"{_fbx_rec}",
+        )
+        check("FbxUtils.scene_settings: unreadable file -> {}", FbxUtils.scene_settings(_man) == {})
+        _usd_out = os.path.join(_tmp_scene, "clock.usdc")
+        UsdUtils.export(_usd_out, objects=[_anim_cube], export_animation=True)
+        _usd_rec = UsdUtils.scene_settings(_usd_out)
+        check(
+            "UsdUtils.scene_settings: fps + authored range from the stage",
+            _usd_rec.get("fps") == 30.0
+            and (_usd_rec.get("anim_start"), _usd_rec.get("anim_end")) == (10, 90),
+            f"{_usd_rec}",
+        )
+        check("UsdUtils.scene_settings: unreadable file -> {}", UsdUtils.scene_settings(_man) == {})
+
+        # Fallback path through the engine: no manifest -> the file's own record
+        # (fps from the FBX, no shift on the USD route).
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        MayaSceneImport()._apply_scene_manifest(None, _usd_out)
+        check(
+            "scene fallback: USD stage record adopted 1:1",
+            bpy.context.scene.render.fps == 30
+            and (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (10, 90),
+        )
+
+        # USD animation ownership: Blender's importer streams animated xforms from
+        # the file through a TRANSFORM_CACHE constraint -- a by-path dependency on
+        # a temp intermediate the cache lifecycle deletes. The engine bakes it to keys.
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _usd_objs = UsdUtils.import_usd(_usd_out)
+        _cached = [o for o in _usd_objs if any(c.type == "TRANSFORM_CACHE" for c in o.constraints)]
+        check(
+            "USD import streams animation through a Transform Cache (the premise)",
+            len(_cached) == 1,
+            f"{[(o.name, [c.type for c in o.constraints]) for o in _usd_objs]}",
+        )
+        _baked_n = MayaSceneImport()._own_usd_animation(_usd_out, _usd_objs)
+        _ob = _cached[0] if _cached else None
+        _ad = _ob.animation_data if _ob else None
+        check(
+            "own_usd_animation: constraint + cache file gone, keys own the motion",
+            _baked_n == 1
+            and _ob is not None
+            and not _ob.constraints
+            and len(bpy.data.cache_files) == 0
+            and _ad is not None
+            and _ad.action is not None,
+        )
+        if _ob is not None:
+            _scn = bpy.context.scene
+            _scn.frame_set(10)
+            _x10 = _ob.matrix_world.translation.x
+            _scn.frame_set(90)
+            _x90 = _ob.matrix_world.translation.x
+            check(
+                "own_usd_animation: baked keys reproduce the motion",
+                abs(_x10) < 1e-4 and abs(_x90 - 2.0) < 1e-4,
+                f"x@10={_x10} x@90={_x90}",
+            )
+        check(
+            "own_usd_animation: nothing to bake -> 0, never raises",
+            MayaSceneImport()._own_usd_animation(_usd_out, _usd_objs) == 0,
+        )
+        import shutil as _shutil
+
+        _shutil.rmtree(_tmp_scene, ignore_errors=True)
+
+    # ---- template contract: both Maya-side conversions record the scene clock ----
+    for _tpl in (_IMPORT_TEMPLATE, _IMPORT_TEMPLATE_USD):
+        _txt = _tpl.read_text(encoding="utf-8")
+        check(
+            f"{_tpl.name}: writes the manifest's scene section",
+            "def scene_settings(cmds)" in _txt and '"scene": ' in _txt,
+        )
+        check(
+            f"{_tpl.name}: fps read from the API (no unit-name table to drift)",
+            "om.MTime(1.0, om.MTime.kSeconds).asUnits(om.MTime.uiUnit())" in _txt,
+        )
+    _bake_txt = _BAKE_TEMPLATE.read_text(encoding="utf-8")
+    check(
+        "bake template adopts the scene clock and owns USD animation",
+        "_apply_scene_manifest" in _bake_txt and "_own_usd_animation" in _bake_txt,
+    )
 
 
 except Exception as e:

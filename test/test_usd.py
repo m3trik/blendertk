@@ -261,6 +261,247 @@ try:
     except ValueError:
         check("unknown via -> ValueError", True)
 
+    # ---- interchange: Y-up, hidden objects, prim paths, primary UV set ------
+    # Production pull 2026-08-22: a .blend landed in Maya rotated +90 X (Z-up
+    # stage, mayaUsd converts nothing on import), its hidden bake-source set
+    # visible (Blender's exporter skips hidden objects outright, so they were
+    # never in the layer at all), and every mesh on UV set ``st``.
+    check(
+        "INTERCHANGE_EXPORT_OPTIONS convert to Y-up / -Z forward",
+        UsdUtils.INTERCHANGE_EXPORT_OPTIONS.get("convert_orientation") is True
+        and UsdUtils.INTERCHANGE_EXPORT_OPTIONS.get("export_global_up_selection") == "Y"
+        and UsdUtils.INTERCHANGE_EXPORT_OPTIONS.get("export_global_forward_selection")
+        == "NEGATIVE_Z",
+    )
+    check(
+        "INTERCHANGE_IMPORT_OPTIONS read every prim, previews on",
+        UsdUtils.INTERCHANGE_IMPORT_OPTIONS.get("import_visible_only") is False
+        and UsdUtils.INTERCHANGE_IMPORT_OPTIONS.get("import_usd_preview") is True,
+    )
+
+    reset()
+    bpy.ops.object.empty_add(location=(0, 0, 0))
+    grp = bpy.context.active_object
+    grp.name = "ic_grp"
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 5))
+    up_cube = bpy.context.active_object
+    up_cube.name = "ic_up"
+    up_cube.parent = grp
+    up_cube.data.uv_layers.new(name="lightmap")  # sorts AHEAD of map1 in USD
+    up_cube.data.uv_layers.new(name="map1")
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    monitor_hidden = bpy.context.active_object
+    monitor_hidden.name = "ic_hidden.001"  # the importer's collision spelling
+    monitor_hidden.parent = grp
+    monitor_hidden.hide_viewport = True
+    monitor_hidden.hide_render = True  # the exporter's RENDER evaluation skips it
+    bpy.ops.mesh.primitive_cube_add(location=(-3, 0, 0))
+    eye_hidden = bpy.context.active_object
+    eye_hidden.name = "ic_eye_hidden"
+    eye_hidden.hide_set(True)
+
+    check(
+        "hidden_objects: the monitor toggle and the eye, not the visible ones",
+        sorted(o.name for o in UsdUtils.hidden_objects())
+        == ["ic_eye_hidden", "ic_hidden.001"],
+        str([o.name for o in UsdUtils.hidden_objects()]),
+    )
+    check(
+        "export_prim_path spells the exporter's prim (dots sanitized, parent chain)",
+        UsdUtils.export_prim_path(monitor_hidden) == "/ic_grp/ic_hidden_001"
+        and UsdUtils.export_prim_path(monitor_hidden, "/root") == "/root/ic_grp/ic_hidden_001",
+        UsdUtils.export_prim_path(monitor_hidden),
+    )
+    check(
+        "prim_path strips ONLY the importer's .NNN collision suffix",
+        UsdUtils.prim_path(monitor_hidden) == "/ic_grp/ic_hidden"
+        and UsdUtils.prim_path(up_cube) == "/ic_grp/ic_up",
+    )
+
+    ic_out = os.path.join(tmp, "interchange.usda")
+    UsdUtils.export(
+        filepath=ic_out,
+        selection_only=False,
+        **dict(UsdUtils.INTERCHANGE_EXPORT_OPTIONS, convert_scene_units="CENTIMETERS"),
+    )
+    check(
+        "export restores the hidden state it revealed for the exporter",
+        monitor_hidden.hide_viewport is True
+        and monitor_hidden.hide_render is True
+        and eye_hidden.hide_get() is True
+        and up_cube.hide_viewport is False,
+    )
+    try:
+        from pxr import Usd, UsdGeom
+
+        stage = Usd.Stage.Open(ic_out)
+        root = stage.GetPrimAtPath("/ic_grp")
+        ops = {
+            op.GetOpName(): tuple(round(v, 3) for v in op.Get())
+            for op in UsdGeom.Xformable(root).GetOrderedXformOps()
+        }
+        check(
+            "export: the stage is Y-up, the conversion baked on the ROOT prim",
+            UsdGeom.GetStageUpAxis(stage) == "Y"
+            and ops.get("xformOp:rotateXYZ", ())[:1] == (-90.0,)
+            and ops.get("xformOp:scale") == (100.0, 100.0, 100.0),
+            f"{UsdGeom.GetStageUpAxis(stage)} {ops}",
+        )
+        vis = {
+            str(p.GetPath()): UsdGeom.Imageable(p).GetVisibilityAttr().Get()
+            for p in stage.Traverse()
+            if p.GetTypeName() == "Mesh"
+        }
+        check(
+            "export: hidden objects are IN the layer, stamped invisible",
+            vis.get("/ic_grp/ic_hidden_001") == "invisible"
+            and vis.get("/ic_eye_hidden") == "invisible"
+            and vis.get("/ic_grp/ic_up") == "inherited",
+            str(vis),
+        )
+        del stage
+    except ImportError:
+        pass
+
+    skip_out = os.path.join(tmp, "interchange_skip.usda")
+    UsdUtils.export(filepath=skip_out, selection_only=False, include_hidden=False)
+    try:
+        from pxr import Usd
+
+        stage = Usd.Stage.Open(skip_out)
+        names = {str(p.GetPath()) for p in stage.Traverse()}
+        check(
+            "export(include_hidden=False): the exporter's own behavior, hidden skipped",
+            any(n.endswith("/ic_grp/ic_up") for n in names)
+            and not any(n.endswith("/ic_hidden_001") for n in names),
+            str(sorted(names)),
+        )
+        del stage
+    except ImportError:
+        pass
+
+    reset()
+    created = UsdUtils.import_scene(ic_out)
+    by_name = {o.name: o for o in created}
+    check(
+        "import_scene: every prim arrives, the invisible ones HIDDEN",
+        {"ic_hidden_001", "ic_eye_hidden", "ic_up"} <= set(by_name)
+        and by_name["ic_hidden_001"].hide_viewport
+        and by_name["ic_hidden_001"].hide_render
+        and by_name["ic_eye_hidden"].hide_viewport
+        and not by_name["ic_up"].hide_viewport,
+        str({n: (o.hide_viewport, o.hide_render) for n, o in by_name.items()}),
+    )
+    world = by_name["ic_up"].matrix_world.translation if "ic_up" in by_name else None
+    check(
+        "import_scene: Y-up cm layer lands back at its Z-up metre position",
+        world is not None and tuple(round(v, 3) for v in world) == (0.0, 0.0, 5.0),
+        str(world),
+    )
+    uv = by_name["ic_up"].data.uv_layers if "ic_up" in by_name else None
+    check(
+        "import_scene: map1 is the render-active UV map although lightmap sorts first",
+        uv is not None
+        and uv.active is not None
+        and uv.active.name == "map1"
+        and uv.get("map1").active_render,
+        str([(m.name, m.active, m.active_render) for m in uv] if uv else None),
+    )
+
+    # apply_visibility: a group's invisibility hides its children too, by PATH.
+    reset()
+    bpy.ops.object.empty_add()
+    g = bpy.context.active_object
+    g.name = "vis_grp"
+    bpy.ops.mesh.primitive_cube_add()
+    child = bpy.context.active_object
+    child.name = "vis_child"
+    child.parent = g
+    bpy.ops.mesh.primitive_cube_add()
+    loose = bpy.context.active_object
+    loose.name = "vis_loose"
+    vis_out = os.path.join(tmp, "vis.usda")
+    g.hide_viewport = True
+    UsdUtils.export(
+        filepath=vis_out, selection_only=False, **UsdUtils.INTERCHANGE_EXPORT_OPTIONS
+    )
+    g.hide_viewport = False
+    reset()
+    created = UsdUtils.import_scene(vis_out)
+    by_name = {o.name: o for o in created}
+    check(
+        "import_scene: a single-child group stays a group (no parent-xform merge)",
+        "vis_grp" in by_name
+        and by_name.get("vis_child") is not None
+        and by_name["vis_child"].parent is by_name["vis_grp"],
+        str(sorted(by_name)),
+    )
+    check(
+        "apply_visibility: an invisible group hides its children (computed), not strangers",
+        {"vis_grp", "vis_child", "vis_loose"} <= set(by_name)
+        and by_name["vis_grp"].hide_viewport
+        and by_name["vis_child"].hide_viewport
+        and not by_name["vis_loose"].hide_viewport,
+        str({n: o.hide_viewport for n, o in by_name.items()}),
+    )
+
+    # ---- animated export keeps its meshes (Blender 5.1 exporter bug + fold) ---
+    # merge_parent_xform + export_animation DROPS an animated object's Mesh prim
+    # (probed on 5.1.2). The engine exports unmerged and folds each Xform+Mesh
+    # pair back into one Mesh prim -- including a mesh datablock named like its
+    # object and a nested parent, the two shapes a naive namespace edit trips on.
+    reset()
+    grp = bpy.data.objects.new("fold_grp", None)
+    bpy.context.scene.collection.objects.link(grp)
+    bpy.ops.mesh.primitive_cube_add()
+    mover = bpy.context.active_object
+    mover.name = "mover"
+    mover.data.name = "mover"  # datablock named like the object (a USD round trip does this)
+    mover.parent = grp
+    mover.keyframe_insert("location", frame=1)
+    mover.location.x += 5
+    mover.keyframe_insert("location", frame=10)
+    bpy.ops.mesh.primitive_cube_add()
+    still = bpy.context.active_object
+    still.name = "still"
+    still.parent = grp
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 10
+    anim_out = os.path.join(tmp, "anim.usda")
+    UsdUtils.export(
+        filepath=anim_out,
+        objects=[grp, mover, still],
+        export_animation=True,
+        merge_parent_xform=True,
+        use_instancing=False,
+        root_prim_path="",
+    )
+    try:
+        from pxr import Usd, UsdGeom
+
+        stage = Usd.Stage.Open(anim_out)
+        types = {str(p.GetPath()): p.GetTypeName() for p in stage.Traverse()}
+        mover_prim = stage.GetPrimAtPath("/fold_grp/mover")
+        translate = mover_prim.GetAttribute("xformOp:translate") if mover_prim else None
+        check(
+            "animated export: every object is ONE merged Mesh prim (fold)",
+            types.get("/fold_grp/mover") == "Mesh"
+            and types.get("/fold_grp/still") == "Mesh"
+            and not any(k.startswith("/fold_grp/mover/") for k in types),
+            str(types),
+        )
+        check(
+            "animated export: the folded Mesh carries the time samples",
+            translate is not None and translate.GetNumTimeSamples() >= 2,
+            str(translate.GetNumTimeSamples() if translate else None),
+        )
+        check(
+            "fold_single_mesh_xforms is idempotent on a folded layer",
+            UsdUtils.fold_single_mesh_xforms(anim_out) == 0,
+        )
+    except ImportError:
+        pass
+
     import shutil
 
     shutil.rmtree(tmp, ignore_errors=True)

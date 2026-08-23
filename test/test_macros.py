@@ -381,6 +381,55 @@ try:
     else:
         check("m_grid toggles the floor grid + axes off, returning the applied state", False, "no VIEW_3D")
 
+    # 10e. m_cycle_background walks BACKGROUND_CYCLE — mayatk's table step for step (only
+    # step 0's label differs: Blender shows the theme background where Maya shows its
+    # gradient), so the same chord gives the same look in both DCCs. The gray values are
+    # DISPLAY (sRGB) values; background_color is an RNA COLOR (scene-linear) property, so
+    # writing them raw would draw a markedly lighter gray than Maya does.
+    reset_scene()
+    _area, space = M._view3d()
+    if space:
+        shading = space.shading
+        check("BACKGROUND_CYCLE mirrors mayatk's table (parity pin)",
+              M.BACKGROUND_CYCLE == (
+                  ("Theme", None),
+                  ("Black", (0.0, 0.0, 0.0)),
+                  ("Dark Gray", (0.36, 0.36, 0.36)),
+                  ("Mid Gray", (0.5, 0.5, 0.5)),
+                  ("Light Gray", (0.631, 0.631, 0.631)),
+                  ("White", (1.0, 1.0, 1.0)),
+              ), str(M.BACKGROUND_CYCLE))
+
+        shading.background_type = "THEME"
+        labels = [M.m_cycle_background() for _ in M.BACKGROUND_CYCLE]
+        lap = [lbl for lbl, _ in M.BACKGROUND_CYCLE[1:]] + [M.BACKGROUND_CYCLE[0][0]]
+        check("m_cycle_background visits every step and wraps back to the start",
+              labels == lap, str(labels))
+        check("a full lap lands back on the theme background",
+              shading.background_type == "THEME", shading.background_type)
+
+        check("m_cycle_background(Theme) -> Black turns the theme off",
+              M.m_cycle_background() == "Black" and shading.background_type == "VIEWPORT")
+        M.m_cycle_background()  # -> Dark Gray
+        check("display values are stored scene-linear, not written raw",
+              abs(shading.background_color[0] - 0.1065) < 1e-3
+              and abs(M._display_value(shading.background_color) - 0.36) < 1e-3,
+              f"stored={shading.background_color[0]:.4f}")
+
+        # A background set by something else (btk.StyleSetter, a hand-picked color) must
+        # advance from where it visually is rather than restarting the cycle.
+        shading.background_type = "VIEWPORT"
+        shading.background_color = M._scene_linear((0.62, 0.62, 0.62))  # ~ Light Gray
+        check("an off-table color resolves to the nearest step",
+              M.m_cycle_background() == "White")
+        # World/HDRI backgrounds aren't a step at all -> treated as the app default.
+        shading.background_type = "WORLD"
+        check("a world background is step 0 (the app default)",
+              M.m_cycle_background() == "Black")
+        shading.background_type = "THEME"
+    else:
+        check("m_cycle_background visits every step and wraps back to the start", False, "no VIEW_3D")
+
     # 10b. m_toggle_panels' menu-bar half (btk.toggle_window_bars) is GUI-only — the topbar is a
     # global area that --background has no window for. Headless the bars sit out and the viewport
     # regions must still lead themselves (their pre-bars behavior), so the macro stays useful in

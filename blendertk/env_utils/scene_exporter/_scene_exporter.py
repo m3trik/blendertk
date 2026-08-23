@@ -57,6 +57,7 @@ from typing import List, Dict, Optional, Callable, Union, Any
 import pythontk as ptk
 
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
+from blendertk.env_utils.usd import UsdUtils
 from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
 # The engine's game-asset baseline (also shipped as the "game_asset" built-in preset -- see
@@ -188,6 +189,7 @@ class SceneExporter(ptk.LoggingMixin):
         hide_log_file: Optional[bool] = None,
         log_handler: Optional[object] = None,
         tasks: Optional[Dict[str, Any]] = None,
+        usd_options: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, bool]]:
         """Perform the export operation, including initialization and task management."""
         import bpy
@@ -236,6 +238,24 @@ class SceneExporter(ptk.LoggingMixin):
             output_format = "fbx"
         create_glb_enabled = output_format in ("glb", "fbx_glb")
         glb_only = output_format == "glb"
+        # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
+        # up to the write; the FBX-only knobs (preset, takes, GLB) are reported
+        # inert rather than silently ignored.
+        usd = output_format == "usd"
+        self._usd_format = usd
+        self._usd_options = dict(usd_options or {})
+        if usd:
+            for key in ("apply_declared_takes", "set_bake_animation_range"):
+                if tasks.get(key):
+                    self.logger.warning(
+                        f"Task '{key}' shapes the FBX take/animation range only; "
+                        "a USD export samples the frames that carry motion instead."
+                    )
+            if self.preset_name:
+                self.logger.warning(
+                    "The FBX export preset does not apply to a USD export "
+                    f"(ignored: {self.preset_name})."
+                )
 
         # Texture File Type: ONE container dial for every texture the export
         # ships — the scene maps the optimization pass writes AND a GLB's
@@ -331,7 +351,9 @@ class SceneExporter(ptk.LoggingMixin):
             else (optimize_textures if isinstance(optimize_textures, str) else None)
         )
 
-        self.export_path = self.generate_export_path(version_format=version_format)
+        self.export_path = self.generate_export_path(
+            version_format=version_format, extension=".usd" if usd else ".fbx"
+        )
         self.logger.debug(f"Generated export path: {self.export_path}")
         # Texture-budget staging inputs (mirror of mayatk's stamps): the
         # optimize_textures task keys its staging policy off whether the
@@ -502,17 +524,20 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 fbx_write_path = self.export_path
 
-            # Resolve -> repair -> report -> write, in that order: the settings
-            # report must describe the kwargs actually handed to the exporter,
-            # so the carrier repair (which needs the export set) runs first.
-            fbx_options = self._resolved_fbx_options()
-            self._force_carrier_readability(export_objects, fbx_options)
-            self._log_fbx_options(fbx_options)
-            FbxUtils.export_selection_fbx(
-                filepath=fbx_write_path,
-                objects=export_objects,
-                **fbx_options,
-            )
+            if getattr(self, "_usd_format", False):
+                self._write_usd(fbx_write_path, export_objects)
+            else:
+                # Resolve -> repair -> report -> write, in that order: the settings
+                # report must describe the kwargs actually handed to the exporter,
+                # so the carrier repair (which needs the export set) runs first.
+                fbx_options = self._resolved_fbx_options()
+                self._force_carrier_readability(export_objects, fbx_options)
+                self._log_fbx_options(fbx_options)
+                FbxUtils.export_selection_fbx(
+                    filepath=fbx_write_path,
+                    objects=export_objects,
+                    **fbx_options,
+                )
             export_succeeded = True
 
             deliverable_path = self.export_path
@@ -529,16 +554,6 @@ class SceneExporter(ptk.LoggingMixin):
                 deliverable_path = os.path.splitext(self.export_path)[0] + ".glb"
                 shutil.move(glb_path, deliverable_path)
                 self.logger.success(f"GLB created: {deliverable_path}")
-
-            # Write the scene-data sidecar (hierarchy baseline + data_export
-            # snapshot) only now that the deliverable is confirmed on disk —
-            # in glb-only mode the FBX is a temp intermediate, and writing the
-            # sidecar before the FBX→GLB conversion rolled the hierarchy-diff
-            # baseline forward on a failed conversion that produced no
-            # deliverable at all (same ordering bug mayatk had). Keyed off the
-            # logical export path (output dir + stem), independent of where
-            # the FBX was actually written.
-            self._write_scene_data_sidecar(export_objects)
 
             elapsed = time.time() - start_time
             export_info_lines = [
@@ -560,6 +575,20 @@ class SceneExporter(ptk.LoggingMixin):
 
             if create_glb_enabled and not glb_only:
                 self._create_glb(objects=export_objects)
+
+            # Write the scene-data sidecar (hierarchy baseline + data_export
+            # snapshot) as the single LAST step of every mode, so it can
+            # describe the deliverable that actually shipped rather than the
+            # state before the GLB existed. Safe after _create_glb because that
+            # never raises -- every failure path inside it logs and returns None
+            # -- so a failed conversion still leaves the sidecar written, simply
+            # without a section describing the GLB. An export that shipped
+            # NOTHING still writes none: glb-only returns above on a failed
+            # conversion, and rolling the hierarchy-diff baseline forward for a
+            # phantom would make the next run compare against it. Keyed off the
+            # logical export path (output dir + stem), independent of where the
+            # FBX was actually written. Mirror of mayatk's ordering.
+            self._write_scene_data_sidecar(export_objects)
         except Exception as e:
             self.logger.error(f"Failed to export objects: {e}")
             raise RuntimeError(f"Failed to export objects: {e}")
@@ -733,7 +762,73 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.success(f"GLB created: {glb_path}")
         return glb_path
 
-    def generate_export_path(self, version_format: str = "") -> str:
+    #: The extensions an output name may carry -- stripped before the format's
+    #: own is appended, so "asset.fbx" typed into a USD export lands as
+    #: "asset.usd" rather than "asset.fbx.usd". The carrier vocabulary, not a
+    #: second list (``CARRIER_BY_EXTENSION`` holds every USD spelling too).
+    _DELIVERABLE_EXTENSIONS = tuple(ptk.CARRIER_BY_EXTENSION)
+
+    #: ``wm.usd_export`` kwargs for the USD output format: the shared interchange
+    #: set (``btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS``; a MaterialX network is a
+    #: ``usd_options`` override), with the texture files referenced relative to
+    #: the layer -- a deliverable beside its scene, unlike a scratch payload.
+    #: Mirror of mayatk's ``USD_EXPORT_OPTIONS``.
+    USD_EXPORT_OPTIONS: Dict[str, Any] = dict(
+        UsdUtils.INTERCHANGE_EXPORT_OPTIONS,
+        relative_paths=True,
+    )
+
+    def _write_usd(self, usd_path: str, export_objects: List) -> str:
+        """Write *export_objects* as a USD layer (the ``usd`` output format).
+
+        Samples animation only across the frames that carry motion
+        (:meth:`UsdUtils.sampling_frame_range`); the scene range is set for the
+        call and restored. Custom properties ride as ``userProperties`` so the
+        ``data_export`` carrier ships readable, as the FBX path forces
+        ``use_custom_props`` (consumers reading them are not yet verified).
+        """
+        options = dict(self.USD_EXPORT_OPTIONS)
+        options.update(getattr(self, "_usd_options", None) or {})
+        frame_range = UsdUtils.sampling_frame_range(export_objects)
+        if frame_range:
+            options["export_animation"] = True
+            self.logger.info(f"USD: sampling frames {frame_range[0]}-{frame_range[1]}.")
+        shared = {}
+        for obj in export_objects:
+            data = getattr(obj, "data", None)
+            if data is not None and getattr(obj, "type", None) == "MESH":
+                shared.setdefault(data.name, []).append(obj.name)
+        linked = {m: n for m, n in shared.items() if len(n) > 1}
+        if linked:
+            self.logger.warning(
+                f"USD: {len(linked)} shared mesh(es) are written flat; every linked "
+                "duplicate ships as its own mesh."
+            )
+        if any(getattr(o, "name", "") == "data_export" for o in export_objects):
+            options["export_custom_properties"] = True
+            self.logger.info(
+                "USD: the data_export carrier ships as a prim with userProperties; "
+                "consumers reading them are not yet verified."
+            )
+        written = UsdUtils.export(
+            filepath=usd_path,
+            objects=export_objects,
+            selection_only=True,
+            frame_range=frame_range,
+            **options,
+        )
+        self.logger.info(f"USD written: {written}")
+        return written
+
+    @classmethod
+    def _strip_deliverable_extension(cls, name: str) -> str:
+        """*name* without a trailing deliverable extension (whitelist strip: a
+        dotted version token is not an extension)."""
+        return ptk.StrUtils.strip_suffix(name, cls._DELIVERABLE_EXTENSIONS)
+
+    def generate_export_path(
+        self, version_format: str = "", extension: str = ".fbx"
+    ) -> str:
         """Generate the full export file path.
 
         Parameters:
@@ -746,9 +841,8 @@ class SceneExporter(ptk.LoggingMixin):
         if self.output_name and any(char in self.output_name for char in "*?"):
             import glob
 
-            pattern = self.output_name
-            if not pattern.lower().endswith((".fbx", ".FBX")):
-                pattern += ".fbx"
+            pattern = self._strip_deliverable_extension(self.output_name)
+            pattern += extension.lower()
 
             search_path = os.path.join(self.export_dir, pattern)
             matches = glob.glob(search_path)
@@ -765,11 +859,11 @@ class SceneExporter(ptk.LoggingMixin):
         scene_path = bpy.data.filepath or "untitled"
         scene_name = os.path.splitext(os.path.basename(scene_path))[0]
         export_name = self.output_name or scene_name
-        export_name = export_name.removesuffix(".fbx").removesuffix(".FBX")
+        export_name = self._strip_deliverable_extension(export_name)
         if self.timestamp:
             export_name += f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
         export_name = self.format_export_name(export_name)
-        path = os.path.join(self.export_dir, f"{export_name}.fbx")
+        path = os.path.join(self.export_dir, f"{export_name}{extension.lower()}")
         return self._apply_versioning(path, version_format)
 
     def _apply_versioning(self, path: str, template: str) -> str:
@@ -1139,10 +1233,27 @@ class SceneExporter(ptk.LoggingMixin):
         preset a user saves from Blender's own exporter. Mutates *fbx_options* in
         place; no-op when animation isn't being baked.
 
+        The ``apply_declared_takes`` path *depends* on this invariant rather than
+        bypassing it: ``FbxUtils`` realizes armed takes by splitting the written
+        file's single scene-range AnimStack after the write, so the one extra
+        repair takes armed demand is forcing ``bake_anim`` ON — a preset with
+        animation off would ship a file with no stack to split, failing the
+        takes the user asked for (the Maya twin forces bake-complex on the same
+        way).
+
         DEBUG, not WARNING, precisely because the shipped ``default`` preset carries
         Blender's own values: this fires on every animated export under it, and the
         settings report already discloses the enforced values (the repair runs inside
         :meth:`_resolved_fbx_options`, before anything reads them)."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        takes_armed = bool(FbxUtils._pending_takes)
+        if takes_armed and not fbx_options.get("bake_anim"):
+            fbx_options["bake_anim"] = True
+            self.logger.info(
+                "Animation takes are armed — forced bake_anim=True so the "
+                "write carries the scene-range take they are cut from."
+            )
         if not fbx_options.get("bake_anim"):
             return
         repaired = [

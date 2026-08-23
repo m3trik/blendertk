@@ -81,8 +81,26 @@ def _tolerant_op(op, kwargs, label):
 def import_source(bpy):
     """Import *SRC_FILE*, dispatched on its extension (USD native / FBX classic)."""
     if SRC_FILE.lower().endswith(USD_EXTENSIONS):
-        # Native defaults, matching the direct-import path (UsdUtils.import_usd).
-        _tolerant_op(bpy.ops.wm.usd_import, {"filepath": SRC_FILE}, "USD")
+        # The direct-import path's importer: every prim (the operator's own
+        # default skips invisible ones -- a hidden bake-source set vanished
+        # from a production pull), hidden prims landing hidden, Maya's primary
+        # UV set render-active. Without blendertk: the operator, every prim.
+        _extend_sys_path()
+        try:
+            from blendertk.env_utils.usd import UsdUtils
+        except Exception as error:
+            print("blendertk unavailable ({}); importing USD bare.".format(error))
+            _tolerant_op(
+                bpy.ops.wm.usd_import,
+                {
+                    "filepath": SRC_FILE,
+                    "import_visible_only": False,
+                    "merge_parent_xform": False,
+                },
+                "USD",
+            )
+            return
+        UsdUtils.import_scene(SRC_FILE)
         return
     _tolerant_op(
         bpy.ops.import_scene.fbx,
@@ -194,6 +212,26 @@ def apply_visibility(engine, imported):
         traceback.print_exc()
 
 
+def apply_scene(engine, is_usd):
+    """Adopt the source scene's time setup (fps / playback + animation ranges /
+    current frame) through the shared engine: the manifest's ``scene`` section,
+    else what the intermediate itself carries. Without it a Maya scene OPENED
+    through this bake arrived on Blender's default clock (measured: USD dropped
+    the fps, FBX dropped the range). The FBX branch shifts frames by the
+    importer's default ``anim_offset`` (1.0) — keep in step with import_source.
+    Best-effort: a bad record must never cost the user the .blend.
+    """
+    if engine is None:
+        return
+    try:
+        engine._apply_scene_manifest(
+            SRC_FILE + ".manifest.json", SRC_FILE, frame_offset=0.0 if is_usd else 1.0
+        )
+    except Exception:
+        print("Scene settings not adopted; keeping Blender defaults:")
+        traceback.print_exc()
+
+
 def main():
     import bpy
 
@@ -204,8 +242,22 @@ def main():
     import_source(bpy)
     imported = [o for o in bpy.data.objects if o not in before]
     engine = _engine()
-    if SRC_FILE.lower().endswith(USD_EXTENSIONS):
+    is_usd = SRC_FILE.lower().endswith(USD_EXTENSIONS)
+    apply_scene(engine, is_usd)
+    if is_usd:
         apply_instances(engine, imported)
+        # Keys, not a by-path Transform Cache stream from the temp USD (which
+        # the parent's cache lifecycle deletes) — see the engine method.
+        if engine is not None:
+            engine._own_usd_animation(SRC_FILE, imported)
+            # Materials: rename off the shading-group prim names, then the FBX
+            # route's texture rebuild on top of the native USD networks (the
+            # manifest's ``materials`` section). Never fatal -- fidelity only.
+            try:
+                engine._apply_usd_materials(SRC_FILE + ".manifest.json", imported)
+            except Exception:
+                print("USD material step failed (keeping the native materials):")
+                traceback.print_exc()
         # Cosmetic, after the structural work: drop the Empty Blender
         # materializes for the exporter's materials Scope prim ("mtl") so it
         # never enters the linkable library. Never fatal -- clutter is not

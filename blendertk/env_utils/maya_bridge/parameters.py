@@ -39,6 +39,7 @@ PARAMS: "dict[str, AttributeSpec]" = {
     # Shared across every hand-off bridge (uitk owns the one spec);
     # resolved by the DCC bridge-slots base.
     "SCOPE": _BridgeParams.scope_spec(default=DEFAULTS["SCOPE"]),
+    "CARRIER": _BridgeParams.carrier_spec(default=DEFAULTS["CARRIER"]),
     "INCLUDE_MATERIALS": AttributeSpec(
         key="INCLUDE_MATERIALS",
         label="Include Materials",
@@ -65,7 +66,8 @@ PARAMS: "dict[str, AttributeSpec]" = {
         kind="bool",
         default=DEFAULTS["APPLY_UNIT_SCALE"],
         tooltip=(
-            "Bake Blender units (m) into the FBX so Maya reads the correct real-world size.\n"
+            "Bake Blender units (m) into the payload so Maya reads the correct real-world\n"
+            "size (FBX: apply_unit_scale; USD: the layer is written in centimeters).\n"
             "Off preserves the raw numeric values."
         ),
     ),

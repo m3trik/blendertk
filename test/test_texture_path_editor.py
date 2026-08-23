@@ -313,6 +313,82 @@ try:
     check("get_image_records marks the linked texture as existing on disk",
           bool(rec and rec["exists"]), f"{rec}")
 
+    # 13. image_texture_nodes / select_image_nodes -- the Blender answer to Maya's
+    # "Select File Node". Maya's file node is ONE object; Blender splits it into the image
+    # datablock (owns the path) and the ShaderNodeTexImage nodes referencing it, so a row maps
+    # to 0, 1, or N nodes. Covers the multi-material and nested-in-node-group cases.
+    reset()
+    sel_dir = os.path.join(tmp, "selnodes")
+    sel_img = bpy.data.images.load(write_png(os.path.join(sel_dir, "sel_DIFF.png")))
+    other_img = bpy.data.images.load(write_png(os.path.join(sel_dir, "other_DIFF.png")))
+
+    made_nodes = []
+    for mname in ("SelMatA", "SelMatB"):
+        m = btk.create_mat("standard", name=mname)
+        n = m.node_tree.nodes.new("ShaderNodeTexImage")
+        n.image = sel_img
+        made_nodes.append(n)
+    # a decoy bound to a DIFFERENT image -- must not be selected
+    decoy_mat = btk.create_mat("standard", name="SelMatDecoy")
+    decoy = decoy_mat.node_tree.nodes.new("ShaderNodeTexImage")
+    decoy.image = other_img
+    # and one nested inside a node group
+    grp = bpy.data.node_groups.new("SelGrp", "ShaderNodeTree")
+    nested = grp.nodes.new("ShaderNodeTexImage")
+    nested.image = sel_img
+    grp_host_mat = btk.create_mat("standard", name="SelMatGroup")
+    grp_host_mat.node_tree.nodes.new("ShaderNodeGroup").node_tree = grp
+
+    # a SECOND material hosting the SAME node group -- the nested node is reachable through
+    # both, but it is one node: counting it twice would overstate the selection and the
+    # remove-confirm's "nodes left with no texture".
+    grp_host_mat2 = btk.create_mat("standard", name="SelMatGroup2")
+    grp_host_mat2.node_tree.nodes.new("ShaderNodeGroup").node_tree = grp
+
+    hits = btk.image_texture_nodes(sel_img)
+    check("image_texture_nodes finds every node bound to the image (groups included)",
+          len(hits) == 3, f"{[(m.name, n.name) for m, n in hits]}")
+    # bpy hands back a FRESH wrapper per access, so `is` never holds -- compare by pointer.
+    check("a node group shared by two materials counts its node ONCE",
+          sum(1 for _m, n in hits if n.as_pointer() == nested.as_pointer()) == 1,
+          f"{[(m.name, n.name) for m, n in hits]}")
+    check("image_texture_nodes ignores nodes bound to another image",
+          all(n.image is sel_img for _m, n in hits))
+    check("image_texture_nodes on an unused image returns []",
+          btk.image_texture_nodes(bpy.data.images.new("Unused", 4, 4)) == [])
+
+    n_sel = btk.select_image_nodes(sel_img)
+    check("select_image_nodes selects them all", n_sel == 3, f"n={n_sel}")
+    check("every bound node is selected", all(n.select for _m, n in hits),
+          f"{[(n.name, n.select) for _m, n in hits]}")
+    check("two hits in one tree both survive the replace-deselect",
+          all(n.select for n in made_nodes))
+    check("the decoy node is NOT selected", not decoy.select)
+    check("the active node is one of the hits",
+          made_nodes[0].id_data.nodes.active in [n for _m, n in hits])
+
+    # The pure query must not touch selection state -- the remove-confirm counts with it.
+    for _m, n in hits:
+        n.select = False
+    btk.image_texture_nodes(sel_img)
+    check("image_texture_nodes is side-effect free (selects nothing)",
+          not any(n.select for _m, n in hits))
+
+    # Removing the datablock strands the nodes but keeps them (and the file on disk).
+    node_names = [(m.name, n.name) for m, n in hits]
+    sel_path = _abspath(sel_img)
+    bpy.data.images.remove(sel_img)
+    survivors = []
+    for mname, nname in node_names:
+        tree = bpy.data.materials[mname].node_tree if mname in bpy.data.materials else grp
+        node = tree.nodes.get(nname) or grp.nodes.get(nname)
+        survivors.append(node)
+    check("removing the texture leaves its Image Texture nodes in place",
+          all(n is not None for n in survivors), f"{node_names}")
+    check("...with an empty texture slot",
+          all(getattr(n, "image", None) is None for n in survivors if n))
+    check("...and the file on disk untouched", os.path.exists(sel_path), sel_path)
+
 except Exception as e:
     traceback.print_exc()
     check("test raised", False, repr(e))

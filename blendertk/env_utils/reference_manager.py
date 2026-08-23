@@ -50,6 +50,20 @@ import blendertk as btk
 _CASE_STYLES = ("None", "camel", "pascal", "title", "upper", "lower", "capitalize")
 # Max per-root workspace selections remembered (mirror of mayatk's workspace history cap).
 _WORKSPACE_HISTORY_MAX = 20
+# Scratch twins of foreign scenes opened "as new" (see _open_foreign_as_new): one per
+# source under the system temp dir, age-swept, discarded on close/next open while still
+# untouched. Process-wide, like the open file itself; lazily built (no temp-dir lookup at
+# import).
+_OPENED_SCRATCH_PREFIX = "btk_opened"
+_opened_scratches = None
+
+
+def _scratch_twins():
+    """The panel's ``ptk.ScratchTwins`` store (``<temp>/btk_opened_<hash>/<stem>_<ext>.blend``)."""
+    global _opened_scratches
+    if _opened_scratches is None:
+        _opened_scratches = ptk.ScratchTwins(_OPENED_SCRATCH_PREFIX, extension=".blend")
+    return _opened_scratches
 
 
 class ReferenceManagerSlots(ptk.LoggingMixin):
@@ -497,7 +511,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     def txt000_init(self, widget):
         """Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya)."""
         if not getattr(widget, "is_initialized", False):
-            # Recent-directory history dropdown (Maya's directory pin).
+            # Recent-directory history dropdown (Maya's directory pin). The key is
+            # deliberately the SAME string mayatk passes -- uitk host-namespaces it
+            # ("..._blender" here, "..._maya" there), so the mirrored panels keep
+            # separate lists without either side inventing a per-DCC key.
             try:
                 widget.option_box.pin(
                     settings_key="reference_manager_directories",
@@ -905,11 +922,56 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
     @staticmethod
     def _foreign_scratch_path(path):
-        """Deterministic scratch .blend a foreign row is baked+opened into (see _open_foreign_as_new)."""
-        import tempfile
+        """Deterministic scratch .blend a foreign row is baked+opened into (see
+        :meth:`_open_foreign_as_new`): ``<temp>/btk_opened_<hash>/<stem>_<ext>.blend`` —
+        ``scene.ma`` opens as ``scene_ma.blend``, so the title bar and the Save-As default
+        say what it was converted from, and it can never shadow a sibling ``scene.blend``;
+        the hash of the source's full path keeps same-named scenes in different projects
+        apart (a flat ``<stem>`` made both rows claim 'current'). ``ptk.ScratchTwins``
+        owns the naming, the age sweep and the discard; mirror of mayatk's (``.ma`` there).
+        """
+        return _scratch_twins().path_for(path)
 
-        stem = os.path.splitext(os.path.basename(path))[0]
-        return os.path.join(tempfile.gettempdir(), f"{stem}_opened.blend")
+    def _discard_stale_scratches(self):
+        """Discard every untouched scratch twin that is no longer the open file — the
+        current file was replaced (closed, or another scene opened over it). A twin the
+        user saved into is kept (``ptk.ScratchTwins.discard_except``)."""
+        current = ""
+        if self._has_bpy():
+            import bpy
+
+            current = bpy.data.filepath
+        _scratch_twins().discard_except(current)
+
+    def _workspace_for(self, path):
+        """The workspace *path*'s scene belongs to — the root to pin as the session workspace
+        when it is opened (Blender's analogue of Maya's set-project-on-open, which mayatk's
+        panel does with ``find_workspace_using_path``). The marked (``workspace.mel``)
+        project containing the file wins; else the panel's selected workspace when the
+        file lies under it (an unmarked project folder with a ``scenes/`` subfolder); else
+        the file's own folder (``ptk.Workspace.for_path``). '' when nothing resolves.
+        """
+        if not path:
+            return ""
+        ws = ptk.Workspace.find_containing(path)
+        if ws is not None:
+            return ws.root
+        selected = self._workspace_dir()
+        if selected and os.path.isdir(selected) and ptk.is_under(path, selected):
+            return selected
+        ws = ptk.Workspace.for_path(path)
+        return ws.root if ws is not None else ""
+
+    def _pin_workspace_for(self, path):
+        """Pin the session workspace to :meth:`_workspace_for` *path* (no-op when nothing
+        resolves), so texture / scene-dir lookups and Save Scene follow the opened scene
+        instead of wherever its .blend happens to live (a foreign scene opens from a temp
+        scratch: without the pin it resolved to a 'temp workspace')."""
+        root = self._workspace_for(path)
+        if root:
+            btk.set_current_workspace(root)
+            self.logger.info(f"Workspace: {root}")
+        return root
 
     def _confirm_discard_unsaved(self, verb="open"):
         """True if it's OK to replace the current scene — no unsaved changes, or the user
@@ -932,10 +994,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
     def _close_scene(self):
         """Close the current scene (a new empty scene — Maya's file-new), guarding unsaved
-        changes. Returns True if the scene was closed, False if the user declined."""
+        changes. A foreign row's untouched scratch copy is removed with it (one the user
+        saved into is kept — see :meth:`_discard_stale_scratches`). Returns True if the
+        scene was closed, False if the user declined."""
         if not self._confirm_discard_unsaved("close"):
             return False
         if btk.new_scene():
+            self._discard_stale_scratches()
             return True
         self.sb.message_box("Failed to close the scene.")
         return False
@@ -1572,6 +1637,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return
         if btk.open_scene(path):
             self.logger.info(f"Opened scene: {os.path.basename(path)}")
+            self._discard_stale_scratches()
+            self._pin_workspace_for(path)
         else:
             self.sb.message_box("Failed to open the file.")
 
@@ -1636,10 +1703,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         The 'open' counterpart of the link icon's bake-and-reference: a fresh headless Maya
         converts the scene to FBX (default) or USD per the header-menu route, and a headless
         Blender bakes that to a cached .blend (an .fbx source skips Maya). That cached bake is
-        copied to a scratch .blend which is opened — so
-        the user edits a throwaway document and saves it wherever they like, and the cache the
-        link icon reuses is never touched. The bake costs a mayapy start + license on the first
-        run for a .ma/.mb, hence the wait cursor.
+        copied to a scratch .blend (``<stem>_<ext>.blend`` in a swept temp dir — see
+        :meth:`_foreign_scratch_path`) which is opened — so the user edits a throwaway document
+        and saves it wherever they like, and the cache the link icon reuses is never touched.
+        The session workspace is pinned to the SOURCE scene's project (not the scratch's temp
+        folder), so the opened scene resolves textures / scene dir / Save Scene exactly as the
+        Maya coworker's does. The bake costs a mayapy start + license on the first run for a
+        .ma/.mb, hence the wait cursor.
         """
         if not self._has_bpy():
             self.sb.message_box("Opening a foreign scene needs a running Blender.")
@@ -1649,8 +1719,6 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         conv = self._resolve_conversion(path)
         if conv is None:
             return  # user cancelled
-        import shutil
-
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         app = self.sb.QtWidgets.QApplication
@@ -1669,17 +1737,20 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         finally:
             app.restoreOverrideCursor()
 
-        # Deterministic scratch path so a second Open click resolves this row as 'current' and
-        # closes it (see _is_current / _foreign_scratch_path).
-        scratch = self._foreign_scratch_path(path)
+        # Deterministic scratch twin so a second Open click resolves this row as 'current'
+        # and closes it (see _is_current / _foreign_scratch_path); the cached bake itself
+        # is opened only when the copy can't be written.
         try:
-            shutil.copyfile(baked, scratch)
+            scratch = _scratch_twins().create(path, baked)
         except OSError:
-            scratch = baked  # fall back to the cache if the scratch copy can't be written
+            scratch = baked
         if btk.open_scene(scratch):
+            self._discard_stale_scratches()
+            self._pin_workspace_for(path)
             self.sb.message_box(
                 f"Opened <hl>{os.path.basename(path)}</hl> as a new scene "
-                "(baked from the foreign source — save it where you like)."
+                f"(<hl>{os.path.basename(scratch)}</hl>, baked from the foreign source — "
+                "save it into the workspace to keep it)."
             )
         else:
             self.sb.message_box("Failed to open the baked scene.")
@@ -1691,7 +1762,22 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.sb.message_box("Set a valid workspace folder first.")
             return
         menu = self.ui.header.menu
-        name = self.sb.input_dialog("Save Scene", "Enter a name for the scene:", "")
+        # Pre-populate with the current scene's name (suffix stripped, case applied) — the
+        # mirror of mayatk's prompt. A foreign scene opened as new is its ``<stem>_<ext>``
+        # scratch name, so the default keeps the provenance (``scene_ma``).
+        default_name = ""
+        current = self._current_scene_path()
+        if current:
+            base = os.path.splitext(os.path.basename(current))[0]
+            suffix = (menu.txt_suffix.text() or "").strip()
+            if suffix and base.lower().endswith(suffix.lower()):
+                base = base[: -len(suffix)]
+            default_name = btk.format_scene_name(
+                base, menu.cmb_case_style.currentText()
+            )
+        name = self.sb.input_dialog(
+            "Save Scene", "Enter a name for the scene:", default_name
+        )
         if not name:
             return
         path = btk.save_scene_as(

@@ -3,6 +3,7 @@
 """Mesh + shape-key setup validation — mirror of mayatk's
 ``anim_utils.blendshape_animator.validator.Validator``.
 """
+
 import pythontk as ptk
 
 
@@ -44,7 +45,9 @@ class Validator(ptk.LoggingMixin):
         so this validates the piece that actually exists: the key itself and its mute state)."""
         shape_keys = getattr(base_obj.data, "shape_keys", None)
         if shape_keys is None or key_name not in shape_keys.key_blocks:
-            cls.logger.error(f"Shape key '{key_name}' does not exist on {base_obj.name}")
+            cls.logger.error(
+                f"Shape key '{key_name}' does not exist on {base_obj.name}"
+            )
             return False
 
         kb = shape_keys.key_blocks[key_name]

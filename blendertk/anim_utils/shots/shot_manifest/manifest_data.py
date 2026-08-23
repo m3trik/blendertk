@@ -7,16 +7,19 @@ pure Qt/data with two DCC swaps versus the Maya original:
 
 - the status palette is imported from the shared ``pythontk`` engine (single
   source of truth) rather than a mayatk module;
-- :func:`try_load_blender_icons` returns ``None`` — Blender has no equivalent to
-  Maya's ``:/`` node-type icon resources, so per-node-type icons degrade
-  gracefully to uitk's named-icon fallback (documented divergence).
-
-(mayatk's ``manifest_data`` re-exports ``prune_to_top_boundaries`` from
-``pythontk``'s ``range_resolver`` for its legacy callers — not mirrored here;
-import it from ``pythontk`` directly if ever needed.)
+- :meth:`ManifestData.try_load_blender_icons` returns blendertk's
+  :class:`NodeIcons` (an ``Object.type`` → uitk named-icon map — Blender has no
+  ``:/`` node-type icon resources) when ``bpy`` is importable, else ``None``.
 """
 
-from pythontk import SHOT_PALETTE
+from pythontk.core_utils.engines.shots.manifest.range_resolver import (
+    RangeResolver as _PyRangeResolver,
+)
+
+# canonical home is the engine class; re-exported under the historical name for callers
+prune_to_top_boundaries = _PyRangeResolver.prune_to_top_boundaries  # noqa: F401
+
+from pythontk import SHOT_PALETTE  # noqa: E402
 
 # Settings namespace (QSettings)
 SETTINGS_NS = "ShotManifest"
@@ -89,11 +92,10 @@ class ManifestData:
 
     @staticmethod
     def try_load_blender_icons():
-        """Return per-node-type icon provider, or ``None``.
-
-        Blender has no analogue to Maya's ``:/`` node-type icon resources, so this
-        returns ``None`` and the manifest table falls back to uitk's named-icon set
-        (a documented parity divergence).  Kept as a hook so a future Blender
-        object-type → icon map can be dropped in without touching the presenter.
-        """
-        return None
+        """Return the :class:`NodeIcons` class if Blender is available, else ``None``."""
+        try:
+            from blendertk.ui_utils.node_icons import NodeIcons
+            import bpy  # noqa: F401 — availability check
+        except ImportError:
+            return None
+        return NodeIcons

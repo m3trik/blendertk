@@ -6,6 +6,7 @@ strip_chars, suffix_by_type (Blender type map), append_location_based_suffix (di
 alphabetical + integer), generate_unique_name, strip_illegal_chars. The NamingSlots Qt wiring is
 covered by the handler test (under .venv).
 """
+
 import sys, os, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,8 +17,12 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
         sys.path.insert(0, p)
 
 lines = []
+
+
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 try:
@@ -69,8 +74,11 @@ try:
     reset()
     a, b = empty("Cube"), empty("Sphere")
     Naming.rename([a, b], "**_X", fltr="*Cube*")
-    check("rename filter matches only Cube", a.name == "Cube_X" and b.name == "Sphere",
-          f"{a.name},{b.name}")
+    check(
+        "rename filter matches only Cube",
+        a.name == "Cube_X" and b.name == "Sphere",
+        f"{a.name},{b.name}",
+    )
 
     # ---- rename: retain_suffix re-appends the type suffix -------------------------------------
     reset()
@@ -161,6 +169,68 @@ try:
     Naming.suffix_by_type([mesh])
     check("suffix_by_type idempotent", mesh.name == "Cube_GEO", mesh.name)
 
+    # ---- suffix_by_type: expanded types (surface / lattice / material / image) ----------------
+    reset()
+    srf_data = bpy.data.curves.new("Patch", "SURFACE")
+    srf = bpy.data.objects.new("Patch", srf_data)
+    bpy.context.collection.objects.link(srf)
+    lat = bpy.data.objects.new("Cage", bpy.data.lattices.new("Cage"))
+    bpy.context.collection.objects.link(lat)
+    mat = bpy.data.materials.new("Brick")
+    img = bpy.data.images.new("Brick_D", 4, 4)
+    Naming.suffix_by_type([srf, lat, mat, img])
+    check("surface → _SRF", srf.name == "Patch_SRF", srf.name)
+    check("lattice → _LAT", lat.name == "Cage_LAT", lat.name)
+    check("material → _MAT", mat.name == "Brick_MAT", mat.name)
+    check("image → _TEX", img.name == "Brick_D_TEX", img.name)
+    check("type_key empty/material", Naming.type_key(mat) == "material")
+
+    # ---- suffix_by_type: a wrong suffix from the expanded set is stripped first ----------------
+    reset()
+    mesh = typed("Wall_SRF", "MESH")
+    Naming.suffix_by_type([mesh])
+    check("wrong suffix stripped", mesh.name == "Wall_GEO", mesh.name)
+
+    # ---- dry_run: every operation plans + reports without renaming ---------------------------
+    reset()
+    a, b = empty("Cube"), empty("Sphere")
+    planned = Naming.rename([a, b], "**_X", dry_run=True)
+    check("rename dry_run plans", planned == ["Cube_X", "Sphere_X"], str(planned))
+    check("rename dry_run untouched", a.name == "Cube" and b.name == "Sphere")
+    planned = Naming.set_case([a], "upper", dry_run=True)
+    check("set_case dry_run", planned == ["CUBE"] and a.name == "Cube", str(planned))
+    planned = Naming.strip_chars([a], num_chars=1, dry_run=True)
+    check("strip_chars dry_run", planned == ["ube"] and a.name == "Cube", str(planned))
+    mesh = typed("Box", "MESH")
+    planned = Naming.suffix_by_type([mesh], dry_run=True)
+    check(
+        "suffix_by_type dry_run",
+        planned == ["Box_GEO"] and mesh.name == "Box",
+        str(planned),
+    )
+    far, near = empty("r", x=3.0), empty("l", x=1.0)
+    planned = Naming.append_location_based_suffix([far, near], dry_run=True)
+    check(
+        "location suffix dry_run",
+        sorted(planned) == ["l_01", "r_02"] and far.name == "r" and near.name == "l",
+        str(planned),
+    )
+
+    # ---- location suffix: an already-correct name is never left on the placeholder -----------
+    reset()
+    near, far = empty("l_01", x=1.0), empty("r", x=5.0)
+    Naming.append_location_based_suffix([far, near])
+    check(
+        "already-correct name kept",
+        near.name == "l_01" and far.name == "r_02",
+        f"{near.name},{far.name}",
+    )
+
+    # ---- scene_objects: the "Scene" scope is the current scene's objects ---------------------
+    reset()
+    empty("A"), empty("B")
+    check("scene_objects", sorted(o.name for o in Naming.scene_objects()) == ["A", "B"])
+
     # ---- append_location_based_suffix: integer suffixes by distance ---------------------------
     reset()
     far = empty("right", x=3.0)
@@ -182,18 +252,28 @@ try:
     # ---- generate_unique_name -----------------------------------------------------------------
     reset()
     empty("Cube")
-    check("unique name for existing → _001", Naming.generate_unique_name("Cube") == "Cube_001")
-    check("unique name for free → unchanged", Naming.generate_unique_name("Free") == "Free")
+    check(
+        "unique name for existing → _001",
+        Naming.generate_unique_name("Cube") == "Cube_001",
+    )
+    check(
+        "unique name for free → unchanged",
+        Naming.generate_unique_name("Free") == "Free",
+    )
 
     # ---- strip_illegal_chars ------------------------------------------------------------------
     check("strip illegal chars", Naming.strip_illegal_chars("a b-c") == "a_b_c")
-    check("strip illegal chars (list)",
-          Naming.strip_illegal_chars(["x.y", "z 1"]) == ["x_y", "z_1"])
+    check(
+        "strip illegal chars (list)",
+        Naming.strip_illegal_chars(["x.y", "z 1"]) == ["x_y", "z_1"],
+    )
 
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+ok = all(ln.startswith("OK") for ln in lines) and lines
+print(
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for ln in lines if ln.startswith('OK'))}/{len(lines)})"
+)

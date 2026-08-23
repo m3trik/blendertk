@@ -8,6 +8,7 @@ the Maya original: object selection (``cmds.ls``/``cmds.select`` → Blender
 ``select_set`` + active object) and the view playback range (``cmds.playbackOptions``
 → ``scene.frame_start`` / ``scene.frame_end``).
 """
+
 from __future__ import annotations
 
 __all__ = ["ShotNavMixin"]
@@ -165,6 +166,18 @@ class ShotNavMixin:
         cmb.blockSignals(True)
         cmb.setCurrentIndex(new_idx)
         cmb.blockSignals(False)
+        if self._cmb_mode == "markers":
+            # Markers carry a TIME, not a shot id — jump the playhead (same path
+            # as the cmb_shot slot); routing the float time into select_shot can
+            # match an unrelated integer shot id.
+            marker_time = cmb.itemData(new_idx)
+            if marker_time is not None:
+                widget = self._get_sequencer_widget()
+                if widget:
+                    widget.set_playhead(marker_time)
+                    widget.playhead_moved.emit(marker_time)
+            self._update_shot_nav_state()
+            return
         shot_id = cmb.itemData(new_idx)
         self._shifted_out_keys.clear()
         self.select_shot(shot_id)

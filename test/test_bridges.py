@@ -179,6 +179,45 @@ try:
         _DEFAULT_FBX_OPTIONS as _MAR_FBX,
     )
 
+    # ---- the USD carrier on the bake bridges (mirror of mayatk's pins) --------
+    # The panel renders the Format combo only where the active template echoes
+    # ``__CARRIER__``, so the engine's ``carriers`` and every send template must
+    # agree; the USD option set must actually export through Blender's operator.
+    import re as _re
+
+    from blendertk.mat_utils.substance_bridge import _substance_bridge as _sub_mod
+    from blendertk.mat_utils.marmoset_bridge import _marmoset_bridge as _mar_mod
+    from blendertk.env_utils.maya_bridge import _maya_bridge as _maya_mod
+
+    for _mod, _cls, _templates in (
+        (_maya_mod, "MayaBridge", ("import",)),
+        (_mar_mod, "MarmosetBridge", ("bake", "import", "lookdev")),
+        (_sub_mod, "SubstanceBridge", ("import", "bake_lighting")),
+    ):
+        check(
+            f"{_cls} offers fbx then usd",
+            getattr(_mod, _cls).carriers == ("fbx", "usd"),
+        )
+        for _stem in _templates:
+            _txt = (_mod._TEMPLATE_DIR / f"{_stem}.py").read_text(encoding="utf-8")
+            check(
+                f"{_cls} {_stem}.py echoes __CARRIER__ (surfaces the Format combo)",
+                bool(_re.search(r"__CARRIER__", _txt)),
+            )
+    for _name, _opts in (("substance", _sub_mod._DEFAULT_USD_OPTIONS),
+                         ("marmoset", _mar_mod._DEFAULT_USD_OPTIONS)):
+        bpy.ops.object.select_all(action="DESELECT")
+        cube.select_set(True)
+        _u = os.path.join(tmp, f"{_name}_payload.usd")
+        try:
+            btk.UsdUtils.export_selection_usd(filepath=_u, objects=[cube], **_opts)
+            check(
+                f"{_name} _DEFAULT_USD_OPTIONS payload exports",
+                os.path.isfile(_u) and os.path.getsize(_u) > 0,
+            )
+        except Exception as e:  # noqa: BLE001
+            check(f"{_name} _DEFAULT_USD_OPTIONS payload exports", False, repr(e))
+
     for _name, _defaults, _extra in (
         (
             "substance",

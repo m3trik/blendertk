@@ -21,6 +21,7 @@ Run with:
 import argparse
 import re
 import shutil
+import os
 import subprocess
 import sys
 import time
@@ -132,13 +133,20 @@ class BlenderTestRunner:
                 str(suite),
             ]
         )
+        # UTF-8 on both ends of the pipe: a child Python picks its stdout codec
+        # from the locale when stdout is a pipe (cp1252 here), so a suite that
+        # prints one glyph outside it died with UnicodeEncodeError and read as
+        # a failure -- the naming tool's progress bar did exactly that.
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 errors="replace",
                 timeout=self.suite_timeout,
+                env=env,
             )
         except subprocess.TimeoutExpired:
             # A hung suite must cost a failure, not stall the whole run: with
@@ -172,8 +180,18 @@ class BlenderTestRunner:
             for ln in lines:
                 if ln.startswith("FAIL"):
                     self._print_detail(ln)
-            if not verdicts:
-                tail = (proc.stderr or "").strip().splitlines()[-5:]
+            # The suite's own FAIL lines say WHAT failed; a traceback printed to
+            # stderr -- by the suite's own `except: traceback.print_exc()`, or by
+            # Blender -- says WHY. That tail used to be shown only when the suite
+            # produced NO verdict at all, i.e. never for an ordinary failure, so
+            # the one piece of output that explained the failure was captured and
+            # then thrown away. Same defect the pythontk/tentacle runners had at
+            # their TeeStream, in this harness's shape.
+            tail = (proc.stderr or "").strip().splitlines()[-5:]
+            if tail:
+                # Labelled: Blender writes its own warnings here too, and an
+                # unlabelled tail reads as more failing checks.
+                self._print_detail("-- stderr tail --")
                 for ln in tail:
                     self._print_detail(ln)
         return passed, ok, failed, skipped

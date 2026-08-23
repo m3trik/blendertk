@@ -6,17 +6,17 @@ identically-named module. :class:`TaskManager` supplies the methods
 (``getattr(self, task_name)`` reflection) -- see that module for the generic dispatch/revert
 engine (the pythontk single source of truth, 100% DCC-agnostic).
 
-~26 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
+~27 of mayatk's ~28 tasks/checks are ported here as real Blender implementations (the smart_bake
 group uses :mod:`blendertk.anim_utils.smart_bake`; ``export_data_node`` rides the ported
-:class:`blendertk.node_utils.data_nodes.DataNodes` carrier). The remaining ~2 depend on
-integrations blendertk doesn't have yet (the exporter-side hierarchy diff *check* — the
-scene-data sidecar itself IS written, by the engine (``_write_scene_data_sidecar``); the
-Shots export-view/FBX-take projection — the Shots subsystem itself is ported) and are declared
-in :attr:`TaskManager.task_definitions` / :attr:`TaskManager.check_definitions` as DISABLED
-placeholders (the widget shows in the panel, 1:1 with mayatk's label/position, greyed out with a
-tooltip explaining the gap) -- ``TODO(blender-parity)``. No method is defined for a disabled
-placeholder: :class:`TaskFactory` gracefully skips a missing method (logs + no-ops), and a
-disabled widget can never be toggled to invoke it anyway.
+:class:`blendertk.node_utils.data_nodes.DataNodes` carrier; ``apply_declared_takes`` arms
+``FbxUtils``' post-write AnimStack splitting from the Shots-published ``fbx_takes`` channel).
+The remaining one depends on an integration blendertk doesn't have yet (the exporter-side
+hierarchy diff *check* — the scene-data sidecar itself IS written, by the engine
+(``_write_scene_data_sidecar``)) and is declared in :attr:`TaskManager.check_definitions` as a
+DISABLED placeholder (the widget shows in the panel, 1:1 with mayatk's label/position, greyed
+out with a tooltip explaining the gap) -- ``TODO(blender-parity)``. No method is defined for a
+disabled placeholder: :class:`TaskFactory` gracefully skips a missing method (logs + no-ops),
+and a disabled widget can never be toggled to invoke it anyway.
 """
 
 import contextlib
@@ -38,12 +38,6 @@ _NEEDS_HIERARCHY_MANAGER = (
     "Not available yet: the scene-data sidecar (diff baseline + data_export "
     "snapshot) is written on export, but the exporter-side hierarchy diff "
     "check isn't wired yet. TODO(blender-parity)."
-)
-_NEEDS_SHOTS = (
-    "Not available yet: the Shots subsystem is ported, but the export-view / "
-    "FBX-animation-take projection it feeds this task from is a documented "
-    "follow-up (see anim_utils/shots — publish_export_view is a no-op). "
-    "TODO(blender-parity)."
 )
 
 _LOD_SUFFIX_RE = re.compile(r"_lod\d*$", re.IGNORECASE)
@@ -699,9 +693,42 @@ class _TaskActionsMixin(_TaskDataMixin):
         producers also publish at authoring time, but scene edits since then
         would otherwise ship a stale manifest), then folds the carrier in.
         """
-        from blendertk.node_utils.data_nodes import DataNodes
-
         self._refresh_scene_data_node()
+        self._include_data_export_node()
+        # Mark AFTER _include_data_export_node — assigning self.objects there
+        # re-clears the flag via the setter (mirror of mayatk).
+        self._data_node_refreshed = True
+
+        # Keyed-weight curve proxies: Blender's FBX exporter can't ship
+        # custom-property animation, so EmissiveGroups stages one transient
+        # Empty per keyed group whose scale.x carries the weight curve (the
+        # Blender half of mayatk's _KNOWN_PRODUCERS export hook). They must
+        # exist THROUGH the FBX write and vanish after, which the task-revert
+        # engine can't express (reverts run before the write) — hence the
+        # deferred restore.
+        from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+        proxies = EmissiveGroups.create_export_curve_proxies()
+        if proxies:
+            self.objects = list(self.objects or []) + proxies
+            self.stage_deferred_restore(
+                "emissive_curve_proxies",
+                EmissiveGroups.remove_export_curve_proxies,
+            )
+            self._cover_frame_range(proxies)
+
+        self._log_data_node_summary()
+
+    def _include_data_export_node(self):
+        """Fold the ``data_export`` carrier into the export set (shippable).
+
+        Idempotent; a no-op when the scene has no carrier.  Shared by
+        :meth:`export_data_node` and :meth:`apply_declared_takes` (mirror of
+        mayatk's ``_include_data_export_node``), and — beyond the mayatk twin —
+        also clears whatever hide state would make the selection-based FBX
+        funnel silently drop the Empty.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
 
         carrier = DataNodes.get_export_node(create=False)
         if carrier is None:
@@ -766,26 +793,6 @@ class _TaskActionsMixin(_TaskDataMixin):
             self.objects = list(self.objects or []) + [carrier]
             self.logger.info("data_export carrier added to the export set.")
 
-        # Keyed-weight curve proxies: Blender's FBX exporter can't ship
-        # custom-property animation, so EmissiveGroups stages one transient
-        # Empty per keyed group whose scale.x carries the weight curve (the
-        # Blender half of mayatk's _KNOWN_PRODUCERS export hook). They must
-        # exist THROUGH the FBX write and vanish after, which the task-revert
-        # engine can't express (reverts run before the write) — hence the
-        # deferred restore.
-        from blendertk.mat_utils.emissive_groups import EmissiveGroups
-
-        proxies = EmissiveGroups.create_export_curve_proxies()
-        if proxies:
-            self.objects = list(self.objects or []) + proxies
-            self.stage_deferred_restore(
-                "emissive_curve_proxies",
-                EmissiveGroups.remove_export_curve_proxies,
-            )
-            self._cover_frame_range(proxies)
-
-        self._log_data_node_summary()
-
     def _refresh_scene_data_node(self):
         """Refresh ``data_export`` channels from the live metadata producers.
 
@@ -848,6 +855,51 @@ class _TaskActionsMixin(_TaskDataMixin):
             f"Widened the export frame range to {int(start)}-{int(end)} so the "
             "staged keyed-weight curves bake in full."
         )
+
+    def apply_declared_takes(self):
+        """Arm one named FBX take (engine AnimationClip) per declared shot.
+
+        Producer-agnostic mirror of mayatk's task: refreshes every producer's
+        ``data_export`` channel (skipped when ``export_data_node`` already did
+        so this run — the two tasks are default-on neighbors, and one refresh
+        per export is enough), ensures the carrier is in the export selection,
+        then arms ``FbxUtils`` with whatever ``fbx_takes`` the scene declares;
+        the write realizes them by splitting its baked scene-range AnimStack
+        (see ``fbx_utils``' module docstring for the divergence from Maya's
+        exporter-state mechanism).  Runs after ``set_bake_animation_range``
+        (TASK_ORDER) and widens the scene range to the union of the takes so
+        every window lies inside the baked span — the same "union range wins"
+        contract as the Maya twin's bake-complex widen.
+        """
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        if not getattr(self, "_data_node_refreshed", False):
+            self._refresh_scene_data_node()
+        self._include_data_export_node()
+
+        count = FbxUtils.apply_takes_from_node()
+        if count:
+            # Armed takes are sticky FbxUtils state consumed by EVERY write
+            # until reset — stage the clear deferred (post-write) so nothing
+            # leaks into a later export this session (mirror of mayatk's
+            # fbx_takes deferred restore).
+            self.stage_deferred_restore("fbx_takes", FbxUtils.reset_takes)
+            takes = FbxUtils._pending_takes or []
+            scene = self._scene()
+            start = min(scene.frame_start, *(s for _n, s, _e in takes))
+            end = max(scene.frame_end, *(e for _n, _s, e in takes))
+            if (start, end) != (scene.frame_start, scene.frame_end):
+                self._set_frame_range(start, end)
+                self.logger.debug(
+                    f"Widened the scene range to {start}-{end} so every take "
+                    "window lies inside the baked span."
+                )
+            self.logger.info(
+                f"Animation takes: {count} clip(s) armed from the declared "
+                "fbx_takes; shot metadata embedded on data_export."
+            )
+        else:
+            self.logger.debug("No takes declared. Skipping animation takes.")
 
     def _log_data_node_summary(self):
         """Log what metadata actually shipped on ``data_export``.
@@ -1812,8 +1864,10 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         "snap_keys_to_frame",
         "tie_all_keyframes",
         "set_bake_animation_range",
-        # Phase 5 — Metadata carrier (last, so it sees the final export set)
+        # Phase 5 — Metadata carrier (last, so it sees the final export set);
+        # takes AFTER it so one producer refresh serves both (mirror of mayatk)
         "export_data_node",
+        "apply_declared_takes",
     ]
 
     # Texture Output — do the texture-processing tasks (convert_textures,
@@ -1906,9 +1960,16 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
 
     @objects.setter
     def objects(self, value):
-        """Invalidate the materials cache whenever objects change."""
+        """Invalidate the materials cache whenever objects change.
+
+        Each export run re-seeds the object set before tasks execute, so this
+        doubles as the per-run reset of the producer-refresh marker
+        (``export_data_node`` sets it; ``apply_declared_takes`` reads it) —
+        mirror of mayatk's setter.
+        """
         self._objects = value
         self._cached_materials = None
+        self._data_node_refreshed = False
 
     @property
     def task_definitions(self) -> Dict[str, Dict[str, Any]]:
@@ -2270,7 +2331,9 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                     "export.",
                     notes=[
                         "Runs after Smart Bake, Optimize, Snap and Tie, so it "
-                        "measures the final keyframe extent.",
+                        "measures the final keyframe extent — but <b>Export "
+                        "Shots as Animation Takes</b> runs after it and widens "
+                        "the range again.",
                         "The original frame range is restored after the write.",
                     ],
                 ),
@@ -2282,17 +2345,23 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setText": "Export Shots as Animation Takes",
                 "setToolTip": TooltipFormat.fmt(
                     title="Export Shots as Animation Takes",
-                    body="Would split the exported animation into one named take "
+                    body="Split the exported animation into one named FBX take "
                     "per shot, so the file arrives in an engine as separate "
                     "AnimationClips instead of a single continuous clip.",
                     notes=[
-                        _NEEDS_SHOTS,
-                        "Shipping the shot metadata is a separate switch — see "
-                        "<b>Export Scene Data Node</b>.",
+                        "Requires shots defined in the Shots panel; no-op when "
+                        "the scene declares none.",
+                        "This is <b>not</b> what ships the shot metadata — "
+                        "<b>Export Scene Data Node</b> already does that, and "
+                        "the two share one refresh. Leave this off when you "
+                        "want the same metadata with an unsplit timeline.",
+                        "Turning it on forces Bake Animation on and widens the "
+                        "scene frame range to the union of all shots, "
+                        "overriding <b>Auto Set Bake Animation Range</b>. Both "
+                        "are restored after the write.",
                     ],
                 ),
                 "setChecked": False,
-                "setEnabled": False,
             },
             "ignore_groups": {
                 "widget_type": "QLineEdit",

@@ -225,6 +225,40 @@ class UiUtils(_UiUtilsInternal):
         return window
 
     @staticmethod
+    def reveal_in_outliner(objects):
+        """Select *objects* (names or Objects) and scroll the Outliner to the active one.
+
+        Mirror of mayatk's ``UiUtils.reveal_in_outliner``: the selection is the
+        primary action and always happens; scrolling an Outliner to it is the
+        best-effort half (``outliner.show_active`` under a temp override of the
+        first open Outliner area) — a layout without one degrades to a plain
+        select instead of raising half-way through.
+        """
+        import bpy
+
+        if not objects:
+            return
+        view_layer = bpy.context.view_layer
+        for o in list(bpy.context.selected_objects):
+            o.select_set(False)
+        active = None
+        for item in objects:
+            obj = bpy.data.objects.get(item) if isinstance(item, str) else item
+            if obj is not None and obj.name in view_layer.objects:
+                obj.select_set(True)
+                active = obj
+        if active is None:
+            return
+        view_layer.objects.active = active
+        for window, area in UiUtils.find_editor("OUTLINER")[:1]:
+            region = _UiUtilsInternal._window_region(area)
+            try:
+                with bpy.context.temp_override(window=window, area=area, region=region):
+                    bpy.ops.outliner.show_active()
+            except Exception:
+                pass  # area died between query and use / op poll failed
+
+    @staticmethod
     def main_window():
         """The main Blender window (the first; ``wm.window_new`` appends, so ``[0]`` stays main)."""
         import bpy
@@ -256,6 +290,11 @@ class UiUtils(_UiUtilsInternal):
         Script Output console's docked anchor) and must not take out an unrelated same-typed area
         a caller didn't create (a user's own manually-opened Info Log area, say). Never closes a
         window's only area.
+
+        **Side effect (measured, 5.1):** once the override exits, the context window is NULL
+        for the rest of the calling callback — ``bpy.context.window`` reads None — so any
+        ``show_region_*`` assignment after this call is the ``ED_area_init`` hard crash. Do
+        region-flag work *before* closing areas, or in a later tick.
         """
         import bpy
 

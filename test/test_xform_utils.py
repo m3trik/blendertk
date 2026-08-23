@@ -323,6 +323,76 @@ try:
           f"drift={drift_t:.6f}")
     check("traverse rotated-parent child verts hold", drift_v < 1e-4,
           f"drift={drift_v:.6f}")
+    # 7h. restore must NOT write a datablock shared with another object.
+    # freeze_transforms already refuses a multi-user object (:239); restore
+    # wrote obj.data.transform(...) unguarded, so undoing p's freeze dragged
+    # every linked duplicate's world geometry by p's delta. Mirrors mayatk's
+    # restore-side guard (mayatk/xform_utils/_xform_utils.py:2740, 2026-08-01).
+    # 7h-1: Alt+D route -- freeze while single-user, THEN link a sibling.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(3, 1, 0))
+    p = bpy.context.active_object
+    p.name = "mu_p"
+    p.scale = (1.5, 1.5, 1.5)
+    bpy.context.view_layer.update()
+    btk.freeze_transforms(p, location=True, rotation=False, scale=True)
+    bpy.ops.mesh.primitive_cube_add(location=(9, 4, 0))
+    q = bpy.context.active_object
+    q.name = "mu_q"
+    q.data = p.data
+    bpy.context.view_layer.update()
+    q_before = wverts(q)
+    restored = btk.restore_transforms(p)
+    q_drift = max(((q.matrix_world @ v.co) - w).length
+                  for v, w in zip(q.data.vertices, q_before))
+    check("restore skips a multi-user object (Alt+D)", restored == [],
+          f"restored={[o.name for o in restored]}")
+    check("restore leaves the linked sibling's geometry put (Alt+D)",
+          q_drift < 1e-4, f"drift={q_drift:.6f}")
+    check("restore retains bake history on the skipped object (Alt+D)",
+          "btk_T_bake" in p and "btk_S_bake" in p,
+          f"keys={[k for k in p.keys() if 'bake' in k]}")
+
+    # 7h-2: the shipped route -- freeze(instance_strategy="preserve") leaves a
+    # baked master whose data is still shared (pinned at 4e).
+    reset()
+    p, q = linked_pair("rsp")
+    btk.freeze_transforms([p, q], location=True, scale=True,
+                          instance_strategy="preserve")
+    bpy.context.view_layer.update()
+    q_before = wverts(q)
+    restored = btk.restore_transforms(p)
+    q_drift = max(((q.matrix_world @ v.co) - w).length
+                  for v, w in zip(q.data.vertices, q_before))
+    check("restore skips a multi-user object (preserve)", restored == [],
+          f"restored={[o.name for o in restored]}")
+    check("restore leaves the linked sibling's geometry put (preserve)",
+          q_drift < 1e-4, f"drift={q_drift:.6f}")
+
+    # 7h-3: the identity escape -- a bake that is a no-op writes nothing, so it
+    # may still be consumed on shared data. Without it a cube frozen at
+    # identity channels keeps an un-consumable bake once linked, leaving
+    # Un-Freeze permanently enabled and silently inert.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    p = bpy.context.active_object
+    p.name = "id_p"
+    bpy.context.view_layer.update()
+    btk.freeze_transforms(p, location=True, rotation=False, scale=True)
+    bpy.ops.mesh.primitive_cube_add(location=(7, 0, 0))
+    q = bpy.context.active_object
+    q.name = "id_q"
+    q.data = p.data
+    bpy.context.view_layer.update()
+    q_before = wverts(q)
+    restored = btk.restore_transforms(p)
+    q_drift = max(((q.matrix_world @ v.co) - w).length
+                  for v, w in zip(q.data.vertices, q_before))
+    check("identity bake still restores on shared data", restored == [p],
+          f"restored={[o.name for o in restored]}")
+    check("identity restore moves no sibling", q_drift < 1e-4,
+          f"drift={q_drift:.6f}")
+
 
     # 8. scale_connected_edges: two separate selected edge loops each scale about their own center
     reset()

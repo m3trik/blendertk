@@ -129,18 +129,66 @@ class _AnimUtilsInternal(object):
     @staticmethod
     def _key_range(fcurves):
         """(min, max) key frame across ``fcurves``, or None when keyless."""
-        frames = [k.co.x for fc in fcurves for k in fc.keyframe_points]
-        return (min(frames), max(frames)) if frames else None
+        lo = hi = None
+        for fc in fcurves:
+            times = AnimUtils.key_times(fc)
+            if not times:
+                continue
+            lo = times[0] if lo is None else min(lo, times[0])
+            hi = times[-1] if hi is None else max(hi, times[-1])
+        return None if lo is None else (lo, hi)
 
     @staticmethod
     def _shift_fcurves(fcurves, offset):
         """Shift every key (and its handles) of ``fcurves`` by ``offset`` frames."""
         for fc in fcurves:
-            for k in fc.keyframe_points:
-                k.co.x += offset
-                k.handle_left.x += offset
-                k.handle_right.x += offset
-            fc.update()
+            AnimUtils.shift_keys_in_window(fc, None, None, offset)
+
+    @staticmethod
+    def _edit_key_times_in_window(fc, lo, hi, remap, inclusive_hi: bool = True) -> int:
+        """Apply ``remap(time) -> time`` to *fc*'s keys (and both handles) in ``[lo, hi]``.
+
+        The one bulk read-edit-write pass behind :meth:`shift_keys_in_window` and
+        :meth:`remap_keys_in_window`.  Returns the number of keys edited; the
+        curve is ``update()``-d (re-sorted) only when something changed.
+        """
+        n = len(fc.keyframe_points)
+        if not n:
+            return 0
+        # Two scalar reads beat a bulk read when the curve's whole span misses
+        # the window (shared objects whose keys live in other shots).
+        kps = fc.keyframe_points
+        if (lo is not None and kps[-1].co[0] < lo) or (
+            hi is not None and kps[0].co[0] > hi
+        ):
+            return 0
+        co = [0.0] * (2 * n)
+        kps.foreach_get("co", co)
+        i0, i1 = AnimUtils.window_indices(co[0::2], lo, hi, inclusive_hi)
+        if i1 <= i0:
+            return 0
+        hl = [0.0] * (2 * n)
+        hr = [0.0] * (2 * n)
+        kps.foreach_get("handle_left", hl)
+        kps.foreach_get("handle_right", hr)
+        for i in range(2 * i0, 2 * i1, 2):
+            co[i] = remap(co[i])
+            hl[i] = remap(hl[i])
+            hr[i] = remap(hr[i])
+        kps.foreach_set("co", co)
+        kps.foreach_set("handle_left", hl)
+        kps.foreach_set("handle_right", hr)
+        fc.update()
+        return i1 - i0
+
+    @staticmethod
+    def interpolation_value(name: str) -> int:
+        """Int value of a ``Keyframe.interpolation`` enum item (bulk reads return ints)."""
+        import bpy
+
+        return (
+            bpy.types.Keyframe.bl_rna.properties["interpolation"].enum_items[name].value
+        )
 
     @staticmethod
     def _is_visibility_fcurve(fc):
@@ -308,6 +356,49 @@ class _AnimUtilsInternal(object):
         return removed
 
     @staticmethod
+    def _unbake_fcurve(fc, tolerance):
+        """Reduce a baked fcurve to its shape-defining keys and refit the handles.
+
+        Keeps endpoints, peaks, valleys and hold boundaries
+        (``ptk.IterUtils.find_extrema_indices``); the tweens go and the survivors get
+        Bezier handles at the segment thirds carrying the slopes
+        ``ptk.MathUtils.fit_hermite_slopes`` fits against the dropped samples, so the
+        sparse curve traces the bake.  A hold stays exactly flat (``FREE`` handles, the
+        facing one level); elsewhere the handles are ``ALIGNED``.  Returns
+        ``(keys_removed, max_error)`` or ``None`` when the curve has stepped keys (no
+        tween to refit) or nothing to drop."""
+        pts = fc.keyframe_points
+        if len(pts) < 3 or any(k.interpolation == "CONSTANT" for k in pts):
+            return None
+        times = [k.co.x for k in pts]
+        values = [k.co.y for k in pts]
+        keep = [int(i) for i in ptk.IterUtils.find_extrema_indices(values, tolerance)]
+        if len(keep) == len(pts):
+            return None
+        in_slopes, out_slopes = ptk.MathUtils.fit_hermite_slopes(
+            times, values, keep, flat_tolerance=tolerance
+        )
+        kept = [(times[i], values[i]) for i in keep]
+        pts.clear()
+        pts.add(len(kept))
+        last = len(kept) - 1
+        for k, (x, y) in enumerate(kept):
+            key = pts[k]
+            key.co = (x, y)
+            key.interpolation = "BEZIER"
+            m_in, m_out = in_slopes[k], out_slopes[k]
+            dt_l = x - kept[k - 1][0] if k > 0 else kept[1][0] - x
+            dt_r = kept[k + 1][0] - x if k < last else x - kept[k - 1][0]
+            htype = "ALIGNED" if m_in == m_out else "FREE"
+            key.handle_left_type = htype
+            key.handle_right_type = htype
+            key.handle_left = (x - dt_l / 3.0, y - m_in * dt_l / 3.0)
+            key.handle_right = (x + dt_r / 3.0, y + m_out * dt_r / 3.0)
+        fc.update()
+        max_error = max(abs(fc.evaluate(t) - v) for t, v in zip(times, values))
+        return len(times) - len(kept), max_error
+
+    @staticmethod
     def _simplify_fcurve(fc, tolerance):
         """Greedy collinear reduction — drop an interior key when its value is within ``tolerance``
         of the straight line between its neighbours (a light decimate). Returns the number removed.
@@ -348,6 +439,103 @@ class _AnimUtilsInternal(object):
 
 class AnimUtils(_AnimUtilsInternal):
     """Namespace mirror (helpers also exposed module-level)."""
+
+    # ---- bulk keyframe access ------------------------------------------------
+    #
+    # Per-keyframe attribute access from Python costs ~1 µs per point; a timeline
+    # edit on a sixty-object scene touches tens of thousands of points several
+    # times over.  ``keyframe_points.foreach_get/foreach_set`` move the whole
+    # array in one C call (10-20x faster measured on 5.1), and points are kept
+    # time-sorted by ``fcurve.update()``, so a time window is a ``bisect`` slice.
+    # Every hot path in the shots system reads and writes keys through these.
+
+    @staticmethod
+    def key_arrays(fc):
+        """``(times, values)`` of *fc*'s keyframe points as plain float lists (time order)."""
+        n = len(fc.keyframe_points)
+        if not n:
+            return [], []
+        co = [0.0] * (2 * n)
+        fc.keyframe_points.foreach_get("co", co)
+        return co[0::2], co[1::2]
+
+    @staticmethod
+    def key_times(fc):
+        """Key times of *fc* as a plain float list (time order)."""
+        return AnimUtils.key_arrays(fc)[0]
+
+    @staticmethod
+    def key_interpolations(fc):
+        """Per-key ``interpolation`` enum ints of *fc* (see :meth:`interpolation_value`)."""
+        n = len(fc.keyframe_points)
+        if not n:
+            return []
+        out = [0] * n
+        fc.keyframe_points.foreach_get("interpolation", out)
+        return out
+
+    @staticmethod
+    def window_indices(times, lo, hi, inclusive_hi: bool = True):
+        """``(i0, i1)`` slice bounds of the keys of sorted *times* inside ``[lo, hi]``.
+
+        ``lo``/``hi`` of ``None`` are open ends; ``inclusive_hi=False`` makes the
+        window half-open ``[lo, hi)``.
+        """
+        import bisect
+
+        i0 = 0 if lo is None else bisect.bisect_left(times, lo)
+        if hi is None:
+            i1 = len(times)
+        elif inclusive_hi:
+            i1 = bisect.bisect_right(times, hi)
+        else:
+            i1 = bisect.bisect_left(times, hi)
+        return i0, max(i0, i1)
+
+    @staticmethod
+    def shift_keys_in_window(
+        fc, lo, hi, delta: float, inclusive_hi: bool = True
+    ) -> int:
+        """Translate *fc*'s keys (and both handles) inside ``[lo, hi]`` by *delta*.
+
+        ``None`` bounds are open.  Returns the number of keys moved.
+        """
+        if not delta:
+            return 0
+        return _AnimUtilsInternal._edit_key_times_in_window(
+            fc, lo, hi, lambda t: t + delta, inclusive_hi
+        )
+
+    @staticmethod
+    def remap_keys_in_window(fc, lo, hi, old_start, old_end, new_start, new_end) -> int:
+        """Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.
+
+        A key at *t* lands at ``new_start + (t - old_start) * scale``; the Blender
+        analogue of Maya's ``scaleKey``.  Returns the number of keys remapped.
+        """
+        span = old_end - old_start
+        if abs(span) < 1e-9:
+            return 0
+        scale = (new_end - new_start) / span
+        return _AnimUtilsInternal._edit_key_times_in_window(
+            fc, lo, hi, lambda t: new_start + (t - old_start) * scale
+        )
+
+    @staticmethod
+    def step_last_key_in_window(fc, lo, hi) -> bool:
+        """Set the LAST key of *fc* inside ``[lo, hi]`` to ``CONSTANT`` interpolation.
+
+        Returns ``True`` when a key was changed (already-constant keys are left).
+        """
+        times = AnimUtils.key_times(fc)
+        i0, i1 = AnimUtils.window_indices(times, lo, hi)
+        if i1 <= i0:
+            return False
+        kp = fc.keyframe_points[i1 - 1]
+        if kp.interpolation == "CONSTANT":
+            return False
+        kp.interpolation = "CONSTANT"
+        return True
 
     @staticmethod
     def get_fcurves(objects):
@@ -1286,6 +1474,50 @@ class AnimUtils(_AnimUtilsInternal):
         return pasted
 
     @staticmethod
+    def unbake_keys(objects=None, value_tolerance=0.001, stats=None):
+        """Reduce baked fcurves to their shape-defining keys and refit the handles —
+        mirror of ``mtk.AnimUtils.unbake_keys``.
+
+        The inverse of a per-frame bake: each curve keeps only its endpoints, peaks,
+        valleys and hold boundaries; the tweens are deleted and the survivors get
+        Bezier handles fitted by least squares against the deleted samples, so the
+        sparse curve traces the baked motion.  Holds stay exactly flat (broken
+        handles); elsewhere handles are ``ALIGNED``.  Curves with stepped
+        (``CONSTANT``) keys are left untouched.
+
+        ``objects`` defaults to every scene object.  Pass a dict as ``stats`` to
+        receive ``unbaked`` (curve count), ``unbake_keys_removed`` and
+        ``unbake_max_error`` (largest deviation from the baked samples).  Returns the
+        unbaked fcurves.
+        """
+        import bpy
+
+        pool = (
+            ptk.make_iterable(objects)
+            if objects is not None
+            else list(bpy.data.objects)
+        )
+        unbaked, removed, max_error = [], 0, 0.0
+        for o in pool:
+            for action, slot in _AnimUtilsInternal._actions([o]):
+                for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
+                    result = _AnimUtilsInternal._unbake_fcurve(fc, value_tolerance)
+                    if result is None:
+                        continue
+                    unbaked.append(fc)
+                    removed += result[0]
+                    max_error = max(max_error, result[1])
+        if stats is not None:
+            stats.update(
+                {
+                    "unbaked": len(unbaked),
+                    "unbake_keys_removed": removed,
+                    "unbake_max_error": max_error,
+                }
+            )
+        return unbaked
+
+    @staticmethod
     def optimize_keys(
         objects=None,
         value_tolerance=0.001,
@@ -1304,17 +1536,28 @@ class AnimUtils(_AnimUtilsInternal):
         * ``remove_flat_keys`` — interior keys on a flat segment are removed (boundaries kept).
         * ``simplify_keys`` — additionally drop keys that lie on the line between their neighbours.
 
+        A negative ``value_tolerance`` (``-1``) selects **unbake** mode: after the static pass every
+        smooth curve is reduced to its extrema with refit handles (:meth:`unbake_keys`); stepped
+        curves still get the flat-key pass, ``simplify_keys`` is ignored and the static/flat
+        tolerance falls back to the default.
+
         ``objects`` defaults to every scene object. Pass a dict as ``stats`` to receive
-        ``curves_before/after`` and ``keys_before/after`` counts (also returned).
+        ``curves_before/after`` and ``keys_before/after`` counts (also returned), plus the
+        :meth:`unbake_keys` stats in unbake mode.
         """
         import bpy
 
+        unbake = value_tolerance < 0
+        if unbake:
+            value_tolerance = 0.001  # the sentinel carries no magnitude
         pool = (
             ptk.make_iterable(objects)
             if objects is not None
             else list(bpy.data.objects)
         )
         s = {"curves_before": 0, "curves_after": 0, "keys_before": 0, "keys_after": 0}
+        if unbake:
+            s.update({"unbaked": 0, "unbake_keys_removed": 0, "unbake_max_error": 0.0})
         for o in pool:
             for action, slot in _AnimUtilsInternal._actions([o]):
                 for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
@@ -1330,10 +1573,20 @@ class AnimUtils(_AnimUtilsInternal):
                         ):
                             _AnimUtilsInternal._remove_fcurve(action, slot, fc)
                             continue
-                    if remove_flat_keys:
-                        _AnimUtilsInternal._remove_flat_keys(fc, value_tolerance)
-                    if simplify_keys:
-                        _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance)
+                    unbaked = (
+                        _AnimUtilsInternal._unbake_fcurve(fc, value_tolerance)
+                        if unbake
+                        else None
+                    )
+                    if unbaked is not None:
+                        s["unbaked"] += 1
+                        s["unbake_keys_removed"] += unbaked[0]
+                        s["unbake_max_error"] = max(s["unbake_max_error"], unbaked[1])
+                    else:
+                        if remove_flat_keys:
+                            _AnimUtilsInternal._remove_flat_keys(fc, value_tolerance)
+                        if simplify_keys and not unbake:
+                            _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance)
                     fc.update()
                     s["curves_after"] += 1
                     s["keys_after"] += len(fc.keyframe_points)

@@ -112,7 +112,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             setText="Reload Scene Textures",
             setObjectName="btn_reload_scene_textures",
             setToolTip=(
-                "Force Blender to re-read every image datablock from disk. Useful after "
+                "Force Blender to re-read every texture from disk. Useful after "
                 "editing textures externally or after Find & Copy / Normalize Paths relocates "
                 "them."
             ),
@@ -156,7 +156,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             setText="Set Directory…",
             setObjectName="tb_set_texture_directory",
             setToolTip=(
-                "Repath every (selected, or all) image so its file lives under the chosen "
+                "Repath every (selected, or all) texture so its file lives under the chosen "
                 "directory. Paths become // relative when the chosen directory is inside the "
                 ".blend's own folder. Option box (▸) chooses leave / copy / move."
             ),
@@ -166,7 +166,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             setText="Find && Copy Textures…",
             setObjectName="tb_find_and_copy_textures",
             setToolTip=(
-                "Gather the textures used by (selected, or all) images, relocate them into one "
+                "Gather the files behind the (selected, or all) textures, relocate them into one "
                 "destination, and repath. Paths become // relative when the destination is "
                 "inside the .blend's own folder.\n\n"
                 "By default a path that already resolves is its own source, so the search "
@@ -241,8 +241,8 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         widget.set_help_text(
             self.sb.tooltip.fmt(
                 title="Texture Path Editor",
-                body="Inspect and fix image texture paths. Path commands operate on selected "
-                "rows if any, otherwise on all images in the file.",
+                body="Inspect and fix texture paths. Path commands operate on selected "
+                "rows if any, otherwise on every texture in the .blend.",
                 sections=[
                     (
                         "Path management (header menu)",
@@ -331,7 +331,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         ``Find & Move Textures…`` so the active mode is visible on the menu item itself.
         """
         widget.option_box.menu.setTitle("Find & Copy Textures")
-        cmb = widget.option_box.menu.add(
+        widget.option_box.menu.add(
             "QComboBox",
             setObjectName="cmb_relocate_mode",
             setToolTip=(
@@ -343,16 +343,17 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             addItems=[label for label, _key in self._FIND_MODE_ITEMS],
         )
 
-        def _sync_text(idx):
-            label = (
-                self._FIND_MODE_ITEMS[idx][0]
-                if 0 <= idx < len(self._FIND_MODE_ITEMS)
-                else "Copy"
-            )
-            widget.setText(f"Find && {label} Textures…")
-
-        cmb.currentIndexChanged.connect(_sync_text)
-        _sync_text(cmb.currentIndex())  # initial sync
+        # Self-labelling: the mode lives in the option box, so the entry says which
+        # one it will run. The combo is populated from _FIND_MODE_ITEMS' labels, so
+        # its own text IS the label — no index lookup, and no out-of-range branch to
+        # get wrong (the ``or`` keeps the first item's wording for an empty combo).
+        self.sb.text_from(
+            widget.option_box.menu,
+            widget,
+            "cmb_relocate_mode",
+            lambda label: f"Find && {label or self._FIND_MODE_ITEMS[0][0]} Textures…",
+            value=lambda w: w.currentText(),
+        )
 
         widget.option_box.menu.add(
             "QCheckBox",
@@ -360,7 +361,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             setObjectName="chk_use_valid_paths",
             setChecked=True,
             setToolTip=(
-                "Treat an image whose path already resolves on disk as its own source, instead "
+                "Treat a texture whose path already resolves on disk as its own source, instead "
                 "of hunting for that file under the search folder.\n\n"
                 "The search dialog then only appears when something is actually unresolved, and "
                 "counts only those textures; cancelling it skips them and relocates the rest. "
@@ -464,20 +465,16 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                     "Select all scene objects currently using this row's material(s)."
                 ),
             )
-            # TODO(blender-parity): mayatk's "Select File Node" selects the shading node itself
-            # (distinct from selecting the objects that use it). Blender images have no separate
-            # node-name handle — the closest concept would be selecting the ShaderNodeTexImage
-            # node(s) referencing this image inside their material graphs, which needs its own
-            # small helper in the engine. Kept disabled for structural parity with mayatk's menu
-            # until that helper exists.
             widget.menu.add(
                 "QPushButton",
-                setText="Select File Node",
+                setText="Select Texture Node",
                 setObjectName="select_file_node",
-                setEnabled=False,
                 setToolTip=(
-                    "No Blender equivalent: images have no node-name handle distinct from the "
-                    "datablock itself. Use Select In Scene or Show in Shader Editor instead."
+                    "Select the Image Texture node(s) bound to this row's texture, in every "
+                    "material that uses it (nodes inside node groups included).\n\n"
+                    "Blender's analogue of Maya's file node: the datablock owns the path, the "
+                    "node references it — so one row can map to no nodes at all (an unused "
+                    "texture) or to several."
                 ),
             )
             widget.menu.add(
@@ -490,9 +487,13 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             widget.menu.add("Separator", setTitle="Edit")
             widget.menu.add(
                 "QPushButton",
-                setText="Delete Image",
+                setText="Remove Texture",
                 setObjectName="delete_file_node",
-                setToolTip="Delete the selected image datablock(s).",
+                setToolTip=(
+                    "Remove the selected texture(s) from the .blend. Every Image Texture node "
+                    "using one is left with an empty texture slot; the file on disk is not "
+                    "deleted."
+                ),
             )
 
             def _bind(action_name, method):
@@ -513,7 +514,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         self._refresh_table_content(widget)
 
     def _refresh_table_content(self, widget):
-        """Repopulate the table from the scene's FILE images (Material · Path · Image)."""
+        """Repopulate the table from the scene's FILE images (Material · Path · Texture)."""
         self._image_to_mats = btk.get_image_material_map()
         records = btk.get_image_records()
 
@@ -537,11 +538,11 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                             (r["name"], r["name"]),
                         ]
                     )
-            widget.add(rows, headers=["Material", "Texture Path", "Image"])
+            widget.add(rows, headers=["Material", "Texture Path", "Texture"])
 
             from qtpy import QtWidgets
 
-            # Material (col 0) is a derived display — read-only (Path/Image cells stay editable
+            # Material (col 0) is a derived display — read-only (Path/Texture cells stay editable
             # for repath / rename, handled by handle_cell_edit).
             for row in range(widget.rowCount()):
                 item = widget.item(row, 0)
@@ -1087,12 +1088,22 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             self.sb.message_box("No scene objects use the selected row's material(s).")
 
     def select_file_node(self, selection=None):
-        """Disabled (see the row-menu tooltip) — retained for structural parity with mayatk's
-        row menu; a future pass could select the ShaderNodeTexImage node(s) for this image in
-        their material graphs. Unreachable while the menu item stays disabled."""
-        # TODO(blender-parity): implement node selection in the material's shader graph once a
-        # small "find image nodes for an image" helper exists in blendertk.mat_utils.
-        return
+        """Select the Image Texture node(s) bound to the selected row's texture(s).
+
+        Blender's answer to mayatk's *Select File Node*. Maya's ``file`` node is one object;
+        Blender splits it into the image datablock (the row, which owns the path) and the
+        ``ShaderNodeTexImage`` nodes referencing it — so a row maps to zero nodes (an unused
+        texture), one, or many, and the count is worth reporting.
+        """
+        images = self._images_from_selection(selection)
+        if not images:
+            return
+        count = btk.select_image_nodes(images)
+        self.sb.message_box(
+            f"Selected <hl>{count}</hl> Image Texture node(s)."
+            if count
+            else "No Image Texture node uses the selected texture(s)."
+        )
 
     def row_show_in_hypershade(self, selection=None):
         """Graph the selected row's material(s) in the Shader Editor (Hypershade analogue)."""
@@ -1109,18 +1120,30 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             btk.open_editor("Shader Editor")
 
     def delete_file_node(self, selection=None):
-        """Remove the selected image datablock(s)."""
+        """Remove the selected texture datablock(s) from the .blend.
+
+        Neither the file on disk nor the nodes using it are deleted: ``bpy.data.images.remove``
+        drops only the datablock, and every ``ShaderNodeTexImage`` that referenced it survives
+        with an empty texture slot. Both consequences are named in the confirm, because "Remove
+        Texture" understates the second one and overstates the first.
+        """
         import bpy
 
         images = self._images_from_selection(selection)
         if not images:
             return
         names = [i.name for i in images]
+        orphaned = len(btk.image_texture_nodes(images))
         msg = (
-            f"Delete the image datablock '{names[0]}'?"
+            f"Remove the texture '{names[0]}' from the .blend?"
             if len(names) == 1
-            else f"Delete {len(names)} image datablock(s)?"
+            else f"Remove {len(names)} textures from the .blend?"
         )
+        if orphaned:
+            msg += (
+                f"<br><hl>{orphaned}</hl> Image Texture node(s) will be left with no texture."
+            )
+        msg += "<br>The file(s) on disk are not deleted."
         if self.sb.message_box(msg, "Yes", "No") != "Yes":
             return
         for img in images:
@@ -1128,12 +1151,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 bpy.data.images.remove(img)
             except (RuntimeError, ReferenceError) as e:
                 self.logger.warning(f"Failed to remove image: {e}")
-        self.sb.message_box(f"Deleted <hl>{len(names)}</hl> image(s).")
+        self.sb.message_box(f"Removed <hl>{len(names)}</hl> texture(s).")
         self.ui.tbl000.init_slot()
 
     # ------------------------------------------------------------------ cell editing
     def handle_cell_edit(self, row, col):
-        """Editing a path cell repaths that row's image; the Image column renames the datablock."""
+        """Editing a path cell repaths that row's texture; the Texture column renames the datablock."""
         import bpy
 
         table = self.ui.tbl000

@@ -163,6 +163,8 @@ DEFAULT_INCLUDE = {
         "LightmapWebExport",
     ],
     "ui_utils._ui_utils": "*",
+    # Object-type icons (``Object.type`` → uitk named icon), mirror of ``mtk.NodeIcons``.
+    "ui_utils.node_icons": "NodeIcons",
     # Switchboard launchable-entry handler + the native-menu driver — mirrors mayatk's
     # ``ui_utils.maya_ui_handler`` / ``ui_utils.maya_native_menus`` (``btk.BlenderUiHandler``
     # ↔ ``mtk.MayaUiHandler``), so the tentacle host composes both DCCs the same way
@@ -191,6 +193,12 @@ DEFAULT_INCLUDE = {
     # no polling). Backs ``env_utils.script_output``; reusable for any docked Qt panel.
     "ui_utils.qt_dock": [
         "QtDock",
+    ],
+    # Session-persistent UI visibility state (hidden editors, viewport overlays, region flags)
+    # — Blender keeps these in the .blend, not in prefs, so a startup-script ``UiState.install()``
+    # is what makes them stick the way Maya's prefs do. Blender-only; no mayatk twin needed.
+    "ui_utils.ui_state": [
+        "UiState",
     ],
     # App-style setter — match Blender's UI chrome to another DCC's look via Blender's NATIVE
     # interface_theme preset system (ships a canonical Maya.xml theme preset in
@@ -258,9 +266,15 @@ DEFAULT_INCLUDE = {
         "BlenderShotStore",
         "BlenderScenePersistence",
     ],
-    # Shot sequencer engine — timeline-move surface over the shared planner
-    # (move/ripple/gap/reorder/trim).  The Shots panel drives it; the visual
-    # Sequencer panel is a later phase.
+    # Shot detection — ``Detection`` (mirror of mayatk's ``anim_utils.shots._detection``):
+    # auto / selected-key shot-region discovery over the scene's fcurves.
+    "anim_utils.shots._detection": ["Detection"],
+    # Animation-segment collection (motion runs split at holds) — mirror of
+    # ``mtk.SegmentKeys`` Stage 1; the sequencer's track + sub-row data source.
+    "anim_utils.segment_keys": "SegmentKeys",
+    # Shot sequencer engine — full mayatk ``ShotSequencer`` surface (define /
+    # detect / sequences / fit / key motion / ripple / reorder / respace) over
+    # the shared planner; the Sequencer panel is co-located and discovered.
     "anim_utils.shots.shot_sequencer._shot_sequencer": ["ShotSequencer"],
     # Shot Manifest adapter — Blender scene hooks over the shared manifest engine
     # (CSV → shots + fade/audio behaviors).  Co-located panel discovered by
@@ -285,6 +299,9 @@ DEFAULT_INCLUDE = {
     "audio_utils._audio_utils": [
         "AudioUtils",
     ],
+    # Audio-segment snapshots over VSE sound strips (mirror of mayatk's
+    # ``audio_utils.segments.AudioSegment``) — the sequencer's audio tracks.
+    "audio_utils.segments": ["AudioSegment"],
     "edit_utils._edit_utils": "*",
     # Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Selection``
     # (``btk.Selection`` <-> ``mtk.Selection``), backing the shared ``list000`` "Select by Type"

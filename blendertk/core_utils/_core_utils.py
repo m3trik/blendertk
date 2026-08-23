@@ -169,9 +169,24 @@ class _CoreUtilsInternal(object):
         time*. In Blender ``import pythontk`` runs at startup — before :func:`ensure_image_deps` can
         provision Pillow — so those modules cache ``Image = None`` and the already-loaded
         ``ImgUtils`` / ``MapFactory`` classes keep seeing "no PIL" even once it's installed and on
-        ``sys.path``. Patch the None-bound names in place (only the None ones, so a working binding is
-        never clobbered) — surgical, and avoids a fragile module reload that would desync the cached
-        ``ptk.MapFactory`` reference."""
+        ``sys.path``. Patch the un-provisioned names in place (never clobbering a working binding) —
+        surgical, and avoids a fragile module reload that would desync the cached ``ptk.MapFactory``
+        reference.
+
+        Two passes, because there are two un-provisioned states:
+
+        * **``None``** — the guard created the name. Repaired across *every* loaded ``pythontk``
+          module, not a hand-listed few: seven modules carry such a guard today (``_img_utils``,
+          ``_map_factory``, ``processor``, ``map_optimizer``, ``region_masks``, ``mask_generator``,
+          ``ktx2_encoder``) and a list would go stale the next time one is added. Only a name the
+          module itself set to ``None`` is touched, so this can't reach anything it shouldn't.
+        * **absent** — the guard imported the name but never bound it (a pre-2026-08-21 pythontk
+          assigns only ``Image = None`` for a six-name import). An undefined name is a ``NameError``
+          at its call site that the ``None`` pass can never reach — it is what stopped the Material
+          Updater packing Metallic/Smoothness *with Pillow installed*. pythontk binds them all now;
+          blendertk runs against whatever pythontk the user has, so repair it here too, for the
+          modules known to have carried that shape.
+        """
         import sys
 
         try:
@@ -182,6 +197,7 @@ class _CoreUtilsInternal(object):
                 ImageFilter,
                 ImageChops,
                 ImageDraw,
+                ImageMode,
             )
         except Exception:
             return
@@ -193,7 +209,27 @@ class _CoreUtilsInternal(object):
             "ImageFilter": ImageFilter,
             "ImageChops": ImageChops,
             "ImageDraw": ImageDraw,
+            "ImageMode": ImageMode,
         }
+        # Both passes read ``mod.__dict__`` rather than ``getattr``: that is the exact
+        # question being asked (did this module itself bind the name?), and it cannot be
+        # answered by a lazy ``__getattr__`` — which pythontk's package roots DO install
+        # (``bootstrap_package(allow_getattr=True)``), so a getattr sweep would run their
+        # resolver once per miss per module, and this helper promises never to raise.
+        # Pass 1 — every loaded pythontk module, None-valued names only.
+        for modname, mod in list(sys.modules.items()):
+            if mod is None or not (
+                modname == "pythontk" or modname.startswith("pythontk.")
+            ):
+                continue
+            globals_ = mod.__dict__
+            for name, obj in names.items():
+                # Bound BY THIS MODULE and bound to None -- an absent name is pass
+                # 2's case, and binding it here would inject PIL names into modules
+                # that never imported them.
+                if name in globals_ and globals_[name] is None:
+                    setattr(mod, name, obj)
+        # Pass 2 — the multi-name guards, whose unbound names pass 1 cannot see.
         for modname in (
             "pythontk.img_utils._img_utils",
             "pythontk.core_utils.engines.textures.map_factory._map_factory",
@@ -203,7 +239,7 @@ class _CoreUtilsInternal(object):
             if mod is None:
                 continue
             for name, obj in names.items():
-                if getattr(mod, name, "x") is None:
+                if name not in mod.__dict__:
                     setattr(mod, name, obj)
 
     @staticmethod
@@ -419,16 +455,29 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return result
 
     @staticmethod
+    def user_config_path(filename, base=None):
+        """Absolute path of ``filename`` in Blender's user ``CONFIG`` dir (where Blender keeps
+        ``userpref.blend`` / ``recent-files.txt`` — the home of every blendertk sidecar that
+        must outlive a session), or None when it cannot be resolved (no ``bpy``, no config
+        dir). ``base`` overrides the dir (tests sandbox their sidecars with it).
+        """
+        if base is None:
+            try:
+                import bpy
+
+                base = bpy.utils.user_resource("CONFIG")
+            except Exception:
+                return None
+        return os.path.join(base, filename) if base else None
+
+    @staticmethod
     def get_recent_files(index=None):
         """Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).
 
         Reads Blender's own ``recent-files.txt`` (the source of File ▸ Open Recent). ``index``
         may be an int or slice. Missing files are filtered out.
         """
-        import bpy
-
-        config_dir = bpy.utils.user_resource("CONFIG")
-        path = os.path.join(config_dir, "recent-files.txt") if config_dir else ""
+        path = CoreUtils.user_config_path("recent-files.txt") or ""
         files = []
         if path and os.path.isfile(path):
             with open(path, "r", encoding="utf-8", errors="replace") as f:

@@ -455,19 +455,45 @@ def scene_node_types(cmds):
     return out
 
 
-def write_manifest(entries, visibility, node_types, path):
+def scene_settings(cmds):
+    """The scene's time setup -- the manifest's ``scene`` section, the one part of a
+    scene neither intermediate round-trips whole (FBX carries the fps, USD the
+    sampled range). Keys mirror ``btk.scene_settings`` / ``mtk.scene_settings``:
+    ``fps`` (frames per second, from the API so a custom rate needs no name
+    table), the playback range the timeline plays (``frame_start``/``frame_end``
+    = Maya's min/max), the full animation range (``anim_start``/``anim_end`` =
+    ast/aet) and ``frame_current``. Dependency-free copy of
+    ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader).
+    """
+    import maya.api.OpenMaya as om
+
+    def playback(**flag):
+        return cmds.playbackOptions(query=True, **flag)
+
+    return {
+        "fps": om.MTime(1.0, om.MTime.kSeconds).asUnits(om.MTime.uiUnit()),
+        "frame_start": playback(minTime=True),
+        "frame_end": playback(maxTime=True),
+        "anim_start": playback(animationStartTime=True),
+        "anim_end": playback(animationEndTime=True),
+        "frame_current": cmds.currentTime(query=True),
+    }
+
+
+def write_manifest(entries, visibility, node_types, scene, path):
     """The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
     textures FBX cannot carry; ``visibility`` = smart-bake's baked visibility
     (FBX carries the curve but Blender's importer drops it); ``transforms`` =
-    the group/locator node types FBX nulls cannot express. One file — same
+    the group/locator node types FBX nulls cannot express; ``scene`` = the
+    time setup (fps / ranges / current frame — FBX carries the fps and the
+    animation span, Blender's importer reads only the fps). One file — same
     producer, same consumer, same lifecycle — not a sidecar per concern.
+    Always written: every scene has a time setup.
 
     File-less material entries are written too: a translated material whose
     texture paths never resolved must surface as a NAMED warning on the Blender
     side, not as silently pink geometry (live production report).
     """
-    if not (entries or visibility or node_types):
-        return
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(
             {
@@ -475,6 +501,7 @@ def write_manifest(entries, visibility, node_types, path):
                 "materials": entries,
                 "visibility": visibility,
                 "transforms": node_types,
+                "scene": scene,
             },
             fh,
             indent=1,
@@ -796,7 +823,11 @@ def main():
     mel.eval('FBXExport -f "{}"'.format(OUT_FBX))
     # Written only after a successful export (a manifest implies its FBX).
     write_manifest(
-        manifest_entries, visibility, scene_node_types(cmds), OUT_FBX + ".manifest.json"
+        manifest_entries,
+        visibility,
+        scene_node_types(cmds),
+        scene_settings(cmds),
+        OUT_FBX + ".manifest.json",
     )
 
 

@@ -15,7 +15,8 @@ tangent angles is needed.
 
 from __future__ import annotations
 
-from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils._anim_utils import AnimUtils
+
 
 # Tolerance for matching shift-moved-out key times.
 KEY_PROXIMITY_EPS = 0.5
@@ -57,6 +58,20 @@ class SegmentCollector:
         if 0 <= idx < len(axes):
             return f"{base}{axes[idx]}"
         return base
+
+    @staticmethod
+    def abbreviate_attrs(attrs) -> str:
+        """Compact, sorted summary of channel labels (``translateX`` -> ``tx``).
+
+        Mirror of mayatk's ``Attributes.abbreviate_attrs`` for the clip centre
+        label: first character + every following uppercase letter, lowercased.
+        """
+        out = set()
+        for a in attrs:
+            if not a:
+                continue
+            out.add((a[0] + "".join(c for c in a[1:] if c.isupper())).lower())
+        return " ".join(sorted(out))
 
     @staticmethod
     def collect_segments(
@@ -129,30 +144,39 @@ class SegmentCollector:
     def extract_attributes(segments) -> list:
         """Transform-channel labels (``translateX``…) keyed within the segments.
 
-        Blender reads the object's transform fcurves directly (mayatk read the
-        animCurve→plug connections); a channel counts only if it carries a key
-        inside a segment's time range.
+        Reads each segment's own ``curves`` (the fcurves ``SegmentKeys`` collected
+        it from — mayatk reads the animCurve→plug connections); a segment
+        without a curve list falls back to the object's transform fcurves.  A
+        channel counts only if it carries a key inside the segment's time range.
         """
-        try:
-            import bpy
-        except ImportError:
-            return []
         attrs: set = set()
         for seg in segments:
-            # bpy.data.objects (not scene.objects) — consistent with the rest of
-            # the sequencer stack; an object not linked to the active scene must
-            # still contribute its attribute chips.
-            obj = bpy.data.objects.get(seg.get("obj"))
-            if obj is None:
-                continue
             s, e = seg.get("start"), seg.get("end")
             if s is None or e is None:
                 continue
-            for fc in BlenderShotStore.iter_action_fcurves(obj):
-                if not BlenderShotStore._is_transform_path(fc.data_path):
+            curves = seg.get("curves")
+            if not curves:
+                try:
+                    import bpy
+                except ImportError:
                     continue
-                if any(s - _EPS <= kp.co[0] <= e + _EPS for kp in fc.keyframe_points):
-                    attrs.add(SegmentCollector.attr_label(fc))
+                obj = bpy.data.objects.get(seg.get("obj"))
+                if obj is None:
+                    continue
+                from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+                    ShotSequencer,
+                )
+
+                curves = ShotSequencer._transform_fcurves(obj)
+            for fc in curves:
+                try:
+                    i0, i1 = AnimUtils.window_indices(
+                        AnimUtils.key_times(fc), s - _EPS, e + _EPS
+                    )
+                    if i1 > i0:
+                        attrs.add(SegmentCollector.attr_label(fc))
+                except ReferenceError:
+                    continue  # fcurve died with an undo / action swap
         return sorted(attrs)
 
     @staticmethod
@@ -168,11 +192,11 @@ class SegmentCollector:
         """
         if fcurve is None:
             return None
-        kps = list(getattr(fcurve, "keyframe_points", []) or [])
+        kps = getattr(fcurve, "keyframe_points", None)
         if not kps:
             return None
-        times = [kp.co[0] for kp in kps]
-        n = len(kps)
+        times = AnimUtils.key_times(fcurve)
+        n = len(times)
 
         # Visible key indices, plus one bounding key each side for edge segments.
         first_vis = last_vis = None

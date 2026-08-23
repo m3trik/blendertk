@@ -37,6 +37,30 @@ INCLUDE_ANIMATION = __INCLUDE_ANIMATION__
 # ShaderFX game shaders: the mayaUsd registry has no exporter for them (they
 # would arrive as displayColor-only). Translated to standardSurface below.
 STINGRAY_SHADER_TYPES = ("StingrayPBS", "ShaderfxShader")
+# The StingrayPBS texture slots worth carrying (the env/IBL cubes and BRDF lut
+# are renderer plumbing, not material textures).
+STINGRAY_TEX_SLOTS = (
+    "TEX_color_map", "TEX_normal_map", "TEX_metallic_map",
+    "TEX_roughness_map", "TEX_ao_map", "TEX_emissive_map",
+)
+# Stingray slot -> the logical channel vocabulary the manifest speaks (the same
+# names mtk's MatManifest emits, resolved Blender-side through
+# ptk.MapRegistry.resolve_type_from_channel). Lets the applier rebuild a texture
+# whose FILENAME carries no map-type token -- a plain color map named after a
+# product would otherwise be unclassifiable. Spelled out rather than imported:
+# this template is dependency-free by contract.
+STINGRAY_SLOT_CHANNELS = {
+    "TEX_color_map": "baseColor",
+    "TEX_normal_map": "normal",
+    "TEX_metallic_map": "metallic",
+    "TEX_roughness_map": "roughness",
+    "TEX_ao_map": "ambientOcclusion",
+    "TEX_emissive_map": "emission",
+}
+# Stingray slots that hold DATA, not color: their file nodes get a raw color
+# space for the export so the UsdUVTexture says so (Blender reads it as
+# Non-Color; a normal map tagged sRGB shades wrong).
+STINGRAY_DATA_SLOTS = ("TEX_normal_map", "TEX_metallic_map", "TEX_roughness_map", "TEX_ao_map")
 
 
 def _ns_safe(name):
@@ -123,18 +147,19 @@ def _translate_stingray_to_ss(cmds, mat, ss):
 
     normal_src = _plug_source(cmds, f"{mat}.TEX_normal_map")
     if normal_src and use("use_normal_map"):
-        # Tangent-space bump2d chain -- the pattern the registry exporter
-        # recognizes and writes as a UsdUVTexture normal input.
+        # The file's outColor STRAIGHT into normalCamera: the only wiring mayaUsd
+        # 0.30's registry exporter writes as UsdPreviewSurface.normal (probed --
+        # a bump2d chain, tangent-space or not, and aiNormalMap export as a
+        # dangling UsdUVTexture with normal=None).
         file_node = normal_src.split(".")[0]
-        bump = cmds.shadingNode(
-            "bump2d", asUtility=True, name=f"{_ns_safe(mat)}_usdsafe_bump"
-        )
-        cmds.setAttr(f"{bump}.bumpInterp", 1)  # tangent-space normals
-        try:
-            cmds.connectAttr(f"{file_node}.outAlpha", f"{bump}.bumpValue", force=True)
-        except Exception:
-            pass
-        cmds.connectAttr(f"{bump}.outNormal", f"{ss}.normalCamera", force=True)
+        cmds.connectAttr(f"{file_node}.outColor", f"{ss}.normalCamera", force=True)
+    for slot in STINGRAY_DATA_SLOTS:
+        src = _plug_source(cmds, f"{mat}.{slot}")
+        if src:
+            try:
+                cmds.setAttr(f"{src.split('.')[0]}.colorSpace", "Raw", type="string")
+            except Exception:
+                pass
 
     metal_src = _plug_source(cmds, f"{mat}.TEX_metallic_map")
     if metal_src and use("use_metallic_map"):
@@ -166,13 +191,42 @@ def _translate_stingray_to_ss(cmds, mat, ss):
         print(f"{mat}: standardSurface has no AO slot -- ao map not carried")
 
 
-def usd_safe_materials(cmds):
-    """Swap ShaderFX game shaders for standardSurface on their shading groups.
+def _flatten_normal_chain(cmds, mat):
+    """Re-wire a tangent-space ``bump2d`` normal chain on *mat* into the direct
+    ``file.outColor -> normalCamera`` connection mayaUsd 0.30 exports as
+    ``UsdPreviewSurface.normal`` (a bump2d chain exports as normal=None -- probed).
+    The conversion scene is throwaway, so the chain is simply bypassed."""
+    src = _plug_source(cmds, f"{mat}.normalCamera")
+    if not src:
+        return
+    node = src.split(".")[0]
+    try:
+        if cmds.nodeType(node) != "bump2d" or cmds.getAttr(f"{node}.bumpInterp") != 1:
+            return
+        upstream = _plug_source(cmds, f"{node}.bumpValue")
+        if not upstream or cmds.nodeType(upstream.split(".")[0]) != "file":
+            return
+        file_node = upstream.split(".")[0]
+        cmds.connectAttr(f"{file_node}.outColor", f"{mat}.normalCamera", force=True)
+        cmds.setAttr(f"{file_node}.colorSpace", "Raw", type="string")
+        print(f"usd-safe: {mat} normal map wired directly (bump2d bypassed)")
+    except Exception:
+        print(f"usd-safe: normal chain on {mat} left as is:")
+        traceback.print_exc()
 
-    ONE standardSurface per source material (the FBX route's memoization rule:
+
+def usd_safe_materials(cmds):
+    """Make every material export as well as mayaUsd's registry can write it.
+
+    ShaderFX game shaders are swapped for standardSurface on their shading groups
+    -- ONE standardSurface per source material (the FBX route's memoization rule:
     per-SG translation explodes into duplicates on production scenes). The
-    scene is throwaway -- nothing is restored. The standardSurface family
-    itself passes through untouched (the registry exports it natively).
+    standardSurface family passes through, except that a tangent-space bump2d
+    normal chain is bypassed (:func:`_flatten_normal_chain`). The scene is
+    throwaway -- nothing is restored. What the registry still cannot express
+    (packed maps, AO, anything it drops) rides the manifest instead
+    (:func:`collect_materials`) and is rebuilt Blender-side, exactly as on the
+    FBX route.
     """
     translated = {}
     for sg in cmds.ls(type="shadingEngine") or []:
@@ -187,6 +241,7 @@ def usd_safe_materials(cmds):
                 )
                 continue
             if cmds.nodeType(mat) not in STINGRAY_SHADER_TYPES:
+                _flatten_normal_chain(cmds, mat)
                 continue
             ss = cmds.shadingNode(
                 "standardSurface", asShader=True, name=f"{_ns_safe(mat)}_usdsafe"
@@ -305,6 +360,15 @@ def export_usd(cmds):
         # The USD lives in the temp dir; relative asset refs would be
         # unresolvable in Blender (the FBX route's path_mode=ABSOLUTE mirror).
         "exportRelativeTextures": "absolute",
+        # The default materials-scope placement DROPS EVERY MATERIAL when a root
+        # is namespaced -- a referenced asset, the production norm ("Cannot
+        # append child 'mtl' to path ''", mayaUsd 0.30, probed). Legacy keeps them.
+        "legacyMaterialScope": True,
+        # The exporter's default rewrites ``map1`` to ``st``, and USD stores
+        # primvars alphabetically -- a second set (``lightmap``) sorts ahead
+        # and Blender's importer would make IT the active map. ``map1`` by
+        # name is what the Blender side activates (the FBX route's spelling).
+        "preserveUVSetNames": True,
     }
     # Sample only the frames that carry motion -- see _animation_frame_range for
     # the measured cost of getting this wrong.
@@ -340,6 +404,148 @@ def _sanitize_prim_name(name):
     if name[0].isdigit():
         name = "_" + name
     return name
+
+
+def _resolved_file(cmds, file_node):
+    """Absolute path of a file node's texture, workspace-resolved; None if absent."""
+    try:
+        path = cmds.getAttr(f"{file_node}.fileTextureName")
+    except Exception:
+        return None
+    if not path:
+        return None
+    if not os.path.isfile(path):
+        try:
+            expanded = cmds.workspace(expandName=path)
+            if os.path.isfile(expanded):
+                path = expanded
+        except Exception:
+            pass
+    return os.path.abspath(path) if os.path.isfile(path) else None
+
+
+def _material_slots(cmds, mat, node_type):
+    """``{logical channel: file}`` for *mat*, or ``{}`` when the slots are unknowable.
+
+    Only the Stingray family declares its inputs; the surface family is walked
+    through history, where a file node carries no reliable channel. Returned
+    alongside (never instead of) the flat file list -- see
+    ``STINGRAY_SLOT_CHANNELS``.
+    """
+    slots = {}
+    if node_type not in STINGRAY_SHADER_TYPES:
+        return slots
+    for slot, channel in STINGRAY_SLOT_CHANNELS.items():
+        src = _plug_source(cmds, f"{mat}.{slot}")
+        if not src:
+            continue
+        path = _resolved_file(cmds, src.split(".")[0])
+        if path:
+            slots[channel] = path
+    return slots
+
+
+def _material_files(cmds, mat, node_type):
+    """The texture files feeding *mat* -- the payload FBX cannot carry.
+
+    Stingray reads its declared TEX_* slots (history would drag in the env/BRDF
+    plumbing); the surface family walks history (user-built networks are free-form).
+    """
+    files = []
+    if node_type in STINGRAY_SHADER_TYPES:
+        for slot in STINGRAY_TEX_SLOTS:
+            src = _plug_source(cmds, f"{mat}.{slot}")
+            if src:
+                path = _resolved_file(cmds, src.split(".")[0])
+                if path:
+                    files.append(path)
+    else:
+        for node in cmds.listHistory(mat) or []:
+            try:
+                if cmds.nodeType(node) == "file":
+                    path = _resolved_file(cmds, node)
+                    if path:
+                        files.append(path)
+            except Exception:
+                continue
+    return sorted(set(files), key=files.index)
+
+
+def _sg_member_prims(cmds, sg):
+    """Prim-spelled transform names assigned to *sg* (what the USD-imported
+    Blender objects are named: ``_sanitize_prim_name`` of the short name, the
+    namespace folded in)."""
+    names = []
+    for member in cmds.sets(sg, query=True) or []:
+        node = member.split(".")[0]
+        try:
+            if cmds.nodeType(node) != "transform":
+                parents = cmds.listRelatives(node, parent=True) or []
+                node = parents[0] if parents else node
+        except Exception:
+            pass
+        name = _sanitize_prim_name(node.split("|")[-1])
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def collect_materials(cmds):
+    """The texture manifest the FBX route ships, for the USD route -- read off
+    the ORIGINAL shaders before ``usd_safe_materials`` rewires anything.
+
+    The native USD materials are the baseline; the manifest is what guarantees
+    parity with the FBX route regardless of what mayaUsd's shading exporter can
+    express (it writes no normal map off a bump2d chain, no packed metallic /
+    roughness / AO maps, no AO at all -- probed). The Blender side rebuilds each
+    textured material from these files exactly as it does off an FBX.
+
+    Returns ``(entries, shading_groups)``: one entry per textured material
+    (``name`` = the shader's short name the Blender material ends up with,
+    ``fbx_material`` = the same, since the shading-group-named USD material is
+    renamed to it Blender-side before the replay, ``objects`` prim-spelled), and
+    ``{prim-spelled shading group: shader short name}`` for that rename -- every
+    material, textured or not, so a flat material stops wearing its SG's name.
+    """
+    entries, shading_groups, seen = [], {}, {}
+    for sg in cmds.ls(type="shadingEngine") or []:
+        try:
+            src = _plug_source(cmds, f"{sg}.surfaceShader")
+            if not src:
+                continue
+            mat = src.split(".")[0]
+            short = mat.split("|")[-1].split(":")[-1]
+            shading_groups[_sanitize_prim_name(sg.split("|")[-1])] = short
+            if mat in seen:
+                for member in _sg_member_prims(cmds, sg):
+                    if member not in seen[mat]["objects"]:
+                        seen[mat]["objects"].append(member)
+                continue
+            node_type = cmds.nodeType(mat)
+            files = _material_files(cmds, mat, node_type)
+            if not files:
+                continue  # nothing to rebuild; the native USD material stands
+            members = _sg_member_prims(cmds, sg)
+            if not members:
+                # Assigned to nothing: no prim binds it, so the layer carries
+                # no material to rebuild onto (the FBX route warns per entry).
+                print("texture manifest: {} unassigned, not carried".format(short))
+                continue
+            entry = {
+                "name": short,
+                "shader_type": node_type,
+                "fbx_material": short,
+                "objects": members,
+                "files": files,
+                "slots": _material_slots(cmds, mat, node_type),
+            }
+            entries.append(entry)
+            seen[mat] = entry
+        except Exception:
+            print(f"material manifest skipped for {sg}:")
+            traceback.print_exc()
+    print("texture manifest: {} textured material(s)".format(len(entries)))
+    return entries, shading_groups
 
 
 def collect_instance_groups(cmds):
@@ -404,8 +610,36 @@ def collect_instance_groups(cmds):
     return groups
 
 
-def write_manifest(cmds):
-    """Sidecar beside the USD carrying what USD itself cannot: instance groups.
+def scene_settings(cmds):
+    """The scene's time setup -- the manifest's ``scene`` section, the one part of a
+    scene neither intermediate round-trips whole (FBX carries the fps, USD the
+    sampled range). Keys mirror ``btk.scene_settings`` / ``mtk.scene_settings``:
+    ``fps`` (frames per second, from the API so a custom rate needs no name
+    table), the playback range the timeline plays (``frame_start``/``frame_end``
+    = Maya's min/max), the full animation range (``anim_start``/``anim_end`` =
+    ast/aet) and ``frame_current``. Dependency-free copy of
+    ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader).
+    """
+    import maya.api.OpenMaya as om
+
+    def playback(**flag):
+        return cmds.playbackOptions(query=True, **flag)
+
+    return {
+        "fps": om.MTime(1.0, om.MTime.kSeconds).asUnits(om.MTime.uiUnit()),
+        "frame_start": playback(minTime=True),
+        "frame_end": playback(maxTime=True),
+        "anim_start": playback(animationStartTime=True),
+        "anim_end": playback(animationEndTime=True),
+        "frame_current": cmds.currentTime(query=True),
+    }
+
+
+def write_manifest(cmds, materials=None, shading_groups=None):
+    """Sidecar beside the USD carrying what USD itself cannot: instance groups,
+    and the scene's time setup (``scene`` -- the stage carries the fps and only
+    the SAMPLED range, which is narrowed to what moves; see
+    ``_animation_frame_range``).
 
     ALWAYS written for the USD route (empty groups included), so the Blender
     side can tell "no instances" from "sidecar lost" -- it REQUIRES the file.
@@ -417,7 +651,17 @@ def write_manifest(cmds):
 
     groups = collect_instance_groups(cmds)
     with open(OUT_USD + ".manifest.json", "w", encoding="utf-8") as fh:
-        json.dump({"version": 2, "format": "paths", "instances": groups}, fh)
+        json.dump(
+            {
+                "version": 2,
+                "format": "paths",
+                "instances": groups,
+                "materials": materials or [],
+                "shading_groups": shading_groups or {},
+                "scene": scene_settings(cmds),
+            },
+            fh,
+        )
     print(
         "instance manifest: {} group(s) covering {} transforms".format(
             len(groups), sum(len(g) for g in groups)
@@ -434,6 +678,8 @@ def main():
     workspace = _resolve_workspace(cmds, SRC_PATH)
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
     _open_scene(cmds, SRC_PATH)
+    # Read off the ORIGINAL networks: the usd-safe pass rewires them.
+    materials, shading_groups = collect_materials(cmds)
     usd_safe_materials(cmds)
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")
@@ -444,7 +690,7 @@ def main():
     # judged by the artifact, and a USD without its sidecar would import
     # silently flattened.
     try:
-        write_manifest(cmds)
+        write_manifest(cmds, materials, shading_groups)
     except Exception:
         try:
             os.remove(OUT_USD)

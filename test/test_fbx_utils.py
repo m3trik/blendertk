@@ -281,6 +281,153 @@ try:
     except FileNotFoundError:
         check("import_fbx missing file -> FileNotFoundError", True)
 
+    # ---- animation takes: armed state -> post-write AnimStack splitting -----
+    # Mirror of mayatk's apply_takes/apply_takes_from_node/reset_takes. The
+    # write's single baked scene-range stack is split into one windowed stack
+    # per take (fbx_utils module docstring documents why Blender's own
+    # multi-stack modes can't be used: they null active actions and emit one
+    # stack per strip/action, so every OTHER object freezes inside a take).
+    def reset_anim():  # reset() leaves zero-user action datablocks behind
+        reset()
+        for a in list(bpy.data.actions):
+            bpy.data.actions.remove(a)
+
+    reset_anim()
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 30
+    bpy.ops.mesh.primitive_cube_add()
+    tk_cube = bpy.context.active_object
+    tk_cube.name = "TakesCube"
+    for frame, x in ((1, 0.0), (10, 10.0), (20, 10.0), (30, 0.0)):
+        tk_cube.location.x = x
+        tk_cube.keyframe_insert("location", frame=frame)
+    bpy.ops.mesh.primitive_uv_sphere_add()
+    tk_ball = bpy.context.active_object
+    tk_ball.name = "TakesBall"
+    for frame, z in ((1, 0.0), (30, 6.0)):
+        tk_ball.location.z = z
+        tk_ball.keyframe_insert("location", frame=frame)
+
+    n_armed = FbxUtils.apply_takes(
+        [{"name": "shotA", "start": 1, "end": 10}, ("shotB", 20, 30)]
+    )
+    check(
+        "apply_takes arms both dict- and tuple-shaped defs",
+        n_armed == 2 and FbxUtils._pending_takes == [("shotA", 1, 10), ("shotB", 20, 30)],
+        f"{FbxUtils._pending_takes}",
+    )
+
+    takes_out = os.path.join(tmp, "takes.fbx")
+    FbxUtils.export(filepath=takes_out, objects=[tk_cube, tk_ball], bake_anim=True)
+    check(
+        "armed state is sticky through the write (Maya-parity; reset is the caller's)",
+        FbxUtils._pending_takes is not None,
+    )
+    FbxUtils.reset_takes()
+    check("reset_takes clears the armed state", FbxUtils._pending_takes is None)
+
+    reset_anim()
+    FbxUtils.import_fbx(takes_out)
+
+    def action_fcurves(act):  # Blender 5.1 slotted-action walk
+        layers = getattr(act, "layers", None)
+        if not layers:
+            yield from getattr(act, "fcurves", None) or ()
+            return
+        for layer in layers:
+            for strip in layer.strips:
+                for cb in strip.channelbags:
+                    yield from cb.fcurves
+
+    take_actions = sorted(a.name for a in bpy.data.actions)
+    check(
+        "the FBX ships one AnimStack per declared take and ONLY those",
+        take_actions
+        == [
+            "TakesBall|shotA",
+            "TakesBall|shotB",
+            "TakesCube|shotA",
+            "TakesCube|shotB",
+        ],
+        f"{take_actions}",
+    )
+
+    def x_extent(action_name):
+        act = bpy.data.actions.get(action_name)
+        for fc in action_fcurves(act) if act else ():
+            if fc.data_path == "location" and fc.array_index == 0:
+                vals = [k.co[1] for k in fc.keyframe_points]
+                return (min(vals), max(vals)) if vals else None
+        return None
+
+    def z_extent(action_name):
+        act = bpy.data.actions.get(action_name)
+        for fc in action_fcurves(act) if act else ():
+            if fc.data_path == "location" and fc.array_index == 2:
+                vals = [k.co[1] for k in fc.keyframe_points]
+                return (min(vals), max(vals)) if vals else None
+        return None
+
+    xa = x_extent("TakesCube|shotA")
+    xb = x_extent("TakesCube|shotB")
+    check(
+        "cube's motion is windowed per take (0->10 in shotA, back down in shotB)",
+        xa is not None
+        and abs(xa[0]) < 0.01
+        and abs(xa[1] - 10.0) < 0.01
+        and xb is not None
+        and abs(xb[0]) < 0.01
+        and abs(xb[1] - 10.0) < 0.01,
+        f"shotA={xa} shotB={xb}",
+    )
+    # THE multi-object guarantee (what NLA-strip takes cannot do): the second
+    # object keeps moving inside both takes, values continuous with its curve.
+    za = z_extent("TakesBall|shotA")
+    zb = z_extent("TakesBall|shotB")
+    check(
+        "second object animates inside BOTH takes (no frozen bystanders)",
+        za is not None
+        and za[1] > 0.5
+        and zb is not None
+        and zb[0] > 3.5
+        and abs(zb[1] - 6.0) < 0.01,
+        f"shotA={za} shotB={zb}",
+    )
+
+    # ---- apply_takes_from_node reads the carrier's fbx_takes channel --------
+    reset()
+    check(
+        "apply_takes_from_node -> 0 with no carrier in the scene",
+        FbxUtils.apply_takes_from_node() == 0,
+    )
+    DataNodes.set_export_json(
+        DataNodes.FBX_TAKES,
+        [{"name": "intro", "start": 1, "end": 12}],
+    )
+    n_node = FbxUtils.apply_takes_from_node()
+    check(
+        "apply_takes_from_node arms the declared channel",
+        n_node == 1 and FbxUtils._pending_takes == [("intro", 1, 12)],
+        f"{FbxUtils._pending_takes}",
+    )
+    FbxUtils.reset_takes()
+
+    # ---- armed takes + a write with no baked animation: file left as written -
+    reset_anim()
+    bpy.ops.mesh.primitive_cube_add()
+    static = bpy.context.active_object
+    FbxUtils.apply_takes([("ghost", 1, 10)])
+    static_out = os.path.join(tmp, "takes_static.fbx")
+    FbxUtils.export(filepath=static_out, objects=[static])  # bake_anim defaults False
+    FbxUtils.reset_takes()
+    reset_anim()
+    created_static = FbxUtils.import_fbx(static_out)
+    check(
+        "no-anim write with armed takes stays a valid single-mesh FBX (warned, not broken)",
+        any(o.type == "MESH" for o in created_static) and not bpy.data.actions,
+        f"{[o.name for o in created_static]} actions={[a.name for a in bpy.data.actions]}",
+    )
+
     import shutil
     shutil.rmtree(tmp, ignore_errors=True)
 

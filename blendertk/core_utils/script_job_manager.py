@@ -14,6 +14,7 @@ Maya event          Blender backing
 ==================  ==========================================================
 ``SceneOpened``     ``bpy.app.handlers.load_post``
 ``NewSceneOpened``  ``bpy.app.handlers.load_post`` (Blender doesn't distinguish open vs. new)
+``SceneBeforeSave`` ``bpy.app.handlers.save_pre`` (Maya: ``MSceneMessage.kBeforeSave`` OM callback)
 ``SceneSaved``      ``bpy.app.handlers.save_post``
 ``timeChanged``     ``bpy.app.handlers.frame_change_post``
 ``SelectionChanged``  ``bpy.app.handlers.depsgraph_update_post`` (filtered by a selection diff)
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 _HANDLER_EVENTS: Dict[str, str] = {
     "SceneOpened": "load_post",
     "NewSceneOpened": "load_post",
+    "SceneBeforeSave": "save_pre",
     "SceneSaved": "save_post",
     "timeChanged": "frame_change_post",
     "SelectionChanged": "depsgraph_update_post",
