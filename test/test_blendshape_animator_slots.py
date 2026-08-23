@@ -1,6 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Blendshape-animator panel controller test — the Qt half of ``test_blendshape_animator.py``.
+r"""Blendshape-animator panel controller test — the Qt half of ``test_blendshape_animator.py``.
 
 Needs **Qt, not bpy**: ``blendshape_animator_slots`` imports ``qtpy`` at module scope, while
 the engine behaviour it wraps (create / tween / apply, which need a real scene) is covered by

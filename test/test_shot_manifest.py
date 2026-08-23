@@ -324,9 +324,7 @@ A03.),Fuselage fades out,fuselage_geo,
     bpy.context.view_layer.update()
 
     footer_msgs = []
-    stub = SimpleNamespace(
-        _set_footer=lambda text, **kw: footer_msgs.append(text)
-    )
+    stub = SimpleNamespace(_set_footer=lambda text, **kw: footer_msgs.append(text))
     reveal_err = ""
     try:
         ShotManifestController._show_in_outliner(stub, "VlgOutside")
@@ -348,6 +346,167 @@ A03.),Fuselage fades out,fuselage_geo,
         "_show_in_outliner: in-layer object selected + active",
         bpy.data.objects["aileron_geo"].select_get()
         and bpy.context.view_layer.objects.active is bpy.data.objects["aileron_geo"],
+    )
+
+    # ---- scene walks: flat keys are boundary markers, not animation ------
+    # (mirror of mayatk: only transform channels whose values VARY in range
+    # count; a held/flat channel or a custom-prop-only animation is excluded)
+    def _key(obj, frame, loc):
+        obj.location = loc
+        obj.keyframe_insert(data_path="location", frame=frame)
+
+    moving = bpy.data.objects.new("walk_moving", None)
+    flat = bpy.data.objects.new("walk_flat", None)
+    custom = bpy.data.objects.new("walk_custom", None)
+    for o in (moving, flat, custom):
+        bpy.context.scene.collection.objects.link(o)
+    _key(moving, 1000, (0, 0, 0))
+    _key(moving, 1010, (5, 0, 0))
+    _key(flat, 1000, (1, 1, 1))
+    _key(flat, 1010, (1, 1, 1))
+    custom["marker"] = 0.0
+    custom.keyframe_insert(data_path='["marker"]', frame=1000)
+    custom["marker"] = 1.0
+    custom.keyframe_insert(data_path='["marker"]', frame=1010)
+
+    walk = BlenderShotManifest(BlenderShotStore())
+    found = walk._discover_scene_objects(1000, 1010, set())
+    check(
+        "discover: moving object found; flat + custom-prop-only excluded",
+        "walk_moving" in found
+        and "walk_flat" not in found
+        and "walk_custom" not in found,
+        f"{found}",
+    )
+    check(
+        "discover: exclude_names honoured",
+        "walk_moving" not in walk._discover_scene_objects(1000, 1010, {"walk_moving"}),
+    )
+    check(
+        "discover: out-of-range window finds nothing",
+        not walk._discover_scene_objects(2000, 2010, set()),
+    )
+    filt = walk._filter_to_animated(["walk_moving", "walk_flat", "ghost"], 1000, 1010)
+    check(
+        "filter_to_animated: keeps only varying, existing objects",
+        filt == ["walk_moving"],
+        f"{filt}",
+    )
+    check(
+        "discover: curve map + curve data cached per cycle",
+        walk._animated_transforms is not None and bool(walk._curve_data),
+    )
+
+    # Two objects driven by ONE action through different slots. The per-cycle
+    # sample cache must key on the FCurve, not on (action, data_path, index):
+    # crv.id_data is the ACTION, so a tuple key collides here and the second
+    # curve silently reads the first's samples.
+    shared_a = bpy.data.objects.new("slot_moving", None)
+    shared_b = bpy.data.objects.new("slot_flat", None)
+    for o in (shared_a, shared_b):
+        bpy.context.scene.collection.objects.link(o)
+    _key(shared_a, 1000, (0, 0, 0))
+    _key(shared_a, 1010, (7, 0, 0))
+    shared_action = shared_a.animation_data.action
+    shared_b.animation_data_create()
+    shared_b.animation_data.action = shared_action
+    if getattr(shared_b.animation_data, "action_slot", None) in (
+        None,
+        shared_a.animation_data.action_slot,
+    ):
+        shared_b.animation_data.action_slot = shared_action.slots.new(
+            id_type="OBJECT", name="slot_flat"
+        )
+    _key(shared_b, 1000, (2, 2, 2))
+    _key(shared_b, 1010, (2, 2, 2))
+
+    shared_walk = BlenderShotManifest(BlenderShotStore())
+    shared_filt = shared_walk._filter_to_animated(
+        ["slot_moving", "slot_flat"], 1000, 1010
+    )
+    check(
+        "filter_to_animated: one action across two slots does not cross-contaminate",
+        shared_filt == ["slot_moving"],
+        f"{shared_filt} (the flat object read the moving one's samples)",
+    )
+    check(
+        "_default_keyframe_range: full extent of an object's keys",
+        BlenderShotManifest._default_keyframe_range("walk_moving") == (1000.0, 1010.0)
+        and BlenderShotManifest._default_keyframe_range("ghost") is None,
+    )
+
+    # ---- fps cache + source-path audio measurement --------------------
+    bpy.context.scene.render.fps = 30
+    bpy.context.scene.render.fps_base = 1.0
+    fresh = BlenderShotManifest(BlenderShotStore())
+    fps1 = fresh._resolve_fps()
+    bpy.context.scene.render.fps = 60
+    check(
+        "_resolve_fps: scene fps, cached per instance until update() clears it",
+        fps1 == 30.0 and fresh._resolve_fps() == 30.0 and fresh._fps_cache == 30.0,
+        f"{fps1} / {fresh._resolve_fps()}",
+    )
+    bpy.context.scene.render.fps = 24
+
+    wav2_fd, wav2_path = tempfile.mkstemp(suffix=".wav")
+    os.close(wav2_fd)
+    with wave.open(wav2_path, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(48000)
+        w.writeframes(b"".join(struct.pack("<h", 0) for _ in range(96000)))  # 2 s
+    probe = BlenderShotManifest(BlenderShotStore())
+    meas_src = probe._measure_audio(
+        _BO("unplaced", kind="audio", source_path=wav2_path)
+    )
+    check(
+        "_measure_audio: unplaced source file measured headlessly (2 s @ 24 = 48)",
+        meas_src == 48.0,
+        f"{meas_src}",
+    )
+    check(
+        "_measure_audio: no source + no strip -> None",
+        probe._measure_audio(_BO("nothing_here", kind="audio")) is None,
+    )
+    grow = probe._audio_grow_duration(
+        [_BO("unplaced", kind="audio", behaviors=["set_clip"], source_path=wav2_path)]
+    )
+    check(
+        "_audio_grow_duration: routes through Blender compute_duration",
+        grow == 48.0,
+        f"{grow}",
+    )
+    os.remove(wav2_path)
+
+    check(
+        "rewire_audio: no-op returning the mayatk result shape",
+        BlenderShotManifest.rewire_audio()
+        == {"created": [], "updated": [], "deleted": []},
+    )
+
+    # ---- reapply_object: explicit user action re-keys WITHOUT the guard ----
+    both = _BO("wing_geo", behaviors=["fade_in", "fade_out"])
+    re_shot = store.define_shot("R1", 700, 800, objects=["wing_geo"])
+    check("reapply_object: applies", mani.reapply_object(re_shot, both))
+    wing = bpy.data.objects["wing_geo"]
+    op_times = sorted(
+        round(kp.co[0])
+        for fc in BlenderShotStore.iter_action_fcurves(wing)
+        if "opacity" in fc.data_path
+        for kp in fc.keyframe_points
+    )
+    check(
+        "reapply_object: fade_in at start + fade_out at end (distributed anchors)",
+        op_times == [700, 715, 785, 800],
+        f"{op_times}",
+    )
+    check(
+        "reapply_object: re-keying an already-keyed object is allowed (no guard)",
+        mani.reapply_object(re_shot, both),
+    )
+    check(
+        "reapply_object: no behaviors -> nothing applied",
+        not mani.reapply_object(re_shot, _BO("wing_geo")),
     )
 
     BlenderShotStore.clear_active()

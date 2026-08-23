@@ -8,8 +8,8 @@ and state management. All Controller state is accessed via ``self._ctrl``. Qt cl
 reached through the switchboard (``self._ctrl.sb.QtCore`` / ``QtGui`` / ``QtWidgets``) rather
 than a direct ``qtpy`` import, matching the rest of the ported blendertk Slots layer.
 
-Divergence from mayatk: no per-item type icon (mayatk's ``NodeIcons`` has no Blender
-counterpart — not built here, YAGNI until a tool actually needs Blender object-type icons).
+Per-item type icons come from :class:`~blendertk.ui_utils.node_icons.NodeIcons`
+(``Object.type`` → uitk named icon), the mirror of mayatk's ``NodeIcons``.
 """
 
 from pathlib import Path
@@ -18,6 +18,7 @@ from typing import Any, Dict
 import pythontk as ptk
 
 import blendertk.env_utils.hierarchy_sync.tree_utils as tree_utils
+from blendertk.ui_utils.node_icons import NodeIcons
 
 
 class HierarchyTreeRenderer(ptk.LoggingMixin):
@@ -183,6 +184,10 @@ class HierarchyTreeRenderer(ptk.LoggingMixin):
                 tree_item = tree_widget.create_item(
                     item_data, obj_info["object"], parent_widget_item
                 )
+
+                icon = NodeIcons.get_icon(obj_key)
+                if icon:
+                    tree_item.setIcon(0, icon)
 
                 try:
                     tree_item._raw_name = obj_info["short_name"]

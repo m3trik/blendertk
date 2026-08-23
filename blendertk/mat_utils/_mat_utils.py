@@ -39,6 +39,22 @@ class _MatUtilsInternal:
         return [(n, n.image) for n in nt.nodes if n.type == "TEX_IMAGE" and n.image]
 
     @staticmethod
+    def _shader_node_trees():
+        """Every shader node tree in the file — each material's embedded tree plus the shader
+        node groups. The scope a node-selection command may clear."""
+        import bpy
+
+        trees = [
+            nt
+            for nt in (getattr(m, "node_tree", None) for m in bpy.data.materials)
+            if nt is not None
+        ]
+        trees.extend(
+            g for g in bpy.data.node_groups if isinstance(g, bpy.types.ShaderNodeTree)
+        )
+        return trees
+
+    @staticmethod
     def _iter_image_nodes(node_tree, _chain=(), _visited=()):
         """Yield ``(group_chain, node)`` for every bound TEX_IMAGE node in *node_tree*,
         recursing into node groups. ``group_chain`` is the tuple of GROUP nodes walked
@@ -1364,6 +1380,101 @@ class MatUtils(_MatUtilsInternal):
                 except Exception:
                     pass
         return removed
+
+    @staticmethod
+    def image_texture_nodes(images):
+        """``(material, node)`` for every ``ShaderNodeTexImage`` bound to ``images``.
+
+        Maya's ``file`` node fuses two roles Blender keeps apart: the **image datablock** owns
+        the path, and one or more Image Texture nodes reference it from material graphs. A
+        datablock therefore maps to *zero* nodes (an unused texture), one, or many — which is
+        why this answers a list rather than a node. Nodes nested inside node groups count
+        (:meth:`_iter_image_nodes` walks them).
+
+        The pure query behind :meth:`select_image_nodes`; separate so a caller that only needs
+        the count (the Texture Path Editor's remove-confirm, which reports how many nodes a
+        removal would strand) does not have to mutate selection state to get it.
+
+        Parameters:
+            images: Image datablocks or names (``_resolve_images`` semantics).
+
+        Returns:
+            list: ``(material, node)`` pairs, material order then node-tree order. Each NODE
+            appears once: a node group shared by several materials is reached through each of
+            them, and counting one node three times would overstate both the selection and the
+            remove-confirm's "nodes left with no texture". The material reported for such a
+            node is the first one that reaches it.
+        """
+        import bpy
+
+        targets = {
+            img.as_pointer()
+            for img in _MatUtilsInternal._resolve_images(images)
+            if img is not None
+        }
+        if not targets:
+            return []
+        hits, seen = [], set()
+        for mat in bpy.data.materials:
+            nt = getattr(mat, "node_tree", None)
+            if not nt:
+                continue
+            for _chain, node in _MatUtilsInternal._iter_image_nodes(nt):
+                key = node.as_pointer()
+                if node.image.as_pointer() in targets and key not in seen:
+                    seen.add(key)
+                    hits.append((mat, node))
+        return hits
+
+    @staticmethod
+    def select_image_nodes(images, activate=True):
+        """Select the Image Texture nodes bound to ``images`` — the Blender analogue of Maya's
+        *Select File Node* (backs the Texture Path Editor's row menu).
+
+        Node selection is per node-tree and only *visible* in a Shader Editor showing that tree,
+        so with ``activate`` the object + material slot behind the first hit are made active as
+        well — an open editor then lands on the selection. (Maya needs no equivalent: selecting a
+        file node there is global.) Opening an editor is deliberately NOT done here; that is
+        ``graph_materials``' job, mirroring the panel's separate *Show in Shader Editor* item.
+
+        Parameters:
+            images: Image datablocks or names (``_resolve_images`` semantics).
+            activate: Also activate the first hit's object + material slot.
+
+        Returns:
+            int: Number of nodes selected.
+        """
+        import bpy
+
+        hits = MatUtils.image_texture_nodes(images)
+        if not hits:
+            return 0
+
+        # REPLACE semantics, mirroring Maya's `cmds.select(..., r=True)`: clearing only the
+        # trees that hold a hit left unrelated nodes selected elsewhere (a freshly built node
+        # is selected on creation), so the command's result depended on what happened to be
+        # selected before it ran. Scope is shader trees -- material-embedded ones plus shader
+        # node groups; compositor / geometry-node selections are none of this command's
+        # business. Nothing is cleared when there are no hits (Maya likewise leaves the
+        # selection alone rather than emptying it).
+        for tree in _MatUtilsInternal._shader_node_trees():
+            for n in tree.nodes:
+                n.select = False
+        for _mat, node in hits:
+            node.select = True
+            node.id_data.nodes.active = node
+
+        if activate:
+            mat = hits[0][0]
+            users = MatUtils.find_by_mat_id(mat)
+            if users:
+                obj = users[0]
+                bpy.context.view_layer.objects.active = obj
+                for idx, slot in enumerate(obj.material_slots):
+                    if slot.material is mat:
+                        obj.active_material_index = idx
+                        break
+        return len(hits)
 
     @staticmethod
     def graph_materials(materials, mode=None):

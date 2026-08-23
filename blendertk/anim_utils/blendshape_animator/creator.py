@@ -15,6 +15,7 @@ for the evaluation, because a generative modifier (subsurf/mirror/array/...) wou
 tween a vertex count that can never match the basis, and a shape key is a per-vertex delta
 against the basis by definition — see :meth:`_CreatorInternal._suppressed_modifiers`.
 """
+
 from contextlib import contextmanager
 from typing import List, Optional, Set
 
@@ -231,7 +232,9 @@ class Creator(ptk.LoggingMixin, _CreatorInternal):
             kb.value = original_value
             bpy.context.scene.frame_set(original_frame)
 
-    def tag_tween_mesh(self, obj, weight: float, target_frame: Optional[int] = None) -> None:
+    def tag_tween_mesh(
+        self, obj, weight: float, target_frame: Optional[int] = None
+    ) -> None:
         """Add metadata custom properties to ``obj``. Idempotent (safe to re-tag)."""
         obj["isInbetweenTarget"] = True
         obj["inbetweenWeight"] = float(weight)

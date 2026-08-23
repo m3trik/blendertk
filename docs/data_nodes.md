@@ -76,13 +76,14 @@ Empty in the target's outliner — and never *created* just to ship. Pinned by
 
 | Channel | Producer | Notes |
 |---|---|---|
+| `fbx_takes` (on `data_export`) | Shots — `BlenderShotStore.publish_export_view` | same `[{name,start,end}]` schema as mayatk's; the Scene Exporter's **Export Shots as Animation Takes** task arms `FbxUtils` from it, and the write splits its baked scene-range AnimStack into one windowed stack per take (see `fbx_utils.py`'s module docstring for why Blender's own multi-stack export modes can't be used) |
+| `shot_metadata` (on `data_export`) | Shots — `BlenderShotStore.publish_export_view` | same envelope as mayatk's; clip name = join key ([shot_export_unity.md](https://github.com/m3trik/mayatk/blob/main/docs/shot_export_unity.md)) |
 | `lightmap_metadata` (on `data_export`) | Lightmap Baker — `refresh_export_metadata` | same JSON schema as mayatk's — one `LightmapMetadataController` reader serves both DCCs |
 | `shadow_metadata` (on `data_export`) | Shadow Rig — `refresh_export_metadata` | same schema as mayatk's — one `ShadowPlaneController` reader |
 | `emissive_groups` (on **both** carriers) | Emissive Groups — `refresh_export_metadata` | registry (authored state) on `data_internal`; manifest on `data_export`, plus per-group keyable `emissiveGroup_<name>` floats whose curves ship via transient scale-proxy Empties (Blender's FBX exporter can't animate custom properties) |
 | `smart_bake_sessions` (on `data_internal`) | SmartBake `BakeSessionStore` | restore manifests; never exported |
 
-Shots (`fbx_takes` / `shot_metadata`) and Audio (`audio_manifest`) are not yet
-producing: the Shots *subsystem* is ported but its `publish_export_view` stays
-a no-op, and the audio panel is VSE-only — the Scene Exporter's "Export Shots
-as Animation Takes" checkbox stays a disabled placeholder until the takes port
-lands.
+Audio (`audio_manifest`) is not yet producing — the audio panel is VSE-only.
+When its port lands it must register in `FbxUtils._KNOWN_PRODUCERS` **after**
+shots (it scopes events against the freshly published `fbx_takes`; the order
+contract is documented on the registry).

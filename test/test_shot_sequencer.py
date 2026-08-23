@@ -684,7 +684,9 @@ def _run_sequencer_checks():
             self._syncing = False
             self._playback_range_mode = "off"
 
-    vlg_shot = SimpleNamespace(objects=["VlgVisible", "VlgOutside"], start=1.0, end=10.0)
+    vlg_shot = SimpleNamespace(
+        objects=["VlgVisible", "VlgOutside"], start=1.0, end=10.0
+    )
     vlg_seq = SimpleNamespace(
         shot_by_id=lambda sid: vlg_shot,
         store=SimpleNamespace(set_active_shot=lambda sid: None, select_on_load=True),
@@ -696,7 +698,9 @@ def _run_sequencer_checks():
     except RuntimeError as e:
         nav_ok, nav_err = False, repr(e)
     check(
-        "select_shot skips an outside-view-layer object without raising", nav_ok, nav_err
+        "select_shot skips an outside-view-layer object without raising",
+        nav_ok,
+        nav_err,
     )
     check("select_shot still selected the in-layer object", vlg_vis.select_get())
     check(
@@ -720,6 +724,287 @@ def _run_sequencer_checks():
         sel_err,
     )
     check("_select_and_show still selected the in-layer object", vlg_vis.select_get())
+
+    # =====================================================================
+    # mayatk-parity surface (2026-08-22): gap holds, motion/hold segments,
+    # audio sequences, extend/fit, detect, expand/set_shot_start, to/from_dict
+    # =====================================================================
+    import wave
+
+    import pythontk as ptk
+
+    from blendertk.audio_utils._audio_utils import AudioUtils
+    from blendertk.audio_utils.segments import AudioSegment
+
+    def key_interp(obj_name):
+        obj = bpy.data.objects.get(obj_name)
+        return {
+            round(float(kp.co[0]), 3): kp.interpolation
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            for kp in fc.keyframe_points
+            if fc.array_index == 0
+        }
+
+    # ---- _enforce_gap_holds: last key before each gap goes CONSTANT --------
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    seq.respace(gap=5, start_frame=0)  # A[0,10] B[15,25] C[30,40] -> epilogue runs
+    ia, ib, ic = key_interp("A"), key_interp("B"), key_interp("C")
+    check(
+        "gap holds: A's last key (10) is CONSTANT, earlier keys untouched",
+        ia.get(10.0) == "CONSTANT" and ia.get(5.0) == "BEZIER",
+        f"{ia.get(10.0)} / {ia.get(5.0)}",
+    )
+    check(
+        "gap holds: B's last key (25) is CONSTANT",
+        ib.get(25.0) == "CONSTANT",
+        f"{ib.get(25.0)}",
+    )
+    check(
+        "gap holds: C (timeline-last, no gap after) untouched",
+        ic.get(40.0) == "BEZIER",
+        f"{ic.get(40.0)}",
+    )
+
+    # ---- collect_object_segments: motion runs split at a hold -------------
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    bpy.ops.mesh.primitive_cube_add()
+    h = bpy.context.active_object
+    h.name = "Holder"
+    for f, x in ((0, 0.0), (10, 1.0), (30, 1.0), (50, 1.0), (60, 2.0)):  # hold 10..50
+        h.location = (x, 0.0, 0.0)
+        h.keyframe_insert(data_path="location", index=0, frame=f)
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    hid = store.define_shot("H", 0, 60, objects=["Holder"]).shot_id
+    seq = ShotSequencer(store)
+    segs = seq.collect_object_segments(hid)
+    spans = sorted((sg["start"], sg["end"]) for sg in segs)
+    check(
+        "segments: hold splits the object into two motion runs [0,10] + [50,60]",
+        spans == [(0.0, 10.0), (50.0, 60.0)],
+        f"{spans}",
+    )
+    check(
+        "segments: each dict carries its fcurves (extract_attributes source)",
+        all(sg.get("curves") for sg in segs),
+    )
+    segs_h = seq.collect_object_segments(hid, ignore_holds=False)
+    spans_h = sorted((sg["start"], sg["end"]) for sg in segs_h)
+    check(
+        "segments: ignore_holds=False absorbs the hold key (30) into the first run",
+        spans_h and spans_h[0] == (0.0, 30.0),
+        f"{spans_h}",
+    )
+    # flat-only object still gets ONE backfill span (GUI invariant)
+    bpy.ops.mesh.primitive_cube_add()
+    fl = bpy.context.active_object
+    fl.name = "Flat"
+    for f in (0, 30):
+        fl.location = (3.0, 0.0, 0.0)
+        fl.keyframe_insert(data_path="location", index=0, frame=f)
+    store.update_shot(hid, objects=["Holder", "Flat"])
+    flat_segs = [sg for sg in seq.collect_object_segments(hid) if sg["obj"] == "Flat"]
+    check(
+        "segments: flat-keyed object backfilled as one span-of-keys segment",
+        len(flat_segs) == 1 and (flat_segs[0]["start"], flat_segs[0]["end"]) == (0, 30),
+        f"{[(sg['start'], sg['end']) for sg in flat_segs]}",
+    )
+
+    # ---- audio: VSE strip as a sequence; travels with its shot -----------
+    with ptk.TempArtifacts(prefix="btk_seq_audio_") as tmp:
+        wav_path = tmp.path(".wav")
+        with wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(8000)
+            wf.writeframes(b"\x00\x00" * 4000)  # 0.5 s of silence
+        build_scene()
+        store = fresh_store()
+        seq = ShotSequencer(store)
+        scene = bpy.context.scene
+        strip_name = AudioUtils.add_clip(wav_path, frame_start=22, scene=scene)
+        strip_start = AudioUtils.get_clip(strip_name)["frame_start"]
+        check("audio fixture: strip placed at 22", strip_start == 22, f"{strip_start}")
+
+        b_id = store.shot_by_name("B").shot_id
+        seqs = seq.collect_shot_sequences(b_id)
+        kinds = sorted(sq["kind"] for sq in seqs)
+        check(
+            "collect_shot_sequences: anim + audio for shot B",
+            kinds == ["anim", "audio"],
+            f"{kinds}",
+        )
+        audio_seq = next(sq for sq in seqs if sq["kind"] == "audio")
+        check(
+            "collect_shot_sequences: audio obj is the strip name",
+            audio_seq["obj"] == strip_name and audio_seq["start"] == 22,
+            f"{audio_seq}",
+        )
+        a_segs = AudioSegment.collect_all_segments(include_waveform=True)
+        check(
+            "AudioSegment: one segment, waveform envelope read from the WAV",
+            len(a_segs) == 1 and len(a_segs[0].waveform) > 0,
+            f"{len(a_segs)} / {len(a_segs[0].waveform) if a_segs else None}",
+        )
+
+        # move_shot(B, +10): B's keys AND its strip travel; C ripples
+        seq.move_shot(b_id, 30)
+        moved_start = AudioUtils.get_clip(strip_name)["frame_start"]
+        check(
+            "move_shot: audio strip travelled with shot B (+10)",
+            moved_start == 32,
+            f"{moved_start}",
+        )
+        check(
+            "move_shot: B keys +10",
+            key_times("B") == [round(30 + i, 3) for i in range(11)],
+            f"{key_times('B')[:3]}..",
+        )
+
+        # move_sequences_to_shot: audio + anim from B into A (adjacent placement)
+        a_id = store.shot_by_name("A").shot_id
+        seqs = seq.collect_shot_sequences(b_id)
+        seq.move_sequences_to_shot(seqs, a_id)
+        a, b = store.shot_by_name("A"), store.shot_by_name("B")
+        strip_after = AudioUtils.get_clip(strip_name)["frame_start"]
+        check(
+            "move_sequences_to_shot: B's anim now lives in A's range",
+            all(a.start <= t <= a.end for t in key_times("B")),
+            f"A=({a.start},{a.end}) B keys={key_times('B')[:2]}..",
+        )
+        check(
+            "move_sequences_to_shot: audio strip now inside A's range",
+            a.start <= strip_after <= a.end,
+            f"A=({a.start},{a.end}) strip={strip_after}",
+        )
+        check(
+            "move_sequences_to_shot: B's objects recomputed (B emptied)",
+            "B" in a.objects and "B" not in b.objects,
+            f"A.objects={a.objects} B.objects={b.objects}",
+        )
+        check(
+            "move_sequences_to_shot: extend-to-fit grew A to enclose the move",
+            a.end >= max(key_times("B")),
+            f"A.end={a.end} max={max(key_times('B'))}",
+        )
+        AudioUtils.remove_all_clips(scene)
+
+    # ---- extend_shot_to_fit: outer keys (not owned elsewhere) enclose -----
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    store.update_shot(a_id, end=6)  # keys 7..10 are now outside A but owned by no shot
+    head, tail = seq.extend_shot_to_fit(a_id)
+    a = store.shot_by_name("A")
+    check(
+        "extend_shot_to_fit: A grew back to its outer keys [0,10]",
+        (a.start, a.end) == (0, 10) and tail == 4 and head == 0,
+        f"{(a.start, a.end)} head={head} tail={tail}",
+    )
+    # keys owned by another shot are never attributed
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    store.update_shot(a_id, objects=["A", "B"])  # share B; B's keys belong to shot B
+    head, tail = seq.extend_shot_to_fit(a_id)
+    a = store.shot_by_name("A")
+    check(
+        "extend_shot_to_fit: keys owned by shot B don't drag A over it",
+        (a.start, a.end) == (0, 10) and (head, tail) == (0, 0),
+        f"{(a.start, a.end)} {(head, tail)}",
+    )
+
+    # ---- detect_shots / detect_next_shot -----------------------------------
+    build_scene()
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    seq = ShotSequencer(store)
+    cands = seq.detect_shots(gap_threshold=5.0)
+    check(
+        "detect_shots: three clusters A/B/C",
+        [(c["start"], c["end"]) for c in cands] == [(0, 10), (20, 30), (40, 50)],
+        f"{[(c['start'], c['end']) for c in cands]}",
+    )
+    store.define_shot("A", 0, 10, objects=["A"])
+    nxt = seq.detect_next_shot(gap_threshold=5.0)
+    check(
+        "detect_next_shot: first cluster after existing shots is B's",
+        nxt is not None
+        and (nxt["start"], nxt["end"]) == (20, 30)
+        and nxt["objects"] == ["B"],
+        f"{nxt}",
+    )
+    store.define_shot("B", 20, 30, objects=["B"])
+    store.define_shot("C", 40, 50, objects=["C"])
+    check(
+        "detect_next_shot: None when everything is covered",
+        seq.detect_next_shot(gap_threshold=5.0) is None,
+    )
+
+    # ---- expand_shot / set_shot_start --------------------------------------
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    d = seq.expand_shot(a_id, 15)
+    a, b = store.shot_by_name("A"), store.shot_by_name("B")
+    check(
+        "expand_shot: A end ->15 (+5), B rippled +5",
+        d == 5 and a.end == 15 and (b.start, b.end) == (25, 35),
+        f"d={d} A.end={a.end} B={(b.start, b.end)}",
+    )
+    check(
+        "expand_shot: never contracts", seq.expand_shot(a_id, 12) == 0.0 and a.end == 15
+    )
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    seq.set_shot_start(a_id, 3, ripple=False)
+    a, b = store.shot_by_name("A"), store.shot_by_name("B")
+    check(
+        "set_shot_start(ripple=False): A ->[3,13], keys +3, B untouched",
+        (a.start, a.end) == (3, 13)
+        and key_times("A") == [round(3 + i, 3) for i in range(11)]
+        and (b.start, b.end) == (20, 30),
+        f"A={(a.start, a.end)} B={(b.start, b.end)}",
+    )
+
+    # ---- to_dict / from_dict -------------------------------------------------
+    data = seq.to_dict()
+    seq2 = ShotSequencer.from_dict(data)
+    check(
+        "to_dict/from_dict: round-trips shots onto a BlenderShotStore",
+        isinstance(seq2.store, BlenderShotStore)
+        and [(s.name, s.start, s.end) for s in seq2.sorted_shots()]
+        == [(s.name, s.start, s.end) for s in seq.sorted_shots()],
+    )
+
+    # ---- move_curve_keys / recreate_curve_keys (public key primitives) -----
+    build_scene()
+    a_obj = bpy.data.objects["A"]
+    fc0 = next(
+        fc for fc in BlenderShotStore.iter_action_fcurves(a_obj) if fc.array_index == 0
+    )
+    ShotSequencer.move_curve_keys(fc0, [0.0, 1.0], 100.0)
+    t = sorted(round(kp.co[0], 3) for kp in fc0.keyframe_points)
+    check(
+        "move_curve_keys: only the named keys moved (+100)",
+        t[-2:] == [100.0, 101.0] and t[0] == 2.0,
+        f"{t[:2]}..{t[-2:]}",
+    )
+    ShotSequencer.recreate_curve_keys(fc0, [(100.0, 0.0), (101.0, 1.0)])
+    t = sorted(round(kp.co[0], 3) for kp in fc0.keyframe_points)
+    check(
+        "recreate_curve_keys: keys back at 0..10",
+        t == [float(i) for i in range(11)],
+        f"{t}",
+    )
 
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None

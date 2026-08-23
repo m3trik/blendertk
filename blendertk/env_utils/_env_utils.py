@@ -521,6 +521,97 @@ class EnvUtils(_EnvUtilsInternal):
             EnvUtils.scene_has_content(),
         )
 
+    # ------------------------------------------------------------------ scene settings
+    # The DCC-agnostic ``scene`` record the bridges carry beside a converted scene — the
+    # time setup neither FBX nor USD round-trips whole (FBX: fps only; USD: the sampled
+    # range only). Same keys on both sides (``mtk.scene_settings`` ↔ ``btk.scene_settings``):
+    #   fps           frames per second (float — 29.97 stays 29.97)
+    #   frame_start   playback range the timeline plays (Maya min/max; Blender's preview
+    #   frame_end     range when enabled, else its scene range)
+    #   anim_start    full animation range ⊇ playback (Maya ast/aet; Blender's scene range)
+    #   anim_end
+    #   frame_current
+    SCENE_SETTINGS_KEYS = (
+        "fps",
+        "frame_start",
+        "frame_end",
+        "anim_start",
+        "anim_end",
+        "frame_current",
+    )
+
+    @staticmethod
+    def scene_settings(scene=None):
+        """The live scene's time setup as the bridges' ``scene`` record (see
+        :attr:`SCENE_SETTINGS_KEYS`). Blender's preview range is Maya's inner playback
+        range: when it is on, it is the ``frame_*`` pair and the scene range the ``anim_*``
+        pair; off, both pairs are the scene range. Twin of ``mtk.scene_settings``."""
+        import bpy
+
+        scene = scene or bpy.context.scene
+        render = scene.render
+        anim = (scene.frame_start, scene.frame_end)
+        playback = (
+            (scene.frame_preview_start, scene.frame_preview_end)
+            if scene.use_preview_range
+            else anim
+        )
+        return {
+            "fps": render.fps / (render.fps_base or 1.0),
+            "frame_start": playback[0],
+            "frame_end": playback[1],
+            "anim_start": anim[0],
+            "anim_end": anim[1],
+            "frame_current": scene.frame_current,
+        }
+
+    @staticmethod
+    def apply_scene_settings(settings, scene=None):
+        """Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live
+        scene; returns the keys applied. Twin of ``mtk.apply_scene_settings``.
+
+        ``fps`` lands as Blender's integer ``fps`` + fractional ``fps_base`` (29.97 →
+        30 / 1.001, the FBX importer's own formula). A playback range narrower than the
+        animation range becomes an enabled preview range — Blender's one inner range, so
+        a Maya scene with ast/aet ⊋ min/max shows the same two-range time slider here and
+        round-trips back losslessly; identical ranges leave the preview range off.
+        """
+        import bpy
+
+        scene = scene or bpy.context.scene
+        settings = settings or {}
+        applied = []
+        fps = settings.get("fps")
+        if fps and float(fps) > 0:
+            fps = float(fps)
+            scene.render.fps = max(1, int(round(fps)))
+            scene.render.fps_base = scene.render.fps / fps
+            applied.append("fps")
+
+        def _frames(start_key, end_key):
+            start, end = settings.get(start_key), settings.get(end_key)
+            if start is None or end is None:
+                return None
+            start, end = int(round(float(start))), int(round(float(end)))
+            return (start, max(start, end))
+
+        playback = _frames("frame_start", "frame_end")
+        anim = _frames("anim_start", "anim_end") or playback
+        if anim:
+            scene.frame_start, scene.frame_end = anim
+            applied += ["anim_start", "anim_end"]
+        if playback:
+            inner = playback != anim
+            scene.use_preview_range = inner
+            if inner:
+                scene.frame_preview_start, scene.frame_preview_end = playback
+            applied += ["frame_start", "frame_end"]
+        current = settings.get("frame_current")
+        if current is not None:
+            scene.frame_current = int(round(float(current)))
+            applied.append("frame_current")
+        return applied
+
     @staticmethod
     def format_scene_name(name, case=None, suffix=""):
         """Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`

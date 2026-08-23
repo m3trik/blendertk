@@ -159,6 +159,89 @@ class DisplayMacros(_ViewportMixin):
             else "STUDIO"
         )
 
+    # The viewport-background cycle, in display (sRGB) values — mtk's
+    # ``DisplayMacros.BACKGROUND_CYCLE`` step for step, so the same key gives the same
+    # look in both DCCs. Step 0's ``None`` means "whatever the app itself shows by
+    # default" (Maya: its gradient; Blender: the theme background).
+    BACKGROUND_CYCLE = (
+        ("Theme", None),
+        ("Black", (0.0, 0.0, 0.0)),
+        ("Dark Gray", (0.36, 0.36, 0.36)),
+        ("Mid Gray", (0.5, 0.5, 0.5)),
+        ("Light Gray", (0.631, 0.631, 0.631)),
+        ("White", (1.0, 1.0, 1.0)),
+    )
+
+    @staticmethod
+    def _scene_linear(rgb):
+        """A display (sRGB) triple as scene-linear — what ``background_color`` stores.
+
+        ``View3DShading.background_color`` is an RNA ``COLOR`` (scene-linear) property,
+        not ``COLOR_GAMMA``, so writing Maya's display values into it raw would show a
+        markedly lighter gray than Maya does. Converted through Blender's own transform
+        so the working color space is honored rather than assumed.
+        """
+        from mathutils import Color
+
+        return tuple(Color(rgb).from_srgb_to_scene_linear())
+
+    @staticmethod
+    def _display_value(rgb):
+        """Mean display (sRGB) value of a scene-linear triple — :meth:`_scene_linear`
+        backwards, so a stored color can be matched against the cycle table."""
+        from mathutils import Color
+
+        srgb = Color(rgb[:3]).from_scene_linear_to_srgb()
+        return sum(srgb) / 3.0
+
+    @classmethod
+    def _background_index(cls, shading) -> int:
+        """Index into :attr:`BACKGROUND_CYCLE` of the background currently shown.
+
+        Anything that is not a viewport color — the theme, or a world/HDRI background
+        — is step 0, the app default. A viewport color resolves to the nearest step by
+        value, so a background set by something else (``btk.StyleSetter``, a hand-picked
+        color) still lands on the cycle and the next press advances from there instead
+        of restarting it.
+        """
+        if shading.background_type != "VIEWPORT":
+            return 0
+        value = cls._display_value(shading.background_color)
+        solid = [i for i, (_, c) in enumerate(cls.BACKGROUND_CYCLE) if c is not None]
+        return min(
+            solid, key=lambda i: abs(sum(cls.BACKGROUND_CYCLE[i][1]) / 3.0 - value)
+        )
+
+    @classmethod
+    def m_cycle_background(cls):
+        """Cycle the viewport background: theme -> black -> dark/mid/light gray -> white.
+
+        Blender has no background cycle of its own; this is mayatk's — itself Maya's
+        Alt+B cycle (gradient / black / 0.36 / 0.631) extended with a value-neutral mid
+        gray and a white backdrop for reading silhouettes — so the same chord gives the
+        same look in both DCCs. Solid shading only: Material Preview and Rendered draw
+        the world, which this deliberately leaves alone.
+
+        Returns:
+            The label of the background that was applied, or ``""`` when there is no 3D
+            viewport to apply it to.
+        """
+        area, space = cls._view3d()
+        if not space:
+            return ""
+
+        shading = space.shading
+        index = (cls._background_index(shading) + 1) % len(cls.BACKGROUND_CYCLE)
+        label, rgb = cls.BACKGROUND_CYCLE[index]
+        if rgb is None:
+            shading.background_type = "THEME"
+        else:
+            shading.background_color = cls._scene_linear(rgb)
+            shading.background_type = "VIEWPORT"
+        if area:
+            area.tag_redraw()
+        return label
+
     @classmethod
     def m_grid(cls):
         """Toggle the floor grid (with its X/Y axis lines — together they ARE Blender's
@@ -1086,6 +1169,19 @@ class MacroManager:
         return len(data)
 
     @classmethod
+    def _editor_preset_config(cls) -> Dict[str, object]:
+        """The editor preset row's config — the same store ``apply_saved_macros``
+        applies at startup, so a preset saved from the editor is what the next
+        session restores."""
+        return {
+            "dir_name": cls.PRESET_NAME,
+            "package": cls.PRESET_PACKAGE,
+            "builtin_dir": cls._builtin_presets_dir(),
+            "value_provider": cls.export_bindings,
+            "value_applier": cls.import_bindings,
+        }
+
+    @classmethod
     def show_editor(cls, parent=None):
         """Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
         this controller (mirror of ``mtk.Macros.show_editor``).
@@ -1102,42 +1198,29 @@ class MacroManager:
             ShortcutEditor,
         )
 
-        if cls._editor is not None:
-            try:
-                cls._editor.show()
-                cls._editor.raise_()
-                return cls._editor
-            except RuntimeError:
-                pass  # underlying C++ editor was destroyed — rebuild below
-
-        facade = RegistrySwitchboardFacade(
-            groups=cls.editor_categories,
-            get_entries=cls.get_editor_registry,
-            apply_binding=lambda _group, method, sequence, _scope=None: (
-                cls.apply_editor_binding(method, sequence)
-            ),
-            settings_namespace="macro_editor_blender",
-            logger_name="blendertk.macro_editor",
-            editor_title="Macro Manager",
-            editor_status_text="Assign hotkeys to blendertk macros.",
-            ui_column_label="Category",
-            ui_combo_prefix="Category:  ",
-            default_show_all=True,
-            preset_config={
-                "dir_name": cls.PRESET_NAME,
-                "package": cls.PRESET_PACKAGE,
-                "builtin_dir": cls._builtin_presets_dir(),
-                "value_provider": cls.export_bindings,
-                "value_applier": cls.import_bindings,
-            },
-        )
-        editor = ShortcutEditor(facade, parent=parent)
         # Native macro keymap items are DCC-global — a per-row scope toggle
-        # would render as all-inert badges, so drop the column outright.
-        editor.set_columns_hidden(editor.COL_SCOPE)
-        cls._editor = editor
-        editor.show()
-        return editor
+        # would render as all-inert badges, so the column is dropped outright.
+        cls._editor = ShortcutEditor.open_over_facade(
+            lambda: RegistrySwitchboardFacade(
+                groups=cls.editor_categories,
+                get_entries=cls.get_editor_registry,
+                apply_binding=lambda _group, method, sequence, _scope=None: (
+                    cls.apply_editor_binding(method, sequence)
+                ),
+                settings_namespace="macro_editor_blender",
+                logger_name="blendertk.macro_editor",
+                editor_title="Macro Manager",
+                editor_status_text="Assign hotkeys to blendertk macros.",
+                ui_column_label="Category",
+                ui_combo_prefix="Category:  ",
+                default_show_all=True,
+                preset_config=cls._editor_preset_config(),
+            ),
+            existing=cls._editor,
+            parent=parent,
+            hide_columns=ShortcutEditor.COL_SCOPE,
+        )
+        return cls._editor
 
     @staticmethod
     def _ensure_operator():

@@ -628,7 +628,6 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
         remaining weights in their original proportions and Blender's armature deform
         normalizes them back — the deform is bit-for-bit the pre-anchor one.
         """
-        import bpy
 
         if control is not None:
             for c in [c for c in control.constraints if c.name.startswith(bone_name)]:

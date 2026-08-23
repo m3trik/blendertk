@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import pythontk as ptk
 
@@ -47,6 +47,7 @@ from . import template_params
 
 from blendertk.edit_utils._edit_utils import EditUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
+from blendertk.env_utils.usd import UsdUtils
 from blendertk.mat_utils.mat_manifest import MatManifest
 from ._marmoset_engine import APP
 
@@ -64,6 +65,15 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "object_types": {"MESH", "EMPTY"},
     "bake_anim": False,
 }
+
+# USD options tuned for Marmoset Toolbag (the USD carrier): the shared interchange
+# set (UsdPreviewSurface is all Toolbag reads), geometry only like the FBX set.
+# Mirror of mayatk's ``_DEFAULT_USD_OPTIONS`` intent in Blender's own kwargs.
+_DEFAULT_USD_OPTIONS: Dict[str, Any] = dict(
+    UsdUtils.INTERCHANGE_EXPORT_OPTIONS,
+    export_armatures=False,
+    export_shapekeys=False,
+)
 
 
 class _MarmosetBridgeInternal(object):
@@ -194,32 +204,69 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
             "\\", "/"
         )
 
+    # Both carriers: Toolbag imports USD (UsdPreviewSurface) beside FBX. Flat is
+    # fine here -- a bake wants every duplicate's own textures anyway, and
+    # nothing comes back as geometry. Mirror of mayatk's.
+    carriers = ("fbx", "usd")
+    usd_flattens_instances = True
+
+    def _model_writers(self) -> Dict[str, Callable[[str, Any, ptk.HandoffRequest], None]]:
+        """``{carrier: writer(path, objects, request)}`` (mirror of mayatk's)."""
+        return {"fbx": self._export_model_fbx, "usd": self._export_model_usd}
+
+    def _export_model(self, path: str, objects, request: ptk.HandoffRequest) -> None:
+        """Write *objects* to *path* in the carrier its extension names."""
+        self._model_writers()[self.carrier_of(path)](path, objects, request)
+
+    def _export_model_fbx(self, path: str, objects, request: ptk.HandoffRequest) -> None:
+        """The Toolbag-tuned kwargs plus the caller's ``fbx_options`` extra."""
+        options = dict(_DEFAULT_FBX_OPTIONS)
+        options.update(request.get("fbx_options") or {})
+        FbxUtils.export_selection_fbx(filepath=path, objects=objects, **options)
+
+    def _export_model_usd(self, path: str, objects, request: ptk.HandoffRequest) -> None:
+        """The Toolbag USD set plus the ``usd_options`` extra -- flat, with a
+        warning when the set holds linked duplicates (each bakes as its own mesh)."""
+        import bpy
+
+        shared = {}
+        for o in objects:
+            obj = bpy.data.objects.get(o) if isinstance(o, str) else o
+            data = getattr(obj, "data", None)
+            if obj is not None and data is not None and obj.type == "MESH":
+                shared.setdefault(data.name, []).append(obj.name)
+        linked = {m: n for m, n in shared.items() if len(n) > 1}
+        if linked:
+            self.logger.warning(
+                f"USD carrier: {len(linked)} shared mesh(es) are flattened for "
+                "this hand-off (each duplicate bakes as its own mesh)."
+            )
+        options = dict(_DEFAULT_USD_OPTIONS)
+        options.update(request.get("usd_options") or {})
+        UsdUtils.export_selection_usd(filepath=path, objects=objects, **options)
+
     def _produce(self, objects, request) -> Optional[ptk.Payload]:
-        """Export the FBX + material manifest (+ bake-pairs sidecar) into ``output_dir``."""
+        """Export the model (FBX or USD) + material manifest (+ bake-pairs sidecar)
+        into ``output_dir``."""
         output_dir = request.get("output_dir") or self._scratch_dir(request, "handoff")
         os.makedirs(output_dir, exist_ok=True)
         base = request.get("output_name") or self._scene_base_name()
         request.extras["output_dir"] = output_dir
         request.extras["output_name"] = base
 
-        fbx_path = os.path.join(output_dir, f"{base}.fbx")
+        carrier = self.carrier(request).upper()
+        fbx_path = os.path.join(output_dir, f"{base}{self.payload_extension(request)}")
         manifest_path = os.path.join(output_dir, f"{base}.materials.json")
         pairs_path = os.path.join(output_dir, f"{base}.bake_pairs.json")
 
-        merged_options = dict(_DEFAULT_FBX_OPTIONS)
-        if request.get("fbx_options"):
-            merged_options.update(request.get("fbx_options"))
-
-        self.logger.info("Exporting FBX ...")
+        self.logger.info(f"Exporting {carrier} ...")
         try:
-            FbxUtils.export_selection_fbx(
-                filepath=fbx_path, objects=objects, **merged_options
-            )
+            self._export_model(fbx_path, objects, request)
         except Exception as e:
-            self.logger.error(f"FBX export failed: {e}")
+            self.logger.error(f"{carrier} export failed: {e}")
             return None
         self.logger.info(
-            f'FBX written: <a href="action://open?path={fbx_path}">{fbx_path}</a>'
+            f'{carrier} written: <a href="action://open?path={fbx_path}">{fbx_path}</a>'
         )
 
         self.logger.info("Building material manifest ...")

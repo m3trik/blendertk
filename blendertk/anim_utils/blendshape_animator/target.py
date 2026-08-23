@@ -12,6 +12,7 @@ that :mod:`applicator` later writes from it. ``Target.mesh`` mirrors mayatk's st
 attribute (so status/log text reads identically); the live object is available via
 ``Target.obj``.
 """
+
 from typing import Dict, List, Optional
 
 import pythontk as ptk
@@ -38,7 +39,9 @@ class Target:
         """Validate this is a proper tagged tween mesh object."""
         for attr in _REQUIRED_PROPS:
             if attr not in self.obj.keys():
-                raise ValueError(f"Object {self.obj.name} missing required property: {attr}")
+                raise ValueError(
+                    f"Object {self.obj.name} missing required property: {attr}"
+                )
 
     @property
     def mesh(self) -> str:
@@ -64,7 +67,9 @@ class Target:
             return int(self.obj["targetFrame"])
         return None
 
-    def update_references(self, new_key_block_name: str, new_base_mesh_name: str) -> None:
+    def update_references(
+        self, new_key_block_name: str, new_base_mesh_name: str
+    ) -> None:
         """Update this tween's references to a new master shape key / base mesh."""
         self.obj["keyBlockName"] = str(new_key_block_name)
         self.obj["baseMesh"] = str(new_base_mesh_name)
@@ -123,7 +128,10 @@ class Targets(ptk.LoggingMixin):
             try:
                 if not obj.get("isInbetweenTarget"):
                     continue
-                if key_block_name is not None and obj.get("keyBlockName") != key_block_name:
+                if (
+                    key_block_name is not None
+                    and obj.get("keyBlockName") != key_block_name
+                ):
                     continue
                 if base_mesh_name is not None and obj.get("baseMesh") != base_mesh_name:
                     continue

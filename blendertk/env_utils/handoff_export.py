@@ -1,12 +1,12 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Blender-side selection + FBX-export hooks shared by the hand-off bridge engines.
+"""Blender-side selection + export hooks shared by the hand-off bridge engines.
 
 :class:`BlenderExportMixin` supplies the two DCC-specific :class:`pythontk.HandoffBridge`
-hooks every Blender-originating bridge shares -- read the selection and export it to
-FBX (including the strip-materials path) -- so the Maya bridge, the Unity bridge, and
-any future Blender->X bridge don't each re-implement them. Mirror of mayatk's
-:class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
+hooks every Blender-originating bridge shares -- read the selection and export it in
+the request's carrier, FBX (including the strip-materials path) or USD -- so the Maya
+bridge, the Unity bridge, and any future Blender->X bridge don't each re-implement
+them. Mirror of mayatk's :class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
 
 ``import bpy`` is deferred into the strip path so the engine surface resolves under
 headless ``blender --background`` and outside Blender entirely; ``blendertk`` itself
@@ -15,7 +15,7 @@ imports Qt-free.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import blendertk as btk
 from pythontk import Payload
@@ -25,10 +25,12 @@ class BlenderExportMixin:
     """The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
 
     Supplies the two DCC-specific :class:`pythontk.HandoffBridge` steps every
-    Blender-originating bridge shares -- read the selection and produce the FBX
-    :class:`pythontk.Payload` (incl. the strip-materials path). Bridges needing side
-    artifacts override :meth:`_produce` and call :meth:`_export_fbx` themselves.
-    Mirror of mayatk's :class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
+    Blender-originating bridge shares -- read the selection and produce the
+    :class:`pythontk.Payload` in the request's carrier (FBX, incl. the
+    strip-materials path, or USD). Bridges needing side artifacts override
+    :meth:`_produce` and call :meth:`_export_payload` themselves with a path whose
+    extension names the carrier. Mirror of mayatk's
+    :class:`mayatk.env_utils.handoff_export.MayaExportMixin`.
     """
 
     #: Ship the shared ``data_export`` carrier alongside the exported objects.
@@ -44,6 +46,17 @@ class BlenderExportMixin:
     #: Turning it on also forces the export options the carrier needs to mean anything
     #: (``use_custom_props``, ``EMPTY`` in ``object_types``) -- see :meth:`_export_fbx`.
     include_data_export: bool = False
+
+    #: What the USD carrier does with linked duplicates in the export set. USD
+    #: leaves Blender FLAT (``use_instancing`` off: USD's instancing hands Maya
+    #: read-only prototypes, not its shared-shape model, and prototype prim names
+    #: break 1:1 name matching), so data sharing does not survive the hop.
+    #: ``False`` (default) REFUSES the send with a pointer at FBX, which carries
+    #: instancing natively -- for a scene hand-off a flat copy is a silent
+    #: structural loss (what reverted a USD default on 2026-08-02). ``True`` lets
+    #: it through flat with a warning: right for a texturing / baking target that
+    #: never hands geometry back. Mirror of mayatk's flag of the same name.
+    usd_flattens_instances: bool = False
 
     def _data_export_carrier(self) -> List[Any]:
         """``[data_export]`` when this bridge ships it and the scene has one, else ``[]``.
@@ -155,9 +168,26 @@ class BlenderExportMixin:
         objects = self._hierarchy_closure(
             objects, descend=request.params.get("SCOPE") != "visible"
         )
-        fbx_path = self._make_payload_path()
-        self._export_fbx(objects, fbx_path, request.params)
-        return Payload(primary=fbx_path, extras={"export_set": objects})
+        path = self._make_payload_path(self.payload_extension(request))
+        self._export_payload(objects, path, request.params)
+        return Payload(primary=path, extras={"export_set": objects})
+
+    def _payload_writers(self) -> Dict[str, Callable[[List[Any], str, Dict[str, Any]], None]]:
+        """``{carrier: writer(objects, path, params)}`` -- the Strategy table.
+
+        A new carrier is one entry here plus its writer; a bridge that needs a
+        different surface for one carrier overrides the entry, not the dispatch.
+        Mirror of mayatk's.
+        """
+        return {"fbx": self._export_fbx, "usd": self._export_usd}
+
+    def _export_payload(
+        self, objects: List[Any], path: str, params: Dict[str, Any]
+    ) -> None:
+        """Export *objects* to *path* in the carrier its extension names -- the
+        ONE dispatch, keyed on the extension (:meth:`pythontk.HandoffBridge.carrier_of`)
+        so a bridge that builds its own payload path only has to name it right."""
+        self._payload_writers()[self.carrier_of(path)](objects, path, params)
 
     def _fbx_options(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Blender ``export_scene.fbx`` options derived from the bridge params.
@@ -178,6 +208,12 @@ class BlenderExportMixin:
             path_mode=("COPY" if params.get("EMBED_TEXTURES", True) else "AUTO"),
             use_triangles=bool(params.get("TRIANGULATE", False)),
             bake_anim=bool(params.get("INCLUDE_ANIMATION", False)),
+            # One scene-range AnimStack with ABSOLUTE times: the exporter's default
+            # multi-stack modes write one start-zeroed stack per action, so a clip
+            # keyed at 10-90 arrives in the target at 0-80 (measured on the pull
+            # route). Same rule as FbxUtils.export / the Scene Exporter.
+            bake_anim_use_nla_strips=False,
+            bake_anim_use_all_actions=False,
             apply_unit_scale=bool(params.get("APPLY_UNIT_SCALE", True)),
         )
 
@@ -273,3 +309,117 @@ class BlenderExportMixin:
                                 break
                         except Exception:
                             pass
+
+    def _usd_options(
+        self, params: Dict[str, Any], objects: Optional[List[Any]] = None
+    ) -> Dict[str, Any]:
+        """Blender ``wm.usd_export`` options derived from the bridge params.
+
+        :attr:`btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS` (the pull route's
+        live-verified set, reasons documented there), not a new guess.
+
+        Params map where USD has a native answer and are reported where it has
+        none: ``INCLUDE_MATERIALS`` off is ``export_materials=False`` (no strip
+        copies needed); ``INCLUDE_ANIMATION`` samples only the frames that carry
+        motion (:meth:`btk.UsdUtils.sampling_frame_range`, threaded through as
+        ``frame_range``); ``TRIANGULATE`` maps to ``triangulate_meshes``;
+        ``EMBED_TEXTURES`` has no USD equivalent and is logged as inert. Option
+        names this Blender doesn't know are dropped by the engine's RNA filter.
+        """
+        options = dict(
+            btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS,
+            export_materials=bool(params.get("INCLUDE_MATERIALS", True)),
+            triangulate_meshes=bool(params.get("TRIANGULATE", False)),
+            # The FBX twin of this knob (``apply_unit_scale``): Maya reads a USD
+            # layer in its own cm without converting (mayaUsd 0.30 has no unit
+            # conversion on import -- probed), so a Maya-bound layer is written
+            # in centimeters. The exporter encodes it exactly as the FBX route
+            # lands: a scale of 100 on the ROOT transforms, children untouched,
+            # world bounds correct. Off keeps meters (the raw numeric values).
+            convert_scene_units=(
+                "CENTIMETERS" if params.get("APPLY_UNIT_SCALE", True) else "METERS"
+            ),
+        )
+        if bool(params.get("INCLUDE_ANIMATION", False)):
+            frame_range = btk.UsdUtils.sampling_frame_range(objects)
+            if frame_range:
+                options["export_animation"] = True
+                options["frame_range"] = frame_range
+        if not bool(params.get("EMBED_TEXTURES", True)):
+            self.logger.info(
+                "USD references the original texture files; EMBED_TEXTURES does "
+                "not apply (a .usdz package would embed them)."
+            )
+        return options
+
+    def _export_usd(
+        self, objects: List[Any], usd_path: str, params: Dict[str, Any]
+    ) -> None:
+        """Export *objects* to *usd_path* with USD options derived from *params*.
+
+        The USD twin of :meth:`_export_fbx`. No strip path: ``INCLUDE_MATERIALS``
+        off is a native exporter flag, so the originals are never copied. The
+        ``data_export`` carrier joins the export set as for FBX, with
+        ``export_custom_properties`` forced on so its properties ride as USD
+        ``userProperties`` (the mirror of the FBX ``use_custom_props`` force).
+
+        Refuses linked duplicates unless :attr:`usd_flattens_instances`: the
+        export is flat, so every duplicate would arrive as its own independent
+        mesh -- the silent structural loss FBX never has, and the reason the USD
+        carrier stays opt-in. The refusal names the meshes and the route that
+        works.
+        """
+        linked = self._linked_duplicates(objects)
+        if linked:
+            copies = sum(len(users) for users in linked.values())
+            detail = f"{copies} object(s) share {len(linked)} mesh(es): " + ", ".join(
+                sorted(linked)
+            )
+            if not self.usd_flattens_instances:
+                raise RuntimeError(
+                    "The USD carrier exports FLAT -- linked duplicates would not "
+                    f"survive the hand-off ({detail}). Send via FBX, which carries "
+                    "instancing natively, or make the duplicates single-user first."
+                )
+            self.logger.warning(
+                f"USD carrier: linked duplicates are flattened for this hand-off ({detail})."
+            )
+
+        usd_opts = self._usd_options(params, objects)
+        frame_range = usd_opts.pop("frame_range", None)
+        carrier = self._data_export_carrier()
+        if carrier:
+            usd_opts["export_custom_properties"] = True
+            self.logger.warning(
+                "The data_export carrier rides the USD payload as userProperties; "
+                "whether the target reads them is not yet verified on this route."
+            )
+        btk.UsdUtils.export(
+            filepath=usd_path,
+            objects=list(objects) + carrier,
+            selection_only=True,
+            frame_range=frame_range,
+            **usd_opts,
+        )
+
+    @staticmethod
+    def _linked_duplicates(objects) -> Dict[str, List[str]]:
+        """``{mesh datablock name: [object names sharing it]}`` among *objects*.
+
+        Sharing WITHIN the export set only: a mesh also worn by an object outside
+        the set still leaves as one prim, which is no loss. Outside Blender (the
+        engine-surface tests) there is nothing to inspect and the answer is
+        empty.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return {}
+        users: Dict[str, List[str]] = {}
+        for o in objects or []:
+            obj = bpy.data.objects.get(o) if isinstance(o, str) else o
+            data = getattr(obj, "data", None)
+            if obj is None or data is None or getattr(obj, "type", None) != "MESH":
+                continue
+            users.setdefault(data.name, []).append(obj.name)
+        return {mesh: names for mesh, names in users.items() if len(names) > 1}

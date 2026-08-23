@@ -19,14 +19,14 @@ DCC swaps versus the Maya original:
 - Undo bracket → ``btk.undo_chunk``; scene-change tracking → ``BlenderShotStore``'s
   invalidation registry.
 - ``_resolve_full_name`` is identity (Blender names are flat, unique).
+- Audio tracks are VSE sound strips (``blendertk.audio_utils.segments.AudioSegment``);
+  scrub audio is Blender's own ``scene.use_audio_scrub`` (the widget's ScrubPlayer
+  is not bound — two players on one scene would double the grains).
+- Transport plays through ``screen.animation_play`` (:class:`_BlenderPlayController`).
+- Per-object icons come from :class:`~blendertk.ui_utils.node_icons.NodeIcons`.
 
 Presentation-data helpers live in :mod:`segment_collector`; the interaction
 handlers are inherited from the four mixins (gap / clip-motion / nav / marker).
-
-Divergences (ledgered): **audio tracks** (VSE sound-strip display in the sequencer)
-and **move-to-shot sequence grouping** are deferred — the object-animation timeline
-is fully wired; audio time-shifting matches the engine's "no audio shifting" note.
-Per-node icons degrade to uitk's named-icon set (no Maya ``:/`` resources).
 """
 
 from collections import defaultdict
@@ -43,6 +43,7 @@ from blendertk.anim_utils.shots.shot_sequencer.shot_nav import ShotNavMixin
 from blendertk.anim_utils.shots.shot_sequencer.marker_manager import MarkerManagerMixin
 from blendertk.anim_utils.shots.shot_sequencer.segment_collector import SegmentCollector
 from pythontk import StoreEvent
+from blendertk.anim_utils._anim_utils import AnimUtils
 
 _KB_LEFT = "←"
 _KB_RIGHT = "→"
@@ -97,10 +98,10 @@ class ShotSequencerController(
         self._cmb_mode_widget = None
         self._playback_range_mode = "follows_view"
         self._track_order_scope = "visible"
+        self._show_internal_holds = False  # flat-key spans in attribute sub-rows
+        self._holds_action = None  # OptionBox action for the holds toggle
         self._cmb_mode = "shots"
-        # NOTE: no _show_internal_holds / _holds_action — Blender's segment
-        # collector has no hold sub-splitting (ledgered divergence), so
-        # mayatk's Show Internal Holds toggle has nothing to reveal here.
+        self._transport_controls = None
 
         self._register_scene_callbacks()
         self._bind_store_listener()
@@ -438,13 +439,29 @@ class ShotSequencerController(
 
     @staticmethod
     def _resolve_full_name(name: str) -> str:
-        """Identity — Blender object names are flat and unique."""
+        """Identity — Blender object names are flat and unique.
+
+        Strips the audio-track prefix (``\u266b ``) so an audio track label maps
+        back to its strip name, like the Maya original.
+        """
+        if name.startswith("\u266b "):
+            name = name[2:]
         return name.rsplit("|", 1)[-1] if "|" in name else name
+
+    _node_icons_cls_cache = ...  # sentinel — not yet resolved
 
     @classmethod
     def _try_load_blender_icons(cls):
-        """No Maya ``:/`` node-type icons in Blender — uitk named icons are the fallback."""
-        return None
+        """Return :class:`NodeIcons` (``Object.type`` → uitk icon), memoised per process."""
+        if cls._node_icons_cls_cache is not ...:
+            return cls._node_icons_cls_cache
+        try:
+            from blendertk.ui_utils.node_icons import NodeIcons
+
+            cls._node_icons_cls_cache = NodeIcons
+        except ImportError:
+            cls._node_icons_cls_cache = None
+        return cls._node_icons_cls_cache
 
     def _select_and_show(self, obj_names) -> None:
         """Select the given objects (Blender Outliner/Graph Editor follow selection)."""
@@ -471,7 +488,10 @@ class ShotSequencerController(
             pass
 
     def _reveal_in_outliner(self, obj_names) -> None:
-        self._select_and_show(obj_names)
+        """Select and scroll the Outliner to the object(s)."""
+        from blendertk.ui_utils._ui_utils import UiUtils
+
+        UiUtils.reveal_in_outliner(obj_names)
 
     def _open_spreadsheet(self, track_names) -> None:
         """Maya's Attribute Spreadsheet has no direct Blender analogue — no-op."""
@@ -631,16 +651,19 @@ class ShotSequencerController(
                 store.update_shot(shot_id, start=start, end=end, objects=objects)
 
     def on_undo(self) -> None:
-        """Widget undo_requested — restore the shot-boundary snapshot + refresh.
+        """Widget undo_requested — restore the shot snapshot, then Blender undo.
 
-        The shot-state snapshot is the DCC-agnostic undo for boundary moves;
-        native Blender key undo is handled by the ``undo_post`` handler.
+        Mirror of mayatk's ``cmds.undo()`` path: the boundary snapshot is popped
+        here under the ``_syncing`` guard (so the ``undo_post`` handler doesn't
+        pop a second one), then ``bpy.ops.ed.undo`` reverts the key edits.
         """
         self._syncing = True
         try:
-            self._restore_shot_state()
-        except Exception:
-            self.logger.debug("on_undo: _restore_shot_state failed", exc_info=True)
+            try:
+                self._restore_shot_state()
+            except Exception:
+                self.logger.debug("on_undo: _restore_shot_state failed", exc_info=True)
+            self._native_undo("undo")
         finally:
             self._syncing = False
         self._segment_cache.clear()
@@ -648,9 +671,30 @@ class ShotSequencerController(
         self._sync_to_widget()
 
     def on_redo(self) -> None:
+        """Widget redo_requested — Blender redo (the snapshot stack is left alone)."""
+        self._syncing = True
+        try:
+            self._native_undo("redo")
+        finally:
+            self._syncing = False
         self._segment_cache.clear()
         self._sub_row_cache.clear()
         self._sync_to_widget()
+
+    def _native_undo(self, which: str) -> None:
+        """Run ``bpy.ops.ed.undo`` / ``redo`` under a window context (Qt-timer safe)."""
+        try:
+            import bpy
+        except ImportError:
+            return
+        try:
+            with CoreUtils.window_context_override():
+                if which == "undo":
+                    bpy.ops.ed.undo()
+                else:
+                    bpy.ops.ed.redo()
+        except Exception:
+            self.logger.debug("native %s failed", which, exc_info=True)
 
     def _visible_shots(self, active_shot):
         if self._shot_display_mode == "current":
@@ -740,9 +784,19 @@ class ShotSequencerController(
             end=end,
             objects=sorted(set(discovered)),
         )
-        # The synthetic scene_shot (id -1) isn't in the store, so collect its
-        # per-object spans directly from the keyed transforms.
-        segments = self._scene_segments(scene_shot)
+        from blendertk.anim_utils.segment_keys import SegmentKeys
+
+        # The synthetic scene_shot (id -1) isn't in the store — collect its
+        # motion segments directly (same pipeline as collect_object_segments).
+        segments = SegmentKeys.collect_segments(
+            scene_shot.objects,
+            split_static=True,
+            time_range=(start, end),
+            ignore_holds=True,
+            ignore_visibility_holds=True,
+            motion_only=True,
+            motion_rate=1e-3,
+        )
         segments_by_shot = {scene_shot.shot_id: segments}
         all_objects = set(scene_shot.objects) | {seg["obj"] for seg in segments}
         track_ids = self._build_tracks(
@@ -750,6 +804,7 @@ class ShotSequencerController(
         )
         self._build_clips(widget, scene_shot, [scene_shot], segments_by_shot, track_ids)
         self._ensure_scene_attr_colors(widget)
+        self._build_audio_tracks(widget, scene_shot, [scene_shot])
         widget.set_playhead(scene.frame_current)
         widget.set_active_range(start, end)
         self._restore_viewport(widget, frame, h_scroll, zoom, expanded_names)
@@ -757,18 +812,6 @@ class ShotSequencerController(
         self._set_footer(
             f"Scene  {start:.0f}–{end:.0f}  ·  {n} object{'s' if n != 1 else ''}"
         )
-
-    def _scene_segments(self, shot):
-        """Per-object keyed-span segments for a synthetic (unstored) shot.
-
-        Delegates to the engine's ``_span_segments`` — the one home for the
-        segment-dict shape — so the shotless view can't drift from
-        ``collect_object_segments``.
-        """
-        scene = _ShotSequencerControllerInternal._scene()
-        if scene is None or self.sequencer is None:
-            return []
-        return self.sequencer._span_segments(scene, shot.objects, shot.start, shot.end)
 
     def _resolve_sync_target(self, shot_id=None):
         widget = self._get_sequencer_widget()
@@ -823,7 +866,7 @@ class ShotSequencerController(
             )
             self._build_clips(widget, shot, visible_shots, segments_by_shot, track_ids)
             self._ensure_scene_attr_colors(widget)
-            # Audio-track display deferred (see module docstring).
+            self._build_audio_tracks(widget, shot, visible_shots)
         finally:
             self._syncing = False
 
@@ -966,6 +1009,7 @@ class ShotSequencerController(
         except ImportError:
             existing_set = set(ordered)
 
+        node_icons_cls = self._try_load_blender_icons()
         for obj_name in ordered:
             if self.sequencer.is_object_hidden(obj_name):
                 continue
@@ -973,8 +1017,12 @@ class ShotSequencerController(
             if not exists and not self.sequencer.store.is_object_pinned(obj_name):
                 continue
             in_active = obj_name in active_objects
-            icon = None
-            if not exists:
+            icon = (
+                node_icons_cls.get_icon(obj_name)
+                if (node_icons_cls and exists)
+                else None
+            )
+            if not exists and icon is None:
                 from uitk.managers.icon_manager import IconManager
 
                 icon = IconManager.get("close", size=(16, 16), color=_NOT_FOUND_COLOR)
@@ -1051,6 +1099,10 @@ class ShotSequencerController(
                     s, e = m["start"], m["end"]
                     attrs = SegmentCollector.extract_attributes(m["segs"])
                     clip_extra = dict(extra)
+                    if is_active and attrs:
+                        clip_extra["label_center"] = SegmentCollector.abbreviate_attrs(
+                            attrs
+                        )
                     clip_extra.update(
                         {
                             "obj": obj_name,
@@ -1065,7 +1117,7 @@ class ShotSequencerController(
                             track_id=tid,
                             start=s,
                             duration=max(e - s, 0.0),
-                            label=obj_name.split("|")[-1],
+                            label="",
                             **clip_extra,
                         )
                     except Exception:
@@ -1073,11 +1125,94 @@ class ShotSequencerController(
                             "add_clip failed for %s", obj_name, exc_info=True
                         )
 
+    def _build_audio_tracks(self, widget, shot, visible_shots) -> None:
+        """Add one track per VSE sound strip overlapping the visible shots.
+
+        Segments come from :class:`~blendertk.audio_utils.segments.AudioSegment`
+        (strip name = ``track_id``); they only change on audio edits, not on
+        shot switches, so they're cached by visible range like the Maya original.
+        """
+        scene_start = min(vs.start for vs in visible_shots)
+        scene_end = max(vs.end for vs in visible_shots)
+        cache_key = (scene_start, scene_end)
+        cached = self._audio_segments_cache
+        if cached is not None and cached[0] == cache_key:
+            segs = cached[1]
+        else:
+            try:
+                from blendertk.audio_utils.segments import AudioSegment
+
+                segs = AudioSegment.collect_all_segments(
+                    scene_start=scene_start, scene_end=scene_end, include_waveform=True
+                )
+            except Exception:
+                self.logger.debug("audio segment collection failed", exc_info=True)
+                segs = []
+            self._audio_segments_cache = (cache_key, segs)
+
+        by_track: dict = defaultdict(list)
+        for seg in segs:
+            by_track[seg.track_id].append(seg)
+        if not by_track:
+            return
+
+        from uitk.managers.icon_manager import IconManager
+
+        for track_id, track_segs in by_track.items():
+            if self.sequencer.is_object_hidden(track_id):
+                continue
+            clip_descs: list = []
+            for seg in track_segs:
+                for vs in visible_shots:
+                    vis_start = max(seg.start, vs.start)
+                    vis_end = min(seg.end, vs.end)
+                    if vis_end <= vis_start:
+                        continue
+                    clip_descs.append((seg, vs, vis_start, vis_end))
+            if not clip_descs:
+                continue
+
+            icon = IconManager.get("activity", size=(16, 16), color="#888888")
+            widget_track_id = widget.add_track(track_id, icon=icon)
+
+            for seg, vs, vis_start, vis_end in clip_descs:
+                is_active = vs.shot_id == shot.shot_id
+                full_waveform = seg.waveform or []
+                full_dur = seg.end - seg.start
+                if full_waveform and full_dur > 0:
+                    n = len(full_waveform)
+                    i_lo = int((vis_start - seg.start) / full_dur * n)
+                    i_hi = max(i_lo + 1, int((vis_end - seg.start) / full_dur * n))
+                    vis_waveform = full_waveform[i_lo:i_hi]
+                else:
+                    vis_waveform = full_waveform
+                extra: dict = {}
+                if not is_active:
+                    extra = {"locked": True, "read_only": True, "dimmed": True}
+                widget.add_clip(
+                    track_id=widget_track_id,
+                    start=vis_start,
+                    duration=vis_end - vis_start,
+                    label=seg.label or track_id,
+                    color="#3A7D44",
+                    is_audio=True,
+                    audio_track_id=seg.track_id,
+                    file_path=seg.file_path,
+                    waveform=vis_waveform,
+                    orig_start=seg.start,
+                    orig_end=seg.end,
+                    shot_id=vs.shot_id,
+                    **extra,
+                )
+
     def _provide_sub_rows(self, track_id, track_name):
         """Per-attribute sub-rows: ``[(attr, [(start, dur, label, color, extra)...])...]``.
 
-        Blender builds these from the object's transform fcurves grouped by channel
-        (via :func:`curves_for_attr`), with a bezier ``build_curve_preview`` per attr.
+        Same ``SegmentKeys.collect_segments`` pipeline as the object row (hold
+        absorption, hold-only synthesis and motion detection agree between the
+        two views); with *Show Internal Holds* on, pure-hold spans are emitted
+        with ``is_hold`` so the widget can style them.  Each sub-row also gets a
+        full-range background curve preview.
         """
         if self.sequencer is None:
             return []
@@ -1097,57 +1232,100 @@ class ShotSequencerController(
         obj = bpy.data.objects.get(obj_name)
         if obj is None:
             return []
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-        from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
-            SegmentCollector,
-        )
+        from blendertk.anim_utils.segment_keys import SegmentKeys
+
+        all_curves = ShotSequencer._transform_fcurves(obj)
+        if not all_curves:
+            return []
 
         widget = self._get_sequencer_widget()
         color_map = widget.attribute_colors if widget else {}
+        show_holds = self._show_internal_holds
+
+        # Channel label → first fcurve (the full-range background preview source).
+        attr_to_curve: dict = {}
+        for fc in all_curves:
+            attr_to_curve.setdefault(SegmentCollector.attr_label(fc), fc)
+
         store = self.sequencer.store if self.sequencer else None
         is_obj_locked = bool(store and obj_name in store.locked_objects)
 
-        # Group fcurves by channel label, gather their keyed spans in the shot.
-        by_attr: dict = {}
-        for fc in BlenderShotStore.iter_action_fcurves(obj):
-            if not BlenderShotStore._is_transform_path(fc.data_path):
-                continue
-            label = SegmentCollector.attr_label(fc)
-            times = [
-                kp.co[0]
-                for kp in fc.keyframe_points
-                if shot.start - 1e-6 <= kp.co[0] <= shot.end + 1e-6
-            ]
-            if not times:
-                continue
-            entry = by_attr.setdefault(
-                label, {"lo": min(times), "hi": max(times), "fc": fc}
-            )
-            entry["lo"] = min(entry["lo"], min(times))
-            entry["hi"] = max(entry["hi"], max(times))
+        visible = self._visible_shots(shot)
+        curve_range_start = min(sh.start for sh in visible)
+        curve_range_end = max(sh.end for sh in visible)
 
         result = []
-        for label in sorted(by_attr):
-            info = by_attr[label]
-            s, e = info["lo"], info["hi"]
-            color = color_map.get(label)
-            extra = {
-                "obj": obj_name,
-                "shot_id": shot_id,
-                "attr_name": label,
-                "orig_start": s,
-                "orig_end": e,
-                "is_stepped": abs(e - s) < 1e-6,
-                "attributes": [label],
-            }
-            if is_obj_locked:
-                extra["locked"] = True
-            preview = SegmentCollector.build_curve_preview(
-                info["fc"], shot.start, shot.end
+        for attr_name in sorted(attr_to_curve):
+            segs = SegmentKeys.collect_segments(
+                [obj_name],
+                split_static=True,
+                channel_box_attrs=[attr_name],
+                ignore_holds=not show_holds,
+                ignore_visibility_holds=True,
+                motion_only=True,
+                motion_rate=1e-3,
+                time_range=(shot.start, shot.end),
             )
-            if preview is not None:
-                extra["curve_preview"] = preview
-            result.append((label, [(s, max(e - s, 0.0), label, color, extra)]))
+            if not segs:
+                continue
+
+            hold_ranges: set = set()
+            if show_holds:
+                active_segs = SegmentKeys.collect_segments(
+                    [obj_name],
+                    split_static=True,
+                    channel_box_attrs=[attr_name],
+                    ignore_holds=True,
+                    ignore_visibility_holds=True,
+                    motion_only=True,
+                    motion_rate=1e-3,
+                    time_range=(shot.start, shot.end),
+                )
+                active_spans = [(a["start"], a["end"]) for a in active_segs]
+                for seg in segs:
+                    ss, se = seg["start"], seg["end"]
+                    if not any(a_s < se and a_e > ss for a_s, a_e in active_spans):
+                        hold_ranges.add((ss, se))
+
+            color = color_map.get(attr_name)
+            segments = []
+            for seg in segs:
+                st, en = seg["start"], seg["end"]
+                preview = None
+                for crv in seg.get("curves", []):
+                    preview = SegmentCollector.build_curve_preview(crv, st, en)
+                    if preview:
+                        break
+                extra = {
+                    "obj": obj_name,
+                    "attr_name": attr_name,
+                    "shot_id": shot_id,
+                    "orig_start": st,
+                    "orig_end": en,
+                    "is_stepped": abs(en - st) < 1e-6,
+                    "attributes": [attr_name],
+                }
+                if preview:
+                    extra["curve_preview"] = preview
+                if (st, en) in hold_ranges:
+                    extra["is_hold"] = True
+                if is_obj_locked:
+                    extra["locked"] = True
+                segments.append((st, max(en - st, 0.0), attr_name, color, extra))
+            result.append((attr_name, segments))
+
+        if widget is not None:
+            for attr_name, _ in result:
+                crv = attr_to_curve.get(attr_name)
+                if crv is None:
+                    continue
+                bg_preview = SegmentCollector.build_curve_preview(
+                    crv, curve_range_start, curve_range_end
+                )
+                hex_color = color_map.get(attr_name, "#CCCCCC")
+                widget.set_bg_curve_preview(
+                    track_id, attr_name, bg_preview, color=hex_color or "#CCCCCC"
+                )
 
         self._sub_row_cache[cache_key] = result
         return result
@@ -1238,12 +1416,21 @@ class ShotSequencerController(
     def on_track_menu(self, menu, track_names) -> None:
         if not track_names:
             return
+        try:
+            import bpy
+        except ImportError:
+            return
         menu.addSeparator()
-        resolved = [self._resolve_full_name(n) for n in track_names]
-        menu.addAction(
-            "Select in Viewport",
-            lambda objs=list(resolved): self._select_and_show(objs),
-        )
+        resolved = [
+            full
+            for full in (self._resolve_full_name(n) for n in track_names)
+            if bpy.data.objects.get(full) is not None
+        ]
+        if resolved:
+            menu.addAction(
+                "Reveal in Outliner",
+                lambda objs=list(resolved): self._reveal_in_outliner(objs),
+            )
 
     def on_header_menu(self, menu) -> None:
         """Header background context menu — no domain actions this phase."""
@@ -1252,15 +1439,38 @@ class ShotSequencerController(
         """Renaming a clip is display-only in Blender (object names own identity)."""
 
     def on_playhead_moved(self, frame: float) -> None:
-        """Widget playhead drag → set the scene frame."""
+        """Widget playhead drag → set the scene frame (scrub audio via Blender)."""
         scene = _ShotSequencerControllerInternal._scene()
         if scene is None:
             return
         self._syncing_playhead = True
         try:
+            self._ensure_sound_on_timeline()
             scene.frame_set(int(round(frame)))
         finally:
             self._syncing_playhead = False
+
+    def _ensure_sound_on_timeline(self) -> None:
+        """Make scrubbing audible — Blender's own ``use_audio_scrub`` on the scene.
+
+        Mirror of mayatk's "bind the composite to the Time Slider": Blender's
+        sequencer already plays every strip, and ``scene.frame_set`` seeks the
+        audio, so scrub grains only need the scene flag.  The widget's own
+        ScrubPlayer is deliberately NOT bound (two players on one scene would
+        double every grain).  Only flips the flag while sound strips exist.  The
+        flag is read off the scene each time rather than cached: an undo swaps
+        ``bpy.data`` and can revert it behind a cached "armed" marker.
+        """
+        scene = _ShotSequencerControllerInternal._scene()
+        if scene is None or scene.use_audio_scrub:
+            return
+        try:
+            from blendertk.audio_utils._audio_utils import AudioUtils
+
+            if AudioUtils.list_clips(scene):
+                scene.use_audio_scrub = True
+        except Exception:
+            self.logger.debug("audio scrub arming failed", exc_info=True)
 
     def on_clip_menu(self, menu, clip_id: int) -> None:
         """Add Delete-key + lock actions to a clip's context menu."""
@@ -1285,12 +1495,136 @@ class ShotSequencerController(
             menu.addAction("Lock Others", lambda: self._lock_others(widget, obj_name))
             menu.addAction("Unlock All", lambda: self._unlock_all(widget))
 
+        # "Move to Shot" submenu — anim/audio clips moved as sequences.
+        if self.sequencer:
+            seqs = self._clips_to_sequences(widget, selected_ids)
+            shots = self.sequencer.sorted_shots()
+            if seqs and len(shots) > 1:
+                menu.addSeparator()
+                move_label = f"Move to Shot ({len(seqs)})" if multi else "Move to Shot"
+                # Parent the submenu explicitly: PySide 6.11's ``addMenu(str)`` hands
+                # back a wrapper that goes stale once this frame drops it (the C++
+                # menu survives, but a later ``action.menu()`` raises).
+                from qtpy import QtWidgets
+
+                move_menu = QtWidgets.QMenu(move_label, menu)
+                menu.addMenu(move_menu)
+                source_ids = {self.sequencer._source_shot_id_for(sq) for sq in seqs}
+                for sh in shots:
+                    if len(source_ids) == 1 and sh.shot_id in source_ids:
+                        continue  # all sequences already live here
+                    act = move_menu.addAction(
+                        f"{sh.name}  [{sh.start:.0f}–{sh.end:.0f}]"
+                    )
+                    act.triggered.connect(
+                        lambda _checked=False, sid=sh.shot_id: self._move_clips_to_shot(
+                            seqs, sid
+                        )
+                    )
+
+    def _clips_to_sequences(self, widget, clip_ids):
+        """Convert widget clip ids to unified sequence dicts.
+
+        Stepped (zero-duration) clips, read-only clips (non-active visible
+        shots) and single-attribute sub-row clips are skipped — a whole-object
+        sequence move would relocate EVERY attribute's keys in the span, not
+        just the one the user grabbed.  Duplicates (one segment spanning several
+        visible shots) are collapsed.
+        """
+        seqs = []
+        seen: set = set()
+        for cid in clip_ids:
+            clip = widget.get_clip(cid)
+            if clip is None or clip.data.get("read_only"):
+                continue
+            if clip.data.get("is_stepped") or clip.data.get("attr_name"):
+                continue
+            start = clip.data.get("orig_start")
+            end = clip.data.get("orig_end")
+            if start is None or end is None or end <= start:
+                continue
+            if clip.data.get("is_audio"):
+                obj, kind = clip.data.get("audio_track_id"), "audio"
+            else:
+                obj, kind = clip.data.get("obj"), "anim"
+            if not obj:
+                continue
+            key = (kind, obj, round(start, 6), round(end, 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            seqs.append({"kind": kind, "obj": obj, "start": start, "end": end})
+        return seqs
+
+    def _move_clips_to_shot(self, sequences, dest_shot_id):
+        """Run ``move_sequences_to_shot``, undoable, then refresh."""
+        if self.sequencer is None or not sequences:
+            return
+        self._save_shot_state()
+        with CoreUtils.undo_chunk("Move to Shot"):
+            self.sequencer.move_sequences_to_shot(sequences, dest_shot_id)
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._audio_segments_cache = None
+        self._sync_to_widget()
+        self._sync_combobox()
+
     def on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None:
-        """Gap overlay context menu — no domain actions this phase."""
+        """Add domain-specific actions to a gap overlay's context menu (none by default)."""
 
     def on_key_selection_changed(self, key_groups: list) -> None:
-        """Per-key selection changed — footer feedback only."""
-        n = sum(len(g["times"]) for g in key_groups) if key_groups else 0
+        """Sync the Graph Editor's key selection to match the sequencer.
+
+        *key_groups* is ``[{clip_id, times}, ...]`` — one entry per clip with
+        selected keyframe items.  Every keyframe point on the object's
+        transform fcurves is deselected first, then the named times are
+        selected on the clip's attribute curves (mirror of ``cmds.selectKey``).
+        """
+        widget = self._get_sequencer_widget()
+        if widget is None:
+            return
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return
+        touched: set = set()
+        for group in key_groups:
+            clip = widget.get_clip(group["clip_id"])
+            if clip is None:
+                continue
+            obj_name = clip.data.get("obj")
+            if obj_name:
+                touched.add(obj_name)
+        for obj_name in touched:
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None:
+                continue
+            for fc in BlenderShotStore.iter_action_fcurves(obj):
+                n = len(fc.keyframe_points)
+                if n:
+                    off = [False] * n
+                    for prop in (
+                        "select_control_point",
+                        "select_left_handle",
+                        "select_right_handle",
+                    ):
+                        fc.keyframe_points.foreach_set(prop, off)
+        n = 0
+        for group in key_groups:
+            clip = widget.get_clip(group["clip_id"])
+            if clip is None:
+                continue
+            obj_name = clip.data.get("obj")
+            attr_name = clip.data.get("attr_name")
+            if not obj_name or not attr_name:
+                continue
+            for fc in ClipMotionMixin.curves_for_attr(obj_name, attr_name):
+                kt = AnimUtils.key_times(fc)
+                for t in group["times"]:
+                    i0, i1 = AnimUtils.window_indices(kt, t - 1e-3, t + 1e-3)
+                    for i in range(i0, i1):
+                        fc.keyframe_points[i].select_control_point = True
+                        n += 1
         if n:
             self._set_footer(f"{n} key{'s' if n != 1 else ''} selected")
 
@@ -1341,7 +1675,6 @@ class ShotSequencerController(
             import bpy
         except ImportError:
             return
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
 
         self._save_shot_state()
         deleted = 0
@@ -1360,22 +1693,16 @@ class ShotSequencerController(
                 fcurves = (
                     ClipMotionMixin.curves_for_attr(obj.name, attr)
                     if attr
-                    else [
-                        fc
-                        for fc in BlenderShotStore.iter_action_fcurves(obj)
-                        if BlenderShotStore._is_transform_path(fc.data_path)
-                    ]
+                    else ShotSequencer._transform_fcurves(obj)
                 )
                 for fc in fcurves:
-                    victims = [
-                        kp
-                        for kp in fc.keyframe_points
-                        if s - 1e-3 <= kp.co[0] <= e + 1e-3
-                    ]
-                    for kp in reversed(victims):
-                        fc.keyframe_points.remove(kp)
+                    i0, i1 = AnimUtils.window_indices(
+                        AnimUtils.key_times(fc), s - 1e-3, e + 1e-3
+                    )
+                    for i in reversed(range(i0, i1)):
+                        fc.keyframe_points.remove(fc.keyframe_points[i])
                         deleted += 1
-                    if victims:
+                    if i1 > i0:
                         fc.update()
         if deleted:
             self._segment_cache.clear()
@@ -1384,12 +1711,69 @@ class ShotSequencerController(
             self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
 
     def _delete_selected_clip_keys(self) -> None:
+        """Delete selected keyframes or, if none, all keys on selected clips.
+
+        Individual keyframe items are batched into a single undo step so Ctrl+Z
+        restores every deleted key at once.
+        """
         widget = self._get_sequencer_widget()
         if widget is None:
             return
+        from uitk.widgets.sequencer._keyframe import KeyframeItem
+
+        try:
+            items = widget._timeline._scene.selectedItems()
+        except RuntimeError:
+            items = []
+        by_clip: dict = {}
+        for item in items:
+            if isinstance(item, KeyframeItem):
+                cid = item._parent_clip._data.clip_id
+                by_clip.setdefault(cid, []).append(item._time)
+
+        if by_clip:
+            deleted = 0
+            with CoreUtils.undo_chunk("Delete Keys"):
+                for clip_id, times in by_clip.items():
+                    clip = widget.get_clip(clip_id)
+                    if clip is None:
+                        continue
+                    obj_name = clip.data.get("obj")
+                    attr_name = clip.data.get("attr_name")
+                    if not obj_name or not attr_name:
+                        continue
+                    curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
+                    for t in times:
+                        cut_ok = False
+                        for fc in curves:
+                            i0, i1 = AnimUtils.window_indices(
+                                AnimUtils.key_times(fc), t - 1e-3, t + 1e-3
+                            )
+                            for i in reversed(range(i0, i1)):
+                                fc.keyframe_points.remove(fc.keyframe_points[i])
+                                cut_ok = True
+                            if i1 > i0:
+                                fc.update()
+                        if cut_ok:
+                            deleted += 1
+            if deleted:
+                self._save_shot_state()
+                shot_id = self.active_shot_id
+                self._segment_cache.clear()
+                self._sub_row_cache.clear()
+                self._sync_to_widget(shot_id=shot_id)
+                self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
+            return
+
         selected = widget.selected_clips() or []
         if selected:
             self._delete_clip_keys(selected)
+
+    def _set_show_internal_holds(self, enabled: bool) -> None:
+        """Toggle flat-key span visibility in attribute sub-rows."""
+        self._show_internal_holds = enabled
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
 
     # ---- header / transport / toggles ------------------------------------
 
@@ -1404,6 +1788,184 @@ class ShotSequencerController(
             return
         self.sequencer.store.select_on_load = checked
         self.sequencer.store.mark_dirty()
+
+    # ---- Transport controls (footer) -------------------------------------
+
+    def _setup_transport_controls(self) -> None:
+        """Install the reusable ``TransportControls`` row on the footer's right.
+
+        Wired to :class:`_BlenderPlayController`; keyed off the persistent
+        footer (not this controller) so a slots re-init adopts the existing row
+        instead of stacking a duplicate.
+        """
+        footer = getattr(self.ui, "footer", None)
+        if footer is None:
+            return
+        existing = getattr(footer, "_shot_transport_controls", None)
+        if existing is not None:
+            existing.set_play_controller(_BlenderPlayController(self))
+            self._transport_controls = existing
+            return
+        widget = self._get_sequencer_widget()
+        if widget is None:
+            return
+        from uitk.widgets.sequencer import TransportControls
+
+        transport = TransportControls(
+            sequencer=widget,
+            play_controller=_BlenderPlayController(self),
+            parent=footer,
+            button_height=max(footer.height(), 20),
+            interrupt_mode=TransportControls.INTERRUPT_STOP,
+            range_fn=self._playback_range,
+            button_names=(
+                "go_to_start",
+                "prev_key",
+                "play_back",
+                "play_forward",
+                "next_key",
+                "go_to_end",
+            ),
+        )
+        transport.attach_to_footer(footer, side="right")
+        self._transport_controls = transport
+        footer._shot_transport_controls = transport
+        try:
+            self._ensure_sound_on_timeline()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _playback_range() -> tuple:
+        scene = _ShotSequencerControllerInternal._scene()
+        if scene is None:
+            return 1.0, 120.0
+        return float(scene.frame_start), float(scene.frame_end)
+
+
+# ---------------------------------------------------------------------------
+# Play controller (Blender)
+# ---------------------------------------------------------------------------
+
+
+class _BlenderPlayController:
+    """``PlayController`` adapter driving Blender's timeline via ``screen.animation_play``.
+
+    Tracks direction so ``TransportControls`` can resume the right way; every
+    operator call runs under a window context so it works from the Qt pump.
+    """
+
+    def __init__(self, controller: "ShotSequencerController"):
+        self._ctl = controller
+        self._forward = True
+
+    @staticmethod
+    def _screen():
+        try:
+            import bpy
+        except ImportError:
+            return None
+        screen = getattr(bpy.context, "screen", None)
+        if screen is None:
+            win = getattr(bpy.context, "window_manager", None)
+            wins = getattr(win, "windows", None) or []
+            screen = wins[0].screen if wins else None
+        return screen
+
+    def is_playing(self) -> bool:
+        screen = self._screen()
+        return bool(screen is not None and screen.is_animation_playing)
+
+    def play(self, forward: bool) -> None:
+        self._forward = bool(forward)
+        try:
+            import bpy
+        except ImportError:
+            return
+        try:
+            self._ctl._ensure_sound_on_timeline()
+        except Exception:
+            pass
+        try:
+            with CoreUtils.window_context_override():
+                if self.is_playing():
+                    bpy.ops.screen.animation_cancel(restore_frame=False)
+                bpy.ops.screen.animation_play(reverse=not self._forward)
+        except Exception:
+            self._ctl.logger.debug("animation_play failed", exc_info=True)
+
+    def stop(self) -> None:
+        try:
+            import bpy
+        except ImportError:
+            return
+        try:
+            if self.is_playing():
+                with CoreUtils.window_context_override():
+                    bpy.ops.screen.animation_cancel(restore_frame=False)
+        except Exception:
+            self._ctl.logger.debug("animation_cancel failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Shot Edit Dialog
+# ---------------------------------------------------------------------------
+
+
+class ShotEditDialog:
+    """Lightweight dialog for creating or editing a shot (plain Qt widgets).
+
+    Returns ``(name, start, end, description)`` on accept, ``None`` on cancel.
+    """
+
+    @staticmethod
+    def show(
+        parent=None,
+        name: str = "",
+        start: float = 1.0,
+        end: float = 100.0,
+        description: str = "",
+        title: str = "Shot",
+    ):
+        """Show a modal dialog and return the result tuple or ``None``."""
+        from qtpy import QtWidgets
+
+        dlg = QtWidgets.QDialog(parent)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(280)
+        layout = QtWidgets.QFormLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        name_edit = QtWidgets.QLineEdit(name)
+        name_edit.setPlaceholderText("Shot name")
+        layout.addRow("Name:", name_edit)
+        start_spin = QtWidgets.QDoubleSpinBox()
+        start_spin.setDecimals(1)
+        start_spin.setRange(-1e6, 1e6)
+        start_spin.setValue(start)
+        layout.addRow("Start:", start_spin)
+        end_spin = QtWidgets.QDoubleSpinBox()
+        end_spin.setDecimals(1)
+        end_spin.setRange(-1e6, 1e6)
+        end_spin.setValue(end)
+        layout.addRow("End:", end_spin)
+        desc_edit = QtWidgets.QLineEdit(description)
+        desc_edit.setPlaceholderText("Optional description")
+        layout.addRow("Description:", desc_edit)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addRow(buttons)
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return None
+        return (
+            name_edit.text().strip() or "Shot",
+            start_spin.value(),
+            end_spin.value(),
+            desc_edit.text().strip(),
+        )
 
 
 class ShotSequencerSlots(ptk.LoggingMixin):
@@ -1517,17 +2079,17 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                 self.logger.debug("Delete shortcut wiring failed", exc_info=True)
 
         self._setup_shot_nav()
+        self.controller._setup_transport_controls()
         self.controller._sync_combobox()
         self.controller._sync_to_widget()
 
     def _setup_shot_nav(self) -> None:
-        """Prev/next/view-mode/add/refresh option-box actions on cmb_shot.
+        """Prev/next/add/view-mode/holds/refresh option-box actions on cmb_shot.
 
-        Mirror of mayatk's ``_setup_shot_nav`` minus the *Show Internal Holds*
-        toggle — Blender's segment collector returns one span per object (no
-        ``SegmentKeys`` hold sub-splitting; ledgered divergence), so there are
-        no hold spans for the toggle to reveal.  Port it together with the
-        sub-splitting follow-up.
+        Every callback is late-bound through ``cmb._nav_controller`` /
+        ``cmb._nav_slots`` so a slots re-init over the same loaded UI only
+        repoints those attributes — the option-box actions and menu connects are
+        created exactly once and never duplicated.
         """
         cmb = getattr(self.ui, "cmb_shot", None)
         if cmb is None or not hasattr(cmb, "option_box"):
@@ -1547,6 +2109,10 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                 ctl._shot_display_mode = _VIEW_MODE_MAP.get(
                     view_opt.current_state, "current"
                 )
+            holds_opt = existing.get("holds")
+            if holds_opt is not None:
+                ctl._holds_action = holds_opt
+                ctl._show_internal_holds = holds_opt.current_state == 1
             ctl._cmb_mode_widget = getattr(self.ui, "cmb_mode", None)
             return
         try:
@@ -1605,24 +2171,59 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                 order=6,
             )
 
+            # Show Internal Holds toggle (two-state: off / on)
+            _HOLD_STATES = [
+                {
+                    "icon": "eye_off",
+                    "tooltip": "Show Internal Holds (off)\nClick to reveal flat-key spans in sub-rows",
+                    "callback": lambda: cmb._nav_controller._set_show_internal_holds(
+                        True
+                    ),
+                },
+                {
+                    "icon": "eye",
+                    "tooltip": "Show Internal Holds (on)\nClick to hide flat-key spans in sub-rows",
+                    "callback": lambda: cmb._nav_controller._set_show_internal_holds(
+                        False
+                    ),
+                },
+            ]
+            holds_opt = ActionOption(
+                wrapped_widget=cmb,
+                states=_HOLD_STATES,
+                order=5,
+                settings_key="shot_sequencer_show_holds",
+            )
+
             cmb.option_box.set_order(["action"])
-            for opt in (prev_opt, next_opt, add_opt, view_opt, refresh_opt):
+            for opt in (prev_opt, next_opt, add_opt, view_opt, holds_opt, refresh_opt):
                 cmb.option_box.add_option(opt)
 
             self.controller._prev_action = prev_opt
             self.controller._next_action = next_opt
             self.controller._view_mode_action = view_opt
-            # Sync controller view mode from persisted button state.
+            self.controller._holds_action = holds_opt
+            # Sync controller state from persisted button states.
             self.controller._shot_display_mode = _VIEW_MODE_MAP.get(
                 view_opt.current_state, "current"
             )
+            self.controller._show_internal_holds = holds_opt.current_state == 1
             cmb._shot_nav_options = {
                 "prev": prev_opt,
                 "next": next_opt,
                 "add": add_opt,
                 "view": view_opt,
+                "holds": holds_opt,
                 "refresh": refresh_opt,
             }
+
+            # Right-click context menu on the combobox (New / Generate / Edit / Delete).
+            from qtpy import QtCore
+
+            cmb.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            cmb.customContextMenuRequested.connect(
+                lambda pos: cmb._nav_slots._cmb_context_menu(pos)
+            )
         except Exception:
             self.logger.debug("shot nav option-box setup failed", exc_info=True)
         self.controller._cmb_mode_widget = getattr(self.ui, "cmb_mode", None)
@@ -1654,6 +2255,91 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         if scope and scope != self.controller._track_order_scope:
             self.controller._track_order_scope = scope
             self.controller._sync_to_widget()
+
+    # ---- shot CRUD helpers -----------------------------------------------
+
+    def _edit_shot_in_settings(self) -> None:
+        """Open Shot Settings with the active shot pre-selected."""
+        if self.controller.sequencer is not None:
+            sid = self.controller.active_shot_id
+            if sid is not None:
+                self.controller.sequencer.store.set_active_shot(sid)
+        self.sb.handlers.marking_menu.show("shots")
+
+    def _delete_shot(self) -> None:
+        """Delete the currently selected shot after confirmation."""
+        from qtpy import QtWidgets
+
+        if self.controller.sequencer is None:
+            return
+        sid = self.controller.active_shot_id
+        if sid is None:
+            return
+        shot = self.controller.sequencer.shot_by_id(sid)
+        if shot is None:
+            return
+        reply = QtWidgets.QMessageBox.question(
+            self.ui,
+            "Delete Shot",
+            f'Delete "{shot.name}" [{shot.start:.0f}–{shot.end:.0f}]?',
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        store = self.controller.sequencer.store
+        store.remove_shot(sid)
+        store.set_active_shot(None)
+        self.controller._set_footer(f"Deleted {shot.name}")
+
+    def _detect_next_shot(self) -> None:
+        """Generate a shot from the next unregistered animation cluster."""
+        seq = self.controller.sequencer
+        if seq is None:
+            return
+        store = seq.store
+        cand = seq.detect_next_shot(
+            gap_threshold=(store.detection_threshold if store else 5.0)
+        )
+        if cand is None:
+            self.controller._set_footer("No additional animation clusters found.")
+            return
+        result = ShotEditDialog.show(
+            parent=self.ui,
+            name=cand["name"],
+            start=cand["start"],
+            end=cand["end"],
+            title="Generated Shot",
+        )
+        if result is None:
+            return
+        name, s, e, desc = result
+        if e <= s:
+            return
+        seq.define_shot(
+            name=name, start=s, end=e, objects=cand["objects"], description=desc
+        )
+        self.controller._sync_combobox()
+        self.controller._sync_to_widget()
+
+    def _cmb_context_menu(self, pos) -> None:
+        """Right-click context menu on the shot combobox."""
+        from qtpy import QtWidgets
+
+        if self.controller._cmb_mode != "shots":
+            return
+        cmb = getattr(self.ui, "cmb_shot", None)
+        if cmb is None:
+            return
+        menu = QtWidgets.QMenu(cmb)
+        menu.addAction("New Shot", self.controller._create_shot_one_click)
+        menu.addAction("Generate Next Shot…", self._detect_next_shot)
+        menu.addSeparator()
+        has_shot = self.controller.active_shot_id is not None
+        edit_action = menu.addAction("Edit Shot…", self._edit_shot_in_settings)
+        edit_action.setEnabled(has_shot)
+        delete_action = menu.addAction("Delete Shot", self._delete_shot)
+        delete_action.setEnabled(has_shot)
+        menu.exec_(cmb.mapToGlobal(pos))
 
     # ---- header menu (built here; auto-called by Switchboard) -------------
 
@@ -1750,15 +2436,24 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         widget.set_help_text(
             self.sb.tooltip.fmt(
                 title="Shot Sequencer",
-                body="Visual timeline editor for per-shot animation with ripple editing, gap management, and markers.",
+                body="Visual timeline editor for per-shot animation with ripple editing, gap management, markers, and audio tracks.",
                 sections=[
                     (
                         "Quick Start",
                         [
-                            "Create a shot (or use the Manifest).",
+                            "Click <b>+</b> to create a shot (or use the Manifest).",
                             "Select a shot from the dropdown to load its clips.",
                             "Drag clips to adjust timing; drag edges to resize.",
                             "Use <b>View Mode</b> to see adjacent or all shots.",
+                        ],
+                    ),
+                    (
+                        "Shot Navigation",
+                        [
+                            "<b>Dropdown</b> — Select shot (sets playback range, selects objects, reframes the timeline). Right-click for New Shot, Generate Next Shot, Edit Shot, Delete Shot.",
+                            "<b>◄ / ►</b> — Previous / next shot. &nbsp; <b>+</b> — Append new shot.",
+                            "<b>View Mode</b> (cycles): Current → Adjacent → All.",
+                            "<b>Refresh</b> — Rebuild from the scene.",
                         ],
                     ),
                     (
@@ -1767,17 +2462,19 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                             "<b>Drag body</b> — Move in time (ripple editing).",
                             "<b>Drag edge</b> — Resize (scales keyframes).",
                             "<b>Shift+drag</b> — Move boundaries only; keyframes stay in place.",
-                            "<b>Right-click</b> — Lock/Unlock, Delete Key. All edits undoable (Ctrl+Z).",
+                            "<b>Ctrl+drag</b> — Per-frame snap override.",
+                            "<b>Right-click</b> — Lock/Unlock, Move to Shot, Delete Key. All edits undoable (Ctrl+Z).",
                         ],
                     ),
                     (
                         "Ruler / Tracks / Gaps / Markers",
                         [
-                            "<b>Ruler:</b> Click/drag to move playhead, double-click to add a marker, scroll to zoom.",
-                            "<b>Tracks:</b> Double-click header to expand per-attribute sub-rows.",
+                            "<b>Ruler:</b> Click/drag to move playhead, double-click to add a marker, scroll to zoom, middle-drag to pan.",
+                            "<b>Shot Lane:</b> Right-click a shot block on the ruler to select, edit, or trim that shot.",
+                            "<b>Tracks:</b> Double-click header to expand per-attribute sub-rows. Right-click to hide, delete, or reveal in Outliner.",
                             "<b>Gaps:</b> Drag body to slide adjacent shots, drag edge to resize. Right-click to lock.",
-                            "<b>Markers:</b> M or double-click ruler to add. Drag to move.",
-                            "<b>Audio:</b> VSE sound strips (sequencer display is a documented follow-up).",
+                            "<b>Markers:</b> M or double-click ruler to add. Drag to move. Right-click to edit note, color, or style.",
+                            "<b>Audio:</b> Auto-discovered from VSE sound strips. Drag to move; Move to Shot groups them with animation.",
                         ],
                     ),
                     (
@@ -1794,8 +2491,20 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                                 + " — step ±1 frame"
                             ),
                             (
+                                self.sb.tooltip.kbd("Home")
+                                + " / "
+                                + self.sb.tooltip.kbd("End")
+                                + " — start / end &nbsp;·&nbsp; "
+                                + self.sb.tooltip.kbd("F")
+                                + " — frame shot &nbsp;·&nbsp; "
+                                + self.sb.tooltip.kbd("M")
+                                + " — add marker"
+                            ),
+                            (
                                 self.sb.tooltip.kbd("Ctrl", "Z")
                                 + " — undo &nbsp;·&nbsp; "
+                                + self.sb.tooltip.kbd("Ctrl", "Shift", "Z")
+                                + " — redo &nbsp;·&nbsp; "
                                 + self.sb.tooltip.kbd("Del")
                                 + " — delete keys"
                             ),

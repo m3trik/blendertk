@@ -91,6 +91,116 @@ try:
     check("mirror object-pivot uses local axis", min(ys) < -0.9 and max(ys) > 0.9,
           f"y {min(ys):.2f}..{max(ys):.2f}")
 
+    # ---- "manip" is an OBJECT-frame pivot, exactly like mayatk's OBJECT_FRAME_PIVOTS.
+    # It used to return the manip POINT with a WORLD axis, so mirror(pivot="manip")
+    # on a rotated object tilted the plane in Maya but stayed world-aligned here --
+    # the twins produced different geometry from the same call. Decision 2026-08-21:
+    # "manip" means point + the OBJECT's axes; blendertk adapts to mayatk.
+    # Asserted on _plane_frame itself: the geometry-level assertions that first
+    # suggested themselves were vacuous, since Blender's default cube already
+    # spans +/-1 in every axis, so a span check passes without any mirror at all.
+    from blendertk.edit_utils._edit_utils import _EditUtilsInternal as _EI
+    from mathutils import Vector
+
+    reset()
+    o = cube_at(x=2.0)
+    o.rotation_euler = (0.0, 0.0, 1.5708)  # local X now points along world Y
+    bpy.context.view_layer.update()
+    mp, mn_ = _EI._plane_frame(o, "x", "manip")
+    op, on_ = _EI._plane_frame(o, "x", "object")
+    check("manip plane normal follows the object's axes when rotated",
+          abs(mn_.y) > 0.99 and abs(mn_.x) < 1e-3,
+          f"normal=({mn_.x:.3f},{mn_.y:.3f},{mn_.z:.3f})")
+    check("manip and object normals agree (both object-frame)",
+          (mn_ - on_).length < 1e-6,
+          f"manip={tuple(round(v,3) for v in mn_)} object={tuple(round(v,3) for v in on_)}")
+
+    # The POINT must still come from the manip setting, not become the object
+    # origin -- only the AXES changed. CURSOR resolves somewhere else entirely.
+    _prev_pivot = bpy.context.scene.tool_settings.transform_pivot_point
+    _prev_cursor = bpy.context.scene.cursor.location.copy()
+    bpy.context.scene.cursor.location = (7.0, -3.0, 1.0)
+    bpy.context.scene.tool_settings.transform_pivot_point = "CURSOR"
+    cp, cn = _EI._plane_frame(o, "x", "manip")
+    check("manip plane point still honors the pivot setting (cursor)",
+          (cp - Vector((7.0, -3.0, 1.0))).length < 1e-6, f"point={tuple(round(v,2) for v in cp)}")
+    check("manip cursor-pivot keeps the object's axes",
+          abs(cn.y) > 0.99, f"normal=({cn.x:.3f},{cn.y:.3f},{cn.z:.3f})")
+    # Restore what was there, not a hardcoded default: reset() clears objects
+    # only, so tool settings and the 3D cursor leak into every later check.
+    bpy.context.scene.tool_settings.transform_pivot_point = _prev_pivot
+    bpy.context.scene.cursor.location = _prev_cursor
+
+    # Counterweight: an UNROTATED object is unaffected (object axes == world axes),
+    # which is every existing caller.
+    reset()
+    o = cube_at(x=2.0)
+    bpy.context.view_layer.update()
+    up, un = _EI._plane_frame(o, "x", "manip")
+    check("manip plane normal unchanged for an unrotated object",
+          abs(un.x) > 0.99 and abs(un.y) < 1e-3,
+          f"normal=({un.x:.3f},{un.y:.3f},{un.z:.3f})")
+    # ---- axis_frame names the frame outright, mirroring mtk.EditUtils. Until
+    # 2026-08-21 there was no way to keep an object-frame pivot's POINT while
+    # forcing WORLD axes: pivot="world" also moves the point to the origin, so
+    # it was never an equivalent escape. The frame picks the AXES and the pivot
+    # picks the POSITION -- independently, so no combination leaves either
+    # parameter with nothing to say.
+    reset()
+    o = cube_at(x=2.0)
+    o.rotation_euler = (0.0, 0.0, 1.5708)  # local X now points along world Y
+    bpy.context.view_layer.update()
+
+    wp, wn = _EI._plane_frame(o, "x", "object", axis_frame="world")
+    check("axis_frame='world' forces world axes on an object-frame pivot",
+          abs(wn.x) > 0.99 and abs(wn.y) < 1e-3,
+          f"normal=({wn.x:.3f},{wn.y:.3f},{wn.z:.3f})")
+    check("axis_frame='world' keeps the pivot's own point (not the origin)",
+          (wp - o.matrix_world.translation).length < 1e-6,
+          f"point={tuple(round(v,2) for v in wp)}")
+
+    tp, tn = _EI._plane_frame(o, "x", (5.0, 1.0, 0.0), axis_frame="object")
+    check("axis_frame='object' tilts the plane for a world TUPLE pivot",
+          abs(tn.y) > 0.99 and abs(tn.x) < 1e-3,
+          f"normal=({tn.x:.3f},{tn.y:.3f},{tn.z:.3f})")
+    check("axis_frame='object' leaves the tuple point exactly where it was",
+          (tp - Vector((5.0, 1.0, 0.0))).length < 1e-6,
+          f"point={tuple(round(v,2) for v in tp)}")
+
+    _ap, an = _EI._plane_frame(o, "x", (5.0, 1.0, 0.0))
+    check("a tuple pivot still means world axes when the frame is left to auto",
+          abs(an.x) > 0.99, f"normal=({an.x:.3f},{an.y:.3f},{an.z:.3f})")
+
+    try:
+        _EI._plane_frame(o, "x", "object", axis_frame="local")
+        _rejected = False
+    except ValueError:
+        _rejected = True
+    check("an unknown axis_frame is rejected, not silently world-aligned", _rejected)
+
+    # It reaches the public entry point, not just the internal resolver: the
+    # same call cuts a different half depending on the frame.
+    reset()
+    o = cube_at(x=2.0)
+    o.rotation_euler = (0.0, 0.0, 1.5708)
+    bpy.context.view_layer.update()
+    btk.cut_along_axis(
+        o, axis="x", pivot="object", amount=1, delete=True, axis_frame="world"
+    )
+    xs = world_xs(o)
+    check("cut_along_axis axis_frame='world' clears the world +X half",
+          max(xs) <= 2.001 and min(xs) >= 0.999,
+          f"x range {min(xs):.2f}..{max(xs):.2f}")
+
+    reset()
+    o = cube_at(x=2.0)
+    o.rotation_euler = (0.0, 0.0, 1.5708)
+    bpy.context.view_layer.update()
+    btk.cut_along_axis(o, axis="x", pivot="object", amount=1, delete=True)
+    ys = [(o.matrix_world @ v.co).y for v in o.data.vertices]
+    check("cut_along_axis left to auto still clears the OBJECT +X half (world +Y)",
+          max(ys) <= 0.001, f"y max {max(ys):.2f}")
+
     # ---- mirroring a LINKED object: separate mode copies the data explicitly, so the
     # sibling survives untouched (Maya's polySeparate consumed both — see its changelog);
     # merge modes edit the shared data in place, so every linked duplicate updates together.

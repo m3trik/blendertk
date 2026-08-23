@@ -61,6 +61,7 @@ Scope and caveats:
 ``import bpy`` / Qt are deferred into call bodies (no import side effects; headless-import
 safe).
 """
+
 import sys
 from typing import Callable, Optional
 
@@ -87,9 +88,9 @@ class QtDock:
             un-parented and hidden when this fires.
     """
 
-    WATCH_INTERVAL = 0.5   # liveness-only tick (s); geometry is draw-handler-driven
+    WATCH_INTERVAL = 0.5  # liveness-only tick (s); geometry is draw-handler-driven
     FOCUS_INTERVAL = 0.05  # focus-follows-mouse poll (s) — 20 Hz reads as instant
-    DEFAULT_HEIGHT = 200   # first-dock strip height (px) when the caller passes none
+    DEFAULT_HEIGHT = 200  # first-dock strip height (px) when the caller passes none
 
     def __init__(
         self,
@@ -101,18 +102,24 @@ class QtDock:
         self._editor = editor
         self._area_header = area_header
         self._focus_on_hover = focus_on_hover
-        self._focus_timer = None   # the registered focus-follow tick (identity for unregister)
+        self._focus_timer = (
+            None  # the registered focus-follow tick (identity for unregister)
+        )
         self._on_detach = on_detach
-        self._widget = None        # the hosted QWidget (caller-owned)
-        self._edge_pad = 0         # native edge-grab tolerance (px); resolved at dock()
-        self._foreign = None       # QWindow wrapper of the GHOST hwnd (kept alive while docked)
-        self._window = None        # the bpy.types.Window we docked into
-        self._area = None          # our docked bpy.types.Area
-        self._hwnd = None          # the GHOST OS handle of self._window
-        self._space_cls = None     # the space type class the draw handler is registered on
+        self._widget = None  # the hosted QWidget (caller-owned)
+        self._edge_pad = 0  # native edge-grab tolerance (px); resolved at dock()
+        self._foreign = (
+            None  # QWindow wrapper of the GHOST hwnd (kept alive while docked)
+        )
+        self._window = None  # the bpy.types.Window we docked into
+        self._area = None  # our docked bpy.types.Area
+        self._hwnd = None  # the GHOST OS handle of self._window
+        self._space_cls = None  # the space type class the draw handler is registered on
         self._draw_handle = None
-        self._watch_timer = None   # the registered bpy timer callable (identity for unregister)
-        self._last_rect = None     # last applied child rect (skip redundant SetWindowPos)
+        self._watch_timer = (
+            None  # the registered bpy timer callable (identity for unregister)
+        )
+        self._last_rect = None  # last applied child rect (skip redundant SetWindowPos)
 
     # -- capability gate ----------------------------------------------------------
     @staticmethod
@@ -191,7 +198,9 @@ class QtDock:
         if area is None:
             return False
         hwnd = BlenderWindow.window_hwnd(window)
-        if hwnd is None:  # can't resolve the OS handle — don't leave a stray area behind
+        if (
+            hwnd is None
+        ):  # can't resolve the OS handle — don't leave a stray area behind
             btk.close_area(window, area)
             return False
 
@@ -237,25 +246,40 @@ class QtDock:
     def _apply_area_header(self, window, area) -> None:
         """Show/hide the native area header per ``area_header`` (cosmetic; best-effort).
 
-        MUST run under a full context override: setting ``show_region_header`` fires
-        ``ED_region_visibility_change_update`` → ``ED_area_init``, which dereferences the
-        context window — from a bare ``bpy`` timer (no window in context) that is a hard
-        crash (EXCEPTION_ACCESS_VIOLATION in ``WM_window_get_active_workspace``),
-        reproduced by the console GUI harness.
+        Two measured facts shape this (see ``UiUtils._apply_region_flags``): the
+        ``show_region_header`` setter is a **silent no-op under a** ``temp_override`` — the
+        earlier override-wrapped write here never took effect, so ``area_header=False``
+        still showed the placeholder editor's header above the console — and assigned bare it
+        needs a context window, or ``ED_area_init`` is a hard crash (EXCEPTION_ACCESS_VIOLATION
+        in ``WM_window_get_active_workspace``, reproduced by the console GUI harness). The
+        ``area_split`` that just created the area can leave that window NULL for the rest of
+        the calling callback, so when it is missing the write is deferred one timer tick, by
+        which time the window is back; the deferred write re-checks everything and gives up
+        rather than guess. Headless there is no window and no timer loop: nothing to do.
         """
         import bpy
 
-        try:
-            space = area.spaces.active
-            if space is None or space.show_region_header == self._area_header:
-                return
-            region = next((r for r in area.regions if r.type == "WINDOW"), None)
-            with bpy.context.temp_override(
-                window=window, screen=window.screen, area=area, region=region
-            ):
+        if bpy.app.background:
+            return
+
+        def _write():
+            try:
+                if self._area is not area:  # undocked / re-docked meanwhile
+                    return None
+                space = area.spaces.active
+                if space is None or space.show_region_header == self._area_header:
+                    return None
+                if bpy.context.window is None:
+                    return None  # still windowless: stay cosmetic, never crash
                 space.show_region_header = self._area_header
-        except Exception:
-            pass  # cosmetic only
+            except Exception:
+                pass  # cosmetic only
+            return None
+
+        if bpy.context.window is not None:
+            _write()
+        else:
+            bpy.app.timers.register(_write, first_interval=0.0)
 
     # -- embedding ----------------------------------------------------------------------
     def _embed(self, widget, hwnd) -> bool:
@@ -264,7 +288,9 @@ class QtDock:
         from blendertk.ui_utils.blender_window import BlenderWindow
 
         try:
-            BlenderWindow.set_clip_children(hwnd)  # GL present must clip around children
+            BlenderWindow.set_clip_children(
+                hwnd
+            )  # GL present must clip around children
             widget.winId()  # force native-window creation before touching windowHandle()
             foreign = QtGui.QWindow.fromWinId(int(hwnd))
             if foreign is None:
@@ -421,7 +447,9 @@ class QtDock:
             import bpy
 
             system = bpy.context.preferences.system
-            return max(2, round(2.0 * float(system.ui_scale) + float(system.pixel_size)))
+            return max(
+                2, round(2.0 * float(system.ui_scale) + float(system.pixel_size))
+            )
         except Exception:
             return 3
 
@@ -445,13 +473,17 @@ class QtDock:
             return rect
         try:  # header shown = region tops out below the area top -> nothing to expose
             area = self._area
-            flush = int(region.y) + int(region.height) >= int(area.y) + int(area.height) - 1
+            flush = (
+                int(region.y) + int(region.height) >= int(area.y) + int(area.height) - 1
+            )
         except (ReferenceError, AttributeError):  # dead bpy wrapper mid-read
             return rect
         if not flush:
             return rect
         x, y, w, h = rect
-        inset = max(0, min(pad, h - pad))  # never collapse a strip shorter than the band
+        inset = max(
+            0, min(pad, h - pad)
+        )  # never collapse a strip shorter than the band
         return (x, y + inset, w, h - inset)
 
     def _position(self, region) -> None:

@@ -456,6 +456,66 @@ try:
     check("_resolve_smart_bake: static scene -> 'auto' (no prompt)",
           make_slots("Yes")[0]._resolve_smart_bake(static_ma) == "auto")
 
+    # --- foreign scratch: <temp>/btk_opened_<hash>/<stem>_<ext>.blend, per source ------------
+    # A .ma opens as `<stem>_ma.blend` (provenance in the name, never shadowing a sibling
+    # `<stem>.blend`); same-named scenes in different projects must not share a scratch.
+    import tempfile as _tempfile
+
+    _scr_a = ReferenceManagerSlots._foreign_scratch_path(os.path.join(tmp, "projA", "shot.ma"))
+    _scr_b = ReferenceManagerSlots._foreign_scratch_path(os.path.join(tmp, "projB", "shot.ma"))
+    _scr_fbx = ReferenceManagerSlots._foreign_scratch_path(os.path.join(tmp, "projA", "shot.FBX"))
+    check("scratch name carries the source type: shot.ma -> shot_ma.blend",
+          os.path.basename(_scr_a) == "shot_ma.blend" and os.path.basename(_scr_fbx) == "shot_fbx.blend",
+          f"{_scr_a} / {_scr_fbx}")
+    check("scratch dir is a TempArtifacts-swept `btk_opened_*` dir under the temp dir",
+          os.path.basename(os.path.dirname(_scr_a)).startswith("btk_opened_")
+          and os.path.normcase(os.path.dirname(os.path.dirname(_scr_a))) == os.path.normcase(_tempfile.gettempdir()),
+          _scr_a)
+    check("same-named scenes in different projects get separate scratches",
+          os.path.dirname(_scr_a) != os.path.dirname(_scr_b))
+    check("scratch path is deterministic (a second Open click must resolve the same file)",
+          ReferenceManagerSlots._foreign_scratch_path(os.path.join(tmp, "projA", "shot.ma")) == _scr_a)
+
+    # --- scratch discard on close / next open: the slot hands the current file to the twins
+    # store (ptk.ScratchTwins owns untouched-vs-saved; pinned in pythontk's own tests).
+    import pythontk as ptk
+    import blendertk.env_utils.reference_manager as _rm
+
+    _twins = _rm._scratch_twins()
+    _bake = os.path.join(tmp, "bake.blend")
+    with open(_bake, "wb") as fh:
+        fh.write(b"bake")
+    _scr = _twins.create(os.path.join(tmp, "projA", "shot.ma"), _bake)
+    check("the slot's twins store is one process-wide ptk.ScratchTwins",
+          _twins is _rm._scratch_twins() and isinstance(_twins, ptk.ScratchTwins) and os.path.isfile(_scr))
+    s, _ = make_slots()
+    s._discard_stale_scratches()  # current file (empty scene) is not the twin -> discarded
+    check("_discard_stale_scratches removes an untouched twin once the scene moved on",
+          not os.path.exists(_scr) and not _twins.is_twin(_scr))
+
+    # --- workspace resolution for an opened scene: marked project > selected > own folder ---
+    _proj = os.path.join(tmp, "proj_marked")
+    os.makedirs(os.path.join(_proj, "scenes"), exist_ok=True)
+    ptk.Workspace.create(_proj, create_dirs=False)
+    _loose = os.path.join(tmp, "loose", "sub")
+    os.makedirs(_loose, exist_ok=True)
+    s, _ = make_slots()
+    s._workspace_dir = lambda: os.path.join(tmp, "loose")
+    check("_workspace_for: the marked project containing the scene wins",
+          os.path.normcase(s._workspace_for(os.path.join(_proj, "scenes", "a.ma"))) == os.path.normcase(_proj))
+    check("_workspace_for: the panel's selected workspace when the scene lies under it",
+          os.path.normcase(s._workspace_for(os.path.join(_loose, "b.ma"))) == os.path.normcase(os.path.join(tmp, "loose")))
+    s._workspace_dir = lambda: ""
+    check("_workspace_for: else the scene's own folder",
+          os.path.normcase(s._workspace_for(os.path.join(_loose, "b.ma"))) == os.path.normcase(_loose))
+    check("_workspace_for: nothing for an empty path", s._workspace_for("") == "")
+    _prev_pin = btk.current_workspace()
+    s._pin_workspace_for(os.path.join(_proj, "scenes", "a.ma"))
+    _ws = btk.current_workspace()
+    check("_pin_workspace_for pins the session workspace (no more 'temp workspace' after a foreign open)",
+          _ws is not None and os.path.normcase(_ws.root) == os.path.normcase(_proj), f"{_ws}")
+    btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
+
 except Exception as e:
     traceback.print_exc()
     check("test raised", False, repr(e))

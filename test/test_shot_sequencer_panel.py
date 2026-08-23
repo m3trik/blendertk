@@ -16,6 +16,7 @@ and every widget signal maps to a real controller slot.  Run under the ``.venv``
 The engine behaviour (move / ripple / scale / resize / segments) is covered live by
 ``test_shot_sequencer.py`` under the Blender harness.
 """
+
 import os
 import sys
 import tempfile
@@ -96,7 +97,12 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
     def test_controller_mro_has_all_mixins(self):
         ctrl = self.ui.slots.controller
         names = {c.__name__ for c in type(ctrl).__mro__}
-        for mixin in ("GapManagerMixin", "ClipMotionMixin", "ShotNavMixin", "MarkerManagerMixin"):
+        for mixin in (
+            "GapManagerMixin",
+            "ClipMotionMixin",
+            "ShotNavMixin",
+            "MarkerManagerMixin",
+        ):
             self.assertIn(mixin, names, f"{mixin} missing from controller MRO")
 
     def test_static_widgets_exist(self):
@@ -107,8 +113,10 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
     def test_sequencer_widget_is_promoted(self):
         w = getattr(self.ui, "sequencer_widget", None)
         self.assertIsNotNone(w)
-        self.assertTrue(hasattr(w, "add_track"),
-                        "sequencer_widget did not promote to the uitk SequencerWidget")
+        self.assertTrue(
+            hasattr(w, "add_track"),
+            "sequencer_widget did not promote to the uitk SequencerWidget",
+        )
 
     def test_signals_wired_to_real_slots(self):
         """Every widget signal in the wiring table maps to an existing controller slot."""
@@ -117,8 +125,12 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         )
 
         ctrl = self.ui.slots.controller
-        missing = [slot for _, slot in ShotSequencerSlots._WIRING if not hasattr(ctrl, slot)]
-        self.assertEqual(missing, [], f"wiring references missing controller slots: {missing}")
+        missing = [
+            slot for _, slot in ShotSequencerSlots._WIRING if not hasattr(ctrl, slot)
+        ]
+        self.assertEqual(
+            missing, [], f"wiring references missing controller slots: {missing}"
+        )
 
     def test_widget_signal_connections_recorded(self):
         """The controller connected the widget signals (recorded on the widget)."""
@@ -140,11 +152,69 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
             self.skipTest("cmb_shot has no option_box in this environment")
         opts = getattr(cmb, "_shot_nav_options", None)
         self.assertIsNotNone(opts, "shot-nav options were not built (swallowed?)")
-        for key in ("prev", "next", "add", "view", "refresh"):
+        for key in ("prev", "next", "add", "view", "holds", "refresh"):
             self.assertIsNotNone(opts.get(key), f"missing shot-nav option: {key}")
+        # holds toggle state is adopted (mirror of mayatk's Show Internal Holds)
+        self.assertIsInstance(self.ui.slots.controller._show_internal_holds, bool)
         # the view cycle is adopted into the controller's display mode
-        self.assertIn(self.ui.slots.controller._shot_display_mode,
-                      ("current", "adjacent", "all"))
+        self.assertIn(
+            self.ui.slots.controller._shot_display_mode, ("current", "adjacent", "all")
+        )
+
+    def test_transport_controls_attached_once(self):
+        """Footer carries ONE TransportControls row wired to the Blender play controller."""
+        from uitk.widgets.sequencer import TransportControls
+        from blendertk.anim_utils.shots.shot_sequencer.shot_sequencer_slots import (
+            _BlenderPlayController,
+        )
+
+        footer = getattr(self.ui, "footer", None)
+        if footer is None:
+            self.skipTest("no footer in this environment")
+        transport = getattr(footer, "_shot_transport_controls", None)
+        self.assertIsInstance(transport, TransportControls)
+        self.assertIs(self.ui.slots.controller._transport_controls, transport)
+        self.assertIsInstance(transport._play_controller, _BlenderPlayController)
+        # headless (no bpy): the adapter reports "not playing" rather than raising
+        self.assertFalse(transport._play_controller.is_playing())
+        rows = [w for w in footer.findChildren(TransportControls)]
+        self.assertEqual(len(rows), 1, "transport row duplicated on the footer")
+
+    def test_cmb_shot_context_menu_installed(self):
+        """Right-click on cmb_shot opens the New/Generate/Edit/Delete menu (mayatk mirror)."""
+        from qtpy import QtCore
+
+        cmb = getattr(self.ui, "cmb_shot", None)
+        if cmb is None or not hasattr(cmb, "option_box"):
+            self.skipTest("cmb_shot has no option_box in this environment")
+        self.assertEqual(cmb.contextMenuPolicy(), QtCore.Qt.CustomContextMenu)
+        for name in (
+            "_cmb_context_menu",
+            "_detect_next_shot",
+            "_delete_shot",
+            "_edit_shot_in_settings",
+        ):
+            self.assertTrue(callable(getattr(self.ui.slots, name, None)), name)
+
+    def test_controller_parity_surface(self):
+        """Every mayatk controller slot the widget/menu can reach exists here too."""
+        ctl = self.ui.slots.controller
+        for name in (
+            "_build_audio_tracks",
+            "_clips_to_sequences",
+            "_move_clips_to_shot",
+            "_set_show_internal_holds",
+            "_ensure_sound_on_timeline",
+            "_setup_transport_controls",
+            "_playback_range",
+            "on_key_selection_changed",
+            "_delete_selected_clip_keys",
+            "_reveal_in_outliner",
+            "_native_undo",
+        ):
+            self.assertTrue(callable(getattr(ctl, name, None)), name)
+        # audio-track label prefix round-trips through _resolve_full_name
+        self.assertEqual(ctl._resolve_full_name("♫ Strip"), "Strip")
 
     def test_reinit_stashes_and_tears_down_prior_controller(self):
         """Re-initing the slots over the same UI tears the old controller down
@@ -157,13 +227,17 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         self.assertIs(first, self.ui.slots.controller)
         second_slots = ShotSequencerSlots(self.sb)
         try:
-            self.assertIsNot(self.ui._sequencer_controller, first,
-                             "re-init did not stash the new controller")
+            self.assertIsNot(
+                self.ui._sequencer_controller,
+                first,
+                "re-init did not stash the new controller",
+            )
             # the old controller's invalidation listener must be gone
             from blendertk import BlenderShotStore
 
-            self.assertNotIn(first._on_store_invalidated,
-                             BlenderShotStore._invalidation_listeners)
+            self.assertNotIn(
+                first._on_store_invalidated, BlenderShotStore._invalidation_listeners
+            )
         finally:
             second_slots.controller.remove_callbacks()
 

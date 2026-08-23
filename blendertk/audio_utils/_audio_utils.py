@@ -50,6 +50,7 @@ working past that removal.
 ``import bpy`` is deferred into every call body (no import side effects; this module must be
 importable from headless tooling with no Blender running).
 """
+
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -62,6 +63,12 @@ MAX_CHANNEL_SEARCH = 64
 """Upper bound on the free-channel search in :func:`add_clip` (a generous ceiling, not a hard limit
 Blender enforces — it happily takes any positive channel number)."""
 
+_DEFAULT_FPS = 24.0
+
+#: ``{source_path: [(min, max), ...]}`` — waveform envelopes computed once per path
+#: (mirror of mayatk's module cache; see :meth:`AudioUtils.cached_waveform`).
+_WAVEFORM_CACHE: Dict[str, List[Tuple[float, float]]] = {}
+
 
 class AudioUtils(ptk.LoggingMixin):
     """Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
@@ -71,7 +78,15 @@ class AudioUtils(ptk.LoggingMixin):
     """
 
     PLAYABLE_EXTENSIONS = {
-        ".wav", ".ogg", ".mp3", ".flac", ".aif", ".aiff", ".m4a", ".aac", ".opus",
+        ".wav",
+        ".ogg",
+        ".mp3",
+        ".flac",
+        ".aif",
+        ".aiff",
+        ".m4a",
+        ".aac",
+        ".opus",
     }
     """Browse-dialog filter only — Blender's own media backend decides what actually decodes;
     unlike mayatk there is no conversion step gating this list (see module docstring)."""
@@ -152,7 +167,9 @@ class AudioUtils(ptk.LoggingMixin):
     # ------------------------------------------------------------------
 
     @classmethod
-    def add_clip(cls, filepath, frame_start=None, channel=None, name=None, scene=None) -> str:
+    def add_clip(
+        cls, filepath, frame_start=None, channel=None, name=None, scene=None
+    ) -> str:
         """Add *filepath* as a new sound strip. Returns the created strip's actual name.
 
         ``frame_start`` defaults to the scene's current frame — mayatk's two-phase "register a
@@ -178,7 +195,10 @@ class AudioUtils(ptk.LoggingMixin):
 
         strip_name = name or os.path.splitext(os.path.basename(filepath))[0]
         strip = seq_ed.strips.new_sound(
-            name=strip_name, filepath=filepath, channel=int(channel), frame_start=frame_start
+            name=strip_name,
+            filepath=filepath,
+            channel=int(channel),
+            frame_start=frame_start,
         )
         return strip.name
 
@@ -190,7 +210,9 @@ class AudioUtils(ptk.LoggingMixin):
         ]
         used_channels = {s.channel for s in occupied}
         channel = DEFAULT_CHANNEL
-        while channel in used_channels and channel < DEFAULT_CHANNEL + MAX_CHANNEL_SEARCH:
+        while (
+            channel in used_channels and channel < DEFAULT_CHANNEL + MAX_CHANNEL_SEARCH
+        ):
             channel += 1
         return channel
 
@@ -270,7 +292,9 @@ class AudioUtils(ptk.LoggingMixin):
         return True
 
     @classmethod
-    def trim_clip(cls, name: str, offset_start=None, offset_end=None, scene=None) -> bool:
+    def trim_clip(
+        cls, name: str, offset_start=None, offset_end=None, scene=None
+    ) -> bool:
         """Trim *name*'s head/tail without moving its overall position.
 
         ``offset_start``/``offset_end`` are frame counts trimmed off each end (Blender's
@@ -285,6 +309,103 @@ class AudioUtils(ptk.LoggingMixin):
         if offset_end is not None:
             strip.right_handle_offset = max(0, int(offset_end))
         return True
+
+    # ------------------------------------------------------------------
+    # Timeline queries / moves (sequencer consumers)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_fps(scene=None) -> float:
+        """Effective scene framerate (``render.fps / fps_base``), ``24.0`` outside Blender."""
+        try:
+            import bpy
+        except ImportError:
+            return _DEFAULT_FPS
+        scene = scene or bpy.context.scene
+        if scene is None:
+            return _DEFAULT_FPS
+        base = scene.render.fps_base or 1.0
+        return float(scene.render.fps) / float(base)
+
+    @classmethod
+    def clips_in_range(cls, start: float, end: float, scene=None) -> List[Dict]:
+        """Sound strips whose visible span ``[frame_start, frame_end]`` overlaps ``[start, end]``."""
+        return [
+            c
+            for c in cls.list_clips(scene)
+            if not (c["frame_end"] < start or c["frame_start"] > end)
+        ]
+
+    @classmethod
+    def shift_clips_in_range(
+        cls,
+        old_start: float,
+        old_end: float,
+        delta: float,
+        names: Optional[List[str]] = None,
+        scene=None,
+    ) -> List[str]:
+        """Shift every sound strip whose visible start lies in ``[old_start, old_end]`` by *delta*.
+
+        Behavioral mirror of mayatk's ``shift_keys_in_range`` (which moves a track's
+        keyed start event): a VSE strip's timeline position *is* its keyed state, so
+        the whole strip translates (``content_start += delta``, trims preserved).
+        *names* restricts the move to those strips.  Returns the names moved.
+
+        The window is inclusive on both ends with a ±1e-3 slop (a strip sitting
+        exactly on a shot boundary belongs to the shot that starts there — callers
+        with half-open envelopes deflate ``old_end`` themselves, as the shot planner
+        does).
+        """
+        if abs(delta) < 1e-6:
+            return []
+        seq_ed = cls.get_sequence_editor(scene)
+        if seq_ed is None:
+            return []
+        eps = 1e-3
+        lo, hi = old_start - eps, old_end + eps
+        wanted = set(names) if names is not None else None
+        moved: List[str] = []
+        for strip in seq_ed.strips:
+            if strip.type != "SOUND":
+                continue
+            if wanted is not None and strip.name not in wanted:
+                continue
+            if not (lo <= strip.left_handle <= hi):
+                continue
+            strip.content_start = int(round(strip.content_start + delta))
+            moved.append(strip.name)
+        return moved
+
+    # ------------------------------------------------------------------
+    # Waveform
+    # ------------------------------------------------------------------
+
+    compute_waveform_envelope = staticmethod(ptk.AudioUtils.compute_waveform_envelope)
+    """Re-export: ``(wav_path) -> List[(min, max)]``."""
+
+    @classmethod
+    def cached_waveform(cls, path: str) -> List[Tuple[float, float]]:
+        """Waveform envelope for *path*, computed once per path (mirror of mayatk).
+
+        The pure envelope reader is WAV-only; other formats Blender plays natively
+        (MP3/OGG/FLAC/…) go through ``ptk.AudioUtils.resolve_playable_path`` (an
+        ffmpeg conversion cached next to the source) — without ffmpeg the strip
+        simply renders without a waveform.
+        """
+        if not path:
+            return []
+        if path not in _WAVEFORM_CACHE:
+            playable = ptk.AudioUtils.resolve_playable_path(path)
+            _WAVEFORM_CACHE[path] = (
+                ptk.AudioUtils.compute_waveform_envelope(playable) if playable else []
+            )
+        return _WAVEFORM_CACHE[path]
+
+    @staticmethod
+    def clear_waveform_cache() -> None:
+        """Drop all cached waveform envelopes."""
+        _WAVEFORM_CACHE.clear()
 
     # ------------------------------------------------------------------
     # Scene-range sync

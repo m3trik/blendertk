@@ -45,7 +45,11 @@ import os
 import sys
 import traceback
 
-FBX_PATH = r"__FBX_PATH__"
+# The payload: FBX or USD, routed on the extension below (same recipe as the
+# interactive ``import`` template -- kept in step by hand).
+FBX_PATH = r"__PAYLOAD_PATH__"
+USD_EXTENSIONS = (".usd", ".usda", ".usdc", ".usdz")
+CARRIER = "usd" if FBX_PATH.lower().endswith(USD_EXTENSIONS) else "fbx"
 OUT_FILE = r"__OUT_FILE__"
 # Roots for mayatk + pythontk, resolved in the parent Blender -- the child must not
 # depend on its own environment to import the toolkit (mirror of btk's import template).
@@ -53,6 +57,14 @@ EXTRA_SYS_PATH = __EXTRA_SYS_PATH__
 # Which Maya shader the manifest rebuild targets (GameShader's vocabulary:
 # standard_surface / open_pbr / stingray).
 SHADER_TYPE = __SHADER_TYPE__
+
+
+# The *USD Import* translator options every hand-off importer uses -- mirror of
+# mayatk ``UsdUtils.INTERCHANGE_IMPORT_OPTIONS`` (pinned equal): time samples as
+# keys (the translator's default is OFF -- every animated prim arrived static,
+# measured) and Blender's ``st`` (its exporter's name for the render-active UV
+# map) landing as Maya's ``map1``, the FBX route's spelling.
+USD_IMPORT_OPTIONS = "readAnimData=1;remapUVSetsTo=[[st,map1]]"
 
 
 def _extend_sys_path():
@@ -78,6 +90,52 @@ def _engine():
             "mayatk unavailable ({}); using the plain FBX import path.".format(error)
         )
         return None
+
+
+def import_usd(cmds):
+    """Import a USD payload through mayaUsd's file translator; return ALL new nodes."""
+    if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
+        cmds.loadPlugin("mayaUsdPlugin")
+    return (
+        cmds.file(
+            FBX_PATH.replace("\\", "/"),
+            i=True,
+            type="USD Import",
+            ignoreVersion=True,
+            returnNewNodes=True,
+            options=USD_IMPORT_OPTIONS,
+        )
+        or []
+    )
+
+
+def import_payload(cmds, mel, engine):
+    """Run the importer the payload's extension names (FBX or USD)."""
+    if CARRIER == "usd":
+        return import_usd(cmds)
+    return import_fbx(cmds, mel, engine)
+
+
+def restore_usd_locators(cmds, engine, new_nodes):
+    """Give point-marker Empties their locator shape back (USD carrier) -- the
+    engine honors the manifest; the fallback keeps the children heuristic. Kept
+    in step by hand with ``mayatk.BlenderSceneImport._restore_usd_locators``."""
+    if engine is not None:
+        try:
+            engine._restore_usd_locators(new_nodes, FBX_PATH + ".manifest.json")
+            return
+        except Exception:
+            print("Locator repair failed in the engine; falling back:")
+            traceback.print_exc()
+    # exactType: a joint IS a transform, and a shapeless leaf joint is a
+    # skeleton tip, not a point marker.
+    for transform in cmds.ls(new_nodes, exactType="transform", long=True) or []:
+        if cmds.listRelatives(transform, shapes=True, fullPath=True):
+            continue
+        if cmds.listRelatives(transform, children=True, type="transform", fullPath=True):
+            continue
+        short = transform.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
+        cmds.createNode("locator", name=short + "Shape", parent=transform)
 
 
 def import_fbx(cmds, mel, engine):
@@ -148,9 +206,11 @@ def rebuild_materials(engine, new_nodes):
     if engine is None or not os.path.isfile(manifest):
         return
     try:
-        engine._apply_texture_manifest(manifest, new_nodes, shader_type=SHADER_TYPE)
+        engine._apply_texture_manifest(
+            manifest, new_nodes, shader_type=SHADER_TYPE, carrier=CARRIER
+        )
     except Exception:
-        print("Texture-manifest rebuild failed; keeping FBX materials:")
+        print("Texture-manifest rebuild failed; keeping the carried materials:")
         traceback.print_exc()
 
 
@@ -163,8 +223,11 @@ def main():
 
     cmds.file(new=True, force=True)
     engine = _engine()
-    new_nodes = import_fbx(cmds, mel, engine)
-    restore_empty_groups(cmds, engine, new_nodes)
+    new_nodes = import_payload(cmds, mel, engine)
+    if CARRIER == "usd":
+        restore_usd_locators(cmds, engine, new_nodes)
+    else:
+        restore_empty_groups(cmds, engine, new_nodes)
     rebuild_materials(engine, new_nodes)
 
     # The extension the caller asked for decides the writer: .mb only when explicitly

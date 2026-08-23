@@ -8,16 +8,16 @@ plus two standalone helpers (:func:`curves_for_attr`, :func:`scale_attribute_key
 Blender's fcurve key edits need none of Maya's cut-and-recreate dance (Maya's
 ``keyframe(timeChange=)`` won't slide a key past an occupied frame, and it snaps
 tangents): moving a key is ``keyframe_point.co[0] = new_t`` and its interpolation
-travels with it.  Divergences (ledgered): audio-clip *motion* is a no-op this phase
-(VSE sound-strip time-shifting is a documented follow-up — matches the engine's
-"no audio shifting"), and per-attribute sub-row segmentation uses the object-segment
-fallback (no ``SegmentKeys`` port).
+travels with it.  Audio clips are VSE sound strips (``AudioUtils.shift_clips_in_range``
+— a strip's position is its keyed state, so no compositor re-sync is needed); sub-row
+runs shift through ``btk.SegmentKeys.shift_curves`` like the Maya original.
 """
 
 from __future__ import annotations
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.anim_utils._anim_utils import AnimUtils
 
 # Near-zero guard for floating-point comparisons.
 FLOAT_ZERO_EPS = 1e-6
@@ -37,23 +37,6 @@ __all__ = ["ClipMotionMixin"]
 
 class _ClipMotionMixinInternal(object):
     """Internal helpers for ClipMotionMixin."""
-
-    @staticmethod
-    def _shift_fcurve_keys(fcurves, delta: float, time_range) -> None:
-        """Shift every key of *fcurves* within *time_range* by *delta* (Blender direct move)."""
-        if abs(delta) < FLOAT_ZERO_EPS:
-            return
-        lo, hi = time_range[0] - _EPS, time_range[1] + _EPS
-        for fc in fcurves:
-            moved = False
-            for kp in fc.keyframe_points:
-                if lo <= kp.co[0] <= hi:
-                    kp.co[0] += delta
-                    kp.handle_left[0] += delta
-                    kp.handle_right[0] += delta
-                    moved = True
-            if moved:
-                fc.update()
 
     @staticmethod
     def _object_exists(obj_name: str) -> bool:
@@ -119,11 +102,30 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if clip is None:
             return False
 
-        # Audio clip move — deferred (VSE sound-strip time-shifting is a follow-up,
-        # matching the engine's "no audio shifting" divergence).
+        # Audio clip move — translate the VSE sound strip (a strip's position IS
+        # its keyed state; no compositor re-sync needed, unlike mayatk).
         if clip.data.get("is_audio"):
-            self.logger.debug("[CLIP MOVE] audio clip move is a no-op this phase")
-            return False
+            orig_start = clip.data.get("orig_start")
+            orig_end = clip.data.get("orig_end")
+            track_id = clip.data.get("audio_track_id")
+            if orig_start is None or orig_end is None or not track_id:
+                return False
+            delta = new_start - orig_start
+            if abs(delta) < FLOAT_ZERO_EPS:
+                return False
+            from blendertk.audio_utils._audio_utils import AudioUtils
+
+            AudioUtils.shift_clips_in_range(
+                orig_start, orig_end, delta, names=[track_id]
+            )
+            new_end = new_start + (orig_end - orig_start)
+            clip.data["orig_start"] = new_start
+            clip.data["orig_end"] = new_end
+            # The audio segment cache still holds the pre-move span — the
+            # immediate rebuild would snap the clip back until the next refresh.
+            self._audio_segments_cache = None
+            self._expand_shot_for_clip(clip, new_start, new_end)
+            return True
 
         # Sub-row attribute clip move
         attr_name = clip.data.get("attr_name")
@@ -138,18 +140,23 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             delta = new_start - orig_start
             if abs(delta) < FLOAT_ZERO_EPS:
                 return False
-            # Both stepped and span sub-row moves go through curves_for_attr
-            # (label-scoped, quaternion-safe).  The engine's move_stepped_keys
-            # takes a data_path filter, not a display label, so it can't be used
-            # here — a stepped key is just a point window (orig_start, orig_start).
-            curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
-            if curves:
-                window = (
-                    (orig_start, orig_start)
-                    if clip.data.get("is_stepped")
-                    else (orig_start, orig_end)
-                )
-                _ClipMotionMixinInternal._shift_fcurve_keys(curves, delta, window)
+            if clip.data.get("is_stepped"):
+                # Stepped sub-row clip: a point window at orig_start.
+                if self.sequencer is not None:
+                    self.sequencer.move_stepped_keys(
+                        obj_name, orig_start, new_start, attr_name=attr_name
+                    )
+            else:
+                curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
+                if curves:
+                    from blendertk.anim_utils.segment_keys import SegmentKeys
+
+                    SegmentKeys.shift_curves(
+                        curves,
+                        delta,
+                        time_range=(orig_start, orig_end),
+                        remove_flat_at_dest=False,
+                    )
             new_end = new_start + (orig_end - orig_start)
             self._expand_shot_for_clip(clip, new_start, new_end)
             return True
@@ -284,14 +291,11 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
     def on_keys_moved(self, clip_id: int, changes: list) -> None:
         """Move individual keyframes on the fcurves, then refresh.
 
-        *changes* is ``[(old_time, new_time), ...]``.  Blender moves the point in
-        place (``co[0] = new_t``) — no value/tangent capture-and-replay.
-
-        Two-pass per fcurve (the Blender analogue of mayatk's batch-collision
-        handling): every ``(key, new_time)`` target is matched against the
-        PRE-move key positions first, then written.  A single in-place pass
-        would let a later ``(old_t, new_t)`` pair match a key an earlier pair
-        just moved — e.g. ``[(10, 12), (12, 14)]`` stacking both keys on 14.
+        *changes* is ``[(old_time, new_time), ...]``.  Routed through the engine's
+        ``move_curve_keys`` / ``recreate_curve_keys`` exactly like mayatk; Blender
+        moves each point in place (``co[0] = new_t``) — no tangent capture/replay,
+        and the two-pass recreate path guarantees a later ``(old_t, new_t)`` pair
+        can never grab a key an earlier pair just moved.
         """
         widget = self._get_sequencer_widget()
         clip = widget.get_clip(clip_id) if widget else None
@@ -305,31 +309,36 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if not curves:
             return
 
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            ShotSequencer,
+        )
+
+        # Same primitives as mayatk: one shared delta → move_curve_keys; mixed
+        # deltas → recreate_curve_keys (two-pass, so a key can't be claimed twice).
         moved_any = False
         with CoreUtils.undo_chunk():
             for fc in curves:
-                # Pass 1 — match against pre-move positions (each key claimed once).
-                targets = []
-                claimed = set()
-                for old_t, new_t in changes:
-                    if abs(new_t - old_t) < 1e-6:
-                        continue
-                    for kp in fc.keyframe_points:
-                        ptr = kp.as_pointer()
-                        if ptr in claimed:
-                            continue
-                        if abs(kp.co[0] - old_t) < _EPS:
-                            claimed.add(ptr)
-                            targets.append((kp, new_t))
-                # Pass 2 — write (no add/remove, so the kp references stay valid).
-                for kp, new_t in targets:
-                    d = new_t - kp.co[0]
-                    kp.co[0] = new_t
-                    kp.handle_left[0] += d
-                    kp.handle_right[0] += d
-                    moved_any = True
-                if targets:
-                    fc.update()
+                kt = AnimUtils.key_times(fc)
+
+                def _has_key(t, _kt=kt):
+                    i0, i1 = AnimUtils.window_indices(_kt, t - _EPS, t + _EPS)
+                    return i1 > i0
+
+                pairs = [
+                    (old_t, new_t)
+                    for old_t, new_t in changes
+                    if abs(new_t - old_t) >= 1e-6 and _has_key(old_t)
+                ]
+                if not pairs:
+                    continue
+                deltas = {round(new_t - old_t, 6) for old_t, new_t in pairs}
+                if len(deltas) == 1:
+                    ShotSequencer.move_curve_keys(
+                        fc, [old_t for old_t, _ in pairs], deltas.pop(), eps=_EPS
+                    )
+                else:
+                    ShotSequencer.recreate_curve_keys(fc, pairs, eps=_EPS)
+                moved_any = True
         if not moved_any:
             return
 
@@ -366,13 +375,13 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         with CoreUtils.undo_chunk():
             for t in times:
                 for fc in curves:
-                    victims = [
-                        kp for kp in fc.keyframe_points if abs(kp.co[0] - t) < _EPS
-                    ]
-                    for kp in reversed(victims):
-                        fc.keyframe_points.remove(kp)
+                    i0, i1 = AnimUtils.window_indices(
+                        AnimUtils.key_times(fc), t - _EPS, t + _EPS
+                    )
+                    for i in reversed(range(i0, i1)):
+                        fc.keyframe_points.remove(fc.keyframe_points[i])
                         deleted = True
-                    if victims:
+                    if i1 > i0:
                         fc.update()
         if not deleted:
             return
@@ -426,19 +435,8 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
         if not curves or abs(old_end - old_start) < FLOAT_ZERO_EPS:
             return
-        scale = (new_end - new_start) / (old_end - old_start)
         lo, hi = old_start - _EPS, old_end + _EPS
-
-        def _remap(x):
-            return new_start + (x - old_start) * scale
-
         for fc in curves:
-            moved = False
-            for kp in fc.keyframe_points:
-                if lo <= kp.co[0] <= hi:
-                    kp.handle_left[0] = _remap(kp.handle_left[0])
-                    kp.handle_right[0] = _remap(kp.handle_right[0])
-                    kp.co[0] = _remap(kp.co[0])
-                    moved = True
-            if moved:
-                fc.update()
+            AnimUtils.remap_keys_in_window(
+                fc, lo, hi, old_start, old_end, new_start, new_end
+            )

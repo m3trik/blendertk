@@ -88,8 +88,8 @@ try:
     # ---- raw template text (Qt-free; render_template itself needs Qt) -------
     import_txt = (_TEMPLATE_DIR / "import.py").read_text()
     check(
-        "import template: FBXImport + FBX_PATH placeholder",
-        "FBXImport" in import_txt and "__FBX_PATH__" in import_txt,
+        "import template: FBXImport + the carrier-neutral payload placeholder",
+        "FBXImport" in import_txt and "__PAYLOAD_PATH__" in import_txt,
     )
     check(
         "import template: export-options placeholders present (panel visibility)",
@@ -357,6 +357,148 @@ try:
         )
     finally:
         btk.FbxUtils.export_selection_fbx = orig_export
+
+    # ---- USD carrier (bpy; ``btk.UsdUtils.export`` stubbed) ------------------
+    # The same send produced as a USD layer: opt-in beside FBX, native
+    # materials-off, animation sampled only where it moves, and LOUD where USD
+    # cannot carry what FBX carries -- linked duplicates are refused, since a
+    # flat layer would land in Maya as N independent shapes (the silent
+    # structural loss that reverted a USD default on 2026-08-02).
+    usd_captured = {}
+
+    def fake_usd_export(filepath=None, objects=None, selection_only=True, frame_range=None, **opts):
+        usd_captured["names"] = [o.name for o in (objects or [])]
+        usd_captured["opts"] = dict(opts)
+        usd_captured["frame_range"] = frame_range
+        usd_captured["selection_only"] = selection_only
+        return filepath
+
+    orig_usd_export = btk.UsdUtils.export
+    btk.UsdUtils.export = staticmethod(fake_usd_export)
+    try:
+        from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS as _MB_DEFAULTS
+
+        bridge = MayaBridge(maya_path="C:/fake/maya.exe")
+        check("carrier: the bridge offers fbx then usd", bridge.carriers == ("fbx", "usd"))
+        check("carrier: FBX is the default", _MB_DEFAULTS["CARRIER"] == "fbx")
+        check(
+            "carrier: the Maya-side templates route a USD payload to the USD importer",
+            all(
+                "USD Import" in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "__PAYLOAD_PATH__" in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                for t in ("import.py", "_save_scene.py")
+            ),
+        )
+        # Pinned to the literal mayatk's UsdUtils.INTERCHANGE_IMPORT_OPTIONS
+        # serializes to (its test pins the same literal): keys, and Blender's
+        # render-active ``st`` landing as Maya's ``map1``.
+        _USD_IMPORT_OPTIONS = "readAnimData=1;remapUVSetsTo=[[st,map1]]"
+        check(
+            "carrier: the Maya-side templates import with the interchange options",
+            all(
+                f'USD_IMPORT_OPTIONS = "{_USD_IMPORT_OPTIONS}"'
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "options=USD_IMPORT_OPTIONS," in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                for t in ("import.py", "_save_scene.py")
+            ),
+        )
+
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        btk.assign_mat([cube], btk.create_mat("standard", name="MBU"))
+        tmp_usd = os.path.join(tempfile.gettempdir(), "btk_maya_bridge_test.usd")
+
+        # dispatch on the extension: .usd -> the USD writer, .fbx -> the FBX one
+        usd_captured.clear()
+        captured.clear()
+        btk.FbxUtils.export_selection_fbx = fake_export
+        try:
+            bridge._export_payload([cube], tmp_usd, {"INCLUDE_MATERIALS": True})
+            check("usd: a .usd payload path selects the USD writer",
+                  usd_captured.get("names") == [cube.name] and not captured)
+            usd_captured.clear()
+            bridge._export_payload([cube], tmp_fbx, {"INCLUDE_MATERIALS": True})
+            check("usd: a .fbx payload path still selects the FBX writer",
+                  captured.get("names") == [cube.name] and not usd_captured)
+        finally:
+            btk.FbxUtils.export_selection_fbx = orig_export
+
+        # the live-verified interchange option set, params mapped natively
+        usd_captured.clear()
+        bridge._export_usd([cube], tmp_usd, {"INCLUDE_MATERIALS": True, "TRIANGULATE": True})
+        o = usd_captured["opts"]
+        check(
+            "usd: interchange options (preview surface, KEEP textures, flat, one prim per object)",
+            o.get("export_materials") is True
+            and o.get("generate_preview_surface") is True
+            and o.get("export_textures_mode") == "KEEP"
+            and o.get("relative_paths") is False
+            and o.get("use_instancing") is False
+            and o.get("merge_parent_xform") is True
+            and o.get("root_prim_path") == ""
+            and o.get("triangulate_meshes") is True
+            and o.get("export_animation") is False,
+            str(o),
+        )
+        check("usd: selection-only, static send samples no frames",
+              usd_captured["selection_only"] is True and usd_captured["frame_range"] is None)
+
+        # materials off is a native flag -- no strip copies, the scene is untouched
+        usd_captured.clear()
+        before_objects = set(bpy.data.objects)
+        bridge._export_usd([cube], tmp_usd, {"INCLUDE_MATERIALS": False})
+        check("usd: materials off exports the ORIGINAL with export_materials=False",
+              usd_captured["names"] == [cube.name]
+              and usd_captured["opts"].get("export_materials") is False
+              and set(bpy.data.objects) == before_objects)
+
+        # animation: only the frames that carry motion, clamped to the scene
+        scene = bpy.context.scene
+        scene.frame_start, scene.frame_end = 1, 250
+        cube.keyframe_insert("location", frame=10)
+        cube.location.x += 2
+        cube.keyframe_insert("location", frame=40)
+        usd_captured.clear()
+        bridge._export_usd([cube], tmp_usd, {"INCLUDE_ANIMATION": True})
+        check("usd: an animated send samples the keys' own span",
+              usd_captured["opts"].get("export_animation") is True
+              and tuple(usd_captured["frame_range"] or ()) == (10, 40),
+              str(usd_captured["frame_range"]))
+        check("usd: sampling_frame_range is None for a static object",
+              btk.UsdUtils.sampling_frame_range([]) is None)
+        cube.animation_data_clear()
+
+        # linked duplicates: refused by default, flattened-with-warning on opt-in
+        twin = cube.copy()  # shares cube.data -> a linked duplicate
+        bpy.context.scene.collection.objects.link(twin)
+        check("usd: linked duplicates are found within the export set",
+              bridge._linked_duplicates([cube, twin]) == {cube.data.name: [cube.name, twin.name]}
+              and bridge._linked_duplicates([cube]) == {})
+        usd_captured.clear()
+        refused = None
+        try:
+            bridge._export_usd([cube, twin], tmp_usd, {})
+        except RuntimeError as error:
+            refused = str(error)
+        check("usd: a linked-duplicate send is REFUSED, naming FBX as the route",
+              refused is not None and "FBX" in refused and cube.data.name in refused
+              and not usd_captured, str(refused))
+        bridge.usd_flattens_instances = True
+        try:
+            usd_captured.clear()
+            bridge._export_usd([cube, twin], tmp_usd, {})
+            check("usd: a texturing bridge may flatten instead (opt-in flag)",
+                  sorted(usd_captured.get("names", [])) == sorted([cube.name, twin.name]))
+        finally:
+            bridge.usd_flattens_instances = False
+
+        check("usd: sanitize_prim_name mirrors the exporter's rewrite",
+              btk.UsdUtils.sanitize_prim_name("Chair.001") == "Chair_001"
+              and btk.UsdUtils.sanitize_prim_name("1digit") == "_1digit"
+              and btk.UsdUtils.sanitize_prim_name("") == "_")
+    finally:
+        btk.UsdUtils.export = orig_usd_export
 
     # ---- texture-manifest sidecar (bpy; the send half of the materials fix) --
     reset()

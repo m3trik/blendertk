@@ -172,6 +172,45 @@ try:
         f"n_removed={n_removed} remaining={AudioUtils.list_clips()}",
     )
 
+    # ---- sequencer consumers: fps, range query, range shift, waveform, segments
+    from blendertk.audio_utils.segments import AudioSegment
+
+    check("get_fps reads the scene clock", AudioUtils.get_fps() == scene.render.fps / scene.render.fps_base)
+    s1 = AudioUtils.add_clip(wav_a, frame_start=10, name="seq_a")
+    s2 = AudioUtils.add_clip(wav_b, frame_start=100, name="seq_b")
+    in_rng = [c["name"] for c in AudioUtils.clips_in_range(0, 50)]
+    check("clips_in_range: only the strip overlapping [0,50]", in_rng == [s1], str(in_rng))
+    moved = AudioUtils.shift_clips_in_range(0, 50, 7)
+    check("shift_clips_in_range: moved only the in-range strip", moved == [s1], str(moved))
+    check(
+        "shift_clips_in_range: strip start 10 -> 17, other untouched",
+        AudioUtils.get_clip(s1)["frame_start"] == 17 and AudioUtils.get_clip(s2)["frame_start"] == 100,
+        f"{AudioUtils.get_clip(s1)['frame_start']} / {AudioUtils.get_clip(s2)['frame_start']}",
+    )
+    moved_named = AudioUtils.shift_clips_in_range(0, 200, -5, names=[s2])
+    check("shift_clips_in_range(names=): scoped to the named strip", moved_named == [s2] and AudioUtils.get_clip(s2)["frame_start"] == 95)
+    check("shift_clips_in_range: zero delta is a no-op", AudioUtils.shift_clips_in_range(0, 200, 0.0) == [])
+    wf = AudioUtils.cached_waveform(wav_a)
+    check("cached_waveform: envelope read from WAV", isinstance(wf, list) and len(wf) > 0, str(len(wf)))
+    check("cached_waveform: cached object reused", AudioUtils.cached_waveform(wav_a) is wf)
+    AudioUtils.clear_waveform_cache()
+    check("clear_waveform_cache: recomputed (new object)", AudioUtils.cached_waveform(wav_a) is not wf)
+    segs = AudioSegment.collect_all_segments()
+    check("AudioSegment.collect_all_segments: one per strip, sorted by start", [sg.track_id for sg in segs] == [s1, s2], str([sg.track_id for sg in segs]))
+    if segs:
+        sg = segs[0]
+        check(
+            "AudioSegment fields mirror the strip's visible span",
+            sg.start == 17 and sg.end == AudioUtils.get_clip(s1)["frame_end"] and sg.duration == sg.end - sg.start and sg.is_audio and sg.label == s1,
+            f"{sg}",
+        )
+    only_late = AudioSegment.collect_all_segments(scene_start=90)
+    check("collect_all_segments(scene_start): drops strips ending before it", [sg.track_id for sg in only_late] == [s2])
+    one = AudioSegment.collect_segments_for_track(s2, include_waveform=False)
+    check("collect_segments_for_track: the named strip, no waveform", len(one) == 1 and one[0].track_id == s2 and one[0].waveform == [])
+    check("collect_segments_for_track: unknown -> []", AudioSegment.collect_segments_for_track("nope") == [])
+    AudioUtils.remove_all_clips()
+
     scene.frame_start, scene.frame_end = 1, 250
     rng3 = AudioUtils.sync_scene_range()
     check("sync_scene_range is a no-op with zero clips", rng3 == (1, 250), str(rng3))

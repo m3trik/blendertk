@@ -36,7 +36,6 @@ transcript) — **observably**: the reason is logged. Module API mirrors mayatk'
 ``import bpy`` / Qt are deferred into call bodies (no import side effects; headless-import safe).
 """
 
-import os
 import sys
 import json
 import threading
@@ -263,15 +262,9 @@ class ScriptConsole:
     # -- persisted state --------------------------------------------------------
     @classmethod
     def _state_path(cls) -> Optional[str]:
-        base = cls._state_dir_override
-        if base is None:
-            try:
-                import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
-                base = bpy.utils.user_resource("CONFIG")
-            except Exception:
-                return None
-        return os.path.join(base, cls._STATE_FILE) if base else None
+        return CoreUtils.user_config_path(cls._STATE_FILE, base=cls._state_dir_override)
 
     @classmethod
     def _load_state(cls) -> dict:

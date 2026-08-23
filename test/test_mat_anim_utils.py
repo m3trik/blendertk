@@ -1014,6 +1014,60 @@ try:
           stats["curves_after"] < stats["curves_before"]
           and stats["keys_after"] < stats["keys_before"], f"{stats}")
 
+    # ---- optimize_keys unbake mode (value_tolerance=-1) --------------------
+    reset()
+    import math
+    bpy.ops.mesh.primitive_cube_add()
+    u = bpy.context.active_object
+    baked = {}
+    for f in range(0, 201):      # 3 sine waves, a hold, a ramp -- per-frame bake
+        if f <= 120:
+            v = 10.0 * math.sin(f * (2 * math.pi / 40.0))
+        elif f <= 160:
+            v = 0.0
+        else:
+            v = 10.0 * (f - 160) / 40.0
+        u.location.y = v
+        u.keyframe_insert("location", index=1, frame=f)
+        u.rotation_euler.x = math.radians(v * 9.0)
+        u.keyframe_insert("rotation_euler", index=0, frame=f)
+        baked[f] = v
+    # A stepped visibility track must survive the flat pass, not the unbake.
+    for f, vis in enumerate((0, 0, 0, 1, 1, 1, 0, 0, 0, 1)):
+        u.hide_viewport = bool(vis)
+        u.keyframe_insert("hide_viewport", frame=f)
+    vis_fc = [fc for fc in btk.get_fcurves(u) if fc.data_path == "hide_viewport"][0]
+    for k in vis_fc.keyframe_points:
+        k.interpolation = "CONSTANT"
+    stats = {}
+    btk.optimize_keys(u, value_tolerance=-1, simplify_keys=True, stats=stats)
+    expected = [0.0, 10.0, 30.0, 50.0, 70.0, 90.0, 110.0, 120.0, 160.0, 200.0]
+    loc = [fc for fc in btk.get_fcurves(u) if fc.data_path == "location"][0]
+    rot = [fc for fc in btk.get_fcurves(u) if fc.data_path == "rotation_euler"][0]
+    check("unbake keeps endpoints, extrema and hold boundaries",
+          [k.co.x for k in loc.keyframe_points] == expected
+          and [k.co.x for k in rot.keyframe_points] == expected,
+          f"{[k.co.x for k in loc.keyframe_points]}")
+    hold_key = loc.keyframe_points[7]
+    check("unbake hold faces are flat and broken",
+          hold_key.handle_right_type == "FREE"
+          and abs(hold_key.handle_right.y - hold_key.co.y) < 1e-9
+          and loc.keyframe_points[3].handle_left_type == "ALIGNED")
+    worst = max(abs(loc.evaluate(f) - v) for f, v in baked.items())
+    hold = max(abs(loc.evaluate(f)) for f in range(120, 161))
+    worst_rot = max(abs(math.degrees(rot.evaluate(f)) - v * 9.0) for f, v in baked.items())
+    check("unbake traces the bake (one cubic per half-wave ~2% of amplitude)",
+          worst < 0.3 and hold < 1e-6 and worst_rot < 2.7, f"{worst} {hold} {worst_rot}")
+    check("unbake leaves the stepped curve to the flat pass",
+          all(k.interpolation == "CONSTANT" for k in vis_fc.keyframe_points)
+          and len(vis_fc.keyframe_points) < 10
+          and [bool(vis_fc.evaluate(f)) for f in range(10)]
+          == [False, False, False, True, True, True, False, False, False, True])
+    check("unbake stats",
+          stats["unbaked"] == 2 and stats["unbake_keys_removed"] == 2 * (201 - 10)
+          and stats["unbake_max_error"] < 2.7 and stats["keys_after"] < stats["keys_before"],
+          f"{stats}")
+
     # ---- tie_keyframes ------------------------------------------------------
     reset()
     sc = bpy.context.scene

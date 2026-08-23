@@ -366,7 +366,7 @@ class NodeUtils(_NodeUtilsInternal):
         """Re-link one group's siblings to the master's post-op data and
         compensate their world matrices.  See :meth:`preserved_instances`."""
         import bpy
-        from mathutils import Matrix
+        from blendertk.xform_utils.matrices import Matrices
 
         master = rec["master"]
         try:
@@ -375,9 +375,7 @@ class NodeUtils(_NodeUtilsInternal):
             raise RuntimeError("master no longer exists")
 
         B = master.matrix_world.inverted() @ rec["pre_world"]
-        b_identity = (
-            max(abs(v) for row in (B - Matrix.Identity(4)) for v in row) < 1e-9
-        )
+        b_identity = Matrices.is_identity(B)
 
         for o in rec["siblings"]:
             try:

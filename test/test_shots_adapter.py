@@ -16,7 +16,11 @@ correctly feeds the shared pythontk detection/model core:
 - ``detect_regions`` selected-keys mode builds boundaries from selected keys;
 - ``BlenderScenePersistence`` round-trips the store through ``scene["shot_store"]``,
   and ``BlenderShotStore.active()`` auto-installs the backend + reloads it;
-- ``assess`` flags a shot whose object is missing from the file.
+- ``assess`` flags a shot whose object is missing from the file;
+- the mayatk-parity lifecycle hooks: ``SceneBeforeSave`` (``save_pre``) flushes a
+  dirty store before the ``.blend`` is written, ``_on_time_unit_changed`` rescales
+  shot timings to a new ``render.fps``, the ``bpy.msgbus`` framerate watch is
+  (re)armed across file loads, and ``_schedule_flush`` is immediate headless.
 
 Run headless (fresh instance — session-safety rule):
   & "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe" --background \\
@@ -51,7 +55,8 @@ def _run_shots_adapter_checks():
     import bpy
 
     from blendertk import BlenderShotStore, BlenderScenePersistence
-    from blendertk.anim_utils.shots._shots import ATTR_NAME
+
+    ATTR_NAME = BlenderScenePersistence.ATTR_NAME
 
     # ---- isolate class state + user-prefs side effects -------------------
     BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_shots_prefs_")
@@ -236,6 +241,56 @@ def _run_shots_adapter_checks():
         f"{verdict}",
     )
 
+    # ---- publish_export_view: fbx_takes + shot_metadata on the carrier ----
+    # Mirror of the Maya store's projection (shot_export_unity.md contract):
+    # both channels from one to_export_view pass, cleared by an empty store.
+    import json
+
+    from blendertk.node_utils.data_nodes import DataNodes
+
+    if DataNodes.get_export_node(create=False) is not None:
+        import bpy as _bpy
+
+        _bpy.data.objects.remove(
+            DataNodes.get_export_node(create=False), do_unlink=True
+        )
+
+    pub_store = BlenderShotStore()
+    pub_store.define_shot("shotA", 1, 10, objects=["CubeA"])
+    pub_store.define_shot("shotB", 20, 30, objects=["CubeA"])
+    carrier_name = pub_store.publish_export_view()
+    check(
+        "publish_export_view creates + returns the data_export carrier",
+        carrier_name == DataNodes.EXPORT
+        and DataNodes.get_export_node(create=False) is not None,
+        f"{carrier_name}",
+    )
+    takes_raw = DataNodes.get_export_string(DataNodes.FBX_TAKES)
+    meta_raw = DataNodes.get_export_string(DataNodes.SHOT_METADATA)
+    takes = json.loads(takes_raw) if takes_raw else []
+    meta = json.loads(meta_raw) if meta_raw else {}
+    check(
+        "fbx_takes channel carries one {name,start,end} per shot",
+        [t.get("name") for t in takes] == ["shotA", "shotB"]
+        and takes[0].get("start") == 1
+        and takes[1].get("end") == 30,
+        f"{takes}",
+    )
+    check(
+        "shot_metadata clip names join 1:1 with the take names",
+        [s.get("clip") for s in meta.get("shots", [])]
+        == [t.get("name") for t in takes],
+        f"{meta}",
+    )
+    for sid in [s.shot_id for s in list(pub_store.shots)]:
+        pub_store.remove_shot(sid)
+    pub_store.publish_export_view()
+    check(
+        "empty store clears both channels (carrier not recreated to hold them)",
+        DataNodes.get_export_string(DataNodes.FBX_TAKES) is None
+        and DataNodes.get_export_string(DataNodes.SHOT_METADATA) is None,
+    )
+
     # ---- scene-swap invalidation lifecycle (C1) ---------------------------
     # BlenderScenePersistence must wire load_post (via ScriptJobManager) so a
     # File > New/Open (1) nulls the active store, (2) fires the class-level
@@ -301,6 +356,93 @@ def _run_shots_adapter_checks():
         "clear_active tears down the backend's scene job",
         not any(s["owner"] == repr(backend2) for s in subs_after),
         f"{subs_after}",
+    )
+
+    # ---- mayatk-parity lifecycle hooks -------------------------------------
+    # (a) SceneBeforeSave -> save_pre: a dirty store is flushed before the file
+    #     is written (mirror of MayaScenePersistence._on_before_save).
+    import pythontk as ptk
+
+    BlenderShotStore.clear_active()
+    if ATTR_NAME in scene.keys():
+        del scene[ATTR_NAME]
+    hook_store = BlenderShotStore.active()
+    hook_backend = BlenderShotStore._persistence
+    status = ScriptJobManager.instance().status()
+    check(
+        "persistence backend subscribed SceneBeforeSave (save_pre master installed)",
+        "save_pre" in status["installed_handlers"]
+        and any(
+            sub["event"] == "SceneBeforeSave" and sub["owner"] == repr(hook_backend)
+            for sub in status["subscriptions"]
+        ),
+        f"{status}",
+    )
+    hook_store.define_shot("Flushed", 1, 10, objects=[])
+    # Force the dirty state the deferred flush would leave behind in a GUI
+    # session (headless flushes immediately — see (d)).
+    hook_store.shots[0].name = "FlushedBySavePre"
+    hook_store._dirty = True
+    with ptk.TempArtifacts(prefix="btk_shots_save_") as tmp:
+        save_path = tmp.path(".blend")
+        bpy.ops.wm.save_as_mainfile(filepath=str(save_path), copy=True)
+    check(
+        "save_pre flushed the dirty store into the scene property",
+        not hook_store._dirty and "FlushedBySavePre" in (scene.get(ATTR_NAME) or ""),
+        f"dirty={hook_store._dirty} raw={(scene.get(ATTR_NAME) or '')[:80]}",
+    )
+
+    # (b) _on_time_unit_changed: framerate change rescales shot timings
+    #     (mirror of MayaScenePersistence._on_time_unit_changed).
+    scene.render.fps = 24
+    scene.render.fps_base = 1.0
+    hook_store.scene_fps = 24.0
+    hook_store.shots[0].start, hook_store.shots[0].end = 12.0, 24.0
+    scene.render.fps = 48
+    hook_backend._on_time_unit_changed()
+    sh = hook_store.shots[0]
+    check(
+        "fps change rescales shot bounds (24 -> 48 doubles frames)",
+        abs(hook_store.scene_fps - 48.0) < 1e-6 and sh.start == 24.0 and sh.end == 48.0,
+        f"fps={hook_store.scene_fps} {sh.start}-{sh.end}",
+    )
+    hook_backend._on_time_unit_changed()  # same fps -> no-op
+    check(
+        "fps hook is a no-op when the framerate is unchanged",
+        sh.start == 24.0 and sh.end == 48.0,
+        f"{sh.start}-{sh.end}",
+    )
+    scene.render.fps = 24
+
+    # (c) msgbus framerate watch: armed by the backend, re-armed after a file
+    #     load (msgbus drops subscriptions on load), cleared on remove_callbacks.
+    check("msgbus fps watch armed by the backend", hook_backend._fps_sub_installed)
+    hook_backend._fps_sub_installed = False
+    hook_backend._on_scene_changed()
+    check(
+        "SceneOpened handler re-arms the msgbus fps watch",
+        hook_backend._fps_sub_installed,
+    )
+    BlenderShotStore.clear_active()
+    check(
+        "remove_callbacks clears the msgbus fps watch flag",
+        not hook_backend._fps_sub_installed and not hook_backend._scene_subs_installed,
+    )
+
+    # (d) _schedule_flush: headless (bpy.app.background) flushes immediately —
+    #     the timer loop never runs in --background.
+    scene = bpy.context.scene
+    if ATTR_NAME in scene.keys():
+        del scene[ATTR_NAME]
+    flush_store = BlenderShotStore.active()
+    flush_store.define_shot("Immediate", 1, 5, objects=[])
+    check(
+        "_schedule_flush writes immediately in --background",
+        bpy.app.background
+        and not flush_store._dirty
+        and not flush_store._flush_pending
+        and "Immediate" in (scene.get(ATTR_NAME) or ""),
+        f"dirty={flush_store._dirty} pending={flush_store._flush_pending}",
     )
 
     # cleanup class state so a later suite in the same process starts clean

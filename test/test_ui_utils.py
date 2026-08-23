@@ -70,6 +70,35 @@ try:
         check(f"btk.{fn} is callable", callable(getattr(btk, fn, None)))
         check(f"UiUtils.{fn} is callable", callable(getattr(UiUtils, fn, None)))
 
+    # ---- reveal_in_outliner: selection is primary; scroll is best-effort -----
+    import bpy
+
+    bpy.ops.mesh.primitive_cube_add()
+    rv_a = bpy.context.active_object
+    rv_a.name = "RevealA"
+    bpy.ops.mesh.primitive_cube_add()
+    rv_b = bpy.context.active_object
+    rv_b.name = "RevealB"
+    rv_a.select_set(True)
+    UiUtils.reveal_in_outliner(["RevealB"])
+    check("reveal_in_outliner: target selected + active", rv_b.select_get() and bpy.context.view_layer.objects.active is rv_b)
+    check("reveal_in_outliner: prior selection replaced", not rv_a.select_get())
+    UiUtils.reveal_in_outliner(["NoSuchObject"])
+    check("reveal_in_outliner: unknown name is a clean no-op", bpy.context.view_layer.objects.active is rv_b)
+    check("btk.reveal_in_outliner mirrors mtk (callable)", callable(getattr(btk, "reveal_in_outliner", None)))
+
+    # ---- NodeIcons: Object.type -> uitk icon name (mirror of mtk.NodeIcons) --
+    from blendertk.ui_utils.node_icons import NodeIcons
+
+    check("NodeIcons.icon_name_for_type MESH -> cube", NodeIcons.icon_name_for_type("MESH") == "cube")
+    check("NodeIcons.icon_name_for_type unknown -> None", NodeIcons.icon_name_for_type("WHATEVER") is None)
+    check("NodeIcons.icon_name_for_node resolves a scene object", NodeIcons.icon_name_for_node("RevealA") == "cube")
+    bpy.ops.object.camera_add()
+    bpy.context.active_object.name = "RevealCam"
+    check("NodeIcons.icon_name_for_node CAMERA -> camera", NodeIcons.icon_name_for_node("RevealCam") == "camera")
+    check("NodeIcons.icon_name_for_node missing -> None", NodeIcons.icon_name_for_node("nope") is None)
+    check("btk.NodeIcons registered", getattr(btk, "NodeIcons", None) is NodeIcons)
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

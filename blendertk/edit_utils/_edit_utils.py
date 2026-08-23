@@ -357,16 +357,56 @@ class _EditUtilsInternal(object):
             return (mn + mx) / 2.0
         return obj.matrix_world.translation.copy()
 
+    #: Pivot keys whose frame is the object's own, not the world's. Mirrors
+    #: mayatk's set of the same name, minus the two pivots Blender has no
+    #: equivalent for ("original" needs bake history, "baked" a rotate pivot).
+    OBJECT_FRAME_PIVOTS = frozenset({"object", "manip"})
+
+    #: Values ``axis_frame`` accepts. ``"auto"`` derives the frame from the
+    #: pivot; the rest name it outright.
+    AXIS_FRAMES = frozenset({"auto", "world"} | set(OBJECT_FRAME_PIVOTS))
+
     @staticmethod
-    def _plane_frame(obj, axis, pivot):
+    def _resolve_axis_frame(pivot, axis_frame=None):
+        """The frame name the axes come from, or ``None`` for world axes.
+
+        ONE parameter answers "which axes", so every value stays meaningful:
+        ``None`` / ``"auto"`` derives it from the pivot (a pivot in
+        :attr:`OBJECT_FRAME_PIVOTS` brings its own frame, anything else —
+        including a tuple — is world), ``"world"`` forces world axes, and any
+        other frame name forces THAT frame whatever the pivot is. The last case
+        is the one a pivot alone cannot express: keeping an exact world POINT
+        while still tilting the plane into the object, which is what mayatk's
+        ``cut_along_axis`` needs when it hands its follow-on mirror a bare
+        tuple. Same vocabulary as ``mtk.EditUtils``' ``axis_frame``.
+        """
+        internal = _EditUtilsInternal
+        if axis_frame is not None and axis_frame != "auto":
+            if axis_frame not in internal.AXIS_FRAMES:
+                raise ValueError(
+                    f"axis_frame must be one of {sorted(internal.AXIS_FRAMES)}, "
+                    f"got {axis_frame!r}"
+                )
+            return None if axis_frame == "world" else axis_frame
+        if isinstance(pivot, str) and pivot in internal.OBJECT_FRAME_PIVOTS:
+            return pivot
+        return None
+
+    @staticmethod
+    def _plane_frame(obj, axis, pivot, axis_frame=None):
         """World-space ``(point, unit normal)`` of the mirror/cut plane for ``axis`` about ``pivot``.
 
         ``pivot``: ``"manip"`` (Blender's current Transform Pivot Point, see :func:`_manip_point`),
         ``"object"`` (object origin, **object-local** axis), ``"world"`` (world origin),
         ``"center"`` (world-bbox center), ``"xmin"`` / ``"xmax"`` / … (that world-bbox face), or a
-        world ``(x, y, z)`` point. All but ``"object"`` use world axes. The normal is the unsigned
+        world ``(x, y, z)`` point. ``"object"`` and ``"manip"`` are OBJECT-frame — the plane tilts
+        with the object (mirroring mayatk's ``OBJECT_FRAME_PIVOTS``); the rest use world axes,
+        and ``"manip"`` still takes its POINT from the pivot setting. The normal is the unsigned
         +axis direction — callers carry the axis sign separately (it only picks a side, never the
         plane itself).
+
+        ``axis_frame`` overrides which axes the normal comes from without touching
+        the point — see :func:`_resolve_axis_frame`.
         """
         from mathutils import Vector
 
@@ -377,11 +417,24 @@ class _EditUtilsInternal(object):
         n = Vector((0.0, 0.0, 0.0))
         n[idx] = 1.0
 
+        # "object" and "manip" are OBJECT-frame pivots: the plane tilts with the
+        # object. Mirrors mayatk's OBJECT_FRAME_PIVOTS, which has always included
+        # "manip" -- until 2026-08-21 this returned the manip POINT with a WORLD
+        # axis, so mirror(pivot="manip") on a rotated object tilted the plane in
+        # Maya and stayed world-aligned here, and the twins produced different
+        # geometry from the same call. Only the AXES changed; the point still
+        # comes from Blender's Transform Pivot Point setting.
+        # One normal for every branch below: the FRAME decides which axes it
+        # comes from, the PIVOT only decides where the plane sits. Keeping the
+        # two separate is what lets a caller name an exact world point and still
+        # tilt the plane into the object (or the reverse).
+        if _EditUtilsInternal._resolve_axis_frame(pivot, axis_frame) is not None:
+            n = (obj.matrix_world.to_3x3() @ n).normalized()
+
         if pivot == "manip":
             return _EditUtilsInternal._manip_point(obj), n
         if pivot == "object":
-            m3 = obj.matrix_world.to_3x3()
-            return obj.matrix_world.translation.copy(), (m3 @ n).normalized()
+            return obj.matrix_world.translation.copy(), n
         if isinstance(pivot, (tuple, list)) and len(pivot) == 3:
             return Vector(pivot), n
         if pivot == "world":
@@ -1180,6 +1233,7 @@ class EditUtils(_EditUtilsInternal):
         delete_original=False,
         merge_threshold=0.001,
         center_pivot=True,
+        axis_frame=None,
     ):
         """Mirror mesh object(s) across an axis plane — mirror of ``mtk.EditUtils.mirror``.
 
@@ -1197,6 +1251,9 @@ class EditUtils(_EditUtilsInternal):
         center — the pre-mirror origin is meaningless once the halves are combined
         (``merge_mode >= 0``) or a new half is created. In separate mode (``merge_mode == -1``)
         only the new half is centered; the source object's origin is left untouched.
+        ``axis_frame`` picks which axes the plane is normal to — ``None``/``"auto"``
+        derives it from the pivot, ``"world"`` forces world axes, ``"object"`` /
+        ``"manip"`` force the object's. Same vocabulary as ``mtk.EditUtils.mirror``.
         Returns the created objects (merge_mode ``-1``) or the modified sources.
         """
         import bpy
@@ -1210,7 +1267,9 @@ class EditUtils(_EditUtilsInternal):
             # which re-checks the object-user count so a pair mirrored together doesn't
             # copy the datablock twice and orphan the original.
             NodeUtils.uninstance(obj)
-            point, normal = _EditUtilsInternal._plane_frame(obj, axis, pivot)
+            point, normal = _EditUtilsInternal._plane_frame(
+                obj, axis, pivot, axis_frame
+            )
             refl = _EditUtilsInternal._local_reflection(obj, point, normal)
             if merge_mode < 0:
 
@@ -1262,7 +1321,7 @@ class EditUtils(_EditUtilsInternal):
 
     @staticmethod
     @CoreUtils._object_mode
-    def mirror_instance(objects, axis="x", pivot="object"):
+    def mirror_instance(objects, axis="x", pivot="object", axis_frame=None):
         """Mirror as **linked duplicates**: each object gets a copy that shares its mesh data,
         reflected across the mirror plane — mirror of ``mtk.EditUtils.mirror_instance``.
 
@@ -1273,13 +1332,15 @@ class EditUtils(_EditUtilsInternal):
         normals corrected per-copy — the mesh datablock is shared. Use :func:`mirror` when the
         halves must diverge, or when baking to an engine that dislikes negative scale.
 
-        ``axis`` / ``pivot`` take the same vocabulary as :func:`mirror` (the axis sign only picks
-        a side for the bounding-box pivots, never the plane, so it is stripped). Returns the new
-        objects.
+        ``axis`` / ``pivot`` / ``axis_frame`` take the same vocabulary as :func:`mirror` (the axis
+        sign only picks a side for the bounding-box pivots, never the plane, so it is stripped).
+        Returns the new objects.
         """
         out = []
         for obj in _EditUtilsInternal._meshes(objects):
-            point, normal = _EditUtilsInternal._plane_frame(obj, axis, pivot)
+            point, normal = _EditUtilsInternal._plane_frame(
+                obj, axis, pivot, axis_frame
+            )
             new = obj.copy()  # shares obj.data — the linked duplicate
             new.name = f"{obj.name}_mirror"
             for coll in obj.users_collection:
@@ -1307,6 +1368,7 @@ class EditUtils(_EditUtilsInternal):
         mirror=False,
         merge_threshold=1e-4,
         center_pivot=True,
+        axis_frame=None,
     ):
         """Cut mesh object(s) along an axis — mirror of ``mtk.EditUtils.cut_along_axis``.
 
@@ -1323,6 +1385,10 @@ class EditUtils(_EditUtilsInternal):
         ``center_pivot`` (default True): when this is a symmetrize (``mirror and delete``),
         the object becomes a combined result whose old origin is off-center, so re-center it
         on its own bounding box. Plain cuts (no ``mirror``) leave the origin alone.
+        ``axis_frame`` picks which axes the cuts run along — ``None``/``"auto"`` derives it
+        from the pivot, ``"world"`` forces world axes, ``"object"`` / ``"manip"`` force the
+        object's. The cut, the delete and the mirror all share the one plane resolved here,
+        so unlike Maya's they cannot disagree about the frame.
         """
         import bmesh
         from mathutils import Vector
@@ -1335,7 +1401,9 @@ class EditUtils(_EditUtilsInternal):
 
         symmetrized = []  # combined results (mirror+delete) to re-center afterwards
         for obj in _EditUtilsInternal._meshes(objects):
-            point, normal = _EditUtilsInternal._plane_frame(obj, axis, pivot)
+            point, normal = _EditUtilsInternal._plane_frame(
+                obj, axis, pivot, axis_frame
+            )
             corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
             dots = [(c - point).dot(normal) for c in corners]
             span = max(dots) - min(dots)

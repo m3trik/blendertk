@@ -21,7 +21,8 @@ DCC swaps versus the Maya original:
   mode dispatch and the pure boundary math).
 
 Presentation methods live in :class:`ManifestTableMixin`; constants/pure helpers
-in :mod:`manifest_data`; range resolution in ``pythontk``'s ``resolve_ranges``.
+in :mod:`manifest_data`; range resolution is delegated to
+:meth:`range_resolver.RangeResolver.resolve_ranges` (Blender-bound audio sizing).
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -41,9 +42,9 @@ from blendertk.anim_utils.shots.shot_manifest.manifest_data import (
     COL_START,
     COL_END,
 )
+from blendertk.anim_utils.shots.shot_manifest.range_resolver import RangeResolver
 from pythontk import (
     ManifestModel,
-    RangeResolver,
     BuilderStep,
     BuilderObject,
     ColumnMap,
@@ -219,19 +220,24 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     # ---- scene detection -------------------------------------------------
 
-    def _detect_regions(self) -> list:
-        """Return detected shot regions, respecting the store's detection mode.
+    def _detect_regions(self, gap_threshold: float) -> list:
+        """Return detected shot regions, respecting the detection mode.
 
-        Delegates to :meth:`BlenderShotStore.detect_regions`, which owns the
-        mode dispatch (auto → motion clustering, selected-keys → boundary math)
-        and reads its own ``detection_threshold``.  Returns an empty list when
-        a selected-keys mode is active and no keys are selected; callers handle
-        user feedback.
+        Returns an empty list when a selected-keys mode is active and no keys
+        are selected; callers handle user feedback.  The store's
+        ``detection_mode`` is always respected regardless of whether a CSV is
+        loaded — CSV defines steps, detection_mode controls how timing
+        boundaries are discovered.
         """
+        from blendertk.anim_utils.shots._detection import Detection
+
         store = self._active_store()
-        if store is None:
-            return []
-        return store.detect_regions()
+        mode = store.detection_mode if store is not None else "auto"
+        if mode != "auto":
+            return Detection.regions_from_selected_keys(
+                gap_threshold=gap_threshold, key_filter=mode
+            )
+        return Detection.detect_shot_regions(gap_threshold=gap_threshold)
 
     def detect(self, gap: Optional[float] = None) -> None:
         """Detect animation regions in the scene and populate the table.
@@ -242,12 +248,16 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         metadata.
 
         Parameters:
-            gap: Accepted for signature parity with mayatk's ``detect``;
-                unused — the store's own ``detection_threshold`` drives
-                :meth:`BlenderShotStore.detect_regions`.
+            gap: Minimum gap (frames) between shots.  When ``None``, reads
+                from the active store's ``detection_threshold``, falling
+                back to 5.0.
         """
+        store = self._active_store()
+        if gap is None:
+            gap = store.detection_threshold if store is not None else 5.0
+
         use_sel = self._use_selected_keys
-        regions = self._detect_regions()
+        regions = self._detect_regions(gap)
         if not regions:
             if use_sel:
                 self.sb.message_box(
@@ -472,7 +482,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         """Compute a resolved (start, end) for every step.
 
         Detects/caches animation regions, then delegates to the
-        standalone :func:`resolve_ranges` algorithm (pythontk).
+        standalone :func:`._range_resolver.resolve_ranges` algorithm.
         """
         if not self._steps:
             return []
@@ -485,7 +495,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         if self._cached_gaps is not None:
             gap_starts = self._cached_gaps
         else:
-            regions = self._detect_regions()
+            regions = self._detect_regions(store.detection_threshold if store else 5.0)
             gap_starts = [r["start"] for r in regions] if regions else []
             self._cached_gaps = gap_starts
             self._cached_gap_ends = (
@@ -1587,9 +1597,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
         causes = ["the disk may be full"]
         if ptk.FileUtils.is_cloud_placeholder(path):
-            causes.append(
-                "your cloud sync client may not be running"
-            )
+            causes.append("your cloud sync client may not be running")
         causes.append("the file may be locked by another program")
         causes.append("the drive may be disconnected")
         msg = (
@@ -1677,7 +1685,9 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
             use_sel = self._use_selected_keys
             if use_sel:
                 self._cached_gaps = None
-                regions = self._detect_regions()
+                regions = self._detect_regions(
+                    store.detection_threshold if store else 5.0
+                )
                 if not regions:
                     self.sb.message_box(
                         "<b>No keys selected.</b><br>"
@@ -1894,7 +1904,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         # initial range discovery, not for re-assessment of existing shots).
         if use_sel and not skip_key_check and not self._is_built:
             self._cached_gaps = None
-            regions = self._detect_regions()
+            regions = self._detect_regions(store.detection_threshold if store else 5.0)
             if not regions:
                 self.sb.message_box(
                     "<b>No keys selected.</b><br>"

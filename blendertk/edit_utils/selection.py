@@ -872,7 +872,6 @@ class SelectionOrder:
         selection. While the tracker is disabled, falls back to the unordered selection —
         callers stay functional, just order-blind (documented degradation, mirroring how
         Maya behaves with ``trackSelectionOrder`` off)."""
-        import bpy
 
         pool = list(
             objects if objects is not None else CoreUtils.selected_objects()

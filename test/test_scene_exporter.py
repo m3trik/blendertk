@@ -1080,6 +1080,82 @@ try:
     )
     LightmapBaker.refresh_export_metadata()
 
+    # ---- USD output format (mirror of mayatk) --------------------------------
+    import pythontk as ptk
+
+    usd_dir = os.path.join(tmp, "usd_format")
+    os.makedirs(usd_dir, exist_ok=True)
+    bpy.ops.mesh.primitive_cube_add()
+    ucube = bpy.context.active_object
+    ucube.name = "UsdFormatCube"
+    exp_usd = SceneExporter()
+    result = exp_usd.perform_export(
+        export_dir=usd_dir,
+        objects=[ucube],
+        output_name="usd_format.fbx",  # a typed .fbx must not leak into the name
+        export_visible=True,
+        tasks={"output_format": "usd"},
+    )
+    usd_path = exp_usd.export_path
+    check(
+        "usd output format writes a real USD layer (and no FBX)",
+        result is True
+        and os.path.basename(usd_path) == "usd_format.usd"
+        and os.path.isfile(usd_path)
+        and ptk.UsdFile.is_usd_file(usd_path)
+        and not os.path.exists(os.path.join(usd_dir, "usd_format.fbx")),
+        f"result={result} path={usd_path}",
+    )
+    try:
+        from pxr import Usd
+
+        stage = Usd.Stage.Open(usd_path)
+        names = {prim.GetName() for prim in stage.Traverse()}
+        check("usd output format: the object is a prim in the layer",
+              "UsdFormatCube" in names, str(sorted(names)))
+    except ImportError:
+        pass
+
+    # inert knobs are reported, and animation samples only its own span
+    from blendertk.env_utils.usd import UsdUtils
+
+    captured_usd = {}
+
+    def _fake_usd_export(filepath=None, objects=None, selection_only=True, frame_range=None, **opts):
+        captured_usd["frame_range"] = frame_range
+        captured_usd["opts"] = dict(opts)
+        with open(filepath, "w") as fh:
+            fh.write("#usda 1.0")
+        return filepath
+
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 100
+    ucube.keyframe_insert("location", frame=5)
+    ucube.location.z += 1
+    ucube.keyframe_insert("location", frame=12)
+    orig_usd = UsdUtils.export
+    UsdUtils.export = staticmethod(_fake_usd_export)
+    try:
+        exp_usd2 = SceneExporter()
+        exp_usd2.perform_export(
+            export_dir=usd_dir,
+            objects=[ucube],
+            output_name="usd_anim",
+            export_visible=True,
+            preset_name="game_asset",
+            tasks={"output_format": "usd", "set_bake_animation_range": True},
+        )
+    finally:
+        UsdUtils.export = orig_usd
+        ucube.animation_data_clear()
+    check(
+        "usd output format samples only the animated span",
+        tuple(captured_usd.get("frame_range") or ()) == (5, 12)
+        and captured_usd["opts"].get("export_animation") is True
+        and captured_usd["opts"].get("generate_preview_surface") is True,
+        str(captured_usd),
+    )
+
     glb_dir = os.path.join(tmp, "glb_order")
     os.makedirs(glb_dir, exist_ok=True)
     exp8 = SceneExporter()
@@ -1132,6 +1208,66 @@ try:
             SceneDataSidecar.read_manifest(os.path.join(glb_dir, "glb_order_ok.fbx"))
             or set()
         ),
+    )
+
+    # ---- FBX+GLB: the sidecar must be the LAST step ------------------------------------
+    # glb-only ordering is covered above; this is the mode that was actually wrong -- the
+    # sidecar was written BEFORE the conversion, so nothing it recorded could describe the
+    # GLB that shipped. Mirror of mayatk's TestSidecarWriteOrdering.
+    order = []
+
+    def _ordered_glb(fbx_path=None, announce=True, objects=None):
+        order.append("glb")
+        p = os.path.splitext(fbx_path or "")[0] + ".glb" if fbx_path else None
+        if p:
+            with open(p, "wb") as fh:
+                fh.write(b"GLBDATA")
+        return p
+
+    both_dir = os.path.join(tmp, "fbx_glb_order")
+    os.makedirs(both_dir, exist_ok=True)
+    exp10 = SceneExporter()
+    exp10._create_glb = _ordered_glb
+    _real_sidecar = exp10._write_scene_data_sidecar
+
+    def _ordered_sidecar(export_objects):
+        order.append("sidecar")
+        return _real_sidecar(export_objects)
+
+    exp10._write_scene_data_sidecar = _ordered_sidecar
+    result = exp10.perform_export(
+        export_dir=both_dir,
+        objects=[gcube],
+        output_name="both_order",
+        export_visible=True,
+        tasks={"export_data_node": True, "output_format": "fbx_glb"},
+    )
+    check(
+        "fbx+glb writes the sidecar AFTER the glb, so it can describe the deliverable",
+        result is True and order == ["glb", "sidecar"],
+        f"result={result} order={order}",
+    )
+
+    # A failed conversion must not cost the FBX its sidecar: the FBX still shipped, and
+    # _create_glb never raises (every failure path inside it logs and returns None), which
+    # is what makes writing the sidecar after it safe.
+    fail_dir = os.path.join(tmp, "fbx_glb_fail")
+    os.makedirs(fail_dir, exist_ok=True)
+    exp11 = SceneExporter()
+    exp11._create_glb = lambda fbx_path=None, announce=True, objects=None: None
+    result = exp11.perform_export(
+        export_dir=fail_dir,
+        objects=[gcube],
+        output_name="both_fail",
+        export_visible=True,
+        tasks={"export_data_node": True, "output_format": "fbx_glb"},
+    )
+    check(
+        "a failed glb still leaves the fbx's sidecar written",
+        result is True
+        and SceneDataSidecar.read_manifest(os.path.join(fail_dir, "both_fail.fbx"))
+        is not None,
+        f"result={result}",
     )
 
     # ---- Texture File Type: ONE container dial for every texture the export ships -------
@@ -1946,6 +2082,112 @@ try:
         any("missing_seq" in m for m in seq_handler.messages),
         f"{seq_handler.messages}",
     )
+
+    # ---- apply_declared_takes: shots -> named engine clips, end to end -------
+    # The Maya-parity pipeline (shot_export_unity.md): the Shots store publishes
+    # fbx_takes + shot_metadata onto the carrier; the takes task refreshes,
+    # folds the carrier in, arms FbxUtils, and the write ships one AnimStack
+    # per shot with the metadata as user properties — with every staged
+    # mutation (armed takes, widened frame range) undone after the write.
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+    reset_scene()
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_takes_prefs_")
+    BlenderShotStore.clear_active()
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = 1, 25  # takes will widen to 30
+
+    bpy.ops.mesh.primitive_cube_add()
+    shot_cube = bpy.context.active_object
+    shot_cube.name = "ShotCube"
+    for frame, x in ((1, 0.0), (10, 4.0), (20, 4.0), (30, 0.0)):
+        shot_cube.location.x = x
+        shot_cube.keyframe_insert("location", frame=frame)
+
+    takes_store = BlenderShotStore.active()
+    takes_store.define_shot("open", 1, 10, objects=["ShotCube"])
+    takes_store.define_shot("close", 20, 30, objects=["ShotCube"])
+    # Saving publishes at authoring time; the export refreshes again through
+    # the producer registry, so a stale channel could never ship anyway.
+    takes_store.publish_export_view()
+
+    exp_takes = SceneExporter()
+    result = exp_takes.perform_export(
+        export_dir=out_dir,
+        objects=[shot_cube],
+        output_name="takes_task_test",
+        export_visible=True,
+        tasks={"apply_declared_takes": True},  # deliberately WITHOUT export_data_node
+    )
+    takes_file = os.path.join(out_dir, "takes_task_test.fbx")
+    check(
+        "perform_export with apply_declared_takes writes the FBX",
+        result is True and os.path.isfile(takes_file),
+        f"result={result}",
+    )
+    check(
+        "the armed takes are reset after the write (deferred restore ran)",
+        FbxUtils._pending_takes is None,
+        f"{FbxUtils._pending_takes}",
+    )
+    check(
+        "the widened frame range is restored after the write",
+        (scene.frame_start, scene.frame_end) == (1, 25),
+        f"actual=({scene.frame_start},{scene.frame_end})",
+    )
+
+    reset_scene()
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    imported = FbxUtils.import_fbx(takes_file, use_custom_props=True)
+    take_actions = sorted(a.name for a in bpy.data.actions)
+    check(
+        "the file ships one AnimStack per declared shot and ONLY those",
+        take_actions == ["ShotCube|close", "ShotCube|open"],
+        f"{take_actions}",
+    )
+    icarrier2 = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
+    meta_raw = icarrier2.get("shot_metadata") if icarrier2 else None
+    check(
+        "the takes task alone ships the carrier with the joinable shot_metadata",
+        bool(meta_raw)
+        and [s["clip"] for s in json.loads(meta_raw)["shots"]] == ["open", "close"],
+        f"{meta_raw!r}",
+    )
+
+    # An empty store publishes a CLEAR; the takes task then finds no channel
+    # and the export ships a plain single-take file.
+    for sid in [s.shot_id for s in list(takes_store.shots)]:
+        takes_store.remove_shot(sid)
+    takes_store.publish_export_view()
+    reset_scene()
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    bpy.ops.mesh.primitive_cube_add()
+    plain_cube = bpy.context.active_object
+    plain_cube.name = "PlainCube"
+    for frame, x in ((1, 0.0), (10, 2.0)):
+        plain_cube.location.x = x
+        plain_cube.keyframe_insert("location", frame=frame)
+    exp_plain = SceneExporter()
+    result = exp_plain.perform_export(
+        export_dir=out_dir,
+        objects=[plain_cube],
+        output_name="takes_none_test",
+        export_visible=True,
+        tasks={"apply_declared_takes": True},
+    )
+    check(
+        "no declared takes -> the task no-ops and the export still succeeds",
+        result is True
+        and os.path.isfile(os.path.join(out_dir, "takes_none_test.fbx"))
+        and FbxUtils._pending_takes is None,
+        f"result={result}",
+    )
+    BlenderShotStore.clear_active()
+    BlenderShotStore._prefs_dir_override = None
 
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)
