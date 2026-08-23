@@ -5,12 +5,14 @@ under the workspace ``.venv`` like ``test_blender_ui_handler.py``::
 
     .venv\\Scripts\\python.exe blendertk/test/test_naming_slots.py
 
-Covers: the header Scope combo (Selection / Scene / Directory / Files) + Dry Run toggle, the
-output pane wiring (the engine's report lands in ``txt002``), the suffix-by-type option box
-(19 fields from the shared table; Blender-inapplicable ones disabled), and the Directory /
-Files workflow end to end on a temp directory: Find opens the browser and narrows the working
-set, Rename honours Dry Run, a live Rename renames on disk and keeps the working set valid,
-Convert Case / Strip Chars follow, and the scene-only operations report instead of acting.
+Covers: the header Scope combo (Selection / Scene / Directory / Files) + Dry Run / Base Names
+toggles, the output pane wiring (the engine's report lands in ``txt002``), the suffix-by-type
+option box (19 fields from the shared table; Blender-inapplicable ones disabled), the footer
+Apply button a dry run arms, and the Directory / Files workflow end to end on a temp directory:
+Find opens the browser and narrows the working set, Rename honours Dry Run, a live Rename renames
+on disk and keeps the working set valid, Convert Case / Strip Chars follow, Base Names carries a
+whole texture set without touching the map suffixes, Apply commits the frozen preview, and the
+scene-only operations report instead of acting.
 Under the Blender harness (no Qt) it SKIPS with a PASS sentinel.
 """
 
@@ -215,6 +217,141 @@ try:
     check(
         "cancelled browser reports, no working set",
         slots._files == [] and "No files chosen" in ui.txt002.toPlainText(),
+    )
+
+    # ---- base names: hold the map-type suffix back -----------------------------------------
+    # uitk's ComboBox silences setCurrentText (its restore-by-text convention),
+    # so only an index change reaches the slots' scope handler.
+    def set_scope(name):
+        menu.cmb_scope.setCurrentIndex(list(slots.SCOPES).index(name))
+
+    def texture_set():
+        for name in os.listdir(tmp):
+            os.remove(os.path.join(tmp, name))
+        for name in ("rock_Normal.png", "rock_AO.png", "rock_ORM.1001.png", "note.txt"):
+            with open(os.path.join(tmp, name), "wb") as f:
+                f.write(b"x")
+        set_scope("Directory")
+        sb.dir_dialog = lambda *a, **k: tmp
+        slots._files = []
+        menu.chk_dry_run.setChecked(False)
+        slots._disarm_apply()
+
+    wrong = []
+    for scope, enabled in (
+        ("Selection", False),
+        ("Scene", False),
+        ("Directory", True),
+        ("Files", True),
+    ):
+        set_scope(scope)
+        if menu.chk_base_names.isEnabled() is not enabled:
+            wrong.append(f"{scope}: expected enabled={enabled}")
+    check("Base Names enabled only in a file scope", not wrong, "; ".join(wrong))
+
+    menu.chk_base_names.setChecked(True)
+    set_scope("Scene")
+    check("Base Names inert outside a file scope", slots.base_names is False)
+
+    texture_set()
+    menu.chk_base_names.setChecked(True)
+    ui.txt000.setText("rock")
+    slots.txt000(ui.txt000)
+    check(
+        "Find on base names collects the whole set",
+        sorted(os.path.basename(f) for f in slots._files)
+        == ["rock_AO.png", "rock_Normal.png", "rock_ORM.1001.png"],
+        str(slots._files),
+    )
+    ui.txt001.setText("stone")
+    slots.txt001(ui.txt001)
+    check(
+        "rename on base names carries the set, suffix and tile intact",
+        sorted(os.listdir(tmp))
+        == ["note.txt", "stone_AO.png", "stone_Normal.png", "stone_ORM.1001.png"],
+        str(sorted(os.listdir(tmp))),
+    )
+
+    # ---- dry run arms the footer Apply button ----------------------------------------------
+    texture_set()
+    check(
+        "Apply button starts hidden",
+        slots._apply_btn is not None and slots._apply_btn.isHidden(),
+    )
+    menu.chk_base_names.setChecked(True)
+    menu.chk_dry_run.setChecked(True)
+    ui.txt000.setText("")
+    slots.txt000(ui.txt000)
+    ui.txt001.setText("**_v2")
+    slots.txt001(ui.txt001)
+    before = sorted(os.listdir(tmp))
+    check(
+        "dry run arms Apply and changes nothing",
+        not slots._apply_btn.isHidden()
+        and "Apply to commit" in ui.footer.text()
+        and before
+        == ["note.txt", "rock_AO.png", "rock_Normal.png", "rock_ORM.1001.png"],
+        str(before),
+    )
+
+    ui.txt001.setText("**_WRONG")  # the armed call is frozen, not re-read
+    slots._apply_btn.click()
+    check(
+        "Apply commits the previewed plan and stands down",
+        slots._apply_btn.isHidden()
+        and slots._pending is None
+        and sorted(os.listdir(tmp))
+        == [
+            "note_v2.txt",
+            "rock_v2_AO.png",
+            "rock_v2_Normal.png",
+            "rock_v2_ORM.1001.png",
+        ],
+        str(sorted(os.listdir(tmp))),
+    )
+    check(
+        "an applied run reports like a live one (scope hooks included)",
+        "Directory:" in ui.txt002.toPlainText(),
+    )
+    check(
+        "working set follows an applied rename",
+        sorted(os.path.basename(f) for f in slots._files)
+        == [
+            "note_v2.txt",
+            "rock_v2_AO.png",
+            "rock_v2_Normal.png",
+            "rock_v2_ORM.1001.png",
+        ],
+        str(slots._files),
+    )
+
+    texture_set()
+    menu.chk_dry_run.setChecked(True)
+    ui.txt000.setText("")
+    slots.txt000(ui.txt000)
+    ui.txt001.setText("**_v2")
+    slots.txt001(ui.txt001)
+    set_scope("Selection")
+    check(
+        "a scope change stales an armed preview",
+        slots._apply_btn.isHidden() and slots._pending is None,
+    )
+
+    # An operation that aborts with nothing in scope still supersedes the plan.
+    texture_set()
+    menu.chk_dry_run.setChecked(True)
+    ui.txt000.setText("")
+    slots.txt000(ui.txt000)
+    ui.txt001.setText("**_v2")
+    slots.txt001(ui.txt001)
+    armed = not slots._apply_btn.isHidden()
+    for name in os.listdir(tmp):
+        os.remove(os.path.join(tmp, name))
+    sb.dir_dialog = lambda *a, **k: ""
+    slots.txt001(ui.txt001)
+    check(
+        "an aborted operation supersedes an armed preview",
+        armed and slots._apply_btn.isHidden() and slots._pending is None,
     )
 
 except Exception:

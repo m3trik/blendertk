@@ -1,0 +1,147 @@
+name: Tests
+
+# blendertk's runtime suites need Blender, which no runner has. This workflow runs
+# the Qt-only suites that do NOT need bpy, on the workspace venv leg the local
+# runner already uses (test/run_tests.py: find_venv_python).
+#
+# Deliberately NOT `workflow_call`-able and deliberately NOT part of
+# static-analysis.yml: publish.yml does `uses: ./.github/workflows/static-analysis.yml`
+# with `needs: test`, so anything living there gates every RELEASE. Qt suites are the
+# flakiest thing in the monorepo (see the uitk PySide6 teardown-SIGSEGV backlog entry);
+# putting them on the release path would eventually block a publish for a reason
+# unrelated to the artifact. Merge gating is branch protection's job.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  qt-suites:
+    # blendertk's suites are standalone Blender scripts, not pytest modules -
+    # pyproject's norecursedirs keeps pytest away from them because IMPORTING a
+    # suite executes it. test/run_tests.py drives each one in a fresh headless
+    # Blender and parses its `===RESULT: PASS=== (ok/total)` sentinel; its
+    # find_venv_python() leg re-runs the Qt-only suites (the ones headless
+    # Blender self-skips, for want of a Qt binding it does not ship) under a
+    # plain interpreter instead. This job is that leg, on a runner with no
+    # Blender at all.
+    #
+    # The suite list is EXPLICIT, never discovered. A suite that cannot import
+    # bpy prints no sentinel, and "ran nothing" must never read as green.
+    # Measured 2026-08-23 by running every test_*.py under plain CPython 3.11
+    # with QT_QPA_PLATFORM=offscreen: these 15 reported PASS with a non-zero
+    # tally - 457 checks, all green - and the other 76 need bpy. Adding a new
+    # Qt-only suite means adding it here.
+    #
+    # windows-latest: 457/457 is what was verified, and it was verified on
+    # Windows. test_qt_dock covers the Win32 WS_CHILD glue that parents the Qt
+    # dock into Blender's window, so a Linux runner would not be the same test.
+    name: Qt-only suites (no Blender)
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # bpy is NOT installed - that is the point of this job. qtpy/PySide6
+          # are not blendertk dependencies either (Blender ships no binding);
+          # pinned <6.11 for the reason uitk and extapps pin it.
+          pip install qtpy "PySide6<6.11"
+          # WITH deps, in a retry loop. pip resolves the floors declared in
+          # pyproject.toml, so a stale PyPI CDN edge that still lists the
+          # previous release fails LOUDLY with "No matching distribution" and is
+          # retried -- instead of silently installing the old version and running
+          # this suite against code that lacks the new symbols. This job is the
+          # worst case for that: the cascade publishes pythontk and uitk minutes
+          # before this PR's checks run. Measured 2026-08-23: a bare-name install
+          # resolved pythontk 0.9.28 82 s after 0.9.30 was uploaded.
+          # --no-cache-dir: pip's HTTP cache can hold the stale index page too.
+          for attempt in 1 2 3 4 5 6; do
+            if pip install --no-cache-dir -e "."; then break; fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "::warning::editable install attempt $attempt failed (index propagation lag?); retrying in 30s"
+              sleep 30
+            else
+              echo "::error::editable install failed after $attempt attempts"
+              exit 1
+            fi
+          done
+
+      - name: Run the Qt-only suites
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+          # A suite printing one glyph outside the pipe's locale codec died with
+          # UnicodeEncodeError and read as a failure; run_tests.py sets the same
+          # pair on every child for that reason.
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          SUITES="
+          test_blender_native_menus
+          test_blender_ui_handler
+          test_blendshape_animator_slots
+          test_cancel_provider
+          test_fbx_stage_worker
+          test_hierarchy_tree_utils
+          test_image_tracer
+          test_naming_slots
+          test_qt_dock
+          test_rizom_construction
+          test_script_output
+          test_shot_manifest_panel
+          test_shot_sequencer_panel
+          test_shots_slots
+          test_workspace
+          "
+          rc=0
+          ran=0
+          total_ok=0
+          total_checks=0
+          for name in $SUITES; do
+            out=$(python "test/${name}.py" 2>&1)
+            line=$(printf '%s\n' "$out" | grep -E '^===RESULT: (PASS|FAIL)===' | head -1)
+            if [ -z "$line" ]; then
+              # No sentinel at all: the suite died before reporting (import
+              # error, hard crash). Charge it a failure - it verified nothing.
+              echo "::error::${name}: no ===RESULT sentinel (import error or crash)"
+              printf '%s\n' "$out" | tail -25
+              rc=1
+              continue
+            fi
+            counts=$(printf '%s' "$line" | grep -oE '\([0-9]+/[0-9]+\)' | tr -d '()')
+            ok=${counts%%/*}
+            tot=${counts##*/}
+            ok=${ok:-0}
+            tot=${tot:-0}
+            case "$line" in
+              *PASS*) verdict=PASS ;;
+              *) verdict=FAIL ;;
+            esac
+            # tot == 0 is a "passed but reported no checks" suite: it contributes
+            # nothing to the totals, so it is a silent hole, not a green suite.
+            if [ "$verdict" != "PASS" ] || [ "$tot" -eq 0 ]; then
+              echo "::error::${name}: ${verdict} (${ok}/${tot})"
+              printf '%s\n' "$out" | grep -E '^FAIL' | head -20
+              rc=1
+            fi
+            echo "${verdict} ${name} (${ok}/${tot})"
+            ran=$((ran + 1))
+            total_ok=$((total_ok + ok))
+            total_checks=$((total_checks + tot))
+          done
+          echo "${ran} suite(s), ${total_ok}/${total_checks} checks passed"
+          if [ "$total_checks" -eq 0 ]; then
+            echo "::error::zero checks collected - a job that ran nothing is not green"
+            rc=1
+          fi
+          exit $rc

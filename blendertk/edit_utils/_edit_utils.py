@@ -619,7 +619,7 @@ class _EditUtilsInternal(object):
         if (
             "triangle" in flags
         ):  # fan-triangulation count (n-2 per face), no recompute needed
-            m["triangle"] = sum(max(len(p.vertices) - 2, 0) for p in me.polygons)
+            m["triangle"] = CoreUtils._mesh_face_counts(me)[0]
         if "uvcoord" in flags:
             uv = me.uv_layers.active
             m["uvcoord"] = len(uv.data) if uv else 0
@@ -2112,7 +2112,11 @@ class EditUtils(_EditUtilsInternal):
         # explode each extract into one object per face: with everything selected, edge-split
         # turns every face into its own loose island, then LOOSE separate gives one object each.
         bpy.ops.object.mode_set(mode="OBJECT")
-        exploded = []
+        # ONE snapshot for the whole explode: the loop only ever ADDS objects (LOOSE
+        # separate leaves the source in place and nothing is removed), so the single
+        # post-loop difference is exactly the union of the per-iteration differences --
+        # without re-walking the whole bpy.data.objects RNA collection twice per source.
+        before_explode = set(bpy.data.objects)
         for obj in new:
             bpy.ops.object.select_all(action="DESELECT")
             obj.select_set(True)
@@ -2120,13 +2124,12 @@ class EditUtils(_EditUtilsInternal):
             bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_all(action="SELECT")
             bpy.ops.mesh.edge_split()
-            b2 = set(bpy.data.objects)
             try:
                 bpy.ops.mesh.separate(type="LOOSE")
             except RuntimeError:
                 pass
             bpy.ops.object.mode_set(mode="OBJECT")
-            exploded.extend([o for o in bpy.data.objects if o not in b2])
+        exploded = [o for o in bpy.data.objects if o not in before_explode]
         return _centered(new + exploded)
 
     @staticmethod

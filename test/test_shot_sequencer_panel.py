@@ -83,6 +83,32 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         BlenderShotStore.clear_active()
         BlenderShotStore._prefs_dir_override = None
 
+    def assertPromoted(self, name, *probes):
+        """Fail (never skip) when a ``.ui`` widget did not promote to its uitk class.
+
+        The Qt binding being absent is an *environment* gate and is handled once,
+        at class level. Everything past that gate is a real defect: a widget that
+        stayed a bare ``QWidget`` means the ``<customwidgets>`` header, the uitk
+        class, or the loader broke -- exactly the regression these checks exist
+        to catch, so it must assert rather than skip green.
+
+        Parameters:
+            name: Attribute name of the widget on ``self.ui``.
+            probes: Attribute names the promoted class must expose.
+
+        Returns:
+            The promoted widget.
+        """
+        w = getattr(self.ui, name, None)
+        self.assertIsNotNone(w, f"{name} is missing from the loaded shot_sequencer UI")
+        for probe in probes:
+            self.assertTrue(
+                hasattr(w, probe),
+                f"{name} did not promote to its uitk class "
+                f"(no {probe!r}; got {type(w).__name__})",
+            )
+        return w
+
     def test_ui_loads(self):
         self.assertIsNotNone(self.ui, "shot_sequencer UI failed to load")
 
@@ -111,12 +137,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_sequencer_widget_is_promoted(self):
-        w = getattr(self.ui, "sequencer_widget", None)
-        self.assertIsNotNone(w)
-        self.assertTrue(
-            hasattr(w, "add_track"),
-            "sequencer_widget did not promote to the uitk SequencerWidget",
-        )
+        self.assertPromoted("sequencer_widget", "add_track")
 
     def test_signals_wired_to_real_slots(self):
         """Every widget signal in the wiring table maps to an existing controller slot."""
@@ -134,9 +155,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
 
     def test_widget_signal_connections_recorded(self):
         """The controller connected the widget signals (recorded on the widget)."""
-        w = getattr(self.ui, "sequencer_widget", None)
-        if w is None or not hasattr(w, "clip_resized"):
-            self.skipTest("SequencerWidget not fully promoted in this environment")
+        w = self.assertPromoted("sequencer_widget", "clip_resized")
         conns = getattr(w, "_slots_connections", [])
         self.assertGreater(len(conns), 0, "no widget signals were connected")
 
@@ -147,9 +166,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         sits in a try/except, so a bad option construction would otherwise be
         swallowed into a debug log and the dead-state regression would return.
         """
-        cmb = getattr(self.ui, "cmb_shot", None)
-        if cmb is None or not hasattr(cmb, "option_box"):
-            self.skipTest("cmb_shot has no option_box in this environment")
+        cmb = self.assertPromoted("cmb_shot", "option_box")
         opts = getattr(cmb, "_shot_nav_options", None)
         self.assertIsNotNone(opts, "shot-nav options were not built (swallowed?)")
         for key in ("prev", "next", "add", "view", "holds", "refresh"):
@@ -168,9 +185,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
             _BlenderPlayController,
         )
 
-        footer = getattr(self.ui, "footer", None)
-        if footer is None:
-            self.skipTest("no footer in this environment")
+        footer = self.assertPromoted("footer", "add_action_button", "container_layout")
         transport = getattr(footer, "_shot_transport_controls", None)
         self.assertIsInstance(transport, TransportControls)
         self.assertIs(self.ui.slots.controller._transport_controls, transport)
@@ -184,9 +199,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         """Right-click on cmb_shot opens the New/Generate/Edit/Delete menu (mayatk mirror)."""
         from qtpy import QtCore
 
-        cmb = getattr(self.ui, "cmb_shot", None)
-        if cmb is None or not hasattr(cmb, "option_box"):
-            self.skipTest("cmb_shot has no option_box in this environment")
+        cmb = self.assertPromoted("cmb_shot", "option_box")
         self.assertEqual(cmb.contextMenuPolicy(), QtCore.Qt.CustomContextMenu)
         for name in (
             "_cmb_context_menu",

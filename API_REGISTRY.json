@@ -1,7 +1,6 @@
 {
   "name": "blendertk",
   "source_root": "blendertk/blendertk",
-  "generated_at": "2026-08-23",
   "modules": [
     {
       "relpath": "anim_utils/_anim_utils.py",
@@ -3778,7 +3777,7 @@
         {
           "name": "CoreUtils",
           "summary": "Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors",
-          "line": 267,
+          "line": 305,
           "bases": [
             "ptk.CoreUtils",
             "_CoreUtilsInternal"
@@ -3790,7 +3789,7 @@
               "kind": "staticmethod",
               "signature": "(name: str) -> str",
               "summary": "Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).",
-              "line": 277,
+              "line": 315,
               "deprecated": false
             },
             {
@@ -3799,7 +3798,7 @@
               "kind": "staticmethod",
               "signature": "(name: str = '')",
               "summary": "Collapse every change made inside the block into ONE Blender undo step.",
-              "line": 288,
+              "line": 326,
               "deprecated": false
             },
             {
@@ -3808,7 +3807,7 @@
               "kind": "staticmethod",
               "signature": "(fn)",
               "summary": "Wrap ``fn`` so its changes collapse into a single Blender undo step.",
-              "line": 331,
+              "line": 369,
               "deprecated": false
             },
             {
@@ -3817,7 +3816,7 @@
               "kind": "staticmethod",
               "signature": "(fn)",
               "summary": "Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).",
-              "line": 351,
+              "line": 389,
               "deprecated": false
             },
             {
@@ -3826,7 +3825,7 @@
               "kind": "staticmethod",
               "signature": "(key=None)",
               "summary": "Return Blender scene / environment info (mirror of ``mtk.get_env_info``).",
-              "line": 374,
+              "line": 412,
               "deprecated": false
             },
             {
@@ -3835,7 +3834,7 @@
               "kind": "staticmethod",
               "signature": "(packages, add_to_path=True)",
               "summary": "Make arbitrary pip packages importable in Blender's Python.",
-              "line": 406,
+              "line": 444,
               "deprecated": false
             },
             {
@@ -3844,7 +3843,7 @@
               "kind": "staticmethod",
               "signature": "(packages=None, add_to_path=True)",
               "summary": "Make image-processing libraries importable in Blender's Python (default: Pillow → ``PIL``).",
-              "line": 429,
+              "line": 467,
               "deprecated": false
             },
             {
@@ -3853,7 +3852,7 @@
               "kind": "staticmethod",
               "signature": "(filename, base=None)",
               "summary": "Absolute path of ``filename`` in Blender's user ``CONFIG`` dir (where Blender keeps",
-              "line": 458,
+              "line": 496,
               "deprecated": false
             },
             {
@@ -3862,7 +3861,7 @@
               "kind": "staticmethod",
               "signature": "(index=None)",
               "summary": "Recently-opened .blend paths, most recent first (mirror of ``mtk.get_recent_files``).",
-              "line": 474,
+              "line": 512,
               "deprecated": false
             },
             {
@@ -3871,7 +3870,7 @@
               "kind": "staticmethod",
               "signature": "(filter_time=24, timestamp_format='%H:%M:%S')",
               "summary": "Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first",
-              "line": 489,
+              "line": 527,
               "deprecated": false
             },
             {
@@ -3880,7 +3879,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None)",
               "summary": "Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused",
-              "line": 521,
+              "line": 559,
               "deprecated": false
             },
             {
@@ -3889,7 +3888,7 @@
               "kind": "staticmethod",
               "signature": "(info)",
               "summary": "Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.",
-              "line": 573,
+              "line": 609,
               "deprecated": false
             },
             {
@@ -3898,7 +3897,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, adaptive=True, sections=None)",
               "summary": "Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,",
-              "line": 607,
+              "line": 643,
               "deprecated": false
             },
             {
@@ -3907,7 +3906,7 @@
               "kind": "staticmethod",
               "signature": "(quiet=False)",
               "summary": "Purge orphan datablocks (0 users, no fake user) across the main collections — the",
-              "line": 770,
+              "line": 806,
               "deprecated": false
             },
             {
@@ -3916,7 +3915,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The current object selection, filtered of ``None`` (mirror of Maya's",
-              "line": 821,
+              "line": 857,
               "deprecated": false
             },
             {
@@ -3925,7 +3924,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "The active object, resolved window-independently (``view_layer.objects.active``).",
-              "line": 840,
+              "line": 876,
               "deprecated": false
             },
             {
@@ -3934,7 +3933,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, method='name', reverse=False)",
               "summary": "Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``",
-              "line": 852,
+              "line": 888,
               "deprecated": false
             },
             {
@@ -3943,7 +3942,7 @@
               "kind": "staticmethod",
               "signature": "(area_type=None)",
               "summary": "All areas of ``area_type`` (``\"VIEW_3D\"``, ``\"IMAGE_EDITOR\"``, …) across every open",
-              "line": 927,
+              "line": 963,
               "deprecated": false
             },
             {
@@ -3952,7 +3951,7 @@
               "kind": "classmethod",
               "signature": "(cls, area_type=None) -> int",
               "summary": "Queue a redraw of every area of ``area_type`` (all areas when None);",
-              "line": 950,
+              "line": 986,
               "deprecated": false
             },
             {
@@ -3961,7 +3960,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no",
-              "line": 969,
+              "line": 1005,
               "deprecated": false
             },
             {
@@ -3970,7 +3969,7 @@
               "kind": "staticmethod",
               "signature": "()",
               "summary": "Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.",
-              "line": 999,
+              "line": 1035,
               "deprecated": false
             }
           ]
@@ -3985,7 +3984,7 @@
         {
           "name": "InstanceCandidate",
           "summary": "Holds information about an object candidate for instancing.",
-          "line": 54,
+          "line": 55,
           "bases": [],
           "members": [
             {
@@ -3994,7 +3993,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 71,
+              "line": 72,
               "deprecated": false
             },
             {
@@ -4003,7 +4002,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "",
-              "line": 83,
+              "line": 84,
               "deprecated": false
             }
           ]
@@ -4011,14 +4010,14 @@
         {
           "name": "InstanceGroup",
           "summary": "A group of objects that are geometrically identical.",
-          "line": 90,
+          "line": 91,
           "bases": [],
           "members": []
         },
         {
           "name": "AutoInstancer",
           "summary": "Convert matching meshes into instances (shared mesh datablocks).",
-          "line": 165,
+          "line": 166,
           "bases": [
             "ptk.LoggingMixin",
             "_AutoInstancerInternal"
@@ -4030,7 +4029,7 @@
               "kind": "staticmethod",
               "signature": "() -> Dict[str, object]",
               "summary": "A zeroed run-summary — the shape of :attr:`last_run_summary`.",
-              "line": 252,
+              "line": 253,
               "deprecated": false
             },
             {
@@ -4039,7 +4038,7 @@
               "kind": "staticmethod",
               "signature": "(summary: Dict[str, object], output_count: int) -> str",
               "summary": "Human-readable, DCC-agnostic description of a run *summary*.",
-              "line": 281,
+              "line": 282,
               "deprecated": false
             },
             {
@@ -4048,7 +4047,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 338,
+              "line": 339,
               "deprecated": false
             },
             {
@@ -4057,7 +4056,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 348,
+              "line": 349,
               "deprecated": false
             },
             {
@@ -4066,7 +4065,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 358,
+              "line": 359,
               "deprecated": false
             },
             {
@@ -4075,7 +4074,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 368,
+              "line": 369,
               "deprecated": false
             },
             {
@@ -4084,7 +4083,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 378,
+              "line": 379,
               "deprecated": false
             },
             {
@@ -4093,7 +4092,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 388,
+              "line": 389,
               "deprecated": false
             },
             {
@@ -4102,7 +4101,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 398,
+              "line": 399,
               "deprecated": false
             },
             {
@@ -4111,7 +4110,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[Sequence[object]] = None) -> List[object]",
               "summary": "Discover and instance matching meshes.",
-              "line": 432,
+              "line": 433,
               "deprecated": false
             },
             {
@@ -4120,7 +4119,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[Sequence[object]] = None, check_hierarchy: Optional[bool] = None) -> List[InstanceGroup]",
               "summary": "Find groups of identical objects.",
-              "line": 667,
+              "line": 668,
               "deprecated": false
             },
             {
@@ -4129,7 +4128,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects: Optional[Sequence[object]] = None, *, return_summary: bool = False, **config) -> Union[List[object], Tuple[List[object], Dict[str, object]]]",
               "summary": "One-shot: build an ``AutoInstancer`` from ``config`` and run it.",
-              "line": 1187,
+              "line": 1186,
               "deprecated": false
             }
           ]
@@ -5511,7 +5510,7 @@
               "kind": "staticmethod",
               "signature": "(objects, delete=False, select=True, round_ndigits=5)",
               "summary": "Find faces geometrically coincident with another face — doubled geometry on *distinct*",
-              "line": 2134,
+              "line": 2137,
               "deprecated": false
             },
             {
@@ -5520,7 +5519,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, retain=None, select=False, delete=False, round_ndigits=5)",
               "summary": "Find duplicate mesh objects overlapping in world space — mirror of",
-              "line": 2181,
+              "line": 2184,
               "deprecated": false
             },
             {
@@ -5529,7 +5528,7 @@
               "kind": "staticmethod",
               "signature": "(objects=None, *, close=False, reverse_normals=False, section_spans=1)",
               "summary": "Loft a mesh surface across a sequence of profile curves / mesh edge-loops — a Blender mesh",
-              "line": 2272,
+              "line": 2275,
               "deprecated": false
             }
           ]
@@ -6748,7 +6747,7 @@
         {
           "name": "NamingSlots",
           "summary": "Switchboard slots for the Naming panel.",
-          "line": 28,
+          "line": 31,
           "bases": [
             "Naming"
           ],
@@ -6759,7 +6758,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header menu with tool description and workflow instructions.",
-              "line": 140,
+              "line": 147,
               "deprecated": false
             },
             {
@@ -6768,7 +6767,7 @@
               "kind": "property",
               "signature": "(self) -> str",
               "summary": "",
-              "line": 226,
+              "line": 265,
               "deprecated": false
             },
             {
@@ -6777,7 +6776,7 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "",
-              "line": 230,
+              "line": 269,
               "deprecated": false
             },
             {
@@ -6786,7 +6785,16 @@
               "kind": "property",
               "signature": "(self) -> bool",
               "summary": "",
-              "line": 234,
+              "line": 273,
+              "deprecated": false
+            },
+            {
+              "name": "base_names",
+              "qualname": "NamingSlots.base_names",
+              "kind": "property",
+              "signature": "(self) -> bool",
+              "summary": "Operate on map-suffix-free base names — file scopes only.",
+              "line": 277,
               "deprecated": false
             },
             {
@@ -6795,7 +6803,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The current Suffix By Type strings (non-empty), from the tb003 option box.",
-              "line": 322,
+              "line": 469,
               "deprecated": false
             },
             {
@@ -6804,7 +6812,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Find",
-              "line": 336,
+              "line": 483,
               "deprecated": false
             },
             {
@@ -6813,7 +6821,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Find: select scene objects (or browse for files) whose name matches the pattern.",
-              "line": 391,
+              "line": 538,
               "deprecated": false
             },
             {
@@ -6822,7 +6830,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Rename",
-              "line": 461,
+              "line": 614,
               "deprecated": false
             },
             {
@@ -6831,7 +6839,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Rename: rename matched objects or files (find → replace, with regex / suffix options).",
-              "line": 515,
+              "line": 668,
               "deprecated": false
             },
             {
@@ -6840,7 +6848,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Convert Case",
-              "line": 559,
+              "line": 712,
               "deprecated": false
             },
             {
@@ -6849,7 +6857,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Convert Case",
-              "line": 569,
+              "line": 722,
               "deprecated": false
             },
             {
@@ -6858,7 +6866,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Suffix By Location",
-              "line": 586,
+              "line": 739,
               "deprecated": false
             },
             {
@@ -6867,7 +6875,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Suffix By Location",
-              "line": 630,
+              "line": 783,
               "deprecated": false
             },
             {
@@ -6876,7 +6884,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Strip Chars",
-              "line": 663,
+              "line": 816,
               "deprecated": false
             },
             {
@@ -6885,7 +6893,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Strip Chars: remove a number of leading/trailing characters from the names in scope.",
-              "line": 681,
+              "line": 834,
               "deprecated": false
             },
             {
@@ -6894,7 +6902,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Initialize Suffix By Type",
-              "line": 700,
+              "line": 853,
               "deprecated": false
             },
             {
@@ -6903,7 +6911,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Suffix By Type",
-              "line": 749,
+              "line": 902,
               "deprecated": false
             }
           ]

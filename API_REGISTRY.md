@@ -2,8 +2,6 @@
 
 _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_registry.py`._
 
-_Generated: 2026-08-23_
-
 ## Index
 
 - [`anim_utils/_anim_utils.py`](#anim_utils--_anim_utils) — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
@@ -788,7 +786,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L267)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L305)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
   - `CoreUtils.undoable(fn)` *(static)* — Wrap ``fn`` so its changes collapse into a single Blender undo step.
@@ -816,11 +814,11 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
 Scene auto-instancer: convert geometrically identical meshes to instances.
 
-- **[`class InstanceCandidate`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L54)** — Holds information about an object candidate for instancing.
+- **[`class InstanceCandidate`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L55)** — Holds information about an object candidate for instancing.
   - `InstanceCandidate.obj(self)` *(property)*
   - `InstanceCandidate.exists(self) -> bool`
-- **[`class InstanceGroup`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L90)** — A group of objects that are geometrically identical.
-- **[`class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal)`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L165)** — Convert matching meshes into instances (shared mesh datablocks).
+- **[`class InstanceGroup`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L91)** — A group of objects that are geometrically identical.
+- **[`class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal)`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L166)** — Convert matching meshes into instances (shared mesh datablocks).
   - `AutoInstancer.default_summary() -> Dict[str, object]` *(static)* — A zeroed run-summary — the shape of :attr:`last_run_summary`.
   - `AutoInstancer.format_summary(summary: Dict[str, object], output_count: int) -> str` *(static)* — Human-readable, DCC-agnostic description of a run *summary*.
   - `AutoInstancer.tolerance(self)` *(property)*
@@ -1252,11 +1250,12 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 
 Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 
-- **[`class NamingSlots(Naming)`](blendertk/blendertk/edit_utils/naming/naming_slots.py#L28)** — Switchboard slots for the Naming panel.
+- **[`class NamingSlots(Naming)`](blendertk/blendertk/edit_utils/naming/naming_slots.py#L31)** — Switchboard slots for the Naming panel.
   - `NamingSlots.header_init(self, widget)` — Configure header menu with tool description and workflow instructions.
   - `NamingSlots.scope(self) -> str` *(property)*
   - `NamingSlots.dry_run(self) -> bool` *(property)*
   - `NamingSlots.file_scope(self) -> bool` *(property)*
+  - `NamingSlots.base_names(self) -> bool` *(property)* — Operate on map-suffix-free base names — file scopes only.
   - `NamingSlots.valid_suffixes(self)` *(property)* — The current Suffix By Type strings (non-empty), from the tb003 option box.
   - `NamingSlots.txt000_init(self, widget)` — Initialize Find
   - `NamingSlots.txt000(self, widget)` — Find: select scene objects (or browse for files) whose name matches the pattern.

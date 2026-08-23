@@ -31,6 +31,7 @@ from collections import defaultdict
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.auto_instancer.geometry_matcher import GeometryMatcher
 from blendertk.core_utils.auto_instancer.assembly_reconstructor import (
     AssemblyReconstructor,
@@ -984,9 +985,7 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
                 ]
             for m in meshes:
                 try:
-                    tri_count += sum(
-                        max(len(p.vertices) - 2, 0) for p in m.data.polygons
-                    )
+                    tri_count += CoreUtils._mesh_face_counts(m.data)[0]
                 except Exception:
                     pass
         return (

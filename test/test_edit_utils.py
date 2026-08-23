@@ -1772,11 +1772,96 @@ try:
     except Exception as exc:
         check("standoff: measures the evaluated mesh, not the base data", False, repr(exc))
 
+    # ---- detach_components separate_each: the explode must return exactly what the
+    # pre-optimisation nested per-iteration diff returned. The loop now takes ONE
+    # bpy.data.objects snapshot before it and ONE difference after, instead of a
+    # set() + full RNA walk per source object.
+
+    def _reference_explode():
+        """Replay of the ORIGINAL nested-diff algorithm, for equivalence pinning."""
+        _before = set(bpy.data.objects)
+        bpy.ops.mesh.separate(type="SELECTED")
+        _new = [o for o in bpy.data.objects if o not in _before]
+        bpy.ops.object.mode_set(mode="OBJECT")
+        _exploded = []
+        for _obj in _new:
+            bpy.ops.object.select_all(action="DESELECT")
+            _obj.select_set(True)
+            bpy.context.view_layer.objects.active = _obj
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.mesh.edge_split()
+            _b2 = set(bpy.data.objects)
+            try:
+                bpy.ops.mesh.separate(type="LOOSE")
+            except RuntimeError:
+                pass
+            bpy.ops.object.mode_set(mode="OBJECT")
+            _exploded.extend([o for o in bpy.data.objects if o not in _b2])
+        return [o.name for o in _new + _exploded]
+
+    def _build_explode_fixture(n_sources, subdiv, filler=0):
+        """``n_sources`` grid meshes all in EDIT mode with every face selected."""
+        reset()
+        objs = []
+        for i in range(n_sources):
+            bpy.ops.mesh.primitive_grid_add(
+                x_subdivisions=subdiv, y_subdivisions=subdiv, location=(i * 5, 0, 0)
+            )
+            objs.append(bpy.context.view_layer.objects.active)
+        for i in range(filler):
+            bpy.ops.object.empty_add(location=(0, i * 2, 0))
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in objs:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = objs[0]
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        return objs
+
+    # --- single source (the shape the production slot drives): list-identical.
+    _build_explode_fixture(1, 6)
+    ref_names = _reference_explode()
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    _build_explode_fixture(1, 6)
+    got = btk.detach_components(duplicate=False, separate=True, separate_each=True,
+                                center_pivot=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    got_names = [o.name for o in got]
+    check("detach separate_each: same object LIST as the nested-diff original",
+          got_names == ref_names, f"{len(got_names)} vs {len(ref_names)}")
+    check("detach separate_each: one object per face of the source grid",
+          len(got_names) == 36 and all(faces(o) == 1 for o in got),
+          f"n={len(got_names)}")
+
+    # --- several sources in edit mode at once (the case that was nested): the loop
+    # only ADDS objects, so the single post-loop difference is the same SET. Order
+    # within the exploded tail becomes global name order rather than per-source
+    # grouping -- no caller reads it (tentacle's polygons.tb005 discards the return,
+    # and _centered/center_pivot is per-object).
+    _build_explode_fixture(4, 6)
+    ref_names = sorted(_reference_explode())
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    _build_explode_fixture(4, 6)
+    got = btk.detach_components(duplicate=False, separate=True, separate_each=True,
+                                center_pivot=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    check("detach separate_each (4 sources): same object SET as the nested original",
+          sorted(o.name for o in got) == ref_names,
+          f"{len(got)} vs {len(ref_names)}")
+    check("detach separate_each (4 sources): no duplicates in the result",
+          len(set(got)) == len(got), f"n={len(got)}")
+    check("detach separate_each (4 sources): every result is a single-face object",
+          all(faces(o) == 1 for o in got))
+
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
 
-ok = all(l.startswith("OK") for l in lines)
+ok = all(ln.startswith("OK") for ln in lines)
 print("\n===EDIT-UTILS===")
 print("\n".join(lines))
 print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

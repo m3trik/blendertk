@@ -111,10 +111,18 @@ class InstancingStrategy:
         return StrategyType.COMBINE
 
     def _get_triangle_count(self, mesh_node: object) -> int:
+        """Fan-triangle count for ``mesh_node``'s mesh, or 0 when it has none.
+
+        Parameters:
+            mesh_node: An object carrying a ``data`` mesh datablock.
+
+        Returns:
+            The polygon fan count (``n - 2`` per face).
+        """
+        # Deferred: keeps this strategy module importable without the package root.
+        from blendertk.core_utils._core_utils import CoreUtils
+
         try:
-            me = getattr(mesh_node, "data", None)
-            if me is None or not hasattr(me, "polygons"):
-                return 0
-            return sum(len(p.vertices) - 2 for p in me.polygons)
+            return CoreUtils._mesh_face_counts(getattr(mesh_node, "data", None))[0]
         except Exception:
             return 0

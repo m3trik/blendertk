@@ -187,6 +187,87 @@ try:
           btk.user_config_path("x.json", base=os.path.join("a", "b")) == os.path.join("a", "b", "x.json"))
     check("get_recent_files still reads through it (list)", isinstance(btk.get_recent_files(), list))
 
+    # ---- _mesh_face_counts: the ONE fan-count primitive behind get_scene_info /
+    # analyze_scene / _mesh_metrics / AutoInstancer / InstancingStrategy.
+    # Pins it against the per-polygon Python idiom it replaced -- the counts must be
+    # identical on a mesh carrying tris, quads AND ngons, or the five call sites drift.
+    import bmesh
+    from blendertk.core_utils._core_utils import _CoreUtilsInternal
+
+    def old_idiom(me):
+        """The pre-unification loop: fan count + ngon count, one RNA read per face."""
+        tris = ngons = 0
+        for poly in me.polygons:
+            n = len(poly.vertices)
+            tris += max(n - 2, 0)
+            if n > 4:
+                ngons += 1
+        return tris, ngons
+
+    reset()
+    mixed = bpy.data.meshes.new("btk_mixed_faces")
+    bm = bmesh.new()
+    verts = [bm.verts.new((float(i), float(i % 3), 0.0)) for i in range(24)]
+    bm.verts.ensure_lookup_table()
+    bm.faces.new(verts[0:3])     # tri
+    bm.faces.new(verts[3:6])     # tri
+    bm.faces.new(verts[6:10])    # quad
+    bm.faces.new(verts[10:14])   # quad
+    bm.faces.new(verts[14:19])   # 5-gon
+    bm.faces.new(verts[19:24])   # 5-gon
+    bm.to_mesh(mixed)
+    bm.free()
+
+    check("mixed fixture really carries tris + quads + ngons",
+          sorted(len(f.vertices) for f in mixed.polygons) == [3, 3, 4, 4, 5, 5])
+    check("_mesh_face_counts == the loop idiom on tris+quads+ngons",
+          _CoreUtilsInternal._mesh_face_counts(mixed) == old_idiom(mixed),
+          f"fast={_CoreUtilsInternal._mesh_face_counts(mixed)} loop={old_idiom(mixed)}")
+    check("_mesh_face_counts returns the hand-computed (tris, ngons)",
+          _CoreUtilsInternal._mesh_face_counts(mixed) == (1 + 1 + 2 + 2 + 3 + 3, 2),
+          str(_CoreUtilsInternal._mesh_face_counts(mixed)))
+
+    # A denser, subdivided mesh: same answer as the loop, no clamping drift.
+    bpy.ops.mesh.primitive_grid_add(x_subdivisions=40, y_subdivisions=40)
+    grid = bpy.context.view_layer.objects.active
+    check("_mesh_face_counts == the loop idiom on a dense all-quad grid",
+          _CoreUtilsInternal._mesh_face_counts(grid.data) == old_idiom(grid.data),
+          f"{len(grid.data.polygons)} polys")
+
+    # Degenerate / non-bpy inputs must not raise (the auto-instancer passes objects
+    # whose .data may be missing, and InstancingStrategy is exercised with doubles).
+    check("_mesh_face_counts(None) -> (0, 0)", _CoreUtilsInternal._mesh_face_counts(None) == (0, 0))
+    check("_mesh_face_counts(empty mesh) -> (0, 0)",
+          _CoreUtilsInternal._mesh_face_counts(bpy.data.meshes.new("btk_empty")) == (0, 0))
+
+    class _FakePoly:
+        def __init__(self, n): self.vertices = tuple(range(n))
+
+    class _FakeMesh:
+        polygons = [_FakePoly(3), _FakePoly(4), _FakePoly(6)]
+
+    check("_mesh_face_counts falls back for a non-bpy sequence (test double)",
+          _CoreUtilsInternal._mesh_face_counts(_FakeMesh()) == (1 + 2 + 4, 1),
+          str(_CoreUtilsInternal._mesh_face_counts(_FakeMesh())))
+
+    # The five call sites agree with the primitive.
+    from blendertk.edit_utils._edit_utils import _EditUtilsInternal
+    from blendertk.core_utils.auto_instancer.instancing_strategy import (
+        InstancingStrategy, StrategyConfig,
+    )
+
+    expected_tris = old_idiom(grid.data)[0]
+    check("EditUtils._mesh_metrics 'triangle' matches the primitive",
+          _EditUtilsInternal._mesh_metrics(grid, ["triangle"]) == [expected_tris],
+          str(_EditUtilsInternal._mesh_metrics(grid, ["triangle"])))
+    check("InstancingStrategy._get_triangle_count matches the primitive",
+          InstancingStrategy(StrategyConfig())._get_triangle_count(grid) == expected_tris)
+    info = btk.get_scene_info(objects=[grid])
+    check("get_scene_info triangles/ngons match the primitive",
+          (info["triangles"], info["ngons"]) == _CoreUtilsInternal._mesh_face_counts(grid.data),
+          f"{info['triangles']}/{info['ngons']}")
+    reset()
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
