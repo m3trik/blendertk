@@ -84,11 +84,11 @@ jobs:
           # before this PR's checks run. Measured 2026-08-23: a bare-name install
           # resolved pythontk 0.9.28 82 s after 0.9.30 was uploaded.
           # --no-cache-dir: pip's HTTP cache can hold the stale index page too.
+          # [unity] because test_blender_ui_handler constructs UnityBridge, whose
+          # __init__ instantiates the unitytk-backed deliverer -- the extra is what
+          # a user running that panel has, so it is what the suite should resolve
+          # (and its unitytk floor rides this same loop).
           for attempt in 1 2 3 4 5 6; do
-            # [unity] because test_blender_ui_handler constructs UnityBridge,
-            # whose __init__ instantiates the unitytk-backed deliverer -- the
-            # extra is what a user running that panel has, so it is what the
-            # suite should resolve (and its unitytk floor rides the same loop).
             if pip install --no-cache-dir -e ".[unity]"; then break; fi
             if [ "$attempt" -lt 6 ]; then
               echo "::warning::editable install attempt $attempt failed (index propagation lag?); retrying in 30s"
