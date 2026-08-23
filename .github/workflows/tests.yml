@@ -86,6 +86,13 @@ jobs:
           PYTHONUTF8: '1'
           PYTHONIOENCODING: utf-8
         run: |
+          # GitHub runs this step as `bash -e -o pipefail`, so the `out=$(...)`
+          # below would exit the STEP the moment a suite returns non-zero --
+          # before the ::error:: line, the FAIL excerpt, or the summary. The
+          # loop's whole job is to report on a failing suite, so it has to be
+          # allowed to see one. (Observed on PR #4: a single PASS line, then
+          # exit 1 with no diagnostic. mayatk's twin job opens the same way.)
+          set +e
           SUITES="
           test_blender_native_menus
           test_blender_ui_handler
