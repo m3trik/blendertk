@@ -1,7 +1,8 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 3cb4ec9)._
+_Diff vs the last release (origin/main @ 8abd60e)._
 
-## Added (1)
+## Added (2)
 
-- `edit_utils/naming/naming_slots.py::NamingSlots.base_names(self) -> bool`
+- `env_utils/pm_doctor.py::find_shadows()`
+- `env_utils/pm_doctor.py::main()`

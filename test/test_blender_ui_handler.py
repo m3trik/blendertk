@@ -106,10 +106,29 @@ def check(name, cond, detail=""):
     )
 
 
+# This suite is a .venv target: it needs Qt, a real mayapy for the reference-manager
+# interop check, and the optional unitytk. Gate on "am I inside Blender?", NOT on
+# "is Qt missing?" — Blender headless normally ships no binding, but tentacle/blendertk
+# PROVISION PySide6 into Blender's addons/modules on demand, and once that has happened
+# the old qtpy probe stops skipping and the suite half-runs under the Blender harness
+# (measured 2026-08-24: 198/200, the 2 failures being the mayapy and unitytk checks).
+try:
+    import bpy  # noqa: F401
+
+    _IN_BLENDER = True
+except Exception:
+    _IN_BLENDER = False
+
+if _IN_BLENDER:
+    print(
+        "SKIP test_blender_ui_handler (Blender harness — run under the workspace .venv)"
+    )
+    print("===RESULT: PASS=== (skipped)")
+    sys.exit(0)
+
 try:
     from qtpy import QtWidgets  # noqa: F401
 except Exception:
-    # Blender headless ships no Qt binding — this suite is a .venv target. Skip cleanly.
     print(
         "SKIP test_blender_ui_handler (no Qt binding — run under the workspace .venv)"
     )
@@ -295,7 +314,8 @@ try:
 
     check(
         "blendertk-tagged panels default to sticky (hide button)",
-        handler.default_persistence(sb.get_ui("mirror")) == _UiHandler.PERSISTENCE_STICKY,
+        handler.default_persistence(sb.get_ui("mirror"))
+        == _UiHandler.PERSISTENCE_STICKY,
     )
     check(
         "BlenderUiHandler does not override apply_styles",
@@ -304,9 +324,7 @@ try:
     )
     check(
         "a UI Browser override outranks the blendertk default",
-        handler.resolve_persistence(
-            sb.get_ui("mirror"), "mirror", context_default=None
-        )
+        handler.resolve_persistence(sb.get_ui("mirror"), "mirror", context_default=None)
         == _UiHandler.PERSISTENCE_STICKY
         and (
             handler.set_persistence_override("mirror", _UiHandler.PERSISTENCE_TRANSIENT)
@@ -359,9 +377,7 @@ try:
     rm_ui = sb.get_ui("reference_manager")
     rm = getattr(rm_ui, "slots", None)
     if rm is not None:
-        rm_btns = [
-            b.text() for b in rm_ui.footer.findChildren(QtWidgets.QPushButton)
-        ]
+        rm_btns = [b.text() for b in rm_ui.footer.findChildren(QtWidgets.QPushButton)]
         check(
             "reference_manager footer hosts the bulk 'Un-Reference All' button",
             "Un-Reference All" in rm_btns,
@@ -447,14 +463,20 @@ try:
                 }
                 <= _hdr_names
                 and not (
-                    {"chk_recursive", "btn_new_workspace", "btn_mark_workspace", "btn_reload_all"}
+                    {
+                        "chk_recursive",
+                        "btn_new_workspace",
+                        "btn_mark_workspace",
+                        "btn_reload_all",
+                    }
                     & _hdr_names
                 ),
                 f"header={sorted(_hdr_names)}",
             )
             check(
                 "reference_manager Recursive + workspace mgmt live on the Root Directory option box",
-                {"chk_recursive", "btn_new_workspace", "btn_mark_workspace"} <= _opt_names,
+                {"chk_recursive", "btn_new_workspace", "btn_mark_workspace"}
+                <= _opt_names,
                 f"optbox={sorted(_opt_names)}",
             )
 
@@ -492,8 +514,7 @@ try:
             check(
                 "reference_manager every row carries a link-column state + icon",
                 all(
-                    rm_tbl.actions.get(r, rm.COL_REF)
-                    in ("referenced", "unreferenced")
+                    rm_tbl.actions.get(r, rm.COL_REF) in ("referenced", "unreferenced")
                     and rm_tbl.item(r, rm.COL_REF) is not None
                     and not rm_tbl.item(r, rm.COL_REF).icon().isNull()
                     for r in range(rm_tbl.rowCount())
@@ -544,8 +565,7 @@ try:
             # `if not is_initialized` guard rebuilt the whole menu each pass -> every row action
             # listed 2x. tbl000_init was run several times above; the menu must still be unique.
             _rm_menu_names = [
-                b.objectName()
-                for b in rm_tbl.menu.findChildren(QtWidgets.QPushButton)
+                b.objectName() for b in rm_tbl.menu.findChildren(QtWidgets.QPushButton)
             ]
             check(
                 "reference_manager row context menu has NO duplicate entries (built once)",
@@ -561,7 +581,12 @@ try:
             check(
                 "reference_manager header Include Types row is not duplicated (4 unique)",
                 sorted(_rm_hdr_incl)
-                == ["chk_include_blend", "chk_include_fbx", "chk_include_ma", "chk_include_mb"],
+                == [
+                    "chk_include_blend",
+                    "chk_include_fbx",
+                    "chk_include_ma",
+                    "chk_include_mb",
+                ],
                 f"{sorted(_rm_hdr_incl)}",
             )
 
@@ -588,16 +613,18 @@ try:
             # attribute lookup, so patching after wiring would silently miss the swap.
             _s2.open_selected = lambda: _open_calls.append(1)
             _s2.tbl000_init(rm_tbl)
-            _action_owner = rm_tbl.actions._columns[rm.COL_REF]["states"]["unreferenced"][
-                "action"
-            ].__self__
+            _action_owner = rm_tbl.actions._columns[rm.COL_REF]["states"][
+                "unreferenced"
+            ]["action"].__self__
             check(
                 "reference_manager tbl000_init re-wires the action column to a NEW slots "
                 "instance on reload (not left bound to the dead old one)",
                 _action_owner is _s2 and _action_owner is not rm,
                 f"owner={_action_owner!r}",
             )
-            rm_tbl._menu_action_registry["row_open"]["handler"](rm_tbl.selectedItems() or [])
+            rm_tbl._menu_action_registry["row_open"]["handler"](
+                rm_tbl.selectedItems() or []
+            )
             check(
                 "reference_manager tbl000_init re-wires context-menu actions to a NEW slots "
                 "instance on reload (row_open dispatches to the live instance)",
@@ -614,7 +641,9 @@ try:
             # keyed re-wires — the internal one must survive, and only the latest keyed slot fires.
             _probe_w = QtWidgets.QCheckBox()
             _internal, _first, _second = [], [], []
-            _probe_w.toggled.connect(lambda *a: _internal.append(1))  # stands in for internal wiring
+            _probe_w.toggled.connect(
+                lambda *a: _internal.append(1)
+            )  # stands in for internal wiring
             ReferenceManagerSlots._rewire_signal(
                 _probe_w, _probe_w.toggled, lambda *a: _first.append(1), "probe"
             )
@@ -638,7 +667,9 @@ try:
             _rm_orig_mb = rm.sb.message_box
             rm.sb.message_box = lambda *a, **k: _rm_msgs.append(a[0] if a else "")
             try:
-                rm._open_path(os.path.join(rm_proj, "robot.ma"))  # must NOT raise under .venv
+                rm._open_path(
+                    os.path.join(rm_proj, "robot.ma")
+                )  # must NOT raise under .venv
                 check(
                     "reference_manager _open_path(foreign) degrades cleanly without bpy (no import crash)",
                     any("needs a running Blender" in m for m in _rm_msgs),
@@ -670,10 +701,10 @@ try:
             rm._confirm_discard_unsaved = lambda *a, **k: True
             rm._refresh = lambda: None
             rm.sb.message_box = lambda *a, **k: None
-            _rm_btk.new_scene = lambda: (_log.__setitem__("new", _log["new"] + 1) or True)
-            _rm_btk.open_scene = lambda p: (_log["open"].append(p) or True)
-            _rm_btk.remove_library = lambda lib: (_log["removed"].append(lib) or True)
-            _rm_btk.link_blend_file = lambda p, **k: (_log["linked"].append(p) or 1)
+            _rm_btk.new_scene = lambda: _log.__setitem__("new", _log["new"] + 1) or True
+            _rm_btk.open_scene = lambda p: _log["open"].append(p) or True
+            _rm_btk.remove_library = lambda lib: _log["removed"].append(lib) or True
+            _rm_btk.link_blend_file = lambda p, **k: _log["linked"].append(p) or 1
             try:
                 _row = next(
                     r
@@ -762,7 +793,7 @@ try:
                     _rm_baked.append(p) or (p + ".baked.blend")
                 )
                 _rm_orig_link = _rm_btk.link_blend_file
-                _rm_btk.link_blend_file = lambda p, **k: (_rm_linked.append(p) or 1)
+                _rm_btk.link_blend_file = lambda p, **k: _rm_linked.append(p) or 1
                 # list_libraries() needs bpy; the row is unlinked in this fixture anyway.
                 rm._library_for_path = lambda p: None
                 # The mutual-exclusion check calls _is_current -> _current_scene_path, which imports
@@ -788,7 +819,11 @@ try:
             rm_ui.txt000.clear()
             _rm_shutil.rmtree(rm_tmp, ignore_errors=True)
     else:
-        check("reference_manager exposes slots for the icon-column check", False, "no slots")
+        check(
+            "reference_manager exposes slots for the icon-column check",
+            False,
+            "no slots",
+        )
 
     # maya_bridge: render_template substitutes the FBX path + params (Qt path; needs no bpy, so it
     # belongs here rather than in the headless test_maya_bridge harness which lacks Qt).
@@ -1305,8 +1340,12 @@ try:
         )
 
         cslots.tbl000_init(ctbl)
-        ctbl.is_initialized = True  # what _perform_slot_init stamps after the first init
-        s2 = _ChannelsSlots(sb)  # a fresh slots instance bound to the SAME persisted widget
+        ctbl.is_initialized = (
+            True  # what _perform_slot_init stamps after the first init
+        )
+        s2 = _ChannelsSlots(
+            sb
+        )  # a fresh slots instance bound to the SAME persisted widget
         s2.controller = _FakeCtl()
         s2._row_descriptors = [dict(_CHAN_DESC)]
         s2.controller.vals = {"a": 9.0, "b": 2.0}
@@ -1319,7 +1358,9 @@ try:
             ctbl.cellWheelScrolled.disconnect()
         except (RuntimeError, TypeError):
             pass
-        s2.tbl000_init(ctbl)  # is_initialized already True -> must still re-wire the signals
+        s2.tbl000_init(
+            ctbl
+        )  # is_initialized already True -> must still re-wire the signals
         ctbl.cellWheelScrolled.emit(0, COL_V, 1, Qt.NoModifier)
         app.processEvents()
         check(
@@ -1474,9 +1515,8 @@ try:
     # A shared mutable spec would let one bridge's tweak leak into all of them.
     check(
         "each bridge holds its OWN SCOPE spec instance",
-        len({id(sp) for sp in _scope_specs if sp is not None}) == len(
-            [sp for sp in _scope_specs if sp is not None]
-        ),
+        len({id(sp) for sp in _scope_specs if sp is not None})
+        == len([sp for sp in _scope_specs if sp is not None]),
     )
 except Exception as e:
     traceback.print_exc()

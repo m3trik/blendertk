@@ -88,6 +88,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/maya_bridge/templates/_import_scene_usd.py`](#env_utils--maya_bridge--templates--_import_scene_usd) — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - [`env_utils/maya_bridge/templates/_save_scene.py`](#env_utils--maya_bridge--templates--_save_scene) — Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 - [`env_utils/maya_bridge/templates/import.py`](#env_utils--maya_bridge--templates--import) — Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
+- [`env_utils/pm_doctor.py`](#env_utils--pm_doctor) — Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
 - [`env_utils/reference_manager.py`](#env_utils--reference_manager) — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - [`env_utils/scene_exporter/_scene_exporter.py`](#env_utils--scene_exporter--_scene_exporter) — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - [`env_utils/scene_exporter/scene_exporter_slots.py`](#env_utils--scene_exporter--scene_exporter_slots) — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
@@ -786,7 +787,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L305)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L336)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
   - `CoreUtils.undoable(fn)` *(static)* — Wrap ``fn`` so its changes collapse into a single Blender undo step.
@@ -1660,6 +1661,14 @@ Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
 - [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L252) — Replay the sidecar manifest through mayatk's applier (see module docstring).
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L274)
 
+<a id="env_utils--pm_doctor"></a>
+### `env_utils/pm_doctor.py`
+
+Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
+
+- [`find_shadows()`](blendertk/blendertk/env_utils/pm_doctor.py#L31) — ``[(name, user_site_version, bundled_version)]`` for shadowed dists.
+- [`main()`](blendertk/blendertk/env_utils/pm_doctor.py#L56)
+
 <a id="env_utils--reference_manager"></a>
 ### `env_utils/reference_manager.py`
 
@@ -2321,7 +2330,7 @@ Material Updater tool panel — Switchboard slot wiring for the co-located ``mat
   - `MatUpdaterSlots.header_init(self, widget)` — Format global options in the header menu (mirror of the Maya panel's, minus the
   - `MatUpdaterSlots.selection_mode(self)` *(property)*
   - `MatUpdaterSlots.move_to_folder(self)` *(property)*
-  - `MatUpdaterSlots.cmb001_init(self, widget)` — Initialize Presets
+  - `MatUpdaterSlots.cmb001_init(self, widget)` — Initialize Presets (mirror of mayatk's ``cmb001_init``).
   - `MatUpdaterSlots.b001(self)` — Update Materials
 
 <a id="mat_utils--render_opacity--_render_opacity"></a>

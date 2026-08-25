@@ -275,20 +275,30 @@ class MatUpdaterSlots(MatUpdater):
         return self.ui.txt_move_to.text() or None
 
     def cmb001_init(self, widget):
-        """Initialize Presets"""
+        """Initialize Presets (mirror of mayatk's ``cmb001_init``).
+
+        Names and tooltips both come from the ``OutputTemplates`` SSoT (shared
+        with game_shader / the converter / compositor / scene exporter). The
+        tooltip is the profile's full outline rather than its one-paragraph
+        description — each item names the files the profile writes and what each
+        one carries.
+
+        ``delivery=False`` because this panel does not hand the profile to the
+        writer as ``output_profile``: it reconfigures and rewires, leaving each
+        map in the container it was authored in.
+        """
         from qtpy import QtCore
 
         if not widget.is_initialized:
             widget.restore_state = True
-            # Names + tooltips from the OutputTemplates SSoT (shared with
-            # game_shader / the converter / compositor / scene exporter).
             widget.clear()
-            for name, description in ptk.OutputTemplates.profile_choices():
+            for name, outline in ptk.OutputTemplates.profile_outlines(delivery=False):
                 widget.addItem(name)
-                if description:
-                    widget.setItemData(
-                        widget.count() - 1, description, QtCore.Qt.ToolTipRole
-                    )
+                widget.setItemData(
+                    widget.count() - 1,
+                    self.sb.tooltip.fmt(**outline),
+                    QtCore.Qt.ToolTipRole,
+                )
 
     @Cancelable(300)
     def b001(self):
@@ -374,9 +384,7 @@ class MatUpdaterSlots(MatUpdater):
             # (via ``log_raw``) would not be.
             import traceback
 
-            self.logger.error(
-                f"Material update failed: {e}\n{traceback.format_exc()}"
-            )
+            self.logger.error(f"Material update failed: {e}\n{traceback.format_exc()}")
 
 
 # -----------------------------------------------------------------------------

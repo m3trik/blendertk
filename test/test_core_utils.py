@@ -268,6 +268,62 @@ try:
           f"{info['triangles']}/{info['ngons']}")
     reset()
 
+    # ---- ensure_packages: resolver-aware install into the TAIL-precedence dir ----
+    # The provisioning policy must (a) target scriptsddons\modules — natively on
+    # sys.path AFTER bundled site-packages, so a provisioned dist can never shadow a
+    # bundled one — and (b) go through PackageManager.install_targeted (pip-resolver
+    # plan + --no-deps apply), never a raw resolver-blind `pip install --target`.
+    import os as _os
+    from blendertk.core_utils import _core_utils as _cu_mod
+
+    target_dir, legacy_dir = _cu_mod._CoreUtilsInternal._engine_install_dirs()
+    check("engine install dir is scripts/addons/modules (tail precedence)",
+          _os.path.normpath(target_dir).lower().endswith(_os.path.normpath("scripts/addons/modules")),
+          target_dir)
+    check("legacy dir is the old top-precedence scripts/modules",
+          _os.path.normpath(legacy_dir).lower().endswith(_os.path.normpath("scripts/modules"))
+          and "addons" not in _os.path.normpath(legacy_dir).lower().split(_os.sep)[-2],
+          legacy_dir)
+
+    class _RecorderPM:
+        captured = None
+        def __init__(self, python_path=None):
+            type(self).captured_python = python_path
+        def install_targeted(self, specs, target_dir, upgrade=False):
+            type(self).captured = {"specs": list(specs), "target_dir": target_dir, "upgrade": upgrade}
+            return []
+
+    _real_pm = _cu_mod.ptk.PackageManager
+    try:
+        _cu_mod.ptk.PackageManager = _RecorderPM
+        got = btk.CoreUtils.ensure_packages({"zz-absent-probe-pkg": "zz_absent_probe_pkg"})
+        check("ensure_packages routes through install_targeted", _RecorderPM.captured is not None,
+              str(_RecorderPM.captured))
+        if _RecorderPM.captured:
+            check("ensure_packages targets addons/modules",
+                  _os.path.normpath(_RecorderPM.captured["target_dir"]) == _os.path.normpath(target_dir),
+                  _RecorderPM.captured["target_dir"])
+            check("ensure_packages passes the missing spec",
+                  _RecorderPM.captured["specs"] == ["zz-absent-probe-pkg"])
+        check("ensure_packages returns [] for a still-missing pkg", got == [])
+
+        # tail-append branch: when the dir is absent from sys.path it must be APPENDED
+        # (bundled site-packages keeps import precedence), never insert(0)'d.
+        _norm_target = _os.path.normpath(target_dir)
+        _removed = [q for q in sys.path if _os.path.normpath(q) == _norm_target]
+        for q in _removed:
+            sys.path.remove(q)
+        try:
+            btk.CoreUtils.ensure_packages({"zz-absent-probe-pkg": "zz_absent_probe_pkg"})
+            _idx = [i for i, q in enumerate(sys.path) if _os.path.normpath(q) == _norm_target]
+            check("ensure_packages re-adds the dir at the TAIL of sys.path",
+                  bool(_idx) and _idx[0] >= len(sys.path) - 1, f"idx={_idx} len={len(sys.path)}")
+        finally:
+            sys.path[:] = [q for q in sys.path if _os.path.normpath(q) != _norm_target]
+            sys.path.extend(_removed)
+    finally:
+        _cu_mod.ptk.PackageManager = _real_pm
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
