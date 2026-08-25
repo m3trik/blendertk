@@ -1,8 +1,5 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 8abd60e)._
+_Diff vs the last release (origin/main @ 3626b42)._
 
-## Added (2)
-
-- `env_utils/pm_doctor.py::find_shadows()`
-- `env_utils/pm_doctor.py::main()`
+No public API changes since the last release (origin/main @ 3626b42).
