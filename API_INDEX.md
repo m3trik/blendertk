@@ -418,6 +418,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `rebuild_materials(new_nodes)`
 - `main()`
 
+### `env_utils/pm_doctor.py` — Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
+- `find_shadows()`
+- `main()`
+
 ### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - `class ReferenceManagerSlots(ptk.LoggingMixin)`
   - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, toggle_reference_selected, unlink_import_selected, reload_all, make_local_all, remove_all

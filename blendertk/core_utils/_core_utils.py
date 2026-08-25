@@ -97,16 +97,44 @@ class _CoreUtilsInternal(object):
         return sys.executable
 
     @staticmethod
+    def _engine_install_dirs():
+        """(target, legacy) provisioning dirs for on-demand installs, from ``bpy``.
+
+        *target* is ``<user scripts>/addons/modules`` — Blender puts it on
+        ``sys.path`` natively (even before it exists) **after** the bundled
+        site-packages, so nothing provisioned there can ever shadow a dist
+        Blender ships (probed 2026-08-24: idx 11 vs bundled idx 9). *legacy* is
+        the old ``<user scripts>/modules`` target — that one sits at ``sys.path``
+        index 0, AHEAD of the bundled site-packages, which is exactly the
+        shadowing hazard the move exists to close.
+
+        Raises whatever ``bpy`` raises outside Blender — callers gate on that.
+        """
+        import os
+        import bpy
+
+        target = bpy.utils.user_resource("SCRIPTS", path="addons/modules", create=True)
+        legacy = os.path.join(bpy.utils.user_resource("SCRIPTS"), "modules")
+        return os.path.normpath(target), os.path.normpath(legacy)
+
+    @staticmethod
     def _ensure_packages(pkgs, add_to_path=True):
         """Install any of ``{pip_spec: import_name}`` that is not importable.
 
-        Blender's provisioning policy, package-agnostic: install into the
-        per-version *user-modules* dir (already on ``sys.path``) driven against
-        Blender's **bundled** interpreter, then re-resolve importability.
+        Blender's provisioning policy, package-agnostic: resolver-aware install
+        into the per-version ``addons/modules`` dir (natively on ``sys.path`` at
+        TAIL precedence — see :meth:`_engine_install_dirs`), driven against
+        Blender's **bundled** interpreter via
+        :meth:`pythontk.PackageManager.install_targeted` — pip's own resolver
+        plans against the bundled site-packages, so a dep Blender already ships
+        (numpy) is never re-downloaded or duplicated the way a raw
+        ``pip install --target`` would. Then re-resolve importability.
         Backs both :meth:`CoreUtils.ensure_packages` and the Pillow-specific
         :meth:`CoreUtils.ensure_image_deps`.
         """
+        import os
         import sys
+        import logging
         import importlib
         import importlib.util
 
@@ -126,38 +154,41 @@ class _CoreUtilsInternal(object):
             return available
 
         try:
-            import bpy
+            install_dir, legacy_dir = _CoreUtilsInternal._engine_install_dirs()
         except Exception:
             # Not in Blender — the caller's interpreter must supply these.
             return available
 
+        log = logging.getLogger(__name__)
         try:
-            install_dir = bpy.utils.user_resource(
-                "SCRIPTS", path="modules", create=True
-            )
-        except Exception:
-            install_dir = ""
-        if not install_dir:
-            return available
+            if any(n.endswith(".dist-info") for n in os.listdir(legacy_dir)):
+                # Installs from the pre-2026-08 policy: they sit AHEAD of the
+                # bundled site-packages and can shadow dists Blender ships.
+                log.warning(
+                    f"[ensure_packages] pip-installed content found in the legacy "
+                    f"top-precedence dir {legacy_dir!r}; it can shadow Blender's "
+                    f"bundled packages — consider moving it to {install_dir!r}."
+                )
+        except OSError:
+            pass
 
         pm = ptk.PackageManager(python_path=_CoreUtilsInternal._blender_python_exe())
-        for spec in missing:
-            try:
-                pm.pip(f'install --target "{install_dir}" {spec}')
-            except Exception as error:
-                # Do NOT trust pip's exit code here: a ``--target`` install emits a non-zero
-                # "dependency resolver" ERROR when the *base* env has an unrelated conflict (e.g. an
-                # editable extapps that wants qtpy) even though the requested wheel installed fine. The
-                # actual install is reported by the importability re-check below, so this is debug-level.
-                import logging
+        try:
+            pm.install_targeted(missing, install_dir)
+        except Exception as error:
+            # The actual install is reported by the importability re-check
+            # below, so a pip-layer complaint is debug-level.
+            log.debug(f"[ensure_packages] pip note for {missing!r}: {error}")
 
-                logging.getLogger(__name__).debug(
-                    f"[ensure_packages] pip note for {spec!r}: {error}"
-                )
-
-        # Trust the import, not the exit code: add the target dir and re-resolve.
-        if add_to_path and install_dir not in sys.path:
-            sys.path.insert(0, install_dir)
+        # Trust the import, not the exit code: make the dir importable and re-resolve.
+        # APPEND, never insert(0): the bundled site-packages must keep import
+        # precedence over anything provisioned here.
+        # normcase as well as normpath: Windows paths differing only in case are the
+        # same dir, and appending a second spelling would shadow-by-duplicate.
+        if add_to_path:
+            seen = {os.path.normcase(os.path.normpath(q)) for q in sys.path}
+            if os.path.normcase(install_dir) not in seen:
+                sys.path.append(install_dir)
         importlib.invalidate_caches()
         return _available()
 
