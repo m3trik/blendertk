@@ -427,6 +427,43 @@ try:
         f"end={end_shift:.2f} mid={mid_shift:.2f}",
     )
 
+    # CROSSED ANCHOR (mirror of mayatk's test_crossed_anchor_is_reassigned_to_its_own_end).
+    # Handing the far end's anchor to bone_index=0 named the anchor bone for -- and hooked it
+    # to -- the WRONG end: correct at rest, tears off both ends once the anchor moves. Found in
+    # Maya (VDATS_DA 2026-08-25) on 2 of 7 tubes; only the b004 slot un-crossed the selection,
+    # so any direct caller of the primitive could build it. The primitive now owns the check.
+    reset()
+    t5 = tube("Crossed", depth=8.0)
+    r5 = TubeRig(t5, rig_name="cx")
+    arm5, bones5 = r5.create_joint_chain(r5.resolve_centerline(6), radius=0.5)
+    RigUtils.bind_armature(t5, arm5, auto_weights=True)
+    mn5, mx5 = eval_bounds(t5)
+    a_far = empty("CX_far", (0, 0, mx5.z))  # sits at the +Z (end) cap
+    bpy.context.view_layer.update()
+    crossed_bone = r5.constrain_end_with_falloff(
+        arm5,
+        bones5,
+        a_far,
+        t5,
+        falloff=3.0,
+        bone_index=0,  # crossed: far anchor, start index
+    )
+    check(
+        "b004 crossed: anchor reassigned to the end it actually sits at",
+        crossed_bone == "cx_anchor_end",
+        f"got {crossed_bone}, expected cx_anchor_end",
+    )
+    # A MID-chain index has no opposite end -- the guard must leave it alone.
+    mid_i = len(bones5) // 2
+    mid_bone = r5.constrain_end_with_falloff(
+        arm5, bones5, a_far, t5, falloff=3.0, bone_index=mid_i
+    )
+    check(
+        "b004 crossed: a mid-chain index is never reassigned",
+        mid_bone == f"cx_anchor_{mid_i}",
+        f"got {mid_bone}, expected cx_anchor_{mid_i}",
+    )
+
     # RE-ANCHOR = REPLACE (mirror of mayatk's test_rerun_replaces_previous_end_anchor). Pre-fix
     # add_bone uniquified the colliding name (…_anchor_end.001) and child_of appended a SECOND
     # CHILD_OF, so a rerun left a dead deform bone painted on the mesh and made the end follow

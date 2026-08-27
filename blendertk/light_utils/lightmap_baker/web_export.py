@@ -345,7 +345,9 @@ class LightmapWebExport(ptk.LoggingMixin):
         restored: List[str] = []
         for record in (token or {}).get("materials", []):
             material = bpy.data.materials.get(record.get("material", ""))
-            if material is None or material.node_tree is None:  # not use_nodes: deprecated
+            if (
+                material is None or material.node_tree is None
+            ):  # not use_nodes: deprecated
                 continue
             nt = material.node_tree
             for node_name in record.get("nodes", []):
@@ -564,7 +566,15 @@ class LightmapWebExport(ptk.LoggingMixin):
             basename = info.get("map")
             if not basename:
                 continue
-            path = os.path.join(info.get("dir") or "", basename)
+            # The marker stores its folder in Blender's portable '//'-relative
+            # spelling, which os.path.join cannot resolve -- joined raw it never
+            # names a real file, so every committed lightmap was dropped and the
+            # GLB shipped unlit with no TEXCOORD_1 carrier. _resolved_dir is the
+            # baker's own resolver and also covers the search-dir fallbacks.
+            path = os.path.join(
+                LightmapBaker._resolved_dir(info.get("dir") or "", basename),
+                basename,
+            )
             if not os.path.isfile(path):
                 self.logger.warning(
                     "%s: committed lightmap %r not found at %r; not shipped.",
@@ -581,7 +591,9 @@ class LightmapWebExport(ptk.LoggingMixin):
 
         # The PNGs are throwaway export intermediates -- never litter the maps' home.
         png_dir = ptk.TempArtifacts("lightmap_web").dir_path()
-        encoded = self.encode_for_web(mapping, output_dir=png_dir, percentile=percentile)
+        encoded = self.encode_for_web(
+            mapping, output_dir=png_dir, percentile=percentile
+        )
         token = self.wire_lightmaps(encoded, carrier=carrier)
         manifest = self.build_manifest(encoded, carrier=carrier)
 

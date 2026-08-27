@@ -96,6 +96,10 @@ class SceneExporterSlots(SceneExporter):
             ui, "exclude_hdr", "export_visible_objects", lambda scope: scope != "visible"
         )
 
+    def confirm(self, question: str) -> bool:
+        """The engine's consent seam as the panel's modal Yes/No."""
+        return self.sb.message_box(question, "Yes", "No") == "Yes"
+
     def _on_log_link_clicked(self, url) -> None:
         """Dispatch clickable ``action://`` links from the log panel."""
         from blendertk.ui_utils._ui_utils import UiUtils
@@ -494,6 +498,61 @@ class SceneExporterSlots(SceneExporter):
                     )
         widget.add(rows, header="Settings", clear=True)
 
+    #: The Ignore row's case toggle, set by :meth:`ignore_groups_init`. Held on
+    #: the slots instance (the ``_recent_names_option`` idiom mayatk uses on its
+    #: output-name field) rather than re-resolved off the row each export: it is
+    #: a plain Python object, so unlike a Qt wrapper it cannot be invalidated by
+    #: the option box's reparent. ``None`` until that slot runs —
+    #: :meth:`_ignore_groups_case_sensitive` then reports the task's own
+    #: ``case_sensitive=False`` default.
+    _case_toggle = None
+
+    def ignore_groups_init(self, widget) -> None:
+        """Init Ignore Groups — a Settings row (``cmb008``), created by
+        :meth:`cmb008_init` and registered by objectName (mirror of mayatk's
+        ``ignore_groups_init``).
+
+        The row's own option box carries an "Aa" toggle for the match mode, so
+        the case switch sits on the field it governs instead of costing a
+        second row. Off (case-insensitive) is the default and the behavior the
+        task has always had; :meth:`b000` reads the toggle back when it builds
+        the task payload.
+        """
+        if widget.is_initialized:
+            return
+        from uitk.widgets.optionBox.options.toggle import ToggleOption
+
+        widget.option_box.set_toggle(
+            icon="font",  # an "Aa" glyph — the conventional match-case mark
+            tooltip_on="Case-sensitive: names must match exactly. Click to ignore case.",
+            tooltip_off="Ignoring case. Click to match case exactly.",
+            initial=False,
+            # ToggleOption tints its off state the project error red, which suits
+            # a toggle whose off state STOPS something; here "off" is the
+            # ordinary, default match mode, so it takes the neutral "locked"
+            # token. The on state keeps the auto theme colour, so the button
+            # reads like every sibling in the option box.
+            disabled_color=ptk.Palette.status()["locked"][0],
+            # Explicit namespace, and the toggle's ONLY persistence: its button
+            # is registered by objectName (``register_children`` sweeps the
+            # option box) but carries ``restore_state=False``, so the preset
+            # manager's value-only window scope skips it — the export preset
+            # stores the Ignore field's text, never the match mode. uitk
+            # host-namespaces the key, so sharing this string with the mayatk
+            # mirror does not share the state.
+            settings_key="scene_exporter_ignore_groups_case_sensitive",
+        )
+        self._case_toggle = widget.option_box.find_option(ToggleOption)
+
+    def _ignore_groups_case_sensitive(self) -> bool:
+        """Whether the Ignore row's case toggle is on.
+
+        ``False`` when :meth:`ignore_groups_init` never ran (no row, or an
+        option box that never got wrapped) — the task's own default, so the
+        panel still exports.
+        """
+        return bool(self._case_toggle and self._case_toggle.is_on)
+
     def cmb004_init(self, widget) -> None:
         """Init Output Format — FBX (default), GLB, FBX + GLB, or USD.
 
@@ -625,6 +684,19 @@ class SceneExporterSlots(SceneExporter):
             task_params = {k: v for k, v in task_params.items() if v}
             check_params = {k: v for k, v in check_params.items() if v}
 
+        # Ignore Groups (mirror of mayatk): the match mode lives on the row's
+        # option-box toggle rather than a row of its own, so the value goes out
+        # as the kwargs dict the task dispatcher unpacks instead of a bare
+        # string (which ``ignore_groups`` still accepts, at its insensitive
+        # default). Folded AFTER the falsy filter above — a dict is always
+        # truthy, so folding earlier would keep an empty field in the payload
+        # and dispatch a no-op task that still counts toward the task total.
+        if "ignore_groups" in task_params:
+            task_params["ignore_groups"] = {
+                "names": task_params["ignore_groups"],
+                "case_sensitive": self._ignore_groups_case_sensitive(),
+            }
+
         self.logger.debug(f"Task parameters: {task_params}")
         self.logger.debug(f"Check parameters: {check_params}")
 
@@ -650,9 +722,9 @@ class SceneExporterSlots(SceneExporter):
         export_tasks = {**task_params, **check_params}
         export_tasks["output_format"] = self.ui.cmb004.currentData()
 
-        # Success/failure is already surfaced via the log panel (self.logger routes there);
-        # nothing else here consumes perform_export's return value.
-        self.perform_export(
+        # Success/failure is otherwise surfaced via the log panel (self.logger
+        # routes there); the return value is read only to disarm b009 below.
+        exported = self.perform_export(
             objects=objects_to_export,
             export_dir=self.ui.txt000.text(),
             preset_name=self.ui.cmb000.currentData(),
@@ -668,6 +740,13 @@ class SceneExporterSlots(SceneExporter):
         output_dir = self.ui.txt000.text()
         self.save_output_dir(output_dir)
         self.save_output_name(self.ui.txt001.text())
+
+        # Override Checks is a per-run escape hatch, not a mode: a successful
+        # export disarms it so the next run is validated again. Left armed on a
+        # failed export -- the user is still mid-troubleshooting and would
+        # otherwise have to re-arm it for every retry.
+        if exported:
+            self.ui.b009.setChecked(False)
 
     def b010(self) -> None:
         """Set Output Directory"""

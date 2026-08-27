@@ -362,7 +362,9 @@ class _MatUtilsInternal:
         path = _MatUtilsInternal._abspath(img)
         size = os.path.getsize(path) if path and os.path.exists(path) else None
         w, h = (int(img.size[0]), int(img.size[1])) if len(img.size) >= 2 else (0, 0)
-        mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}.get(img.channels, f"{img.channels}ch")
+        mode = {1: "L", 2: "LA", 3: "RGB", 4: "RGBA"}.get(
+            img.channels, f"{img.channels}ch"
+        )
         return {
             "path": path,
             "name": os.path.basename(path) if path else img.name,
@@ -384,7 +386,9 @@ class _MatUtilsInternal:
             return [m for m in ptk.make_iterable(materials) if m]
         if objects is not None:
             return MatUtils.get_mats(objects)
-        return [m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)]
+        return [
+            m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)
+        ]
 
     @staticmethod
     def _map_type_and_base(orig_stem):
@@ -393,7 +397,9 @@ class _MatUtilsInternal:
         Resolution is done on the original case because short map aliases (``AO``, ``MS``, …) are
         case-sensitive — lowercasing first would silently drop them.
         """
-        fname = orig_stem + ".png"  # extension is irrelevant to map-type / base resolution
+        fname = (
+            orig_stem + ".png"
+        )  # extension is irrelevant to map-type / base resolution
         try:
             mt = ptk.MapFactory.resolve_map_type(fname, key=True)
         except Exception:
@@ -524,12 +530,12 @@ class _MatUtilsInternal:
                         f"'{os.path.basename(dst)}' already exists at destination with a "
                         f"different size; skipping to avoid a wrong-file rebind: {dst}"
                     )
-                    return (
-                        "skip"  # different file, same name — don't clobber / wrong-rebind
-                    )
+                    return "skip"  # different file, same name — don't clobber / wrong-rebind
                 if mode == "move":
                     try:
-                        os.remove(src)  # dst is equivalent; the source copy is redundant
+                        os.remove(
+                            src
+                        )  # dst is equivalent; the source copy is redundant
                     except OSError:
                         pass
                 return "rebind"
@@ -550,7 +556,9 @@ class _MatUtilsInternal:
         """The material's Principled BSDF node, or None."""
         if not (mat and getattr(mat, "use_nodes", False)):
             return None
-        return next((n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        return next(
+            (n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None
+        )
 
     @staticmethod
     def _set_principled_inputs(node, params):
@@ -873,7 +881,9 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
             set_name = next(iter(orig_sets), "__single__")
             processed = {set_name: processed}
         file_to_set = {
-            _MatUtilsInternal._norm(f): set_name for set_name, files in orig_sets.items() for f in files
+            _MatUtilsInternal._norm(f): set_name
+            for set_name, files in orig_sets.items()
+            for f in files
         }
         out_by_set_type, out_by_type = {}, {}
         for set_name, files in processed.items():
@@ -920,7 +930,9 @@ class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal):
             # between every texture.
             mat_log = []
             for image, orig in recs:
-                new = _matched_output(orig, file_to_set.get(_MatUtilsInternal._norm(orig)))
+                new = _matched_output(
+                    orig, file_to_set.get(_MatUtilsInternal._norm(orig))
+                )
                 if new:
                     MatUtils.repath_image(image, new)
                     out_files.append(new)
@@ -1101,7 +1113,9 @@ class MatUtils(_MatUtilsInternal):
         """
         import bpy
 
-        mats = [m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)]
+        mats = [
+            m for m in bpy.data.materials if not _MatUtilsInternal._is_gp_material(m)
+        ]
         d = {m.name: m for m in mats}
         filtered = ptk.filter_dict(d, keys=True, inc=inc, exc=exc, **filter_kwargs)
         result = list(filtered.values())
@@ -1149,7 +1163,11 @@ class MatUtils(_MatUtilsInternal):
         paths = []
         for mat in mats:
             for _node, img in _MatUtilsInternal._material_image_nodes(mat):
-                p = _MatUtilsInternal._abspath(img) if absolute else (getattr(img, "filepath", "") or "")
+                p = (
+                    _MatUtilsInternal._abspath(img)
+                    if absolute
+                    else (getattr(img, "filepath", "") or "")
+                )
                 if p:
                     paths.append(p)
         return list(dict.fromkeys(paths))
@@ -1256,7 +1274,9 @@ class MatUtils(_MatUtilsInternal):
         return ptk.MatReport.format_texture_info_html(info_list)
 
     @staticmethod
-    def find_materials_with_duplicate_textures(materials=None, strict=False, verify=True):
+    def find_materials_with_duplicate_textures(
+        materials=None, strict=False, verify=True
+    ):
         """Groups of materials that are texture-level duplicates — mirror of
         ``mtk.MatUtils.find_materials_with_duplicate_textures`` (two-phase).
 
@@ -1561,7 +1581,9 @@ class MatUtils(_MatUtilsInternal):
             yield
         finally:
             for img, original in originals.items():
-                with ptk.CoreUtils.teardown_guard(logging.getLogger(__name__), f"image path {original!r}"):
+                with ptk.CoreUtils.teardown_guard(
+                    logging.getLogger(__name__), f"image path {original!r}"
+                ):
                     try:
                         if img.filepath != original:
                             cls.repath_image(img, original)
@@ -1628,7 +1650,9 @@ class MatUtils(_MatUtilsInternal):
             return ap
         try:
             return "//" + os.path.relpath(ap, blenddir).replace("\\", "/")
-        except ValueError:  # different drive — can't be expressed relative to the .blend
+        except (
+            ValueError
+        ):  # different drive — can't be expressed relative to the .blend
             return ap
 
     @staticmethod
@@ -1924,22 +1948,32 @@ class MatUtils(_MatUtilsInternal):
         return count
 
     @staticmethod
-    def find_and_copy_textures(
-        images=None, search_dir=None, dest_dir=None, mode="copy", use_valid_paths=True
+    def plan_find_and_copy_textures(
+        images=None, search_dir=None, dest_dir=None, use_valid_paths=True
     ):
-        """Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
-        copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
+        """What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.
+
+        The live call's own first half, so the two cannot disagree about which
+        file a texture would come from or where it would land: a preview that
+        can promise a different answer than the commit is worse than no preview.
+        Reads the disk (a walk is the only way to know what would be found) but
+        creates no folder, relocates no file and touches no datablock.
 
         With ``use_valid_paths`` (default) an image whose filepath already resolves on disk is
         its own source: a walk could only rediscover the same bytes, so ``search_dir`` is walked
         only for what does not resolve, and may be omitted entirely when nothing does. A
         resolving path outranks a walk hit of the same basename — it is the file the scene is
-        rendering with. A match whose destination already holds a different-size file is skipped
-        (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
+        rendering with.
+
+        Returns:
+            list[dict]: one record per texture that would be relocated —
+            ``source``, ``destination``, ``in_place`` (the source is already at
+            the destination, so only the stored path would change) and
+            ``images`` (the datablocks that would repath onto it)."""
         import bpy
 
         if not dest_dir:
-            return 0
+            return []
         wanted = {}  # basename -> [image datablocks]
         for img in _MatUtilsInternal._resolve_images(images):
             # ``bpy.path.basename`` strips Blender's ``//`` relative prefix, which
@@ -1948,7 +1982,7 @@ class MatUtils(_MatUtilsInternal):
             if base:
                 wanted.setdefault(base, []).append(img)
         if not wanted:
-            return 0
+            return []
 
         sources = {}  # basename -> source path
         unresolved = dict(wanted)
@@ -1986,15 +2020,44 @@ class MatUtils(_MatUtilsInternal):
                         found[key] = (mtime, path)
             for key, (_mtime, path) in found.items():
                 sources[key] = path
-        if not sources:
+
+        dest_key = os.path.normcase(os.path.abspath(dest_dir))
+        return [
+            {
+                "source": src_path,
+                "destination": os.path.join(dest_dir, os.path.basename(src_path)),
+                "in_place": os.path.normcase(os.path.dirname(os.path.abspath(src_path)))
+                == dest_key,
+                "images": wanted[key],
+            }
+            for key, src_path in sources.items()
+        ]
+
+    @staticmethod
+    def find_and_copy_textures(
+        images=None, search_dir=None, dest_dir=None, mode="copy", use_valid_paths=True
+    ):
+        """Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
+        copy/move), then repath — mirror of the Texture Path Editor's *Find & Copy Textures*.
+
+        Which file comes from where is decided by :func:`plan_find_and_copy_textures`; this
+        commits that plan. A match whose destination already holds a different-size file is
+        skipped (no overwrite, no wrong-file rebind). Returns the number of images repathed."""
+        plan = MatUtils.plan_find_and_copy_textures(
+            images, search_dir, dest_dir, use_valid_paths
+        )
+        if not plan:
             return 0
         os.makedirs(dest_dir, exist_ok=True)
         count = 0
-        for key, src in sources.items():
-            dst = os.path.join(dest_dir, os.path.basename(src))
-            if _MatUtilsInternal._safe_relocate(src, dst, mode) in ("skip", "error"):
+        for record in plan:
+            dst = record["destination"]
+            if _MatUtilsInternal._safe_relocate(record["source"], dst, mode) in (
+                "skip",
+                "error",
+            ):
                 continue  # different-size collision — don't clobber / wrong-rebind
-            for img in wanted[key]:
+            for img in record["images"]:
                 img.filepath = MatUtils.to_project_relative(dst)
                 try:
                     img.reload()
@@ -2082,7 +2145,9 @@ class MatUtils(_MatUtilsInternal):
             for idx, sock in enumerate(n.inputs):
                 if sock.is_linked or not hasattr(sock, "default_value"):
                     continue
-                entry["inputs"][str(idx)] = _MatUtilsInternal._json_socket_value(sock.default_value)
+                entry["inputs"][str(idx)] = _MatUtilsInternal._json_socket_value(
+                    sock.default_value
+                )
             for prop in _GRAPH_NODE_PROPS:
                 if hasattr(n, prop):
                     entry["props"][prop] = getattr(n, prop)
@@ -2136,7 +2201,9 @@ class MatUtils(_MatUtilsInternal):
         nodes_data = data.get("nodes") or []
         if not nodes_data and isinstance(data.get("params"), dict):
             mat = MatUtils.create_mat("standard", name=name or "ShaderTemplate")
-            _MatUtilsInternal._set_principled_inputs(_MatUtilsInternal._principled_node(mat), data["params"])
+            _MatUtilsInternal._set_principled_inputs(
+                _MatUtilsInternal._principled_node(mat), data["params"]
+            )
             return mat
 
         mat = bpy.data.materials.new(name or "ShaderTemplate")
@@ -2247,7 +2314,9 @@ class MatUtils(_MatUtilsInternal):
 
         dropped, extracted = {}, {}
         if by_type:
-            before = dict(by_type)  # filter_redundant_maps deletes dropped keys in place
+            before = dict(
+                by_type
+            )  # filter_redundant_maps deletes dropped keys in place
             report = ptk.MapFactory.filter_redundant_maps(by_type, config=config)
             # The redundancy filter cannot see normal-vs-normal: the three types
             # have no `replaces` relationship yet all drive the Principled Normal
@@ -2393,12 +2462,42 @@ class MatUtils(_MatUtilsInternal):
             nt.links.new(ao_socket, mix.inputs["Color2"])
             _set_input("Base Color", mix.outputs["Color"])
 
+        # Blender twin of the StingrayPBS opacity graphs: "masked" is alpha
+        # CUTOUT -- the alpha is thresholded to 0/1 in the node graph, so it
+        # cuts identically in EEVEE, Cycles and every engine the material is
+        # exported to (glTF: alphaMode MASK), and the mesh stays in the opaque
+        # queue -- a solid body sharing an alpha-BLENDED material sorts wrong
+        # everywhere.
+        masked = (config or {}).get("opacity_mode") == "masked"
+        # "none" is an assertion, not an absence: the caller ruled opacity out,
+        # so the alpha stays unwired and the material stays fully opaque even
+        # when the set carries a usable one. Auto (unset) is unaffected -- it
+        # still lets the maps decide.
+        opaque = (config or {}).get("opacity_mode") == "none"
+
         def _enable_alpha_blend():
             """Alpha textures need a non-opaque blend mode to show through in EEVEE."""
             try:
-                mat.blend_method = "HASHED"
+                mat.blend_method = "CLIP" if masked else "HASHED"
+                if masked:
+                    mat.alpha_threshold = 0.5
             except (AttributeError, TypeError):
                 pass  # EEVEE-Next / future Blender dropped blend_method
+
+        def _alpha_socket(socket):
+            """The alpha to wire: as-is for blending, thresholded for masked.
+
+            The threshold is Stingray's ``mask_threshold`` default (0.5), on a
+            labelled Math node so an artist can dial it in the graph.
+            """
+            if not masked:
+                return socket
+            cut = nt.nodes.new("ShaderNodeMath")
+            cut.operation = "GREATER_THAN"
+            cut.inputs[1].default_value = 0.5
+            cut.label = "Mask Threshold"
+            nt.links.new(socket, cut.inputs[0])
+            return cut.outputs["Value"]
 
         # --- Base Color / Diffuse / Albedo+Transparency --------------------------
         # Albedo_Transparency is a color map whose alpha carries opacity; it is the lowest-priority
@@ -2417,12 +2516,17 @@ class MatUtils(_MatUtilsInternal):
             _set_input("Base Color", base_node.outputs["Color"])
 
         # --- Alpha: Albedo+Transparency alpha channel wins, else a standalone Opacity map --------
-        if base_key == "Albedo_Transparency":
-            _set_input("Alpha", base_node.outputs["Alpha"])
+        if opaque:  # ruled out by the caller; no image node, nothing wired
+            pass
+        elif base_key == "Albedo_Transparency":
+            _set_input("Alpha", _alpha_socket(base_node.outputs["Alpha"]))
             _enable_alpha_blend()
         elif "Opacity" in by_type:
             _set_input(
-                "Alpha", _img(by_type["Opacity"], non_color=True).outputs["Color"]
+                "Alpha",
+                _alpha_socket(
+                    _img(by_type["Opacity"], non_color=True).outputs["Color"]
+                ),
             )
             _enable_alpha_blend()
 
@@ -2596,7 +2700,12 @@ class MatUtils(_MatUtilsInternal):
 
     @staticmethod
     def create_pbr_materials(
-        textures, name=None, normal_direction="OpenGL", prefix="", suffix="", config=None
+        textures,
+        name=None,
+        normal_direction="OpenGL",
+        prefix="",
+        suffix="",
+        config=None,
     ):
         """Batch builder — Blender mirror of mayatk's ``GameShader.create_network`` batch path.
 

@@ -47,6 +47,23 @@ class BlenderExportMixin:
     #: (``use_custom_props``, ``EMPTY`` in ``object_types``) -- see :meth:`_export_fbx`.
     include_data_export: bool = False
 
+    def lightmap_search_dirs(self) -> List[str]:
+        """Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
+
+        Answers the question the FBX's lightmap manifest cannot: it records the
+        folder the bake was COMMITTED from, and a project reorganised since (or
+        opened on another machine) leaves every EXR lookup missing -- which
+        previews as an unlit push and reads as a broken bake. Mirror of
+        mayatk's method of the same name: the workspace's texture folders plus
+        wherever the markers' maps were actually found
+        (:meth:`LightmapBaker.search_dirs`), so a map the walk had to go
+        looking for still reaches a consumer that can only join a basename
+        against a list.
+        """
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        return LightmapBaker.search_dirs()
+
     #: What the USD carrier does with linked duplicates in the export set. USD
     #: leaves Blender FLAT (``use_instancing`` off: USD's instancing hands Maya
     #: read-only prototypes, not its shared-shape model, and prototype prim names

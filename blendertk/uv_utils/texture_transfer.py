@@ -326,7 +326,8 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         normal_convention: Optional[str] = None,
         source_mask_from_uvs: bool = True,
         assign: bool = False,
-        assign_suffix: str = "_TRANSFER",
+        assign_prefix: str = "",
+        assign_suffix: Optional[str] = None,
     ) -> Dict[str, Dict[str, str]]:
         """Transfer the source material(s)' maps onto the target UV layout.
 
@@ -337,10 +338,18 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
 
         *output_name* names the whole result -- the assigned material AND every
         map wired to it (``<output_name>_<Channel>.png``) -- instead of deriving
-        each from the target layout, and suppresses *assign_suffix* (the user
-        named the material). A run that keeps two layouts apart appends the
-        layout label to each, since one name cannot cover both without their
-        maps overwriting each other.
+        each from the target layout, and is what Auto *assign_suffix* reads (the
+        user named the material, so nothing is appended). A run that keeps two
+        layouts apart appends the layout label to each, since one name cannot
+        cover both without their maps overwriting each other.
+
+        *assign_prefix* / *assign_suffix* affix the assigned MATERIAL's name
+        (``MAT_hero`` / ``hero_MAT``) -- the maps deliberately do not follow.
+        Applied idempotently (``ptk.StrUtils.apply_affix``), so a re-run over a
+        previous result does not stack a second copy. *assign_suffix* is Auto
+        by default (``None``): ``_TRANSFER`` on the layout-derived name,
+        nothing when *output_name* already names the material; ``""`` forces
+        no suffix.
 
         *output_dir* is absolute (``//`` accepted) or relative to the .blend's
         ``textures`` folder -- see :meth:`resolve_output_dir`.
@@ -479,10 +488,18 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             log=self.logger.info,
         )
         if assign:
+            # Mirror of mayatk: Auto (None) drops the `_TRANSFER` tag when
+            # output_name already keeps the new material apart from the one it
+            # was derived from; an affix the caller asked for is a naming
+            # convention and applies either way.
+            suffix = assign_suffix
+            if suffix is None:
+                suffix = "" if stem else "_TRANSFER"
             self.assign_results(
                 results,
                 jobs,
-                suffix="" if stem else assign_suffix,
+                prefix=assign_prefix,
+                suffix=suffix,
                 base_name=stem or None,
             )
         return results
@@ -540,12 +557,15 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         jobs: Dict[str, Dict[str, Any]],
         suffix: str = "_TRANSFER",
         base_name: Optional[str] = None,
+        prefix: str = "",
     ) -> Dict[str, str]:
-        """One ``<layout><suffix>`` material per output, assigned to its faces.
+        """One ``<prefix><layout><suffix>`` material per output, on its faces.
 
         *base_name* replaces the layout-derived name (see ``transfer``'s
         ``output_name``): the material becomes ``<base_name>``, or
         ``<base_name>_<layout>`` when the run produced more than one layout.
+        The affixes are applied to the result idempotently
+        (``ptk.StrUtils.apply_affix``).
 
         Mirror of mayatk: *jobs* carries each output's ``members`` --
         ``(object, target material)`` pairs -- so every face transferred INTO
@@ -567,7 +587,8 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             if base_name:
                 new_name = base_name if len(jobs) == 1 else f"{base_name}_{label}"
             else:
-                new_name = f"{label}{suffix}"
+                new_name = label
+            new_name = ptk.StrUtils.apply_affix(new_name, prefix=prefix, suffix=suffix)
             # Resolve which faces each member contributes BEFORE the datablock
             # below is freed. With an explicit output_name a second run's target
             # material IS the one the previous run assigned, so `remove` frees

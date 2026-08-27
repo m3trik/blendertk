@@ -1236,6 +1236,8 @@ Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 
 - **[`class Naming(ptk.HelpMixin, ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L28)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
+  - `Naming.SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]` — ``(keyword, affix, label, type key)`` -- the live convention, joined
+  - `Naming.affix_rules(cls, overrides=None, modes=None)` *(class)* — ``{Blender type key: AffixRule}`` -- the shared convention bound to
   - `Naming.scene_objects(cls) -> List` *(class)* — Every object in the current scene — the naming tools' "Scene" scope.
   - `Naming.rename(cls, objects, to, fltr='', regex=False, ignore_case=False, retain_suffix=False, valid_suffixes=None, collapse_padding=True, dry_run=False)` *(class)* — Rename objects by pattern — Blender mirror of mayatk's ``Naming.rename``.
   - `Naming.generate_unique_name(cls, base_name, suffix='_', padding=3)` *(class)* — A unique object name based on ``base_name`` (``Cube`` → ``Cube_001``) — mirror of
@@ -1243,7 +1245,7 @@ Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
   - `Naming.strip_chars(cls, objects, num_chars=1, trailing=False, dry_run=False)` *(class)* — Delete ``num_chars`` leading (or ``trailing``) characters from each object's name —
   - `Naming.set_case(cls, objects, case='capitalize', dry_run=False)` *(class)* — Rename objects by Python string case op — ``upper`` / ``lower`` / ``capitalize`` /
   - `Naming.type_key(cls, item) -> str` *(class)* — Resolve an object (or Material / Image datablock) to its suffix-by-type key.
-  - `Naming.suffix_by_type(cls, objects, group_suffix='_GRP', locator_suffix='_LOC', joint_suffix='_JNT', mesh_suffix='_GEO', nurbs_curve_suffix='_CRV', camera_suffix='_CAM', light_suffix='_LGT', display_layer_suffix='_LYR', ik_handle_suffix='_IKH', nurbs_surface_suffix='_SRF', cluster_suffix='_CLS', lattice_suffix='_LAT', skin_cluster_suffix='_SKN', blend_shape_suffix='_BS', constraint_suffix='_CON', material_suffix='_MAT', shading_group_suffix='_SG', texture_suffix='_TEX', set_suffix='_SET', custom_suffixes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)` *(class)* — Append a conventional type suffix (stripping any existing known suffix) — mirror of
+  - `Naming.suffix_by_type(cls, objects, group_suffix=None, locator_suffix=None, joint_suffix=None, mesh_suffix=None, nurbs_curve_suffix=None, camera_suffix=None, light_suffix=None, display_layer_suffix=None, ik_handle_suffix=None, nurbs_surface_suffix=None, cluster_suffix=None, lattice_suffix=None, skin_cluster_suffix=None, blend_shape_suffix=None, constraint_suffix=None, material_suffix=None, shading_group_suffix=None, texture_suffix=None, set_suffix=None, custom_suffixes=None, affix_mode=None, affix_modes=None, strip=None, strip_trailing_ints=False, strip_trailing_underscores=False, strip_trailing_padding=True, dry_run=False)` *(class)* — Apply each object's conventional type **affix** (stripping any other it
   - `Naming.append_location_based_suffix(cls, objects, first_obj_as_ref=False, alphabetical=False, strip_trailing_ints=True, strip_defined_suffixes=True, valid_suffixes=None, reverse=False, independent_groups=False, dry_run=False)` *(class)* — Suffix objects by their distance from a reference point (origin, or the first object's
 
 <a id="edit_utils--naming--naming_slots"></a>
@@ -1348,6 +1350,7 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.current_workspace(path=None)` *(static)* — The active ``pythontk.Workspace``, or None.
   - `EnvUtils.workspace_root(path=None)` *(static)* — Absolute root of the current workspace, or '' — what ``get_env_info("workspace")``
   - `EnvUtils.source_images_dir(path=None)` *(static)* — The current workspace's texture folder — its ``sourceImages`` rule → an existing
+  - `EnvUtils.texture_search_dirs(path=None)` *(static)* — Where this scene's map files can be found NOW, most specific first.
   - `EnvUtils.scenes_dir(path=None)` *(static)* — The current workspace's scene folder (``scene`` rule → existing ``scenes`` → the root),
   - `EnvUtils.workspace_scenes_dir(root)` *(static)* — The scene-rule folder of a *marked* workspace at ``root`` (absolute), or '' when
   - `EnvUtils.list_workspace_templates()` *(static)* — Saved workspace-template names (the Workspace Editor's Save Template entries) —
@@ -1403,6 +1406,7 @@ FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 Blender-side selection + export hooks shared by the hand-off bridge engines.
 
 - **[`class BlenderExportMixin`](blendertk/blendertk/env_utils/handoff_export.py#L24)** — The Blender producer hooks for hand-off bridges (``_resolve_objects`` + ``_produce``).
+  - `BlenderExportMixin.lightmap_search_dirs(self) -> List[str]` — Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
 
 <a id="env_utils--hierarchy_sync--_fbx_stage_worker"></a>
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py`
@@ -1699,7 +1703,8 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
 - **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L118)**
-  - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: str = 'WARNING', hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, bool]]` — Perform the export operation, including initialization and task management.
+  - `SceneExporter.confirm(self, question: str) -> bool` — Yes/no consent for an export-time side effect (a tool download).
+  - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: str = 'WARNING', hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx') -> str` — Generate the full export file path.
   - `SceneExporter.format_export_name(self, name: str) -> str` — Format the export name using a regex pattern and replacement (e.g.
   - `SceneExporter.generate_log_file_path(self, export_path: str) -> str` — Generate the log file path based on the export path.
@@ -1719,6 +1724,7 @@ Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 
 - **[`class SceneExporterSlots(SceneExporter)`](blendertk/blendertk/env_utils/scene_exporter/scene_exporter_slots.py#L38)**
+  - `SceneExporterSlots.confirm(self, question: str) -> bool` — The engine's consent seam as the panel's modal Yes/No.
   - `SceneExporterSlots.workspace(self)` *(property)*
   - `SceneExporterSlots.header_init(self, widget)` — Initialize the header widget (log options;
   - `SceneExporterSlots.presets(self) -> Dict[str, Optional[str]]` *(property)* — FBX export-option presets available for ``cmb000``, keyed by name (``"None"``
@@ -1729,6 +1735,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
   - `SceneExporterSlots.cmb002_init(self, widget) -> None` — Validation Checks — the gates that abort the write, grouped by tag.
   - `SceneExporterSlots.cmb007_init(self, widget) -> None` — Export Preset — the whole panel's run configuration under a name.
   - `SceneExporterSlots.cmb008_init(self, widget) -> None` — Settings — what is written and from what (the scene-prep steps are
+  - `SceneExporterSlots.ignore_groups_init(self, widget) -> None` — Init Ignore Groups — a Settings row (``cmb008``), created by
   - `SceneExporterSlots.cmb004_init(self, widget) -> None` — Init Output Format — FBX (default), GLB, FBX + GLB, or USD.
   - `SceneExporterSlots.cmb005_init(self, widget) -> None` — Init Texture Template (mirror of mayatk's ``cmb005_init``).
   - `SceneExporterSlots.b000(self) -> None` — Export: run the scene export with the configured tasks and settings.
@@ -1745,14 +1752,14 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1842)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1958)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
   - `TaskManager.definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return all definitions combined for backward compatibility.
   - `TaskManager.set_linear_unit(self, value)` — Set the scene's unit system + scale for the duration of the export.
   - `TaskManager.exclude_hdr(self, enabled)` — No-op by design: Blender's World/Environment-Texture network is not a scene object
-  - `TaskManager.ignore_groups(self, value)` — Remove objects under any top-level object named in the comma-separated ``value``
+  - `TaskManager.ignore_groups(self, names, case_sensitive: bool = False)` — Remove objects under any top-level object named in the comma-separated
   - `TaskManager.reassign_duplicate_materials(self)` — Reassign every object using a duplicate material to the group's canonical material.
   - `TaskManager.convert_to_relative_paths(self)` — Convert texture paths inside the project to ``//``-relative form.
   - `TaskManager.resolve_invalid_texture_paths(self)` — Attempt to resolve missing texture paths by searching the .blend's directory.
@@ -1949,10 +1956,16 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]` — ``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
   - `LightmapBaker.plan_sizes(self, plan: Dict[str, List[Tuple[str, List[float]]]]) -> Dict[str, Tuple[int, int]]` — ``{object_name: (width, height)}`` — the pixel footprint each object occupies.
   - `LightmapBaker.pack_atlas(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None) -> Dict[str, Tuple[str, List[float]]]` — Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
+  - `LightmapBaker.normalize_lightmap_paths(self, objects=None, relative: bool = True) -> int` — Rewrite every in-scope marker's folder to its portable (or absolute) spelling.
+  - `LightmapBaker.lightmap_dependencies(self, objects=None, search_dirs=None, walk: bool = True) -> List[Dict[str, Any]]` — Every lightmap the scene's markers name, resolved on disk NOW.
+  - `LightmapBaker.search_dirs(cls, objects=None) -> List[str]` *(class)* — Where this scene's lightmaps can be found NOW, for a consumer that joins.
+  - `LightmapBaker.heal_lightmap_paths(self, objects=None) -> Dict[str, Any]` — Rewrite stale marker hints to where the maps actually are;
+  - `LightmapBaker.relocate_lightmaps(self, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False) -> Dict[str, Any]` — Gather the scene's lightmaps into *dest_dir* and repoint the markers.
+  - `LightmapBaker.repath_lightmaps(self, dirs_by_map: Dict[str, str], objects=None, relative: bool = True) -> int` — Point every in-scope marker naming a map in *dirs_by_map* at its new folder.
   - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo the lightmap wiring -- the spelling the panel and pre-bake use.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1198)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1545)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
@@ -1983,9 +1996,9 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L701)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L709)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L963)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L975)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -2017,6 +2030,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
   - `MatUtils.materials_for_textures(paths)` *(static)* — Scene materials whose shader graph references an image at one of ``paths`` (matched by
   - `MatUtils.fix_color_spaces(images=None, force_update=False, dry_run=False)` *(static)* — Assign each texture image its correct color space by map type — the Blender counterpart of
   - `MatUtils.set_texture_directory(images=None, target_dir=None, mode='rewrite')` *(static)* — Repath each image so its file lives directly under ``target_dir`` — mirror of the Texture
+  - `MatUtils.plan_find_and_copy_textures(images=None, search_dir=None, dest_dir=None, use_valid_paths=True)` *(static)* — What :func:`find_and_copy_textures` WOULD relocate and repath — nothing written.
   - `MatUtils.find_and_copy_textures(images=None, search_dir=None, dest_dir=None, mode='copy', use_valid_paths=True)` *(static)* — Gather the textures used by ``images`` and relocate them into ``dest_dir`` (``mode``
   - `MatUtils.format_texture_paths_html(records=None)` *(static)* — Render :func:`get_image_records` as an HTML table for the panel/report (missing flagged).
   - `MatUtils.get_shader_templates()` *(static)* — The available Principled-BSDF template names (mirror of Maya's Shader Templates list).
@@ -2090,9 +2104,9 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 
 Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 
-- **[`class GameShader(ptk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L108)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
+- **[`class GameShader(ptk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L118)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
   - `GameShader.create_network(self, textures: List[str], name: str = '', prefix: str = '', suffix: str = '', config: Union[str, Dict[str, Any]] = None, progress_callback: Callable = None, **kwargs) -> Union[Optional[object], List[Optional[object]]]` — Create a PBR shader network with textures.
-- **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L425)** — Switchboard slot wiring for the Game Shader panel.
+- **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L439)** — Switchboard slot wiring for the Game Shader panel.
   - `GameShaderSlots.workspace_dir(self) -> str` *(property)*
   - `GameShaderSlots.source_images_dir(self) -> str` *(property)*
   - `GameShaderSlots.header_init(self, widget)` — Initialize the header widget.
@@ -2103,7 +2117,9 @@ Game Shader — auto-build a Principled-BSDF material from a set of PBR textures
   - `GameShaderSlots.normal_map_type(self) -> str` *(property)* — Get the normal map direction from the comboBox's current text.
   - `GameShaderSlots.output_extension(self) -> str` *(property)* — Selected output extension, or '' when 'Profile default' is chosen.
   - `GameShaderSlots.cmb002_init(self, widget)` — Initialize Presets
+  - `GameShaderSlots.opacity_mode(self) -> Optional[str]` *(property)* — The opacity graph the panel asks for.
   - `GameShaderSlots.cmb003_init(self, widget)` — Initialize Output Format.
+  - `GameShaderSlots.txt000_init(self, widget)` — Material-name field — clearable back to the auto-derived name.
   - `GameShaderSlots.txt002_init(self, widget)` — Add a prefix/suffix/auto-mode picker to the affix field.
   - `GameShaderSlots.b000(self)` — Create Network — pick PBR texture files and build Principled material(s) from them.
 
@@ -2113,7 +2129,7 @@ Game Shader — auto-build a Principled-BSDF material from a set of PBR textures
 Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 
 - **[`class ImageToPlane(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/_image_to_plane.py#L21)** — Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
-  - `ImageToPlane.create(cls, image_paths, mat_type='standard', suffix='_MAT', prefix='', plane_height=10.0, group=False, group_name='imagePlanes_GRP', roughness=0.0)` *(class)* — Create textured planes for one or more images.
+  - `ImageToPlane.create(cls, image_paths, mat_type='standard', suffix=None, prefix='', plane_height=10.0, group=False, group_name='imagePlanes_GRP', roughness=0.0)` *(class)* — Create textured planes for one or more images.
   - `ImageToPlane.remove(cls, objects=None)` *(class)* — Remove planes and their auto-created materials/images (orphans only) — mirror of
 
 <a id="mat_utils--image_to_plane--image_to_plane_slots"></a>
@@ -2263,7 +2279,7 @@ Toolbag-specific system ops.
 
 Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 
-- **[`class Parameters`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L405)** — Parameters — module namespace.
+- **[`class Parameters`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L409)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
   - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
@@ -2422,9 +2438,10 @@ Substance 3D Painter connection module.
 
 Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 
-- **[`class Parameters`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L266)** — Parameters — module namespace.
+- **[`class Parameters`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L255)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
+  - `Parameters.affix_parts(value: 'Any', *, default: str = 'prefix') -> 'tuple[str, str]'` *(static)* — ``(prefix, suffix)`` for an ``affix`` param value (delegates to uitk).
   - `Parameters.render_cli_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``LAUNCH_ARGS`` -- raw, no quoting.
   - `Parameters.render_js_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``RPC_SCRIPT`` -- JS-literal quoting/escaping.
 
@@ -2434,8 +2451,8 @@ Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 Slots for the Substance Painter bridge panel -- mirror of mayatk's
 
 - **[`class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/substance_bridge/substance_bridge_slots.py#L35)** — Slots wired to ``substance_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
-  - `SubstanceBridgeSlots.live_param_tooltips(self)` — Make the Bake Source row report the file's CURRENT members.
-  - `SubstanceBridgeSlots.set_bake_source_from_selection(self) -> None` — Store the current selection as this file's high-poly bake source.
+  - `SubstanceBridgeSlots.live_param_tooltip_blocks(self)` — Make the Bake Source row report the file's CURRENT members.
+  - `SubstanceBridgeSlots.set_bake_source_from_selection(self) -> None` — Store the current selection as this file's bake source.
   - `SubstanceBridgeSlots.select_bake_source(self) -> None` — Select the high-poly set's members.
   - `SubstanceBridgeSlots.clear_bake_source(self) -> None` — Remove the high-poly collection;
   - `SubstanceBridgeSlots.params_module(self)` *(property)*
@@ -2553,10 +2570,9 @@ Bake an object's shaded surface (material under scene lighting) to a texture —
 
 Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 
-- **[`class TexturePathEditorSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L40)** — Switchboard slot wiring for the Texture Path Editor panel.
+- **[`class TexturePathEditorSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L41)** — Switchboard slot wiring for the Texture Path Editor panel.
   - `TexturePathEditorSlots.header_init(self, widget)` — Build the header menu (General / Path Management / Selection) + help text.
   - `TexturePathEditorSlots.tb_set_texture_directory_init(self, widget)` — Populate the Set Directory option-box with the relocate-mode combobox.
-  - `TexturePathEditorSlots.tb_find_and_copy_textures_init(self, widget)` — Populate the Find & Copy option-box with the copy/move combobox.
   - `TexturePathEditorSlots.tb_normalize_paths_init(self, widget)` — Populate the Normalize Paths option-box with the external-mode combobox.
   - `TexturePathEditorSlots.tb_resolve_missing_textures_init(self, widget)` — Populate the Resolve Missing option-box with the strategy checkboxes.
   - `TexturePathEditorSlots.tbl000_init(self, widget)` — Build the row context menu once, then (re)populate the table.
@@ -2564,7 +2580,7 @@ Texture Path Editor tool panel — Switchboard slot wiring for the co-located
   - `TexturePathEditorSlots.open_source_images(self)` — Open the project's textures directory in the file explorer.
   - `TexturePathEditorSlots.reload_scene_textures(self)` — Force Blender to re-read every image from disk.
   - `TexturePathEditorSlots.tb_set_texture_directory(self, widget=None)` — Repath images (selection or all) so their files live under a chosen directory.
-  - `TexturePathEditorSlots.tb_find_and_copy_textures(self, widget=None)` — Gather the images' textures, copy/move them into one destination, repath.
+  - `TexturePathEditorSlots.tb_find_and_copy_textures(self, widget=None)` — Open the Find & Copy panel over the current scope.
   - `TexturePathEditorSlots.tb_normalize_paths(self, widget=None)` — Rewrite (selected, or all) paths relative to the saved .blend;
   - `TexturePathEditorSlots.make_paths_absolute(self)` — Rewrite (selected, or all) ``//`` relative paths to absolute — inverse of
   - `TexturePathEditorSlots.tb_resolve_missing_textures(self, widget=None)` — Search a folder for replacements for missing (selected, or all) textures.
@@ -2825,7 +2841,7 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `AnchorStrategy.build(self, rig, **opts)`
 - **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L249)**
   - `FKChainStrategy.build(self, rig, **opts)`
-- **[`class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig.py#L314)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
+- **[`class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig.py#L351)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
   - `TubeRig.collection(self)` *(property)*
   - `TubeRig.resolve_centerline(self, num_joints, precision=None, edges=None)` — The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a
   - `TubeRig.create_root(self)`
@@ -2838,7 +2854,7 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `TubeRig.hook_curve_controls(self, curve, radius, root)` — One control per curve control-point, each Hook-bound to its point (the live-reshape
   - `TubeRig.constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)` — Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
   - `TubeRig.build(self, strategy='spline', **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
-- **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L741)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
+- **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L792)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
   - `TubeRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
   - `TubeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TubeRigSlots.b000(self)` — Build Rig — run the selected strategy on the selected tube mesh.
@@ -3174,11 +3190,11 @@ Dedicated UV shell-transform panel (Blender).
 Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
 - **[`class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L305)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
-  - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_suffix: str = '_TRANSFER') -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
+  - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None) -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
   - `TextureTransfer.default_output_dir(cls) -> str` *(class)* — Where the maps go when the caller names no directory.
   - `TextureTransfer.output_base_dir() -> Optional[str]` *(static)* — The directory a RELATIVE output entry is resolved against.
   - `TextureTransfer.resolve_output_dir(cls, entry: Optional[str] = None) -> str` *(class)* — The absolute output directory for a user-typed *entry*.
-  - `TextureTransfer.assign_results(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None) -> Dict[str, str]` — One ``<layout><suffix>`` material per output, assigned to its faces.
+  - `TextureTransfer.assign_results(self, results: Dict[str, Dict[str, str]], jobs: Dict[str, Dict[str, Any]], suffix: str = '_TRANSFER', base_name: Optional[str] = None, prefix: str = '') -> Dict[str, str]` — One ``<prefix><layout><suffix>`` material per output, on its faces.
   - `TextureTransfer.topology_matches(cls, a, b) -> Tuple[bool, str]` *(class)* — ``(ok, why)`` -- same polygon loop lists on both meshes.
   - `TextureTransfer.positions_match(cls, a, b, tolerance: float = 0.0001) -> bool` *(class)*
   - `TextureTransfer.auto_source_uv_set(cls, obj) -> str` *(class)* — The UV map *obj*'s materials actually sample their textures through.

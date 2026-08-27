@@ -191,6 +191,20 @@ try:
         check("shared menu reports a failed op and names the firewall",
               'set "op_rc=%ERRORLEVEL%"' in result and "firewall" in result.lower())
 
+        # The in-menu "Run as Administrator" relaunched this .bat through the batfile `runas`
+        # verb (`cmd /C "%1" %*`): with more than two quote characters cmd strips the first and
+        # the last, so the elevated window ran a mangled path and died while the parent said
+        # Goodbye (measured 2026-08-25). Nothing the menu does needs elevation; the launcher's
+        # right-click > Run as administrator is the path, and the title must say which mode a
+        # window is in.
+        gcode = "\n".join(_strip(l) for l in glines)
+        check("shared menu has no in-process elevation relaunch",
+              "admin" not in glabels and re.search(r"(?i)-Verb\s+RunAs", gcode) is None
+              and "Run as Administrator" not in gcode)
+        check("shared menu detects elevation without a prompt and shows it in the title",
+              re.search(r'(?im)^fltmc\s*>nul\s*2>&1\s*&&\s*set\s+"mode= \(ADMINISTRATOR\)"', gcode) is not None
+              and all("PACKAGE MANAGER%mode%" in section(glines, glabels, s) for s in ("intro", "main")))
+
         # One prompt feeds every operation, so the comma-separated list lives there. A comma is
         # also part of a requirement in a version range or extras list, and the guards that tell
         # them apart must stay unpiped -- a pipe re-parses an expanded `<`/`>` as redirection.

@@ -373,6 +373,77 @@ try:
     check("the re-run is still assigned", "hero_atlas" in slots, str(slots))
     check("the re-run leaves no empty material slot", None not in slots, str(slots))
 
+    # --- material affix: the material's naming convention, not the maps' ---
+    reset()
+    o = plane("affixPlane")
+    o.data.materials.append(material("affixMat", texture=checker_path))
+    rotate_uv_copy(o, "map2", 90)
+    res = btk.TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="hero_atlas",
+        assign=True,
+        assign_suffix="_MAT",
+    )
+    written = os.path.basename(next(iter(res.values()))["baseColor"])
+    check(
+        "assign_suffix names the material only, never the maps",
+        bpy.data.materials.get("hero_atlas_MAT") is not None
+        and bpy.data.materials.get("hero_atlas") is None
+        and written.startswith("hero_atlas_BaseColor"),
+        f"{written} / {sorted(m.name for m in bpy.data.materials)}",
+    )
+    reset()
+    o = plane("prefixPlane")
+    o.data.materials.append(material("prefixMat", texture=checker_path))
+    rotate_uv_copy(o, "map2", 90)
+    btk.TextureTransfer().transfer(
+        o,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="hero_atlas",
+        assign=True,
+        assign_prefix="MAT_",
+        assign_suffix="",
+    )
+    check(
+        "assign_prefix prepends instead",
+        bpy.data.materials.get("MAT_hero_atlas") is not None,
+        str(sorted(m.name for m in bpy.data.materials)),
+    )
+    # The layout-derived default: a re-run derives its name from the material
+    # the FIRST run assigned, so the affix must not stack.
+    reset()
+    o = plane("stackPlane")
+    o.data.materials.append(material("stackMat", texture=checker_path))
+    rotate_uv_copy(o, "map2", 90)
+    kwargs = dict(
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        assign=True,
+    )
+    btk.TextureTransfer().transfer(o, **kwargs)
+    btk.TextureTransfer().transfer(o, **kwargs)
+    check(
+        "the layout-derived affix does not stack on a re-run",
+        bpy.data.materials.get("stackMat_TRANSFER") is not None
+        and bpy.data.materials.get("stackMat_TRANSFER_TRANSFER") is None,
+        str(sorted(m.name for m in bpy.data.materials)),
+    )
+
     # ---------------------------------------------------- output dir rules
     # The panel's Output Folder field: blank = the default subfolder, a
     # relative entry lands under the .blend's textures folder (the portable

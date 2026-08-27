@@ -301,6 +301,43 @@ class _TubeRigInternal(object):
     """Internal helpers for TubeRig."""
 
     @staticmethod
+    def _uncrossed_end_index(armature, bones, anchor_pos, bone_index: int) -> int:
+        """Return the end index the anchor at *anchor_pos* actually belongs to — mirror of
+        mayatk's ``_TubeRigInternal._uncrossed_end_index``.
+
+        A crossed call — handing the far end's anchor to ``bone_index=0`` (or the near end's
+        to ``-1``) — builds a rig that looks right at rest and tears off BOTH ends the moment
+        the anchor moves: the anchor bone is created at the far end but named for, and hooked
+        to, the near end's control. Found in Maya (VDATS_DA, 2026-08-25) on 2 of 7 tubes; the
+        Blender port had the same unguarded primitive.
+
+        Only the two END indices can be crossed; a mid-chain index is returned unchanged. The
+        swap needs a clear margin so a tube whose ends nearly coincide is left alone.
+
+        Note: a per-call invariant cannot see a caller that hands BOTH anchors to the same end
+        — callers holding both (``TubeRigSlots.b004``) assign them pairwise first.
+        """
+        n = len(bones)
+        if n < 2:
+            return bone_index
+        idx = bone_index % n
+        if idx not in (0, n - 1):
+            return bone_index
+        opposite = n - 1 if idx == 0 else 0
+
+        db = armature.data.bones
+        mw = armature.matrix_world
+
+        def _head(j):
+            return mw @ db[bones[j]].head_local
+
+        here = (_head(idx) - anchor_pos).length
+        there = (_head(opposite) - anchor_pos).length
+        # 1% of the end-to-end span is the noise floor we require to act.
+        margin = (_head(0) - (mw @ db[bones[-1]].tail_local)).length * 0.01
+        return opposite if there < here - margin else bone_index
+
+    @staticmethod
     def _xz_scale_mode(squash: bool, volume: bool) -> str:
         """Map Maya's separate squash / volume toggles onto Blender's Spline IK XZ-scale enum (Maya's
         two node-graph systems collapse to one native constraint mode): no squash -> ``NONE`` (the
@@ -679,6 +716,21 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
 
         bpy.context.view_layer.update()
         db = armature.data.bones
+
+        # Assign the anchor to the end it actually sits at. A crossed call builds a rig
+        # that is correct at rest and tears off BOTH ends as soon as the anchor moves.
+        anchor_pos = anchor.matrix_world.translation.copy()
+        corrected = _TubeRigInternal._uncrossed_end_index(
+            armature, bones, anchor_pos, bone_index
+        )
+        if corrected != bone_index:
+            self.logger.warning(
+                f"constrain_end_with_falloff: '{anchor.name}' is nearer the opposite end "
+                f"of the chain than bone index {bone_index}; anchoring index {corrected} "
+                "instead. Pass the anchor that sits at the end you name."
+            )
+            bone_index = corrected
+
         constrained = bones[bone_index]
         mw = armature.matrix_world
         end_head = mw @ db[constrained].head_local
@@ -688,7 +740,6 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
         length = max((end_tail - end_head).length, 1e-3)
         # read before the sweep: its EDIT-mode round trip rebuilds the bone collection
         head_radius = db[constrained].head_radius
-        anchor_pos = anchor.matrix_world.translation.copy()
         idx = bone_index % len(bones)
         end = "start" if idx == 0 else "end" if idx == len(bones) - 1 else str(idx)
         bone_name = f"{self.rig_name}_anchor_{end}"

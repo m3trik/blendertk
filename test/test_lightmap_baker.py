@@ -634,6 +634,85 @@ try:
     scene.world = world_backup
     bpy.data.worlds.remove(w)
 
+    # --- lightmap dependencies (mirror of mayatk's TestLightmapDependencies) ---
+    # A committed lightmap is a texture dependency no Image datablock references;
+    # these are the engine calls the Texture Path Editor, the exporter's path
+    # check and the GLB conversion share. No .blend is saved here, so the
+    # workspace walk is out of reach -- the search folders are passed explicitly.
+    LightmapBaker().revert()
+    bpy.ops.mesh.primitive_cube_add()
+    dep_cube = bpy.context.active_object
+    dep_cube.name = "dep_cube"
+    dep_dir = os.path.join(tmp_dir, "deps")
+    os.makedirs(dep_dir, exist_ok=True)
+    dep_map = os.path.join(dep_dir, "dep_cube_LightMap.exr")
+    open(dep_map, "wb").close()
+    dep_baker = LightmapBaker()
+    dep_baker.commit_lightmap({dep_cube.name: dep_map})
+
+    def _same_dir(a, b):
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+    deps = dep_baker.lightmap_dependencies()
+    check("lightmap_dependencies lists the committed map",
+          len(deps) == 1 and deps[0]["map"] == "dep_cube_LightMap.exr", f"{deps}")
+    check("...resolved by the marker's own folder",
+          bool(deps) and deps[0]["found_by"] == LightmapBaker.FOUND_BY_HINT
+          and _same_dir(deps[0]["path"], dep_map), f"{deps}")
+    check("...naming the object", bool(deps) and deps[0]["objects"] == ["dep_cube"])
+    check("search_dirs includes the folder the map was found in",
+          any(_same_dir(d, dep_dir) for d in LightmapBaker.search_dirs()),
+          f"{LightmapBaker.search_dirs()}")
+
+    moved_dir = os.path.join(tmp_dir, "moved")
+    os.makedirs(moved_dir, exist_ok=True)
+    shutil.move(dep_map, os.path.join(moved_dir, "dep_cube_LightMap.exr"))
+    deps = dep_baker.lightmap_dependencies(search_dirs=[moved_dir], walk=False)
+    check("a moved map is found through the search folders",
+          bool(deps) and deps[0]["found_by"] == LightmapBaker.FOUND_BY_SEARCH, f"{deps}")
+    deps = dep_baker.lightmap_dependencies(search_dirs=[], walk=False)
+    check("a map found nowhere is reported missing",
+          bool(deps) and deps[0]["path"] is None and deps[0]["found_by"] is None, f"{deps}")
+
+    dest = os.path.join(tmp_dir, "dest")
+    plan = dep_baker.relocate_lightmaps(dest, source_dir=moved_dir, dry_run=True)
+    check("relocate dry run plans without touching anything",
+          len(plan["relocate"]) == 1 and plan["copied"] == []
+          and not os.path.exists(os.path.join(dest, "dep_cube_LightMap.exr")), f"{plan}")
+    result = dep_baker.relocate_lightmaps(dest, source_dir=moved_dir)
+    marker = json.loads(dep_cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check("relocate copies the map into the destination",
+          os.path.isfile(os.path.join(dest, "dep_cube_LightMap.exr")) and len(result["copied"]) == 1,
+          f"{result}")
+    check("...and repoints the bake marker",
+          result["updated"] == 1
+          and _same_dir(LightmapBaker._resolved_dir(marker["dir"], marker["map"]), dest),
+          f"{marker.get('dir')}")
+    manifest = json.loads(btk.DataNodes.get_export_string(LightmapBaker.LIGHTMAP_METADATA) or "{}")
+    check("...and the manifest carries the absolute folder",
+          _same_dir(manifest.get("dir", ""), dest), f"{manifest.get('dir')}")
+    check("the relocated map now resolves by hint",
+          dep_baker.lightmap_dependencies(search_dirs=[], walk=False)[0]["found_by"]
+          == LightmapBaker.FOUND_BY_HINT)
+
+    bpy.ops.mesh.primitive_cube_add()
+    lost_cube = bpy.context.active_object
+    lost_cube.name = "lost_cube"
+    dep_baker.commit_lightmap({lost_cube.name: os.path.join(tmp_dir, "gone", "lost.exr")})
+    result = dep_baker.relocate_lightmaps(dest, source_dir=moved_dir, objects=["lost_cube"])
+    check("relocate names what it could not find",
+          [d["map"] for d in result["missing"]] == ["lost.exr"] and result["updated"] == 0,
+          f"{result}")
+    check("scope limits to the given objects",
+          [d["map"] for d in dep_baker.lightmap_dependencies(objects=["dep_cube"])]
+          == ["dep_cube_LightMap.exr"])
+    n = dep_baker.repath_lightmaps({"lost.exr": moved_dir}, ["lost_cube"])
+    lost_marker = json.loads(lost_cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check("repath_lightmaps rewrites a marker's folder",
+          n == 1 and _same_dir(LightmapBaker._resolved_dir(lost_marker["dir"], "lost.exr"), moved_dir),
+          f"{lost_marker.get('dir')}")
+    dep_baker.revert()
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

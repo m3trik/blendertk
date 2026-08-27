@@ -31,6 +31,7 @@ binding).
 """
 
 import os
+from functools import partial
 
 import pythontk as ptk
 
@@ -44,6 +45,16 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     # ``_ROW_SELECTION_COLUMNS`` — Maya's shader/path/file_node → Blender material/path/image).
     _ROW_SELECTION_COLUMNS = {"material": 0, "path": 1, "image": 2}
 
+    #: Material-column label of a lightmap dependency row (no material, no
+    #: image behind it -- the bake markers of the objects in the third column).
+    _LIGHTMAP_ROW_LABEL = "<lightmap>"
+
+    # Read-only class defaults for the lightmap state ``__init__`` sets: every
+    # refresh / scope capture REASSIGNS them (never mutates in place), so a
+    # driver built without ``__init__`` (the test harnesses) reads "none".
+    _lightmap_rows: dict = {}
+    _find_copy_lightmaps: tuple = ()
+
     # Set-Directory / Find-&-Copy relocate combobox items (label, mode-key). Order is the
     # contract — the combobox is populated in this order and the index maps back to the key.
     _RELOCATE_MODE_ITEMS = (
@@ -51,11 +62,10 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         ("Copy textures to new directory", "copy"),
         ("Move textures to new directory", "move"),
     )
-    # Colour markers leading the two Find & Copy directory dialogs. The native OS picker draws
-    # its caption through the shell — plain text, no rich text — but it renders emoji in colour,
-    # so the marker is the one channel that carries colour without giving up the shell browser.
-    # Blue/amber rather than green/red: it survives the common colour-vision deficiencies, and
-    # the words carry the meaning anyway — the glyph is redundancy, never the only signal.
+    # Colour markers leading the Find & Copy source / destination rows, and the Set Directory
+    # picker's caption. Blue/amber rather than green/red: it survives the common colour-vision
+    # deficiencies, and the words carry the meaning anyway — the glyph is redundancy, never the
+    # only signal.
     _DIALOG_MARK_SOURCE = "🔵"
     _DIALOG_MARK_DEST = "🟠"
 
@@ -81,7 +91,24 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         self._previous_paths = {}  # image name -> path before last in-session repath
         self._refresh_pending = False
         self._browse_in_progress = False  # re-entry guard
-        self._find_copy_in_progress = False  # re-entry guard
+        # Find & Copy is a tool window that stays open while it works, so the
+        # panel is KEPT: reopening it re-seeds the rows from live scene state
+        # rather than throwing away the log the user is still reading and the
+        # size they set. ``_find_copy_images`` is the scope it is currently
+        # pointed at, captured when it opens (the row selection can change
+        # behind a modeless window; a button that names a count must not
+        # disagree with what it relocates). Mirrors mayatk's.
+        self._find_copy_panel = None
+        self._find_copy_images = []
+        self._find_copy_mode = "copy"
+        self._find_copy_scope_label = ""
+        # Lightmap dependencies: the baked maps the bake markers name, which
+        # no Image datablock references. ``_lightmap_rows`` maps a row's path
+        # text to its dependency record (rebuilt with the table); the Find &
+        # Copy scope carries its own list, captured with the images. Mirror
+        # of mayatk's.
+        self._lightmap_rows = {}
+        self._find_copy_lightmaps = []
         self._footer_controller = self._create_footer_controller()
         self.logger.setLevel(log_level)
         self.logger.set_log_prefix("[texture_path_editor] ")
@@ -90,10 +117,11 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     def header_init(self, widget):
         """Build the header menu (General / Path Management / Selection) + help text.
 
-        Plain action items are QPushButtons wired via ``clicked.connect``. The four items with
-        per-button option-box flyouts (Set Directory, Find & Copy, Normalize Paths, Resolve
-        Missing Textures) are uitk ``PushButton`` (``tb_*``) auto-wired by name; their flyout
-        contents are populated by the matching ``tb_*_init`` methods below.
+        Plain action items are QPushButtons wired via ``clicked.connect``. The three items
+        with per-button option-box flyouts (Set Directory, Normalize Paths, Resolve Missing
+        Textures) are uitk ``PushButton`` (``tb_*``) auto-wired by name; their flyout
+        contents are populated by the matching ``tb_*_init`` methods below. Find & Copy is a
+        ``tb_*`` too but carries no flyout: every one of its options lives on its panel.
         """
         widget.config_buttons("refresh", "menu", "collapse", "hide")
         widget.refresh_requested.connect(self.refresh_texture_table)
@@ -150,6 +178,30 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         )
         chk_warn_len.toggled.connect(lambda *_: self.refresh_texture_table())
 
+        chk_lightmaps = widget.menu.add(
+            "QCheckBox",
+            setText="Show Lightmap Dependencies",
+            setObjectName="chk_show_lightmaps",
+            setChecked=True,
+            setToolTip=(
+                "List the baked lightmaps the scene's bake markers name.\n"
+                "A committed lightmap is a texture dependency with no Image "
+                "datablock: the marker records the map and the folder it was "
+                "baked into, and that folder goes stale when the project is "
+                "reorganised or the scene is migrated — the export then ships "
+                "unlit. Rows read red when the map is nowhere on disk and "
+                "amber when it was found somewhere other than the recorded "
+                "folder.\n"
+                "Find & Copy relocates them with the textures and rewrites "
+                "the markers; Normalize Paths / Make Paths Absolute re-spell "
+                "the recorded folder (//-relative inside the project, so a "
+                "teammate's copy on another drive resolves it); Select Broken "
+                "Paths, Browse for File and a typed path apply too. Set "
+                "Directory and Resolve Missing are image only."
+            ),
+        )
+        chk_lightmaps.toggled.connect(lambda *_: self.refresh_texture_table())
+
         widget.menu.add("Separator", setTitle="Path Management")
         widget.menu.add(
             self.sb.registered_widgets.PushButton,
@@ -165,14 +217,23 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             self.sb.registered_widgets.PushButton,
             setText="Find && Copy Textures…",
             setObjectName="tb_find_and_copy_textures",
-            setToolTip=(
-                "Gather the files behind the (selected, or all) textures, relocate them into one "
-                "destination, and repath. Paths become // relative when the destination is "
-                "inside the .blend's own folder.\n\n"
-                "By default a path that already resolves is its own source, so the search "
-                "dialog only opens for what is unresolved — with every path valid the "
-                "destination picker is the only prompt. Option box (▸) has Copy / Move plus "
-                "both dialog-skipping toggles."
+            setToolTip=self.sb.tooltip.fmt(
+                title="Find &amp; Copy Textures",
+                body="Gather the files behind the (selected, or all) textures, "
+                "relocate them into one destination, and repath. Paths become "
+                "// relative when the destination is inside the .blend's own "
+                "folder.",
+                bullets=[
+                    "Opens a panel with both folders on screen at once — "
+                    "<b>Search in</b> and <b>Copy into</b>, each labelled — so "
+                    "there is no order to remember and nothing to mistake one "
+                    "for the other. Copy vs Move lives there too.",
+                    "A path that already resolves is its own source, so the "
+                    "search folder is only used for what is unresolved — "
+                    "leave it empty and only the resolving paths relocate.",
+                    "The panel stays open and reports into its own log, so a "
+                    "second run with one value changed is one click away.",
+                ],
             ),
         )
         widget.menu.add(
@@ -250,12 +311,10 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                             "<b>Set Directory…</b> — repath to a chosen folder. Option box (▸) "
                             "chooses leave / copy / move.",
                             "<b>Find &amp; Copy Textures…</b> — gather every texture the "
-                            "images use and relocate them into one destination. Option box (▸): "
-                            "Copy / Move, <i>Use Valid Paths As Source</i> (on — a path that "
-                            "already resolves is its own source, so the search dialog opens only "
-                            "for what is unresolved, and cancelling it skips just those), "
-                            "<i>Always Relocate To The Textures Folder</i> (off — on, the "
-                            "destination dialog is skipped).",
+                            "images use and relocate them into one destination. Opens a panel "
+                            "carrying every option: Copy / Move, the folder to search, the "
+                            "folder to write into, and whether to search for every texture or "
+                            "only the unresolved ones.",
                             "<b>Normalize Paths</b> — rewrite paths relative to the saved .blend. "
                             "Option box (▸) controls external textures: leave / copy / move into "
                             "the project.",
@@ -290,9 +349,9 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                     ),
                 ],
                 notes=[
-                    "Find &amp; Copy opens at most two directory dialogs and either one can be "
-                    "the only one shown — read the title bar: <b>SOURCE</b> is the folder "
-                    "searched, <b>DESTINATION</b> is where files are written.",
+                    "Find &amp; Copy runs inside its own panel and reports there — the pane "
+                    "at the bottom is the whole record of what it found, relocated and "
+                    "repathed.",
                     "<b>Right-click</b> any row for per-texture actions: Browse for File, "
                     "scene selection, Shader Editor graph, delete. <i>Select File Node</i> is "
                     "disabled — Blender images have no node-name handle distinct from the "
@@ -322,65 +381,6 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                 "wrong texture."
             ),
             addItems=[label for label, _key in self._RELOCATE_MODE_ITEMS],
-        )
-
-    def tb_find_and_copy_textures_init(self, widget):
-        """Populate the Find & Copy option-box with the copy/move combobox.
-
-        Also wires the combobox to swap the button text between ``Find & Copy Textures…`` and
-        ``Find & Move Textures…`` so the active mode is visible on the menu item itself.
-        """
-        widget.option_box.menu.setTitle("Find & Copy Textures")
-        widget.option_box.menu.add(
-            "QComboBox",
-            setObjectName="cmb_relocate_mode",
-            setToolTip=(
-                "How to relocate matched textures into the destination:\n\n"
-                "• Copy — duplicate each match into the destination.\n"
-                "• Move — relocate each match into the destination (removes the source file "
-                "after a successful copy)."
-            ),
-            addItems=[label for label, _key in self._FIND_MODE_ITEMS],
-        )
-
-        # Self-labelling: the mode lives in the option box, so the entry says which
-        # one it will run. The combo is populated from _FIND_MODE_ITEMS' labels, so
-        # its own text IS the label — no index lookup, and no out-of-range branch to
-        # get wrong (the ``or`` keeps the first item's wording for an empty combo).
-        self.sb.text_from(
-            widget.option_box.menu,
-            widget,
-            "cmb_relocate_mode",
-            lambda label: f"Find && {label or self._FIND_MODE_ITEMS[0][0]} Textures…",
-            value=lambda w: w.currentText(),
-        )
-
-        widget.option_box.menu.add(
-            "QCheckBox",
-            setText="Use Valid Paths As Source",
-            setObjectName="chk_use_valid_paths",
-            setChecked=True,
-            setToolTip=(
-                "Treat a texture whose path already resolves on disk as its own source, instead "
-                "of hunting for that file under the search folder.\n\n"
-                "The search dialog then only appears when something is actually unresolved, and "
-                "counts only those textures; cancelling it skips them and relocates the rest. "
-                "With every path valid, the only dialog left is the destination.\n\n"
-                "A valid path always outranks a search hit of the same name — that file is "
-                "the one the scene is rendering with."
-            ),
-        )
-        widget.option_box.menu.add(
-            "QCheckBox",
-            setText="Always Relocate To The Textures Folder",
-            setObjectName="chk_dest_sourceimages",
-            setChecked=False,
-            setToolTip=(
-                "Send every match to the project's textures folder without asking, skipping the "
-                "destination dialog (the folder is created if missing).\n\n"
-                "Paths land // relative, since that folder is inside the project. Off: pick the "
-                "destination each run."
-            ),
         )
 
     def tb_normalize_paths_init(self, widget):
@@ -517,6 +517,14 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         """Repopulate the table from the scene's FILE images (Material · Path · Texture)."""
         self._image_to_mats = btk.get_image_material_map()
         records = btk.get_image_records()
+        # Lightmap rows: the maps the bake markers name. Keyed by the path
+        # text (the one column every selection payload carries) so the row
+        # helpers can tell them from image rows; an EMPTY UserRole on the name
+        # cells keeps the image commands from mistaking the label for a
+        # datablock. Mirror of mayatk's.
+        self._lightmap_rows = {
+            self._lightmap_row_path(dep): dep for dep in self._lightmap_dependencies()
+        }
 
         # Block signals across the rebuild — cellChanged is wired to handle_cell_edit, and
         # populating cells would otherwise fire it (spurious repath/rename on every refresh).
@@ -525,7 +533,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         widget.clear()
         try:
             rows = []
-            if not records:
+            if not records and not self._lightmap_rows:
                 rows = [["", "", ("No file textures found", "")]]
             else:
                 for r in records:
@@ -538,6 +546,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
                             (r["name"], r["name"]),
                         ]
                     )
+                for path, dep in self._lightmap_rows.items():
+                    mat_label, node_label = self._lightmap_row_labels(dep)
+                    # The path cell keeps its path in UserRole too: an edit
+                    # replaces the text, and the cell-edit handler needs the
+                    # row's identity to reach the record it repoints.
+                    rows.append([(mat_label, ""), (path, path), (node_label, "")])
             widget.add(rows, headers=["Material", "Texture Path", "Texture"])
 
             from qtpy import QtWidgets
@@ -592,6 +606,32 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
         def format_if_invalid(item, value, row, col, *_):
             path = str(value).strip()
+            dep = self._lightmap_rows.get(path)
+            if dep is not None:
+                # A lightmap row carries its own verdict: the engine already
+                # resolved it the way the export will. Red = nowhere; amber =
+                # found, but not where the marker says (stale hint -- the
+                # export ships it and Resolve / Find & Copy heal it).
+                found = dep.get("path")
+                stale = bool(found) and dep.get("found_by") != "hint"
+                widget.format_item(
+                    item,
+                    key="invalid" if not found else ("warning" if stale else "reset"),
+                )
+                objects = ", ".join(dep.get("objects") or [])
+                if not found:
+                    line = f"Missing lightmap:\n{path}"
+                    if dep.get("note"):
+                        line += f"\n{dep['note']}"
+                elif stale:
+                    line = f"Recorded folder no longer holds it; found at:\n{found}"
+                else:
+                    line = found
+                item.setToolTip(
+                    f"{line}\n\nBake marker on {len(dep.get('objects') or [])} "
+                    f"object(s): {objects}"
+                )
+                return
             exists = exists_by_path.get(path)
             if exists is None:  # cell was edited to a new path — resolve live
                 ap = self._resolve_path(path)
@@ -700,12 +740,190 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             selected = self._images_from_selection(selection)
             if selected:
                 return selected, f"{len(selected)} selected row(s)"
+            if self._lightmaps_from_selection(selection):
+                # A lightmap-only selection is a valid scope for the commands
+                # that take one; the image commands get an empty list and say
+                # "nothing to do" themselves.
+                return [], f"{len(selection)} selected lightmap row(s)"
             self.logger.warning(
                 "Selected row(s) contain no valid images; nothing to do."
             )
             return [], "selected (no valid images)"
         images = [r["image"] for r in btk.get_image_records()]
         return images, f"all {len(images)} texture(s)"
+
+    # ------------------------------------------------------------------ lightmap dependencies
+    # Mirror of mayatk's: a committed lightmap is referenced by a bake marker
+    # (map basename + the folder it was baked into), never by an Image
+    # datablock, so every image command here was blind to it. The engine is
+    # ``LightmapBaker`` (list / heal / relocate / repath / normalize); the
+    # panel shows the records as rows and hands the relocation half to Find
+    # & Copy.
+
+    @staticmethod
+    def _lightmap_baker():
+        """The lightmap engine, imported on use (it drags the texture baker in)."""
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        return LightmapBaker()
+
+    def _show_lightmaps_enabled(self):
+        """The header's "Show Lightmap Dependencies" toggle (default on)."""
+        return self._menu_flag(self._header_menu(), "chk_show_lightmaps", True)
+
+    def _lightmap_dependencies(self):
+        """The scene's lightmap dependencies, or ``[]`` when the toggle hides them, the
+        scene has none, or the engine cannot list them (a listing must never cost the
+        table)."""
+        if not self._show_lightmaps_enabled():
+            return []
+        try:
+            return self._lightmap_baker().lightmap_dependencies()
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f"Lightmap dependencies not listed: {e}")
+            return []
+
+    @staticmethod
+    def _lightmap_row_path(dep):
+        """The path a lightmap row shows: the marker's recorded folder + map (the STORED
+        spelling, as the image rows show theirs; where it was actually found, when that is
+        elsewhere, is the tooltip's job)."""
+        folder = str(dep.get("dir") or "").replace("\\", "/").rstrip("/")
+        return f"{folder}/{dep['map']}" if folder else dep["map"]
+
+    def _lightmap_row_labels(self, dep):
+        """``(material, node)`` labels for a lightmap row, read like a texture row.
+
+        Material column: the material(s) the lightmapped objects wear -- an atlas by
+        material is named after its material, and a per-object map still belongs to one.
+        Texture column: the map's stem, what an Image datablock for it would be called
+        (``OFFICE_ENV_LightMap``), since none exists. The objects themselves are the
+        tooltip's: a row reading ``BASEBOARD_A (+45)`` identified nothing. Mirror of mayatk's.
+        """
+        import bpy
+
+        mats = []
+        for name in dep.get("objects") or []:
+            obj = bpy.data.objects.get(name)
+            for slot in getattr(obj, "material_slots", []) if obj is not None else []:
+                if slot.material is not None and slot.material.name not in mats:
+                    mats.append(slot.material.name)
+        label = ", ".join(mats[:2])
+        if len(mats) > 2:
+            label += f" (+{len(mats) - 2})"
+        return label or self._LIGHTMAP_ROW_LABEL, os.path.splitext(dep["map"])[0]
+
+    def _lightmaps_from_selection(self, selection):
+        """Lightmap dependency records behind ``selection`` (or the live row selection)."""
+        table = getattr(self.ui, "tbl000", None)
+        if selection is None and table is not None:
+            selection = table.get_selection(
+                columns=self._ROW_SELECTION_COLUMNS, include_current=True
+            )
+        found = []
+        for entry in selection or []:
+            path = str(self._selection_value(entry, "path") or "").strip()
+            dep = self._lightmap_rows.get(path)
+            if dep is not None and dep not in found:
+                found.append(dep)
+        return found
+
+    def _get_scope_lightmaps(self):
+        """Lightmap dependencies in scope, for the commands that take them.
+
+        Mirrors :meth:`_get_scope_images`: the selected lightmap rows when the selection
+        holds any (a selection of image rows alone takes no lightmaps along), otherwise every
+        lightmap row the table shows -- so the header toggle that hides them also keeps them
+        out of an "all" scope.
+        """
+        table = getattr(self.ui, "tbl000", None)
+        selection = (
+            table.get_selection(
+                columns=self._ROW_SELECTION_COLUMNS, include_current=True
+            )
+            if table is not None
+            else None
+        )
+        if selection:
+            return self._lightmaps_from_selection(selection)
+        return list(self._lightmap_rows.values())
+
+    @staticmethod
+    def _lightmap_objects(lightmaps):
+        """The object names the records name -- the engine's scope argument."""
+        return list(
+            dict.fromkeys(o for dep in lightmaps for o in (dep.get("objects") or []))
+        )
+
+    def _repath_lightmap(self, dep, folder):
+        """Point every marker naming *dep*'s map at *folder*, then refresh.
+
+        The manual counterpart of Find & Copy's relocation (Browse for File and a typed path
+        on a lightmap row): files are not touched, the markers' recorded folder changes (in
+        its portable spelling) and the FBX manifest is republished.
+        """
+        folder = str(folder or "").replace("\\", "/").rstrip("/")
+        if not folder:
+            self.sb.message_box("A lightmap path needs a folder.")
+            return False
+        try:
+            count = self._lightmap_baker().repath_lightmaps(
+                {dep["map"].lower(): folder}, dep.get("objects")
+            )
+        except Exception as e:  # noqa: BLE001
+            self.sb.message_box(f"Failed to repath lightmap {dep['map']}: {e}")
+            return False
+        self.sb.message_box(
+            f"<hl>{dep['map']}</hl>: lightmap folder -> {folder} ({count} marker(s))."
+        )
+        return True
+
+    def _normalize_lightmaps(self, lightmaps, relative):
+        """Re-spell the scoped lightmap markers' folders (Normalize / Make Absolute).
+
+        Files never move: inside the project the recorded folder becomes ``//``-relative
+        (``relative=True``) -- what lets a teammate's copy of the project, mounted elsewhere,
+        still resolve it -- or is expanded to absolute (``relative=False``).
+        """
+        if not lightmaps:
+            return 0
+        try:
+            count = self._lightmap_baker().normalize_lightmap_paths(
+                self._lightmap_objects(lightmaps), relative=relative
+            )
+        except Exception as e:  # noqa: BLE001 — the texture half already ran
+            self.logger.warning(f"Lightmap folders not rewritten: {e}")
+            return 0
+        if count:
+            self.logger.info(
+                f"{count} lightmap marker(s) now record their folder "
+                f"{'relative to the project' if relative else 'as an absolute path'}."
+            )
+        return count
+
+    def _browse_for_lightmap(self, dep):
+        """Pick the file a lightmap row's markers should point at; repath them."""
+        start_dir = os.path.dirname(dep["path"]) if dep.get("path") else ""
+        if not (start_dir and os.path.isdir(start_dir)):
+            start_dir = self._resolve_source_images_path()
+        chosen = self.sb.file_dialog(
+            file_types=["*.exr", "*.hdr", "*.png", "*.tif", "*.tiff", "*.*"],
+            title=f"Select lightmap file {dep['map']}",
+            start_dir=start_dir,
+            filter_description="Lightmap Files",
+            allow_multiple=False,
+        )
+        if not chosen:
+            return
+        if os.path.basename(chosen).lower() != dep["map"].lower():
+            self.sb.message_box(
+                f"Browse for File: the markers name <hl>{dep['map']}</hl>; pick that file "
+                f"(chose {os.path.basename(chosen)}). A different map is a re-bake, not a "
+                "repath."
+            )
+            return
+        if self._repath_lightmap(dep, os.path.dirname(chosen)):
+            self.ui.tbl000.init_slot()
 
     def _images_from_selection(self, selection):
         """Image datablocks behind ``selection`` (or the live row selection)."""
@@ -797,25 +1015,21 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         self.ui.tbl000.init_slot()
 
     def tb_find_and_copy_textures(self, widget=None):
-        """Gather the images' textures, copy/move them into one destination, repath.
+        """Open the Find & Copy panel over the current scope.
 
-        Both option-box checkboxes exist to remove a dialog: Use Valid Paths drops the search
-        prompt when nothing needs finding, Always Relocate To The Textures Folder drops the
-        destination prompt.
+        Every option lives on that one panel, so there is no option box: the mode, the
+        search folder and the destination are read together, next to each other, at the
+        moment they are used — and the panel stays up while it works, so what it did is on
+        screen instead of behind a message box that has been dismissed.
         """
-        images, _scope = self._get_scope_images()
-        if not images:
+        images, scope = self._get_scope_images()
+        lightmaps = self._get_scope_lightmaps()
+        if not images and not lightmaps:
             self.sb.message_box("No textures to process.")
             return
-        mode = self._read_combo_mode(widget, "cmb_relocate_mode", self._FIND_MODE_ITEMS)
-        self._find_and_copy_workflow(
-            images,
-            relocate_mode=mode,
-            use_valid_paths=self._read_option_flag(widget, "chk_use_valid_paths", True),
-            dest_sourceimages=self._read_option_flag(
-                widget, "chk_dest_sourceimages", False
-            ),
-        )
+        if lightmaps:
+            scope = (f"{scope} + " if images else "") + f"{len(lightmaps)} lightmap(s)"
+        self._find_and_copy_workflow(images, scope_label=scope, lightmaps=lightmaps)
 
     def _read_combo_mode(self, button, combo_name, mode_items):
         """Read a relocate/external combobox by index → mode key (safe default = first)."""
@@ -825,18 +1039,12 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             return mode_items[0][1]
         return mode_items[idx][1] if 0 <= idx < len(mode_items) else mode_items[0][1]
 
-    @classmethod
-    def _read_option_flag(cls, button, name, default):
-        """State of a checkbox in ``button``'s option box; ``default`` if absent."""
-        return cls._menu_flag(
-            getattr(getattr(button, "option_box", None), "menu", None), name, default
-        )
-
     def tb_normalize_paths(self, widget=None):
         """Rewrite (selected, or all) paths relative to the saved .blend; option box handles
         external textures."""
         images, scope_label = self._get_scope_images()
-        if not images:
+        lightmaps = self._get_scope_lightmaps()
+        if not images and not lightmaps:
             self.sb.message_box("No textures to process.")
             return
 
@@ -846,18 +1054,23 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         record = self._snapshot_for_tracking(images)
         moved = (
             btk.normalize_texture_paths(external_mode, images=images)
-            if external_mode in ("copy", "move")
+            if images and external_mode in ("copy", "move")
             else 0
         )
-        n = btk.normalize_texture_paths("relative", images=images)
+        n = btk.normalize_texture_paths("relative", images=images) if images else 0
         record()
-        if moved or n:
+        # Lightmap rows: the marker's recorded folder takes the same portable
+        # spelling (//-relative inside the project). Files never move.
+        lm = self._normalize_lightmaps(lightmaps, relative=True)
+        if moved or n or lm:
             parts = []
             if moved:
                 verb = "Copied" if external_mode == "copy" else "Moved"
                 parts.append(f"{verb} <hl>{moved}</hl> external texture(s)")
             if n:
                 parts.append(f"made <hl>{n}</hl> path(s) relative")
+            if lm:
+                parts.append(f"re-spelled <hl>{lm}</hl> lightmap folder(s)")
             msg = f"{'; '.join(parts)} ({scope_label})."
         else:
             msg = "Nothing changed — paths are already relative (or the .blend isn't saved)."
@@ -878,15 +1091,22 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             )
             return
         images, scope_label = self._get_scope_images()
-        if not images:
+        lightmaps = self._get_scope_lightmaps()
+        if not images and not lightmaps:
             self.sb.message_box("No textures to process.")
             return
         record = self._snapshot_for_tracking(images)
-        n = btk.normalize_texture_paths("absolute", images=images)
+        n = btk.normalize_texture_paths("absolute", images=images) if images else 0
         record()
+        lm = self._normalize_lightmaps(lightmaps, relative=False)
+        parts = []
+        if n:
+            parts.append(f"Made <hl>{n}</hl> path(s) absolute")
+        if lm:
+            parts.append(f"re-spelled <hl>{lm}</hl> lightmap folder(s)")
         self.sb.message_box(
-            f"Made <hl>{n}</hl> path(s) absolute ({scope_label})."
-            if n
+            f"{'; '.join(parts)} ({scope_label})."
+            if parts
             else "Nothing changed — paths are already absolute (or the .blend isn't saved)."
         )
         self.ui.tbl000.init_slot()
@@ -967,12 +1187,21 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     def select_broken_paths(self):
         """Select rows whose texture file is missing."""
         missing = {r["name"] for r in btk.get_image_records() if not r["exists"]}
+        # A lightmap row is broken when the engine found its map nowhere (a
+        # stale-but-found hint is amber, not broken -- it ships).
         self._select_rows_by_predicate(
-            lambda img_name, path: img_name in missing, "broken paths"
+            lambda img_name, path: (
+                not self._lightmap_rows[path].get("path")
+                if path in self._lightmap_rows
+                else img_name in missing
+            ),
+            "broken paths",
         )
 
     def select_absolute_paths(self):
         """Select rows whose path is absolute (not a // project-relative path)."""
+        # Lightmap rows qualify by their recorded folder's spelling, the same
+        # test: an absolute folder inside the project is a Normalize candidate.
         self._select_rows_by_predicate(
             lambda img_name, path: (
                 bool(path) and not path.startswith("//") and os.path.isabs(path)
@@ -1024,6 +1253,17 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             QTimer.singleShot(250, lambda: setattr(self, "_browse_in_progress", False))
 
     def _do_browse_for_file(self, selection):
+        lightmaps = self._lightmaps_from_selection(selection)
+        if lightmaps:
+            # A lightmap row: the file picked names the folder the markers
+            # should record (the map itself is what the bake committed, so a
+            # different basename is refused rather than silently rebound).
+            if len(lightmaps) > 1 or self._images_from_selection(selection):
+                self.sb.message_box("Browse for File: select a single row.")
+                return
+            self._browse_for_lightmap(lightmaps[0])
+            return
+
         images = self._images_from_selection(selection)
         if not images:
             return
@@ -1072,6 +1312,21 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         import bpy
 
         images = self._images_from_selection(selection)
+        lightmaps = self._lightmaps_from_selection(selection)
+        if lightmaps and not images:
+            # A lightmap row selects the objects carrying its bake markers.
+            names = self._lightmap_objects(lightmaps)
+            objects = [o for o in (bpy.data.objects.get(n) for n in names) if o]
+            for obj in objects:
+                obj.select_set(True)
+            if objects and bpy.context.view_layer:
+                bpy.context.view_layer.objects.active = objects[0]
+            self.sb.message_box(
+                f"Selected <hl>{len(objects)}</hl> lightmapped object(s)."
+                if objects
+                else "No scene objects carry the selected row's bake marker."
+            )
+            return
         if not images:
             return
         mat_names = {m for img in images for m in self._image_to_mats.get(img.name, [])}
@@ -1140,9 +1395,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             else f"Remove {len(names)} textures from the .blend?"
         )
         if orphaned:
-            msg += (
-                f"<br><hl>{orphaned}</hl> Image Texture node(s) will be left with no texture."
-            )
+            msg += f"<br><hl>{orphaned}</hl> Image Texture node(s) will be left with no texture."
         msg += "<br>The file(s) on disk are not deleted."
         if self.sb.message_box(msg, "Yes", "No") != "Yes":
             return
@@ -1164,6 +1417,37 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         if not item:
             return
         new_value = item.text()
+        # A lightmap row: the path cell repoints the bake markers (folder only
+        # -- the map is what the bake committed); the name cells are labels,
+        # not datablocks. Identified through the path cell's UserRole, which
+        # still holds the row's path after the text was edited.
+        path_item = table.item(row, 1)
+        row_key = (
+            str(path_item.data(self.sb.QtCore.Qt.UserRole) or path_item.text()).strip()
+            if path_item is not None
+            else ""
+        )
+        lightmap = self._lightmap_rows.get(row_key)
+        if lightmap is not None:
+            if col != 1:
+                self.sb.message_box("Lightmap rows carry no datablock to rename.")
+                # Deferred: this runs inside cellChanged, and rebuilding the
+                # table from within its own signal would delete the item
+                # mid-dispatch.
+                self.sb.QtCore.QTimer.singleShot(0, self.refresh_texture_table)
+                return
+            typed = new_value.strip().replace("\\", "/")
+            if typed and os.path.basename(typed).lower() != lightmap["map"].lower():
+                self.sb.message_box(
+                    f"The bake markers name <hl>{lightmap['map']}</hl>; a path to a "
+                    "different map is a re-bake, not a repath."
+                )
+                self.sb.QtCore.QTimer.singleShot(0, self.refresh_texture_table)
+                return
+            self._repath_lightmap(lightmap, os.path.dirname(typed))
+            self.sb.QtCore.QTimer.singleShot(0, self.refresh_texture_table)
+            return
+
         img_item = table.item(row, 2)
         img_name = (
             (img_item.data(self.sb.QtCore.Qt.UserRole) or img_item.text())
@@ -1195,40 +1479,61 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ workflows
     def _find_and_copy_workflow(
-        self,
-        images,
-        relocate_mode="copy",
-        use_valid_paths=True,
-        dest_sourceimages=False,
+        self, images, relocate_mode="copy", scope_label="", lightmaps=None
     ):
-        """Run find/copy-or-move/repath with a re-entry guard.
+        """Open the Find & Copy panel over *images*, or re-seed and raise it.
 
-        Modal dir dialogs occasionally deliver trailing release events that retrigger the slot,
-        popping a second source-dir prompt. The guard protects against this (same pattern used by
-        row_browse_for_file).
+        *lightmaps* are the lightmap dependency records in scope
+        (:meth:`_get_scope_lightmaps`); they get their own opt-out row on the form and
+        are relocated after the textures, by the same folders.
+
+        The panel is kept between invocations rather than rebuilt: it is a tool window that
+        stays open while the operation runs, so closing and recreating it would throw away
+        the report being read and the size the user set. Every invocation re-seeds the rows,
+        so the counts and hints always describe the scope the command was just issued for.
+
+        The scope is captured HERE, not re-read when Run is pressed: the row selection can
+        change behind a modeless window, and a button reading "Copy 12 texture(s)" that
+        relocates three is the exact class of mismatch this panel exists to remove.
+        Mirrors mayatk's ``_find_and_copy_workflow``.
         """
-        if getattr(self, "_find_copy_in_progress", False):
-            return
-        self._find_copy_in_progress = True
-        try:
-            self._do_find_and_copy_workflow(
-                images,
-                relocate_mode=relocate_mode,
-                use_valid_paths=use_valid_paths,
-                dest_sourceimages=dest_sourceimages,
-            )
-        finally:
-            from qtpy.QtCore import QTimer
+        self._find_copy_images = list(images)
+        self._find_copy_mode = relocate_mode
+        self._find_copy_scope_label = scope_label
+        self._find_copy_lightmaps = list(lightmaps or [])
 
-            QTimer.singleShot(
-                250, lambda: setattr(self, "_find_copy_in_progress", False)
+        panel = self._find_copy_panel
+        if panel is None:
+            panel = self.sb.form_panel(
+                self._find_and_copy_scope_fields(),
+                title="Find & Copy Textures",
+                parent=getattr(self, "ui", None),
+                # Callable: the mode lives ON the form, so a fixed verb here would
+                # contradict the combo the moment it is changed.
+                ok_text=self._find_and_copy_ok_text,
+                validate=self._validate_find_and_copy,
+                help_text=self._find_and_copy_help_text(),
+                on_run=self._run_find_and_copy,
+                # A tool window the user sizes once and reopens all week: the
+                # size it comes back at is part of being a panel rather than
+                # a dialog.
+                settings=self._find_copy_settings(),
             )
+            self._find_copy_panel = panel
+        else:
+            panel.set_fields(self._find_and_copy_scope_fields())
+
+        panel.footer.setDefaultStatusText(
+            f"Scope: {scope_label}" if scope_label else ""
+        )
+        panel.present()
+        return panel
 
     def _path_resolves(self, image):
         """True when the image's stored path already points at a file on disk.
 
-        Resolved the way the engine resolves it (library-aware), so the count in the search
-        dialog matches what ``find_and_copy_textures`` then treats as unresolved.
+        Resolved the way the engine resolves it (library-aware), so the count the panel
+        shows matches what ``find_and_copy_textures`` then treats as unresolved.
         """
         path = self._resolve_path(
             getattr(image, "filepath", "") or "",
@@ -1236,90 +1541,530 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         )
         return bool(path) and os.path.isfile(path)
 
-    def _do_find_and_copy_workflow(
-        self,
-        images,
-        relocate_mode="copy",
-        use_valid_paths=True,
-        dest_sourceimages=False,
+    def _find_copy_settings(self):
+        """The panel's geometry store, or None when the switchboard has none.
+
+        ``getattr``: the slot is constructed against a real Switchboard in
+        production and against a stand-in in tests, and a panel that cannot
+        remember its size is a smaller loss than a tool that will not open.
+        """
+        store = getattr(self.sb, "settings", None)
+        if store is None:
+            return None
+        return store.branch("find_and_copy_textures")
+
+    def _find_and_copy_scope_fields(self):
+        """Field specs for the scope the panel is currently pointed at.
+
+        Re-partitions on every call rather than caching: reopening the panel after a Resolve
+        Missing pass must not still claim the textures it just fixed are unresolved.
+        """
+        images = self._find_copy_images
+        return self._find_and_copy_fields(
+            images,
+            [img for img in images if not self._path_resolves(img)],
+            self._resolve_source_images_path(),
+            self._find_copy_mode,
+            lightmaps=self._find_copy_lightmaps,
+        )
+
+    def _find_and_copy_fields(
+        self, images, unresolved, start_dir, relocate_mode="copy", lightmaps=None
     ):
+        """The Find & Copy rows: operation, search folder, destination, dry run.
+
+        *lightmaps* (dependency records in scope) count toward the search hint: a missing
+        lightmap is as much "something to find" as a broken image, and the search folder
+        must switch on for it. They ride along unconditionally -- the scope decides.
+
+        Mirrors mayatk's, down to the field names and the validator, so a project shared
+        between the two reads the same. See that one for why the sequence of two native
+        pickers had to go.
+
+        Pure: no Qt, no scene writes. The panel renders whatever this returns, so what the
+        form SAYS is testable on its own.
+
+        Returns:
+            list[dict]: specs for ``sb.form_panel`` — ``mode``, ``source_dir``,
+            ``dest_dir``, ``dry_run``.
+        """
+        total = len(images)
+        resolved_count = total - len(unresolved)
+        mode_labels = {key: label for label, key in self._FIND_MODE_ITEMS}
+        initial_mode = mode_labels.get(relocate_mode, self._FIND_MODE_ITEMS[0][0])
+
+        # What the search folder is FOR: the images that do not resolve and
+        # the lightmaps found nowhere -- one list, since one folder serves
+        # both and the row must switch on for either. Mirrors mayatk.
+        wanted = [
+            os.path.basename(img.filepath or "") or img.name for img in unresolved
+        ]
+        wanted.extend(d["map"] for d in (lightmaps or []) if not d.get("path"))
+        if wanted:
+            listed = ", ".join(wanted[:3])
+            if len(wanted) > 3:
+                listed += f", +{len(wanted) - 3} more"
+            skipped = "Leave it empty to skip them"
+            if resolved_count:
+                skipped += f" and relocate the {resolved_count} that already resolve"
+            source_hint = (
+                f"Searched recursively for {len(wanted)} unresolved texture(s): {listed}. "
+                f"{skipped}. A path that already resolves is its own source and is never "
+                "searched for — it is the file the scene is rendering."
+            )
+            # Short enough to survive a narrow field; counted off ``wanted``, never off
+            # ``total`` (a lightmap-only scope has no image datablocks). Mirrors mayatk.
+            source_placeholder = f"{len(wanted)} path(s) require a search dir"
+        else:
+            source_hint = (
+                f"All {total} path(s) resolve — every texture is its own source, so nothing "
+                "needs finding."
+                if total
+                else "Nothing in scope needs finding — every path already resolves."
+            )
+            source_placeholder = "No path requires a search dir"
+
+        # Order is the reading order of the decision: what to do, where to look, where it
+        # lands, and whether to commit. Mirrors mayatk's.
+        return [
+            {
+                "name": "mode",
+                "kind": "choice",
+                "label": "Operation",
+                "items": [label for label, _key in self._FIND_MODE_ITEMS],
+                "value": initial_mode,
+                "hint": (
+                    "Copy duplicates each texture into the destination; Move removes the "
+                    "original after a successful copy."
+                ),
+            },
+            {
+                "name": "source_dir",
+                "kind": "dir",
+                "label": f"{self._DIALOG_MARK_SOURCE} Search in",
+                "hint": source_hint,
+                "placeholder": source_placeholder,
+                "enabled": bool(wanted),
+            },
+            {
+                "name": "dest_dir",
+                "kind": "dir",
+                "label": f"{self._DIALOG_MARK_DEST} Copy into",
+                "value": start_dir,
+                "hint": (
+                    f"The {total} texture(s) land HERE and the images are repointed at "
+                    "them. Paths become // relative when this folder is inside the project."
+                ),
+            },
+            {
+                "name": "dry_run",
+                "kind": "check",
+                "label": "Dry run (preview only)",
+                "hint": (
+                    "Report exactly what would be relocated and repathed without touching a "
+                    "file or a datablock, then arm <b>Apply</b> to commit the report on "
+                    "screen. Preview and commit derive every source and destination through "
+                    "the same engine call, so what Apply writes is what was previewed."
+                ),
+            },
+        ]
+
+    def _find_and_copy_ok_text(self, values) -> str:
+        """Accept-button text — the verb chosen ON the form, and the real count.
+
+        Ticking Dry Run retitles it to what it will actually do, which is not copy
+        anything.
+        """
+        total = len(self._find_copy_images)
+        lightmaps = len(self._find_copy_lightmaps)
+        what = f"{total} texture(s)"
+        if lightmaps:
+            what = (
+                f"{what} + {lightmaps} lightmap(s)"
+                if total
+                else f"{lightmaps} lightmap(s)"
+            )
+        if values.get("dry_run"):
+            return f"Preview {what}"
+        mode = values.get("mode") or self._FIND_MODE_ITEMS[0][0]
+        return f"{mode} {what}"
+
+    def _find_and_copy_help_text(self) -> str:
+        """Rich text behind the panel header's ``?``."""
+        return self.sb.tooltip.fmt(
+            title="Find &amp; Copy Textures",
+            body="Gather the files behind the scoped textures, relocate them into one "
+            "destination, and repoint the images at them.",
+            sections=[
+                (
+                    "The rows",
+                    [
+                        "<b>Operation</b> — Copy duplicates each texture; Move removes the "
+                        "original after a successful copy.",
+                        "<b>Search in</b> — searched recursively, and only for paths that "
+                        "do not already resolve. Leave it empty to skip those and relocate "
+                        "the rest.",
+                        "<b>Copy into</b> — where the textures land. Created if it does not "
+                        "exist; paths become // relative when it is inside the project.",
+                        "<b>Dry run</b> — report what would happen without touching "
+                        "anything, then press <b>Apply</b> in the footer to commit exactly "
+                        "what was reported.",
+                        "<b>Lightmaps</b> — any in the scope ride along: the baked maps "
+                        "the bake markers name (no Image datablock references them, so "
+                        "this is the one command that relocates them). Searched and "
+                        "copied like the textures, then every marker is repointed at "
+                        "the destination and the FBX manifest republished.",
+                    ],
+                ),
+            ],
+            notes=[
+                "Source and destination may not be the same folder — nothing would move, "
+                "and the run would report success.",
+                "What the search did not find is named at the end of the report; those "
+                "images keep their current path.",
+            ],
+        )
+
+    def _run_find_and_copy(self, values):
+        """The panel's Run — over whatever scope the panel is pointed at."""
+        return self._run_find_and_copy_over(list(self._find_copy_images), values)
+
+    def _run_find_and_copy_over(self, images, values):
+        """Preview or commit *images*, reporting into the panel.
+
+        Returns the call that WOULD commit when this pass was a preview, which is the
+        panel's contract for arming its Apply button. That call is this same method with
+        the preview switched off, over the images and answers AS THEY WERE PREVIEWED — so
+        Apply commits the report on screen even if the row selection or the form has moved
+        on since. Mirrors mayatk's.
+        """
+        panel = self._find_copy_panel
+        dry_run = bool(values.get("dry_run"))
+        # Adopt the panel's logger for the duration: every ``self.logger`` call in the
+        # command then lands in the pane the user is watching, instead of a channel with
+        # no sink attached to this window.
+        self.use_logger(getattr(panel, "logger", None))
+        try:
+            planned = self._execute_find_and_copy(images, values, dry_run=dry_run)
+        finally:
+            self.use_logger(None)
+        self.ui.tbl000.init_slot()
+        if not (dry_run and planned):
+            return None
+        return partial(
+            self._run_find_and_copy_over, images, dict(values, dry_run=False)
+        )
+
+    @staticmethod
+    def _validate_find_and_copy(values):
+        """Refuse a form that cannot do what it says, and say why.
+
+        The reported mistake IS the first rule: aiming the destination at the folder being
+        searched relocates nothing, reports success, and leaves the user believing the
+        textures moved.
+        """
+        dest = values.get("dest_dir") or ""
+        source = values.get("source_dir") or ""
+        if not dest:
+            return "Pick a destination — this is where the textures will land."
+        if source and os.path.normcase(os.path.abspath(source)) == os.path.normcase(
+            os.path.abspath(dest)
+        ):
+            return (
+                "Search folder and destination are the same — nothing would move. The "
+                "destination is where the textures LAND."
+            )
+        return ""
+
+    def _execute_find_and_copy(self, images, answers, dry_run=False):
         """Collect sources, relocate them into one directory, repath the images.
 
-        Two dialogs at most, and each is skippable: ``use_valid_paths`` sources every
-        already-resolving image from its own path, so the *search* dialog only opens for what is
-        unresolved (cancelling it skips exactly those, keeping the rest of the run);
-        ``dest_sourceimages`` pins the destination to the project's textures folder, so the
-        *destination* dialog never opens.
+        The answers arrive as a plain dict — from the panel, from a test, from anything
+        that can name the values — so the work is reachable and checkable without a window
+        in front of it. An empty source row skips the unresolved images and relocates the
+        rest: with 48 of 50 paths valid, those 48 must not be lost to the two that are
+        broken.
 
-        Both dialogs are dir pickers on the same widget, one meaning "search here", the other
-        "write here" — so their titles lead with SOURCE / DESTINATION and name the operation.
-        Either can be the only dialog a run shows, and the title bar is all that tells them apart.
+        ``dry_run`` reports the same decision without acting on it: the search still runs
+        (reading the disk is the only way to know what would move), but no folder is
+        created, no file is relocated and no datablock is touched. Both passes get their
+        sources and destinations from ``btk.plan_find_and_copy_textures``, so a preview
+        cannot promise a path the commit would not write.
+
+        Reports through ``self.logger``, which the panel's Run swaps for its own — the pane
+        IS the report, so there is no message box to dismiss before reading it.
+
+        Parameters:
+            images: The images to relocate textures for.
+            answers: ``source_dir``, ``dest_dir``, ``mode``, ``dry_run``.
+            dry_run: Report the plan; change nothing.
+
+        Returns:
+            bool: whether there was anything to do — the signal the panel's Apply button
+            is armed from, so a preview that found nothing offers nothing to commit.
         """
-        start_dir = self._resolve_source_images_path()
-        verb = "MOVE" if relocate_mode == "move" else "COPY"
-
-        unresolved = (
-            [img for img in images if not self._path_resolves(img)]
-            if use_valid_paths
-            else list(images)
+        search_dir = (answers.get("source_dir") or "") or None
+        dest_dir = answers.get("dest_dir") or ""
+        # Normalized HERE rather than on the way out of the form: the same dict arrives
+        # from the panel and from a test, and a mode read straight off the combo
+        # ("Copy" / "Move") has to mean the same thing on every path in.
+        relocate_mode = (
+            "move" if str(answers.get("mode", "")).lower() == "move" else "copy"
         )
-        search_dir = None
-        if unresolved:
-            resolved_count = len(images) - len(unresolved)
-            search_dir = self.sb.dir_dialog(
-                title=(
-                    f"{self._DIALOG_MARK_SOURCE} SOURCE — SEARCH this folder "
-                    f"(and subfolders) for {len(unresolved)} unresolved texture(s)"
-                    + ("   [Cancel = skip them]" if resolved_count else "")
-                ),
-                start_dir=start_dir,
-            )
-            # Cancel skips the unresolved images rather than aborting the run: with 48 of 50
-            # paths valid, those 48 should still relocate. With nothing resolved there is no
-            # run left to keep.
-            if not search_dir and not resolved_count:
-                return
+        # The engine's ``use_valid_paths`` default: a path that resolves is the
+        # file the scene is rendering, so it is its own source and the search
+        # folder only covers what does not resolve. Callable the other way
+        # programmatically; the panel does not offer it.
 
-        if dest_sourceimages:
-            dest_dir = start_dir
-            if not dest_dir:
-                self.sb.message_box(
-                    "'Always Relocate To The Textures Folder' is enabled but the project's "
-                    "textures folder is unknown — save the .blend first."
+        # The lightmaps captured with this scope ride along unconditionally:
+        # the scope decides what is handled, whatever the paths may be.
+        lightmaps = list(self._find_copy_lightmaps)
+        plan = btk.plan_find_and_copy_textures(images, search_dir, dest_dir)
+
+        # Name what the search did NOT find, by image (mirror of mayatk,
+        # reported 2026-08-26): a run that found 46 of 48 read as a success --
+        # the counts were right, but nothing said WHICH two kept their broken
+        # path -- and the export then failed on textures the panel had
+        # "just copied".
+        unresolved = [img for img in images if not self._path_resolves(img)]
+        if unresolved and search_dir:
+            planned = {img for r in plan for img in r["images"]}
+            not_found = [img for img in unresolved if img not in planned]
+            if not_found:
+                self.logger.log_group(
+                    f"{len(not_found)} of {len(unresolved)} unresolved texture(s) not "
+                    f"found under {search_dir} — their images keep their current path",
+                    [
+                        f"{img.name}:  {os.path.basename(img.filepath or '') or '<no path>'}"
+                        for img in not_found
+                    ],
+                    level="warning",
                 )
-                return
-            try:
-                os.makedirs(dest_dir, exist_ok=True)
-            except OSError as e:
-                self.sb.message_box(f"Cannot create <hl>{dest_dir}</hl>: {e}")
-                return
-        else:
-            dest_dir = self.sb.dir_dialog(
-                title=(
-                    f"{self._DIALOG_MARK_DEST} DESTINATION — {verb} {len(images)} texture "
-                    f"file(s) INTO this folder (this is the target, not a search folder)"
+
+        if dry_run:
+            return self._report_find_and_copy_plan(
+                plan,
+                dest_dir,
+                relocate_mode,
+                lightmap_plan=self._plan_lightmaps(
+                    lightmaps, search_dir, dest_dir, relocate_mode
                 ),
-                start_dir=start_dir,
             )
-            if not dest_dir:
-                return
+
+        # Created if missing: the destination is typed as often as it is browsed, and a folder
+        # that does not exist yet is a normal answer to "put them here".
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+        except OSError as e:
+            self.logger.error(f"Cannot create '{dest_dir}': {e}")
+            return False
 
         record = self._snapshot_for_tracking(images)
-        count = btk.find_and_copy_textures(
-            images,
-            search_dir,
-            dest_dir,
-            mode=relocate_mode,
-            use_valid_paths=use_valid_paths,
+        count = (
+            btk.find_and_copy_textures(images, search_dir, dest_dir, mode=relocate_mode)
+            if images
+            else 0
         )
         record()
-        self.sb.message_box(
-            f"{'Moved' if relocate_mode == 'move' else 'Copied'} + repathed "
-            f"<hl>{count}</hl> texture(s)."
-            if count
-            else "No textures to relocate — nothing resolved and nothing matched."
+        if count:
+            self.logger.success(
+                f"{'Moved' if relocate_mode == 'move' else 'Copied'} + repathed "
+                f"{count} texture(s)."
+            )
+        elif images:
+            self.logger.warning(
+                "No textures to relocate — nothing resolved and nothing matched."
+            )
+
+        landed = (
+            self._relocate_lightmaps(lightmaps, search_dir, dest_dir, relocate_mode)
+            if lightmaps
+            else False
         )
-        self.ui.tbl000.init_slot()
+
+        # The honest close: what is STILL broken after this run, by image.
+        if images:
+            still = [img for img in images if not self._path_resolves(img)]
+            if still:
+                self.logger.log_group(
+                    f"{len(still)} texture(s) still unresolved after this run — the "
+                    "export's path check will fail on them",
+                    [f"{img.name}:  {img.filepath or '<no path>'}" for img in still],
+                    level="warning",
+                )
+        return bool(count) or landed
+
+    #: Rows of a dry-run listing shown in full before it collapses to a count. Long enough
+    #: to recognise the operation, short enough that the plan stays one screenful next to
+    #: the form that produced it. Mirrors mayatk's.
+    _PLAN_PREVIEW_ROWS = 12
+
+    def _report_find_and_copy_plan(
+        self, plan, dest_dir, relocate_mode, lightmap_plan=None
+    ):
+        """Report what a live pass WOULD do, having written nothing.
+
+        Every line comes from the engine's own plan — the same records the commit acts on —
+        and the lightmap plan the engine's own dry run returned, so this is the plan itself
+        being described, not a second guess at it.
+        """
+        verb = "Move" if relocate_mode == "move" else "Copy"
+        lightmaps_change = bool(
+            lightmap_plan and (lightmap_plan["relocate"] or lightmap_plan["in_place"])
+        )
+        if not plan and not lightmaps_change:
+            self.logger.warning(
+                "Dry run — nothing would change: nothing resolved and nothing matched."
+            )
+            self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
+            return False
+        if not plan:
+            self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
+            self.logger.warning(
+                f"Nothing has been written — press Apply to {verb.lower()} and repath "
+                "exactly this."
+            )
+            return True
+
+        moving = [r for r in plan if not r["in_place"]]
+        in_place = [r for r in plan if r["in_place"]]
+
+        if moving:
+            self.logger.log_group(
+                f"Dry run — would {verb.lower()} {len(moving)} texture(s) into {dest_dir}"
+                + (f" ({len(in_place)} already there)" if in_place else ""),
+                self._plan_lines(
+                    f"{os.path.basename(r['source'])}  ←  {os.path.dirname(r['source'])}"
+                    for r in moving
+                ),
+            )
+        else:
+            self.logger.info(
+                f"Dry run — all {len(in_place)} texture(s) are already at the destination; "
+                "only the stored paths would change."
+            )
+
+        repathed = [(img, r) for r in plan for img in r["images"]]
+        self.logger.log_group(
+            f"Would repath {len(repathed)} image(s)",
+            self._plan_lines(
+                f"{img.name}:  {img.filepath}  →  "
+                f"{btk.to_project_relative(r['destination'])}"
+                for img, r in repathed
+            ),
+        )
+        self._report_lightmap_plan(lightmap_plan, dest_dir, verb)
+        self.logger.warning(
+            f"Nothing has been written — press Apply to {verb.lower()} and repath exactly "
+            "this."
+        )
+        return True
+
+    # -- lightmaps through Find & Copy (mirror of mayatk) ----------------------
+    # The engine does the work (LightmapBaker.relocate_lightmaps: search, copy,
+    # repoint the markers, republish the manifest); the panel scopes it to the
+    # captured records and reports through the same pane.
+
+    def _plan_lightmaps(self, lightmaps, source_dir, dest_dir, relocate_mode):
+        """The engine's dry run over *lightmaps*, or ``None`` when none are in scope."""
+        if not lightmaps:
+            return None
+        try:
+            return self._lightmap_baker().relocate_lightmaps(
+                dest_dir,
+                source_dir=source_dir or "",
+                mode=relocate_mode,
+                objects=self._lightmap_objects(lightmaps),
+                dry_run=True,
+            )
+        except Exception as e:  # noqa: BLE001 — a preview must not raise
+            self.logger.error(f"Lightmaps not planned: {e}")
+            return None
+
+    def _report_lightmap_plan(self, plan, dest_dir, verb):
+        """The dry-run lines for the lightmaps -- same shape as the texture ones."""
+        if not plan:
+            return
+        if plan["relocate"]:
+            self.logger.log_group(
+                f"Dry run — would {verb.lower()} {len(plan['relocate'])} lightmap(s) into "
+                f"{dest_dir} and repoint their bake markers"
+                + (
+                    f" ({len(plan['in_place'])} already there)"
+                    if plan["in_place"]
+                    else ""
+                ),
+                self._plan_lines(
+                    f"{os.path.basename(src)}  ←  {os.path.dirname(src)}"
+                    for src, _dst in plan["relocate"]
+                ),
+            )
+        elif plan["in_place"]:
+            self.logger.info(
+                f"Dry run — all {len(plan['in_place'])} lightmap(s) are already at the "
+                "destination; only the bake markers would change."
+            )
+        if plan["missing"]:
+            self.logger.log_group(
+                f"{len(plan['missing'])} lightmap(s) found nowhere — their markers would "
+                "keep pointing at the recorded folder",
+                [
+                    f"{dep['map']}  (recorded in {dep['dir'] or '<no folder>'})"
+                    + (f"  {dep['note']}" if dep.get("note") else "")
+                    for dep in plan["missing"]
+                ],
+                level="warning",
+            )
+
+    def _relocate_lightmaps(self, lightmaps, source_dir, dest_dir, relocate_mode):
+        """Relocate *lightmaps* for real and report; returns whether any landed."""
+        try:
+            result = self._lightmap_baker().relocate_lightmaps(
+                dest_dir,
+                source_dir=source_dir or "",
+                mode=relocate_mode,
+                objects=self._lightmap_objects(lightmaps),
+            )
+        except Exception as e:  # noqa: BLE001 — the textures already landed
+            self.logger.error(f"Lightmaps not relocated: {e}")
+            return False
+        landed = len(result["copied"]) + len(result["in_place"])
+        if landed:
+            self.logger.success(
+                f"Lightmaps — {len(result['copied'])} relocated, "
+                f"{len(result['in_place'])} already at destination; "
+                f"{result['updated']} bake marker(s) repointed, manifest republished."
+            )
+        failed = len(result["relocate"]) - len(result["copied"])
+        if failed:
+            self.logger.warning(
+                f"{failed} lightmap(s) did not copy — see the system console."
+            )
+        if result["missing"]:
+            self.logger.log_group(
+                f"{len(result['missing'])} lightmap(s) found nowhere — the export's path "
+                "check will fail on them",
+                [
+                    f"{dep['map']}  (recorded in {dep['dir'] or '<no folder>'})"
+                    + (f"  {dep['note']}" if dep.get("note") else "")
+                    for dep in result["missing"]
+                ],
+                level="warning",
+            )
+        return bool(landed)
+
+    @classmethod
+    def _plan_lines(cls, lines):
+        """*lines* capped at :attr:`_PLAN_PREVIEW_ROWS`, with the remainder counted.
+
+        A truncated listing that does not SAY it was truncated reads as the whole plan,
+        which is the one thing a preview must never do.
+        """
+        listed = list(lines)
+        if len(listed) <= cls._PLAN_PREVIEW_ROWS:
+            return listed
+        hidden = len(listed) - cls._PLAN_PREVIEW_ROWS
+        return listed[: cls._PLAN_PREVIEW_ROWS] + [f"… and {hidden} more"]
 
     # ------------------------------------------------------------------ scene refresh / misc
     def refresh_texture_table(self):

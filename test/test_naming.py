@@ -86,6 +86,20 @@ try:
     Naming.rename([o], "Box", retain_suffix=True, valid_suffixes=["_GEO"])
     check("rename retain_suffix", o.name == "Box_GEO", o.name)
 
+    # ---- rename: retain only carries a DEFINED suffix, once (mayatk parity) -------------------
+    reset()
+    o = empty("wall_low")
+    Naming.rename([o], "Prop", retain_suffix=True)  # default: the shared convention
+    check("rename retain skips undefined suffix", o.name == "Prop", o.name)
+    reset()
+    o = empty("Sphere_GEO")
+    Naming.rename([o], "**_A", retain_suffix=True, valid_suffixes=["_GEO"])
+    check("rename retain not doubled by append", o.name == "Sphere_GEO_A", o.name)
+    reset()
+    o = empty("pCube_GEO1")
+    Naming.rename([o], "**_A", retain_suffix=True, valid_suffixes=["_GEO"])
+    check("rename retain keeps numbering", o.name == "pCube_GEO1_A", o.name)
+
     # ---- rename: strip collapses separator residue (mayatk parity) ----------------------------
     reset()
     o = empty("vdat__uninst_tmp__uninst_tmpShape702")

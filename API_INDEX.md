@@ -295,7 +295,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(ptk.HelpMixin, ptk.LoggingMixin)`
-  - methods: scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, suffix_by_type, append_location_based_suffix
+  - methods: SUFFIX_TYPES, affix_rules, scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, suffix_by_type, append_location_based_suffix
 
 ### `edit_utils/naming/naming_slots.py` — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - `class NamingSlots(Naming)`
@@ -317,7 +317,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - `class BlenderConnection`
@@ -329,6 +329,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
+  - methods: lightmap_search_dirs
 
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 - `main() -> int`
@@ -428,11 +429,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
-  - methods: perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
+  - methods: confirm, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
+  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 - `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
@@ -479,7 +480,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, refresh_export_metadata, revert_lightmap, revert
+  - methods: resolution, samples, denoise, device, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, normalize_lightmap_paths, lightmap_dependencies, search_dirs, heal_lightmap_paths, relocate_lightmaps, repath_lightmaps, refresh_export_metadata, revert_lightmap, revert
 - `class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
 
@@ -491,7 +492,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`
   - methods: update_materials
 - `class MatUtils(_MatUtilsInternal)`
-  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
+  - methods: get_mats, create_mat, assign_mat, find_by_mat_id, find_unassigned, select_by_material, reload_textures, get_scene_mats, is_mat_assigned, get_mat_swatch_icon, get_texture_paths, get_texture_info, get_mat_info, format_mat_info_html, format_texture_info_html, find_materials_with_duplicate_textures, reassign_duplicate_materials, delete_unused_materials, image_texture_nodes, select_image_nodes, graph_materials, get_image_records, image_paths_scope, repath_image, to_project_relative, resolve_missing_textures, normalize_texture_paths, get_image_material_map, materials_for_textures, fix_color_spaces, set_texture_directory, plan_find_and_copy_textures, find_and_copy_textures, format_texture_paths_html, get_shader_templates, apply_shader_template, create_shader_template, serialize_material, restore_material, resolve_pbr_plan, create_pbr_material, create_pbr_materials, update_materials
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
@@ -509,7 +510,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class GameShader(ptk.LoggingMixin, _GameShaderInternal)`
   - methods: create_network
 - `class GameShaderSlots(GameShader)`
-  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, output_extension, cmb002_init, cmb003_init, txt002_init, b000
+  - methods: workspace_dir, source_images_dir, header_init, lbl_graph_material, mat_name, mat_prefix, mat_suffix, normal_map_type, output_extension, cmb002_init, opacity_mode, cmb003_init, txt000_init, txt002_init, b000
 
 ### `mat_utils/image_to_plane/_image_to_plane.py` — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 - `class ImageToPlane(ptk.LoggingMixin)`
@@ -620,11 +621,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/substance_bridge/parameters.py` — Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 - `class Parameters`
-  - methods: referenced_keys, defaults, render_cli_context, render_js_context
+  - methods: referenced_keys, defaults, affix_parts, render_cli_context, render_js_context
 
 ### `mat_utils/substance_bridge/substance_bridge_slots.py` — Slots for the Substance Painter bridge panel -- mirror of mayatk's
 - `class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`
-  - methods: live_param_tooltips, set_bake_source_from_selection, select_bake_source, clear_bake_source, params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
+  - methods: live_param_tooltip_blocks, set_bake_source_from_selection, select_bake_source, clear_bake_source, params_module, template_dir, make_bridge, list_template_modes, select_initial_template_index, b000
 
 ### `mat_utils/substance_bridge/substance_rpc/client.py` — HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 - `class PainterRpcClient(RpcClient)`
@@ -673,7 +674,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/texture_path_editor.py` — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - `class TexturePathEditorSlots(ptk.LoggingMixin)`
-  - methods: header_init, tb_set_texture_directory_init, tb_find_and_copy_textures_init, tb_normalize_paths_init, tb_resolve_missing_textures_init, tbl000_init, setup_formatting, open_source_images, reload_scene_textures, tb_set_texture_directory, tb_find_and_copy_textures, tb_normalize_paths, make_paths_absolute, tb_resolve_missing_textures, select_textures_for_objects, select_broken_paths, select_absolute_paths, row_browse_for_file, select_material, select_file_node, row_show_in_hypershade, delete_file_node, handle_cell_edit, refresh_texture_table, cleanup_scene_callbacks
+  - methods: header_init, tb_set_texture_directory_init, tb_normalize_paths_init, tb_resolve_missing_textures_init, tbl000_init, setup_formatting, open_source_images, reload_scene_textures, tb_set_texture_directory, tb_find_and_copy_textures, tb_normalize_paths, make_paths_absolute, tb_resolve_missing_textures, select_textures_for_objects, select_broken_paths, select_absolute_paths, row_browse_for_file, select_material, select_file_node, row_show_in_hypershade, delete_file_node, handle_cell_edit, refresh_texture_table, cleanup_scene_callbacks
 
 ### `node_utils/_node_utils.py` — Node / datablock utilities — instancing via shared object data.
 - `class NodeUtils(_NodeUtilsInternal)`
