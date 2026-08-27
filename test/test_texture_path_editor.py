@@ -107,9 +107,38 @@ try:
     mat2.node_tree.nodes.new("ShaderNodeTexImage").image = img2
     img2.filepath = os.path.join(tmp, "gone", "metal_NRM.png")  # break so we must find it
     find_dest = os.path.join(tmp, "find_dest")
+    # 6a. plan_find_and_copy_textures — the same decision, written nowhere. The panel's
+    # Dry Run reports from this, so it must name the exact source and destination the
+    # commit then uses, and must not create the destination or touch the datablock.
+    planned = btk.plan_find_and_copy_textures(
+        [img2], os.path.join(tmp, "search"), find_dest
+    )
+    before = img2.filepath
+    check("plan_find_and_copy_textures finds the one texture", len(planned) == 1,
+          repr(planned))
+    check("...naming the source the walk found",
+          planned and planned[0]["source"] == find_tex, repr(planned))
+    check("...and the destination it would land at",
+          planned and planned[0]["destination"] == os.path.join(find_dest, "metal_NRM.png"))
+    check("...listing the image that would repath",
+          planned and planned[0]["images"] == [img2])
+    check("...flagging that it is not already in place",
+          planned and planned[0]["in_place"] is False)
+    check("plan writes nothing: no destination folder", not os.path.exists(find_dest))
+    check("plan writes nothing: the image is untouched", img2.filepath == before)
+
     n = btk.find_and_copy_textures([img2], os.path.join(tmp, "search"), find_dest, mode="copy")
     check("find_and_copy_textures relocates + repaths",
           n == 1 and os.path.exists(os.path.join(find_dest, "metal_NRM.png")))
+    check("the commit landed the file the plan named",
+          os.path.exists(planned[0]["destination"]) if planned else False)
+
+    # 6b. A source already at the destination is flagged in_place: only the stored path
+    # would change, and Move must not treat it as a self-copy.
+    in_place_plan = btk.plan_find_and_copy_textures([img2], None, find_dest)
+    check("plan flags a source already at the destination",
+          len(in_place_plan) == 1 and in_place_plan[0]["in_place"] is True,
+          repr(in_place_plan))
 
     # 7. normalize_texture_paths(absolute) — make the path absolute.
     n = btk.normalize_texture_paths("absolute")
@@ -388,6 +417,65 @@ try:
     check("...with an empty texture slot",
           all(getattr(n, "image", None) is None for n in survivors if n))
     check("...and the file on disk untouched", os.path.exists(sel_path), sel_path)
+
+    # 12. Lightmap rows in the panel (mirror of mayatk's TestFindAndCopyLightmaps'
+    # scope tests). The Qt table is stubbed: the slot's row helpers are bpy-only.
+    from types import SimpleNamespace
+    from blendertk.mat_utils.texture_path_editor import TexturePathEditorSlots
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+    bpy.ops.mesh.primitive_cube_add()
+    lm_cube = bpy.context.active_object
+    lm_cube.name = "lm_cube"
+    lm_mat = btk.create_mat("standard", name="OFFICE_ENV")
+    btk.assign_mat(lm_cube, lm_mat)
+    lm_dir = os.path.join(tmp, "lightmaps")
+    os.makedirs(lm_dir, exist_ok=True)
+    lm_map = os.path.join(lm_dir, "OFFICE_ENV_LightMap.exr")
+    open(lm_map, "wb").close()
+    LightmapBaker().commit_lightmap({lm_cube.name: lm_map})
+
+    slot = TexturePathEditorSlots.__new__(TexturePathEditorSlots)
+    slot._lightmap_rows = {}
+    slot._find_copy_lightmaps = []
+    slot._find_copy_images = []
+    deps = slot._lightmap_baker().lightmap_dependencies()
+    dep = deps[0] if deps else None
+    check("the panel lists the committed lightmap as a dependency", dep is not None, f"{deps}")
+    row_path = slot._lightmap_row_path(dep) if dep else ""
+    check("a lightmap row shows the marker's recorded folder + map",
+          row_path.endswith("/OFFICE_ENV_LightMap.exr"), row_path)
+    mat_label, node_label = slot._lightmap_row_labels(dep) if dep else ("", "")
+    check("a lightmap row is labelled by the material and the map stem, not the objects",
+          mat_label == "OFFICE_ENV" and node_label == "OFFICE_ENV_LightMap",
+          f"{mat_label!r} / {node_label!r}")
+
+    slot._lightmap_rows = {row_path: dep}
+    entry = SimpleNamespace(values={"material": mat_label, "path": row_path, "image": ""})
+    slot.ui = SimpleNamespace(tbl000=SimpleNamespace(get_selection=lambda **kw: [entry]))
+    check("a selected lightmap row is a scope of its own", slot._get_scope_lightmaps() == [dep])
+    images, label = slot._get_scope_images()
+    check("...that the image commands see as nothing to do", images == [] and "lightmap" in label, label)
+    check("...and that Browse/Select resolve to the record",
+          slot._lightmaps_from_selection([entry]) == [dep] and slot._images_from_selection([entry]) == [])
+    slot.ui = SimpleNamespace(tbl000=SimpleNamespace(get_selection=lambda **kw: []))
+    check("no selection scopes to every lightmap row shown", slot._get_scope_lightmaps() == [dep])
+
+    fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[dep])}
+    check("Find & Copy has no lightmap opt-out row -- the scope decides",
+          "include_lightmaps" not in fields, f"{sorted(fields)}")
+    os.remove(lm_map)
+    missing_dep = slot._lightmap_baker().lightmap_dependencies(search_dirs=[], walk=False)[0]
+    fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[missing_dep])}
+    check("a missing lightmap switches the search folder on and is named in its hint",
+          fields["source_dir"]["enabled"] and "OFFICE_ENV_LightMap.exr" in fields["source_dir"]["hint"],
+          f"{fields['source_dir']}")
+    slot._find_copy_lightmaps = [missing_dep]
+    check("the accept button counts the lightmaps",
+          slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 0 texture(s) + 1 lightmap(s)"
+          or slot._find_and_copy_ok_text({"mode": "Copy"}) == "Copy 1 lightmap(s)",
+          slot._find_and_copy_ok_text({"mode": "Copy"}))
+    LightmapBaker().revert()
 
 except Exception as e:
     traceback.print_exc()

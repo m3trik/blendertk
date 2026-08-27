@@ -31,7 +31,7 @@ class ImageToPlane(ptk.LoggingMixin):
         cls,
         image_paths,
         mat_type="standard",
-        suffix="_MAT",
+        suffix=None,
         prefix="",
         plane_height=10.0,
         group=False,
@@ -44,6 +44,8 @@ class ImageToPlane(ptk.LoggingMixin):
             image_paths (list): Paths to image files.
             mat_type (str): Accepted for mayatk API parity; Blender always builds a Principled material.
             suffix (str): Appended to the image stem for material naming.
+                ``None`` (default) takes the shared naming convention's
+                ``material`` entry ("_MAT" as shipped).
             prefix (str): Prepended to the image stem for material naming.
             plane_height (float): Plane height in scene units (width = height × image aspect).
             group (bool): Parent all created planes under a single Empty.
@@ -54,6 +56,12 @@ class ImageToPlane(ptk.LoggingMixin):
         Returns:
             dict: ``{image_stem: plane_object, ...}`` (plus ``"__group__"`` when grouped).
         """
+        # None => the shared naming convention (pythontk.NamingConvention),
+        # so a studio that respells this affix changes one definition rather
+        # than every signature that ever hardcoded it.
+        if suffix is None:
+            suffix = ptk.NamingConvention.affix("material")
+
         results = {}
         for path in image_paths:
             path = os.path.normpath(path)

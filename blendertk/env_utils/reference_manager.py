@@ -1501,13 +1501,20 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         )
 
     def _format_display_name(self, path, opt):
-        """Displayed file name with the suffix / extension optionally stripped (mirror of Maya)."""
-        name = os.path.basename(path)
-        if opt["hide_extension"]:
-            name = os.path.splitext(name)[0]
-        if opt["hide_suffix"] and opt["suffix"]:
-            name = name.replace(opt["suffix"], "")
-        return name
+        """Displayed file name with the suffix / extension optionally stripped (mirror of Maya).
+
+        The suffix comes off the END of the stem only, never as a substring: the
+        field holds a naming token ('_LOC'), and removing it wherever it appears
+        rewrites the middle of a name — 'ITA_LOCKHANDLE.blend' listed as
+        'ITAKHANDLE'. Splitting the extension off first keeps the token at the
+        tail while the column is showing it, and `endswith` matches the suffix
+        FILTER above, so a row shown for its suffix hides that same one.
+        """
+        stem, ext = os.path.splitext(os.path.basename(path))
+        suffix = opt["suffix"] if opt["hide_suffix"] else ""
+        if suffix and stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+        return stem if opt["hide_extension"] else f"{stem}{ext}"
 
     def _row_label(self, path, opt):
         """Display label for a file row — the bare (optionally suffix/extension-stripped) file name.

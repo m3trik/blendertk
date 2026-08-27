@@ -11,7 +11,7 @@ with optional RPC dispatch).
 Assigned-mesh textures (``PAINTER_INCLUDE_TEXTURES``) are staged by the bridge itself (walks
 the selection's material node trees and copies the resolved textures into the FBX output
 folder), then passed each one via ``--mesh-map`` on launch. The companion
-``PAINTER_TEXTURE_PREFIX`` widget is greyed out while INCLUDE_TEXTURES is off.
+``PAINTER_TEXTURE_AFFIX`` widget is greyed out while INCLUDE_TEXTURES is off.
 """
 
 import traceback
@@ -51,8 +51,9 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     # Header = the base panel-level utilities only (Clear Log). Template
     # management lives on the template combo's own menu; the Bake Source set
     # actions are the BAKE_SOURCE_SET param row (parameters.py) -- the base
-    # auto-wires its buttons to the same-named methods below. The
-    # ``PAINTER_HIGH_POLY`` checkbox only decides whether to ship the set.
+    # auto-wires its buttons to the same-named methods below. The set's
+    # CONTENTS decide whether a send ships a bake source; there is no
+    # companion checkbox.
 
     HELP_SPEC = {
         "title": "Substance Bridge",
@@ -89,16 +90,18 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
             "(or relaunch Painter), then tick <i>substance_rpc</i> in the "
             "<i>Python</i> menu (Painter remembers it). Without a reachable "
             "Painter the log shows the manual reload steps.",
-            "<b>Export Bake Source</b> ships a companion "
-            "<i>&lt;name&gt;_source.fbx</i> and sets it as Painter's "
-            "<i>Hipoly Mesh</i> in the baking options. Define the set once "
-            "with the <b>Bake Source</b> row's <b>Set From Selection</b> — "
-            "it lives in the file (a collection), so it survives saves and "
-            "restarts and is independent of the <b>Scope</b>. Hidden "
-            "geometry needs no preparation: FBX carries it verbatim, so the "
-            "export never touches your scene.",
-            "<b>Map Resolution</b> and <b>Export Bake Source</b> have no "
-            "Painter command line any more, so they travel over the "
+            "<b>Bake Source</b> — define the set once with <b>Set From "
+            "Selection</b> and every send ships it as a companion "
+            "<i>&lt;name&gt;_source.fbx</i>, set as Painter's <i>Hipoly "
+            "Mesh</i> in the baking options. The set's contents ARE the "
+            "switch: no set, nothing shipped. It lives in the file (a "
+            "collection), so it survives saves and restarts and is "
+            "independent of the <b>Scope</b>. Hidden geometry needs no "
+            "preparation: FBX carries it verbatim, so the export never "
+            "touches your scene. The row's icon buttons <i>select</i> the "
+            "set's members or <i>clear</i> it.",
+            "<b>Map Resolution</b> and the bake source have no Painter "
+            "command line any more, so they travel over the "
             "<i>substance_rpc</i> plugin. On a project that is already open "
             "they apply at once; on a fresh launch the plugin holds them "
             "and applies them the moment the New Project wizard finishes — "
@@ -113,22 +116,42 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
 
     def __init__(self, switchboard):
         super().__init__(switchboard)
-        self._wire_texture_prefix_dependency()
+        self._wire_texture_affix_dependency()
 
-    def _wire_texture_prefix_dependency(self) -> None:
-        """Grey out the ``Texture Prefix`` field while ``Include Textures`` is off.
+    #: Why ``Texture Affix`` greys out. Held as an attribute so the wording
+    #: is one string rather than one per call site.
+    _AFFIX_DISABLED_REASON = (
+        "Only applies to textures the send stages — turn <b>Include Textures</b> on."
+    )
+
+    def _wire_texture_affix_dependency(self) -> None:
+        """Grey out the ``Texture Affix`` field while ``Include Textures`` is off.
+
+        The affix only renames files the staging step copies, so it means nothing
+        with staging off. Routed through ``set_param_enabled`` rather than the
+        widget's own ``setEnabled``: the affix row is a text field WRAPPED in an
+        option box, so disabling the field alone leaves its two icon buttons (the
+        mode cycle, the clear) live beside a greyed-out value -- and gives the row
+        no reason for the state. The base walks the row instead, which covers the
+        whole cell.
 
         Both widgets only exist when the active template references them (e.g.
-        ``import.py``); the lookup gracefully no-ops otherwise so the panel stays usable on
-        templates that omit either knob.
+        ``import.py``); the lookup gracefully no-ops otherwise so the panel stays
+        usable on templates that omit either.
         """
         include_widget = self._param_widgets.get("PAINTER_INCLUDE_TEXTURES")
-        prefix_widget = self._param_widgets.get("PAINTER_TEXTURE_PREFIX")
-        if include_widget is None or prefix_widget is None:
+        if include_widget is None or (
+            "PAINTER_TEXTURE_AFFIX" not in self._param_widgets
+        ):
             return
 
         def _sync(_value=None):
-            prefix_widget.setEnabled(bool(KindFactory.read_value(include_widget)))
+            enabled = bool(KindFactory.read_value(include_widget))
+            self.set_param_enabled(
+                "PAINTER_TEXTURE_AFFIX",
+                enabled,
+                "" if enabled else self._AFFIX_DISABLED_REASON,
+            )
 
         KindFactory.connect_changed(include_widget, _sync)
         _sync()
@@ -137,30 +160,34 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     # Bake Source set (param-row actions)
     # ------------------------------------------------------------------
 
-    def live_param_tooltips(self):
+    def live_param_tooltip_blocks(self):
         """Make the Bake Source row report the file's CURRENT members.
 
         The set is a stamped Collection in the .blend, not panel state, so it
         moves under an open panel -- a new file, a redefine, an unlink in the
         Outliner. A build-time tooltip would describe the set the panel opened
-        on, which is exactly the case the user is trying to check. Mirrors
-        ``MayaBridgeSlotsBase.live_param_tooltips``, including its extend-don't-
-        replace contract: the hook is a registry, so a subclass that has to
-        remember to merge is one that will forget.
+        on, which is exactly the case the user is trying to check.
+
+        Registered as a BLOCK, not a whole tooltip: the row's three buttons each
+        carry their own description, and the member list has to reach the one the
+        user is actually hovering when they capture a selection -- not just the
+        label off to its left.
+
+        Mirrors ``MayaBridgeSlotsBase.live_param_tooltip_blocks``, including its
+        extend-don't-replace contract: the hook is a registry, so a subclass that
+        has to remember to merge is one that will forget.
         """
-        tips = dict(super().live_param_tooltips() or {})
+        tips = dict(super().live_param_tooltip_blocks() or {})
         tips["BAKE_SOURCE_SET"] = self._bake_source_tooltip
         return tips
 
     def _bake_source_tooltip(self) -> str:
-        """The Bake Source row's static tooltip plus its live member list."""
-        spec = self.params_module.PARAMS["BAKE_SOURCE_SET"]
-        static = self.format_param_tooltip(spec)
+        """The Bake Source set's live member list (appended to each hover target)."""
         try:
             members = HighPolySet.members()
         except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
-            return static
-        return static + TooltipFormat.stored_items(
+            return ""
+        return TooltipFormat.stored_items(
             members,
             formatter=lambda o: o.name,
             noun="object(s) in this file's set",
@@ -168,24 +195,24 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
         )
 
     def set_bake_source_from_selection(self) -> None:
-        """Store the current selection as this file's high-poly bake source.
+        """Store the current selection as this file's bake source.
 
-        Ticks ``Export High Poly`` on success -- defining the set is only
-        ever done in order to ship it, so making the user find the checkbox
-        afterwards would be a pure extra step.
+        Defining the set IS the opt-in: every send from here on exports it as
+        the companion bake-source FBX. There is no second checkbox to tick --
+        the pairing this replaced could be silently half-on (a set defined, the
+        box left clear), which reads as the tool ignoring you.
         """
         members = HighPolySet.define()
         if not members:
             self.bridge.logger.warning(
-                "Nothing selected; the high-poly set was cleared."
+                "Nothing selected; the bake-source set was cleared."
             )
             return
         self.bridge.logger.info(
-            f"High-poly set: {len(members)} object(s) -> {HighPolySet.SET_NAME}"
+            f"Bake Source set: {len(members)} object(s) -> "
+            f"{HighPolySet.SET_NAME}. Sends now ship it as the companion "
+            f"bake source."
         )
-        widget = self._param_widgets.get("PAINTER_HIGH_POLY")
-        if widget is not None:
-            KindFactory.set_value(widget, True)
 
     def select_bake_source(self) -> None:
         """Select the high-poly set's members.

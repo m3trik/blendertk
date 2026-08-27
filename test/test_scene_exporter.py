@@ -22,6 +22,7 @@ preset directory directly through ``b007``, since a preset is a plain JSON file.
 
 Run: blender --background --factory-startup --python blendertk/test/test_scene_exporter.py
 """
+
 import sys
 import os
 import json
@@ -50,7 +51,9 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 try:
@@ -215,7 +218,8 @@ try:
     check(
         "save_fbx_preset(options=None) seeds from _DEFAULT_FBX_OPTIONS",
         os.path.isfile(default_copy_path)
-        and SceneExporter._preset_store().load("my_default_copy") == _DEFAULT_FBX_OPTIONS,
+        and SceneExporter._preset_store().load("my_default_copy")
+        == _DEFAULT_FBX_OPTIONS,
     )
 
     # ---- save a real override preset + list/tier resolution --------------------------------
@@ -332,7 +336,9 @@ try:
     bpy.ops.object.select_all(action="DESELECT")
     cube.select_set(True)
 
-    SceneExporter.save_fbx_preset("half_scale", {"global_scale": 0.5, "bake_anim": False})
+    SceneExporter.save_fbx_preset(
+        "half_scale", {"global_scale": 0.5, "bake_anim": False}
+    )
     exp2 = SceneExporter()
     out_dir = os.path.join(tmp, "export")
     os.makedirs(out_dir, exist_ok=True)
@@ -561,9 +567,7 @@ try:
         and abs(min(ivals) - 0.0) < 0.01,
         f"proxy={iproxy and iproxy.name} first={ivals[:1]} min={min(ivals) if ivals else None}",
     )
-    icarrier = next(
-        (o for o in imported if o.name.startswith(DataNodes.EXPORT)), None
-    )
+    icarrier = next((o for o in imported if o.name.startswith(DataNodes.EXPORT)), None)
     manifest_raw = icarrier.get("emissive_groups") if icarrier else None
     check(
         "manifest attr record rides beside the proxy (what Unity joins on)",
@@ -748,9 +752,7 @@ try:
 
         def _stub(sections):
             """Patch SceneState.read to return *sections* (bound on access)."""
-            _scene_state.SceneState.read = classmethod(
-                lambda cls, *a, **k: sections
-            )
+            _scene_state.SceneState.read = classmethod(lambda cls, *a, **k: sections)
 
         _stub({"metallic_roughness": {"M": {"metallic": "C:/tex/probe_MSAO.png"}}})
         passed, msgs = tm_mc.check_material_compatibility("glTF 2.0")
@@ -997,11 +999,7 @@ try:
         f"msgs={msgs}",
     )
     pu_mat.node_tree.nodes.remove(
-        next(
-            n
-            for n in pu_mat.node_tree.nodes
-            if getattr(n, "image", None) is long_img
-        )
+        next(n for n in pu_mat.node_tree.nodes if getattr(n, "image", None) is long_img)
     )
     bpy.data.images.remove(long_img)
 
@@ -1111,8 +1109,11 @@ try:
 
         stage = Usd.Stage.Open(usd_path)
         names = {prim.GetName() for prim in stage.Traverse()}
-        check("usd output format: the object is a prim in the layer",
-              "UsdFormatCube" in names, str(sorted(names)))
+        check(
+            "usd output format: the object is a prim in the layer",
+            "UsdFormatCube" in names,
+            str(sorted(names)),
+        )
     except ImportError:
         pass
 
@@ -1121,7 +1122,9 @@ try:
 
     captured_usd = {}
 
-    def _fake_usd_export(filepath=None, objects=None, selection_only=True, frame_range=None, **opts):
+    def _fake_usd_export(
+        filepath=None, objects=None, selection_only=True, frame_range=None, **opts
+    ):
         captured_usd["frame_range"] = frame_range
         captured_usd["opts"] = dict(opts)
         with open(filepath, "w") as fh:
@@ -1369,6 +1372,108 @@ try:
         f"{_kinds}",
     )
 
+    # ---- "Override Checks" (b009) is a per-run escape hatch, not a sticky mode ----------
+    # Nothing else resets it (__init__ clears it once, at panel build), so an export forced
+    # past a failing check used to leave every later export in the session unvalidated too,
+    # silently. b000 disarms it once the deliverable actually shipped; a failed export
+    # leaves it armed so a retry does not have to re-arm it by hand. Mirror of mayatk's
+    # TestOverrideChecksDisarm. Qt-free: the slot only calls isChecked/setChecked.
+    from types import SimpleNamespace
+
+    class _StubWidget:
+        def __init__(self):
+            self._checked = False
+
+        def text(self):
+            return ""
+
+        def currentData(self):
+            return None
+
+        def isChecked(self):
+            return self._checked
+
+        def setChecked(self, state):
+            self._checked = bool(state)
+
+        def clear(self):
+            pass
+
+    def _override_slots(export_result, calls, armed=True):
+        _s = _Slots.__new__(_Slots)
+        _s.task_manager = SimpleNamespace(task_definitions={}, check_definitions={})
+        _s.sb = SimpleNamespace(convert_to_legal_name=lambda n: n)
+        _s.ui = SimpleNamespace(
+            **{
+                n: _StubWidget()
+                for n in (
+                    "txt000",
+                    "txt001",
+                    "txt002",
+                    "txt003",
+                    "chk004",
+                    "b009",
+                    "b011",
+                    "cmb000",
+                    "cmb003",
+                    "cmb004",
+                )
+            }
+        )
+        _s.ui.b009.setChecked(armed)
+        _s.perform_export = lambda **kw: calls.append(kw) or export_result
+        _s.save_output_dir = lambda *a: None
+        _s.save_output_name = lambda *a: None
+        return _s
+
+    _ok_calls = []
+    _ok = _override_slots(True, _ok_calls)
+    _ok.b000()
+    check(
+        "a successful export disarms Override Checks",
+        len(_ok_calls) == 1 and not _ok.ui.b009.isChecked(),
+        f"calls={len(_ok_calls)} checked={_ok.ui.b009.isChecked()}",
+    )
+
+    _fail_calls = []
+    _fail = _override_slots(False, _fail_calls)
+    _fail.b000()
+    check(
+        "a failed export leaves Override Checks armed for the retry",
+        len(_fail_calls) == 1 and _fail.ui.b009.isChecked(),
+        f"calls={len(_fail_calls)}",
+    )
+
+    # Disarming happens AFTER the run -- the run itself still overrides. The
+    # disarmed control is what makes the armed assertion mean anything: without
+    # it, a payload missing the check proves only that the stub never
+    # collected one.
+    def _run_with_one_check(armed):
+        calls = []
+        _s = _override_slots(True, calls, armed=armed)
+        _s.task_manager.check_definitions = {
+            "check_framerate": {"object_name": "check_framerate"}
+        }
+        _s.ui.check_framerate = _StubWidget()
+        _s.ui.check_framerate.setChecked(True)
+        _s.b000()
+        return _s, calls
+
+    _ctl, _ctl_calls = _run_with_one_check(armed=False)
+    check(
+        "unarmed, the enabled check rides the payload",
+        "check_framerate" in _ctl_calls[0]["tasks"],
+        f"{sorted(_ctl_calls[0]['tasks'])}",
+    )
+
+    _skip, _skip_calls = _run_with_one_check(armed=True)
+    check(
+        "the armed override still skips the checks on the run that disarms it",
+        "check_framerate" not in _skip_calls[0]["tasks"]
+        and not _skip.ui.b009.isChecked(),
+        f"{sorted(_skip_calls[0]['tasks'])}",
+    )
+
     # -- the GLB half: both dials resolve through _glb_texture_params ---------------------
     _tm = SceneExporter().task_manager
 
@@ -1430,6 +1535,18 @@ try:
         "a delivery-only container never reaches a scene image (source kept)",
         _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) == "png",
     )
+    # WebP is clamped here even though Blender itself reads it: the constraint
+    # is the FBX's consumers (a Maya file node reports a .webp as 0x0, measured
+    # 2026-08-25, and a shipped webp-textured FBX bound nothing anywhere).
+    _tm._texture_file_type = "webp"
+    check(
+        "webp never reaches a scene image or the FBX (source kept)",
+        _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) == "png"
+        and _tm._resolved_output_type("C:/tex/rock_Base_color.tga", "glTF 2.0")
+        == "tga",
+        f"{_tm._resolved_output_type('C:/tex/rock_Base_color.png', None)}",
+    )
+    # (that the GLB still carries webp is pinned above, by the container-only check)
     _tm._texture_file_type = None
     check(
         "Original defers to the template",
@@ -1488,6 +1605,80 @@ try:
         "a missing toktx aborts before any file is written",
         gate_result is False and os.listdir(gate_dir) == [],
         f"result={gate_result}, dir={os.listdir(gate_dir)}",
+    )
+
+    # Consent seam: a missing toktx is OFFERED through confirm() (the panel's
+    # dialog), installed on a yes, and the run carries on past the gate.
+    def _fake_resolve_toktx(required=False, auto_install=False, prompt=True):
+        if auto_install and ptk.AppInstaller.consent(
+            prompt, "KTX-Software (toktx) is not installed. Download it now?"
+        ):
+            return os.path.join(tmp, "toktx")
+        if required:
+            raise FileNotFoundError(
+                "KTX2 encoding requires 'toktx' (KTX-Software). Install it from "
+                "https://github.com/KhronosGroup/KTX-Software/releases"
+            )
+        return None
+
+    consent_dir = os.path.join(tmp, "ktx2_consent")
+    os.makedirs(consent_dir, exist_ok=True)
+    exp_consent = SceneExporter(log_level="DEBUG")
+    asked = []
+
+    def _consent(question):
+        asked.append(question)
+        return True
+
+    with (
+        mock.patch.multiple(
+            ptk.Ktx2Encoder, available=lambda: False, resolve_toktx=_fake_resolve_toktx
+        ),
+        mock.patch.object(exp_consent, "confirm", side_effect=_consent),
+        mock.patch.object(
+            exp_consent,
+            "_initialize_objects",
+            return_value=[],  # first seam past the gate
+        ),
+    ):
+        consent_result = exp_consent.perform_export(
+            objects=[bpy.context.object],
+            export_dir=consent_dir,
+            tasks={"output_format": "glb", "texture_file_type": "ktx2"},
+        )
+    check(
+        "a missing toktx asks confirm() once (naming KTX-Software); a yes passes the gate",
+        consent_result is False
+        and len(asked) == 1
+        and "KTX-Software" in asked[0]
+        and exp_consent.task_manager._texture_file_type == "ktx2",
+        f"result={consent_result}, asked={asked}, "
+        f"type={exp_consent.task_manager._texture_file_type!r}",
+    )
+
+    declined_dir = os.path.join(tmp, "ktx2_declined")
+    os.makedirs(declined_dir, exist_ok=True)
+    exp_declined = SceneExporter(log_level="DEBUG")
+    with (
+        mock.patch.multiple(
+            ptk.Ktx2Encoder, available=lambda: False, resolve_toktx=_fake_resolve_toktx
+        ),
+        mock.patch.object(exp_declined, "confirm", return_value=False) as _confirm,
+        mock.patch.object(ptk.AppInstaller, "ensure") as _ensure,
+    ):
+        declined_result = exp_declined.perform_export(
+            objects=[bpy.context.object],
+            export_dir=declined_dir,
+            tasks={"output_format": "glb", "texture_file_type": "ktx2"},
+        )
+    check(
+        "a declined install aborts before any file is written and never downloads",
+        declined_result is False
+        and _confirm.call_count == 1
+        and not _ensure.called
+        and os.listdir(declined_dir) == [],
+        f"result={declined_result}, confirm={_confirm.call_count}, "
+        f"ensure={_ensure.called}, dir={os.listdir(declined_dir)}",
     )
 
     legacy_dir = os.path.join(tmp, "legacy_glb_format")
@@ -1857,9 +2048,7 @@ try:
         tb_src = os.path.join(tmp, "opt_src_Normal.png")
         _PILImage.new("RGB", (256, 256), (128, 128, 128)).convert("P").save(tb_src)
         tb_tex_node.image = bpy.data.images.load(tb_src)
-        tb_bsdf = next(
-            n for n in tb_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
-        )
+        tb_bsdf = next(n for n in tb_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
         tb_mat.node_tree.links.new(
             tb_tex_node.outputs["Color"], tb_bsdf.inputs["Base Color"]
         )
@@ -1950,8 +2139,7 @@ try:
             and tb_tm._texture_size_clamp(None) == {}
             and (
                 setattr(tb_tm, "_texture_max_size", "1024")
-                or tb_tm._texture_size_clamp(None)
-                == {"max_size": 1024}
+                or tb_tm._texture_size_clamp(None) == {"max_size": 1024}
             )
             and (
                 setattr(tb_tm, "_texture_max_size", "OFF")
@@ -2188,6 +2376,125 @@ try:
     )
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
+
+    # ---- ignore_groups match mode: the Ignore row's option-box "Aa" toggle -----------
+    # Insensitive is the default and the behavior the task shipped with, so the
+    # first check pins the contract every existing caller relies on. The dict form
+    # is how the panel arms the toggle: TaskFactory unpacks a dict value into the
+    # method's kwargs, so the payload key must stay ``names`` -- this parameter was
+    # renamed from ``value`` to match mayatk for exactly that reason.
+    reset_scene()
+    _temp_root = bpy.data.objects.new("TEMP", None)
+    bpy.context.collection.objects.link(_temp_root)
+    bpy.ops.mesh.primitive_cube_add()
+    _scratch = bpy.context.active_object
+    _scratch.name = "SCRATCH"
+    _scratch.parent = _temp_root
+    bpy.ops.mesh.primitive_cube_add()
+    _hero = bpy.context.active_object
+    _hero.name = "HERO"
+
+    _tm = SceneExporter(log_level="DEBUG").task_manager
+
+    _tm.objects = [_scratch, _hero]
+    _tm.ignore_groups("temp")
+    check(
+        "ignore_groups defaults to case-insensitive ('temp' drops TEMP)",
+        _tm.objects == [_hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+
+    _tm.objects = [_scratch, _hero]
+    _tm.ignore_groups("temp", case_sensitive=True)
+    check(
+        "case_sensitive=True requires an exact match ('temp' keeps TEMP)",
+        _tm.objects == [_scratch, _hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+    _tm.ignore_groups("TEMP", case_sensitive=True)
+    check(
+        "case_sensitive=True matches on the exact name",
+        _tm.objects == [_hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+
+    # The exact payload b000 builds -- guards the ``names`` kwarg key.
+    _tm.objects = [_scratch, _hero]
+    _tm.run_tasks({"ignore_groups": {"names": "temp", "case_sensitive": True}})
+    check(
+        "dict payload carries the mode through TaskFactory (no match)",
+        _tm.objects == [_scratch, _hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+    _tm.run_tasks({"ignore_groups": {"names": "TEMP", "case_sensitive": True}})
+    check(
+        "dict payload carries the mode through TaskFactory (match)",
+        _tm.objects == [_hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+
+    # The branch every pre-existing caller takes. TaskFactory picks
+    # method(value) vs method(**value) off the POSITIONAL parameter COUNT, so
+    # adding case_sensitive is precisely what could push a plain string onto the
+    # kwargs branch and raise instead of run.
+    _tm.objects = [_scratch, _hero]
+    _tm.run_tasks({"ignore_groups": "temp"})
+    check(
+        "a bare string still dispatches at the insensitive default",
+        _tm.objects == [_hero],
+        f"{[o.name for o in _tm.objects]}",
+    )
+
+    _spec = _tm.task_definitions["ignore_groups"]
+    check(
+        "the Ignore row stays a QLineEdit -- the option box hangs off it",
+        _spec["widget_type"] == "QLineEdit"
+        and _spec["value_method"] == "text"
+        and _spec["panel"] == "settings",
+        f"{ {k: _spec.get(k) for k in ('widget_type', 'value_method', 'panel')} }",
+    )
+    reset_scene()
+
+    # ---- check_valid_paths covers the lightmaps the bake markers name (mirror of mayatk) --
+    # They have no Image datablock, so the image gate never saw them: a scene
+    # migrated with all its textures passed the check and shipped its GLB unlit.
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker as _LmBaker
+
+    bpy.ops.mesh.primitive_cube_add()
+    lm_cube = bpy.context.active_object
+    lm_cube.name = "LitCube"
+    lm_dir = os.path.join(tmp, "lm")
+    os.makedirs(lm_dir, exist_ok=True)
+    lm_map = os.path.join(lm_dir, "LitCube_LightMap.exr")
+    open(lm_map, "wb").close()
+    _LmBaker().commit_lightmap({lm_cube.name: lm_map})
+    tm_lm = SceneExporter().task_manager
+    tm_lm.objects = [lm_cube]
+    passed, msgs = tm_lm.check_valid_paths(True)
+    check(
+        "check_valid_paths passes a lightmap in its recorded folder",
+        passed is True and not any("Lightmap" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    bpy.ops.mesh.primitive_cube_add()
+    other_cube = bpy.context.active_object
+    other_cube.name = "NotShipping"
+    _LmBaker().commit_lightmap({other_cube.name: os.path.join(tmp, "gone", "NotShipping_LightMap.exr")})
+    passed, msgs = tm_lm.check_valid_paths(True)
+    check(
+        "a lightmap outside the export set is not reported",
+        passed is True,
+        f"msgs={msgs}",
+    )
+    os.remove(lm_map)
+    passed, msgs = tm_lm.check_valid_paths(True)
+    check(
+        "check_valid_paths fails a lightmap found nowhere and names the object",
+        passed is False and any("Missing Lightmap" in m and "LitCube" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    _LmBaker().revert()
+    reset_scene()
 
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(_PRESETS_ROOT, ignore_errors=True)

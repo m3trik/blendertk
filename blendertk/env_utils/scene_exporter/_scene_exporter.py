@@ -175,6 +175,19 @@ class SceneExporter(ptk.LoggingMixin):
         self.logger.info(f"{len(objs)} object(s) prepared for export.")
         return objs
 
+    def confirm(self, question: str) -> bool:
+        """Yes/no consent for an export-time side effect (a tool download).
+
+        The seam the panel overrides with a dialog. Headless it asks on the
+        console when there is one -- an interactive background-Blender user
+        gets a ``[y/N]`` -- and answers no otherwise: nobody is there to
+        consent, and the caller's own message names the manual install.
+
+        Parameters:
+            question: Plain-text question; newlines allowed.
+        """
+        return bool(ptk.AppInstaller.consent(True, question))
+
     def perform_export(
         self,
         export_dir: str,
@@ -190,8 +203,14 @@ class SceneExporter(ptk.LoggingMixin):
         log_handler: Optional[object] = None,
         tasks: Optional[Dict[str, Any]] = None,
         usd_options: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, bool]]:
-        """Perform the export operation, including initialization and task management."""
+    ) -> bool:
+        """Perform the export operation, including initialization and task management.
+
+        Returns True only when the deliverable was written -- every abort
+        (no export dir, no objects, a failed check, a declined encoder
+        install) returns False. The panel's export button reads this to
+        disarm its Override Checks toggle.
+        """
         import bpy
 
         start_time = time.time()
@@ -303,15 +322,32 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 # Encoder presence is ENVIRONMENT state, so this gate is
                 # unconditional (never a user-toggleable check row) and runs
-                # before the first scene mutation — a missing toktx fails the
-                # batch in second zero with the install URL, not after N-1
-                # objects already exported. Abort idiom, not a raise: the panel's
-                # export button reads the return value and the log.
+                # before the first scene mutation — a missing toktx is settled
+                # in second zero, not after N-1 objects already exported.
+                # Missing = offer the managed KTX-Software install through
+                # :meth:`confirm` (the panel's dialog; a console [y/N]
+                # headless) and carry on when accepted; a decline or a failed
+                # install aborts with the install URL. Abort idiom, not a
+                # raise: the panel's export button reads the return value and
+                # the log.
                 try:
-                    ptk.ImgUtils.resolve_ktx2_encoder(required=True)
+                    missing = not ptk.ImgUtils.ktx2_available()
+                    if missing:
+                        self.logger.info(
+                            "KTX2 delivery needs KTX-Software's toktx, which is "
+                            "not installed: offering the managed install."
+                        )
+                    ptk.ImgUtils.resolve_ktx2_encoder(
+                        required=True, auto_install=True, prompt=self.confirm
+                    )
                 except FileNotFoundError as e:
                     self.logger.error(f"Export aborted: {e}")
                     return False
+                if missing:
+                    self.logger.info(
+                        "Installed KTX-Software (toktx): "
+                        f"{ptk.Ktx2Encoder.resolve_toktx()}"
+                    )
         self.task_manager._texture_file_type = texture_file_type
 
         # Texture Output write-back flag: a mode read by convert_textures and
@@ -382,9 +418,10 @@ class SceneExporter(ptk.LoggingMixin):
         # Either way nothing references staged files after the write, so the
         # optimize_textures task may stage into a temp dir and clean up.
         fbx_options = self._resolved_fbx_options()
-        self.task_manager._fbx_media_selfcontained = bool(
-            fbx_options.get("embed_textures")
-        ) or str(fbx_options.get("path_mode", "")).upper() == "COPY"
+        self.task_manager._fbx_media_selfcontained = (
+            bool(fbx_options.get("embed_textures"))
+            or str(fbx_options.get("path_mode", "")).upper() == "COPY"
+        )
 
         # Everything from here on can stage export-transient state (scene units,
         # the bake frame range, EmissiveGroups' keyed-weight curve proxies) that
@@ -655,6 +692,15 @@ class SceneExporter(ptk.LoggingMixin):
         except Exception:
             self.logger.debug("scene-data sidecar write skipped.", exc_info=True)
 
+    @staticmethod
+    def _lightmap_search_dirs(objects: Optional[List] = None) -> List[str]:
+        """Folders the GLB applier joins the manifest's basenames against
+        (:meth:`LightmapBaker.search_dirs`, scoped to *objects*; mirror of
+        mayatk's ``TaskManager._lightmap_search_dirs``)."""
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        return LightmapBaker.search_dirs(objects or None)
+
     def _create_glb(
         self,
         fbx_path: Optional[str] = None,
@@ -688,6 +734,7 @@ class SceneExporter(ptk.LoggingMixin):
         Returns:
             The created ``.glb`` path, or ``None`` if conversion failed.
         """
+        import blendertk as btk
         from blendertk.env_utils.scene_state import SceneState
 
         src = fbx_path or self.export_path
@@ -701,8 +748,12 @@ class SceneExporter(ptk.LoggingMixin):
                     asset=os.path.basename(src),
                 )
                 if sections:
+                    # Mirror of mayatk's wording: the sections are written INTO
+                    # the GLB's own material JSON, with a copy in `extras` as
+                    # provenance -- no companion file is produced or required.
                     self.logger.info(
-                        "Scene sidecar (%s) riding the GLB.",
+                        "Scene sidecar (%s) written into the GLB's materials "
+                        "(copy embedded in extras; no companion file).",
                         ", ".join(sorted(sections)),
                     )
             except Exception:  # noqa: BLE001 — a bare GLB still beats no GLB
@@ -716,6 +767,15 @@ class SceneExporter(ptk.LoggingMixin):
                 auto_install=True,
                 prompt=False,
                 sidecar=sidecar,
+                # Where the maps are NOW. The manifest riding the FBX carries
+                # the folder the bake was committed from, and the applier tries
+                # that first -- but it is history, not a contract: reorganise
+                # the project and every EXR lookup misses, shipping an unlit
+                # deliverable while the bake sits one folder away. The
+                # workspace's texture folders plus wherever the markers' maps
+                # were actually found (the applier can only JOIN a basename
+                # against a list; a map in a subfolder needs its folder named).
+                lightmap_dirs=self._lightmap_search_dirs(objects),
             )
         except (FileNotFoundError, RuntimeError) as e:
             self.logger.error(f"GLB conversion failed: {e}")
@@ -734,29 +794,20 @@ class SceneExporter(ptk.LoggingMixin):
         params = self.task_manager._glb_texture_params()
         if params is not None:
             carrier = params["image_format"]
-            optimize = params.get("max_size") != 0
             try:
                 summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
             except Exception as e:  # noqa: BLE001 — deliverable must not lie
                 self.logger.error(f"GLB texture pass ({carrier}) failed: {e}")
                 return None
-            scope = "resized" if optimize else "container only"
-            if summary:
-                self.logger.info(
-                    f"GLB textures delivered as {carrier} ({scope}): "
-                    f"{summary['images']} image(s), "
-                    f"{summary['bytes_before'] / 1e6:.1f} MB -> "
-                    f"{summary['bytes_after'] / 1e6:.1f} MB."
+            # Worded by the converter that produced the summary, so this can no
+            # longer drift from mayatk's copy (it already had): an empty summary
+            # still speaks, and a populated one reports what was RESAMPLED
+            # rather than which mode ran.
+            self.logger.info(
+                ptk.MeshConvert.describe_texture_pass(
+                    summary, carrier, params.get("max_size") or 0
                 )
-            else:
-                # An empty summary means the pass ran and replaced nothing —
-                # no images, no Pillow, or every re-encode came out larger
-                # than the source it would replace. Said out loud so "asked
-                # for and got nothing" is distinguishable from "never ran".
-                self.logger.info(
-                    f"GLB texture pass ({carrier}, {scope}) changed nothing: "
-                    "no embedded image improved on its original bytes."
-                )
+            )
 
         if announce:
             self.logger.success(f"GLB created: {glb_path}")

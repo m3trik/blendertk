@@ -1,10 +1,11 @@
+-- Send to RizomUV (one-way): export the selection and open it in RizomUV interactively.
+-- Nothing is round-tripped back -- save inside RizomUV when you're done.
 --
 -- Host-side export scope (read by the bridge slots before launch; echoed here so the
 -- panel exposes the Scope combo): scope=__SCOPE__
 
--- Send to RizomUV (one-way): export the selection and open it in RizomUV interactively.
--- Nothing is round-tripped back -- save inside RizomUV when you're done.
-
+-- The summary above is what the panel logs: the extractor takes the FIRST
+-- comment paragraph and skips placeholder-bearing lines.
 -- Placeholder-discovery stub only, mirroring mayatk's scripts/send.lua -- everything below is
 -- never executed. RizomBridgeSlots.b000 builds the real load script directly via
 -- RizomUVBridge.build_send_script(); this file exists solely so parameters.referenced_keys()

@@ -68,8 +68,18 @@ class _GameShaderInternal(object):
     }
 
     @classmethod
-    def _shadowed_by(cls, map_type: str, by_type: Dict[str, str]) -> str:
-        """Why `map_type` was classified and kept but not connected."""
+    def _shadowed_by(
+        cls, map_type: str, by_type: Dict[str, str], config: Dict[str, Any] = None
+    ) -> str:
+        """Why `map_type` was classified and kept but not connected.
+
+        An `Opacity` map is the one type that can go unconnected without
+        another map having taken its input: `Opacity: None` rules opacity out
+        outright, and the generic note would blame a supersession that never
+        happened.
+        """
+        if map_type == "Opacity" and (config or {}).get("opacity_mode") == "none":
+            return "opacity ruled out (Opacity: None)"
         owner = next(
             (t for t in cls._SHADOWED_BY.get(map_type, ()) if t in by_type), None
         )
@@ -326,7 +336,11 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
 
         normal_direction = (config or {}).get("normal_type") or "OpenGL"
         mat = MatUtils.create_pbr_material(
-            textures, name=name, normal_direction=normal_direction, plan=plan
+            textures,
+            name=name,
+            normal_direction=normal_direction,
+            config=config,
+            plan=plan,
         )
         if mat is None:
             self.logger.error(f"Failed to build material '{name}'.")
@@ -366,7 +380,7 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
                         "–",
                         map_type,
                         self._file(path),
-                        self._shadowed_by(map_type, by_type),
+                        self._shadowed_by(map_type, by_type, config),
                     ]
                 )
                 shadowed += 1
@@ -580,6 +594,27 @@ class GameShaderSlots(GameShader):
                         widget.count() - 1, description, QtCore.Qt.ToolTipRole
                     )
 
+    @property
+    def opacity_mode(self) -> Optional[str]:
+        """The opacity graph the panel asks for.
+
+        Returns:
+            str | None: ``"transparent"`` (alpha blend), ``"masked"`` (alpha
+            cutout), or ``"none"`` -- opacity ruled out, which retires the
+            set's opacity sources instead of letting them pick the graph.
+            None for Auto: a usable opacity source then builds as transparent,
+            as it always has.
+        """
+        if hasattr(self.ui, "cmb005"):
+            text = self.ui.cmb005.currentText().lower()
+            if "masked" in text:
+                return "masked"
+            if "transparent" in text:
+                return "transparent"
+            if "none" in text:
+                return "none"
+        return None
+
     def cmb003_init(self, widget):
         """Initialize Output Format.
 
@@ -597,11 +632,17 @@ class GameShaderSlots(GameShader):
                 )
             )
 
+    def txt000_init(self, widget):
+        """Material-name field — clearable back to the auto-derived name."""
+        widget.option_box.clear_option = True
+
     def txt002_init(self, widget):
         """Add a prefix/suffix/auto-mode picker to the affix field."""
         widget.option_box.set_affix(
             default="prefix",
             on_change=lambda _mode, w=widget: self._apply_affix_placeholder(w),
+            settings_key="game_shader_affix",  # ``txt002`` alone is too generic
+            convention_key="material",  # fourth state: the shared convention
         )
         self._apply_affix_placeholder(widget)
 
@@ -619,6 +660,17 @@ class GameShaderSlots(GameShader):
             widget.setToolTip(
                 "Suffix appended to the material name.\n"
                 'Example: "brick" + "_MAT" → "brick_MAT".'
+            )
+        elif mode == "convention":
+            # The field is showing (and locked to) the shared convention, so
+            # the placeholder would never be seen — name the source instead, so
+            # a user wondering why they cannot type has the answer in the tip.
+            widget.setPlaceholderText("Scene Convention")
+            widget.setToolTip(
+                "Following the shared naming convention for materials.\n"
+                "Edit it in the Naming panel (Suffix By Type); every tool set "
+                "to this mode follows.\n"
+                "Click the button beside the field to type your own instead."
             )
         else:  # auto
             widget.setPlaceholderText("Affix")
@@ -661,6 +713,7 @@ class GameShaderSlots(GameShader):
             suffix=self.mat_suffix,
             config=template_name,
             normal_type=self.normal_map_type,
+            opacity_mode=self.opacity_mode,
             cleanup_base_color=False,  # Can be exposed in UI later if needed
             output_extension=ext or None,
             output_profile=output_profile,

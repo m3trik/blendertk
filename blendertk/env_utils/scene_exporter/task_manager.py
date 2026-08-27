@@ -68,12 +68,11 @@ class _TaskDataMixin:
         mayatk's).
 
         A template's per-map-type :class:`~pythontk.OutputSpec` can name a
-        delivery container (:attr:`~pythontk.ImgUtils.DELIVERY_FORMATS`, e.g.
-        KTX2) that the viewport cannot display and no FBX importer reads —
-        those stay with the GLB carrier pass. Returns the source's own
-        extension to pin the container in that case, None otherwise (an
-        explicit ``output_type`` outranks the profile's, so None lets the
-        profile drive).
+        delivery-only container (:attr:`~pythontk.ImgUtils.DELIVERY_ONLY_FORMATS`
+        — KTX2, WebP) that no FBX importer reads — those stay with the GLB
+        carrier pass. Returns the source's own extension to pin the container in
+        that case, None otherwise (an explicit ``output_type`` outranks the
+        profile's, so None lets the profile drive).
         """
         map_type = ptk.MapFactory.resolve_map_type(path, key=True)
         spec_ext = (
@@ -81,7 +80,7 @@ class _TaskDataMixin:
             .lower()
             .lstrip(".")
         )
-        if spec_ext in ptk.ImgUtils.DELIVERY_FORMATS:
+        if spec_ext in ptk.ImgUtils.DELIVERY_ONLY_FORMATS:
             return self._source_container(path)
         return None
 
@@ -107,11 +106,27 @@ class _TaskDataMixin:
             template, getattr(self, "_texture_file_type", None)
         )
         if chosen:
-            # A delivery-only container (KTX2) gets the same clamp a template's
-            # would: no scene image or FBX importer reads it, so the scene's own
-            # maps keep their container and that choice lands on the GLB carrier
-            # instead (:meth:`_glb_texture_params`).
-            if chosen in ptk.ImgUtils.DELIVERY_FORMATS:
+            # A delivery-only container (KTX2, WebP) gets the same clamp a
+            # template's would: no scene image or FBX importer reads it, so the
+            # scene's own maps keep their container and that choice lands on the
+            # GLB carrier instead (:meth:`_glb_texture_params`). WebP is clamped
+            # here even though BLENDER itself reads it (4.x+): the constraint is
+            # the FBX's consumers, not the authoring app -- a Maya `file` node
+            # reports a .webp as 0x0 (measured 2026-08-25) and a shipped
+            # webp-textured FBX binds nothing anywhere. Said once per run.
+            if chosen in ptk.ImgUtils.DELIVERY_ONLY_FORMATS:
+                if not getattr(self, "_delivery_only_clamp_said", False):
+                    self._delivery_only_clamp_said = True
+                    self.logger.info(
+                        f"{chosen.upper()} is a delivery-only container: no DCC "
+                        f"texture node or FBX importer reads it, so the scene's "
+                        f"own maps keep their container"
+                        + (
+                            " (the GLB still carries it)."
+                            if chosen in self.GLB_CARRIER_FORMATS
+                            else "."
+                        )
+                    )
                 return self._source_container(path)
             return chosen
         return self._scene_safe_output_type(path, template) if template else None
@@ -328,9 +343,7 @@ class _TaskDataMixin:
             if getattr(img, "library", None):
                 skipped.setdefault("library-linked", []).append(img.name)
                 continue
-            tiled = getattr(
-                img, "source", ""
-            ) == "TILED" or bool(
+            tiled = getattr(img, "source", "") == "TILED" or bool(
                 self._TEXTURE_TOKEN_RE.search(os.path.basename(img.filepath or ""))
             )
             if tiled and not include_tiled:
@@ -342,9 +355,9 @@ class _TaskDataMixin:
                 # for the first frame actually on disk (mirror of mayatk's).
                 representative = self._tiled_representative(resolved)
                 if representative is None:
-                    skipped.setdefault(
-                        "<f> frame not found on disk", []
-                    ).append(img.name)
+                    skipped.setdefault("<f> frame not found on disk", []).append(
+                        img.name
+                    )
                     continue
                 resolved = representative
             if not resolved or not os.path.isfile(resolved):
@@ -473,13 +486,25 @@ class _TaskActionsMixin(_TaskDataMixin):
                 "of the object export set (unlike Maya's aiSkyDomeLight)."
             )
 
-    def ignore_groups(self, value):
-        """Remove objects under any top-level object named in the comma-separated ``value``
-        (case-insensitive) from ``self.objects``."""
-        if not value or not str(value).strip() or not self.objects:
+    def ignore_groups(self, names, case_sensitive: bool = False):
+        """Remove objects under any top-level object named in the comma-separated
+        ``names`` from ``self.objects``.
+
+        Parameters:
+            names: Comma-separated object names to exclude (e.g. ``"temp, proxy"``).
+            case_sensitive: Match names exactly. Off by default, so ``"temp"``
+                catches ``TEMP``. The UI arms it from the Ignore row's option-box
+                toggle; a headless caller passes the pair as the dict the task
+                dispatcher unpacks -- ``{"names": "Temp", "case_sensitive": True}``
+                -- while a bare string still selects the insensitive default.
+        """
+        if not names or not str(names).strip() or not self.objects:
             return
-        names = {n.strip().lower() for n in str(value).split(",") if n.strip()}
-        if not names:
+        # Both sides of the comparison go through ``fold``, so the match mode is
+        # set in one place.
+        fold = (lambda s: s) if case_sensitive else str.lower
+        target_names = {fold(n.strip()) for n in str(names).split(",") if n.strip()}
+        if not target_names:
             return
 
         import bpy
@@ -488,7 +513,7 @@ class _TaskActionsMixin(_TaskDataMixin):
 
         excluded = set()
         for root in (o for o in bpy.data.objects if o.parent is None):
-            if root.name.lower() in names:
+            if fold(root.name) in target_names:
                 excluded.add(root)
                 excluded.update(NodeUtils.get_children(root, recursive=True))
         if excluded:
@@ -497,7 +522,8 @@ class _TaskActionsMixin(_TaskDataMixin):
             removed = before - len(self.objects)
             if removed:
                 self.logger.debug(
-                    f"Excluded {removed} object(s) under ignored group(s): {sorted(names)}."
+                    f"Excluded {removed} object(s) under ignored group(s): "
+                    f"{sorted(target_names)}."
                 )
 
     def reassign_duplicate_materials(self):
@@ -550,8 +576,20 @@ class _TaskActionsMixin(_TaskDataMixin):
             )
 
     def resolve_invalid_texture_paths(self):
-        """Attempt to resolve missing texture paths by searching the .blend's directory."""
+        """Attempt to resolve missing texture paths by searching the .blend's directory.
+
+        The same hunt heals the lightmap markers first
+        (:meth:`LightmapBaker.heal_lightmap_paths`, mirror of mayatk): a
+        committed lightmap is a texture dependency with no Image datablock --
+        its marker records the folder the bake was committed FROM -- so a
+        project reorganised since leaves the FBX manifest pointing at nothing
+        while the EXR sits one folder away. A map found by the unique-match
+        rule gets its recorded folder rewritten and the manifest republished;
+        files are never touched.
+        """
         from blendertk.mat_utils._mat_utils import MatUtils
+
+        self._heal_lightmap_hints()
 
         images = self._get_export_images()
         if not images:
@@ -567,6 +605,47 @@ class _TaskActionsMixin(_TaskDataMixin):
         )
         if resolved:
             self.logger.info(f"Resolved {resolved} missing texture path(s).")
+
+    # -- lightmap dependencies (mirror of mayatk's TaskManager) ---------------
+    # The engine is LightmapBaker (blendertk.light_utils); these are the
+    # exporter's thin reads of it, scoped to the export set. Imported lazily:
+    # the baker pulls in the Cycles texture baker, which a headless export
+    # that never baked anything should not pay for at import time.
+
+    def _lightmap_dependencies(self) -> List[Dict[str, Any]]:
+        """The lightmaps the export set's markers name, resolved on disk NOW
+        (:meth:`LightmapBaker.lightmap_dependencies`); ``[]`` when none."""
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        objects = list(self.objects or [])
+        if not objects:
+            return []
+        return LightmapBaker().lightmap_dependencies(objects)
+
+    def _heal_lightmap_hints(self) -> None:
+        """Rewrite stale lightmap marker hints to where the maps were found.
+
+        Logged at WARNING like a texture rebind -- a hint moved by name is a
+        guess the user should be able to audit -- and what stays missing is
+        named, since the exporter's path check is about to fail on it.
+        """
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+
+        objects = list(self.objects or [])
+        if not objects:
+            return
+        report = LightmapBaker().heal_lightmap_paths(objects)
+        for basename, old_dir, new_dir in report["healed"]:
+            self.logger.warning(
+                f"Rebound lightmap by unique name match: {basename}: "
+                f"{old_dir or '<no folder recorded>'} -> {new_dir}"
+            )
+        for dep in report["missing"]:
+            note = f" ({dep['note']})" if dep.get("note") else ""
+            self.logger.warning(
+                f"Lightmap could not be resolved: {dep['map']} "
+                f"(recorded in {dep['dir'] or '<no folder recorded>'}){note}"
+            )
 
     def smart_bake(self):
         """Pre-bake constrained/driven objects before export.
@@ -1476,8 +1555,7 @@ class _TaskChecksMixin(_TaskDataMixin):
                 "in 'original_textures')"
                 if write_back
                 else (
-                    "staged for the write only — image paths restored after "
-                    "export"
+                    "staged for the write only — image paths restored after export"
                     if temp_staging
                     else f"staged beside the export in {staging_dir!r} (the FBX "
                     "references them; image paths restored after export)"
@@ -1592,9 +1670,7 @@ class _TaskChecksMixin(_TaskDataMixin):
         # gate. Logged directly — the runner only surfaces messages from
         # FAILING checks, so returning them on a pass would be a silent no-op.
         if notes and self.logger.isEnabledFor(logging.INFO):
-            self.logger.log_group(
-                f"Texture optimization notes ({len(notes)})", notes
-            )
+            self.logger.log_group(f"Texture optimization notes ({len(notes)})", notes)
 
         if offenders:
             pass_desc = f"the {tpl!r} template" if tpl else "their map type"
@@ -1705,10 +1781,52 @@ class _TaskChecksMixin(_TaskDataMixin):
             elif img in records and not records[img]["exists"]:
                 missing.append(records[img]["name"])
         missing += [r["name"] for r in EnvUtils.list_libraries() if not r["exists"]]
+        messages = []
         if missing:
             shown = ", ".join(missing[:10]) + (" …" if len(missing) > 10 else "")
-            return False, [f"{len(missing)} missing file(s): {shown}"]
-        return True, []
+            messages.append(f"{len(missing)} missing file(s): {shown}")
+
+        # Lightmap dependencies (mirror of mayatk's check) -- baked maps the
+        # bake markers name. No Image datablock references them, so the gate
+        # above never sees them, and a scene migrated with its textures ships
+        # its GLB unlit and its FBX manifest pointing at nothing. Resolved the
+        # way the GLB applier resolves them; a map found only by search still
+        # ships (the conversion is handed that folder) but says so, since the
+        # manifest's hint is stale until the resolve task rewrites it.
+        missing_lightmaps = []
+        stale_lightmaps = []
+        for dep in self._lightmap_dependencies():
+            if not dep["path"]:
+                missing_lightmaps.append(dep)
+            elif dep["found_by"] != "hint":
+                stale_lightmaps.append(dep)
+        if missing_lightmaps:
+            entries = []
+            for dep in missing_lightmaps:
+                where = f"{dep['dir']}/{dep['map']}" if dep["dir"] else dep["map"]
+                note = f" ({dep['note']})" if dep.get("note") else ""
+                entries.append(
+                    f"Missing Lightmap: {', '.join(dep['objects'])} -> {where}{note}"
+                )
+            messages.append(
+                f"{len(missing_lightmaps)} lightmap(s) the bake markers name are "
+                "not on disk. The GLB would ship unlit and the FBX manifest would "
+                "point at nothing. Relocate them (Texture Path Editor ▸ Find & "
+                "Copy Textures, lightmaps included) or revert the bake (Lightmap "
+                "Baker ▸ Revert)."
+            )
+            messages.extend(entries[:10] + (["…"] if len(entries) > 10 else []))
+        for dep in stale_lightmaps:
+            messages.append(
+                f"Lightmap {dep['map']}: the recorded folder "
+                f"{dep['dir'] or '<none>'} no longer holds it; found at "
+                f"{dep['path']} (shipped from there; enable the Resolve Invalid "
+                "Texture Paths task to rewrite the marker)."
+            )
+
+        if missing or missing_lightmaps:
+            return False, messages
+        return True, messages
 
     def check_texture_file_size(self, max_mb) -> tuple:
         """No export texture exceeds ``max_mb`` on disk.
@@ -1772,9 +1890,7 @@ class _TaskChecksMixin(_TaskDataMixin):
                 oversized.append(f"{os.path.basename(p)} ({size_mb:.1f} MB)")
         if oversized:
             shown = ", ".join(oversized[:10]) + (" …" if len(oversized) > 10 else "")
-            return False, [
-                f"{len(oversized)} texture(s) exceed {max_mb:g} MB: {shown}"
-            ]
+            return False, [f"{len(oversized)} texture(s) exceed {max_mb:g} MB: {shown}"]
         return True, []
 
     def check_untied_keyframes(self, enabled) -> tuple:
@@ -2083,10 +2199,16 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setToolTip": TooltipFormat.fmt(
                     title="Resolve Invalid Texture Paths",
                     body="Rebind broken texture paths by hunting for the missing "
-                    "file under the .blend's own directory.",
+                    "file under the .blend's own directory. Committed lightmaps "
+                    "get the same hunt: a bake marker whose recorded folder no "
+                    "longer holds its map is rewritten to where the map was "
+                    "found, and the FBX manifest republished.",
                     notes=[
                         "Rebinding by name is a guess — the original file is gone, "
                         "so nothing can verify content.",
+                        "Lightmap files are never moved — only the marker's "
+                        "recorded folder changes. To gather them into the "
+                        "project use Texture Path Editor ▸ Find &amp; Copy.",
                         "Permanent scene change — not reverted after export.",
                     ],
                 ),
@@ -2262,8 +2384,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                     "weights — down to plain keyframes, which is all an FBX can "
                     "carry.",
                     notes=[
-                        "The time range is detected from the driving animation "
-                        "itself.",
+                        "The time range is detected from the driving animation itself.",
                         "Bakes into a fresh Action while muting the identified "
                         "sources; the pre-bake state is restorable afterward via "
                         "SmartBake.restore.",
@@ -2371,10 +2492,12 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setToolTip": TooltipFormat.fmt(
                     title="Ignore Groups",
                     body="Comma-separated names of top-level objects to drop from "
-                    "the export set (case-insensitive).",
+                    "the export set.",
                     notes=[
                         "Example: temp, proxy",
                         "Leave empty to skip.",
+                        "Matching ignores case unless the <b>Aa</b> button beside "
+                        "the field is on.",
                     ],
                 ),
                 "setText": "temp",
@@ -2426,8 +2549,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                         ("{scene}", ".blend basename (requires a saved file)"),
                     ],
                     notes=[
-                        "The extension is added automatically — do not include "
-                        "{ext}."
+                        "The extension is added automatically — do not include {ext}."
                     ],
                 ),
                 "setText": "",
@@ -2600,11 +2722,18 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setToolTip": TooltipFormat.fmt(
                     title="Check For Valid Paths",
                     body="Fails the export when a texture feeding the export "
-                    "materials — or a linked library — does not resolve on disk.",
+                    "materials, a committed lightmap, or a linked library does "
+                    "not resolve on disk.",
                     notes=[
+                        "Lightmaps have no Image datablock — the bake marker "
+                        "records the folder it was committed from. A map that "
+                        "folder no longer holds is looked for where the GLB "
+                        "conversion looks (the project's texture folders, then "
+                        "all of them recursively); found elsewhere it ships and "
+                        "is noted, found nowhere it fails the export.",
                         "Images that will not ship (the World/HDR environment "
                         "texture, images left orphaned by a duplicate-material "
-                        "cleanup) are not reported."
+                        "cleanup) are not reported.",
                     ],
                 ),
                 "setChecked": True,

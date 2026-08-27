@@ -636,6 +636,42 @@ class FbxUtils(_FbxUtilsInternal):
                 # But a resolvable producer that fails would silently ship
                 # stale channels — surface it.
                 logger.warning("Producer %r refresh failed.", name, exc_info=True)
+        FbxUtils._stamp_export_handoff()
+
+    @staticmethod
+    def _stamp_export_handoff() -> None:
+        """Publish the standalone-reader contract describing the carrier's channels.
+
+        Mirror of mayatk's method of the same name; the WHY lives there. A
+        FINALIZER rather than a ``_KNOWN_PRODUCERS`` entry because it describes
+        what the producers wrote and must therefore run after all of them. Text
+        and schema come from ``ptk.MeshConvert.build_fbx_handoff``, so the two
+        packages -- which cannot import each other -- cannot drift on what an
+        FBX deliverable claims about itself.
+
+        Never creates the carrier and never stamps an empty one; fully
+        best-effort, so a missing description can never fail an export.
+        """
+        try:
+            import bpy
+
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            if DataNodes.get_export_node(create=False) is None:
+                return
+            channels = (DataNodes.dump(decode=False) or {}).get("data_export") or {}
+            block = ptk.MeshConvert.build_fbx_handoff(
+                channels,
+                source={
+                    "application": "blender",
+                    "version": bpy.app.version_string,
+                    # Provenance, not identity — see the builder's docstring.
+                    "scene": os.path.basename(bpy.data.filepath or "") or None,
+                },
+            )
+            DataNodes.set_export_json(ptk.MeshConvert.FBX_HANDOFF_CHANNEL, block)
+        except Exception:  # noqa: BLE001 — a missing description never costs the export
+            logger.debug("Export handoff block not stamped.", exc_info=True)
 
     # ------------------------------------------------------------------
     # Animation takes (generic — any tool can declare takes on a node)
