@@ -7,6 +7,8 @@ Unity bridge (DataNodes manifest). Tiny resolution / samples so the real bake st
 """
 import sys, os, json, tempfile, shutil, traceback
 
+import numpy as np  # ships with Blender
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
@@ -18,7 +20,13 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    # str(detail): callers pass the offending VALUE, which is as often a list or
+    # dict as a string -- and concatenating one raised out of the reporter, so
+    # the failure that had something to say was the one that killed the run
+    # before saying it.
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + str(detail)) if detail else ''}"
+    )
 
 
 tmp_dir = tempfile.mkdtemp(prefix="btk_lm_")
@@ -26,6 +34,7 @@ try:
     import bpy
     import blendertk as btk
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+    from blendertk.mat_utils.texture_baker import TextureBaker
 
     # --- presets -----------------------------------------------------------
     store = LightmapBaker.preset_store()
@@ -42,6 +51,94 @@ try:
     check("constructor-arg overrides pass through from_preset",
           baker.denoise is False and baker.device == "CPU",
           f"denoise={baker.denoise} device={baker.device}")
+
+    # GI bounce depth rides the tier, exactly as mayatk's gi_depth does. Unpinned,
+    # a Cycles bake ran at whatever the SCENE last rendered with (4 on a factory
+    # startup, anything at all in a saved .blend) -- so the same scene baked to a
+    # different brightness in two sessions, and to a different one again than the
+    # Arnold twin, with nothing in either output to say why. In a closed room each
+    # extra bounce adds another rho^n term, which is why it is a tier dial and not
+    # a detail.
+    tiers = {
+        n: LightmapBaker.from_preset(n).bounces
+        for n in ("preview", "quest", "desktop", "hero")
+    }
+    check(
+        "every preset carries a bounce depth",
+        all(isinstance(v, int) and v >= 1 for v in tiers.values()),
+        f"{tiers}",
+    )
+    check(
+        "bounces rise with the tier",
+        tiers["preview"] <= tiers["quest"] <= tiers["desktop"],
+        f"{tiers}",
+    )
+    # The production tiers keep CYCLES' own default depth (4), deliberately: pinning
+    # exists to make a bake reproducible, not to restyle it, so it must not silently
+    # darken results that were already being produced at the factory default. Only
+    # preview trades bounces for speed. NOT copied from mayatk's Arnold gi_depth --
+    # measured, Cycles at 4 bounces already sits at 0.76x an Arnold gi_depth-2 bake of
+    # the same scene, so the two renderers' depth numbers are not interchangeable and
+    # the residual is method (Arnold bakes through a white card), not bounce count.
+    check(
+        "every tier but preview keeps Cycles' own default depth",
+        tiers["quest"] == tiers["desktop"] == tiers["hero"] == 4,
+        f"{tiers}",
+    )
+    check(
+        "only preview -- the tier that advertises speed -- trades bounces",
+        tiers["preview"] < tiers["quest"],
+        f"{tiers}",
+    )
+    check(
+        "bounces is overridable like the other constructor args",
+        LightmapBaker.from_preset("quest", bounces=5).bounces == 5,
+    )
+    check(
+        "bounces reaches the primitive that applies it",
+        LightmapBaker(bounces=7)._texture_baker.bounces == 7,
+    )
+    # The BARE constructor is the one path that never sees a tier (a scripted
+    # caller, the panel's revert-only instance). It must sit on Cycles' own default,
+    # not preview's: pinning is here to make a bake reproducible, and a lower
+    # default would silently darken every bake that never named a tier.
+    check(
+        "the bare constructor keeps Cycles' own default depth",
+        LightmapBaker().bounces == 4 and TextureBaker().bounces == 4,
+        f"{LightmapBaker().bounces} / {TextureBaker().bounces}",
+    )
+
+    # The bake must PIN the depth and hand the scene back exactly as it was --
+    # leaving a user's render bounce budget on the baker's value reads as a Blender
+    # bug rather than ours. max_bounces is raised only when it would clamp the
+    # request, and never lowered.
+    scn = bpy.context.scene
+    scn.cycles.diffuse_bounces, scn.cycles.max_bounces = 7, 3
+    tb = TextureBaker(bounces=5)
+    state = tb._configure_bake_scene(use_pass_color=False)
+    pinned = (scn.cycles.diffuse_bounces, scn.cycles.max_bounces)
+    tb._restore_bake_scene(state)
+    check(
+        "the bake pins its own diffuse depth",
+        pinned[0] == 5,
+        f"diffuse_bounces={pinned[0]}",
+    )
+    check(
+        "max_bounces is raised so it cannot clamp the request",
+        pinned[1] >= 5,
+        f"max_bounces={pinned[1]}",
+    )
+    check(
+        "both bounce settings are restored afterwards",
+        (scn.cycles.diffuse_bounces, scn.cycles.max_bounces) == (7, 3),
+        f"{(scn.cycles.diffuse_bounces, scn.cycles.max_bounces)}",
+    )
+    # ...and a budget ALREADY above the request is left alone, not lowered.
+    scn.cycles.diffuse_bounces, scn.cycles.max_bounces = 4, 12
+    state = TextureBaker(bounces=2)._configure_bake_scene(use_pass_color=False)
+    kept = scn.cycles.max_bounces
+    TextureBaker(bounces=2)._restore_bake_scene(state)
+    check("a larger user budget is never lowered", kept == 12, f"max_bounces={kept}")
 
     # --- a cube with a material under the factory light --------------------
     cube = bpy.data.objects.get("Cube")
@@ -80,6 +177,70 @@ try:
     check("material kept (non-destructive bake)",
           any(s.material is mat for s in cube.material_slots))
 
+    # A DELIVERED per-object map must carry no background: exact-black texels are
+    # what every mip level averages back into the island as a dark halo, i.e. a
+    # seam on tiled geometry at distance. Only the atlas path used to heal, so
+    # the panel's own DEFAULT packing mode shipped it.
+    #
+    # The fixture matters. A FRESH create_lightmap_uvs set fills 0-1 (smart_project
+    # with scale_to_bounds), so its bake has no background at all -- measured, 0
+    # zero texels at 64/256/1024. The case that bites is a lightmap layer that does
+    # NOT fill 0-1, which is exactly what "reuses a pre-existing one under its own
+    # name" produces for an imported or hand-packed set. Squeezing the islands into
+    # a quarter of the map reproduces it: 72% of the frame comes back exact black.
+    def _rgb(p):
+        i = bpy.data.images.load(p)
+        try:
+            b = np.empty(len(i.pixels), dtype=np.float32)
+            i.pixels.foreach_get(b)
+            return b.reshape(i.size[1], i.size[0], i.channels)[..., :3].copy()
+        finally:
+            bpy.data.images.remove(i)
+
+    partial = LightmapBaker.from_preset(
+        "preview", resolution=128, samples=1, denoise=False, device="CPU"
+    )
+    lm_layer = cube.data.uv_layers[btk.find_lightmap_uv_set(cube)]
+    original_uvs = [tuple(loop.uv) for loop in lm_layer.data]
+    for loop in lm_layer.data:
+        loop.uv = (loop.uv[0] * 0.5, loop.uv[1] * 0.5)
+    try:
+        raw_map = partial._bake(
+            [cube],
+            output_dir=tmp_dir,
+            suffix="_Partial",
+            create_uvs=False,
+            heal=False,
+        ).get(cube.name, "")
+        unhealed_zeros = int((_rgb(raw_map).max(axis=-1) <= 0.0).sum())
+        check(
+            "the fixture actually reproduces the background",
+            unhealed_zeros > 0,
+            f"{unhealed_zeros} zero texel(s) unhealed",
+        )
+
+        healed_map = partial._bake(
+            [cube],
+            output_dir=tmp_dir,
+            suffix="_Healed",
+            create_uvs=False,
+        ).get(cube.name, "")
+        delivered = _rgb(healed_map)
+        check(
+            "a partial-coverage map ships no black background",
+            not bool((delivered.max(axis=-1) <= 0.0).any()),
+            f"{int((delivered.max(axis=-1) <= 0.0).sum())} zero texel(s)",
+        )
+        # A fixed point: pack_atlas re-runs the heal on solo maps, and a second
+        # pass that moved texels would mean the threshold drifts on its own output.
+        partial._heal_dead_texels(healed_map)
+        check(
+            "the heal is idempotent", bool(np.array_equal(delivered, _rgb(healed_map)))
+        )
+    finally:
+        for loop, uv in zip(lm_layer.data, original_uvs):
+            loop.uv = uv
+
     baker.commit_lightmap(result, intensity=1.0)
     check("commit stamps the marker", LightmapBaker.LIGHTMAP_INFO_PROP in cube)
     raw = btk.DataNodes.get_export_string("lightmap_metadata")
@@ -101,8 +262,6 @@ try:
     # --- intensity applied into the texels, once per unique file ----------
     # (mirror of mayatk: Unity ignores the manifest intensity field, so a
     # non-1.0 value must be baked into the map -- shared files scale ONCE.)
-    import numpy as np
-
     ipath = os.path.join(tmp_dir, "intensity_probe.exr")
     src = bpy.data.images.new("intSrc", width=4, height=4, alpha=True,
                               float_buffer=True)
@@ -311,6 +470,38 @@ try:
           and srect == list(LightmapBaker._IDENTITY_SCALE_OFFSET),
           f"zeros={int((~(srgb.max(axis=-1) > 0)).sum())} rect={srect}")
 
+    # --- a map the layout does not name must not vanish --------------------
+    # pack_atlas walks the PLAN and keeps the entries it also has maps for, so
+    # a name the plan never knew (an object renamed or removed between bake and
+    # pack, or a plan built from a different set) fell out of that walk in
+    # silence. The contract is that a bake is never lost: it comes back as its
+    # own map with the identity rect.
+    orphan_dir = os.path.join(tmp_dir, "orphan")
+    orphan_map = _exr_dead("orphanLM.exr", 0.4, 4)
+    orphaned = atlas_baker.pack_atlas(
+        {"noSuchObject": orphan_map},
+        output_dir=orphan_dir,
+        suffix="_Orphan",
+    )
+    check(
+        "pack_atlas: an unplanned map is kept, not dropped",
+        set(orphaned) == {"noSuchObject"},
+        f"{orphaned}",
+    )
+    if orphaned:
+        opath, orect = orphaned["noSuchObject"]
+        check(
+            "pack_atlas: the kept map is placed in the output dir",
+            os.path.dirname(os.path.abspath(opath)) == os.path.abspath(orphan_dir)
+            and os.path.exists(opath),
+            opath,
+        )
+        check(
+            "pack_atlas: the kept map carries the identity rect",
+            orect == list(LightmapBaker._IDENTITY_SCALE_OFFSET),
+            f"{orect}",
+        )
+
     # --- bake_atlas: plan first, bake to the plan, publish only results ----
     # The two-call form above bakes every object at the FULL atlas resolution and then
     # downscales it into a small rect -- N times the rays to supersample away noise the
@@ -473,10 +664,51 @@ try:
           LightmapBaker.LIGHTMAP_INFO_PROP not in cube
           and cube.material_slots[0].material is src_mat)
 
-    # --- black-bake guard (panel) -----------------------------------------
-    # A black bake is a FAITHFUL render of an unlit scene, so nothing errors;
-    # the panel's post-bake guard is what tells the artist before the map
-    # ships to a black web preview (mirrors mayatk's guard + threshold).
+    # --- the tier's bounce depth reaches the PANEL bake ----------------------
+    # Resolution and Samples reach the bake through their widgets; bounces has no
+    # widget, so _apply_preset has to carry it or the tier silently no-ops for every
+    # panel bake and the panel sits on the constructor default whichever tier shows
+    # (the exact failure mayatk's _preset_gi comment records for gi_depth).
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+        LightmapBakerSlots,
+    )
+
+    class _Spin:
+        def __init__(self):
+            self._v = 0
+
+        def blockSignals(self, _b):
+            pass
+
+        def setValue(self, v):
+            self._v = int(v)
+
+        def value(self):
+            return self._v
+
+    panel = LightmapBakerSlots.__new__(LightmapBakerSlots)
+    panel.ui = type("U", (), {"spn_samples": _Spin()})()
+    panel._set_resolution = lambda v: None
+    for tier in ("preview", "quest", "desktop"):
+        panel._apply_preset(tier)
+        want = LightmapBaker.from_preset(tier).bounces
+        check(
+            f"_apply_preset carries {tier}'s bounce depth to the bake",
+            panel._preset_gi.get("bounces") == want,
+            f"{panel._preset_gi} want {want}",
+        )
+    check(
+        "the carried dials are exactly what LightmapBaker accepts",
+        LightmapBaker(resolution=64, samples=1, **panel._preset_gi).bounces
+        == LightmapBaker.from_preset("desktop").bounces,
+    )
+
+    # --- level guard (panel): black AND blown --------------------------------
+    # Either failure is a FAITHFUL render of a wrong scene, so nothing errors;
+    # the panel's post-bake guard is what tells the artist before the map ships
+    # to a black (or white) web preview. The blown half exists because a Maya
+    # bridge send crossed at 5.4e8 W per fixture and saturated every atlas while
+    # reporting success -- reachable from this panel too, with hot enough lights.
     from blendertk.light_utils.lightmap_baker.lightmap_baker import (
         LightmapBakerSlots,
     )
@@ -496,14 +728,87 @@ try:
 
     guard = LightmapBakerSlots.__new__(LightmapBakerSlots)
     black, lit = _exr("guard_black.exr", 0.001), _exr("guard_lit.exr", 1.0)
-    check("black-bake guard fires for an unlit map",
-          "BLACK" in guard._black_bake_warning({"a": black}))
-    check("black-bake guard stays quiet for a lit map",
-          guard._black_bake_warning({"a": lit}) == "")
-    check("one healthy map among dark ones clears the guard",
-          guard._black_bake_warning({"a": black, "b": lit}) == "")
-    check("a missing map never breaks a finished bake",
-          guard._black_bake_warning({"a": os.path.join(tmp_dir, "nope.exr")}) == "")
+    blown = _exr("guard_blown.exr", 40000.0)
+    check(
+        "level guard fires for an unlit map",
+        "BLACK" in guard._level_warning({"a": black}),
+    )
+    check(
+        "level guard stays quiet for a lit map", guard._level_warning({"a": lit}) == ""
+    )
+    check(
+        "one healthy map among dark ones clears the guard",
+        guard._level_warning({"a": black, "b": lit}) == "",
+    )
+    check(
+        "a missing map never breaks a finished bake",
+        guard._level_warning({"a": os.path.join(tmp_dir, "nope.exr")}) == "",
+    )
+    check(
+        "level guard fires for a blown map",
+        "BLOWN" in guard._level_warning({"a": blown}),
+    )
+    # The brightest map decides BOTH ways: one lit map disproves "unlit", and the
+    # worst offender is what a blown bake has to show.
+    check(
+        "a blown map among lit ones still fires",
+        "BLOWN" in guard._level_warning({"a": lit, "b": blown}),
+    )
+
+    # --- level primitive (engine) -------------------------------------------
+    # The panel and the Maya bridge's headless bake template both ask "did this
+    # land in a plausible range", so the measurement and the thresholds live on
+    # the baker -- a bridge bake that disagreed with the panel about what counts
+    # as blown would be worse than no check.
+    levels = LightmapBaker.map_levels([lit, blown, lit])
+    check(
+        "map_levels collapses duplicate paths",
+        len(levels) == 2,
+        f"{sorted(os.path.basename(p) for p in levels)}",
+    )
+    check(
+        "map_levels reports the mean per map",
+        abs(levels[lit][0] - 1.0) < 1e-3 and levels[blown][0] > 1e4,
+        f"{[(os.path.basename(k), v) for k, v in levels.items()]}",
+    )
+    # Blown and SATURATED are different states, and the guard reports both: a map
+    # can be orders too bright while every texel is still real data. Only at the
+    # half-float ceiling has the EXR actually lost information -- which is also why
+    # a saturated map reads ~6.5e4 rather than the 1e7 its lights implied.
+    ceiling = _exr("guard_ceiling.exr", LightmapBaker.HALF_FLOAT_MAX)
+    saturation = LightmapBaker.map_levels([lit, blown, ceiling])
+    check(
+        "a blown-but-unsaturated map reports no lost data",
+        saturation[lit][1] == 0.0 and saturation[blown][1] == 0.0,
+        f"lit={saturation[lit][1]} blown={saturation[blown][1]}",
+    )
+    check(
+        "map_levels reports the saturated fraction at the half-float ceiling",
+        saturation[ceiling][1] > 0.99,
+        f"{saturation[ceiling]}",
+    )
+    check(
+        "map_levels skips an unreadable map rather than raising",
+        LightmapBaker.map_levels([os.path.join(tmp_dir, "nope.exr")]) == {},
+    )
+    peak = LightmapBaker.peak_level([lit, blown])
+    check(
+        "peak_level picks the BRIGHTEST map",
+        peak is not None and peak[0] == blown,
+        f"{peak}",
+    )
+    check(
+        "peak_level is None when nothing could be read",
+        LightmapBaker.peak_level([]) is None,
+    )
+    # A saturated EXR reads ~4e4, not the 1e7 the lights implied: half-float
+    # clamping HIDES magnitude, which is why the guard's line sits where it does.
+    check(
+        "the blown threshold sits between a hot bake and a saturated one",
+        LightmapBaker.BLACK_BAKE_MEAN
+        < LightmapBaker.BLOWN_BAKE_MEAN
+        < LightmapBaker.HALF_FLOAT_MAX,
+    )
 
     # --- output directory field (panel) -----------------------------------
     # Optional dir, resolved against the workspace's texture folder: empty is
@@ -562,6 +867,133 @@ try:
     check("browsing outside the texture folder stays absolute",
           s.ui.txt_output_dir.text() == abs_dir)
 
+    # --- Quality follows the dials (panel) ---------------------------------
+    # Move Resolution or Samples off the tier and the combobox must say *Custom*
+    # rather than keep naming a preset the bake is no longer using. One
+    # ``sb.value_from`` rule does the following (uitk covers the rule itself);
+    # what is pinned here is the panel's half. Mirrors mayatk's
+    # TestQualityFollowsDials.
+    class _QualityCombo:
+        """Enough of QComboBox for cmb000_init / cmb000, populated by name."""
+
+        def __init__(self):
+            self.items, self._index = [], -1
+
+        def clear(self):
+            self.items, self._index = [], -1
+
+        def addItems(self, items):
+            self.items.extend(items)
+            if self._index < 0 and self.items:
+                self._index = 0
+
+        def findText(self, text):
+            return self.items.index(text) if text in self.items else -1
+
+        def setCurrentIndex(self, index):
+            self._index = index
+
+        def currentIndex(self):
+            return self._index
+
+        def currentText(self):
+            return self.items[self._index] if 0 <= self._index < len(self.items) else ""
+
+    class _ResCombo:
+        """cmb_resolution's item-data model: currentData() is the pixel size."""
+
+        _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
+
+        def __init__(self, resolution=1024):
+            self._data = resolution
+
+        def currentData(self):
+            return self._data
+
+        def setCurrentIndex(self, index):
+            self._data = self._RESOLUTIONS[index]
+
+        def blockSignals(self, _b):
+            pass
+
+    class _Spin:
+        def __init__(self, v):
+            self._v = v
+
+        def value(self):
+            return self._v
+
+        def setValue(self, v):
+            self._v = v
+
+        def blockSignals(self, _b):
+            pass
+
+    class _QualityUi:
+        def __init__(self, res, samples):
+            self.cmb_resolution = _ResCombo(res)
+            self.spn_samples = _Spin(samples)
+            self.footer = _Field()
+
+    def _quality_slots(res=1024, samples=256):
+        s = LightmapBakerSlots.__new__(LightmapBakerSlots)
+        s._preset_by_dials = {}
+        s.ui = _QualityUi(res, samples)
+        return s
+
+    q = _quality_slots()
+    quality_combo = _QualityCombo()
+    q.cmb000_init(quality_combo)
+    tier_names = list(store.list())
+    tiers = {}
+    for n in tier_names:
+        data = store.load(n)
+        tiers[(int(data["resolution"]), int(data["samples"]))] = n
+    check(
+        "the Quality combobox ends in a Custom row",
+        quality_combo.items == tier_names + ["Custom"],
+        f"{quality_combo.items}",
+    )
+    check("cmb000_init still defaults to quest", quality_combo.currentText() == "quest")
+    # Every tier the combo offers must be reachable from its dials, or the rule
+    # would report Custom for a preset the user just picked.
+    check(
+        "every listed tier is reachable from its dials",
+        q._preset_by_dials == tiers,
+        f"{q._preset_by_dials}",
+    )
+    check("dials on a tier name that tier", q._preset_for_dials(1024, 256) == "quest")
+    check(
+        "ONE dial off the tier is enough to read Custom",
+        q._preset_for_dials(1024, 255) == "Custom"
+        and q._preset_for_dials(512, 256) == "Custom",
+    )
+
+    # Custom is not a stored preset: selecting it must move no dial, and say so
+    # rather than fall silent.
+    q = _quality_slots(res=2048, samples=257)
+    quality_combo = _QualityCombo()
+    q.cmb000_init(quality_combo)
+    quality_combo.setCurrentIndex(quality_combo.findText("Custom"))
+    q.cmb000(quality_combo.currentIndex(), quality_combo)
+    check(
+        "selecting Custom leaves the dials alone",
+        q.ui.cmb_resolution.currentData() == 2048 and q.ui.spn_samples.value() == 257,
+    )
+    check("selecting Custom reports it", "Custom" in q.ui.footer.text())
+
+    # ...and the Custom row must not cost the combobox its original job.
+    quality_combo.setCurrentIndex(quality_combo.findText("desktop"))
+    q.cmb000(quality_combo.currentIndex(), quality_combo)
+    check(
+        "selecting a tier still fills the dials",
+        q.ui.cmb_resolution.currentData() == 2048 and q.ui.spn_samples.value() == 512,
+    )
+    check(
+        "the dials it wrote resolve back to that tier",
+        q._preset_for_dials(2048, 512) == "desktop",
+    )
+
     # --- pre-bake unlit-scene guard (mayatk parity) ------------------------
     # mayatk warns BEFORE spending the rays; blendertk previously only had the
     # panel's post-bake black-map check, so a scripted bake got no hint at all.
@@ -609,6 +1041,108 @@ try:
     check("a world at zero strength still trips the guard",
           darkworld._warned_no_lights is True)
     bg.inputs["Strength"].default_value = 1.0
+
+    # --- Include Environment (mayatk parity) -------------------------------
+    # An HDRI is often a backdrop / look-dev convenience rather than the room's
+    # real lighting, and baking one in is a flat ambient lift that cannot be
+    # taken back out of the map afterwards. Off DETACHES the world for the bake
+    # (mayatk's twin hides the aiSkyDomeLight) and restores it after.
+    scene.world = w
+    muted = LightmapBaker.from_preset("preview", include_environment=False)
+    with muted._muted_environment():
+        check(
+            "include_environment=False detaches the world for the bake",
+            scene.world is None,
+        )
+    check("...and the world is restored afterwards", scene.world is w)
+
+    kept = LightmapBaker.from_preset("preview")
+    with kept._muted_environment():
+        check("include_environment=True leaves the world attached", scene.world is w)
+    check("the world survives that too", scene.world is w)
+
+    # A restore must happen even when the bake raises.
+    boom = LightmapBaker.from_preset("preview", include_environment=False)
+    try:
+        with boom._muted_environment():
+            raise RuntimeError("bake blew up")
+    except RuntimeError:
+        pass
+    check("a failed bake still restores the world", scene.world is w)
+
+    # from_preset must carry the non-numeric overrides: filtering to the int
+    # keys silently dropped them, so from_preset(name, device="CPU") built a
+    # baker on the other device and nothing said so.
+    check(
+        "from_preset carries include_environment",
+        LightmapBaker.from_preset(
+            "preview", include_environment=False
+        ).include_environment
+        is False,
+    )
+    check(
+        "from_preset carries device",
+        LightmapBaker.from_preset("preview", device="CPU").device == "CPU",
+    )
+
+    # A world the bake is about to detach is not a light source FOR that bake,
+    # so an HDRI-only scene must still trip the guard when it is left out --
+    # which is exactly the case where the artist needs to hear it.
+    hdri_only = LightmapBaker.from_preset("preview", include_environment=False)
+    hdri_only._warn_if_unlit_scene()
+    check(
+        "an HDRI-only scene trips the guard when the environment is left out",
+        hdri_only._warned_no_lights is True,
+    )
+
+    # --- panel: Device row + Include Environment ---------------------------
+    class _DeviceCombo:
+        """Enough of QComboBox for cmb_device_init / _device (item data)."""
+
+        def __init__(self):
+            self.items, self._index = [], -1
+
+        def clear(self):
+            self.items, self._index = [], -1
+
+        def addItem(self, text, data=None):
+            self.items.append((text, data))
+            if self._index < 0:
+                self._index = 0
+
+        def setCurrentIndex(self, i):
+            self._index = i
+
+        def currentData(self):
+            if 0 <= self._index < len(self.items):
+                return self.items[self._index][1]
+            return None
+
+    class _Check:
+        def __init__(self, value):
+            self._value = value
+
+        def isChecked(self):
+            return self._value
+
+    panel = LightmapBakerSlots.__new__(LightmapBakerSlots)
+    device_combo = _DeviceCombo()
+    panel.cmb_device_init(device_combo)
+    panel.ui = type(
+        "U", (), {"cmb_device": device_combo, "chk_environment": _Check(False)}
+    )()
+    check(
+        "the Device row offers Auto / GPU / CPU",
+        [v for _t, v in device_combo.items] == ["AUTO", "GPU", "CPU"],
+        device_combo.items,
+    )
+    check("Device defaults to Auto", panel._device() == "AUTO")
+    check(
+        "the panel reads the Include Environment checkbox",
+        panel._include_environment() is False,
+    )
+    device_combo.setCurrentIndex(2)
+    check("selecting CPU reads back as CPU", panel._device() == "CPU")
 
     # --- light audit diagnostic (mayatk parity) ----------------------------
     # mayatk attaches a per-light table to the black-bake warning so a dark
@@ -712,6 +1246,171 @@ try:
           n == 1 and _same_dir(LightmapBaker._resolved_dir(lost_marker["dir"], "lost.exr"), moved_dir),
           f"{lost_marker.get('dir')}")
     dep_baker.revert()
+
+    # --- a HIDDEN mesh is baked, not refused ------------------------------
+    # Production blocker: one hidden mesh among 48 in the OFFICE_ENV room aborted
+    # the whole lightmap job. ``bpy.ops.object.mode_set`` refuses a hidden object
+    # ("Cannot edit hidden object"), so create_lightmap_uvs raised out of the
+    # entire batch; and even past that, Cycles skips a ``hide_render`` object, so
+    # the map would have come back exact black. Hiding is an authoring state (and
+    # through the Maya bridge's visibility manifest it can be ANIMATED, so the
+    # object is on screen at some other frame) -- never a reason to refuse a bake.
+    from blendertk.core_utils._core_utils import CoreUtils
+
+    LightmapBaker().revert()
+    bpy.ops.object.light_add(type="SUN", location=(0, 0, 6))
+    bpy.context.active_object.data.energy = 5.0
+
+    # Clear of every cube earlier sections left at the origin: coincident
+    # geometry occludes the trace and bakes black for a reason that has nothing
+    # to do with visibility, which would make this whole section lie.
+    bpy.ops.mesh.primitive_cube_add(location=(12, 0, 0))
+    control = bpy.context.active_object
+    control.name = "control_cube"
+    btk.assign_mat(control, mat)
+    bpy.ops.mesh.primitive_cube_add(location=(16, 0, 0))
+    hid = bpy.context.active_object
+    hid.name = "hidden_cube"
+    btk.assign_mat(hid, mat)
+    bpy.ops.mesh.primitive_cube_add(location=(20, 0, 0))
+    sibling = bpy.context.active_object
+    sibling.name = "hidden_sibling"
+    for o in (hid, sibling):
+        o.hide_viewport = True
+        o.hide_render = True
+        o.hide_set(True)
+
+    # The primitive itself: one target revealed, its neighbours untouched. That
+    # scope is the whole design -- revealing the batch would let hidden geometry
+    # occlude and bounce into every OTHER object's bake, a lighting change.
+    with CoreUtils.visible_override(hid):
+        check(
+            "visible_override reveals its target",
+            not hid.hide_viewport and not hid.hide_render and not hid.hide_get(),
+            f"viewport={hid.hide_viewport} render={hid.hide_render} eye={hid.hide_get()}",
+        )
+        check(
+            "...and leaves a hidden SIBLING hidden",
+            sibling.hide_viewport and sibling.hide_render and sibling.hide_get(),
+        )
+    check(
+        "visible_override restores every flag it cleared",
+        hid.hide_viewport and hid.hide_render and hid.hide_get(),
+        f"viewport={hid.hide_viewport} render={hid.hide_render} eye={hid.hide_get()}",
+    )
+
+    raised = None
+    try:
+        btk.create_lightmap_uvs([hid])
+    except Exception as exc:  # noqa: BLE001 — the regression IS the raise
+        raised = exc
+    check("create_lightmap_uvs survives a hidden object", raised is None, f"{raised}")
+    check(
+        "...and still gives it a lightmap layer",
+        len(hid.data.uv_layers) >= 2,
+        f"{[l.name for l in hid.data.uv_layers]}",
+    )
+    check("...leaving it hidden afterwards", hid.hide_viewport and hid.hide_render)
+
+    hidden_baker = LightmapBaker.from_preset(
+        "preview", resolution=64, samples=8, denoise=False, device="CPU"
+    )
+    btk.create_lightmap_uvs([control])
+    # The control is the whole point: "black" only means "hidden broke it" if an
+    # identical NEVER-hidden twin in the same scene, same light, same settings
+    # comes back lit. Without it a dark scene reads as a passing bug.
+    control_max = float(
+        _rgb(
+            hidden_baker.bake_separated(
+                [control], output_dir=tmp_dir, suffix="_Control"
+            )[control.name]
+        ).max()
+    )
+    check(
+        "control: a visible twin bakes lit (the fixture is sound)",
+        control_max > 0.0,
+        f"max={control_max:.5f}",
+    )
+
+    hidden_result = hidden_baker.bake_separated(
+        [hid], output_dir=tmp_dir, suffix="_Hidden"
+    )
+    hidden_map = hidden_result.get(hid.name, "")
+    check(
+        "a hidden object still bakes",
+        bool(hidden_map) and os.path.isfile(hidden_map),
+        f"{hidden_result}",
+    )
+    if hidden_map and os.path.isfile(hidden_map):
+        hidden_rgb = _rgb(hidden_map)
+        check(
+            "...to a LIT map, not the exact black Cycles gives a hide_render object",
+            float(hidden_rgb.max()) > 0.0,
+            f"max={float(hidden_rgb.max()):.5f} vs control {control_max:.5f}",
+        )
+    check(
+        "...and the bake restores its visibility too",
+        hid.hide_viewport and hid.hide_render and hid.hide_get(),
+        f"viewport={hid.hide_viewport} render={hid.hide_render} eye={hid.hide_get()}",
+    )
+
+    # --- hidden by its COLLECTION, not by its own flags --------------------
+    # The case object flags cannot reach: with the parent collection hidden, an
+    # object whose every own flag is clear is not in the depsgraph at all. And
+    # the obvious remedy is wrong -- clearing the COLLECTION's flags reveals
+    # every other member, so hidden geometry starts occluding and bouncing into
+    # this object's bake. The primitive links the target into the scene's master
+    # collection instead, which reveals it and nothing else.
+    grp = bpy.data.collections.new("hidden_grp")
+    bpy.context.scene.collection.children.link(grp)
+    bpy.ops.mesh.primitive_cube_add(location=(24, 0, 0))
+    grouped = bpy.context.active_object
+    grouped.name = "grouped_cube"
+    btk.assign_mat(grouped, mat)
+    bpy.ops.mesh.primitive_cube_add(location=(28, 0, 0))
+    grouped_sibling = bpy.context.active_object
+    grouped_sibling.name = "grouped_sibling"
+    for o in (grouped, grouped_sibling):
+        for c in list(o.users_collection):
+            c.objects.unlink(o)
+        grp.objects.link(o)
+    grp.hide_viewport = True
+    grp.hide_render = True
+
+    with CoreUtils.visible_override(grouped):
+        check(
+            "a collection-hidden object is reachable inside the override",
+            grouped.visible_get(),
+            f"visible_get={grouped.visible_get()}",
+        )
+        check(
+            "...without revealing its collection-mates",
+            not grouped_sibling.visible_get() and grp.hide_viewport and grp.hide_render,
+            f"sibling={grouped_sibling.visible_get()} grp={grp.hide_viewport}",
+        )
+    check(
+        "...and the collection link is undone afterwards",
+        not grouped.visible_get()
+        and grouped.name not in bpy.context.scene.collection.objects,
+        f"visible={grouped.visible_get()}",
+    )
+
+    btk.create_lightmap_uvs([grouped])
+    grouped_map = hidden_baker.bake_separated(
+        [grouped], output_dir=tmp_dir, suffix="_Grouped"
+    ).get(grouped.name, "")
+    if grouped_map and os.path.isfile(grouped_map):
+        grouped_max = float(_rgb(grouped_map).max())
+        check(
+            "a collection-hidden object bakes LIT (not the exact black Cycles "
+            "gives an excluded object)",
+            grouped_max > 0.0,
+            f"max={grouped_max:.5f} vs control {control_max:.5f}",
+        )
+    else:
+        check("a collection-hidden object bakes at all", False, "no map written")
+
+    LightmapBaker().revert()
 
 except Exception:
     traceback.print_exc()

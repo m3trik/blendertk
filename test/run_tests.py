@@ -18,6 +18,7 @@ Run with:
     python run_tests.py --no-badge            # skip the README badge update
     python run_tests.py --suite-timeout 900   # per-suite kill timer (default 600s)
 """
+
 import argparse
 import re
 import shutil
@@ -103,7 +104,9 @@ class BlenderTestRunner:
             or f.name == "blender_smoke_test.py"
         )
         if patterns:
-            wanted = {p if p.startswith("test_") else f"test_{p}" for p in patterns}
+            # A bare stem matches too, so `--list` output runs as printed
+            # (`tube_rig_slot_check`, `blender_smoke_test` carry no `test_`).
+            wanted = set(patterns) | {f"test_{p}" for p in patterns}
             suites = [s for s in suites if s.stem in wanted or s.name in patterns]
         return suites
 

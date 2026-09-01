@@ -363,6 +363,143 @@ try:
     ]
     check("wiring is reverted after export", not leftover, str(leftover))
 
+    # --- atlas packing: the rect is PER-INSTANCE ---------------------------
+    # A material-atlased bake gives every object a different rect into ONE shared
+    # map, so the binding cannot be a material-level property: bound without it,
+    # each object samples the WHOLE atlas through its own [0,1] unwrap and wears
+    # every other object's lighting -- which reads as blocky patches, not as a
+    # missing map. The single-object flow above can never catch it (a solo group
+    # keeps the identity rect). Twin of ptk.MeshConvert.apply_glb_lightmaps,
+    # which ships the same rect as KHR_texture_transform.
+    shared = bpy.data.materials.new("M_Atlas")
+    shared.use_nodes = True
+    pair = []
+    for i, loc in enumerate(((6.0, 0.0, 0.0), (6.0, 3.0, 1.0))):
+        bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
+        ob = bpy.context.active_object
+        ob.name = f"atlas_piece_{i}"
+        ob.data.materials.append(shared)
+        pair.append(ob)
+    bpy.context.view_layer.update()  # atlas weights read matrix_world
+
+    packed = web.baker.bake_atlas(pair, output_dir=tmp_dir)
+    rects = {n: r for n, (_p, r) in packed.items()}
+    check(
+        "two objects on one material pack into ONE atlas with distinct rects",
+        len({p for p, _r in packed.values()}) == 1
+        and len(rects) == 2
+        and all(list(r) != [1.0, 1.0, 0.0, 0.0] for r in rects.values()),
+        json.dumps({n: [round(v, 4) for v in r] for n, r in rects.items()}),
+    )
+
+    web.baker.commit_lightmap(
+        {n: p for n, (p, _r) in packed.items()}, scale_offsets=rects
+    )
+    atlas_glb = os.path.join(tmp_dir, "atlas.glb")
+    with web.wired_for_export(objects=pair) as atlas_manifest:
+        web.export_glb(
+            atlas_glb, objects=pair, manifest=atlas_manifest, texture_max_size=None
+        )
+    agltf = glb_json(atlas_glb)
+
+    # One transform per object, each matching that object's own committed rect.
+    import pythontk as ptk
+
+    shipped = []
+    for m in agltf.get("materials", []):
+        occ = m.get("occlusionTexture") or {}
+        tf = (occ.get("extensions") or {}).get("KHR_texture_transform")
+        if tf:
+            shipped.append((tf.get("scale"), tf.get("offset")))
+    def as_gltf(rect):
+        sx, sy, ox, oy = ptk.ImgUtils.flip_rect_v(rect)
+        return ([round(sx, 4), round(sy, 4)], [round(ox, 4), round(oy, 4)])
+
+    expected = sorted(as_gltf(r) for r in rects.values())
+    got = sorted(
+        ([round(v, 4) for v in sc], [round(v, 4) for v in off]) for sc, off in shipped
+    )
+    check(
+        "each atlased object ships its own rect as KHR_texture_transform",
+        got == expected,
+        f"got {json.dumps(got)} want {json.dumps(expected)}",
+    )
+
+    # The viewer rebinds by MATERIAL NAME, so the per-instance clones have to be
+    # the names the manifest carries -- otherwise every clone falls through the
+    # lookup and ships as plain glTF occlusion.
+    named = {m.get("name") for m in agltf.get("materials", []) if m.get("occlusionTexture")}
+    check(
+        "the manifest names the per-instance materials the GLB actually holds",
+        bool(named) and named <= set((atlas_manifest or {}).get("materials", {})),
+        f"glb {sorted(named)} vs manifest {sorted((atlas_manifest or {}).get('materials', {}))}",
+    )
+
+    # Texture bytes are the file size, so the per-instance clones must share ONE
+    # image: the rect rides the texture REFERENCE (KHR_texture_transform sits on
+    # the textureInfo), never a copy of the atlas per object.
+    check(
+        "the clones share a single embedded atlas image",
+        len(agltf.get("images", [])) == 1,
+        f"{len(agltf.get('images', []))} image(s), {len(agltf.get('materials', []))} material(s)",
+    )
+
+    # A material can span BOTH modes (two bakes into one scene: per-object, then
+    # atlased), and then the clone must still be taken from a PRISTINE material --
+    # cloning one already wired in place gives it two lightmap textures and two
+    # carrier groups, of which the exporter picks one, so the atlased object ships
+    # the UNTRANSFORMED binding: the exact bug the rect exists to prevent.
+    mixed_png = os.path.join(tmp_dir, "mixed.png")
+    mixed_img = bpy.data.images.new("mixed", 8, 8)
+    mixed_img.filepath_raw = mixed_png
+    mixed_img.file_format = "PNG"
+    mixed_img.save()
+    bpy.data.images.remove(mixed_img)
+
+    # A slot carries a data-level AND an object-level material; the link only says
+    # which is live. Overriding the slot must not cost the object the hidden one.
+    spare = bpy.data.materials.new("SPARE")
+    hidden_slot = pair[1].material_slots[0]
+    hidden_slot.link = "OBJECT"
+    hidden_slot.material = spare
+    hidden_slot.link = "DATA"
+
+    mixed_token = web.wire_lightmaps(
+        {o.name: (mixed_png, 1.0) for o in pair},
+        rects={pair[0].name: [1.0, 1.0, 0.0, 0.0],
+               pair[1].name: [0.5, 0.5, 0.25, 0.25]},
+    )
+    per_clone = [
+        (
+            sum(1 for n in bpy.data.materials[c].node_tree.nodes if n.label == "Lightmap"),
+            sum(1 for n in bpy.data.materials[c].node_tree.nodes if n.type == "GROUP"),
+        )
+        for c in mixed_token["copies"]
+    ]
+    check(
+        "an atlased clone is taken from a pristine material, not a wired one",
+        bool(per_clone) and all(t == (1, 1) for t in per_clone),
+        f"(lightmap_tex, carrier_group) per clone: {per_clone}",
+    )
+    web.unwire_lightmaps(mixed_token)
+    hidden_slot.link = "OBJECT"
+    recovered = hidden_slot.material.name if hidden_slot.material else None
+    hidden_slot.link = "DATA"
+    check(
+        "a material hidden behind a DATA link survives the override",
+        recovered == "SPARE",
+        f"object-level material came back as {recovered!r}",
+    )
+
+    # The per-object binding needs per-object materials; they must not leak.
+    overrides = [
+        f"{o.name}[{i}]"
+        for o in pair
+        for i, sl in enumerate(o.material_slots)
+        if sl.link == "OBJECT" or (sl.material is not None and sl.material is not shared)
+    ]
+    check("per-instance material overrides are reverted", not overrides, str(overrides))
+
     # --- the viewer's side of the contract ---------------------------------
     # The exporter and pythontk's WebXR viewer agree by convention, not by an interface,
     # so nothing but this catches a drift: edit the carrier here or the binder there and
@@ -434,5 +571,5 @@ finally:
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 print("\n".join(lines))
-ok = bool(lines) and all(l.startswith("OK") for l in lines)
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+ok = bool(lines) and all(x.startswith("OK") for x in lines)
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for x in lines if x.startswith('OK'))}/{len(lines)})")

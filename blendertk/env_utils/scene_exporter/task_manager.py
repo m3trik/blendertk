@@ -141,37 +141,52 @@ class _TaskDataMixin:
     )
 
     def _glb_texture_params(self):
-        """``optimize_glb_textures`` kwargs for this run, or ``None`` for no pass.
+        """``optimize_glb_textures`` kwargs for this run's GLB deliverable.
 
         The GLB's half of the panel's two GENERAL texture dials — it has no
-        dials of its own (mirror of mayatk's):
+        dials of its own — resolved against
+        :meth:`pythontk.MeshConvert.web_delivery_texture_params`, the ONE
+        definition of what a web deliverable's textures are. Each dial
+        *overrides* that policy; neither has to restate it (mirror of mayatk's,
+        whose docstring carries the measurement that set the default):
 
-        * **Container** — Texture File Type, clamped to
-          :attr:`GLB_CARRIER_FORMATS`; anything a GLB cannot embed falls back to
-          PNG (glTF-core, lossless). "Original" also resolves to PNG, and the
-          pass keeps the original bytes for any image the re-encode cannot beat.
+        * **Container** — Texture File Type, when it names something
+          :attr:`GLB_CARRIER_FORMATS` covers; anything else (and "Original")
+          takes the policy's container, because a GLB from this panel IS the
+          web deliverable — the FBX and USD formats beside it are the
+          interchange ones.
         * **Resolution** — the Optimize Textures combo's ceiling half, through the same
           :meth:`_texture_size_clamp` every scene map goes through, so the export
-          has ONE size policy rather than a second hiding in the GLB.
+          has ONE size policy rather than a second hiding in the GLB. A dial
+          that names no ceiling takes the policy's.
+
+        **Behaviour change (2026-08-29)**: untouched dials used to mean no pass
+        at all. Measured on a production assembly through every leg, that
+        shipped 280.13 MB where the WebXR preview published 8.71 MB of the same
+        scene. ``MeshConvert.fbx_to_glb`` alone still runs no pass, for a
+        programmatic caller that wants the bytes untouched.
         """
         file_type = (
             (getattr(self, "_texture_file_type", None) or "").lower().lstrip(".")
         )
         optimize = bool(getattr(self, "_optimize_textures_enabled", False))
-        if not file_type and not optimize:
-            return None
 
-        carrier = file_type if file_type in self.GLB_CARRIER_FORMATS else "png"
-        if file_type and carrier != file_type:
+        carrier = file_type if file_type in self.GLB_CARRIER_FORMATS else ""
+        if file_type and not carrier:
             self.logger.info(
                 f"GLB textures: {file_type.upper()} is not a container glTF can "
-                f"embed — the GLB carries PNG (the scene's own maps still use "
-                f"{file_type.upper()})."
+                f"embed — the GLB carries "
+                f"{ptk.MeshConvert.WEB_DELIVERY_FORMAT} (the scene's own maps "
+                f"still use {file_type.upper()})."
             )
 
-        params = {"image_format": self._glb_format_id(carrier)}
-        params["max_size"] = self._glb_max_size() if optimize else 0
-        return params
+        # ``or None`` on both halves: an unset dial is "unspecified", which the
+        # shared resolver answers with the policy, NOT a falsy value it would
+        # read as a decision (0 there means "keep every pixel").
+        return ptk.MeshConvert.web_delivery_texture_params(
+            image_format=self._glb_format_id(carrier) if carrier else None,
+            max_size=(self._glb_max_size() if optimize else 0) or None,
+        )
 
     @staticmethod
     def _glb_format_id(ext):
@@ -491,7 +506,11 @@ class _TaskActionsMixin(_TaskDataMixin):
         ``names`` from ``self.objects``.
 
         Parameters:
-            names: Comma-separated object names to exclude (e.g. ``"temp, proxy"``).
+            names: Comma-separated object name patterns to exclude (e.g.
+                ``"temp, proxy"``). Each entry is a shell-style glob, so
+                ``"temp*"`` catches ``temp_01``/``tempRig`` and ``"*_proxy"``
+                catches ``hull_proxy``. A pattern with no wildcard character
+                still matches only that exact name, as before.
             case_sensitive: Match names exactly. Off by default, so ``"temp"``
                 catches ``TEMP``. The UI arms it from the Ignore row's option-box
                 toggle; a headless caller passes the pair as the dict the task
@@ -500,30 +519,40 @@ class _TaskActionsMixin(_TaskDataMixin):
         """
         if not names or not str(names).strip() or not self.objects:
             return
-        # Both sides of the comparison go through ``fold``, so the match mode is
-        # set in one place.
-        fold = (lambda s: s) if case_sensitive else str.lower
-        target_names = {fold(n.strip()) for n in str(names).split(",") if n.strip()}
-        if not target_names:
+        # Parse the patterns here rather than handing ``filter_list`` a raw
+        # string: an all-whitespace field must return early, because a filter
+        # with no patterns is a no-op that returns the list unfiltered -- here
+        # that would mean matching, and so excluding, every root.
+        patterns = ptk.split_delimited_string(
+            str(names), delimiter=",", strip_whitespace=True, remove_empty=True
+        )
+        if not patterns:
             return
 
         import bpy
 
         from blendertk.node_utils._node_utils import NodeUtils
 
+        # The glob, the case fold and the pattern list all live in
+        # ``filter_list``, so the match rules stay identical here and in
+        # mayatk's ``ignore_groups``, which this task mirrors.
+        roots = [o for o in bpy.data.objects if o.parent is None]
         excluded = set()
-        for root in (o for o in bpy.data.objects if o.parent is None):
-            if fold(root.name) in target_names:
-                excluded.add(root)
-                excluded.update(NodeUtils.get_children(root, recursive=True))
+        for root in ptk.filter_list(
+            roots,
+            inc=patterns,
+            map_func=lambda o: o.name,
+            ignore_case=not case_sensitive,
+        ):
+            excluded.add(root)
+            excluded.update(NodeUtils.get_children(root, recursive=True))
         if excluded:
             before = len(self.objects)
             self.objects = [o for o in self.objects if o not in excluded]
             removed = before - len(self.objects)
             if removed:
                 self.logger.debug(
-                    f"Excluded {removed} object(s) under ignored group(s): "
-                    f"{sorted(target_names)}."
+                    f"Excluded {removed} object(s) under ignored group(s): {patterns}."
                 )
 
     def reassign_duplicate_materials(self):
@@ -941,8 +970,9 @@ class _TaskActionsMixin(_TaskDataMixin):
         Producer-agnostic mirror of mayatk's task: refreshes every producer's
         ``data_export`` channel (skipped when ``export_data_node`` already did
         so this run — the two tasks are default-on neighbors, and one refresh
-        per export is enough), ensures the carrier is in the export selection,
-        then arms ``FbxUtils`` with whatever ``fbx_takes`` the scene declares;
+        per export is enough), then arms ``FbxUtils`` with whatever
+        ``fbx_takes`` the scene declares, folding the carrier into the export
+        selection with them (a scene declaring none is a true no-op);
         the write realizes them by splitting its baked scene-range AnimStack
         (see ``fbx_utils``' module docstring for the divergence from Maya's
         exporter-state mechanism).  Runs after ``set_bake_animation_range``
@@ -954,10 +984,15 @@ class _TaskActionsMixin(_TaskDataMixin):
 
         if not getattr(self, "_data_node_refreshed", False):
             self._refresh_scene_data_node()
-        self._include_data_export_node()
 
         count = FbxUtils.apply_takes_from_node()
         if count:
+            # The carrier ships WITH the clips, never instead of them (mirror
+            # of mayatk's ordering, and load-bearing for the same reason now
+            # that this task is default-on): included unconditionally, it
+            # handed the carrier back to a user who had deliberately unchecked
+            # "Export Scene Data Node", on a scene with no shots at all.
+            self._include_data_export_node()
             # Armed takes are sticky FbxUtils state consumed by EVERY write
             # until reset — stage the clear deferred (post-write) so nothing
             # leaks into a later export this session (mirror of mayatk's
@@ -1092,24 +1127,118 @@ class _TaskChecksMixin(_TaskDataMixin):
             return True, [f"{len(found)} object(s) use an LOD suffix: {shown}"]
         return True, []
 
-    def check_duplicate_locator_names(self, enabled) -> tuple:
-        """Empties sharing a base name once Blender's auto ``.001``-style suffix is stripped --
-        the closest Blender analogue of Maya's same-short-name-under-different-parents locator
-        collision (Blender itself force-uniques ``bpy.data.objects`` names, so the exact Maya
-        failure mode can't occur; this catches the case that motivated the check)."""
-        if not enabled or not self.objects:
+    #: Duplicate Names -- how wide the base-name scan casts, narrowest first;
+    #: each tier is a superset of the one above it.  Labels and scope tokens
+    #: are mayatk's verbatim (one dial, one portable preset across both DCCs);
+    #: the mapping is the obvious one -- a Maya locator is an Empty, a Maya
+    #: joint is an armature bone.
+    #:
+    #: Blender force-uniques ``bpy.data.objects`` names, so the collision that
+    #: actually reaches an FBX is the auto ``.001`` suffix -- stripped before
+    #: comparing, which is the name a downstream consumer matches.
+    _duplicate_name_options: Dict[str, Any] = {
+        "OFF": None,
+        "Locators": "locators",
+        "Locators & Joints": "joints",
+        "Connected & Animated": "connected",
+        "All Export Objects": "all",
+    }
+
+    #: Scope token -> its combo label, for the failure report's header.
+    _duplicate_name_labels: Dict[str, str] = {
+        v: k for k, v in _duplicate_name_options.items() if v
+    }
+
+    @staticmethod
+    def _name_is_load_bearing(obj) -> bool:
+        """Is *obj* driven, keyed or constrained -- is its NAME what rebuilds
+        that plumbing downstream resolves against?"""
+        if obj.constraints:
+            return True
+        anim = obj.animation_data
+        return bool(anim and (anim.action or anim.drivers or anim.nla_tracks))
+
+    def _duplicate_name_scope(self, scope: str) -> List[str]:
+        """The export-set names *scope* puts in front of the duplicate scan.
+
+        *scope* is validated by :meth:`check_duplicate_names`; anything it did
+        not recognize never reaches here (the widest branch is the fallthrough,
+        so an unvalidated typo would silently scan a NARROWER tier and pass).
+        """
+        objects = list(self.objects or [])
+        if not objects:
+            return []
+
+        if scope == "all":
+            picked = objects
+        else:
+            picked = [o for o in objects if o.type == "EMPTY"]
+            if scope != "locators":
+                picked += [o for o in objects if o.type == "ARMATURE"]
+                if scope != "joints":
+                    picked += [
+                        o
+                        for o in objects
+                        if o.type not in ("EMPTY", "ARMATURE")
+                        and self._name_is_load_bearing(o)
+                    ]
+
+        names = [o.name for o in picked]
+        # Bones share the FBX node namespace with objects, so two armatures
+        # carrying a same-named bone collide exactly like two same-named
+        # Empties -- and bone names are unique only WITHIN an armature.
+        names += [
+            b.name
+            for o in picked
+            if o.type == "ARMATURE" and o.data
+            for b in o.data.bones
+        ]
+        return names
+
+    def check_duplicate_names(self, scope=None) -> tuple:
+        """Nodes sharing a base name once Blender's auto ``.001``-style suffix is stripped --
+        the Blender analogue of Maya's same-short-name-under-different-parents collision
+        (Blender itself force-uniques ``bpy.data.objects`` names, so the exact Maya failure
+        mode can't occur; this catches the case that motivated the check).
+
+        Parameters:
+            scope: One of :attr:`_duplicate_name_options`' values --
+                ``"locators"``, ``"joints"``, ``"connected"`` or ``"all"``.
+                Falsy (or ``"OFF"``) skips the check; ``True`` is read as
+                ``"locators"``, the scope the pre-dial checkbox had.
+        """
+        if not scope or str(scope).upper() == "OFF":
             return True, []
+        scope = "locators" if scope is True else str(scope).lower()
+        if scope not in self._duplicate_name_labels:
+            # Loud, not a fallthrough: the resolver's widest branch is its
+            # default, so a typo'd scope would quietly scan a NARROWER tier
+            # than the caller asked for and PASS the export on that basis.
+            valid = ", ".join(sorted(self._duplicate_name_labels))
+            return False, [f"Unknown duplicate-name scope {scope!r}. Valid: {valid}."]
+
         groups = defaultdict(list)
-        for o in self.objects:
-            if o.type == "EMPTY":
-                groups[CoreUtils.strip_dup_suffix(o.name)].append(o.name)
+        for name in self._duplicate_name_scope(scope):
+            groups[CoreUtils.strip_dup_suffix(name)].append(name)
         dupes = {k: v for k, v in groups.items() if len(v) > 1}
-        if dupes:
-            messages = [
-                f"'{base}': {', '.join(names)}" for base, names in dupes.items()
-            ]
-            return False, ["Duplicate Empty base name(s) detected:"] + messages
-        return True, []
+        if not dupes:
+            return True, []
+
+        label = self._duplicate_name_labels.get(scope, scope)
+        messages = [f"{len(dupes)} duplicate base name(s) in scope '{label}':"]
+        messages += [
+            f"  - {base} (x{len(names)}): {', '.join(names)}"
+            for base, names in sorted(dupes.items())
+        ]
+        return False, messages
+
+    def check_duplicate_locator_names(self, enabled=True) -> tuple:
+        """Deprecated alias for ``check_duplicate_names("locators")``.
+
+        Kept for one release: headless callers (and presets saved before the
+        check grew its scope dial) still pass this key as a bool.
+        """
+        return self.check_duplicate_names("locators" if enabled else None)
 
     def check_root_default_transforms(self, enabled) -> tuple:
         """Root groups (an Empty with children) should sit at identity transform."""
@@ -2474,27 +2603,39 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                         "the scene declares none.",
                         "This is <b>not</b> what ships the shot metadata — "
                         "<b>Export Scene Data Node</b> already does that, and "
-                        "the two share one refresh. Leave this off when you "
-                        "want the same metadata with an unsplit timeline.",
-                        "Turning it on forces Bake Animation on and widens the "
-                        "scene frame range to the union of all shots, "
-                        "overriding <b>Auto Set Bake Animation Range</b>. Both "
-                        "are restored after the write.",
+                        "the two share one refresh. With this off, the "
+                        "deliverable describes shots it cannot play.",
+                        "The split <b>replaces</b> the single scene-range take "
+                        "with the per-shot ones, so turn it off when you need "
+                        "the continuous clip. (Maya's exporter keeps both; "
+                        "that difference is in the artifact, not in the API.)",
+                        "Forces Bake Animation on and widens the scene frame "
+                        "range to the union of all shots, overriding <b>Auto "
+                        "Set Bake Animation Range</b>. Both are restored after "
+                        "the write.",
                     ],
                 ),
-                "setChecked": False,
+                # Default ON, matching mayatk's mirror of this panel and for the
+                # same reason: off, a scene with shots exports metadata naming
+                # clips the file does not contain -- wrong in the FBX and in the
+                # GLB converted from it at once. A scene with no shots no-ops.
+                "setChecked": True,
             },
             "ignore_groups": {
                 "widget_type": "QLineEdit",
                 "panel": "settings",
                 "set_row_label": "Ignore",
-                "setPlaceholderText": "Group names to ignore (comma-separated)",
+                "setPlaceholderText": "Group names to ignore (comma-separated, wildcards ok)",
                 "setToolTip": TooltipFormat.fmt(
                     title="Ignore Groups",
-                    body="Comma-separated names of top-level objects to drop from "
-                    "the export set.",
+                    body="Comma-separated name patterns of top-level objects to "
+                    "drop from the export set.",
                     notes=[
                         "Example: temp, proxy",
+                        "Wildcards: <b>*</b> any run of characters, <b>?</b> a "
+                        "single one &mdash; <b>temp*</b> catches temp_01 and "
+                        "tempRig, <b>*_proxy</b> catches hull_proxy.",
+                        "A pattern with no wildcard matches that exact name.",
                         "Leave empty to skip.",
                         "Matching ignores case unless the <b>Aa</b> button beside "
                         "the field is on.",
@@ -2594,21 +2735,44 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 ),
                 "setChecked": True,
             },
-            "check_duplicate_locator_names": {
-                "widget_type": "QCheckBox",
+            "check_duplicate_names": {
+                "widget_type": "ComboBox",
                 "group": "Hierarchy & Naming",
-                "setText": "Check For Duplicate Locator Names",
+                "set_row_label": "Duplicate Names",
                 "setToolTip": TooltipFormat.fmt(
-                    title="Check For Duplicate Locator Names",
-                    body="Fails the export when two Empties share a base name.",
+                    title="Check For Duplicate Names",
+                    body="Fails the export when two nodes in the export set "
+                    "share a base name. The dial is how wide it looks — each "
+                    "step includes the one above it.",
+                    bullets=[
+                        "<b>Locators</b> — Empties: attach points and sockets, "
+                        "which whatever consumes them downstream matches by "
+                        "name.",
+                        "<b>Locators &amp; Joints</b> — adds armatures and "
+                        "their bones, which the FBX writes as the skeleton; "
+                        "duplicate bone names break skinning and retargeting "
+                        "on import, and bone names are unique only within one "
+                        "armature.",
+                        "<b>Connected &amp; Animated</b> — adds every object "
+                        "carrying a constraint, an action, drivers or NLA "
+                        "tracks. Their names are what the take and metadata "
+                        "bindings resolve against.",
+                        "<b>All Export Objects</b> — every object in the set. "
+                        "The strictest setting: expect noise from helper "
+                        "hierarchies that collide harmlessly in the FBX.",
+                    ],
                     notes=[
                         "Blender's auto '.001' suffix is stripped before "
-                        "comparing, so 'pivot' and 'pivot.001' collide — which is "
-                        "what a consumer matching them by name downstream will "
-                        "see."
+                        "comparing, so 'pivot' and 'pivot.001' collide — which "
+                        "is what a consumer matching them by name downstream "
+                        "will see.",
+                        "<b>OFF</b> disables the check.",
                     ],
                 ),
-                "setChecked": True,
+                "add": self._duplicate_name_options,
+                # Applied after 'add' (which lands on index 0): Locators is the
+                # scope the check shipped with as a plain checkbox.
+                "setCurrentIndex": 1,
             },
             "check_root_default_transforms": {
                 "widget_type": "QCheckBox",

@@ -331,6 +331,137 @@ def _run_sequencer_checks():
         f"{(c.start, c.end)}",
     )
 
+    # ---- resize_shot_bounds: boundary moves, keys stay -------------------
+    # Audit contract: a plain edge drag moves the BOUNDARY only.  A growing
+    # edge pushes neighbours away (spacing preserved); a shrinking edge
+    # leaves them in place — rippling them toward the pivot would drag them
+    # across the stranded keys a bounds-only resize promises not to touch.
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    b_id = store.shot_by_name("B").shot_id
+    seq.resize_shot_bounds(b_id, 20, 40)  # tail grows +10
+    b, c = store.shot_by_name("B"), store.shot_by_name("C")
+    check(
+        "resize_shot_bounds: grow moves bounds only (keys untouched)",
+        (b.start, b.end) == (20, 40) and key_times("B") == list(range(20, 31)),
+        f"{(b.start, b.end)} keys={key_times('B')[:4]}..",
+    )
+    check(
+        "resize_shot_bounds: tail grow ripples C away (+10, keys ride)",
+        (c.start, c.end) == (50, 60) and key_times("C") == list(range(50, 61)),
+        f"{(c.start, c.end)} keys={key_times('C')[:3]}..",
+    )
+
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    b_id = store.shot_by_name("B").shot_id
+    seq.resize_shot_bounds(b_id, 20, 25)  # tail SHRINKS: strands keys 26..30
+    b, c = store.shot_by_name("B"), store.shot_by_name("C")
+    check(
+        "resize_shot_bounds: shrink leaves neighbours AND stranded keys alone",
+        (b.start, b.end) == (20, 25)
+        and (c.start, c.end) == (40, 50)
+        and key_times("B") == list(range(20, 31))
+        and key_times("C") == list(range(40, 51)),
+        f"B={(b.start, b.end)} C={(c.start, c.end)}",
+    )
+
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    b_id = store.shot_by_name("B").shot_id
+    seq.resize_shot_bounds(b_id, 32, 22)  # inverted input
+    b = store.shot_by_name("B")
+    check(
+        "resize_shot_bounds: inverted bounds are normalised (start<=end)",
+        b.start <= b.end and (b.start, b.end) == (22, 32),
+        f"{(b.start, b.end)}",
+    )
+    err = ""
+    try:
+        seq.resize_shot_bounds(999, 0, 10)
+    except ValueError as e:
+        err = str(e)
+    check("resize_shot_bounds: unknown id raises ValueError", "999" in err, err)
+
+    # ---- insert_shot: opens space; append clears the trailing tail -------
+    build_scene()
+    store = fresh_store()
+    store.gap = 10
+    seq = ShotSequencer(store)
+    b_id = store.shot_by_name("B").shot_id
+    new = seq.insert_shot("Mid", duration=20, after_shot_id=b_id)
+    c = store.shot_by_name("C")
+    check(
+        "insert_shot: new shot fills the opened hole after B",
+        (new.start, new.end) == (40, 60),
+        f"{(new.start, new.end)}",
+    )
+    check(
+        "insert_shot: C rippled by duration+gap with its keys",
+        (c.start, c.end) == (70, 80) and key_times("C") == list(range(70, 81)),
+        f"{(c.start, c.end)} keys={key_times('C')[:3]}..",
+    )
+
+    build_scene()
+    store = fresh_store()
+    store.gap = 5
+    seq = ShotSequencer(store)
+    # Give C a trailing fade-tail key past its end (the +INF envelope
+    # content appending must never build over).
+    c_obj = bpy.data.objects["C"]
+    c_obj.location = (9.9, 0.0, 0.0)
+    c_obj.keyframe_insert(data_path="location", frame=75)
+    new = seq.insert_shot("Tail", duration=10)
+    check(
+        "insert_shot: append starts past the trailing fade tail + gap",
+        new.start >= 80,
+        f"{new.start}",
+    )
+
+    # ---- trim edge= : one-ended trims ------------------------------------
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    keyed("A", list(range(20, 31)))
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    store.define_shot("A", 10, 40, objects=["A"])  # padded both sides
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    head, tail = seq.trim_shot_to_content(a_id, edge="leading")
+    a = store.shot_by_name("A")
+    check(
+        "trim edge=leading: head pulled in, tail untouched",
+        (a.start, a.end) == (20, 40) and head == 10 and tail == 0,
+        f"{(a.start, a.end)} head={head} tail={tail}",
+    )
+    head, tail = seq.trim_shot_to_content(a_id, edge="trailing")
+    a = store.shot_by_name("A")
+    check(
+        "trim edge=trailing: tail pulled in, head untouched",
+        (a.start, a.end) == (20, 30) and head == 0 and tail == -10,
+        f"{(a.start, a.end)} head={head} tail={tail}",
+    )
+
+    # ---- extend one-sided rescue -----------------------------------------
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    keyed("A", [70, 90])  # ALL content past the shot's end
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    store.define_shot("A", 0, 50, objects=["A"])
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    seq.extend_shot_to_fit(a_id)
+    a = store.shot_by_name("A")
+    check(
+        "extend: rescues content entirely past one edge (other side kept)",
+        (a.start, a.end) == (0, 90),
+        f"{(a.start, a.end)}",
+    )
+
     # ---- move_object_in_shot: grow shot + ripple when clip overruns ------
     build_scene()
     store = fresh_store()
@@ -544,10 +675,14 @@ def _run_sequencer_checks():
         """Minimal duck host for the mixin's per-key handlers (no Qt needed)."""
 
         def __init__(self, widget, sequencer=None):
+            import logging
+
             self._widget = widget
             self.sequencer = sequencer
             self._segment_cache = {}
             self._sub_row_cache = {}
+            self._syncing = False
+            self.logger = logging.getLogger("test.clip_motion_host")
 
         def _get_sequencer_widget(self):
             return self._widget
@@ -555,7 +690,13 @@ def _run_sequencer_checks():
         def _save_shot_state(self):
             pass
 
+        def _discard_shot_state(self):
+            pass
+
         def _sync_to_widget(self, **kw):
+            pass
+
+        def _sync_combobox(self):
             pass
 
         def _set_footer(self, *a, **k):
@@ -586,6 +727,55 @@ def _run_sequencer_checks():
         "on_keys_moved: chained moves land distinctly (no key stacking)",
         moved == [(12.0, 1.0), (14.0, 2.0)],
         f"{moved}",
+    )
+
+    # ---- on_keys_batch_moved: one drag over TWO clips is one commit ---------
+    # uitk emits keys_batch_moved for a multi-clip key drag; nothing else in
+    # this suite exercises that entry point, and an unhandled signal would
+    # make the drag silently do nothing.
+    class _MultiWidget:
+        def __init__(self, clips):
+            self._clips = clips
+
+        def get_clip(self, cid):
+            return self._clips.get(cid)
+
+    batch_objs = []
+    for name, frames in (("BatchA", (10, 20)), ("BatchB", (10, 20))):
+        bpy.ops.mesh.primitive_cube_add()
+        o = bpy.context.active_object
+        o.name = name
+        for i, f in enumerate(frames):
+            o.location = (float(i), 0.0, 0.0)
+            o.keyframe_insert(data_path="location", index=0, frame=f)
+        batch_objs.append(o)
+
+    batch_host = _KeysHost(
+        _MultiWidget(
+            {
+                1: _FakeClip(
+                    {"obj": "BatchA", "attr_name": "translateX", "shot_id": None}
+                ),
+                2: _FakeClip(
+                    {"obj": "BatchB", "attr_name": "translateX", "shot_id": None}
+                ),
+            }
+        )
+    )
+    batch_host.on_keys_batch_moved([(1, [(20.0, 25.0)]), (2, [(20.0, 25.0)])])
+
+    def _times(obj):
+        fc = next(
+            fc
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            if fc.data_path == "location" and fc.array_index == 0
+        )
+        return sorted(round(kp.co[0], 3) for kp in fc.keyframe_points)
+
+    check(
+        "on_keys_batch_moved: every clip in the gesture is committed",
+        _times(batch_objs[0]) == [10.0, 25.0] and _times(batch_objs[1]) == [10.0, 25.0],
+        f"{_times(batch_objs[0])} / {_times(batch_objs[1])}",
     )
 
     # ---- _delete_clip_keys: whole-object clips scope to TRANSFORM curves ----
@@ -864,8 +1054,19 @@ def _run_sequencer_checks():
             f"{key_times('B')[:3]}..",
         )
 
-        # move_sequences_to_shot: audio + anim from B into A (adjacent placement)
+        # move_sequences_to_shot: audio + anim from B into A, appended after
+        # A's own run with room the eye can see.
         a_id = store.shot_by_name("A").shot_id
+        # Object "B" has no run of its own in A, so there is nothing to clear
+        # and it anchors at A's start -- the other half of the placement rule.
+        b_runs = [
+            s
+            for s in seq.collect_shot_sequences(a_id, include_audio=False)
+            if s["obj"] == "B"
+        ]
+        b_run_end = max((s["end"] for s in b_runs), default=None)
+        a_start_before = store.shot_by_name("A").start
+        sep = seq.sequence_separation()
         seqs = seq.collect_shot_sequences(b_id)
         seq.move_sequences_to_shot(seqs, a_id)
         a, b = store.shot_by_name("A"), store.shot_by_name("B")
@@ -890,6 +1091,24 @@ def _run_sequencer_checks():
             a.end >= max(key_times("B")),
             f"A.end={a.end} max={max(key_times('B'))}",
         )
+        check(
+            "move_sequences_to_shot: separation exceeds the inter-shot gap",
+            sep > store.gap and sep >= 1.0,
+            f"sep={sep} gap={store.gap}",
+        )
+        if b_run_end is None:
+            check(
+                "move_sequences_to_shot: nothing of its own to clear, so it "
+                "anchors at the shot start",
+                min(key_times("B")) == a_start_before,
+                f"landed={min(key_times('B'))} A.start={a_start_before}",
+            )
+        else:
+            check(
+                "move_sequences_to_shot: the arrival clears B's own run",
+                min(key_times("B")) >= b_run_end + sep,
+                f"landed={min(key_times('B'))} b_run_end={b_run_end} sep={sep}",
+            )
         AudioUtils.remove_all_clips(scene)
 
     # ---- extend_shot_to_fit: outer keys (not owned elsewhere) enclose -----
@@ -1004,6 +1223,341 @@ def _run_sequencer_checks():
         "recreate_curve_keys: keys back at 0..10",
         t == [float(i) for i in range(11)],
         f"{t}",
+    )
+
+    # ---- landing on occupied frames (mirror of mayatk) --------------------
+    # A cluster dropped where keys already sit used to land INTERLEAVED with
+    # them -- the arriving motion and the old poses sharing one span, playing
+    # as neither.  The landing zone is cleared first: flat holds are absorbed,
+    # poses are pushed aside.
+
+    def _lone_curve(obj_name, keys):
+        """One object with a single translateX fcurve carrying *keys*."""
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            obj = bpy.data.objects.new(obj_name, None)
+            bpy.context.scene.collection.objects.link(obj)
+        obj.animation_data_clear()
+        for t, v in keys:
+            obj.location[0] = v
+            obj.keyframe_insert("location", index=0, frame=t)
+        return next(
+            fc
+            for fc in BlenderShotStore.iter_action_fcurves(obj)
+            if fc.data_path == "location" and fc.array_index == 0
+        )
+
+    def _times(fc):
+        return sorted(round(kp.co[0], 3) for kp in fc.keyframe_points)
+
+    build_scene()
+    fc = _lone_curve(
+        "collide_hold", [(100, 5.0), (120, 5.0), (140, 5.0), (150, 9.0), (160, 1.0)]
+    )
+    ShotSequencer.move_curve_keys(fc, [140.0, 150.0, 160.0], -20.0)
+    t = _times(fc)
+    check(
+        "landing zone: a flat hold in the way is absorbed",
+        t == [100.0, 120.0, 130.0, 140.0],
+        f"{t}",
+    )
+
+    build_scene()
+    fc = _lone_curve(
+        "collide_pose",
+        [(100, 5.0), (120, 20.0), (125, 30.0), (140, 5.0), (150, 9.0), (160, 1.0)],
+    )
+    ShotSequencer.move_curve_keys(fc, [140.0, 150.0, 160.0], -22.0)
+    t = _times(fc)
+    vals = sorted(round(kp.co[1], 3) for kp in fc.keyframe_points)
+    check(
+        "landing zone: a pose in the way is pushed, never deleted",
+        len(t) == 6 and vals == sorted([5.0, 20.0, 30.0, 5.0, 9.0, 1.0]),
+        f"{t} {vals}",
+    )
+    check(
+        "landing zone: the moved cluster lands where it was asked to",
+        all(x in t for x in (118.0, 128.0, 138.0)),
+        f"{t}",
+    )
+    pushed = sorted(x for x in t if 100.0 < x < 118.0)
+    check(
+        "landing zone: a pushed pose keeps its internal timing",
+        len(pushed) == 2 and abs((pushed[1] - pushed[0]) - 5.0) < 1e-3,
+        f"{pushed}",
+    )
+
+    build_scene()
+    fc = _lone_curve(
+        "collide_straddle",
+        [
+            (1245, 0.0),
+            (1258, 7.0),
+            (1272, 0.0),
+            (1297, 0.0),
+            (1310, 7.0),
+            (1324, 0.0),
+        ],
+    )
+    ShotSequencer.move_curve_keys(fc, [1297.0, 1310.0, 1324.0], -40.0)
+    t = _times(fc)
+    gaps = [round(b - a, 3) for a, b in zip(t[:3], t[1:3])]
+    check(
+        "landing zone: a cluster straddling the edge is displaced whole",
+        len(t) == 6 and gaps == [13.0, 14.0] and t[3:] == [1257.0, 1270.0, 1284.0],
+        f"{t} gaps={gaps}",
+    )
+
+    build_scene()
+    fc = _lone_curve(
+        "collide_sparse", [(10, 1.0), (30, 2.0), (50, 3.0), (60, 9.0)]
+    )
+    check(
+        "landing zone: a key left BETWEEN the moved ones makes it sparse",
+        not ShotSequencer._is_contiguous_run(fc, [10.0, 50.0]),
+    )
+    ShotSequencer.move_curve_keys(fc, [10.0, 50.0], 30.0)
+    t = _times(fc)
+    v = [round(kp.co[1], 3) for kp in sorted(fc.keyframe_points, key=lambda k: k.co[0])]
+    check(
+        "landing zone: a sparse selection pushes nothing",
+        t == [30.0, 40.0, 60.0, 80.0] and v == [2.0, 1.0, 9.0, 3.0],
+        f"{t} {v}",
+    )
+
+    build_scene()
+    fc = _lone_curve("collide_clean", [(100, 0.0), (110, 5.0)])
+    ShotSequencer.move_curve_keys(fc, [100.0, 110.0], 100.0)
+    t = _times(fc)
+    check(
+        "landing zone: a clear destination still moves untouched",
+        t == [200.0, 210.0],
+        f"{t}",
+    )
+
+    # ---- edit ledger + shot lifecycle -------------------------------------
+    # The two writes the shot system makes on the animator's curves have to be
+    # releasable, and a shot has to be deletable / mergeable / splittable.
+
+    from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+        _ShotSequencerInternal as _SSI,
+    )
+
+    def fresh(name_keys):
+        """A store + sequencer over freshly keyed cubes.  ``{obj: {frame: x}}``."""
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        BlenderShotStore.clear_active()
+        st = BlenderShotStore()
+        BlenderShotStore.set_active(st)
+        made = {}
+        for obj_name, keys in name_keys.items():
+            bpy.ops.mesh.primitive_cube_add()
+            ob = bpy.context.active_object
+            ob.name = obj_name
+            for f, v in sorted(keys.items()):
+                ob.location.x = v
+                ob.keyframe_insert(data_path="location", index=0, frame=f)
+            made[obj_name] = ob
+        return st, ShotSequencer(store=st), made
+
+    def fc_of(ob):
+        return next(
+            fc
+            for fc in BlenderShotStore.iter_action_fcurves(ob)
+            if fc.data_path == "location" and fc.array_index == 0
+        )
+
+    def interp_at(ob, t):
+        fc = fc_of(ob)
+        for kp in fc.keyframe_points:
+            if abs(kp.co[0] - t) < 1e-3:
+                return kp.interpolation
+        return None
+
+    def times_of(ob):
+        return sorted(round(kp.co[0], 3) for kp in fc_of(ob).keyframe_points)
+
+    # -- a gap hold is claimed once, and released when the gap closes -------
+    st, sq, obs = fresh({"ledA": {1: 0, 10: 4, 20: 9}, "ledB": {40: 9, 50: 3}})
+    sq.define_shot("A", 1, 20, objects=["ledA"])
+    b_shot = sq.define_shot("B", 40, 50, objects=["ledB"])
+    sq._enforce_gap_holds()
+    check("gap hold: seam at 20 is CONSTANT", interp_at(obs["ledA"], 20) == "CONSTANT")
+    check("gap hold: claimed once", sq.ledger.step_count == 1, f"{sq.ledger}")
+    sq._enforce_gap_holds()
+    check("gap hold: idempotent", sq.ledger.step_count == 1, f"{sq.ledger}")
+
+    # An animator's own hold on a non-seam key is never claimed, never undone.
+    fc_of(obs["ledA"]).keyframe_points[1].interpolation = "CONSTANT"
+    sq._enforce_gap_holds()
+    key = _SSI._fc_key("ledA", fc_of(obs["ledA"]))
+    check(
+        "gap hold: the animator's own hold is not claimed",
+        not sq.ledger.owns_step(key, 10.0),
+    )
+    st.update_shot(b_shot.shot_id, start=20.0)  # gap closes
+    sq._enforce_gap_holds()
+    check(
+        "gap hold: released when the gap closes",
+        interp_at(obs["ledA"], 20) != "CONSTANT" and sq.ledger.step_count == 0,
+        f"{interp_at(obs['ledA'], 20)} / {sq.ledger}",
+    )
+    check(
+        "gap hold: the animator's hold survives the release",
+        interp_at(obs["ledA"], 10) == "CONSTANT",
+    )
+
+    # One curve spanning three shots holds at EACH of its two seams -- shot
+    # objects are routinely shared, so collapsing the seam set to one entry per
+    # curve leaves every gap but the last one interpolating across the cut.
+    st, sq, obs = fresh({"shA": {1: 0, 20: 5, 40: 8, 60: 2, 80: 9}})
+    sq.define_shot("A", 1, 20, objects=["shA"])
+    sq.define_shot("B", 40, 60, objects=["shA"])
+    sq.define_shot("C", 80, 90, objects=["shA"])
+    sq._enforce_gap_holds()
+    check(
+        "gap hold: every gap on a shared curve holds",
+        interp_at(obs["shA"], 20) == "CONSTANT"
+        and interp_at(obs["shA"], 60) == "CONSTANT"
+        and sq.ledger.step_count == 2,
+        f"{interp_at(obs['shA'], 20)} / {interp_at(obs['shA'], 60)} / {sq.ledger}",
+    )
+
+    # -- a boundary sample follows its bound, or is cleaned up --------------
+    st, sq, obs = fresh({"bndA": {1: 0, 50: 10}})
+    sa = sq.define_shot("A", 1, 50, objects=["bndA"])
+    key = _SSI._fc_key("bndA", fc_of(obs["bndA"]))
+    sq.ledger.record_key(key, 50.0, sa.shot_id, "end")
+    st.update_shot(sa.shot_id, end=40.0)
+    moved, removed = sq._reconcile_boundary_keys()
+    check(
+        "boundary sample: followed its bound",
+        moved == 1 and times_of(obs["bndA"]) == [1.0, 40.0],
+        f"moved={moved} {times_of(obs['bndA'])}",
+    )
+    # A sample carrying a real pose is disowned, not cut.
+    st.remove_shot(sa.shot_id)
+    sq.ledger.disown_shot(sa.shot_id)
+    _m, removed = sq._reconcile_boundary_keys()
+    check(
+        "boundary sample: a pose is kept, not cut",
+        removed == 0 and times_of(obs["bndA"]) == [1.0, 40.0],
+    )
+    # One inside a flat plateau plays no part, so it goes.
+    st, sq, obs = fresh({"bndC": {1: 5, 20: 5, 40: 5, 60: 9}})
+    sc = sq.define_shot("C", 1, 60, objects=["bndC"])
+    sq.ledger.record_key(
+        _SSI._fc_key("bndC", fc_of(obs["bndC"])), 20.0, sc.shot_id, "start"
+    )
+    _m, removed = sq._reconcile_boundary_keys()
+    check(
+        "boundary sample: a redundant one is cut",
+        removed == 1 and times_of(obs["bndC"]) == [1.0, 40.0, 60.0],
+        f"removed={removed} {times_of(obs['bndC'])}",
+    )
+
+    # -- delete takes the contents and closes the timeline ------------------
+    st, sq, obs = fresh(
+        {"delA": {1: 0, 20: 1}, "delB": {40: 0, 60: 1}, "delC": {80: 0, 100: 1}}
+    )
+    sq.define_shot("A", 1, 20, objects=["delA"])
+    sb = sq.define_shot("B", 40, 60, objects=["delB"])
+    sq.define_shot("C", 80, 100, objects=["delC"])
+    res = sq.delete_shot(sb.shot_id)
+    check(
+        "delete_shot: B's keys are gone",
+        len(fc_of(obs["delB"]).keyframe_points) == 0,
+        f"{times_of(obs['delB'])}",
+    )
+    check(
+        "delete_shot: the timeline closed by 40",
+        round(res["closed"]) == 40
+        and [(s.name, s.start, s.end) for s in sq.sorted_shots()]
+        == [("A", 1.0, 20.0), ("C", 40.0, 60.0)],
+        f"{res} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]}",
+    )
+    check("delete_shot: C's keys came with it", times_of(obs["delC"]) == [40.0, 60.0])
+
+    # Both halves are opt-out.
+    st, sq, obs = fresh({"kB": {40: 0, 60: 1}, "kC": {80: 0, 100: 1}})
+    sb = sq.define_shot("B", 40, 60, objects=["kB"])
+    sq.define_shot("C", 80, 100, objects=["kC"])
+    sq.delete_shot(sb.shot_id, delete_contents=False, close_gap=False)
+    check(
+        "delete_shot: contents and space can be kept",
+        times_of(obs["kB"]) == [40.0, 60.0]
+        and [(s.name, s.start, s.end) for s in sq.sorted_shots()]
+        == [("C", 80.0, 100.0)],
+    )
+
+    # -- merge spans both, and releases the hold it swallows ----------------
+    st, sq, obs = fresh({"mgA": {1: 0, 20: 9}, "mgB": {40: 9, 50: 3}})
+    sa = sq.define_shot("A", 1, 20, objects=["mgA"])
+    sb = sq.define_shot("B", 40, 50, objects=["mgB"])
+    sq._enforce_gap_holds()
+    merged = sq.merge_shots([sb.shot_id, sa.shot_id])
+    check(
+        "merge_shots: one shot spanning both",
+        len(st.shots) == 1 and (merged.start, merged.end) == (1.0, 50.0),
+        f"{len(st.shots)} {(merged.start, merged.end)}",
+    )
+    check(
+        "merge_shots: objects folded in",
+        sorted(merged.objects) == ["mgA", "mgB"],
+        f"{merged.objects}",
+    )
+    check(
+        "merge_shots: the swallowed gap's hold is released",
+        interp_at(obs["mgA"], 20) != "CONSTANT",
+    )
+
+    # -- split divides one shot, leaving content alone ----------------------
+    st, sq, obs = fresh({"spA": {1: 0, 30: 5, 60: 9}})
+    sa = sq.define_shot("A", 1, 60, objects=["spA"])
+    sq.split_shot(sa.shot_id, 30)
+    check(
+        "split_shot: two contiguous shots",
+        [(s.name, s.start, s.end) for s in sq.sorted_shots()]
+        == [("A", 1.0, 30.0), ("A_2", 30.0, 60.0)],
+        f"{[(s.name, s.start, s.end) for s in sq.sorted_shots()]}",
+    )
+    check("split_shot: keys untouched", times_of(obs["spA"]) == [1.0, 30.0, 60.0])
+    refused = False
+    try:
+        sq.split_shot(sa.shot_id, 1)
+    except ValueError:
+        refused = True
+    check("split_shot: a cut on a bound is refused", refused)
+
+    # Split membership comes from the shot being split, narrowed per side --
+    # a scene-wide rediscovery would sweep in an object the shot never claimed.
+    st, sq, obs = fresh(
+        {
+            "spHead": {1: 0, 20: 5},
+            "spTail": {40: 0, 60: 5},
+            "spStranger": {30: 0, 35: 5},
+        }
+    )
+    sa = sq.define_shot("A", 1, 60, objects=["spHead", "spTail"])
+    tail = sq.split_shot(sa.shot_id, 30)
+    check(
+        "split_shot: each half keeps only what animates in it",
+        set(sq.shot_by_id(sa.shot_id).objects) == {"spHead"}
+        and set(tail.objects) == {"spTail"},
+        f"{sq.shot_by_id(sa.shot_id).objects} / {tail.objects}",
+    )
+
+    # -- add_shot_space pads a head and carries the upstream shot ----------
+    st, sq, obs = fresh({"padA": {1: 0, 20: 1}, "padB": {40: 0, 60: 1}})
+    sq.define_shot("A", 1, 20, objects=["padA"])
+    sb = sq.define_shot("B", 40, 60, objects=["padB"])
+    head, tail = sq.add_shot_space(sb.shot_id, 10, edge="leading")
+    check(
+        "add_shot_space: leading room, upstream shot carried",
+        (head, tail) == (-10.0, 0.0)
+        and [(s.name, s.start, s.end) for s in sq.sorted_shots()]
+        == [("A", -9.0, 10.0), ("B", 30.0, 60.0)],
+        f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]}",
     )
 
     BlenderShotStore.clear_active()

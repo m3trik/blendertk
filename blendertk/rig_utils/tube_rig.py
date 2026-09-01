@@ -1044,10 +1044,11 @@ class TubeRigSlots(ptk.LoggingMixin):
         return max((dims[0] + dims[1]) / 4.0, 1e-3)
 
     def b004(self):
-        """Utility — Constrain Both Ends to Anchors: select the rig's armature and TWO anchor objects,
-        then each tube end blends onto its NEAREST anchor with a distance falloff (mirror of Maya's
-        b004). Anchors are auto-assigned to ends by proximity (Blender selection order is unreliable).
-        Requires the mesh already bound (Step 3)."""
+        """Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and
+        the anchor object for each tube end to constrain; each anchor constrains its NEAREST end
+        with a distance falloff (mirror of Maya's b004; Blender selection order is unreliable).
+        A single anchor leaves the other end free; two anchors off the same end are refused with
+        the reason. Requires the mesh already bound (Step 3)."""
         import bpy
 
         sel = list(bpy.context.selected_objects)
@@ -1055,15 +1056,17 @@ class TubeRigSlots(ptk.LoggingMixin):
         # anchors are transforms/Empties, never a mesh — so the bound tube being selected too
         # (the common case) isn't mistaken for an anchor.
         anchors = [o for o in sel if o is not arm and o.type != "MESH"]
-        if arm is None:
-            self.sb.message_box("Select the rig's armature and the two anchor objects.")
-            return
-        if len(anchors) < 2:
+        if arm is None or not anchors:
             self.sb.message_box(
-                "Select TWO anchor objects (plus the rig armature) to constrain both ends."
+                "Select the rig's armature and the anchor object for each tube end to "
+                "constrain (one or two)."
             )
             return
-        anchors = anchors[:2]
+        if len(anchors) > 2:
+            self.sb.message_box(
+                f"A tube has two ends — got {len(anchors)} anchors. Select one anchor per end."
+            )
+            return
         bones = self._ordered_chain(arm)
         if len(bones) < 2:
             self.sb.message_box(
@@ -1090,30 +1093,38 @@ class TubeRigSlots(ptk.LoggingMixin):
         mw, db = arm.matrix_world, arm.data.bones
         p_start = mw @ db[bones[0]].head_local
         p_end = mw @ db[bones[-1]].tail_local
-        a0 = anchors[0].matrix_world.translation
-        a1 = anchors[1].matrix_world.translation
-        # uncross: assign each anchor to its nearest tube end (order-independent)
-        crossed = ((a0 - p_start).length + (a1 - p_end).length) > (
-            (a1 - p_start).length + (a0 - p_end).length
-        )
-        start_anchor, end_anchor = (
-            (anchors[1], anchors[0]) if crossed else (anchors[0], anchors[1])
-        )
+        # each anchor to its nearest tube end (order-independent); two anchors off
+        # one end are refused rather than silently collapsed onto it
+        nearest = [
+            0
+            if (a.matrix_world.translation - p_start).length
+            <= (a.matrix_world.translation - p_end).length
+            else -1
+            for a in anchors
+        ]
+        if len(anchors) == 2 and nearest[0] == nearest[1]:
+            which = "start" if nearest[0] == 0 else "end"
+            self.sb.message_box(
+                f"Both anchors sit nearest the tube's {which} end ({anchors[0].name}, "
+                f"{anchors[1].name}). Select one anchor per end — or a single anchor to "
+                "constrain just that end."
+            )
+            return
 
         falloff = self._estimate_tube_radius(mesh) * 2.0
         rig_name = (self.ui.txt000.text() or "").strip() or None
+        done = []
         try:
             rig = TubeRig(mesh, rig_name=rig_name)
-            s = rig.constrain_end_with_falloff(
-                arm, bones, start_anchor, mesh, falloff=falloff, bone_index=0
-            )
-            e = rig.constrain_end_with_falloff(
-                arm, bones, end_anchor, mesh, falloff=falloff, bone_index=-1
-            )
+            for anchor, idx in zip(anchors, nearest):
+                result = rig.constrain_end_with_falloff(
+                    arm, bones, anchor, mesh, falloff=falloff, bone_index=idx
+                )
+                done.append(f"{'start' if idx == 0 else 'end'}: {result}")
         except Exception as ex:
             self.sb.message_box(f"Add End Constraints failed: {ex}")
             return
-        self.sb.message_box(f"<hl>Both ends constrained — start: {s}, end: {e}.</hl>")
+        self.sb.message_box(f"<hl>End constraints added — {', '.join(done)}.</hl>")
 
 
 # -----------------------------------------------------------------------------

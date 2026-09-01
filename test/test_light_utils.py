@@ -221,6 +221,51 @@ try:
           abs(area.size - 6.0) < 1e-4 and abs(area.size_y - 1.0) < 1e-4,
           f"size={area.size} size_y={area.size_y}")
 
+    # A sender whose area light emits PER UNIT AREA ships radiance, not watts: the
+    # emitting area is only knowable here, in the scene's own metres. Regression --
+    # a sender that pre-multiplied by an area measured in ITS units (cm) put a
+    # production office rig at 5.4e8 W per fixture and pinned the lightmap at the
+    # half-float ceiling.
+    radiant = bpy.data.objects.new("radiantLight", None)
+    bpy.context.scene.collection.objects.link(radiant)
+    radiant.scale = (3.0, 0.5, 1.0)
+    btk.LightUtils.lights_from_records(
+        [{"name": "radiantLight", "type": "AREA", "radiance": 10.0,
+          "shape": "RECTANGLE", "local_size": [2.0, 2.0]}]
+    )
+    radiant_data = bpy.data.objects["radiantLight"].data
+    check("radiance -> energy = radiance * pi * the lamp's REAL area",
+          abs(radiant_data.energy - 10.0 * math.pi * 6.0) < 1e-3,
+          f"energy={radiant_data.energy} size={radiant_data.size}"
+          f" size_y={radiant_data.size_y}")
+
+    # A disk inscribes its bounding box, so its area is pi/4 of it -- getting the
+    # shape wrong would misstate the power by a constant instead of failing visibly.
+    disk = bpy.data.objects.new("diskLight", None)
+    bpy.context.scene.collection.objects.link(disk)
+    disk.scale = (2.0, 2.0, 1.0)
+    btk.LightUtils.lights_from_records(
+        [{"name": "diskLight", "type": "AREA", "radiance": 1.0,
+          "shape": "DISK", "local_size": [2.0, 2.0]}]
+    )
+    disk_data = bpy.data.objects["diskLight"].data
+    check("a DISK's area is pi/4 of its bounding square",
+          abs(disk_data.energy - math.pi * (math.pi / 4.0) * 16.0) < 1e-3,
+          f"energy={disk_data.energy} size={disk_data.size}")
+
+    # energy and radiance are alternatives, not a pair: a record carrying plain
+    # watts must not be re-scaled by an area it never asked to be measured against.
+    plain = bpy.data.objects.new("plainArea", None)
+    bpy.context.scene.collection.objects.link(plain)
+    plain.scale = (5.0, 5.0, 1.0)
+    btk.LightUtils.lights_from_records(
+        [{"name": "plainArea", "type": "AREA", "energy": 42.0,
+          "shape": "RECTANGLE", "local_size": [2.0, 2.0]}]
+    )
+    check("an energy-only AREA record keeps its watts verbatim",
+          abs(bpy.data.objects["plainArea"].data.energy - 42.0) < 1e-4,
+          f"{bpy.data.objects['plainArea'].data.energy}")
+
     check("a record naming no object is skipped, not raised",
           btk.LightUtils.lights_from_records([{"name": "nope", "type": "POINT"}]) == {})
 

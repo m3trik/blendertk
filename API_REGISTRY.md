@@ -454,7 +454,7 @@ Tree-widget presentation mixin for the Shot Manifest controller.
 
 Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 
-- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L92)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
+- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L153)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
   - `ShotSequencer.shots(self)` *(property)*
   - `ShotSequencer.hidden_objects(self) -> set` *(property)*
   - `ShotSequencer.markers(self)` *(property)*
@@ -467,14 +467,15 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
   - `ShotSequencer.define_shot(self, name: str, start: float, end: float, objects: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None, locked: bool = False, description: str = '')` — Define a shot;
   - `ShotSequencer.collect_object_segments(self, shot_id: int, ignore: Optional[str] = None, motion_rate: float = 0.001, ignore_holds: bool = True) -> List[Dict[str, Any]]` — Collect per-object animation segments within a shot's range.
   - `ShotSequencer.collect_shot_sequences(self, shot_id: int, include_audio: bool = True) -> List[Dict[str, Any]]` — All sequences (anim + audio) inside a shot's range.
+  - `ShotSequencer.sequence_separation(self) -> float` — Room to leave between a moved sequence and what it lands after.
   - `ShotSequencer.move_sequences_to_shot(self, sequences: List[Dict[str, Any]], dest_shot_id: int) -> None` — Move *sequences* (anim and/or audio) into *dest_shot_id*.
-  - `ShotSequencer.fit_shot_to_content(self, shot_id: int, mode: str = 'fit') -> Tuple[float, float]` — Resize a shot's boundaries to its sequence content, rippling neighbours.
-  - `ShotSequencer.trim_shot_to_content(self, shot_id: int) -> Tuple[float, float]` — Shrink shot boundaries inward so they exactly enclose content.
+  - `ShotSequencer.fit_shot_to_content(self, shot_id: int, mode: str = 'fit', edge: str = 'both') -> Tuple[float, float]` — Resize a shot's boundaries to its sequence content, rippling neighbours.
+  - `ShotSequencer.trim_shot_to_content(self, shot_id: int, edge: str = 'both') -> Tuple[float, float]` — Shrink shot boundaries inward so they exactly enclose content.
   - `ShotSequencer.extend_shot_to_fit(self, shot_id: int) -> Tuple[float, float]` — Expand shot boundaries outward to enclose all of its sequences.
   - `ShotSequencer.detect_shots(self, objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` — Detect shot boundaries from existing animation (delegates to ``Detection``).
   - `ShotSequencer.detect_next_shot(self, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001) -> Optional[Dict[str, Any]]` — Detect the first animation cluster not yet covered by a shot.
-  - `ShotSequencer.move_curve_keys(cls, crv, times: list, delta: float, plug=None, eps: float = 0.001) -> None` *(class)* — Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
-  - `ShotSequencer.recreate_curve_keys(cls, crv, pairs: list, plug=None, eps: float = 0.001) -> None` *(class)* — Move the keys named by ``[(old_time, new_time), ...]`` on *crv*.
+  - `ShotSequencer.move_curve_keys(cls, crv, times: list, delta: float, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
+  - `ShotSequencer.recreate_curve_keys(cls, crv, pairs: list, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Move the keys named by ``[(old_time, new_time), ...]`` on *crv*.
   - `ShotSequencer.move_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float) -> None` — Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.
   - `ShotSequencer.move_stepped_keys(self, obj: str, old_time: float, new_time: float, attr_name: Optional[str] = None, eps: float = 0.001) -> None` — Move the key(s) at *old_time* to *new_time*.
   - `ShotSequencer.scale_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.
@@ -483,10 +484,18 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
   - `ShotSequencer.slide_shot(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None` — Slide a shot intact to *new_start*, rippling only in *direction*.
   - `ShotSequencer.ripple_downstream(self, shot_id: int, after_frame: float, delta: float) -> None` — Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).
   - `ShotSequencer.ripple_upstream(self, shot_id: int, before_frame: float, delta: float) -> None` — Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).
+  - `ShotSequencer.ledger(self)` *(property)* — The store's :class:`~pythontk.ShotEditLedger` (system-write claims).
+  - `ShotSequencer.reconcile_system_edits(self) -> Dict[str, int]` — Release every shot-system write whose boundary has moved on.
+  - `ShotSequencer.delete_shot(self, shot_id: int, delete_contents: bool = True, close_gap: bool = True) -> Dict[str, Any]` — Remove a shot — by default with its keys, and closing up behind it.
+  - `ShotSequencer.merge_shots(self, shot_ids: List[int], name: Optional[str] = None)` — Fuse two or more shots into one spanning all of them.
+  - `ShotSequencer.split_shot(self, shot_id: int, at_frame: float, name: Optional[str] = None, gap: float = 0.0)` — Cut a shot in two at *at_frame*, leaving its content where it is.
+  - `ShotSequencer.add_shot_space(self, shot_id: int, frames: float, edge: str = 'leading') -> Tuple[float, float]` — Pad empty room onto a shot's head and/or tail, rippling neighbours.
   - `ShotSequencer.expand_shot(self, shot_id: int, new_end: float) -> float` — Expand a shot's end frame and ripple downstream (never contracts).
   - `ShotSequencer.resize_object(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys and ripple neighbours by the head/tail deltas.
   - `ShotSequencer.set_shot_duration(self, shot_id: int, new_duration: float) -> None` — Change a shot's duration (start fixed), scaling its keys + rippling downstream.
   - `ShotSequencer.resize_shot(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None` — Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.
+  - `ShotSequencer.resize_shot_bounds(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None` — Move a shot's boundaries WITHOUT touching its keyframes.
+  - `ShotSequencer.insert_shot(self, name: str, duration: float, after_shot_id: Optional[int] = None, at_position: Optional[int] = None, gap: Optional[float] = None, objects: Optional[List[str]] = None, description: str = '')` — Create a shot BETWEEN existing shots, pushing later ones downstream.
   - `ShotSequencer.set_shot_start(self, shot_id: int, new_start: float, ripple: bool = True) -> None` — Move a shot to *new_start*;
   - `ShotSequencer.move_shot_to_position(self, shot_id: int, target_pos: int) -> None` — Reorder *shot_id* to 1-based timeline position *target_pos*.
   - `ShotSequencer.respace(self, gap: float = 0, start_frame: float = 1) -> None` — Lay all shots out sequentially from *start_frame* with *gap* spacing (locked gaps kept).
@@ -504,9 +513,10 @@ Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
   - `ClipMotionMixin.on_clip_moved(self, clip_id: int, new_start: float) -> None` — Handle clip move — routes to audio (deferred) or shot-level logic.
   - `ClipMotionMixin.on_clips_batch_moved(self, moves) -> None` — Handle a batch of clip moves (group drag), syncing once at the end.
   - `ClipMotionMixin.on_keys_moved(self, clip_id: int, changes: list) -> None` — Move individual keyframes on the fcurves, then refresh.
+  - `ClipMotionMixin.on_keys_batch_moved(self, groups) -> None` — Commit one key drag that spanned any number of clips.
   - `ClipMotionMixin.on_keys_deleted(self, clip_id: int, times: list) -> None` — Delete individual keyframes from the fcurves, then refresh.
   - `ClipMotionMixin.curves_for_attr(obj_name: str, attr_name: str) -> list` *(static)* — Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.
-  - `ClipMotionMixin.scale_attribute_keys(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` *(static)* — Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).
+  - `ClipMotionMixin.scale_attribute_keys(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> bool` *(static)* — Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).
 
 <a id="anim_utils--shots--shot_sequencer--gap_manager"></a>
 ### `anim_utils/shots/shot_sequencer/gap_manager.py`
@@ -564,9 +574,12 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.sequencer(self) -> Optional[ShotSequencer]` *(property)*
   - `ShotSequencerController.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
   - `ShotSequencerController.on_zone_context_menu(self, zone: str, time: float, global_pos) -> None`
+  - `ShotSequencerController.delete_shot(self, shot_id: int) -> None` — Delete *shot_id* with its contents, closing the timeline behind it.
+  - `ShotSequencerController.merge_shot_with(self, shot_id: int, other_id: int) -> None` — Fuse two neighbouring shots into one spanning both.
+  - `ShotSequencerController.split_shot_at(self, shot_id: int, time: float) -> None` — Cut *shot_id* in two at *time*, leaving its content where it is.
   - `ShotSequencerController.active_shot_id(self) -> Optional[int]` *(property)*
   - `ShotSequencerController.on_undo(self) -> None` — Widget undo_requested — restore the shot snapshot, then Blender undo.
-  - `ShotSequencerController.on_redo(self) -> None` — Widget redo_requested — Blender redo (the snapshot stack is left alone).
+  - `ShotSequencerController.on_redo(self) -> None` — Widget redo_requested — re-apply the redo-side bounds, then Blender redo.
   - `ShotSequencerController.refresh(self) -> None`
   - `ShotSequencerController.hide_track(self, track_names) -> None`
   - `ShotSequencerController.show_track(self, track_name: str) -> None`
@@ -581,9 +594,9 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L1915)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2263)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot')` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L1971)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2319)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -613,9 +626,10 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.on_delete_shot(self) -> None` — Delete the active shot after confirmation.
   - `ShotsController.on_delete_all_shots(self) -> None` — Delete every shot after confirmation.
   - `ShotsController.on_move_shot(self) -> None` — Move the active shot to the position specified by spn_move_to.
-  - `ShotsController.on_trim_empty(self) -> None` — Trim empty space from the active shot's start and end.
-  - `ShotsController.on_trim_all_shots(self) -> None` — Trim empty space from every shot.
-- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L824)** — Switchboard slot class — routes UI events to the controller.
+  - `ShotsController.on_trim_empty(self, edge: str = 'both') -> None` — Trim empty space from the active shot, at *edge*.
+  - `ShotsController.on_trim_all_shots(self, edge: str = 'both') -> None` — Trim empty space from every shot, at *edge*.
+  - `ShotsController.on_add_space(self, edge: str = 'leading') -> None` — Pad the active shot with ``spn_space`` frames of room at *edge*.
+- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L986)** — Switchboard slot class — routes UI events to the controller.
   - `ShotsSlots.header_init(self, widget)` — Configure header help text.
   - `ShotsSlots.spn_detection(self, value)` — Detection threshold changed.
   - `ShotsSlots.cmb_detection_mode(self, index)` — Detection mode combobox changed.
@@ -628,11 +642,21 @@ Switchboard slots for the Shots settings UI.
   - `ShotsSlots.spn_shot_end(self, value)` — Shot end frame changed.
   - `ShotsSlots.txt_shot_desc(self, text=None)` — Shot description edited.
   - `ShotsSlots.b000(self)` — Delete the selected shot.
-  - `ShotsSlots.btn_delete_all_shots(self)` — Delete all shots.
+  - `ShotsSlots.btn_delete_all(self)` — Delete every shot (All Shots group).
   - `ShotsSlots.btn_move_shot(self)` — Move shot to the position in spn_move_to.
   - `ShotsSlots.btn_apply_gap(self)` — Apply gap value with the scope selected in the option box.
-  - `ShotsSlots.btn_trim_empty(self)` — Trim empty space from the selected shot.
-  - `ShotsSlots.btn_trim_all_shots(self)` — Trim empty space from every shot.
+  - `ShotsSlots.btn_trim_empty(self)` — Trim both ends of the selected shot.
+  - `ShotsSlots.btn_trim_leading(self)` — Trim the selected shot's leading space.
+  - `ShotsSlots.btn_trim_trailing(self)` — Trim the selected shot's trailing space.
+  - `ShotsSlots.btn_trim_both(self)` — Trim both ends of the selected shot (option box twin of the button).
+  - `ShotsSlots.btn_trim_all(self)` — Trim both ends of every shot.
+  - `ShotsSlots.btn_trim_all_leading(self)` — Trim every shot's leading space.
+  - `ShotsSlots.btn_trim_all_trailing(self)` — Trim every shot's trailing space.
+  - `ShotsSlots.btn_trim_all_both(self)` — Trim both ends of every shot (option box twin of the button).
+  - `ShotsSlots.btn_add_leading_space(self)` — Add empty room before the selected shot.
+  - `ShotsSlots.btn_delete_all_shots(self)` — Deprecated alias for :meth:`btn_delete_all`.
+  - `ShotsSlots.btn_trim_all_shots(self)` — Deprecated alias for :meth:`btn_trim_all`.
+  - `ShotsSlots.btn_add_trailing_space(self)` — Add empty room after the selected shot.
 
 <a id="anim_utils--smart_bake--_smart_bake"></a>
 ### `anim_utils/smart_bake/_smart_bake.py`
@@ -790,6 +814,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L336)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
+  - `CoreUtils.visible_override(objects)` *(static)* — Yield with *objects* temporarily visible, selectable and renderable.
   - `CoreUtils.undoable(fn)` *(static)* — Wrap ``fn`` so its changes collapse into a single Blender undo step.
   - `CoreUtils.undo_checkpoint(fn)` *(static)* — Like :func:`undoable`, but pushes the restore point BEFORE ``fn`` runs (not after).
   - `CoreUtils.get_env_info(key=None)` *(static)* — Return Blender scene / environment info (mirror of ``mtk.get_env_info``).
@@ -1390,8 +1415,9 @@ Launch a FRESH headless Blender to run a script / code string and capture its ou
 
 FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 
-- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L570)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
-  - `FbxUtils.run_export_preparers() -> None` *(static)* — Refresh every known producer's ``data_export`` channel once, right now.
+- **[`class FbxUtils(_FbxUtilsInternal)`](blendertk/blendertk/env_utils/fbx_utils.py#L589)** — FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface).
+  - `FbxUtils.run_export_preparers(only: Optional[Iterable[str]] = None) -> None` *(static)* — Refresh every known producer's ``data_export`` channel once, right now.
+  - `FbxUtils.bake_range()` *(static)* — The ``(start, end)`` frames the next write will actually BAKE.
   - `FbxUtils.reset_takes() -> None` *(static)* — Clear the armed take definitions (mirror of ``mtk.FbxUtils.reset_takes``).
   - `FbxUtils.apply_takes(takes) -> int` *(static)* — Arm one FBX take (Unity AnimationClip) per entry for the coming export.
   - `FbxUtils.apply_takes_from_node(node=None, attr=None) -> int` *(static)* — Read take defs from a JSON channel on *node* and arm them.
@@ -1752,7 +1778,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
 
-- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L1958)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
+- **[`class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L2087)** — Contains all task/check UI definitions for the Scene Exporter -- mirror of mayatk's
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.task_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the task definitions for the UI.
   - `TaskManager.check_definitions(self) -> Dict[str, Dict[str, Any]]` *(property)* — Return the check definitions for the UI.
@@ -1773,7 +1799,8 @@ Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of
   - `TaskManager.check_framerate(self, target_key) -> tuple`
   - `TaskManager.check_referenced_objects(self, enabled) -> tuple`
   - `TaskManager.check_geometry_lod_suffix(self, enabled) -> tuple` — Informational only -- always succeeds (mirrors mayatk's contract).
-  - `TaskManager.check_duplicate_locator_names(self, enabled) -> tuple` — Empties sharing a base name once Blender's auto ``.001``-style suffix is stripped --
+  - `TaskManager.check_duplicate_names(self, scope=None) -> tuple` — Nodes sharing a base name once Blender's auto ``.001``-style suffix is stripped --
+  - `TaskManager.check_duplicate_locator_names(self, enabled=True) -> tuple` — Deprecated alias for ``check_duplicate_names("locators")``.
   - `TaskManager.check_root_default_transforms(self, enabled) -> tuple` — Root groups (an Empty with children) should sit at identity transform.
   - `TaskManager.check_hidden_geometry(self, enabled) -> tuple`
   - `TaskManager.check_overlapping_duplicate_mesh(self, enabled) -> tuple`
@@ -1899,7 +1926,7 @@ blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Windo
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L113)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L132)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -1943,13 +1970,14 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L57)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L59)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
   - `LightmapBaker.device(self) -> Optional[str]` *(property)*
+  - `LightmapBaker.bounces(self) -> int` *(property)* — Diffuse bounces the bake integrates -- role-twin of mayatk's ``gi_depth``.
   - `LightmapBaker.preset_store() -> 'ptk.PresetStore'` *(static)* — Shared store of lightmap quality presets (built-in + user tiers).
-  - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named quality preset (``resolution`` / ``samples``).
+  - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a preset (``resolution`` / ``samples`` / ``bounces``).
   - `LightmapBaker.bake_separated(self, objects=None, prefix: str = 'lightmap_irr_', **kwargs) -> Dict[str, str]` — Bake a **lighting-only** irradiance lightmap per object -- THE bake.
   - `LightmapBaker.commit_lightmap(self, mapping: Dict[str, str], intensity: float = 1.0, scale_offsets: Optional[Dict[str, List[float]]] = None, uv_rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, str]` — Record a lighting-only bake for the engine (changes nothing about the material/UVs).
   - `LightmapBaker.bake_atlas(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', **kwargs) -> Dict[str, Tuple[str, List[float]]]` — Bake a material-atlased lighting-only lightmap set — plan first, then bake to plan.
@@ -1965,13 +1993,16 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
   - `LightmapBaker.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
   - `LightmapBaker.revert_lightmap(self, objects=None) -> List[str]` — Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
   - `LightmapBaker.revert(self, objects=None) -> List[str]` — Undo the lightmap wiring -- the spelling the panel and pre-bake use.
-- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1545)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+  - `LightmapBaker.map_levels(cls, paths) -> Dict[str, Tuple[float, float]]` *(class)* — ``{path: (mean RGB, fraction of channels at the half-float ceiling)}``.
+  - `LightmapBaker.peak_level(cls, paths) -> Optional[Tuple[str, float, float]]` *(class)* — ``(path, mean, saturated)`` for the BRIGHTEST map, or ``None`` if unreadable.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L1810)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
   - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
   - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox;
   - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox;
   - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data);
+  - `LightmapBakerSlots.cmb_device_init(self, widget) -> None` — Populate the Device combobox (value carried as item data);
   - `LightmapBakerSlots.txt_output_dir_init(self, widget) -> None` — Add a directory browser to the optional output-directory field.
   - `LightmapBakerSlots.txt000_init(self, widget) -> None` — Add the Prefix / Suffix / Auto picker to the name-affix field.
   - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the selection in the chosen Mode (revert → bake → commit).
@@ -1985,8 +2016,8 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 - **[`class LightmapWebExport(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L55)** — Ship a scene's committed lightmaps in a natively-exported GLB.
   - `LightmapWebExport.encode_for_web(cls, mapping: Dict[str, str], output_dir: Optional[str] = None, percentile: Optional[float] = None, suffix: str = '') -> Dict[str, Tuple[str, float]]` *(class)* — Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.
-  - `LightmapWebExport.wire_lightmaps(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None) -> Dict[str, Any]` — Wire each lightmap into a real glTF texture slot on the lightmap UV.
-  - `LightmapWebExport.unwire_lightmaps(token: Dict[str, Any]) -> List[str]` *(static)* — Remove the nodes :meth:`wire_lightmaps` added, restoring the source materials.
+  - `LightmapWebExport.wire_lightmaps(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None, rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, Any]` — Wire each lightmap into a real glTF texture slot on the lightmap UV.
+  - `LightmapWebExport.unwire_lightmaps(token: Dict[str, Any]) -> List[str]` *(static)* — Undo :meth:`wire_lightmaps`: restore the slots, drop the clones, unwire the rest.
   - `LightmapWebExport.build_manifest(self, encoded: Dict[str, Tuple[str, float]], carrier: str, lighting: Optional[Dict[str, Any]] = None) -> Dict[str, Any]` — The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.
   - `LightmapWebExport.export_glb(self, path: str, objects=None, manifest: Optional[Dict[str, Any]] = None, texture_max_size: Optional[int] = 2048, image_format: str = 'WEBP', image_quality: int = 85) -> str` — Export a GLB through Blender's native glTF exporter.
   - `LightmapWebExport.wired_for_export(self, objects=None, carrier: str = 'occlusion', percentile: Optional[float] = None) -> Iterator[Optional[Dict[str, Any]]]` — The scene's COMMITTED lightmaps, wired for a native glTF export.
@@ -2362,6 +2393,8 @@ Render Opacity — Blender per-object opacity for engine-ready transparency (mir
   - `RenderOpacity.sync_visibility_from_opacity(cls, objects=None) -> None` *(class)* — Rebuild the ``hide_render`` curve from the ``opacity`` curve (stepped, hidden when ≤ 0).
   - `RenderOpacity.ensure_connections(cls, objects=None) -> None` *(class)* — Re-establish the Alpha driver on objects that have ``opacity`` but lost it (e.g.
   - `RenderOpacity.prepare_for_export(cls, objects=None) -> list` *(class)* — Dual-key safety net before FBX export: for every object with an animated ``opacity`` but
+  - `RenderOpacity.visibility_tracks(cls) -> list` *(class)* — Every visibility-keyed object in the file, as stepped on/off tracks.
+  - `RenderOpacity.refresh_export_metadata(cls)` *(class)* — Republish the ``visibility_tracks`` channel (``FbxUtils._KNOWN_PRODUCERS``).
 
 <a id="mat_utils--render_opacity--render_opacity_slots"></a>
 ### `mat_utils/render_opacity/render_opacity_slots.py`
@@ -2450,11 +2483,7 @@ Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 
 Slots for the Substance Painter bridge panel -- mirror of mayatk's
 
-- **[`class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/substance_bridge/substance_bridge_slots.py#L35)** — Slots wired to ``substance_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
-  - `SubstanceBridgeSlots.live_param_tooltip_blocks(self)` — Make the Bake Source row report the file's CURRENT members.
-  - `SubstanceBridgeSlots.set_bake_source_from_selection(self) -> None` — Store the current selection as this file's bake source.
-  - `SubstanceBridgeSlots.select_bake_source(self) -> None` — Select the high-poly set's members.
-  - `SubstanceBridgeSlots.clear_bake_source(self) -> None` — Remove the high-poly collection;
+- **[`class SubstanceBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/mat_utils/substance_bridge/substance_bridge_slots.py#L33)** — Slots wired to ``substance_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `SubstanceBridgeSlots.params_module(self)` *(property)*
   - `SubstanceBridgeSlots.template_dir(self) -> Path` *(property)*
   - `SubstanceBridgeSlots.make_bridge(self) -> SubstanceBridge`
@@ -2558,9 +2587,10 @@ Painter-specific system ops: version reporting and script evaluation.
 
 Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 
-- **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L33)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
+- **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L34)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
   - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color') -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
-  - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
+  - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None, gpu: Optional[bool] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
+  - `TextureBaker.denoise_images(cls, paths: Iterable[str], outputs: Optional[Iterable[Optional[str]]] = None, gpu: Optional[bool] = None) -> Dict[str, str]` *(class)* — Denoise several baked EXRs through ONE compositor build and ONE engine flip.
   - `TextureBaker.resolve_meshes(objects) -> List[Any]` *(static)* — Normalize ``objects`` (refs / names / None=selection) to mesh objects.
   - `TextureBaker.texture_set_stem(obj) -> Optional[str]` *(static)* — Base name of *obj*'s existing texture set (e.g.
   - `TextureBaker.default_output_dir(subdir: str = 'baked_textures') -> str` *(static)* — ``<subdir>`` next to the saved .blend, else under the OS temp dir.
@@ -2861,7 +2891,7 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `TubeRigSlots.b001(self)` — Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls
   - `TubeRigSlots.b002(self)` — Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING
   - `TubeRigSlots.b003(self)` — Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic
-  - `TubeRigSlots.b004(self)` — Utility — Constrain Both Ends to Anchors: select the rig's armature and TWO anchor objects,
+  - `TubeRigSlots.b004(self)` — Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and
 
 <a id="rig_utils--wheel_rig"></a>
 ### `rig_utils/wheel_rig.py`
@@ -2914,9 +2944,13 @@ UI utilities — opening Blender editors (the analogue of Maya's editor-window m
 
 Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 
-- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L25)** — Adds a Blender-flavored ``default_output_dir`` + Scope resolution to
+- **[`class BlenderBridgeSlotsBase(BridgeSlotsBase)`](blendertk/blendertk/ui_utils/blender_bridge_slots_base.py#L26)** — Adds a Blender-flavored ``default_output_dir`` + Scope resolution to
   - `BlenderBridgeSlotsBase.default_output_dir(self) -> str` — The saved ``.blend`` file's directory, or ``""`` if unsaved.
   - `BlenderBridgeSlotsBase.resolve_scope_objects(self, scope: str)` — Objects to export for the chosen ``SCOPE`` param.
+  - `BlenderBridgeSlotsBase.live_param_tooltip_blocks(self)` — Make the Bake Source row report the file's CURRENT members.
+  - `BlenderBridgeSlotsBase.set_bake_source_from_selection(self) -> None` — Store the current selection as this file's bake source.
+  - `BlenderBridgeSlotsBase.select_bake_source(self) -> None` — Select the high-poly set's members.
+  - `BlenderBridgeSlotsBase.clear_bake_source(self) -> None` — Remove the high-poly collection;
 
 <a id="ui_utils--blender_native_menus"></a>
 ### `ui_utils/blender_native_menus.py`

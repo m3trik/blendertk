@@ -389,3 +389,163 @@ class RenderOpacity(ptk.LoggingMixin):
                 ", ".join(synced),
             )
         return synced
+
+    # ------------------------------------------------------------------ in-band export metadata
+    #: ``data_export`` channel read by ``ptk.MeshConvert.apply_glb_visibility``
+    #: (mirror of mayatk's ``RenderOpacity.DATA_CHANNEL``).
+    DATA_CHANNEL = ptk.MeshConvert.VISIBILITY_TRACKS_KEY
+    SCHEMA_VERSION = ptk.MeshConvert.VISIBILITY_TRACKS_VERSION
+
+    @classmethod
+    def visibility_tracks(cls) -> list:
+        """Every visibility-keyed object in the file, as stepped on/off tracks.
+
+        Mirror of mayatk's ``RenderOpacity.visibility_tracks``, and the values
+        are INVERTED on the way out: Blender's channel is ``hide_render``, so a
+        keyframe value of 1 means *hidden* where the published contract — which
+        is glTF's, not either DCC's — means *visible*. Doing that flip here is
+        the point of the split; a consumer must not have to know which DCC
+        wrote the file.
+        """
+        import bpy
+
+        tracks = []
+        for obj in bpy.data.objects:
+            # ``_fcurve`` resolves an action slot per call, so it is not free;
+            # an un-animated object cannot carry a visibility curve and most of
+            # a scene's objects are un-animated.
+            if not getattr(obj, "animation_data", None):
+                continue
+            vis = cls._fcurve(obj, cls.VIS_PATH)
+            if vis is None or not vis.keyframe_points:
+                continue
+            keys = [
+                [float(k.co[0]), 0.0 if k.co[1] >= 0.5 else 1.0]
+                for k in vis.keyframe_points
+            ]
+            track = {"node": obj.name, "visibility": sorted(keys)}
+            opacity = cls._fcurve(obj, f'["{cls.ATTR_NAME}"]')
+            if opacity is not None and opacity.keyframe_points:
+                track["opacity"] = cls._linear_ramp(opacity)
+            tracks.append(track)
+        return tracks
+
+    #: How much of a frame a CONSTANT key's jump is given when it is
+    #: linearized. Mirror of mayatk's ``RenderOpacity._STEP_JUMP``.
+    _STEP_JUMP = 0.01
+
+    @classmethod
+    def _linear_ramp(cls, fcurve) -> list:
+        """*fcurve*'s keys, shaped so a LINEAR consumer reproduces it exactly.
+
+        Mirror of mayatk's ``RenderOpacity._linear_ramp``, for the same reason
+        and against the same contract: the ramp is published as
+        ``[frame, alpha]`` pairs and every consumer interpolates them linearly,
+        which is only faithful while the DCC's own curve does too. Blender's
+        ``CONSTANT`` interpolation holds a key's value to the next one and then
+        jumps -- so publishing the keys alone invents a ramp across a segment
+        the artist authored as a cut. (Measured on the Maya side, where the
+        equivalent tangent made a hold read as a fifteen-frame fade-out.)
+
+        ``BEZIER`` is left as-is: it is Blender's default and it is a CURVE, so
+        no finite set of endpoints reproduces it -- publishing its keys is the
+        same approximation every consumer has always made, and eased alpha is
+        visually close to linear. Only the case that is plainly WRONG is fixed.
+        """
+        # Sorted ONCE, carrying each key's interpolation with it, so a frame is
+        # never used as a lookup key: two keys can share a frame, and a dict
+        # would silently drop one of them along with its interpolation.
+        keys = sorted(
+            (float(k.co[0]), float(k.co[1]), getattr(k, "interpolation", "BEZIER"))
+            for k in fcurve.keyframe_points
+        )
+        out: list = []
+        for index, (frame, value, interpolation) in enumerate(keys):
+            out.append([frame, value])
+            if index + 1 >= len(keys):
+                continue
+            gap = keys[index + 1][0] - frame
+            if interpolation == "CONSTANT" and gap > cls._STEP_JUMP:
+                out.append([frame + gap - cls._STEP_JUMP, value])
+        return out
+
+    @classmethod
+    def refresh_export_metadata(cls):
+        """Republish the ``visibility_tracks`` channel (``FbxUtils._KNOWN_PRODUCERS``).
+
+        Mirror of mayatk's. glTF animates translation, rotation, scale and morph
+        weights and nothing else, so keyed visibility does not survive the
+        conversion from either DCC; ``MeshConvert.apply_glb_visibility`` rebuilds
+        it from this channel as stepped scale. The authored *fade* rides along
+        on the same channel and ``MeshConvert.apply_glb_fades`` writes it as
+        ``KHR_animation_pointer`` alpha, which is why :meth:`_linear_ramp`
+        matters: that consumer reads the ramp linearly.
+        """
+        import json
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        # Bail BEFORE the span walk: that reads every fcurve in the file, and a
+        # scene with no keyed visibility has nothing to spend it on.
+        tracks = cls.visibility_tracks()
+        if not tracks:
+            DataNodes.set_export_string(cls.DATA_CHANNEL, "")
+            return None
+
+        metadata = cls._carrier_json("shot_metadata")
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        text = json.dumps(
+            ptk.MeshConvert.build_visibility_tracks(
+                tracks,
+                fps=(metadata or {}).get("fps"),
+                clip_spans=ptk.MeshConvert.clip_spans(
+                    cls._scene_key_frames(),
+                    cls._carrier_json("fbx_takes") or [],
+                    # The stack ships the range the write BAKES, and the
+                    # converter rebases it onto its first key; the scene's
+                    # own earliest key is not that range. Mirror of mayatk,
+                    # which reads the same answer off its exporter state.
+                    stack_range=FbxUtils.bake_range(),
+                ),
+            )
+        )
+        DataNodes.set_export_string(cls.DATA_CHANNEL, text)
+        cls.logger.info(
+            "Visibility: published %d keyed-visibility track(s) for the GLB "
+            "route (glTF drops the FBX's own visibility curves).",
+            len(tracks),
+        )
+        return text
+
+    @staticmethod
+    def _carrier_json(attr):
+        """One ``data_export`` channel, decoded, or ``None``."""
+        import json
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        try:
+            raw = DataNodes.get_export_string(attr)
+            return json.loads(raw) if raw else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _scene_key_frames() -> list:
+        """Every authored key time in the file, in frames.
+
+        The scene-reaching half of ``ptk.MeshConvert.clip_spans``, which owns
+        the rest (mirror of mayatk's ``_scene_key_frames``). Every animated
+        channel counts, because the converter sizes a take from all of them
+        while emitting a channel for only some.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        import bpy
+
+        return [
+            float(k.co[0])
+            for fc in AnimUtils.get_fcurves(list(bpy.data.objects))
+            for k in fc.keyframe_points
+        ]

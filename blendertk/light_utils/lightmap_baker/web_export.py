@@ -89,12 +89,14 @@ class LightmapWebExport(ptk.LoggingMixin):
         resolution: int = 1024,
         samples: int = 128,
         denoise: bool = True,
-        device: Optional[str] = "GPU",
+        device: Optional[str] = "AUTO",
     ):
         super().__init__()
-        # GPU by default: a web deliverable is baked at production sample counts, and the
-        # difference between a minutes-long and an hours-long bake is the whole iteration
-        # loop. Falls back to the CPU with a warning when no compute device is available.
+        # GPU wherever it pays, by default: a web deliverable is baked at production
+        # sample counts, and the difference between a minutes-long and an hours-long
+        # bake is the whole iteration loop -- while a tiny atlas tile finishes on the
+        # CPU before a GPU session is even up (``TextureBaker.GPU_MIN_WORK``). Falls
+        # back to the CPU with a warning when no compute device is available.
         self.baker = baker or LightmapBaker(
             resolution=resolution, samples=samples, denoise=denoise, device=device
         )
@@ -206,6 +208,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         encoded: Dict[str, Tuple[str, float]],
         carrier: str = "occlusion",
         uv_set: Optional[str] = None,
+        rects: Optional[Dict[str, List[float]]] = None,
     ) -> Dict[str, Any]:
         """Wire each lightmap into a real glTF texture slot on the lightmap UV.
 
@@ -224,6 +227,19 @@ class LightmapWebExport(ptk.LoggingMixin):
           viewer (the scene shows lit rather than merely shaded) but *overwrites* an
           authored emissive map. Prefer it for fused/unlit content.
 
+        *rects* carries the atlas ``scaleOffset`` per object, and it is what makes an
+        atlased bake correct. After atlas-by-material packing the MAP is a material-level
+        property but the RECT is not: every object sharing the material owns a different
+        window into the one image. Bound without it, each object samples the whole atlas
+        through its own [0,1] unwrap and wears every other object's lighting -- which reads
+        as blocky patches rather than as a missing map, so nothing downstream reports it.
+        A non-identity rect therefore binds per OBJECT: the material is cloned, the clone
+        gets a ``Mapping`` node ahead of the texture, and the clone rides an object-linked
+        slot -- the one place per-instance data can live when linked duplicates share a
+        mesh. Blender's exporter turns that node into a glTF ``KHR_texture_transform``
+        (applying the bottom-up -> top-down V flip itself), so the deliverable matches
+        ``ptk.MeshConvert.apply_glb_lightmaps``, which ships the same rect the same way.
+
         Returns a restore token for :meth:`unwire_lightmaps`; the wiring is a transport
         detail, not a change the artist asked for.
         """
@@ -232,36 +248,114 @@ class LightmapWebExport(ptk.LoggingMixin):
         if carrier not in self.CARRIERS:
             raise ValueError(f"carrier must be one of {self.CARRIERS}, got {carrier!r}")
 
-        token: Dict[str, Any] = {"carrier": carrier, "materials": []}
+        token: Dict[str, Any] = {
+            "carrier": carrier,
+            "materials": [],
+            "slots": [],
+            "copies": [],
+        }
         wired: set = set()
+        # One clone per distinct (material, map, rect): instances that happen to
+        # share a rect share a clone, and a scene with no atlas makes none at all.
+        clones: Dict[tuple, Any] = {}
 
-        for name, (png, _scalar) in encoded.items():
+        def not_wired(material_name, error):
+            """A transport failure must not lose the bake -- say so and carry on."""
+            self.logger.warning(
+                "Lightmap not wired into %s (%s); it still ships as a file.",
+                material_name,
+                error,
+            )
+
+        def window(rect):
+            """*rect* as this object's window into the map, or None for the whole map."""
+            if rect is None:
+                return None
+            rect = [float(v) for v in rect]
+            return None if rect == list(LightmapBaker._IDENTITY_SCALE_OFFSET) else rect
+
+        windows = {name: window((rects or {}).get(name)) for name in encoded}
+        # Atlased objects FIRST, because a clone has to be taken from a PRISTINE
+        # material: the identity branch wires the source in place, so cloning
+        # after it copies that wiring too and the clone ends up carrying two
+        # lightmap textures and two glTF-output groups, of which the exporter
+        # picks one arbitrarily -- measured, an atlased object then ships the
+        # UNTRANSFORMED binding, i.e. the very bug the rect is here to fix.
+        # Reachable whenever one material spans both modes, which two bakes into
+        # one scene (per-object then atlased) produce. sorted() is stable, so
+        # objects keep their order within each group.
+        ordered = sorted(encoded.items(), key=lambda kv: windows[kv[0]] is None)
+
+        for name, (png, _scalar) in ordered:
             obj = bpy.data.objects.get(name)
             if obj is None:
                 continue
             lm = uv_set or UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
-            for slot in getattr(obj, "material_slots", []) or []:
+            rect = windows[name]
+            for index, slot in enumerate(getattr(obj, "material_slots", []) or []):
                 material = slot.material
-                if material is None or material.name in wired:
+                if material is None:
                     continue
-                try:
-                    added = self._wire_material(material, png, lm, carrier)
-                except Exception as error:  # a transport failure must not lose the bake
-                    self.logger.warning(
-                        "Lightmap not wired into %s (%s); it still ships as a file.",
-                        material.name,
-                        error,
+                if rect is None:
+                    if material.name in wired:
+                        continue
+                    try:
+                        added = self._wire_material(material, png, lm, carrier)
+                    except Exception as error:
+                        not_wired(material.name, error)
+                        continue
+                    wired.add(material.name)
+                    token["materials"].append(
+                        {"material": material.name, "nodes": added}
                     )
                     continue
-                wired.add(material.name)
-                token["materials"].append({"material": material.name, "nodes": added})
+
+                key = (material.name, png, tuple(float(v) for v in rect))
+                clone = clones.get(key)
+                if clone is None:
+                    clone = material.copy()
+                    clone.name = f"{material.name}~lm{len(clones)}"
+                    try:
+                        self._wire_material(clone, png, lm, carrier, rect=rect)
+                    except Exception as error:
+                        not_wired(material.name, error)
+                        bpy.data.materials.remove(clone)
+                        continue
+                    clones[key] = clone
+                    token["copies"].append(clone.name)
+                # A slot holds BOTH a data-level and an object-level material and
+                # the link only says which one is live, so the object-level one has
+                # to be read THROUGH the link we are about to take over -- reading
+                # it as `slot.material` under a DATA link returns the mesh's and
+                # restore then clears a material the object was carrying (measured).
+                prior_link = slot.link
+                slot.link = "OBJECT"
+                prior = slot.material
+                token["slots"].append(
+                    {
+                        "object": obj.name,
+                        "index": index,
+                        "link": prior_link,
+                        "material": prior.name if prior is not None else None,
+                    }
+                )
+                slot.material = clone
 
         return token
 
     def _wire_material(
-        self, material, png: str, uv_name: str, carrier: str
+        self,
+        material,
+        png: str,
+        uv_name: str,
+        carrier: str,
+        rect: Optional[List[float]] = None,
     ) -> List[str]:
-        """Add the lightmap image + UVMap nodes to *material*; return the node names added."""
+        """Add the lightmap image + UVMap nodes to *material*; return the node names added.
+
+        *rect* is an atlas ``scaleOffset``: with one, a ``Mapping`` node between the UV and
+        the texture narrows the sample to that object's window (see :meth:`wire_lightmaps`).
+        """
         import bpy
 
         # Find-or-create the tree, GUARDED on its absence rather than assigning
@@ -292,8 +386,22 @@ class LightmapWebExport(ptk.LoggingMixin):
         tex.label = "Lightmap"
         uvmap = nt.nodes.new("ShaderNodeUVMap")
         uvmap.uv_map = uv_name
-        nt.links.new(uvmap.outputs["UV"], tex.inputs["Vector"])
         added = [tex.name, uvmap.name]
+        if rect is None:
+            nt.links.new(uvmap.outputs["UV"], tex.inputs["Vector"])
+        else:
+            # POINT: uv' = uv * scale + location -- the scaleOffset convention
+            # exactly (Unity lightmapScaleOffset), so the rect needs no rewriting
+            # here and no V flip: Blender's glTF exporter converts this node to
+            # KHR_texture_transform and flips V on the way out (measured).
+            sx, sy, ox, oy = (float(v) for v in rect)
+            mapping = nt.nodes.new("ShaderNodeMapping")
+            mapping.vector_type = "POINT"
+            mapping.inputs["Scale"].default_value = (sx, sy, 1.0)
+            mapping.inputs["Location"].default_value = (ox, oy, 0.0)
+            nt.links.new(uvmap.outputs["UV"], mapping.inputs["Vector"])
+            nt.links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
+            added.append(mapping.name)
 
         if carrier == "emissive":
             bsdf = next(
@@ -339,10 +447,31 @@ class LightmapWebExport(ptk.LoggingMixin):
 
     @staticmethod
     def unwire_lightmaps(token: Dict[str, Any]) -> List[str]:
-        """Remove the nodes :meth:`wire_lightmaps` added, restoring the source materials."""
+        """Undo :meth:`wire_lightmaps`: restore the slots, drop the clones, unwire the rest.
+
+        Ordered that way because an object-linked slot holds a user count on the clone it
+        points at, so the datablock cannot be freed while the slot still names it.
+        """
         import bpy
 
         restored: List[str] = []
+        # Slots first: an object-linked override holds a user count on the clone,
+        # so the datablock cannot be freed while the slot still points at it.
+        for record in (token or {}).get("slots", []):
+            obj = bpy.data.objects.get(record.get("object", ""))
+            if obj is None:
+                continue
+            index = record.get("index", 0)
+            if index >= len(obj.material_slots):
+                continue
+            slot = obj.material_slots[index]
+            slot.link = "OBJECT"
+            slot.material = bpy.data.materials.get(record.get("material") or "")
+            slot.link = record.get("link", "DATA")
+        for name in (token or {}).get("copies", []):
+            clone = bpy.data.materials.get(name)
+            if clone is not None:
+                bpy.data.materials.remove(clone)
         for record in (token or {}).get("materials", []):
             material = bpy.data.materials.get(record.get("material", ""))
             if (
@@ -367,8 +496,10 @@ class LightmapWebExport(ptk.LoggingMixin):
     ) -> Dict[str, Any]:
         """The ``lightmap_web`` manifest the viewer reads to rebind the carrier slot.
 
-        Keyed by *material* rather than object: after atlas consolidation the lightmap is a
-        material-level property, and glTF materials are what the viewer actually walks.
+        Keyed by *material* rather than object, because glTF materials are what the viewer
+        actually walks. After atlas consolidation the MAP is material-level but the per-
+        instance RECT is not, so an atlased object appears here under the name of the clone
+        :meth:`wire_lightmaps` gave it -- which is also the name the GLB carries.
         """
         import bpy
 
@@ -555,6 +686,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         import bpy
 
         mapping: Dict[str, str] = {}
+        rects: Dict[str, List[float]] = {}
         for obj in objects or bpy.data.objects:
             obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
             if obj is None or LightmapBaker.LIGHTMAP_INFO_PROP not in obj:
@@ -584,6 +716,12 @@ class LightmapWebExport(ptk.LoggingMixin):
                 )
                 continue
             mapping[obj.name] = path
+            # The per-instance window into an atlased map. Dropping it is not a
+            # degradation but a wrong bind: the object then samples the whole
+            # atlas (see :meth:`wire_lightmaps`).
+            scale_offset = info.get("scaleOffset")
+            if scale_offset:
+                rects[obj.name] = [float(v) for v in scale_offset]
 
         if not mapping:
             yield None
@@ -594,7 +732,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         encoded = self.encode_for_web(
             mapping, output_dir=png_dir, percentile=percentile
         )
-        token = self.wire_lightmaps(encoded, carrier=carrier)
+        token = self.wire_lightmaps(encoded, carrier=carrier, rects=rects)
         manifest = self.build_manifest(encoded, carrier=carrier)
 
         scene = bpy.context.scene

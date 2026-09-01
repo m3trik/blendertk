@@ -711,6 +711,134 @@ try:
         f"unlabelled={_missing}",
     )
 
+    # ---- Duplicate Names: one check, four widths (mirrors mayatk) -------------
+    # Added: 2026-08-29. The check was Empty-only, so a duplicate bone name
+    # (which breaks skinning and retargeting on import) or a duplicate mesh
+    # name shipped unreported. Each tier must catch what the narrower one
+    # cannot, and catch nothing more. Blender force-uniques object names, so
+    # every collision here is the auto ".001" suffix the check strips.
+    _dn_tm = _tm_defs
+
+    def _dn_link(obj):
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    def _dn_empty(name):
+        return _dn_link(bpy.data.objects.new(name, None))
+
+    def _dn_mesh(name):
+        return _dn_link(bpy.data.objects.new(name, bpy.data.meshes.new(name)))
+
+    def _dn_rig(name, bone):
+        """An armature object called *name* carrying one bone called *bone*."""
+        obj = _dn_link(bpy.data.objects.new(name, bpy.data.armatures.new(name)))
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.mode_set(mode="EDIT")
+        edit_bone = obj.data.edit_bones.new(bone)
+        edit_bone.head, edit_bone.tail = (0, 0, 0), (0, 0, 1)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return obj
+
+    def _dn_run(objects, scope):
+        _dn_tm.objects = objects
+        return _dn_tm.check_duplicate_names(scope)
+
+    _dn_empties = [_dn_empty("SNAP"), _dn_empty("SNAP")]
+    _dn_ok, _dn_msgs = _dn_run(_dn_empties, "locators")
+    check(
+        "Locators tier flags two Empties sharing a base name",
+        not _dn_ok and any("SNAP" in m for m in _dn_msgs),
+        f"ok={_dn_ok} msgs={_dn_msgs}",
+    )
+    check(
+        "the pre-dial key still dispatches at the scope it always had",
+        not _dn_tm.check_duplicate_locator_names()[0],
+        "check_duplicate_locator_names(True) no longer flags the Empty pair",
+    )
+    _dn_ok, _dn_msgs = _dn_tm.check_duplicate_names("al")
+    check(
+        "an unknown scope fails loudly instead of narrowing",
+        # "al" falls through the resolver to its widest branch's neighbour --
+        # a NARROWER tier than asked for, which would pass on that basis.
+        not _dn_ok and any("Unknown duplicate-name scope" in m for m in _dn_msgs),
+        f"ok={_dn_ok} msgs={_dn_msgs}",
+    )
+    check(
+        "OFF short-circuits before touching the scene",
+        all(
+            _dn_tm.check_duplicate_names(v) == (True, [])
+            for v in (None, False, "", "OFF")
+        ),
+        "a falsy scope still ran the scan",
+    )
+
+    # Bones share the FBX node namespace: DISTINCT armature objects, one bone
+    # name between them -- so only the bone half can be what collides.
+    _dn_rigs = [_dn_rig("RIG_A", "spine"), _dn_rig("RIG_B", "spine")]
+    check(
+        "Locators tier ignores a bone collision",
+        _dn_run(_dn_rigs, "locators")[0],
+        "the Empty-only tier flagged armature bones",
+    )
+    _dn_ok, _dn_msgs = _dn_run(_dn_rigs, "joints")
+    check(
+        "Locators & Joints tier flags a bone name shared across armatures",
+        not _dn_ok and any("spine" in m for m in _dn_msgs),
+        f"ok={_dn_ok} msgs={_dn_msgs}",
+    )
+
+    # A constrained pair: inert to every narrower tier, caught by Connected.
+    _dn_props = [_dn_mesh("PROP"), _dn_mesh("PROP")]
+    for _dn_obj in _dn_props:
+        _dn_obj.constraints.new(type="COPY_LOCATION").target = _dn_empties[0]
+    check(
+        "Connected & Animated is the narrowest tier that flags a constrained pair",
+        _dn_run(_dn_props, "locators")[0]
+        and _dn_run(_dn_props, "joints")[0]
+        and not _dn_run(_dn_props, "connected")[0],
+        f"scopes={[_dn_run(_dn_props, s)[0] for s in ('locators', 'joints', 'connected')]}",
+    )
+
+    # Inert geometry: only the widest tier has any reason to look at it.
+    _dn_crates = [_dn_mesh("CRATE"), _dn_mesh("CRATE")]
+    check(
+        "All Export Objects is the only tier that flags inert geometry",
+        all(_dn_run(_dn_crates, s)[0] for s in ("locators", "joints", "connected"))
+        and not _dn_run(_dn_crates, "all")[0],
+        f"all_tier={_dn_run(_dn_crates, 'all')}",
+    )
+
+    _dn_spec = _dn_tm.check_definitions["check_duplicate_names"]
+    _dn_keys = list(_dn_spec)
+    check(
+        "the check renders as a labelled scope combo opening on Locators",
+        _dn_spec["widget_type"] == "ComboBox"
+        and _dn_spec["set_row_label"] == "Duplicate Names"
+        and list(_dn_spec["add"])
+        == [
+            "OFF",
+            "Locators",
+            "Locators & Joints",
+            "Connected & Animated",
+            "All Export Objects",
+        ]
+        and _dn_spec["add"]["OFF"] is None
+        # ``add`` lands the combo on index 0 (OFF), so the default index has
+        # to be applied AFTER it -- set_attributes walks the dict in order.
+        and _dn_keys.index("add") < _dn_keys.index("setCurrentIndex")
+        and list(_dn_spec["add"])[_dn_spec["setCurrentIndex"]] == "Locators",
+        f"spec={ {k: v for k, v in _dn_spec.items() if k != 'setToolTip'} }",
+    )
+    check(
+        "the pre-dial key is gone from the panel definitions",
+        "check_duplicate_locator_names" not in _dn_tm.check_definitions,
+        "the retired checkbox still renders a row",
+    )
+
+    for _dn_obj in _dn_empties + _dn_rigs + _dn_props + _dn_crates:
+        bpy.data.objects.remove(_dn_obj, do_unlink=True)
+    _dn_tm.objects = None
+
     # ---- image_paths_scope: the snapshot -> mutate -> restore scope ------------
     # Added: 2026-08-16
     from blendertk.mat_utils._mat_utils import MatUtils as _MU
@@ -1484,20 +1612,27 @@ try:
         _tm._texture_template = template
         return _tm._glb_texture_params()
 
+    # CONTRACT CHANGE (2026-08-29): untouched dials used to mean no pass at all.
+    # Measured on a production assembly through mayatk's twin of this path, the
+    # byte-stable default shipped 280.13 MB where the WebXR preview published
+    # 8.71 MB of the same scene. Both dials are now OVERRIDES of one shared
+    # web-delivery policy rather than the only thing that turns the pass on.
+    _policy = ptk.MeshConvert.web_delivery_texture_params()
     check(
-        "neither dial set = no GLB texture pass at all (byte-stable)",
-        _glb_params() is None,
+        "neither dial set = the shared web-delivery policy, not a raw GLB",
+        _glb_params() == _policy,
+        f"{_glb_params()} vs {_policy}",
     )
     _p = _glb_params(file_type="webp")
     check(
-        "file type alone is container-only (Optimize Textures off = no resample)",
-        _p == {"image_format": "WEBP", "max_size": 0},
+        "file type alone overrides the container and keeps the policy ceiling",
+        _p == {"image_format": "WEBP", "max_size": _policy["max_size"]},
         f"{_p}",
     )
-    _p = _glb_params(optimize=True, max_size=2048)
+    _p = _glb_params(optimize=True, max_size=1024)
     check(
-        "optimize alone caps resolution in the lossless glTF-core container",
-        _p == {"image_format": "PNG", "max_size": 2048},
+        "optimize alone overrides the ceiling and keeps the policy container",
+        _p == {"image_format": _policy["image_format"], "max_size": 1024},
         f"{_p}",
     )
     _p = _glb_params(file_type="webp", optimize=True, max_size=1024)
@@ -1506,10 +1641,16 @@ try:
         _p == {"image_format": "WEBP", "max_size": 1024},
         f"{_p}",
     )
+    _p = _glb_params(file_type="webp", optimize=True, max_size=None)
+    check(
+        "a dial naming no ceiling takes the policy's, never 'keep every pixel'",
+        _p == {"image_format": "WEBP", "max_size": _policy["max_size"]},
+        f"{_p}",
+    )
     _p = _glb_params(file_type="tga", optimize=False)
     check(
-        "a container glTF cannot embed falls back to PNG for the GLB",
-        _p == {"image_format": "PNG", "max_size": 0},
+        "a container glTF cannot embed falls back to the web-delivery container",
+        _p == _policy,
         f"{_p}",
     )
 
@@ -1755,7 +1896,8 @@ try:
         "a run with no tasks does not inherit the prior run's texture pass",
         first is True
         and exp_stale.task_manager._optimize_textures_enabled is False
-        and exp_stale.task_manager._glb_texture_params() is None,
+        and exp_stale.task_manager._glb_texture_params()
+        == ptk.MeshConvert.web_delivery_texture_params(),
         f"first={first}, second={exp_stale.task_manager._optimize_textures_enabled}",
     )
 
@@ -2271,6 +2413,18 @@ try:
         f"{seq_handler.messages}",
     )
 
+    # The default is part of the parity: off, a scene with shots exports
+    # shot_metadata naming clips the file does not contain (mayatk pins the
+    # same, test_scene_exporter.test_takes_are_default_on_beside_the_carrier).
+    check(
+        "apply_declared_takes defaults ON, like the carrier it describes",
+        SceneExporter().task_manager.task_definitions["apply_declared_takes"][
+            "setChecked"
+        ]
+        is True,
+        "off, the deliverable describes shots it cannot play",
+    )
+
     # ---- apply_declared_takes: shots -> named engine clips, end to end -------
     # The Maya-parity pipeline (shot_export_unity.md): the Shots store publishes
     # fbx_takes + shot_metadata onto the carrier; the takes task refreshes,
@@ -2453,6 +2607,51 @@ try:
         and _spec["panel"] == "settings",
         f"{ {k: _spec.get(k) for k in ('widget_type', 'value_method', 'panel')} }",
     )
+    reset_scene()
+
+    # ---- ignore_groups patterns are shell-style globs (mirror of mayatk) ------------
+    # The field shipped as exact set-membership, so "temp*" matched nothing and
+    # every temp_01/temp_02 group had to be listed by hand. Matching now runs
+    # through ptk.filter_list, which owns the glob, the comma split and the case
+    # fold for every filter field in the ecosystem.
+    _roots, _geo = {}, {}
+    for _n in ("temp_01", "temp_02", "hull_proxy", "HERO"):
+        _root = bpy.data.objects.new(_n, None)
+        bpy.context.collection.objects.link(_root)
+        bpy.ops.mesh.primitive_cube_add()
+        _child = bpy.context.active_object
+        _child.name = f"{_n}_geo"
+        _child.parent = _root
+        _roots[_n], _geo[_n] = _root, _child
+    _all = [_geo[n] for n in ("temp_01", "temp_02", "hull_proxy", "HERO")]
+
+    _tm = SceneExporter(log_level="DEBUG").task_manager
+
+    _no_temps = [_geo["hull_proxy"], _geo["HERO"]]
+    _no_proxy = [_geo["temp_01"], _geo["temp_02"], _geo["HERO"]]
+    _hero = [_geo["HERO"]]
+    # (label, pattern, case_sensitive, expected survivors). The last case is the
+    # footgun the early return guards: filter_list with no patterns is a no-op
+    # returning the list unfiltered, which here would read as every root
+    # matching and drop the whole scene out of the export.
+    _cases = [
+        ("a trailing star matches a name prefix", "temp*", False, _no_temps),
+        ("a leading star matches a name suffix", "*_proxy", False, _no_proxy),
+        ("'?' matches exactly one character", "temp_0?", False, _no_temps),
+        ("wildcards compose with the comma split", "temp*, *_proxy", False, _hero),
+        ("no wildcard still matches only that exact name", "temp", False, _all),
+        ("case_sensitive=True applies to wildcards", "TEMP*", True, _all),
+        ("the insensitive default applies to wildcards", "TEMP*", False, _no_temps),
+        ("an all-separator field excludes nothing", " , ,  ", False, _all),
+    ]
+    for _label, _pattern, _case_sensitive, _expect in _cases:
+        _tm.objects = list(_all)
+        _tm.ignore_groups(_pattern, case_sensitive=_case_sensitive)
+        check(
+            f"ignore_groups: {_label}",
+            _tm.objects == _expect,
+            f"pattern={_pattern!r} -> {[o.name for o in _tm.objects]}",
+        )
     reset_scene()
 
     # ---- check_valid_paths covers the lightmaps the bake markers name (mirror of mayatk) --

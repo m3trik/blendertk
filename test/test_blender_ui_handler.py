@@ -377,6 +377,14 @@ try:
     rm_ui = sb.get_ui("reference_manager")
     rm = getattr(rm_ui, "slots", None)
     if rm is not None:
+        # Tap-to-pin: reference_manager opts in explicitly in header_init (an assignment,
+        # not a dependency on UiHandler.pin_on_tap's process-wide default) — letting the
+        # marking-menu key go right after the panel opens pins it instead of dismissing it.
+        # The GESTURE_SCOPED loop above already drove header_init on this same header.
+        check(
+            "reference_manager header opts into tap-to-pin",
+            getattr(rm_ui.header, "pin_on_tap", None) is True,
+        )
         rm_btns = [b.text() for b in rm_ui.footer.findChildren(QtWidgets.QPushButton)]
         check(
             "reference_manager footer hosts the bulk 'Un-Reference All' button",

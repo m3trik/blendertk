@@ -227,6 +227,47 @@ try:
         f"{shipped and dict(shipped.items())}",
     )
 
+    # ---- declared takes reach ANY animated hand-off, not just the exporter ----
+    # Mirror of mayatk's check of the same contract. The take split lived only in
+    # the Scene Exporter's task, so a preview push of a shot-carrying scene came
+    # back with one whole-timeline take -- two writers of the same deliverable
+    # disagreeing about whether shots survive. Armed takes are sticky, so the
+    # reset matters as much as the arm: left armed they would split the next
+    # export nobody asked to split.
+    DataNodes.set_export_string(
+        DataNodes.FBX_TAKES, '[{"name": "Shot_1", "start": 1, "end": 10}]'
+    )
+    for include_animation, expect_armed in ((True, 1), (False, 0)):
+        _armed = {}
+        _real_export = btk.FbxUtils.export_selection_fbx
+        try:
+            btk.FbxUtils.export_selection_fbx = (
+                lambda filepath=None, objects=None, **o: _armed.update(
+                    during=btk.FbxUtils._pending_takes
+                )
+                or filepath
+            )
+            WebXrPreview()._export_fbx(
+                [lit],
+                os.path.join(tmp, "takes.fbx"),
+                {"INCLUDE_ANIMATION": include_animation},
+            )
+        finally:
+            btk.FbxUtils.export_selection_fbx = _real_export
+        during = _armed.get("during") or []
+        check(
+            f"INCLUDE_ANIMATION={include_animation} -> "
+            f"{expect_armed} take(s) armed during the write",
+            len(during) == expect_armed,
+            f"{during}",
+        )
+        check(
+            f"INCLUDE_ANIMATION={include_animation} -> takes cleared afterwards",
+            not btk.FbxUtils._pending_takes,
+            f"{btk.FbxUtils._pending_takes}",
+        )
+    DataNodes.set_export_string(DataNodes.FBX_TAKES, "")
+
     # ---- data_internal must never ride a hand-off -----------------------------
     # In Maya the guarantee is structural (network node); here the carrier is a
     # plain Empty a whole-scene send would sweep in — with use_custom_props forced

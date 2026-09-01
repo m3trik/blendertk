@@ -41,8 +41,10 @@ modes are live: "Per-Object" (one full-resolution map each) and "Atlas by Materi
 consolidation via :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer).
 """
 
+import contextlib
 import json
 import os
+from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
@@ -107,17 +109,32 @@ class LightmapBaker(ptk.LoggingMixin):
     def __init__(
         self,
         resolution: int = 1024,
-        samples: int = 5,
+        samples: int = 64,
         denoise: bool = True,
         device: Optional[str] = None,
+        bounces: int = 4,
+        include_environment: bool = True,
     ):
         super().__init__()
+        # Bake the scene's world (an HDRI environment) along with its lights.
+        # ON is the scene as authored -- the historical behaviour. OFF detaches
+        # the world for the duration (see :meth:`_muted_environment`): an HDRI
+        # is often a backdrop / look-dev convenience rather than the room's
+        # real lighting, and baking it in is a flat ambient lift that cannot be
+        # removed afterwards. Twin of mayatk's, where the same toggle mutes the
+        # aiSkyDomeLight.
+        self.include_environment = bool(include_environment)
         # The generic Cycles bake-to-texture primitive (mat_utils) owns resolution/samples; this
         # workflow (UV2, commit/revert, engine metadata) composes it — mirror of mayatk's
         # TextureBaker / LightmapBaker split. ``resolution``/``samples`` stay readable/settable on
         # the baker (below) as a single source of truth (no drift between the two objects).
         # ``denoise``/``device`` are Cycles quality/throughput knobs owned by the same primitive.
-        self._texture_baker = TextureBaker(resolution, samples, denoise, device)
+        # ``samples`` is Cycles PATHS, deliberately NOT mayatk's 5 (Arnold AA
+        # samples) -- see TextureBaker.__init__ for why mirroring the API does
+        # not mean mirroring the number across a unit change.
+        self._texture_baker = TextureBaker(
+            resolution, samples, denoise, device, bounces
+        )
         # Latch for the pre-bake unlit-scene guard (warn once per instance).
         self._warned_no_lights = False
 
@@ -153,6 +170,15 @@ class LightmapBaker(ptk.LoggingMixin):
     def device(self, value: Optional[str]) -> None:
         self._texture_baker.device = value
 
+    @property
+    def bounces(self) -> int:
+        """Diffuse bounces the bake integrates -- role-twin of mayatk's ``gi_depth``."""
+        return self._texture_baker.bounces
+
+    @bounces.setter
+    def bounces(self, value: int) -> None:
+        self._texture_baker.bounces = int(value)
+
     # ------------------------------------------------------------------
     # Quality-tier presets (pythontk PresetStore: built-in + user tiers)
     # ------------------------------------------------------------------
@@ -170,7 +196,7 @@ class LightmapBaker(ptk.LoggingMixin):
 
     @classmethod
     def from_preset(cls, name: str, **overrides) -> "LightmapBaker":
-        """Construct a baker from a named quality preset (``resolution`` / ``samples``).
+        """Construct a baker from a preset (``resolution`` / ``samples`` / ``bounces``).
 
         ``overrides`` win over the preset; extra preset keys (``description``) are ignored.
         Built-ins (Cycles samples, denoised): ``preview`` (256/64), ``quest`` (1024/256),
@@ -178,6 +204,19 @@ class LightmapBaker(ptk.LoggingMixin):
         atlas is shared by a whole material group -- a 40-piece room on one material gets
         1/40th of it each, which is why an environment needs a tier above its per-object
         intuition.
+
+        ``bounces`` rides the tier for the same reason mayatk's ``gi_depth`` does: in a
+        closed room it is the biggest quality-per-second lever, and a preset that named
+        only resolution and samples would leave the bake at whatever the scene last
+        rendered with. The tiers are NOT mayatk's Arnold depths, though -- measured on
+        one production room, Cycles at 4 bounces already sits at 0.76x an Arnold
+        ``gi_depth`` 2 bake of the same scene, so the two renderers' depth numbers are
+        not interchangeable and the level difference is method (Arnold bakes through a
+        white card) rather than bounce count. Every tier but ``preview`` therefore
+        keeps Cycles' own default of 4: pinning is here to make a bake REPRODUCIBLE,
+        not to restyle one that was already being produced at the factory default,
+        and ``quest`` is the default tier on both the panel and the Maya bridge.
+        Only ``preview``, which advertises speed, trades bounces for it.
         """
         store = cls.preset_store()
         if not store.exists(name):
@@ -186,12 +225,12 @@ class LightmapBaker(ptk.LoggingMixin):
             )
         data = {**store.load(name), **overrides}
         kwargs: Dict[str, Any] = {
-            k: int(data[k]) for k in ("resolution", "samples") if k in data
+            k: int(data[k]) for k in ("resolution", "samples", "bounces") if k in data
         }
         # Constructor args a preset does not carry but a caller may override --
         # previously dropped silently, so from_preset(name, device="CPU") built a
         # GPU baker and nothing said so.
-        for key in ("denoise", "device"):
+        for key in ("denoise", "device", "include_environment"):
             if key in overrides:
                 kwargs[key] = overrides[key]
         return cls(**kwargs)
@@ -225,6 +264,7 @@ class LightmapBaker(ptk.LoggingMixin):
         on_progress: Optional[Callable[[int, int, str], bool]] = None,
         stem: Optional[Any] = None,
         size: Optional[Any] = None,
+        heal: bool = True,
     ) -> Dict[str, str]:
         """Bake one HDR lightmap per object into the lightmap UV channel.
 
@@ -248,6 +288,13 @@ class LightmapBaker(ptk.LoggingMixin):
                 every object at the full square :attr:`resolution`; :meth:`bake_atlas` passes
                 each object's atlas footprint instead.
 
+            heal: Refill each map's background and rendered-dead texels before
+                returning it (see :meth:`_heal_dead_texels`). Leave it on for any
+                map that is a DELIVERABLE. :meth:`bake_atlas` turns it off because
+                its maps are intermediates that :meth:`_assemble_atlas_exr` masks
+                with the same rule while it composites them -- healing there is a
+                full load/save round trip per tile for an answer thrown away.
+
         Returns ``{object_name: lightmap_path}`` for each successful bake.
         """
         meshes = TextureBaker.resolve_meshes(objects)
@@ -261,22 +308,38 @@ class LightmapBaker(ptk.LoggingMixin):
         if create_uvs:
             UvUtils.create_lightmap_uvs(meshes, uv_set=uv_set, quiet=True)
 
-        return self._texture_baker.bake(
-            meshes,
-            bake_type="DIFFUSE",
-            pass_filter={"DIRECT", "INDIRECT"},
-            use_pass_color=False,  # lighting-only excludes albedo (native white-card)
-            output_dir=output_dir or TextureBaker.default_output_dir("baked_lighting"),
-            prefix=prefix,
-            suffix=suffix,
-            margin=margin,
-            # Per-object: target the object's own lightmap UV (robust to a pre-existing,
-            # differently-named lightmap layer; falls back to the standard set name).
-            uv_set=lambda o: UvUtils.find_lightmap_uv_set(o) or uv_set,
-            stem=stem,
-            size=size,
-            on_progress=on_progress,
-        )
+        with self._muted_environment():
+            result = self._texture_baker.bake(
+                meshes,
+                bake_type="DIFFUSE",
+                pass_filter={"DIRECT", "INDIRECT"},
+                use_pass_color=False,  # lighting-only excludes albedo (native white-card)
+                output_dir=(
+                    output_dir or TextureBaker.default_output_dir("baked_lighting")
+                ),
+                prefix=prefix,
+                suffix=suffix,
+                margin=margin,
+                # Per-object: target the object's own lightmap UV (robust to a
+                # pre-existing, differently-named lightmap layer; falls back to
+                # the standard set name).
+                uv_set=lambda o: UvUtils.find_lightmap_uv_set(o) or uv_set,
+                stem=stem,
+                size=size,
+                on_progress=on_progress,
+            )
+        # EVERY delivered map, not just the ones an atlas consumes. Cycles'
+        # native margin extends each island by a fixed few texels (~16 at 1024)
+        # and leaves the REST of the map exact black -- which every mip level
+        # averages back into the island as a dark halo the moment the texture is
+        # minified, i.e. a visible seam on tiled geometry at distance. mayatk's
+        # twin heals every separated map; here only the atlas path did, so the
+        # default Per-Object bake -- the panel's own default -- shipped the halo,
+        # and the same object came back different depending on the packing mode.
+        if heal:
+            for path in result.values():
+                self._heal_dead_texels(path)
+        return result
 
     # ------------------------------------------------------------------
     # Commit: lighting-only (keep maps) -- fully non-destructive
@@ -416,6 +479,12 @@ class LightmapBaker(ptk.LoggingMixin):
                 prefix=prefix,
                 suffix=suffix,
                 size=self.plan_sizes(plan),
+                # The tiles are intermediates: the assembly masks them with the
+                # SAME dead-texel rule (``_signal_mask``) while compositing, so
+                # healing each one first is a load/save round trip per object for
+                # an answer that is recomputed and discarded. A solo group, which
+                # skips the assembly, is healed by ``_pack_group`` instead.
+                heal=False,
                 **kwargs,
             )
             return self.pack_atlas(
@@ -540,6 +609,26 @@ class LightmapBaker(ptk.LoggingMixin):
             plan = self.atlas_plan(list(mapping))
 
         all_sources = {os.path.abspath(p) for p in mapping.values()}
+        # A map the layout does not name still has to come out the other side:
+        # this method's contract is that a bake is never lost. It reaches here
+        # when a name no longer resolves to a mesh (renamed or deleted between
+        # bake and pack) or when a caller hands in a plan built from a
+        # different set -- both of which the layout walk below would otherwise
+        # drop in silence. Each becomes its own single-object group, i.e. its
+        # own map with the identity rect, which is what a solo group means.
+        laid_out = {n for entries in plan.values() for n, _rect in entries}
+        orphans = [n for n in sorted(mapping) if n not in laid_out]
+        if orphans:
+            self.logger.warning(
+                "Atlas: %d map(s) are not in the layout; keeping each as its "
+                "own map (identity rect): %s",
+                len(orphans),
+                ", ".join(orphans[:5]),
+            )
+            plan = dict(plan)
+            for name in orphans:
+                plan[name] = [(name, list(self._IDENTITY_SCALE_OFFSET))]
+
         out: Dict[str, Tuple[str, List[float]]] = {}
         used: set = set()
         for key, entries in plan.items():
@@ -608,9 +697,10 @@ class LightmapBaker(ptk.LoggingMixin):
                 stem=ptk.StrUtils.apply_affix(base, prefix, suffix),
                 avoid=foreign,
             )
-            # A solo map skips the assembly (and its rendered-dead rescue) —
-            # heal its exact-zero texels here (twin of mayatk's adopt heal).
-            self._heal_zero_texels(path)
+            # Idempotent safety net: a map baked HERE was already healed on
+            # the way out of the bake, but ``pack_atlas`` is public and may be
+            # handed maps from anywhere.
+            self._heal_dead_texels(path)
             out[names[0]] = (path, list(self._IDENTITY_SCALE_OFFSET))
             return
 
@@ -702,14 +792,55 @@ class LightmapBaker(ptk.LoggingMixin):
         used.add(dst)
         return dst
 
-    def _heal_zero_texels(self, path: str) -> None:
-        """Refill any exact-zero texel in *path* from its nearest non-zero one, in place.
+    @classmethod
+    def _signal_mask(cls, rgb):
+        """Bool mask of the texels in *rgb* that are this bake's own lighting.
 
-        Solo maps skip the atlas assembly (and its rendered-dead rescue), but a bake
-        target's unrendered background — and rendered-dead occluded geometry — ships
-        exact zeros that every mip level averages into the island as a dark halo.
-        A fully-black map is left alone (a black bake is a faithful render of an
+        THE definition of signal for this module, shared by the per-map heal
+        (:meth:`_heal_dead_texels`) and the atlas assembly's per-tile rescue
+        (:meth:`_assemble_atlas_exr`) so a map cannot mean one thing on its own
+        and another inside an atlas. Everything at or below
+        ``max(_DEAD_TEXEL_ABS, _DEAD_TEXEL_FRACTION * the map's own lit median)``
+        is background or rendered-dead occlusion, not lighting.
+
+        Parameters:
+            rgb: HxWx3 float array (a linear lightmap's colour channels).
+
+        Returns:
+            The mask, or ``None`` when nothing in *rgb* is lit at all -- there is
+            no median to calibrate against, and the caller decides what an
+            entirely dark map means.
+        """
+        import numpy as np
+
+        lum = rgb.max(axis=-1)
+        lit = lum > cls._DEAD_TEXEL_ABS
+        if not lit.any():
+            return None
+        floor_ = max(
+            cls._DEAD_TEXEL_ABS,
+            cls._DEAD_TEXEL_FRACTION * float(np.median(lum[lit])),
+        )
+        return lum > floor_
+
+    def _heal_dead_texels(self, path: str) -> None:
+        """Refill *path*'s non-signal texels from their nearest lit ones, in place.
+
+        Two populations are not this object's lighting and must not survive into a
+        delivered map, because every mip level averages them back into the island
+        as a dark halo -- a visible seam on tiled geometry at distance:
+
+        * **background** -- exact zeros beyond the reach of Cycles' native margin
+          (which extends each island only a fixed few texels).
+        * **rendered-dead** -- texels the bake DID render at ~no radiance because
+          their geometry is occluded (below a floor slab, behind trim, inside a
+          panel overlap). Cut at :attr:`_DEAD_TEXEL_FRACTION` of the map's own lit
+          median, the same rule :meth:`_assemble_atlas_exr` applies per tile, so a
+          per-object map and an atlased one agree about what counts as signal.
+
+        A fully-dark map is left alone (a black bake is a faithful render of an
         unlit scene; the panel guard warns), as is a map with nothing to heal.
+        Idempotent: a healed map has no dead texels left to find.
         """
         import bpy
         import numpy as np
@@ -724,8 +855,8 @@ class LightmapBaker(ptk.LoggingMixin):
             img.pixels.foreach_get(buf)
             px = buf.reshape(img.size[1], img.size[0], img.channels)
             rgb = px[..., :3]
-            valid = (rgb > 0).any(axis=-1)
-            if valid.all() or not valid.any():
+            valid = self._signal_mask(rgb)
+            if valid is None or valid.all() or not valid.any():
                 return
             px[..., :3] = ptk.ImgUtils.fill_empty_texels(rgb, mask=valid)
             img.pixels.foreach_set(px.reshape(-1))
@@ -733,7 +864,7 @@ class LightmapBaker(ptk.LoggingMixin):
             img.file_format = "OPEN_EXR"
             img.save()
         except Exception as e:  # never lose a finished bake to a heal
-            self.logger.warning("Zero-heal skipped for %s: %s", path, e)
+            self.logger.warning("Dead-texel heal skipped for %s: %s", path, e)
         finally:
             if img is not None:
                 bpy.data.images.remove(img)
@@ -783,16 +914,10 @@ class LightmapBaker(ptk.LoggingMixin):
             # replaces them with lit neighbors instead of shipping hard black
             # borders. An all-dark tile stays content wholesale (a black bake
             # is a faithful render of an unlit scene; the panel guard warns).
-            lum = tile_rgb.max(axis=-1)
-            lit = lum > self._DEAD_TEXEL_ABS
-            if lit.any():
-                floor_ = max(
-                    self._DEAD_TEXEL_ABS,
-                    self._DEAD_TEXEL_FRACTION * float(np.median(lum[lit])),
-                )
-                mask[r0:r1, c0:c1] = lum > floor_
-            else:
-                mask[r0:r1, c0:c1] = True
+            tile_signal = self._signal_mask(tile_rgb)
+            # ``None`` == an all-dark tile: content wholesale (a black bake is a
+            # faithful render of an unlit scene; the panel guard warns).
+            mask[r0:r1, c0:c1] = True if tile_signal is None else tile_signal
 
         # Gutter fill via the SHARED pythontk primitives (the twin of mayatk's
         # atlas step -- one implementation, not two that drift). The previous
@@ -1431,14 +1556,27 @@ class LightmapBaker(ptk.LoggingMixin):
         # Expanded to ABSOLUTE here, on the machine publishing it: the markers
         # keep the portable (``//``-relative) spelling, but a manifest reader
         # has no .blend to resolve it against.
-        dirs = {
+        counts = Counter(
             self._resolved_dir(str(m.get("dir") or ""), str(m.get("map") or ""))
             for m in marker_infos
             if m.get("dir")
-        }
-        dirs.discard("")
-        if len(dirs) == 1:
-            payload["dir"] = next(iter(dirs))
+        )
+        counts.pop("", None)
+        if len(counts) == 1:
+            payload["dir"] = next(iter(counts))
+        if counts:
+            # Mirror of mayatk's: EVERY folder the markers name, not only the
+            # unanimous case. ``dir`` (singular) is unchanged for Unity's
+            # reader; publishing only that meant a scene whose maps live in two
+            # folders published NO hint, and the consumer then found a map by
+            # basename alone -- which on a real project is how a stale atlas
+            # from an earlier bake gets bound under rects from the current one.
+            # Ordered by marker count, not alphabetically: the reader takes the
+            # first folder holding a file of the right BASENAME, so the order is
+            # a priority and the folder most of the bake landed in must lead.
+            payload["dirs"] = [
+                d for d, _n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ]
         return DataNodes.set_export_string(self.LIGHTMAP_METADATA, json.dumps(payload))
 
     def revert_lightmap(self, objects=None) -> List[str]:
@@ -1486,11 +1624,135 @@ class LightmapBaker(ptk.LoggingMixin):
         return self.revert_lightmap(objects)
 
     # ------------------------------------------------------------------ guards
+    # ------------------------------------------------------------------
+    # Level check -- did the finished bake land in a plausible range?
+    # ------------------------------------------------------------------
+
+    #: The brightest map's mean RGB, below which a bake is not a dark look but an
+    #: unlit render (mirrors mayatk's guard; measured there: unlit 0.008 vs properly
+    #: lit 1.0+ -- two orders of magnitude apart).
+    BLACK_BAKE_MEAN: float = 0.02
+    #: ...and above which it is not a bright room but a unit error upstream. A
+    #: lightmap is scene-relative irradiance, so a correctly translated room lands
+    #: within a few multiples of 1.0 whatever its exposure; this sits ~2 orders above
+    #: a hot-but-real bake and ~4 below the failure it was written for (a Maya area
+    #: light that crossed the bridge at 5.4e8 W -- see mayatk's CHANGELOG 2026-08-29).
+    BLOWN_BAKE_MEAN: float = 64.0
+    #: The exact value a saturated texel holds: EXRs are written half-float, so a map
+    #: sitting AT this has not merely gone bright, it has lost data.
+    HALF_FLOAT_MAX: float = 65504.0
+
+    @classmethod
+    def map_levels(cls, paths) -> Dict[str, Tuple[float, float]]:
+        """``{path: (mean RGB, fraction of channels at the half-float ceiling)}``.
+
+        The shared measurement behind every "is this bake usable" question -- the
+        panel's black and blown warnings and the Maya bridge's headless bake template
+        all ask it, and each was otherwise going to carry its own copy of the same
+        ``foreach_get`` dance. A bake has no correct ABSOLUTE level, so measuring the
+        RESULT is the only thing that separates a dark look from an unlit scene, or a
+        bright room from a broken unit conversion upstream.
+
+        Read through ``bpy``'s own image IO (Blender ships no cv2) into a fresh
+        datablock that is dropped again, so a map already open in the session is
+        neither reused nor disturbed. An unreadable map is SKIPPED rather than raised
+        on: this runs after a finished bake and must never be what loses it.
+
+        Parameters:
+            paths: Image paths. Duplicates are collapsed -- an atlas shared by 46
+                objects is read once.
+
+        Returns:
+            ``{path: (mean, saturated)}`` for the maps that could be read; empty when
+            none could. ``saturated`` is a fraction of RGB channels, not of texels.
+        """
+        import bpy
+        import numpy as np
+
+        levels: Dict[str, Tuple[float, float]] = {}
+        for path in sorted(set(paths or ())):
+            image = None
+            try:
+                image = bpy.data.images.load(path, check_existing=False)
+                # foreach_get, not pixels[:] -- the slice materializes a Python float
+                # list (a 4K atlas is ~67M floats, seconds of stall right after the
+                # bake); the bulk copy is C-speed.
+                buf = np.empty(len(image.pixels), dtype=np.float32)
+                image.pixels.foreach_get(buf)
+                rgb = buf.reshape(-1, image.channels)[:, :3]
+                if rgb.size:
+                    levels[path] = (
+                        float(rgb.mean()),
+                        float((rgb >= cls.HALF_FLOAT_MAX).mean()),
+                    )
+            except Exception:
+                continue
+            finally:
+                if image is not None:
+                    bpy.data.images.remove(image)
+        return levels
+
+    @classmethod
+    def peak_level(cls, paths) -> Optional[Tuple[str, float, float]]:
+        """``(path, mean, saturated)`` for the BRIGHTEST map, or ``None`` if unreadable.
+
+        Both level guards judge a bake by its brightest map -- a black one because a
+        single lit map disproves "unlit", a blown one because the worst offender is
+        what the artist has to be shown -- so the reduction lives here once.
+        """
+        levels = cls.map_levels(paths)
+        if not levels:
+            return None
+        path = max(levels, key=lambda p: levels[p][0])
+        return (path, *levels[path])
+
+    @contextlib.contextmanager
+    def _muted_environment(self):
+        """Detach the scene's world for the bake when asked to.
+
+        ``include_environment=False`` means "bake the room's own lights, not
+        the world": ``scene.world`` is unset for the duration and restored
+        after, so the scene is handed back exactly as it was found. Detaching
+        rather than zeroing a strength input because a world can be an
+        arbitrary node graph -- there is no one input to zero, and the
+        datablock itself is the thing the toggle is about.
+
+        Twin of mayatk's, which hides the ``aiSkyDomeLight`` instead; both mean
+        the same thing to the artist and to the unlit-scene guard.
+        """
+        prev = None
+        detached = False
+        if not self.include_environment:
+            try:
+                import bpy
+
+                scene = bpy.context.scene
+                prev = None if scene is None else scene.world
+                if prev is not None:
+                    scene.world = None
+                    detached = True
+                    self.logger.info(
+                        "Include Environment is off: world %r detached for this bake.",
+                        prev.name,
+                    )
+            except Exception as e:  # never fail a bake over the toggle
+                self.logger.warning("Could not mute the world environment: %s", e)
+        try:
+            yield
+        finally:
+            if detached:
+                try:
+                    import bpy
+
+                    bpy.context.scene.world = prev
+                except Exception as e:  # never leave the scene changed silently
+                    self.logger.error("Could not restore the world: %s", e)
+
     def _warn_if_unlit_scene(self) -> None:
         """Warn (once per instance) when the scene has no light source to bake.
 
         A lightless bake silently produces a black lightmap -- worth a loud hint BEFORE the
-        rays are spent rather than only after (the panel's post-bake ``_black_bake_warning``
+        rays are spent rather than only after (the panel's post-bake ``_level_warning``
         reads the finished maps; this fires for scripted callers too, which is why it lives
         on the workflow rather than the Slots). Twin of mayatk's guard, with the Arnold
         light-type probe replaced by Blender's own: a ``LIGHT`` object, or a world background
@@ -1510,7 +1772,10 @@ class LightmapBaker(ptk.LoggingMixin):
                 return
             if any(obj.type == "LIGHT" for obj in scene.objects):
                 return
-            if LightUtils.world_emits(scene.world):
+            # A world the bake is about to DETACH is not a light source for it,
+            # so an HDRI-only scene still gets the warning when Include
+            # Environment is off -- which is exactly when it is needed.
+            if self.include_environment and LightUtils.world_emits(scene.world):
                 return
         except Exception:  # no runtime / unreadable scene -- nothing to warn about
             return
@@ -1555,7 +1820,9 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     ``b000`` first calls :meth:`~LightmapBaker.revert` to clear prior wiring so the
     bake samples the real material; the header menu's **Revert to Source** undoes it. The
     Quality combobox is populated from :meth:`~LightmapBaker.preset_store` and fills the
-    Resolution / Samples dials (the source of truth at bake time). The Packing combobox
+    Resolution / Samples dials (the source of truth at bake time); the traffic runs both
+    ways, so a dial moved off the tier flips the combobox to *Custom*
+    (:meth:`_preset_for_dials`, wired as one ``sb.value_from`` rule). The Packing combobox
     (``cmb002``) picks how the maps are laid out — Per-Object or Atlas by
     Material (:meth:`~LightmapBaker.bake_atlas`); both are live.
 
@@ -1573,6 +1840,12 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     # (cmb_resolution). Power-of-two atlas sizes; every Quality preset lands on
     # one of these. _resolution() reads the selection back as an int.
     _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
+
+    # Label for the Quality combobox row that means "whatever the dials say".
+    # NOT a stored preset -- ``_apply_preset`` declines it; it is the answer
+    # ``_preset_for_dials`` gives when Resolution / Samples match no tier, so
+    # the combo can never keep naming a preset the bake is no longer using.
+    _CUSTOM_PRESET_LABEL = "Custom"
 
     # Scope labels for the Scope combobox (cmb_scope): which objects b000 bakes.
     # Selected (index 0, default) preserves the prior selection-only behavior;
@@ -1596,6 +1869,9 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
 
         self._last_output_dir: Optional[str] = None
         self._baker: Optional[LightmapBaker] = None
+        # Dial signature -> preset name, built by cmb000_init from the same
+        # listing that fills the combo; _preset_for_dials reads it back.
+        self._preset_by_dials: Dict[Tuple[int, int], str] = {}
 
         # Deferred: the switchboard builds this mid-load, before the combos are wired onto
         # self.ui — sync the dials to the shown preset on the next tick.
@@ -1603,6 +1879,17 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
 
     def _initialize_ui(self) -> None:
         self._apply_preset(self.ui.cmb000.currentText())
+        # Quality follows the dials from here on: move Resolution or Samples off
+        # the tier and the combo says *Custom* rather than keep naming a preset
+        # the bake is no longer using. Wired AFTER the preset is applied -- the
+        # rule applies immediately, and at widget-registration time the dials
+        # still hold the .ui defaults, so an earlier wire-up would open on Custom.
+        self.sb.value_from(
+            self.ui,
+            "cmb000",
+            ["cmb_resolution", "spn_samples"],
+            self._preset_for_dials,
+        )
 
     # ------------------------------------------------------------------ header
     def header_init(self, widget) -> None:
@@ -1630,7 +1917,14 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
                     "Choose a <b>Scope</b> — bake the <b>Selected</b> objects (default), all "
                     "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
                     "Pick a <b>Mode</b> and <b>Packing</b> (see below) and a <b>Quality</b> "
-                    "preset (fills Resolution / Samples; override either to taste).",
+                    "preset (fills Resolution / Samples; override either to taste — the "
+                    "preset then reads <i>Custom</i>). <b>Device</b> picks what Cycles "
+                    "bakes on — <i>Auto</i> takes the GPU per object where it pays and "
+                    "the CPU for tiles too small to repay a GPU session.",
+                    "Leave <b>Include Environment</b> on to bake the scene as authored. "
+                    "Off detaches the world for the bake (and restores it after), so you "
+                    "get the room's own lights without the environment's flat ambient "
+                    "lift — which cannot be taken back out of a map once it is in.",
                     "Optionally set an <b>Output Directory</b> — empty writes to the "
                     "workspace's texture folder; a relative entry (e.g. <i>lightmaps</i>) "
                     "lands under it, so the setting travels with the project; an absolute "
@@ -1678,18 +1972,43 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
 
     # ------------------------------------------------------------------ combos
     def cmb000_init(self, widget) -> None:
-        """Populate the Quality combobox from the shared preset store."""
+        """Populate the Quality combobox from the shared preset store.
+
+        A trailing *Custom* row is appended for the dials-match-no-tier case,
+        and the dial-signature lookup :meth:`_preset_for_dials` reads is built
+        from the same listing that fills the combo, so the two cannot disagree.
+        """
         store = LightmapBaker.preset_store()
+        names = store.list()
+        self._preset_by_dials = {}
+        for name in names:
+            data = store.load(name)
+            if "resolution" in data and "samples" in data:
+                key = (int(data["resolution"]), int(data["samples"]))
+                self._preset_by_dials.setdefault(key, name)
         widget.clear()
-        widget.addItems(store.list())
+        # The store's user tier is free-form, so a saved preset may already be
+        # named "Custom" -- appending blindly would show the row twice.
+        rows = list(names)
+        if self._CUSTOM_PRESET_LABEL not in rows:
+            rows.append(self._CUSTOM_PRESET_LABEL)
+        widget.addItems(rows)
         idx = widget.findText("quest")
         if idx >= 0:
             widget.setCurrentIndex(idx)
 
     def cmb000(self, index, widget) -> None:
-        """Apply the selected preset's dials to Resolution / Samples."""
-        if self._apply_preset(widget.currentText()):
-            self.ui.footer.setText(f"Preset: {widget.currentText()}")
+        """Apply the selected preset's dials to Resolution / Samples.
+
+        *Custom* is not a stored preset -- it is what the dials say when they
+        match no tier -- so it applies nothing and just reports that the dials
+        are in charge.
+        """
+        name = widget.currentText()
+        if self._apply_preset(name):
+            self.ui.footer.setText(f"Preset: {name}")
+        elif name == self._CUSTOM_PRESET_LABEL:
+            self.ui.footer.setText("Quality: Custom — Resolution / Samples as set.")
 
     def cmb002_init(self, widget) -> None:
         """Populate the Packing combobox; Per-Object is the default (Atlas by Material also live)."""
@@ -1753,6 +2072,24 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         finally:
             cmb.blockSignals(False)
 
+    #: Cycles bake device, ``(label, value)`` — mirror of mayatk's ``_DEVICES``.
+    _DEVICES = (("Auto", "AUTO"), ("GPU", "GPU"), ("CPU", "CPU"))
+
+    def cmb_device_init(self, widget) -> None:
+        """Populate the Device combobox (value carried as item data); default Auto."""
+        widget.clear()
+        for label, value in self._DEVICES:
+            widget.addItem(f"Device:\t{label}", value)
+        widget.setCurrentIndex(0)  # Auto
+
+    def _device(self) -> str:
+        """The selected bake device from cmb_device (its item data)."""
+        return self.ui.cmb_device.currentData() or self._DEVICES[0][1]
+
+    def _include_environment(self) -> bool:
+        """Whether the bake keeps the scene's environment (chk_environment)."""
+        return bool(self.ui.chk_environment.isChecked())
+
     def txt_output_dir_init(self, widget) -> None:
         """Add a directory browser to the optional output-directory field.
 
@@ -1796,6 +2133,18 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             convention_key="lightmap",
         )
 
+    def _preset_for_dials(self, resolution: int, samples: int) -> str:
+        """The preset whose dials are exactly these, else :attr:`_CUSTOM_PRESET_LABEL`.
+
+        The resolver behind the ``sb.value_from`` rule wired in
+        :meth:`_initialize_ui`. A pure dict lookup (built once in
+        :meth:`cmb000_init`), so it costs nothing to re-run on every arrow-press
+        in the Samples spinbox.
+        """
+        return self._preset_by_dials.get(
+            (int(resolution), int(samples)), self._CUSTOM_PRESET_LABEL
+        )
+
     def _apply_preset(self, name: str) -> bool:
         store = LightmapBaker.preset_store()
         if not name or not store.exists(name):
@@ -1810,6 +2159,13 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
                 spin.setValue(int(data["samples"]))
             finally:
                 spin.blockSignals(False)
+        # Bounce depth has no panel widget -- Resolution and Samples do, so the tier
+        # reaches the bake through THEM, and anything the tier carries besides them
+        # has to be carried by hand. Without this the preset's ``bounces`` silently
+        # no-ops for every panel bake (exactly the failure mayatk's ``_preset_gi``
+        # comment records for gi_depth/gi_samples), leaving the panel on the
+        # constructor default whichever tier is showing.
+        self._preset_gi = {k: int(data[k]) for k in ("bounces",) if k in data}
         return True
 
     # ------------------------------------------------------------------ actions
@@ -1827,6 +2183,10 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         self._baker = LightmapBaker(
             resolution=self._resolution(),
             samples=self.ui.spn_samples.value(),
+            device=self._device(),
+            include_environment=self._include_environment(),
+            # Dials the tier carries but the panel does not show (mirrors mayatk).
+            **getattr(self, "_preset_gi", {}),
         )
         self._baker.revert(objects)  # clear prior wiring so we bake the real material
 
@@ -1885,62 +2245,61 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         count = len(result)
         self.ui.footer.setText(
             f"Baked {count} object{'s' if count != 1 else ''} → "
-            f"{self._last_output_dir}. {tail}" + self._black_bake_warning(result)
+            f"{self._last_output_dir}. {tail}" + self._level_warning(result)
         )
 
-    # A committed lightmap whose brightest map's mean sits below this is not a
-    # dark look, it is an unlit render (mirrors mayatk's guard; measured there:
-    # unlit 0.008 vs properly lit 1.0+ -- two orders of magnitude apart).
-    _BLACK_BAKE_MEAN: float = 0.02
+    def _level_warning(self, mapping) -> str:
+        """A footer warning when the committed maps are unlit OR blown out, else ''.
 
-    def _black_bake_warning(self, mapping) -> str:
-        """A footer warning when the committed maps are essentially unlit, else ''.
+        Both directions, because a lightmap has no correct ABSOLUTE level and each
+        failure is a *successful* render of a wrong scene: nothing upstream errors,
+        and the artist otherwise finds out in the web preview, where it reads as a
+        pipeline bug. The black half caught an unlit room; the blown half was missing
+        until a Maya-bridge send crossed at 5.4e8 W per fixture, saturated every atlas
+        at the half-float ceiling and reported success (mayatk CHANGELOG 2026-08-29) --
+        the same silent failure is reachable from this panel with hot enough lights.
 
-        A black bake is a FAITHFUL render of an unlit scene, so nothing
-        upstream errors and the artist otherwise finds out in the web preview,
-        where it reads as a pipeline bug. Reads each map through ``bpy``'s own
-        image IO (Blender ships no cv2); any unreadable map is skipped -- the
-        guard must never break a finished bake.
+        Measurement is :meth:`LightmapBaker.peak_level` (the engine owns it, so the
+        bridge's headless template asks the same question the same way); an unreadable
+        map is skipped there -- the guard must never break a finished bake.
         """
         try:
-            import bpy
-            import numpy as np
-
-            means = []
-            for path in set(mapping.values()):
-                try:
-                    img = bpy.data.images.load(path, check_existing=False)
-                except Exception:
-                    continue
-                try:
-                    # foreach_get, not pixels[:] -- the slice materializes a
-                    # Python float list (a 4K atlas is ~67M floats, seconds of
-                    # stall right after the bake); the bulk copy is C-speed.
-                    px = np.empty(len(img.pixels), dtype=np.float32)
-                    img.pixels.foreach_get(px)
-                    if px.size:
-                        means.append(float(px.reshape(-1, 4)[:, :3].mean()))
-                finally:
-                    bpy.data.images.remove(img)
-            if not means or max(means) >= self._BLACK_BAKE_MEAN:
-                return ""
-            peak = max(means)
+            peak = LightmapBaker.peak_level(mapping.values())
         except Exception:
             return ""
-        self.logger.warning(
-            "Bake is essentially BLACK (brightest map mean %.4f). The bake "
-            "renders the scene's own lights: check light power (W), that the "
-            "lights are visible to the RENDER (not just the viewport), and "
-            "that the world background is not black -- an emissive material "
-            "lights a Cycles bake only while its object is render-visible.\n"
-            "Scene lights at bake time:\n%s",
-            peak,
-            self._light_audit(),
-        )
-        return (
-            "  WARNING: bake is essentially BLACK — check light power "
-            "(see the console)."
-        )
+        if peak is None:
+            return ""
+        _path, mean, saturated = peak
+        if mean < LightmapBaker.BLACK_BAKE_MEAN:
+            self.logger.warning(
+                "Bake is essentially BLACK (brightest map mean %.4f). The bake "
+                "renders the scene's own lights: check light power (W), that the "
+                "lights are visible to the RENDER (not just the viewport), and "
+                "that the world background is not black -- an emissive material "
+                "lights a Cycles bake only while its object is render-visible.\n"
+                "Scene lights at bake time:\n%s",
+                mean,
+                self._light_audit(),
+            )
+            return (
+                "  WARNING: bake is essentially BLACK — check light power "
+                "(see the console)."
+            )
+        if mean >= LightmapBaker.BLOWN_BAKE_MEAN:
+            self.logger.warning(
+                "Bake is BLOWN OUT (brightest map mean %.4g%s). A lightmap is "
+                "scene-relative irradiance and should land within a few multiples "
+                "of 1.0 whatever the exposure, so this is a light-POWER problem "
+                "rather than a bright room.\nScene lights at bake time:\n%s",
+                mean,
+                ", %.0f%% of it at the half-float ceiling — data lost"
+                % (saturated * 100.0)
+                if saturated > 0.001
+                else "",
+                self._light_audit(),
+            )
+            return "  WARNING: bake is BLOWN OUT — check light power (see the console)."
+        return ""
 
     @staticmethod
     def _light_audit() -> str:

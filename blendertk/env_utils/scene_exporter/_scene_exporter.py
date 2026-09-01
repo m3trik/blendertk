@@ -331,23 +331,17 @@ class SceneExporter(ptk.LoggingMixin):
                 # raise: the panel's export button reads the return value and
                 # the log.
                 try:
-                    missing = not ptk.ImgUtils.ktx2_available()
-                    if missing:
+                    if not ptk.ImgUtils.ktx2_available():
                         self.logger.info(
                             "KTX2 delivery needs KTX-Software's toktx, which is "
                             "not installed: offering the managed install."
                         )
-                    ptk.ImgUtils.resolve_ktx2_encoder(
-                        required=True, auto_install=True, prompt=self.confirm
-                    )
+                    installed = ptk.ImgUtils.ensure_ktx2_encoder(prompt=self.confirm)
                 except FileNotFoundError as e:
                     self.logger.error(f"Export aborted: {e}")
                     return False
-                if missing:
-                    self.logger.info(
-                        "Installed KTX-Software (toktx): "
-                        f"{ptk.Ktx2Encoder.resolve_toktx()}"
-                    )
+                if installed:
+                    self.logger.info(f"Installed KTX-Software (toktx): {installed}")
         self.task_manager._texture_file_type = texture_file_type
 
         # Texture Output write-back flag: a mode read by convert_textures and
@@ -734,7 +728,6 @@ class SceneExporter(ptk.LoggingMixin):
         Returns:
             The created ``.glb`` path, or ``None`` if conversion failed.
         """
-        import blendertk as btk
         from blendertk.env_utils.scene_state import SceneState
 
         src = fbx_path or self.export_path
@@ -782,32 +775,31 @@ class SceneExporter(ptk.LoggingMixin):
             return None
 
         # GLB texture pass — the GLB's half of the panel's TWO general texture
-        # dials (Texture File Type + Optimize Textures),
-        # resolved by ``TaskManager._glb_texture_params`` (mirror of mayatk's,
-        # whose ``create_glb`` lives on the task manager). Runs LAST: a KTX2 GLB
-        # is opaque to every PIL-based post-tool, so nothing may follow the
-        # encode. ONE ``optimize_glb_textures`` call — a second would re-decode
-        # and re-encode every image, and a KTX2 payload cannot be re-encoded at
-        # all. ``None`` = no pass at all (byte-stable conversion). A failure
-        # fails the deliverable — the user asked for this pass, so shipping the
-        # untouched GLB anyway would be a silent fallback.
+        # dials (Texture File Type + Optimize Textures), resolved against the
+        # shared web-delivery policy by ``TaskManager._glb_texture_params``
+        # (mirror of mayatk's, whose ``create_glb`` lives on the task manager).
+        # Runs LAST: a KTX2 GLB is opaque to every PIL-based post-tool, so
+        # nothing may follow the encode. ONE ``optimize_glb_textures`` call — a
+        # second would re-decode and re-encode every image, and a KTX2 payload
+        # cannot be re-encoded at all. Unconditional since 2026-08-29: the
+        # deliverable this panel writes is a web asset, and the previous "no
+        # dials, no pass" default shipped 280 MB where the preview showed 8.71.
         params = self.task_manager._glb_texture_params()
-        if params is not None:
-            carrier = params["image_format"]
-            try:
-                summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
-            except Exception as e:  # noqa: BLE001 — deliverable must not lie
-                self.logger.error(f"GLB texture pass ({carrier}) failed: {e}")
-                return None
-            # Worded by the converter that produced the summary, so this can no
-            # longer drift from mayatk's copy (it already had): an empty summary
-            # still speaks, and a populated one reports what was RESAMPLED
-            # rather than which mode ran.
-            self.logger.info(
-                ptk.MeshConvert.describe_texture_pass(
-                    summary, carrier, params.get("max_size") or 0
-                )
+        carrier = params["image_format"]
+        try:
+            summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
+        except Exception as e:  # noqa: BLE001 — deliverable must not lie
+            self.logger.error(f"GLB texture pass ({carrier}) failed: {e}")
+            return None
+        # Worded by the converter that produced the summary, so this can no
+        # longer drift from mayatk's copy (it already had): an empty summary
+        # still speaks, and a populated one reports what was RESAMPLED
+        # rather than which mode ran.
+        self.logger.info(
+            ptk.MeshConvert.describe_texture_pass(
+                summary, carrier, params.get("max_size") or 0
             )
+        )
 
         if announce:
             self.logger.success(f"GLB created: {glb_path}")

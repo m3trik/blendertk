@@ -244,7 +244,48 @@ Atlas by Material — objects sharing a primary material are consolidated into o
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="ComboBox" name="cmb_device">
+           <property name="minimumSize">
+            <size>
+             <width>180</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>999</width>
+             <height>19</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Which device Cycles bakes on.
+
+Auto — per object: the GPU where it pays, the CPU for small tiles. Every bake op rebuilds its Cycles session, and on the GPU that setup and teardown costs ~0.35s per object — more than a small tile's render.
+GPU — force it for every object.
+CPU — force it; the fallback when a GPU session fails.</string>
+           </property>
+           <property name="frame">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
         </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="chk_environment">
+        <property name="toolTip">
+         <string>Bake the scene's world (an HDRI environment) along with its lights.
+
+Off bakes the room's own lights only: the world is detached for the bake and restored afterwards. An HDRI is often a backdrop or a look-dev convenience rather than the room's real lighting, and baking it in is a flat ambient lift that cannot be taken back out of the map.</string>
+        </property>
+        <property name="text">
+         <string>Include Environment</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
        </widget>
       </item>
       <item>
