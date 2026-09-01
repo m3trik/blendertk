@@ -269,7 +269,7 @@ try:
     reset()
 
     # ---- ensure_packages: resolver-aware install into the TAIL-precedence dir ----
-    # The provisioning policy must (a) target scriptsddons\modules — natively on
+    # The provisioning policy must (a) target scripts\addons\modules — natively on
     # sys.path AFTER bundled site-packages, so a provisioned dist can never shadow a
     # bundled one — and (b) go through PackageManager.install_targeted (pip-resolver
     # plan + --no-deps apply), never a raw resolver-blind `pip install --target`.

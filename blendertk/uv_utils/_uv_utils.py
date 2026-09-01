@@ -1091,11 +1091,18 @@ class UvUtils(_UvUtilsInternal):
     def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True):
         """Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).
 
-        Mirror of ``mtk.UvUtils.create_lightmap_uvs``: reuses a pre-existing lightmap-named
-        layer (:func:`find_lightmap_uv_set`) when present, else adds ``uv_set`` as a second UV
-        layer and fills it with a packed, non-overlapping unwrap via ``bpy.ops.uv.smart_project``
-        (``scale_to_bounds`` packs the islands into the 0-1 square — exactly what a lightmap
-        needs). The lightmap layer is left **active** so the subsequent bake targets it.
+        Mirror of ``mtk.UvUtils.create_lightmap_uvs`` in intent, not in reuse policy. It
+        targets a pre-existing lightmap-named layer (:func:`find_lightmap_uv_set`) when
+        present, else adds ``uv_set`` as a second UV layer — but the LAYOUT is always
+        regenerated into it by ``bpy.ops.uv.smart_project`` (``scale_to_bounds`` packs the
+        islands into the 0-1 square — exactly what a lightmap needs). What is reused is the
+        channel, never its UVs: measured, an existing layout is overwritten on every loop.
+        That suits the pipeline this serves — Blender owns the whole lightmap job, UVs
+        included, and hands the finished layout back (:meth:`export_uv_layout`) — but it
+        diverges from mayatk's twin, which keeps a set that passes
+        ``UvDiagnostics.is_bakeable_lightmap`` and takes ``force=`` to override.
+        The lightmap layer is left **active** so the subsequent bake targets it (measured:
+        Cycles bakes through the ACTIVE layer, not ``active_render``).
 
         Native-op based (smart_project runs headless from edit mode), so this needs no UV editor.
         Returns the names of the meshes processed.
@@ -1139,16 +1146,21 @@ class UvUtils(_UvUtilsInternal):
 
                 for x in CoreUtils.selected_objects():
                     x.select_set(False)
-                o.select_set(True)
-                bpy.context.view_layer.objects.active = o
-                bpy.ops.object.mode_set(mode="EDIT")
-                bpy.ops.mesh.select_all(action="SELECT")
-                try:
-                    bpy.ops.uv.smart_project(
-                        angle_limit=1.15, island_margin=margin, scale_to_bounds=True
-                    )
-                finally:
-                    bpy.ops.object.mode_set(mode="OBJECT")
+                # Hidden is not a reason to refuse an unwrap: mode_set's poll
+                # rejects a hidden object outright, so one hidden mesh in the
+                # batch used to abort the whole call (and, through the bake, the
+                # whole lightmap job) rather than costing only itself.
+                with CoreUtils.visible_override(o):
+                    o.select_set(True)
+                    bpy.context.view_layer.objects.active = o
+                    bpy.ops.object.mode_set(mode="EDIT")
+                    bpy.ops.mesh.select_all(action="SELECT")
+                    try:
+                        bpy.ops.uv.smart_project(
+                            angle_limit=1.15, island_margin=margin, scale_to_bounds=True
+                        )
+                    finally:
+                        bpy.ops.object.mode_set(mode="OBJECT")
                 done.append(o.name)
         finally:
             for x in CoreUtils.selected_objects():
@@ -1781,27 +1793,27 @@ class UvUtils(_UvUtilsInternal):
                 if obj.mode == "EDIT":
                     sync = bool(bpy.context.scene.tool_settings.use_uv_select_sync)
                     loops = [
-                        l
+                        loop
                         for f in bm.faces
-                        for l in f.loops
-                        if _UvUtilsInternal._uv_selected(l, uvl, sync)
+                        for loop in f.loops
+                        if _UvUtilsInternal._uv_selected(loop, uvl, sync)
                     ]
                 else:
-                    loops = [l for f in bm.faces for l in f.loops]
+                    loops = [loop for f in bm.faces for loop in f.loops]
                 if len(loops) < 2:
                     return
                 if mode == "linear":
-                    pts = [l[uvl].uv.copy() for l in loops]
+                    pts = [loop[uvl].uv.copy() for loop in loops]
                     a, b = _UvUtilsInternal._farthest_pair(pts)
                     ab = b - a
                     denom = ab.length_squared
-                    for l in loops:
-                        p = l[uvl].uv
+                    for loop in loops:
+                        p = loop[uvl].uv
                         t = (p - a).dot(ab) / denom if denom > 1e-12 else 0.0
-                        l[uvl].uv = a + ab * t
+                        loop[uvl].uv = a + ab * t
                         moved += 1
                 else:
-                    vals = [l[uvl].uv[comp] for l in loops]
+                    vals = [loop[uvl].uv[comp] for loop in loops]
                     target = (
                         min(vals)
                         if mode == "min"
@@ -1809,8 +1821,8 @@ class UvUtils(_UvUtilsInternal):
                         if mode == "max"
                         else sum(vals) / len(vals)
                     )
-                    for l in loops:
-                        l[uvl].uv[comp] = target
+                    for loop in loops:
+                        loop[uvl].uv[comp] = target
                         moved += 1
 
             _UvUtilsInternal._uv_edit(o, _align)

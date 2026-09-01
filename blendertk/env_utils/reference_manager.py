@@ -260,7 +260,15 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         # ``_rewire_signal`` (drops only OUR prior connection): a blanket ``disconnect()`` makes
         # libpyside warn "Failed to disconnect (None) from signal" on the first, unconnected call.
         widget.config_buttons("refresh", "menu", "collapse", "pin")
-        self._rewire_signal(widget, widget.refresh_requested, self._refresh, "hdr_refresh")
+        # Tap-to-pin: letting the marking-menu key go right after this panel opens pins it,
+        # same as a click on the pin button would — the user came here to work, not to peek.
+        # Holding the key still auto-hides on release, so a glance costs nothing. Explicit
+        # per-tool opt-in (an assignment, not the process-wide UiHandler.pin_on_tap default)
+        # so it survives regardless of that preference. Mirror of mayatk's reference_manager.
+        widget.pin_on_tap = True
+        self._rewire_signal(
+            widget, widget.refresh_requested, self._refresh, "hdr_refresh"
+        )
 
         # One-time menu build: repeated calls (see above) must not re-append every Naming /
         # Filter / Include-Types control — the user-reported duplicate header controls. Only the
@@ -670,7 +678,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 "QPushButton",
                 setText="Open",
                 setObjectName="row_open",
-                setToolTip="Open the selected file (a foreign scene is baked, then opened as a new file).",
+                setToolTip="Open the selected file (a foreign scene is baked, then opened as a new\n"
+                "file) — reads it back from disk when it is already the open scene (the action\n"
+                "reads 'Reopen' then).",
             )
             widget.menu.add(
                 "QPushButton",
@@ -752,6 +762,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             widget, widget.itemDoubleClicked, self._on_item_double_clicked, "dbl"
         )
         self._rewire_signal(widget, widget.itemChanged, self._on_item_changed, "chg")
+        self._rewire_signal(
+            widget, widget.customContextMenuRequested, self._label_open_action, "ctx"
+        )
 
         for obj_name, handler in (
             ("row_open", self.open_selected),
@@ -762,6 +775,29 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             ("row_location", self.open_location_selected),
         ):
             widget.register_menu_action(obj_name, (lambda h: lambda *_: h())(handler))
+
+    def _label_open_action(self, *_):
+        """Read the context menu's Open action as 'Reopen' when the selected file is the open one.
+
+        Opening the file you are already in is a reload-from-disk, not an open; saying so is the
+        only signal that the click will discard whatever is unsaved (the prompt then asks about).
+        Wired to ``customContextMenuRequested``, which fires in the same event-loop tick as the
+        table's own ``menu.show()`` — ``show()`` only schedules the paint, so the relabel lands
+        before the popup is drawn whichever slot Qt calls first. The menu's width is set by its
+        longest entry ('Reference / Unreference'), so 'Reopen' never needs a re-layout.
+
+        Guarded on ``has_menu``, not ``getattr(table, "menu", None)``: uitk's ``MenuMixin``
+        builds the menu lazily on first ``.menu`` access, so the convenient getattr would
+        CREATE one on a table that has none. Mirror of the mayatk panel's.
+        """
+        table = self.ui.tbl000
+        if not getattr(table, "has_menu", False):
+            return
+        btn = getattr(table.menu, "row_open", None)
+        if btn is None:
+            return
+        paths = self._selected_paths()
+        btn.setText("Reopen" if paths and self._is_current(paths[0]) else "Open")
 
     def _setup_action_columns(self, widget):
         """Register the Reference / Open / Display-mode clickable icon columns (mirror of Maya)."""
@@ -973,9 +1009,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.logger.info(f"Workspace: {root}")
         return root
 
-    def _confirm_discard_unsaved(self, verb="open"):
-        """True if it's OK to replace the current scene — no unsaved changes, or the user
-        confirmed discarding them. .venv-safe: without bpy there is nothing to lose.
+    def _confirm_discard_unsaved(self):
+        """True if it's OK to replace the current scene: nothing unsaved, the user saved, or
+        the user chose to discard. .venv-safe: without bpy there is nothing to lose.
+
+        False cancels the caller's operation — either the user picked Cancel (which is also
+        what Esc / the close box map to), or they picked Save and the save did not complete.
+        Mirror of the mayatk panel's prompt.
 
         Asks the engine rather than reading ``bpy.data.is_dirty`` directly: the flag follows the
         undo stack, so one viewport click marks a brand-new empty scene dirty and this prompt
@@ -985,19 +1025,35 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return True
         if not btk.scene_has_unsaved_changes():
             return True
-        return (
-            self.sb.message_box(
-                f"The current file has unsaved changes — {verb} anyway?", "Yes", "No"
-            )
-            == "Yes"
+        choice = self.sb.message_box(
+            "The current scene has changes, do you want to save?",
+            "Save",
+            "Discard",
+            "Cancel",
         )
+        if choice == "Save":
+            return self._save_current_scene()
+        return choice == "Discard"
+
+    def _save_current_scene(self):
+        """Save the open file in place — or, when it has never been saved, through this panel's
+        Save Scene prompt (which asks for a name and applies the header's naming conventions).
+        True once the file is clean on disk. Mirror of the mayatk panel's.
+        """
+        if self._current_scene_path():
+            if btk.EnvUtils._save_open_file():
+                return True
+            self.sb.message_box("Failed to save the scene.")
+            return False
+        self.save_scene()  # prompts for a name; reports its own failures
+        return not btk.scene_has_unsaved_changes()
 
     def _close_scene(self):
         """Close the current scene (a new empty scene — Maya's file-new), guarding unsaved
         changes. A foreign row's untouched scratch copy is removed with it (one the user
         saved into is kept — see :meth:`_discard_stale_scratches`). Returns True if the
         scene was closed, False if the user declined."""
-        if not self._confirm_discard_unsaved("close"):
+        if not self._confirm_discard_unsaved():
             return False
         if btk.new_scene():
             self._discard_stale_scratches()
@@ -1637,7 +1693,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         A foreign (Maya / FBX) scene has no ``.blend`` to open, so it is baked and its bake is
         opened as a new, unsaved file (see :meth:`_open_foreign_as_new`).
         """
-        if not self._confirm_discard_unsaved("open"):
+        if not self._confirm_discard_unsaved():
             return
         if self._is_foreign(path):
             self._open_foreign_as_new(path)

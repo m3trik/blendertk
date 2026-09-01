@@ -407,9 +407,19 @@ try:
             err,
         )
         scene = bpy.context.scene
+        # The transport targets the ACTIVE SHOT, not the scene range: the
+        # scene range spans every visible shot in adjacent/all view, so
+        # go-to-start / go-to-end used to skip the current shot's own edges.
+        active = store.shot_by_id(ctl.active_shot_id)
+        expected = (
+            (float(active.start), float(active.end))
+            if active is not None and active.end > active.start
+            else (float(scene.frame_start), float(scene.frame_end))
+        )
         check(
-            "transport: range_fn reads the scene range",
-            ctl._playback_range() == (float(scene.frame_start), float(scene.frame_end)),
+            "transport: range_fn targets the active shot (scene range as fallback)",
+            ctl._playback_range() == expected,
+            f"{ctl._playback_range()} != {expected}",
         )
 
     # ---- track header menu: Reveal in Outliner -------------------------------------------------

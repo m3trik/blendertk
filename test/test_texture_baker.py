@@ -112,13 +112,141 @@ try:
     check("bake restores the render engine", bpy.context.scene.render.engine == prior_engine,
           f"{bpy.context.scene.render.engine} vs {prior_engine}")
     check("bake restores bake.margin", bpy.context.scene.render.bake.margin == prior_margin)
-    # The batch reuses Cycles' exported scene + BVH across objects instead of rebuilding it
-    # per bake, but that is the baker's business -- the user's scene must come back as it was.
-    check("bake restores use_persistent_data",
+    # Measured: bpy.ops.object.bake creates and frees its Cycles session per object
+    # whatever this flag says, so the baker no longer pins it -- and must not disturb it.
+    check("bake leaves use_persistent_data alone",
           bpy.context.scene.render.use_persistent_data == prior_persistent)
     check("bake restores cycles.use_denoising",
           bpy.context.scene.cycles.use_denoising == prior_denoise,
           f"{bpy.context.scene.cycles.use_denoising} vs {prior_denoise}")
+
+    # ---- the user's selection survives the batch -----------------------------
+    # _bake_one makes each target the sole selected+active object, so without a
+    # restore a batch leaves ONLY the last one selected -- and the panel's Revert
+    # to Source acts on "the selection", i.e. one object of the N just baked.
+    reset()
+    bpy.ops.object.light_add(type="SUN")
+    cubes = []
+    for i in range(3):
+        bpy.ops.mesh.primitive_cube_add(location=(i * 3, 0, 0))
+        c = bpy.context.active_object
+        c.name = f"SelCube{i}"
+        bpy.ops.object.editmode_toggle(); bpy.ops.uv.smart_project(); bpy.ops.object.editmode_toggle()
+        cubes.append(c)
+    bpy.ops.object.select_all(action="DESELECT")
+    for c in cubes[:2]:
+        c.select_set(True)
+    bpy.context.view_layer.objects.active = cubes[0]
+    baker.bake(cubes, output_dir=tmp, prefix="Sel_")
+    selected_after = {o.name for o in bpy.context.selected_objects}
+    check("bake restores the user's selection",
+          selected_after == {"SelCube0", "SelCube1"}, f"{sorted(selected_after)}")
+    check("bake restores the active object",
+          bpy.context.view_layer.objects.active is cubes[0],
+          f"{getattr(bpy.context.view_layer.objects.active, 'name', None)}")
+
+    # ---- a bare object gets no permanent material ----------------------------
+    # _ensure_materials invents one so Cycles has a node tree to bake through; the
+    # workflow's whole claim is that it changes nothing about the material, so the
+    # stand-in must not outlive the bake (and must not accumulate one per re-bake).
+    reset()
+    bpy.ops.object.light_add(type="SUN")
+    bpy.ops.mesh.primitive_cube_add()
+    bare = bpy.context.active_object
+    bare.name = "BareCube"
+    bpy.ops.object.editmode_toggle(); bpy.ops.uv.smart_project(); bpy.ops.object.editmode_toggle()
+    bare.data.materials.clear()
+    mats_before = len(bpy.data.materials)
+    out_bare = baker.bake([bare], output_dir=tmp, prefix="Bare_")
+    check("a bare object still bakes", bool(out_bare.get("BareCube")), f"{out_bare}")
+    check("the invented bake material does not outlive the bake",
+          len(bare.material_slots) == 0 and len(bpy.data.materials) == mats_before,
+          f"slots={len(bare.material_slots)} mats={len(bpy.data.materials)}/{mats_before}")
+
+    # ---- denoise_images: one session, N maps --------------------------------
+    # denoise_image is the single-path convenience; the batch form is what bake()
+    # uses so a run of N maps pays the compositor build and the engine flip ONCE.
+    reset()
+    bpy.ops.object.light_add(type="SUN")
+    bpy.ops.mesh.primitive_cube_add()
+    dn = bpy.context.active_object
+    bpy.ops.object.editmode_toggle(); bpy.ops.uv.smart_project(); bpy.ops.object.editmode_toggle()
+    raw = TextureBaker(resolution=32, samples=1, denoise=False).bake(
+        [dn], output_dir=tmp, prefix="Dn_"
+    )
+    paths = list(raw.values())
+    prior_engine = bpy.context.scene.render.engine
+    done = TextureBaker.denoise_images(paths)
+    check("denoise_images denoises every map it is given",
+          set(done) == set(paths), f"{done}")
+    check("denoise_images restores the render engine",
+          bpy.context.scene.render.engine == prior_engine)
+    check("denoise_images leaves no compositor node group behind",
+          not any(g.name.startswith("btk_denoise") for g in bpy.data.node_groups))
+    check("denoise_images tolerates a missing file",
+          TextureBaker.denoise_images([os.path.join(tmp, "nope.exr")]) == {})
+    check("denoise_images on nothing is a no-op", TextureBaker.denoise_images([]) == {})
+
+    # ---- denoise device pin (GPU OIDN measured 5x the CPU on a 1024 map) -----
+    big = TextureBaker.DENOISE_GPU_MIN_TEXELS
+    check("denoise device: a large map goes to the GPU when allowed",
+          TextureBaker._denoise_device(True, big) == "GPU")
+    check("denoise device: a small map stays on the CPU even when the GPU is allowed",
+          TextureBaker._denoise_device(True, big - 1) == "CPU")
+    check("denoise device: gpu=False pins the CPU at any size",
+          TextureBaker._denoise_device(False, 10 * big) == "CPU")
+    check("denoise device: gpu=None leaves the scene's setting alone",
+          TextureBaker._denoise_device(None, 10 * big) is None)
+    attr = TextureBaker._DENOISE_DEVICE_ATTR
+    if hasattr(bpy.context.scene.render, attr):
+        setattr(bpy.context.scene.render, attr, "CPU")
+        done = TextureBaker.denoise_images(paths, gpu=True)
+        check("denoise_images(gpu=True) still denoises every map",
+              set(done) == set(paths), f"{done}")
+        check("denoise_images restores the scene's denoise device",
+              getattr(bpy.context.scene.render, attr) == "CPU",
+              getattr(bpy.context.scene.render, attr))
+        done = TextureBaker.denoise_images(paths, gpu=False)
+        check("denoise_images(gpu=False) denoises on the CPU", set(done) == set(paths))
+    else:
+        check("denoise device pin is skipped where the setting does not exist",
+              set(TextureBaker.denoise_images(paths, gpu=True)) == set(paths))
+
+    # ---- AUTO device policy --------------------------------------------------
+    auto = TextureBaker(resolution=32, samples=1, denoise=False, device="AUTO")
+    auto._gpu_devices = ["probe-gpu"]
+    check("AUTO: tiny work bakes on the CPU", auto._choose_device(10) == "CPU")
+    check("AUTO: heavy work bakes on the GPU",
+          auto._choose_device(TextureBaker.GPU_MIN_WORK) == "GPU")
+    auto._gpu_devices = []
+    check("AUTO: no compute device -> CPU whatever the work",
+          auto._choose_device(10**9) == "CPU")
+    prior_device = bpy.context.scene.cycles.device
+    cycles_prefs = bpy.context.preferences.addons["cycles"].preferences
+    prior_backend = cycles_prefs.compute_device_type
+    out_auto = auto.bake([dn], output_dir=tmp, prefix="Auto_")
+    check("an AUTO bake produces a map", bool(out_auto.get(dn.name)), f"{out_auto}")
+    check("an AUTO bake restores scene.cycles.device",
+          bpy.context.scene.cycles.device == prior_device)
+    # A 32x32x1 bake is CPU work, which parks the compute preference on NONE for
+    # its session; the backend must come back enabled once the bake is over -- and
+    # on a machine with no compute device the probe must leave the preference as
+    # it found it rather than on the last backend it tried.
+    check("an AUTO bake hands the compute backend back as it should be",
+          cycles_prefs.compute_device_type == (auto._gpu_backend or prior_backend),
+          f"{cycles_prefs.compute_device_type} vs {auto._gpu_backend!r}/{prior_backend}")
+    # A later CPU bake on the same instance must not inherit that backend.
+    cpu_after = TextureBaker(resolution=32, samples=1, denoise=False, device="AUTO")
+    cpu_after._gpu_backend = "STALE"
+    cpu_after.device = "CPU"
+    cpu_after.bake([dn], output_dir=tmp, prefix="CpuAfter_")
+    check("a CPU bake clears a backend left by an earlier AUTO run",
+          cpu_after._gpu_backend == "")
+    bpy.context.scene.cycles.device = "GPU"
+    TextureBaker(resolution=32, samples=1, device="CPU")._apply_device(10)
+    check("_apply_device is a no-op unless the policy is AUTO",
+          bpy.context.scene.cycles.device == "GPU")
+    bpy.context.scene.cycles.device = prior_device
 
     # ---- nothing to bake -> {} ----------------------------------------------
     reset()

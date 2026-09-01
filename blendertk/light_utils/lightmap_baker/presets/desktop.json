@@ -1,5 +1,6 @@
 {
-    "description": "Desktop / high quality — high resolution and samples.",
+    "description": "Desktop / high quality — high resolution, samples and GI bounces.",
     "resolution": 2048,
-    "samples": 512
+    "samples": 512,
+    "bounces": 4
 }

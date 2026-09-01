@@ -179,6 +179,101 @@ try:
           fcurve(c, '["opacity"]') is None and fcurve(c, "hide_render") is None)
     check("remove deletes the Alpha driver", alpha_driver(c.data.materials[0]) is None)
 
+    # ==================== VISIBILITY TRACKS (glTF route) ====================
+    # Mirror of mayatk's TestVisibilityTracksProducer. glTF animates only
+    # translation/rotation/scale/weights, so keyed visibility does not survive
+    # the conversion from either DCC; this channel is what
+    # ptk.MeshConvert.apply_glb_visibility rebuilds it from.
+    reset()
+    import json as _json
+    from blendertk.node_utils.data_nodes import DataNodes
+
+    c = cube("Gate")
+    c.data.materials.append(mat("GateM"))
+    RenderOpacity.create([c])
+    RenderOpacity.key_fade([c], start=8, end=23, direction="in")
+
+    tracks = RenderOpacity.visibility_tracks()
+    track = next((t for t in tracks if t["node"] == c.name), None)
+    check("visibility_tracks finds the keyed object", track is not None)
+    # hide_render is INVERTED on the way out: the published contract is glTF's
+    # (1 == visible), not Blender's (1 == hidden).
+    check("the published track is visible-true, not hide-true",
+          track is not None and track["visibility"] == [[8.0, 0.0], [23.0, 1.0]],
+          detail=repr(track and track["visibility"]))
+    check("the authored opacity ramp rides along",
+          track is not None and track.get("opacity") == [[8.0, 0.0], [23.0, 1.0]],
+          detail=repr(track and track.get("opacity")))
+
+    # A CONSTANT key HOLDS to the next one and then jumps, so publishing the
+    # keys alone makes every consumer -- all of which read the ramp linearly --
+    # invent a ramp across a segment the artist authored as a cut. Mirror of
+    # mayatk's `_linear_ramp`, where the equivalent tangent turned a hold into a
+    # fifteen-frame fade-out that then played in the deliverable.
+    curve = fcurve(c, '["opacity"]')
+    for point in curve.keyframe_points:
+        point.interpolation = "CONSTANT"
+    ramp = RenderOpacity._linear_ramp(curve)
+    check("a CONSTANT segment is published as a hold, not a ramp",
+          ramp == [[8.0, 0.0], [22.99, 0.0], [23.0, 1.0]], detail=repr(ramp))
+    for point in curve.keyframe_points:
+        point.interpolation = "LINEAR"
+    check("a LINEAR segment is published unchanged",
+          RenderOpacity._linear_ramp(curve) == [[8.0, 0.0], [23.0, 1.0]],
+          detail=repr(RenderOpacity._linear_ramp(curve)))
+
+    DataNodes.set_export_string(
+        "fbx_takes", _json.dumps([{"name": "Shot_1", "start": 7, "end": 100}]))
+    DataNodes.set_export_string(
+        "shot_metadata", _json.dumps({"version": 1, "fps": 30.0, "shots": []}))
+    RenderOpacity.refresh_export_metadata()
+    published = _json.loads(
+        DataNodes.get_export_string(RenderOpacity.DATA_CHANNEL) or "{}")
+    check("refresh_export_metadata publishes the channel",
+          published.get("version") == RenderOpacity.SCHEMA_VERSION)
+    check("the rate is carried from the shots producer",
+          published.get("fps") == 30.0, detail=repr(published.get("fps")))
+    # The take's window opens at 7; its first authored key is at 8, and that is
+    # the frame the converter places at the clip's zero.
+    check("clip_span reports the take's first authored frame, not its start",
+          published.get("clip_span", {}).get("Shot_1") == [8.0, 23.0],
+          detail=repr(published.get("clip_span")))
+
+    # The exported stack carries the range the write BAKES, and the converter
+    # rebases every stack onto its FIRST key -- so publishing the scene's
+    # earliest key slides every clip cut from it (measured on the Maya side of
+    # this pipeline as a 33-frame slide, up to 90 cm of apparent distortion).
+    # That range is the scene's extent WIDENED by the declared takes, which is
+    # what apply_declared_takes computes -- and it runs AFTER the producers, so
+    # bake_range has to reproduce the widening rather than read it off scene.
+    from blendertk.env_utils.fbx_utils import FbxUtils as _Fbx
+
+    _scene = bpy.context.scene
+    _scene.frame_start, _scene.frame_end = 0, 100
+    DataNodes.set_export_string("fbx_takes", "")
+    check("with no takes the bake range is the scene range",
+          _Fbx.bake_range() == (0.0, 100.0), detail=repr(_Fbx.bake_range()))
+
+    DataNodes.set_export_string(
+        "fbx_takes",
+        _json.dumps([{"name": "a", "start": 33, "end": 60},
+                     {"name": "b", "start": 61, "end": 140}]))
+    # 0 stays (the scene starts before the first take -- the exact case that
+    # made a takes-union answer wrong); 140 widens past the scene's end.
+    check("takes widen the bake range, never narrow it",
+          _Fbx.bake_range() == (0.0, 140.0), detail=repr(_Fbx.bake_range()))
+
+    DataNodes.set_export_string(
+        "fbx_takes",
+        _json.dumps([{"name": "x"}, {"name": "y", "start": 2, "end": 4}]))
+    check("a malformed take entry cannot decide the range",
+          _Fbx.bake_range() == (0.0, 100.0), detail=repr(_Fbx.bake_range()))
+    DataNodes.set_export_string("fbx_takes", "")
+
+    reset()
+    check("a file with no keyed visibility leaves no channel",
+          RenderOpacity.refresh_export_metadata() is None)
+
 except Exception as e:
     traceback.print_exc()
     check("test harness raised", False, repr(e))

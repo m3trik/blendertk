@@ -285,20 +285,99 @@ try:
           any("No linked" in m for m in sb.messages), str(sb.messages))
 
     # The discard guard routes through the engine's corrected test (see check 19) — no prompt when
-    # there is nothing to lose, and it still asks (and honors "No") when there is.
+    # there is nothing to lose — and when there IS, it OFFERS TO SAVE (Save / Discard / Cancel,
+    # the mirror of the mayatk panel) rather than the old "close anyway?" yes/no.
     _orig_unsaved = btk.scene_has_unsaved_changes
+    _orig_env = btk.EnvUtils
     try:
         btk.scene_has_unsaved_changes = lambda: False
-        s, sb = make_slots("No")
+        s, sb = make_slots("Cancel")
         check("panel: silent when the scene holds nothing to lose",
-              s._confirm_discard_unsaved("open") and not sb.messages, str(sb.messages))
+              s._confirm_discard_unsaved() and not sb.messages, str(sb.messages))
+
         btk.scene_has_unsaved_changes = lambda: True
-        s, sb = make_slots("No")
-        declined = s._confirm_discard_unsaved("open")
-        check("panel: prompts and honors 'No' when there IS unsaved work",
-              (not declined) and any("unsaved changes" in m for m in sb.messages), str(sb.messages))
+        s, sb = make_slots("Cancel")
+        declined = s._confirm_discard_unsaved()
+        check("panel: prompts to save and honors 'Cancel' when there IS unsaved work",
+              (not declined) and any("do you want to save" in m for m in sb.messages), str(sb.messages))
+
+        # 'Discard' throws the work away and lets the caller proceed — no save attempted.
+        s, sb = make_slots("Discard")
+        s.save_scene = lambda: check("panel: 'Discard' must not save", False)
+        check("panel: 'Discard' proceeds without saving", s._confirm_discard_unsaved())
+
+        # 'Save' on a file that exists on disk flushes it in place, then proceeds.
+        s, sb = make_slots("Save")
+        s._current_scene_path = lambda: os.path.join(tmp, "on_disk.blend")
+        btk.EnvUtils = type("_E", (), {"_save_open_file": staticmethod(lambda: True)})
+        check("panel: 'Save' flushes an on-disk file and proceeds", s._confirm_discard_unsaved())
+        btk.EnvUtils = type("_E", (), {"_save_open_file": staticmethod(lambda: False)})
+        s, sb = make_slots("Save")
+        s._current_scene_path = lambda: os.path.join(tmp, "on_disk.blend")
+        check("panel: a failed save aborts the caller (the work is still unsaved)",
+              not s._confirm_discard_unsaved())
+        btk.EnvUtils = _orig_env
+
+        # 'Save' on a never-saved file routes to the panel's own Save Scene name prompt; the
+        # dirty flag — not save_scene's (absent) return value — decides whether to proceed.
+        s, sb = make_slots("Save")
+        s._current_scene_path = lambda: ""
+        named = []
+        s.save_scene = lambda: (named.append(True),
+                                setattr(btk, "scene_has_unsaved_changes", lambda: False))
+        check("panel: 'Save' on a never-saved file asks the panel to name + save it",
+              s._confirm_discard_unsaved() and named)
+        btk.scene_has_unsaved_changes = lambda: True
+        s, sb = make_slots("Save")
+        s._current_scene_path = lambda: ""
+        s.save_scene = lambda: None  # user backed out of the name prompt
+        check("panel: backing out of the name prompt aborts", not s._confirm_discard_unsaved())
     finally:
         btk.scene_has_unsaved_changes = _orig_unsaved
+        btk.EnvUtils = _orig_env
+
+    # The row context menu reads 'Reopen' on the file that is already open — the click reloads
+    # from disk (and drops the session's edits), so it must not read the same as any other row.
+    class _Btn:
+        def __init__(self):
+            self._t = "Open"
+
+        def setText(self, t):
+            self._t = t
+
+    class _Tbl:
+        # has_menu mirrors uitk's MenuMixin: the labeller must gate on it, because merely
+        # reaching for `.menu` would BUILD a menu on a table that has none.
+        has_menu = True
+
+        def __init__(self, btn):
+            self.menu = type("_M", (), {})()
+            self.menu.row_open = btn
+
+    open_here = os.path.join(tmp, "here.blend")
+    btn = _Btn()
+    s, _sb = make_slots()
+    s.ui.tbl000 = _Tbl(btn)
+    s._selected_paths = lambda: [open_here]
+    s._is_current = lambda p, current=None: p == open_here
+    s._label_open_action()
+    check("panel: context menu reads 'Reopen' for the open scene", btn._t == "Reopen", btn._t)
+    s._selected_paths = lambda: [os.path.join(tmp, "elsewhere.blend")]
+    s._label_open_action()
+    check("panel: context menu reads 'Open' for any other row", btn._t == "Open", btn._t)
+
+    # A table with no menu built yet must not have one CONSTRUCTED just to label it.
+    class _NoMenuTbl:
+        has_menu = False
+
+        @property
+        def menu(self):
+            check("panel: labelling must not build the menu", False)
+            return None
+
+    s.ui.tbl000 = _NoMenuTbl()
+    s._label_open_action()
+    check("panel: a menuless table is left alone", True)
 
     # Folder-structure filter must resolve {scenes} (regression: the filter passed no scenes= to
     # replace_placeholders, so a "{scenes}/…" pattern — now the header default — matched nothing

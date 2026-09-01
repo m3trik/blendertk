@@ -35,6 +35,7 @@ as the selection-only convenience used by the Substance / Marmoset / RizomUV bri
 
 import os
 import logging
+from typing import Iterable, Optional
 
 import pythontk as ptk
 
@@ -106,6 +107,13 @@ class _FbxUtilsInternal(object):
                 passthrough["embed_textures"] = bool(value)
                 if value:  # Blender only embeds textures when the paths are copied in
                     passthrough["path_mode"] = "COPY"
+            elif key == "FBXExportTangents":
+                # Without a TANGENT attribute a normal-mapped glTF leaves its
+                # tangent basis for the consumer to invent, and consumers
+                # disagree — three.js swaps in a screen-space derivative basis
+                # and flips green to compensate. Blender needs the UV map that
+                # feeds it, which is what ``use_tspace`` asserts.
+                passthrough["use_tspace"] = bool(value)
             # else: Maya MEL option with no Blender analogue — intentionally dropped.
         return passthrough
 
@@ -317,8 +325,19 @@ class _FbxUtilsInternal(object):
         nodes, curves — is cloned with fresh uids, the curves' keys windowed to
         the take's span (kept in absolute scene time, as Maya's split takes
         are), and the ``Takes`` index rebuilt; the original scene-range stack
-        is then removed, so the file ships exactly the declared takes (Maya
-        parity). Take windows are clamped to the baked span — content beyond
+        is then removed, so the file ships exactly the declared takes.
+
+        That last part is where the two DCCs' ARTIFACTS differ, measured
+        2026-08-28 on Maya 2025 + FBX2glTF 0.13.1: Maya's own splitter keeps
+        its whole-timeline ``Take 001`` alongside the takes it was asked for,
+        so a Maya FBX (and the GLB converted from it) carries N+1 stacks where
+        this carries N. The public surface is still the mirror it claims to be
+        — same call, same declared takes, same names — and a consumer that
+        selects clips by name cannot tell the difference; one that plays the
+        FIRST clip can. ``MeshConvert.apply_glb_animations`` is what makes that
+        answerable from either file (it marks which clips a shot declared).
+
+        Take windows are clamped to the baked span — content beyond
         it cannot exist in the source curves; the Scene Exporter's
         ``apply_declared_takes`` task widens the scene range up front so
         clamping never bites on that path.
@@ -591,6 +610,13 @@ class FbxUtils(_FbxUtilsInternal):
             "BlenderShotStore",
             "refresh_export_view",
         ),
+        # After "shots": it reads back the fbx_takes and fps that shots has
+        # just republished, to place each gate against its own clip's zero.
+        "visibility": (
+            "blendertk.mat_utils.render_opacity._render_opacity",
+            "RenderOpacity",
+            "refresh_export_metadata",
+        ),
         "shadow": (
             "blendertk.rig_utils.shadow_rig",
             "ShadowRig",
@@ -609,7 +635,7 @@ class FbxUtils(_FbxUtilsInternal):
     }
 
     @staticmethod
-    def run_export_preparers() -> None:
+    def run_export_preparers(only: Optional[Iterable[str]] = None) -> None:
         """Refresh every known producer's ``data_export`` channel once, right now.
 
         Each producer is isolated — one failing or unimportable subsystem never
@@ -619,10 +645,20 @@ class FbxUtils(_FbxUtilsInternal):
         manifest.  This is the one call an export pipeline needs to make the
         carrier current — name + behavior mirror of
         ``mtk.FbxUtils.run_export_preparers``.
+
+        *only* narrows the run to the named producers.  Because a producer with
+        nothing to publish CLEARS its channel, refreshing the whole set is safe
+        only where the producers are the authority on every channel — an export
+        pipeline.  A hand-off that merely SHIPS the carrier must not clear a
+        manifest it cannot regenerate, so it names the channels that are derived
+        from live scene state and leaves the rest as authored.
         """
         import importlib
 
+        wanted = None if only is None else set(only)
         for name, (module_path, cls_name, method) in FbxUtils._KNOWN_PRODUCERS.items():
+            if wanted is not None and name not in wanted:
+                continue
             try:
                 producer = getattr(importlib.import_module(module_path), cls_name)
                 refresh = getattr(producer, method)
@@ -683,6 +719,75 @@ class FbxUtils(_FbxUtilsInternal):
     #: :meth:`reset_takes`, which is why the Scene Exporter's takes task
     #: stages that reset (see the module docstring's takes divergence note).
     _pending_takes = None
+
+    @staticmethod
+    def bake_range():
+        """The ``(start, end)`` frames the next write will actually BAKE.
+
+        Same question, and the same name, as mayatk's ``FbxUtils.bake_range``;
+        the source differs because the exporters do. Maya keeps a sticky
+        bake-complex range on the FBX plugin, so its twin reads that back.
+        Blender has no such global -- the range is the SCENE's, which the write
+        bakes over -- so this composes it from the two things that set it, in
+        the order the export applies them:
+
+        * ``set_bake_animation_range`` puts the exported objects' evaluated
+          keyframe extent on the scene, and
+        * ``apply_declared_takes`` then WIDENS that to cover every declared
+          take (``min``/``max`` against the scene range, never a narrowing), so
+          each take's window lies inside the baked span.
+
+        The producers publish BETWEEN those two (``TASK_ORDER``: after
+        ``set_bake_animation_range``, inside ``export_data_node``, before
+        ``apply_declared_takes``), which is exactly why the widening has to be
+        reproduced here rather than read off the scene: at publish time the
+        scene does not yet carry it.
+
+        Anyone describing the exported stack's ORIGIN needs this: a glTF
+        converter rebases every stack onto its first key, so publishing the
+        scene's earliest key instead slides every clip cut from that stack.
+
+        Returns:
+            The range, or None outside Blender / with no scene to read.
+        """
+        try:
+            import bpy
+
+            scene = bpy.context.scene
+            start, end = float(scene.frame_start), float(scene.frame_end)
+        except Exception as error:  # noqa: BLE001 -- a probe must not fail a write
+            logger.debug(f"Could not read the scene frame range: {error}")
+            return None
+
+        for _name, take_start, take_end in FbxUtils._declared_take_bounds():
+            start, end = min(start, take_start), max(end, take_end)
+        return (start, end)
+
+    @staticmethod
+    def _declared_take_bounds():
+        """``(name, start, end)`` for each take on the carrier, malformed ones skipped.
+
+        Read from the carrier rather than ``_pending_takes``: the producers run
+        before ``apply_declared_takes`` has armed anything, so the pending list
+        is still empty when :meth:`bake_range` needs the answer.
+        """
+        import json
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        try:
+            raw = DataNodes.get_export_string("fbx_takes")
+            takes = json.loads(raw) if raw else []
+        except Exception:  # noqa: BLE001 -- absent or unparseable channel
+            return
+        for take in takes or ():
+            try:
+                if isinstance(take, dict):
+                    yield str(take["name"]), float(take["start"]), float(take["end"])
+                else:
+                    yield str(take[0]), float(take[1]), float(take[2])
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue  # one bad entry must not decide the whole range
 
     @staticmethod
     def reset_takes() -> None:

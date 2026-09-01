@@ -397,6 +397,100 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                     pass
 
     @staticmethod
+    @contextmanager
+    def visible_override(objects):
+        """Yield with *objects* temporarily visible, selectable and renderable.
+
+        Hiding is not a property an object-processing operator should have an
+        opinion about, but Blender makes it one: ``bpy.ops.object.mode_set``
+        refuses a hidden object outright (``poll() ... Cannot edit hidden
+        object``), and ``bpy.ops.object.bake`` silently returns an empty image
+        for one carrying ``hide_render``. So a single hidden mesh anywhere in a
+        batch either kills the whole run or -- worse -- ships a black map for
+        itself. Both are wrong: a mesh hidden for authoring convenience (or by
+        the visibility manifest the Maya bridge replays, where hiding may be
+        *animated* and the object is on screen at some other frame) is still
+        part of the export set and still needs its unwrap and its lightmap.
+
+        Scoped deliberately narrow -- the caller reveals ONE object for the
+        duration of that object's own operation. Revealing a whole batch would
+        let geometry the scene hides start occluding and bouncing light into
+        every other object's bake, which is a lighting change, not a fix.
+
+        A collection's own hide flags override the object's, so clearing the
+        object's alone is not enough (measured: with the parent collection
+        hidden, an object whose every own flag is clear stays out of the
+        depsgraph entirely). The remedy is NOT to clear the collection's flags
+        -- measured too, and it reveals every OTHER member of that collection,
+        which is the contamination this scoping exists to prevent. Instead the
+        object is temporarily linked into the scene's master collection, which
+        reveals it and nothing else, and unlinked again on the way out.
+
+        Restores every flag it cleared and every link it added, and tolerates
+        an object removed inside the block.
+
+        Parameters:
+            objects: Object refs (or a single object) to reveal.
+
+        Example:
+            >>> with CoreUtils.visible_override(obj):
+            ...     bpy.ops.object.mode_set(mode="EDIT")
+        """
+        import bpy
+
+        restore = []
+        linked = []
+        view_layer = getattr(bpy.context, "view_layer", None)
+        master = getattr(getattr(bpy.context, "scene", None), "collection", None)
+        for obj in ptk.make_iterable(objects):
+            if obj is None:
+                continue
+            for flag in ("hide_viewport", "hide_render", "hide_select"):
+                if getattr(obj, flag, False):
+                    restore.append((obj, flag, True))
+                    setattr(obj, flag, False)
+            # A visible path to the object, without touching what else its
+            # collections hold. Unconditional rather than conditional on a
+            # visibility probe, because no cheap probe covers every case:
+            # `visible_get` answers for the VIEWPORT, so a collection carrying
+            # only `hide_render` excludes the object from the bake while
+            # reading as visible -- and `users_collection` names only the DIRECT
+            # parents, so a hidden grandparent would be missed either way. A
+            # link/unlink pair is nothing beside a Cycles bake.
+            if master is not None and obj.name not in master.objects:
+                try:
+                    master.objects.link(obj)
+                    linked.append(obj)
+                except (RuntimeError, ReferenceError):
+                    pass
+            # The view-layer "eye" is a separate axis from hide_viewport and is
+            # the one FBX/USD imports usually set. Cleared AFTER the link, so it
+            # also covers the layer-collection entry the link just created.
+            if view_layer is not None:
+                try:
+                    if obj.hide_get(view_layer=view_layer):
+                        restore.append((obj, "hide_get", True))
+                        obj.hide_set(False, view_layer=view_layer)
+                except (RuntimeError, ReferenceError):
+                    pass
+        try:
+            yield
+        finally:
+            for obj in linked:
+                try:
+                    master.objects.unlink(obj)
+                except (RuntimeError, ReferenceError):
+                    pass
+            for holder, flag, value in reversed(restore):
+                try:
+                    if flag == "hide_get":
+                        holder.hide_set(value, view_layer=view_layer)
+                    else:
+                        setattr(holder, flag, value)
+                except (RuntimeError, ReferenceError, AttributeError):
+                    pass
+
+    @staticmethod
     def undoable(fn):
         """Wrap ``fn`` so its changes collapse into a single Blender undo step.
 

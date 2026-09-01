@@ -104,10 +104,14 @@ class TestShotsPanelLoads(unittest.TestCase):
             "spn_shot_start",
             "spn_shot_end",
             "txt_shot_desc",
-            "spn_gap",
             "spn_move_to",
+            "spn_space",
             "btn_trim_empty",
             "b000",
+            # All Shots group
+            "spn_gap",
+            "btn_trim_all",
+            "btn_delete_all",
         ]
         missing = [w for w in expected if not hasattr(self.ui, w)]
         self.assertEqual(missing, [])
@@ -137,9 +141,19 @@ class TestShotsPanelLoads(unittest.TestCase):
         missing = [
             name
             for name in (
-                "btn_delete_all_shots",
+                # per-shot group
+                "chk_delete_contents",
+                "chk_close_gap",
                 "btn_move_shot",
-                "btn_trim_all_shots",
+                "btn_trim_leading",
+                "btn_trim_trailing",
+                "btn_trim_both",
+                "btn_add_leading_space",
+                "btn_add_trailing_space",
+                # all-shots group
+                "btn_trim_all_leading",
+                "btn_trim_all_trailing",
+                "btn_trim_all_both",
                 "cmb_gap_scope",
                 "btn_apply_gap",
             )

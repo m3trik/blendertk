@@ -44,6 +44,25 @@ class _LightUtilsInternal(object):
         return [bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects]
 
     @staticmethod
+    def _emitter_area(light):
+        """The emitting area of a sized AREA light, in scene units squared.
+
+        Shape-aware, because Blender spends ``size``/``size_y`` differently per shape:
+        SQUARE and DISK read ``size`` alone (a disk's is its DIAMETER), RECTANGLE and
+        ELLIPSE use both. Used to finish a ``radiance`` record into watts, so getting
+        the shape wrong would misstate the light's power by a constant factor rather
+        than fail visibly.
+        """
+        width = float(getattr(light, "size", 0.0) or 0.0)
+        if light.shape in {"RECTANGLE", "ELLIPSE"}:
+            height = float(getattr(light, "size_y", 0.0) or 0.0)
+        else:
+            height = width
+        area = width * height
+        # An ellipse/disk inscribes its bounding box: pi/4 of it.
+        return area * (math.pi / 4.0) if light.shape in {"DISK", "ELLIPSE"} else area
+
+    @staticmethod
     def _world_corners(obj):
         """The object's bounding-box corners in world space."""
         from mathutils import Vector
@@ -590,13 +609,23 @@ class LightUtils(_LightUtilsInternal):
             {"name": "keyLight",        # the empty to convert (required)
              "type": "POINT"|"SPOT"|"SUN"|"AREA",
              "color": [r, g, b], "energy": <watts>,
+             "radiance": <W/m2/sr>,     # AREA: instead of energy, see below
              "aim": [x, y, z], "axis_up": "Y"|"Z",   # world aim, sender's axes
              "spot_size": <radians>, "spot_blend": <0-1>,        # SPOT
              "shape": "RECTANGLE"|"SQUARE"|"DISK",
-             "local_size": [x, y]}                               # AREA, LOCAL units
+             "local_size": [x, y],                               # AREA, LOCAL units
+             "cast_shadow": <bool>}   # omit to keep Blender's own default (on)
 
         ``local_size`` is scaled by the empty's own world scale, so the emitter ends
         up the size the source made it whatever the import did to the scene.
+
+        ``radiance`` is the power field for an AREA light that emits PER UNIT AREA
+        (Maya/Arnold with normalize off) rather than at a fixed total power. It
+        replaces ``energy``, and is converted here -- ``energy = radiance * pi *
+        area`` -- because only this side knows the lamp's area in the scene's own
+        metres. A sender must NOT pre-multiply by an area it measured itself: area is
+        a squared length, so a sender working in centimetres would be out by 1e4 with
+        nothing to show for it (this is a fixed bug, not a hypothetical).
 
         ``aim`` overrides the empty's own orientation, and senders should provide it:
         a placed null carries POSITION reliably across an interchange format, but its
@@ -632,7 +661,16 @@ class LightUtils(_LightUtilsInternal):
         for record in records or []:
             name = record.get("name")
             empty = bpy.data.objects.get(name) if name else None
-            if empty is None:
+            # The record names the light's PLACEHOLDER, and the placeholder is
+            # removed below to free its name -- so the type check is not a
+            # nicety, it is what stands between a name collision and deleted
+            # GEOMETRY. Maya allows a mesh and a light to share a leaf name
+            # under different parents; the FBX importer then suffixes one of
+            # them, and if the suffix landed on the light's null this lookup
+            # returns the MESH. A record that resolves to anything but an
+            # empty simply did not come across (the caller's "not rebuilt"
+            # report already surfaces the skip).
+            if empty is None or getattr(empty, "type", None) != "EMPTY":
                 continue
 
             # Capture what the empty carries, then FREE ITS NAME before creating the
@@ -653,6 +691,12 @@ class LightUtils(_LightUtilsInternal):
             light = bpy.data.lights.new(name, record.get("type") or "POINT")
             light.color = tuple(record.get("color") or (1.0, 1.0, 1.0))[:3]
             light.energy = float(record.get("energy") or 0.0)
+            # Senders whose lights default to NOT casting (Maya's do) have to say
+            # so: a Cycles light always casts unless told otherwise, so a
+            # deliberately shadowless fill would arrive shadowing. Absent key ==
+            # "the sender has no opinion" -> leave Blender's own default.
+            if record.get("cast_shadow") is not None:
+                light.use_shadow = bool(record["cast_shadow"])
             if light.type == "SPOT":
                 if record.get("spot_size") is not None:
                     light.spot_size = float(record["spot_size"])
@@ -665,6 +709,20 @@ class LightUtils(_LightUtilsInternal):
                 light.size = abs(float(local[0]) * scale.x)
                 if light.shape in {"RECTANGLE", "ELLIPSE"}:
                     light.size_y = abs(float(local[1]) * scale.y)
+                # ``radiance`` instead of ``energy``: a sender whose area light emits
+                # per unit area (Maya/Arnold with normalize off) cannot state watts,
+                # because watts depend on the emitting AREA and the area is only known
+                # once the lamp has been sized -- here, in the scene's own metres,
+                # from the empty the import placed. A sender that computed it on its
+                # own side would be squaring a length in ITS units (a cm scene puts
+                # the factor out by 1e4), which is precisely the bug this field
+                # exists to make unrepresentable.
+                if record.get("radiance") is not None:
+                    light.energy = (
+                        float(record["radiance"])
+                        * math.pi
+                        * _LightUtilsInternal._emitter_area(light)
+                    )
 
             # The empty WAS the light's transform, so the lamp simply takes its place
             # -- same matrix, same parent, same collections. Parent is assigned before

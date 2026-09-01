@@ -119,6 +119,25 @@ try:
         f"{sorted(visible_names)}",
     )
 
+    # The SHIPPED read, not a look-alike: the check above asserts what
+    # `get_visible_geometry` returns, while the resolver actually calls
+    # `BlenderExportMixin._visible_objects` (visible_get() over the current
+    # scene, unfiltered by type so a visible group Empty travels). Two
+    # different functions, and only one of them is on the export path.
+    #
+    # The mixin, not `BlenderBridgeSlotsBase.resolve_scope_objects` that
+    # delegates to it: that module imports `uitk.bridge`, and headless Blender
+    # ships no Qt binding -- which is why this suite reached for a stand-in in
+    # the first place. The mixin is Qt-free, so the real function is reachable.
+    from blendertk.env_utils.handoff_export import BlenderExportMixin
+
+    resolved = {o.name for o in BlenderExportMixin._visible_objects()}
+    check(
+        "the export mixin's visible read excludes hidden objects",
+        "VisibleCube" in resolved and "HiddenCube" not in resolved,
+        f"{sorted(resolved)}",
+    )
+
     # ---- end-to-end: real FBX export -> copy into a temp Unity project -------
     # Drives _preflight/_produce/_deliver directly (the exact steps send() runs via
     # _run) with an explicit, already-merged params dict -- see the module docstring

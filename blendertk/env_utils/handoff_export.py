@@ -15,7 +15,7 @@ imports Qt-free.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import blendertk as btk
 from pythontk import Payload
@@ -46,6 +46,14 @@ class BlenderExportMixin:
     #: Turning it on also forces the export options the carrier needs to mean anything
     #: (``use_custom_props``, ``EMPTY`` in ``object_types``) -- see :meth:`_export_fbx`.
     include_data_export: bool = False
+
+    #: ``FbxUtils._KNOWN_PRODUCERS`` keys whose channel is COMPUTED from live
+    #: scene state rather than merely republished from authored state, and so must
+    #: be rebuilt before a hand-off ships the carrier (mirror of mayatk's). A
+    #: producer with nothing to publish clears its channel, so this must NOT be the
+    #: whole set -- ``visibility_tracks`` reads the visibility curves themselves,
+    #: which an artist edits between one preview push and the next.
+    refresh_producers: Tuple[str, ...] = ("visibility",)
 
     def lightmap_search_dirs(self) -> List[str]:
         """Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
@@ -86,10 +94,24 @@ class BlenderExportMixin:
             return []
         try:
             from blendertk.node_utils.data_nodes import DataNodes
-
-            node = DataNodes.get_export_node(create=False)
+            from blendertk.env_utils.fbx_utils import FbxUtils
         except ImportError:  # engine-surface tests outside Blender
             return []
+
+        # Make the DERIVED channels current first -- and only those (mirror of
+        # mayatk's). Most channels are authored state a producer republishes,
+        # but some are computed from the live scene every export --
+        # ``visibility_tracks`` reads the visibility curves themselves -- and go
+        # stale the moment an artist re-keys. Narrowed because a producer with
+        # nothing to publish CLEARS its channel: refreshing everything from here
+        # wiped a lightmap manifest the scene no longer described.
+        if self.refresh_producers:
+            try:
+                FbxUtils.run_export_preparers(only=self.refresh_producers)
+            except Exception:  # noqa: BLE001
+                self.logger.debug("data_export refresh skipped.", exc_info=True)
+
+        node = DataNodes.get_export_node(create=False)
         return [node] if node is not None else []
 
     def _resolve_objects(self, objects):
@@ -171,6 +193,27 @@ class BlenderExportMixin:
 
         return list(bpy.context.scene.objects)
 
+    @staticmethod
+    def _visible_objects() -> List[Any]:
+        """Every CURRENTLY VISIBLE object in the scene (the Visible Only scope).
+
+        Mirror of mayatk's, and the same sibling relationship to
+        :meth:`_scene_objects`: the two widening scopes
+        ``uitk.bridge.Parameters.scope_spec`` declares. Static because it
+        consults only the scene, which lets
+        ``BlenderBridgeSlotsBase.resolve_scope_objects`` call it for panels
+        whose bridge has no export mixin -- one implementation of "visible".
+
+        Unfiltered by type, exactly as ``_scene_objects`` is: a visible group
+        Empty is part of what the user sees, and the export's ``object_types``
+        already decides what travels. ``visible_get()`` rather than
+        ``hide_viewport``: it answers for the evaluated view layer, which is
+        what "visible" means to the person looking at the screen.
+        """
+        import bpy
+
+        return [o for o in bpy.context.scene.objects if o.visible_get()]
+
     def _produce(self, objects, request) -> Payload:
         """Export the hierarchy closure of *objects* to a temp FBX :class:`pythontk.Payload`.
 
@@ -189,7 +232,9 @@ class BlenderExportMixin:
         self._export_payload(objects, path, request.params)
         return Payload(primary=path, extras={"export_set": objects})
 
-    def _payload_writers(self) -> Dict[str, Callable[[List[Any], str, Dict[str, Any]], None]]:
+    def _payload_writers(
+        self,
+    ) -> Dict[str, Callable[[List[Any], str, Dict[str, Any]], None]]:
         """``{carrier: writer(objects, path, params)}`` -- the Strategy table.
 
         A new carrier is one entry here plus its writer; a bridge that needs a
@@ -221,6 +266,12 @@ class BlenderExportMixin:
         """
         return dict(
             object_types={"MESH", "EMPTY", "ARMATURE", "OTHER"},
+            # Mirror of mayatk's pinned ``FBXExportTangents``: an asset that
+            # ships no tangents leaves its tangent basis for the receiver to
+            # invent, and receivers disagree — three.js swaps in a screen-space
+            # derivative basis and flips green to compensate, while a baker
+            # wants the SAME basis the asset was authored against.
+            use_tspace=True,
             embed_textures=bool(params.get("EMBED_TEXTURES", True)),
             path_mode=("COPY" if params.get("EMBED_TEXTURES", True) else "AUTO"),
             use_triangles=bool(params.get("TRIANGULATE", False)),
@@ -266,66 +317,98 @@ class BlenderExportMixin:
             )
             fbx_opts["object_types"] = types | {"EMPTY"}
 
-        if bool(params.get("INCLUDE_MATERIALS", True)):
-            btk.FbxUtils.export_selection_fbx(
-                filepath=fbx_path, objects=list(objects) + carrier, **fbx_opts
-            )
-            return
+        # Guards the reset below on having ATTEMPTED the split rather than on
+        # having armed one, mirroring mayatk: a raise inside ``apply_takes``
+        # would otherwise leave armed state behind with nothing to clear it.
+        wants_animation = bool(params.get("INCLUDE_ANIMATION", False))
+        if wants_animation:
+            # Realize the shots the scene DECLARES as named AnimStacks, so every
+            # animated hand-off carries per-shot clips rather than one
+            # whole-timeline take a consumer has to slice by hand. Mirror of
+            # ``mtk.MayaExportMixin._export_fbx``: the take split reached only
+            # the Scene Exporter, which calls it explicitly, so the preview and
+            # the exporter disagreed about whether shots survive.
+            #
+            # Declared, never regenerated -- this arms whatever is already on the
+            # carrier, so a preview push stays free of scene side effects.
+            takes = btk.FbxUtils.apply_takes_from_node()
+            if takes:
+                self.logger.info(f"Animation: realized {takes} declared take(s).")
 
-        # Strip-materials path: export shader-less copies, leave originals alone.
-        import bpy
-
-        src = [bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects]
-        src = [o for o in src if o is not None]
-        dups = []  # (object, copied_data)
-        dup_of = {}
-        for o in src:
-            nd = o.copy()
-            copied_data = None
-            if getattr(o, "data", None) is not None:
-                copied_data = o.data.copy()
-                nd.data = copied_data
-            bpy.context.scene.collection.objects.link(nd)
-            dups.append((nd, copied_data))
-            dup_of[o] = nd
-        # Re-parent each copy onto the copy of its parent: ``o.copy()`` keeps
-        # ``.parent`` aimed at the ORIGINAL, which is not in the exported set,
-        # so the exporter would re-root every child and the strip path would
-        # flatten the very hierarchy the closure preserved. The copied
-        # ``matrix_parent_inverse`` stays valid -- the new parent has the
-        # source parent's transform -- so assigning ``.parent`` directly
-        # keeps world placement. A parent OUTSIDE the set stays aimed at the
-        # original (unexported -> the exporter re-roots that child with its
-        # world transform, same as before the closure existed).
-        for o in src:
-            if o.parent in dup_of:
-                dup_of[o].parent = dup_of[o.parent]
         try:
-            for obj, _ in dups:
-                data = getattr(obj, "data", None)
-                if data is not None and hasattr(data, "materials"):
-                    data.materials.clear()
-            btk.FbxUtils.export_selection_fbx(
-                filepath=fbx_path, objects=[d[0] for d in dups] + carrier, **fbx_opts
-            )
-        finally:
-            for obj, copied_data in dups:
-                try:
-                    bpy.data.objects.remove(obj, do_unlink=True)
-                except Exception:
-                    pass
-                # Drop the orphaned copied datablock so the strip leaves no residue.
-                if copied_data is not None and getattr(copied_data, "users", 0) == 0:
-                    for coll in (
-                        getattr(bpy.data, "meshes", None),
-                        getattr(bpy.data, "curves", None),
+            if bool(params.get("INCLUDE_MATERIALS", True)):
+                btk.FbxUtils.export_selection_fbx(
+                    filepath=fbx_path, objects=list(objects) + carrier, **fbx_opts
+                )
+                return
+
+            # Strip-materials path: export shader-less copies, leave originals alone.
+            import bpy
+
+            src = [
+                bpy.data.objects.get(o) if isinstance(o, str) else o for o in objects
+            ]
+            src = [o for o in src if o is not None]
+            dups = []  # (object, copied_data)
+            dup_of = {}
+            for o in src:
+                nd = o.copy()
+                copied_data = None
+                if getattr(o, "data", None) is not None:
+                    copied_data = o.data.copy()
+                    nd.data = copied_data
+                bpy.context.scene.collection.objects.link(nd)
+                dups.append((nd, copied_data))
+                dup_of[o] = nd
+            # Re-parent each copy onto the copy of its parent: ``o.copy()`` keeps
+            # ``.parent`` aimed at the ORIGINAL, which is not in the exported set,
+            # so the exporter would re-root every child and the strip path would
+            # flatten the very hierarchy the closure preserved. The copied
+            # ``matrix_parent_inverse`` stays valid -- the new parent has the
+            # source parent's transform -- so assigning ``.parent`` directly
+            # keeps world placement. A parent OUTSIDE the set stays aimed at the
+            # original (unexported -> the exporter re-roots that child with its
+            # world transform, same as before the closure existed).
+            for o in src:
+                if o.parent in dup_of:
+                    dup_of[o].parent = dup_of[o.parent]
+            try:
+                for obj, _ in dups:
+                    data = getattr(obj, "data", None)
+                    if data is not None and hasattr(data, "materials"):
+                        data.materials.clear()
+                btk.FbxUtils.export_selection_fbx(
+                    filepath=fbx_path,
+                    objects=[d[0] for d in dups] + carrier,
+                    **fbx_opts,
+                )
+            finally:
+                for obj, copied_data in dups:
+                    try:
+                        bpy.data.objects.remove(obj, do_unlink=True)
+                    except Exception:
+                        pass
+                    # Drop the orphaned copied datablock so the strip leaves no residue.
+                    if (
+                        copied_data is not None
+                        and getattr(copied_data, "users", 0) == 0
                     ):
-                        try:
-                            if coll is not None and copied_data.name in coll:
-                                coll.remove(copied_data)
-                                break
-                        except Exception:
-                            pass
+                        for coll in (
+                            getattr(bpy.data, "meshes", None),
+                            getattr(bpy.data, "curves", None),
+                        ):
+                            try:
+                                if coll is not None and copied_data.name in coll:
+                                    coll.remove(copied_data)
+                                    break
+                            except Exception:
+                                pass
+        finally:
+            if wants_animation:
+                # Armed takes are sticky until cleared (``apply_takes``' own
+                # contract): left armed, the next export would split a file the
+                # caller never asked to split. Covers BOTH export paths.
+                btk.FbxUtils.reset_takes()
 
     def _usd_options(
         self, params: Dict[str, Any], objects: Optional[List[Any]] = None

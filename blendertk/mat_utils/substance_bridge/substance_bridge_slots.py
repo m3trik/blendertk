@@ -18,11 +18,9 @@ import traceback
 from pathlib import Path
 
 from uitk.bridge.spec import KindFactory
-from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
 
 from blendertk.mat_utils.substance_bridge._substance_bridge import (
-    HighPolySet,
     SubstanceBridge,
     _TEMPLATE_DIR,
 )
@@ -47,6 +45,13 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
     # (unsaved file) — the FBX + staged maps are transient hand-off artifacts Painter
     # reads once, so the user shouldn't be forced to pick a path.
     TEMP_OUTPUT_FALLBACK = True
+
+    # The Output Dir is a per-run hand-off location, not durable config: leaving
+    # it blank resolves to the current .blend file's folder (or a temp dir), which is
+    # right far more often than whatever was typed in some earlier session. A
+    # restored path silently outranks that per-run default, so the field starts
+    # blank each session -- the recent-values button still holds the history.
+    OUTPUT_DIR_PERSISTS = False
 
     # Header = the base panel-level utilities only (Clear Log). Template
     # management lives on the template combo's own menu; the Bake Source set
@@ -118,6 +123,19 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
         super().__init__(switchboard)
         self._wire_texture_affix_dependency()
 
+    def _configure_output_dir_options(self, edit) -> None:
+        """Base buttons (recent history + browse) plus a clear button.
+
+        Blank is a *meaningful* state for this field -- ``require_output_dir``
+        reads it as "use the .blend file folder, or a temp dir" -- so unlike a
+        browse-only path field the clear button reaches a real setting rather
+        than just breaking the value. Pairs with ``OUTPUT_DIR_PERSISTS = False``:
+        clearing it is how the user gets back to the per-run default within a
+        session, and the next session starts there anyway.
+        """
+        super()._configure_output_dir_options(edit)
+        edit.option_box.clear_option = True
+
     #: Why ``Texture Affix`` greys out. Held as an attribute so the wording
     #: is one string rather than one per call site.
     _AFFIX_DISABLED_REASON = (
@@ -155,110 +173,6 @@ class SubstanceBridgeSlots(BlenderBridgeSlotsBase):
 
         KindFactory.connect_changed(include_widget, _sync)
         _sync()
-
-    # ------------------------------------------------------------------
-    # Bake Source set (param-row actions)
-    # ------------------------------------------------------------------
-
-    def live_param_tooltip_blocks(self):
-        """Make the Bake Source row report the file's CURRENT members.
-
-        The set is a stamped Collection in the .blend, not panel state, so it
-        moves under an open panel -- a new file, a redefine, an unlink in the
-        Outliner. A build-time tooltip would describe the set the panel opened
-        on, which is exactly the case the user is trying to check.
-
-        Registered as a BLOCK, not a whole tooltip: the row's three buttons each
-        carry their own description, and the member list has to reach the one the
-        user is actually hovering when they capture a selection -- not just the
-        label off to its left.
-
-        Mirrors ``MayaBridgeSlotsBase.live_param_tooltip_blocks``, including its
-        extend-don't-replace contract: the hook is a registry, so a subclass that
-        has to remember to merge is one that will forget.
-        """
-        tips = dict(super().live_param_tooltip_blocks() or {})
-        tips["BAKE_SOURCE_SET"] = self._bake_source_tooltip
-        return tips
-
-    def _bake_source_tooltip(self) -> str:
-        """The Bake Source set's live member list (appended to each hover target)."""
-        try:
-            members = HighPolySet.members()
-        except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
-            return ""
-        return TooltipFormat.stored_items(
-            members,
-            formatter=lambda o: o.name,
-            noun="object(s) in this file's set",
-            empty_text="No bake source defined in this file.",
-        )
-
-    def set_bake_source_from_selection(self) -> None:
-        """Store the current selection as this file's bake source.
-
-        Defining the set IS the opt-in: every send from here on exports it as
-        the companion bake-source FBX. There is no second checkbox to tick --
-        the pairing this replaced could be silently half-on (a set defined, the
-        box left clear), which reads as the tool ignoring you.
-        """
-        members = HighPolySet.define()
-        if not members:
-            self.bridge.logger.warning(
-                "Nothing selected; the bake-source set was cleared."
-            )
-            return
-        self.bridge.logger.info(
-            f"Bake Source set: {len(members)} object(s) -> "
-            f"{HighPolySet.SET_NAME}. Sends now ship it as the companion "
-            f"bake source."
-        )
-
-    def select_bake_source(self) -> None:
-        """Select the high-poly set's members.
-
-        Members outside the active view layer (an excluded collection) can't
-        be selected at all -- ``select_set`` raises there -- and one whose
-        ``hide_select`` is on silently refuses. Both are reported rather than
-        forced: unhiding geometry behind the user's back to satisfy a
-        *select* action would be the one thing this feature promises not to
-        do. The export itself doesn't care either way.
-        """
-        import bpy
-
-        members = HighPolySet.members()
-        if not members:
-            self.bridge.logger.warning("This file has no high-poly set.")
-            return
-        bpy.ops.object.select_all(action="DESELECT")
-        selected = []
-        for obj in members:
-            try:
-                obj.select_set(True)
-            except RuntimeError:  # not in the active view layer
-                continue
-            if obj.select_get():
-                selected.append(obj)
-        if selected:
-            bpy.context.view_layer.objects.active = selected[0]
-        unreachable = len(members) - len(selected)
-        self.bridge.logger.info(
-            f"Selected {len(selected)} high-poly object(s)."
-            + (
-                f" {unreachable} could not be selected (hidden from selection "
-                "or outside the active view layer); they still export."
-                if unreachable
-                else ""
-            )
-        )
-
-    def clear_bake_source(self) -> None:
-        """Remove the high-poly collection; its objects are left alone."""
-        if not HighPolySet.exists():
-            self.bridge.logger.warning("This file has no high-poly set.")
-            return
-        HighPolySet.clear()
-        self.bridge.logger.info("High-poly set cleared.")
 
     # ------------------------------------------------------------------
     # Required base-class hooks
