@@ -356,7 +356,7 @@ class _AnimUtilsInternal(object):
         return removed
 
     @staticmethod
-    def _unbake_fcurve(fc, tolerance):
+    def _reduce_fcurve_to_extremes(fc, tolerance):
         """Reduce a baked fcurve to its shape-defining keys and refit the handles.
 
         Keeps endpoints, peaks, valleys and hold boundaries
@@ -439,6 +439,110 @@ class _AnimUtilsInternal(object):
 
 class AnimUtils(_AnimUtilsInternal):
     """Namespace mirror (helpers also exposed module-level)."""
+
+    #: Optimization levels for :meth:`optimize_keys`, least to most aggressive.
+    #: The single source of truth every consumer reads -- the Scene Exporter's
+    #: Optimize Keys combo, SmartBake's pass-through, and any headless caller --
+    #: so a level added here reaches all of them without a second edit.  Each
+    #: value is literally the ``optimize_keys`` kwargs that level means: the
+    #: level is sugar over the primitive, never a replacement for it, and a
+    #: caller that wants a combination no level names still passes kwargs.
+    #: Mirrors ``mtk.AnimUtils.OPTIMIZE_LEVELS`` key-for-key -- both engines
+    #: take the same four knobs, including the negative-tolerance extremes
+    #: sentinel -- so a Scene Exporter template moves between the two DCCs.
+    OPTIMIZE_LEVELS = {
+        # Delete curves whose value never changes; leave every surviving curve's
+        # keys alone.  The conservative rung: nothing that carries motion is
+        # touched, so it is safe on hand-animated curves whose flat sections are
+        # deliberate holds.
+        "static": {"remove_static_curves": True, "remove_flat_keys": False},
+        # ... plus the redundant interior keys of a flat run.  What every caller
+        # got before levels existed (see DEFAULT_OPTIMIZE_LEVEL).
+        "flat": {"remove_static_curves": True, "remove_flat_keys": True},
+        # ... plus dropping keys that lie on the line between their neighbours.
+        # Lossy by construction: that judgement is only as good as the tolerance.
+        "simplify": {
+            "remove_static_curves": True,
+            "remove_flat_keys": True,
+            "simplify_keys": True,
+        },
+        # Reduce smooth curves to their extrema with handles refit against the
+        # samples (:meth:`reduce_to_extremes`, selected by the negative tolerance).
+        # The answer for per-frame BAKED output, where the other rungs have
+        # almost nothing to delete -- a bake has no redundant flat keys to find.
+        "extremes": {
+            "remove_static_curves": True,
+            "remove_flat_keys": True,
+            "value_tolerance": -1.0,
+        },
+    }
+
+    #: The level a bare ``True`` resolves to -- what every caller got before
+    #: levels existed, so a bool keeps behaving exactly as it did.
+    DEFAULT_OPTIMIZE_LEVEL = "flat"
+
+    #: Level names accepted for one release after a rename, mapped to the
+    #: canonical key. ``"unbake"`` (until 2026-09-02) read as reversing a
+    #: bake -- which is ``SmartBake.restore`` -- when the level only thins a
+    #: bake to its extremes; saved templates and headless callers still say it.
+    _OPTIMIZE_LEVEL_ALIASES = {"unbake": "extremes"}
+
+    @classmethod
+    def normalize_optimize_level(cls, level):
+        """The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
+
+        Split out of :meth:`resolve_optimize_level` so a caller that wants to
+        REPORT the level (a log line, a summary) names the same thing the pass
+        actually ran -- ``"  Extremes "`` resolves correctly but should not be
+        echoed back with the caller's spacing and case.
+
+        Parameters:
+            level: A key of :attr:`OPTIMIZE_LEVELS`, or a bool -- ``True`` for
+                :attr:`DEFAULT_OPTIMIZE_LEVEL`, anything falsy for OFF.
+
+        Raises:
+            ValueError: *level* is a non-empty string naming no known level.
+        """
+        if not level:  # None/False/0/"" -- OFF.  Tested BEFORE the string
+            return None  # branch: "" is a falsy config value, not a bad level
+        if not isinstance(level, str):  # True, or a legacy truthy bool flag
+            return cls.DEFAULT_OPTIMIZE_LEVEL
+        key = level.strip().lower()
+        key = cls._OPTIMIZE_LEVEL_ALIASES.get(key, key)
+        if key not in cls.OPTIMIZE_LEVELS:
+            raise ValueError(
+                f"Unknown optimize level {level!r}; expected one of "
+                f"{', '.join(cls.OPTIMIZE_LEVELS)}."
+            )
+        return key
+
+    @classmethod
+    def resolve_optimize_level(cls, level):
+        """Resolve an optimization level into :meth:`optimize_keys` kwargs.
+
+        The seam between a UI/config choice and the primitive, so no consumer
+        hard-codes a level's kwargs::
+
+            kwargs = AnimUtils.resolve_optimize_level(level)
+            if kwargs:
+                AnimUtils.optimize_keys(objects, **kwargs)
+
+        Parameters:
+            level: A key of :attr:`OPTIMIZE_LEVELS`, or a bool -- ``True`` for
+                :attr:`DEFAULT_OPTIMIZE_LEVEL`, anything falsy for OFF.
+
+        Returns:
+            The kwargs for that level, or None when it is OFF (so the caller
+            skips the pass rather than running it with everything disabled).
+
+        Raises:
+            ValueError: *level* is a string naming no known level.  Loud rather
+                than silently falling back: an unknown level is a config error,
+                and a quiet default would optimize the user's curves at a
+                setting they did not choose.
+        """
+        key = cls.normalize_optimize_level(level)
+        return dict(cls.OPTIMIZE_LEVELS[key]) if key else None
 
     # ---- bulk keyframe access ------------------------------------------------
     #
@@ -1474,11 +1578,12 @@ class AnimUtils(_AnimUtilsInternal):
         return pasted
 
     @staticmethod
-    def unbake_keys(objects=None, value_tolerance=0.001, stats=None):
+    def reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None):
         """Reduce baked fcurves to their shape-defining keys and refit the handles —
-        mirror of ``mtk.AnimUtils.unbake_keys``.
+        mirror of ``mtk.AnimUtils.reduce_to_extremes``.
 
-        The inverse of a per-frame bake: each curve keeps only its endpoints, peaks,
+        A per-frame bake thinned to its shape, not undone (reversing a bake is
+        ``SmartBake.restore``): each curve keeps only its endpoints, peaks,
         valleys and hold boundaries; the tweens are deleted and the survivors get
         Bezier handles fitted by least squares against the deleted samples, so the
         sparse curve traces the baked motion.  Holds stay exactly flat (broken
@@ -1486,9 +1591,9 @@ class AnimUtils(_AnimUtilsInternal):
         (``CONSTANT``) keys are left untouched.
 
         ``objects`` defaults to every scene object.  Pass a dict as ``stats`` to
-        receive ``unbaked`` (curve count), ``unbake_keys_removed`` and
-        ``unbake_max_error`` (largest deviation from the baked samples).  Returns the
-        unbaked fcurves.
+        receive ``reduced`` (curve count), ``reduce_keys_removed`` and
+        ``reduce_max_error`` (largest deviation from the baked samples).  Returns the
+        reduced fcurves.
         """
         import bpy
 
@@ -1497,25 +1602,32 @@ class AnimUtils(_AnimUtilsInternal):
             if objects is not None
             else list(bpy.data.objects)
         )
-        unbaked, removed, max_error = [], 0, 0.0
+        reduced, removed, max_error = [], 0, 0.0
         for o in pool:
             for action, slot in _AnimUtilsInternal._actions([o]):
                 for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
-                    result = _AnimUtilsInternal._unbake_fcurve(fc, value_tolerance)
+                    result = _AnimUtilsInternal._reduce_fcurve_to_extremes(
+                        fc, value_tolerance
+                    )
                     if result is None:
                         continue
-                    unbaked.append(fc)
+                    reduced.append(fc)
                     removed += result[0]
                     max_error = max(max_error, result[1])
         if stats is not None:
             stats.update(
                 {
-                    "unbaked": len(unbaked),
-                    "unbake_keys_removed": removed,
-                    "unbake_max_error": max_error,
+                    "reduced": len(reduced),
+                    "reduce_keys_removed": removed,
+                    "reduce_max_error": max_error,
                 }
             )
-        return unbaked
+        return reduced
+
+    #: Deprecated alias (2026-09-02): the method was renamed because "unbake"
+    #: read as reversing a bake (that is ``SmartBake.restore``) when it only
+    #: thins one. Remove in the release after.
+    unbake_keys = reduce_to_extremes
 
     @staticmethod
     def optimize_keys(
@@ -1536,19 +1648,19 @@ class AnimUtils(_AnimUtilsInternal):
         * ``remove_flat_keys`` — interior keys on a flat segment are removed (boundaries kept).
         * ``simplify_keys`` — additionally drop keys that lie on the line between their neighbours.
 
-        A negative ``value_tolerance`` (``-1``) selects **unbake** mode: after the static pass every
-        smooth curve is reduced to its extrema with refit handles (:meth:`unbake_keys`); stepped
+        A negative ``value_tolerance`` (``-1``) selects **extremes** mode: after the static pass every
+        smooth curve is reduced to its extrema with refit handles (:meth:`reduce_to_extremes`); stepped
         curves still get the flat-key pass, ``simplify_keys`` is ignored and the static/flat
         tolerance falls back to the default.
 
         ``objects`` defaults to every scene object. Pass a dict as ``stats`` to receive
         ``curves_before/after`` and ``keys_before/after`` counts (also returned), plus the
-        :meth:`unbake_keys` stats in unbake mode.
+        :meth:`reduce_to_extremes` stats in extremes mode.
         """
         import bpy
 
-        unbake = value_tolerance < 0
-        if unbake:
+        extremes = value_tolerance < 0
+        if extremes:
             value_tolerance = 0.001  # the sentinel carries no magnitude
         pool = (
             ptk.make_iterable(objects)
@@ -1556,8 +1668,8 @@ class AnimUtils(_AnimUtilsInternal):
             else list(bpy.data.objects)
         )
         s = {"curves_before": 0, "curves_after": 0, "keys_before": 0, "keys_after": 0}
-        if unbake:
-            s.update({"unbaked": 0, "unbake_keys_removed": 0, "unbake_max_error": 0.0})
+        if extremes:
+            s.update({"reduced": 0, "reduce_keys_removed": 0, "reduce_max_error": 0.0})
         for o in pool:
             for action, slot in _AnimUtilsInternal._actions([o]):
                 for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
@@ -1573,19 +1685,21 @@ class AnimUtils(_AnimUtilsInternal):
                         ):
                             _AnimUtilsInternal._remove_fcurve(action, slot, fc)
                             continue
-                    unbaked = (
-                        _AnimUtilsInternal._unbake_fcurve(fc, value_tolerance)
-                        if unbake
+                    reduced = (
+                        _AnimUtilsInternal._reduce_fcurve_to_extremes(
+                            fc, value_tolerance
+                        )
+                        if extremes
                         else None
                     )
-                    if unbaked is not None:
-                        s["unbaked"] += 1
-                        s["unbake_keys_removed"] += unbaked[0]
-                        s["unbake_max_error"] = max(s["unbake_max_error"], unbaked[1])
+                    if reduced is not None:
+                        s["reduced"] += 1
+                        s["reduce_keys_removed"] += reduced[0]
+                        s["reduce_max_error"] = max(s["reduce_max_error"], reduced[1])
                     else:
                         if remove_flat_keys:
                             _AnimUtilsInternal._remove_flat_keys(fc, value_tolerance)
-                        if simplify_keys and not unbake:
+                        if simplify_keys and not extremes:
                             _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance)
                     fc.update()
                     s["curves_after"] += 1
@@ -2032,3 +2146,168 @@ class AnimUtils(_AnimUtilsInternal):
                 render.ffmpeg.constant_rate_factor = next(
                     crf for threshold, crf in _CRF_BY_QUALITY if quality >= threshold
                 )
+
+    # ---- key selection readers (mirror of mayatk) ---------------------------------
+
+    @staticmethod
+    def get_selected_key_times(objects=None):
+        """Graph Editor / Dope Sheet key selection, per fcurve.
+
+        Mirror of mayatk's ``AnimUtils.get_selected_key_times`` (name + behavior):
+        a selection is per key, so the result is per curve.  Blender fcurves have
+        no node name, so the key is ``(object_name, data_path, array_index)``.
+
+        Parameters:
+            objects: Restrict to these objects; ``None`` = every object holding an
+                action.
+
+        Returns:
+            ``{(object_name, data_path, array_index): [frames]}`` — sorted,
+            de-duplicated; curves with no selected key are absent.
+        """
+        import bpy
+
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        if objects is None:
+            objects = [
+                o
+                for o in bpy.data.objects
+                if o.animation_data is not None and o.animation_data.action is not None
+            ]
+        out = {}
+        for o in ptk.make_iterable(objects):
+            for fc in BlenderShotStore.iter_action_fcurves(o):
+                times = sorted(
+                    {k.co.x for k in fc.keyframe_points if k.select_control_point}
+                )
+                if times:
+                    out[(o.name, fc.data_path, fc.array_index)] = times
+        return out
+
+    @staticmethod
+    def get_timeline_selection():
+        """The timeline's preview range, or ``None`` when it is off.
+
+        Blender has no drag-selected slider range; the user-marked sub-range
+        of the timeline is the preview range (``P`` in the timeline), so that
+        is what the mayatk twin's "timeline selection" maps to.
+        """
+        import bpy
+
+        scene = bpy.context.scene
+        if scene is None or not scene.use_preview_range:
+            return None
+        return float(scene.frame_preview_start), float(scene.frame_preview_end)
+
+    # ---- transient preview layer (mirror of mayatk) --------------------------------
+
+    @staticmethod
+    def create_preview_layer(sources, gate=None, name="previewLayer"):
+        """Play foreign actions on objects through throwaway NLA tracks.
+
+        Mirror of mayatk's ``AnimUtils.create_preview_layer`` (name + behavior; a
+        Maya override layer becomes NLA strips here).  The objects' own animation
+        is untouched: :meth:`remove_preview_layer` removes the tracks and hands the
+        active action back.  Verified live (Blender 5.1):
+
+        * **in context** (*gate* given): the object's active action is pushed down
+          onto a HOLD strip and cleared, and the source action sits on a REPLACE
+          strip above it with no extrapolation — so the base plays up to the
+          strip, the preview takes over for its range, the base resumes.
+        * **isolated** (no *gate*): the source strip's track is soloed; its end
+          poses hold outside its keys.  (An un-soloed strip loses to the active
+          action, which Blender evaluates on top of the NLA stack.)
+
+        Parameters:
+            sources: ``{object_name: (action, slot)}`` — the action each object
+                previews, and the slot within it to bind.
+            gate: ``(start, end)`` for the in-context view; ``None`` = isolated.
+            name: Track name (the pushed-down base track is ``<name>_base``).
+
+        Returns:
+            A JSON-safe handle for :meth:`remove_preview_layer`.
+
+        Raises:
+            ValueError: When no source object is in the scene.
+        """
+        import bpy
+
+        handle = {"name": name, "objects": {}}
+        for obj_name, (action, slot) in sources.items():
+            obj = bpy.data.objects.get(obj_name)
+            if obj is None or action is None:
+                continue
+            ad = obj.animation_data or obj.animation_data_create()
+            entry = {"tracks": [], "action": None, "slot": None}
+            live = ad.action
+            if gate is not None and live is not None:
+                live_slot = ad.action_slot
+                base = ad.nla_tracks.new()
+                base.name = f"{name}_base"
+                bstrip = base.strips.new(
+                    f"{name}_base", int(round(live.frame_range[0])), live
+                )
+                AnimUtils._bind_strip_slot(bstrip, live_slot)
+                bstrip.extrapolation = "HOLD"
+                entry["action"] = live.name
+                entry["slot"] = live_slot.identifier if live_slot is not None else None
+                ad.action = None
+                entry["tracks"].append(base.name)
+            top = ad.nla_tracks.new()
+            top.name = name
+            tstrip = top.strips.new(name, int(round(action.frame_range[0])), action)
+            AnimUtils._bind_strip_slot(tstrip, slot)
+            tstrip.blend_type = "REPLACE"
+            if gate is not None:
+                tstrip.extrapolation = "NOTHING"
+            else:
+                tstrip.extrapolation = "HOLD"
+                top.is_solo = True
+            entry["tracks"].append(top.name)
+            handle["objects"][obj_name] = entry
+        if not handle["objects"]:
+            raise ValueError("create_preview_layer: no source object is in the scene")
+        return handle
+
+    @staticmethod
+    def _bind_strip_slot(strip, slot):
+        """Point an NLA strip at *slot* (4.4+ slotted actions; no-op on legacy builds)."""
+        if slot is None or not hasattr(strip, "action_slot"):
+            return
+        try:
+            strip.action_slot = slot
+        except Exception:  # a slot from another action, or a legacy strip
+            pass
+
+    @staticmethod
+    def remove_preview_layer(handle) -> bool:
+        """Tear down :meth:`create_preview_layer`'s tracks and restore the active action.
+
+        Returns:
+            ``True`` if any preview track existed.
+        """
+        import bpy
+
+        if not handle:
+            return False
+        found = False
+        for obj_name, entry in (handle.get("objects") or {}).items():
+            obj = bpy.data.objects.get(obj_name)
+            ad = obj.animation_data if obj is not None else None
+            if ad is None:
+                continue
+            for track_name in entry.get("tracks", ()):
+                track = ad.nla_tracks.get(track_name)
+                if track is not None:
+                    ad.nla_tracks.remove(track)
+                    found = True
+            action = bpy.data.actions.get(entry.get("action") or "")
+            if action is not None:
+                ad.action = action
+                ident = entry.get("slot")
+                for s in action.slots:
+                    if s.identifier == ident:
+                        ad.action_slot = s
+                        break
+        return found

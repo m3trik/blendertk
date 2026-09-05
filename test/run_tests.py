@@ -144,6 +144,13 @@ class BlenderTestRunner:
         try:
             proc = subprocess.run(
                 cmd,
+                # A closed stdin: a child that inherits the launching console
+                # reads as interactive (``sys.stdin.isatty()``), and the exporter's
+                # console consent then waits on a ``[y/N]`` nobody will type --
+                # test_smart_bake's failed-check export sat there until the kill
+                # timer charged it a failure (2026-09-04). Nothing a suite does may
+                # wait on a human.
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

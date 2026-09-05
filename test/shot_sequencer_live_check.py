@@ -438,6 +438,38 @@ try:
         and bpy.context.view_layer.objects.active.name == "C",
     )
 
+    # ---- track header menu: Copy to Clipboard --------------------------------------------------
+    copy_act = next((a for a in menu.actions() if a.text().startswith("Copy ")), None)
+    check(
+        "track menu: Copy '<name>' to Clipboard offered",
+        copy_act is not None and copy_act.text() == "Copy 'C' to Clipboard",
+        f"{acts}",
+    )
+    if copy_act is not None:
+        copy_act.trigger()
+        pasted = QtWidgets.QApplication.clipboard().text()
+        check(
+            "track menu: clipboard holds the short name", pasted == "C", f"{pasted!r}"
+        )
+    menu_multi = QtWidgets.QMenu()
+    ctl.on_track_menu(menu_multi, ["C", "B"])
+    multi_act = next(
+        (a for a in menu_multi.actions() if a.text().startswith("Copy ")), None
+    )
+    check(
+        "track menu: multi-select copies every name, one per line",
+        multi_act is not None and multi_act.text() == "Copy 2 Names to Clipboard",
+        f"{multi_act and multi_act.text()}",
+    )
+    if multi_act is not None:
+        multi_act.trigger()
+        pasted = QtWidgets.QApplication.clipboard().text()
+        check(
+            "track menu: multi clipboard is newline-joined",
+            pasted == "C" + chr(10) + "B",
+            f"{pasted!r}",
+        )
+
     # ---- clip context menu: Move to Shot submenu ---------------------------------------------
     ctl._sync_to_widget(shot_id=c_id)
     pump()

@@ -72,6 +72,11 @@ class ShotSequencerController(
 ):
     """Business logic controller bridging SequencerWidget ↔ ShotSequencer."""
 
+    #: Frames the context-menu padding prompt opens on.  A beat of room is
+    #: what the gesture is usually for; the prompt then remembers whatever
+    #: the user actually typed for the rest of the session.
+    CONTEXT_SPACE_FRAMES = 15.0
+
     def __init__(self, slots_instance, log_level="WARNING"):
         super().__init__()
         self.set_log_level(log_level)
@@ -98,6 +103,9 @@ class ShotSequencerController(
         # mayatk's banked-curve path).
         self._edited_objects: set = set()
         self._shifted_out_keys: dict = {}
+        # Last amount the padding prompt was answered with — padding a run of
+        # shots by the same beat is the common case, so the field opens on it.
+        self._context_space_frames: float = self.CONTEXT_SPACE_FRAMES
         self._prev_action = None
         self._next_action = None
         self._view_mode_action = None
@@ -535,6 +543,9 @@ class ShotSequencerController(
     # -- zone context menus ------------------------------------------------
 
     def on_zone_context_menu(self, zone: str, time: float, global_pos) -> None:
+        """``"shot_lane"`` is every click at a time some shot covers, at any
+        height -- the widget resolves that.  Outside every shot the widget's
+        own menu stands alone; inside one it is folded into the shot menu."""
         if zone == "shot_lane":
             self._show_shot_lane_context_menu(time, global_pos)
             return
@@ -571,6 +582,11 @@ class ShotSequencerController(
                 acts[key] = menu.addAction(label)
                 acts[key].setEnabled(neighbours[key] is not None)
             menu.addSeparator()
+            # Both prompt for the amount (the ellipsis says so) rather than
+            # spending a fixed step: how much room a shot needs is the whole
+            # question, and a fixed step meant re-opening the menu to get it.
+            acts["add_lead"] = menu.addAction("Add Leading Frames\u2026")
+            acts["add_tail"] = menu.addAction("Add Trailing Frames\u2026")
             acts["trim"] = menu.addAction("Trim Empty Space")
             acts["trim_lead"] = menu.addAction("Trim Leading Space")
             acts["trim_tail"] = menu.addAction("Trim Trailing Space")
@@ -578,11 +594,16 @@ class ShotSequencerController(
             acts["delete"] = menu.addAction(f'Delete "{clicked_shot.name}"\u2026')
             menu.addSeparator()
         acts["new"] = menu.addAction("New Shot")
-        menu.addSeparator()
         acts["refresh"] = menu.addAction("Refresh")
+        # The timeline's own actions (add marker, display toggles) are folded
+        # in rather than living in a rival menu the user has to find by
+        # right-clicking somewhere a shot does NOT cover.
+        handled = widget._timeline.add_default_context_actions(menu, time)
 
         chosen = menu.exec_(global_pos)
         if chosen is None:
+            return
+        if handled(chosen):
             return
         picked = next((k for k, a in acts.items() if a is chosen), None)
         if picked is None:
@@ -607,6 +628,11 @@ class ShotSequencerController(
             other = neighbours[picked]  # resolved once, when the menu was built
             if other is not None:
                 self.merge_shot_with(clicked_shot.shot_id, other.shot_id)
+        elif picked in ("add_lead", "add_tail"):
+            self._prompt_shot_space(
+                clicked_shot,
+                edge="leading" if picked == "add_lead" else "trailing",
+            )
         elif picked == "trim":
             self._trim_shot(clicked_shot.shot_id)
         elif picked == "trim_lead":
@@ -717,6 +743,70 @@ class ShotSequencerController(
         self._set_footer(
             f"Split at {time:.0f} \u00b7 {tail.name} {tail.start:.0f}\u2013{tail.end:.0f}"
         )
+
+    def _prompt_shot_space(self, shot, edge: str) -> None:
+        """Ask how many frames to pad *shot* at *edge*, then pad it.
+
+        The amount is the whole question a padding gesture asks, so it is
+        typed rather than assumed: the field opens on the last answer (the
+        class default on the first use) and a run of shots padded by the same
+        beat costs one keystroke each.  A negative amount removes room —
+        :meth:`ShotSequencer.add_shot_space` clamps it to what is actually
+        empty — so the validator gates on "a number that is not zero", not on
+        sign.
+        """
+
+        def _parse(text):
+            try:
+                return float(str(text).strip())
+            except (TypeError, ValueError):
+                return None
+
+        answer = self.sb.input_dialog(
+            title=f"Add {edge.capitalize()} Frames",
+            label=f'Frames of {edge} space for "{shot.name}":',
+            text=f"{self._context_space_frames:g}",
+            parent=self._get_sequencer_widget() or self.ui,
+            validate=lambda t: (_parse(t) or 0.0) != 0.0,
+            error_text="Enter a non-zero number of frames.",
+        )
+        frames = _parse(answer)
+        if not frames:
+            return  # cancelled, or an amount that would move nothing
+        self._context_space_frames = frames
+        self._add_shot_space(shot.shot_id, frames, edge=edge)
+
+    def _add_shot_space(self, shot_id: int, frames: float, edge: str) -> None:
+        """Pad *shot_id* by *frames* at *edge*, undoable, then refresh.
+
+        The context-menu twin of the Shots panel's Add Space field, routed
+        through the same engine call so both mean exactly the same thing.
+        """
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+        if self.sequencer is None:
+            return
+        self._save_shot_state()
+        try:
+            with CoreUtils.undo_chunk():
+                head, tail = self.sequencer.add_shot_space(shot_id, frames, edge=edge)
+        except ShotBoundaryConflict as exc:
+            # Declined before writing anything, so the restore point goes too
+            # (mirrors mayatk): a refusal is an answer, not a crash.
+            self._discard_shot_state()
+            self.logger.warning(str(exc))
+            self._set_footer(str(exc))
+            return
+        if abs(head) < 1e-6 and abs(tail) < 1e-6:
+            self._discard_shot_state()
+            self._set_footer(f"Add {edge} space: nothing to do")
+            return
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
+        self._sync_combobox()
+        self._apply_view_playback_range()
+        self._set_footer(f"Added {tail - head:.0f}f of {edge} space")
 
     def _trim_shot(self, shot_id: int, edge: str = "both") -> None:
         """Trim empty space from *shot_id*, undoable, then refresh the widget.
@@ -1189,7 +1279,21 @@ class ShotSequencerController(
             if s.shot_id != shot.shot_id:
                 widget.add_range_overlay(s.start, s.end, color="#000000", alpha=40)
 
+    #: Set by the first :meth:`_restore_viewport`; see its docstring.
+    _viewport_framed = False
+
     def _restore_viewport(self, widget, frame, h_scroll, zoom, expanded_names) -> None:
+        """Restore scroll/zoom/expansion and trigger geometry recalculation.
+
+        The FIRST restore always frames: there is no prior view to preserve
+        on the first build, and the panel opening on frame 0 of a
+        several-thousand-frame scene starts every session by hunting for the
+        shot being worked on.  (``SequencerWidget.frame_on_first_show`` does
+        the same at show time; whichever runs last frames the same range, so
+        the two agree however the panel is brought up.)
+        """
+        frame = frame or not self._viewport_framed
+        self._viewport_framed = True
         try:
             if frame:
                 widget._timeline._refresh_all()
@@ -1717,6 +1821,22 @@ class ShotSequencerController(
                 "Reveal in Outliner",
                 lambda objs=list(resolved): self._reveal_in_outliner(objs),
             )
+        # Offered for every track, resolved or not -- pasting the name of an
+        # object the scene no longer holds is exactly how it gets found again.
+        shorts = [self._resolve_full_name(n) for n in track_names]
+        copy_label = (
+            f"Copy '{shorts[0]}' to Clipboard"
+            if len(shorts) == 1
+            else f"Copy {len(shorts)} Names to Clipboard"
+        )
+        menu.addAction(copy_label, lambda n=list(shorts): self._copy_names(n))
+
+    @staticmethod
+    def _copy_names(names) -> None:
+        """Put the given object names on the clipboard, one per line."""
+        from qtpy import QtWidgets
+
+        QtWidgets.QApplication.clipboard().setText("\n".join(names))
 
     def on_header_menu(self, menu) -> None:
         """Header background context menu — no domain actions this phase."""
@@ -1776,6 +1896,16 @@ class ShotSequencerController(
             f"Delete Keys ({len(selected_ids)})" if multi else "Delete Key"
         )
         act_delete.triggered.connect(lambda: self._delete_clip_keys(selected_ids))
+
+        # Key stash: park the clips' keys out of the working animation (inert,
+        # never exported, retrievable across sessions) — the non-destructive
+        # sibling of Delete Keys — and bring stored clips back onto this lane.
+        act_store = menu.addAction(
+            f"Store Keys ({len(selected_ids)})" if multi else "Store Keys"
+        )
+        act_store.triggered.connect(lambda: self._stash_clip_keys(selected_ids))
+        if obj_name:
+            self._add_retrieve_menu(menu, obj_name)
         if obj_name and self.sequencer:
             menu.addSeparator()
             menu.addAction("Lock Others", lambda: self._lock_others(widget, obj_name))
@@ -2028,6 +2158,101 @@ class ShotSequencerController(
             self._sync_to_widget()
             self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
 
+    def _stash_clip_keys(self, clip_ids: list) -> None:
+        """Move the given clips' keys into the key stash (``KeyStash.stash``).
+
+        Same scoping as :meth:`_delete_clip_keys` — a whole-object clip is the
+        object's TRANSFORM fcurves, a sub-row clip its one attribute, over the
+        clip's original span — but the keys are parked, not destroyed: the shot
+        block stays as it is and the clip records the shot it came from.
+        """
+        widget = self._get_sequencer_widget()
+        if widget is None or self.sequencer is None:
+            return
+        try:
+            import bpy
+        except ImportError:
+            return
+        from blendertk.anim_utils.key_stash._key_stash import KeyStash
+
+        store = KeyStash.active()
+        stored = 0
+        self._save_shot_state()
+        with CoreUtils.undo_chunk("Store Keys"):
+            for cid in clip_ids:
+                clip = widget.get_clip(cid)
+                if clip is None or clip.data.get("read_only"):
+                    continue
+                obj = bpy.data.objects.get(clip.data.get("obj", ""))
+                if obj is None:
+                    continue
+                s, e = clip.data.get("orig_start"), clip.data.get("orig_end")
+                if s is None or e is None:
+                    continue
+                attr = clip.data.get("attr_name")
+                fcurves = (
+                    ClipMotionMixin.curves_for_attr(obj.name, attr)
+                    if attr
+                    else ShotSequencer._transform_fcurves(obj)
+                )
+                if not fcurves:
+                    continue
+                shot_id = clip.data.get("shot_id")
+                clip_rec = store.stash(
+                    objects=[obj],
+                    time_range=(s, e),
+                    fcurves=fcurves,
+                    source_shot_id=None if shot_id == -1 else shot_id,
+                )
+                if clip_rec is not None:
+                    stored += clip_rec.key_count
+        if not stored:
+            self._set_footer("No keys to store")
+            return
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
+        self._set_footer(
+            f"Stored {stored} key{'s' if stored != 1 else ''} in the key stash"
+        )
+
+    def _add_retrieve_menu(self, menu, obj_name: str) -> None:
+        """Append a "Retrieve Stored Keys" submenu listing *obj_name*'s clips."""
+        from blendertk.anim_utils.key_stash._key_stash import KeyStash
+
+        clips = KeyStash.active().clips_for_object(obj_name)
+        if not clips:
+            return
+        # Parent the submenu explicitly (see the Move-to-Shot note above).
+        from qtpy import QtWidgets
+
+        sub = QtWidgets.QMenu("Retrieve Stored Keys", menu)
+        menu.addMenu(sub)
+        for clip in clips:
+            act = sub.addAction(clip.label)
+            act.triggered.connect(
+                lambda _checked=False, cid=clip.clip_id: self._retrieve_stashed_clip(
+                    cid
+                )
+            )
+
+    def _retrieve_stashed_clip(self, clip_id: int) -> None:
+        """Put a stored clip back on its original frames (``KeyStash.retrieve``)."""
+        if self.sequencer is None:
+            return
+        from blendertk.anim_utils.key_stash._key_stash import KeyStash
+
+        self._save_shot_state()
+        with CoreUtils.undo_chunk("Retrieve Stored Keys"):
+            restored = KeyStash.active().retrieve(clip_id)
+        if not restored:
+            self._set_footer("Nothing retrieved — see the console")
+            return
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
+        self._set_footer(f"Retrieved {restored} key{'s' if restored != 1 else ''}")
+
     def _delete_selected_clip_keys(self) -> None:
         """Delete selected keyframes or, if none, all keys on selected clips.
 
@@ -2123,7 +2348,7 @@ class ShotSequencerController(
     TRANSPORT_BUTTON_HEIGHT = 23
 
     def _setup_transport_controls(self) -> None:
-        """Install the reusable ``TransportControls`` row on the footer's CENTRE.
+        """Install the reusable ``TransportControls`` row on the footer's RIGHT.
 
         Wired to :class:`_BlenderPlayController`; keyed off the persistent
         footer (not this controller) so a slots re-init adopts the existing row
@@ -2162,7 +2387,7 @@ class ShotSequencerController(
                 "go_to_end",
             ),
         )
-        transport.attach_to_footer(footer, side="center")
+        transport.attach_to_footer(footer, side="right")
         self._transport_controls = transport
         footer._shot_transport_controls = transport
         try:
@@ -2706,11 +2931,19 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         if cmb is None:
             return
         menu = QtWidgets.QMenu(cmb)
+        has_shot = self.controller.active_shot_id is not None
+        sid = self.controller.active_shot_id
+
+        # Editing the shot you just picked is what this menu is reached
+        # for most often, so it leads; creation and the structural edits
+        # follow.
+        edit_action = menu.addAction("Edit Shot…", self._edit_shot_in_settings)
+        edit_action.setEnabled(has_shot)
+        menu.addSeparator()
+
         menu.addAction("New Shot", self.controller._create_shot_one_click)
         menu.addAction("Generate Next Shot…", self._detect_next_shot)
         menu.addSeparator()
-        has_shot = self.controller.active_shot_id is not None
-        sid = self.controller.active_shot_id
         before_action = menu.addAction(
             "Insert Shot Before",
             lambda: self.controller._insert_shot(sid, before=True),
@@ -2736,9 +2969,6 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         merge_prev.setEnabled(neighbours["merge_prev"] is not None)
         merge_next.setEnabled(neighbours["merge_next"] is not None)
         menu.addSeparator()
-
-        edit_action = menu.addAction("Edit Shot…", self._edit_shot_in_settings)
-        edit_action.setEnabled(has_shot)
         delete_action = menu.addAction("Delete Shot…", self._delete_shot)
         delete_action.setEnabled(has_shot)
         menu.exec_(cmb.mapToGlobal(pos))
@@ -2859,7 +3089,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                     (
                         "Shot Navigation",
                         [
-                            "<b>Dropdown</b> — Select shot (sets playback range, selects objects, reframes the timeline). Right-click for New Shot, Generate Next Shot, Edit Shot, Delete Shot.",
+                            "<b>Dropdown</b> — Select shot (sets playback range, selects objects, reframes the timeline). Right-click for Edit Shot, New Shot, Generate Next Shot, Delete Shot.",
                             "<b>◄ / ►</b> — Previous / next shot. &nbsp; <b>+</b> — Append new shot.",
                             "<b>View Mode</b> (cycles): Current → Adjacent → All.",
                             "<b>Refresh</b> — Rebuild from the scene.",

@@ -85,6 +85,7 @@ PANELS = [
     "hierarchy_sync",
     "scene_exporter",
     "smart_bake",
+    "key_stash",
     "channels",
     "telescope_rig",
     "wheel_rig",

@@ -136,11 +136,38 @@ class SceneExporter(ptk.LoggingMixin):
         self._setup_logging(log_level, log_handler)
 
         self.task_manager = TaskManager(self.logger)
+        #: Checks a run failed but the user chose to override at the failure
+        #: point (see confirm_check_override). Re-stamped by every
+        #: ``perform_export``, so the success banner reports the deliverable
+        #: as shipped-with-failures rather than claiming a clean pass.
+        self._overridden_checks: List[str] = []
+        #: The ``(current, total, message)`` stream of the run in flight and
+        #: its bookkeeping -- see :meth:`_progress_begin`; cleared when
+        #: ``perform_export`` returns.
+        self._progress_callback: Optional[Callable] = None
+        self._progress_current = 0
+        self._progress_total = 0
+        self._progress_base = 0
+        self._progress_open = False
+        self._progress_cancellable = False
+        self._progress_cancel_ignored = False
+        #: Whether the last run stopped on a cancel (vs. any other abort) --
+        #: what the panel's footer reports after the run.
+        self._export_cancelled = False
         self.logger.debug("Task manager initialized in SceneExporter.")
 
-    def _setup_logging(self, log_level: str, log_handler: Optional[object]) -> None:
-        """Setup logging configuration."""
-        self.logger.setLevel(log_level)
+    def _setup_logging(
+        self, log_level: Optional[str], log_handler: Optional[object]
+    ) -> None:
+        """Apply a log level and/or handler; ``None`` leaves the level as it is.
+
+        ``perform_export`` calls this with its own ``log_level`` argument, so
+        a level there would silently override the one the constructor set --
+        ``SceneExporter(log_level="DEBUG").perform_export(...)`` used to run
+        at WARNING and drop every per-task line the caller had asked for.
+        """
+        if log_level is not None:
+            self.logger.setLevel(log_level)
         if log_handler:
             self.logger.addHandler(log_handler)
 
@@ -188,6 +215,169 @@ class SceneExporter(ptk.LoggingMixin):
         """
         return bool(ptk.AppInstaller.consent(True, question))
 
+    def confirm_check_override(self) -> bool:
+        """Ask, at the failure point, whether to export despite failed checks.
+
+        The tasks have already run and the scene is still staged, so this is
+        the ONE moment at which overriding costs nothing. Arming the panel's
+        Override Checks toggle *after* a failed run instead means a second
+        export from scratch: every task re-runs (re-bake, re-optimize the
+        textures, re-rewrite the paths) on a scene the first run already
+        mutated. Answering yes here continues the SAME run straight to the
+        write.
+
+        Consent only, never an automatic pass: it routes through
+        :meth:`confirm`, whose default answers no when nobody is there to ask
+        (a batch run still aborts on a failed check).
+        """
+        failed = list(getattr(self.task_manager, "_last_failed_checks", ()) or ())
+        listed = ", ".join(failed[:10]) + (" \u2026" if len(failed) > 10 else "")
+        headline = (
+            f"{len(failed)} validation check(s) failed: {listed}."
+            if failed
+            else "A validation check failed."
+        )
+        return self.confirm(
+            f"{headline}\n\n"
+            "The export tasks have already run, so overriding now finishes THIS "
+            "run instead of re-running the whole pipeline over an already-"
+            "mutated scene.\n\n"
+            "Override the checks and export anyway?"
+        )
+
+    def _resume_skipped_tasks(self, tasks: Dict[str, Any]) -> None:
+        """Run the tasks the failed check aborted, so an override still ships a
+        fully processed file.
+
+        The runner stops dispatching tasks at the first failed check -- every
+        one below it in the schedule is work an aborted write would throw
+        away. Overriding turns that write back on, so those tasks are no
+        longer wasted and must run before it: without this an overridden
+        export silently shipped a file that skipped, say, the texture
+        conversion the user asked for.
+
+        Only the skipped names are re-dispatched; the tasks above the failed
+        check already ran, and re-running them would repeat their mutation.
+        Safe because every ``set_`` task here registers a deferred restore
+        rather than a ``revert_`` pair, so the first pass's staged state is
+        still in effect (see ``TaskFactory._get_revert_method``).
+        """
+        tm = self.task_manager
+        skipped = [
+            n for n in (getattr(tm, "_last_skipped_tasks", ()) or ()) if n in tasks
+        ]
+        if not skipped:
+            return
+        self.logger.info(
+            f"Resuming {len(skipped)} task(s) the failed check had stopped: "
+            f"{', '.join(skipped)}."
+        )
+        # The second pass re-stamps the run counters the success banner reads.
+        # The first pass already counted every REQUESTED task, so its numbers
+        # are the ones that describe the run; keep them.
+        counts = (
+            getattr(tm, "_last_task_count", 0),
+            getattr(tm, "_last_check_count", 0),
+        )
+        # The first pass closed its progress stream with every entry done,
+        # these included; rewind so the resumed entries advance to, never
+        # past, that mark.
+        self._progress_base = max(0, self._progress_current - len(skipped))
+        try:
+            tm.run_tasks({name: tasks[name] for name in skipped})
+        finally:
+            tm._last_task_count, tm._last_check_count = counts
+
+    # ------------------------------------------------------------------
+    # Progress -- one (current, total, message) stream for the whole run
+    # ------------------------------------------------------------------
+
+    def _progress_begin(
+        self, callback: Optional[Callable], tasks: Dict[str, Any], phases: int
+    ) -> None:
+        """Arm the run's progress stream (see ``perform_export``).
+
+        ``current`` counts finished steps: every pipeline entry that will
+        dispatch is one (the task manager reports them through its
+        ``progress_callback``), and each of the *phases* after the pipeline
+        -- the write, a GLB conversion, the sidecar, ... -- is one more.
+        """
+        self._progress_callback = callback
+        self._progress_total = self.task_manager._dispatchable_count(tasks) + phases
+        self._progress_current = 0
+        self._progress_base = 0
+        self._progress_open = False
+        self._progress_cancellable = True
+        self._progress_cancel_ignored = False
+        self._export_cancelled = False
+        self.task_manager.progress_callback = self._on_pipeline_progress
+
+    def _progress_end(self) -> None:
+        """Disarm the stream; a later run of the task manager reports nothing."""
+        self.task_manager.progress_callback = None
+        self._progress_callback = None
+
+    def _emit_progress(self, message: Optional[str]) -> bool:
+        """Report the current position; False when the caller asked to stop.
+
+        A ``False`` from the callback is honoured only while nothing has been
+        written. Once the write starts the deliverable is finished regardless
+        -- a GLB abandoned between its conversion and its texture pass is a
+        file that looks complete and is not -- and the request is reported
+        once instead. A callback that raises is a feedback bug: logged, never
+        allowed to fail the export.
+        """
+        callback = self._progress_callback
+        if callback is None:
+            return True
+        try:
+            keep_going = callback(self._progress_current, self._progress_total, message)
+        except ptk.OperationCancelled:
+            raise
+        except Exception as e:  # noqa: BLE001 -- feedback never fails an export
+            self.logger.debug(f"Progress callback failed: {e}")
+            return True
+        if keep_going is not False:
+            return True
+        if self._progress_cancellable:
+            return False
+        if not self._progress_cancel_ignored:
+            self._progress_cancel_ignored = True
+            self.logger.warning(
+                "Cancel requested after the write began — finishing the "
+                "deliverable rather than leaving it half-written."
+            )
+        return True
+
+    def _on_pipeline_progress(self, current, total, message) -> bool:
+        """The task manager's hook: its entry index rides on the run's base.
+
+        ``(None, None, text)`` is a text-only tick and leaves the count alone.
+        """
+        if current is not None:
+            self._progress_current = self._progress_base + int(current)
+            self._progress_open = False
+        return self._emit_progress(message)
+
+    def _progress_step(self, message: str) -> None:
+        """Start a post-pipeline phase; the one before it is thereby done."""
+        if self._progress_open:
+            self._progress_current += 1
+        self._progress_open = True
+        if not self._emit_progress(message):
+            raise ptk.OperationCancelled(f"cancelled before {message}")
+
+    def _progress_note(self, message: str) -> None:
+        """Narrate inside a phase without moving the count."""
+        if not self._emit_progress(message):
+            raise ptk.OperationCancelled(f"cancelled before {message}")
+
+    def _progress_finish(self, message: str) -> None:
+        """The last tick, snapped to the total (skipped checks leave a gap)."""
+        self._progress_current = self._progress_total
+        self._progress_open = False
+        self._emit_progress(message)
+
     def perform_export(
         self,
         export_dir: str,
@@ -198,21 +388,34 @@ class SceneExporter(ptk.LoggingMixin):
         create_log_file: bool = False,
         timestamp: bool = False,
         name_regex: Optional[str] = None,
-        log_level: str = "WARNING",
+        log_level: Optional[str] = None,
         hide_log_file: Optional[bool] = None,
         log_handler: Optional[object] = None,
         tasks: Optional[Dict[str, Any]] = None,
         usd_options: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None,
     ) -> bool:
         """Perform the export operation, including initialization and task management.
 
         Returns True only when the deliverable was written -- every abort
         (no export dir, no objects, a failed check, a declined encoder
-        install) returns False. The panel's export button reads this to
-        disarm its Override Checks toggle.
+        install, a cancel) returns False. The panel's export button reads
+        this to disarm its Override Checks toggle.
+
+        *progress_callback* ``(current, total, message)`` receives ONE stream
+        for the whole run (mirror of mayatk): the task manager's per-entry
+        ticks and the post-pipeline phases (write, GLB, sidecar) share a
+        count, so a determinate bar can be driven from the first tick; uitk's
+        ``sb.progress_adapter(update)`` is the panel's adapter. An explicit
+        ``False`` cancels the run before its next step: nothing is written,
+        and the tasks that already ran stay applied (as after a failed
+        check). Once the write has begun a ``False`` is reported and ignored.
         """
         import bpy
 
+        # First, so a caller's level/handler sees every message of this run,
+        # the early aborts below included.
+        self._setup_logging(log_level, log_handler)
         start_time = time.time()
         self.logger.info("Starting export process ...")
 
@@ -243,8 +446,6 @@ class SceneExporter(ptk.LoggingMixin):
         self.timestamp = timestamp
         self.create_log_file = create_log_file
         self.hide_log_file = hide_log_file
-
-        self._setup_logging(log_level, log_handler)
 
         tasks = dict(tasks) if tasks else {}
         version_format = tasks.pop("version", "") or ""
@@ -423,21 +624,43 @@ class SceneExporter(ptk.LoggingMixin):
         # ``finally`` is what guarantees "right after it" on EVERY exit —
         # a failed check, an aborted task, an empty export set, or a raising
         # write — so a bad run can never leave staged state in the user's scene.
+        self._overridden_checks = []  # per-run; see the attribute's __init__ note
+        # Progress (mirror of mayatk): the pipeline's entries, then the write,
+        # a GLB conversion and the sidecar -- one count for the run.
+        self._progress_begin(
+            progress_callback, tasks, phases=2 + int(create_glb_enabled)
+        )
         try:
+            self._progress_note("Preparing export…")
             if tasks:
-                tasks_successful = self.task_manager.run_tasks(tasks)
-                if not tasks_successful:
-                    # Checks run AFTER tasks, and tasks mutate the scene with
-                    # no automatic rollback — a blocked export must say so
-                    # instead of leaving the mutation silent. (The smart_bake
-                    # session IS restored, in the finally below.)
-                    self.logger.warning(
-                        "Export blocked by failed checks, but export tasks "
-                        "already ran — task edits (material cleanup, key "
-                        "snapping/tying, texture path rewrites, …) remain in "
-                        "the scene. Undo or revert if that is not what you want."
-                    )
-                    return False
+                checks_passed = self.task_manager.run_tasks(tasks)
+                if not checks_passed:
+                    # Offer the escape hatch HERE, while the staged scene the
+                    # write needs is still standing, rather than leaving the
+                    # user to arm Override Checks and pay for the whole
+                    # pipeline a second time (see confirm_check_override).
+                    if self.confirm_check_override():
+                        self._overridden_checks = list(
+                            getattr(self.task_manager, "_last_failed_checks", ()) or ()
+                        )
+                        self.logger.warning(
+                            "Checks overridden — writing the file despite "
+                            f"{len(self._overridden_checks)} failed check(s): "
+                            f"{', '.join(self._overridden_checks)}."
+                        )
+                        self._resume_skipped_tasks(tasks)
+                    else:
+                        # Checks run AFTER tasks, and tasks mutate the scene with
+                        # no automatic rollback — a blocked export must say so
+                        # instead of leaving the mutation silent. (The smart_bake
+                        # session IS restored, in the finally below.)
+                        self.logger.warning(
+                            "Export blocked by failed checks, but export tasks "
+                            "already ran — task edits (material cleanup, key "
+                            "snapping/tying, texture path rewrites, …) remain in "
+                            "the scene. Undo or revert if that is not what you want."
+                        )
+                        return False
 
             if export_visible:
                 # "visible"/"all": the task pipeline's object set is authoritative.
@@ -469,7 +692,19 @@ class SceneExporter(ptk.LoggingMixin):
             return self._write_export(
                 export_objects, glb_only, create_glb_enabled, start_time
             )
+        except ptk.OperationCancelled as e:
+            # The progress callback asked to stop (Esc held over the panel's
+            # footer; a headless caller's own gate). Only reachable before the
+            # write -- see _emit_progress -- so nothing shipped; the tasks that
+            # already ran stay applied, exactly as after a failed check.
+            self._export_cancelled = True
+            self.logger.warning(
+                f"Export {e or 'cancelled'}. Task edits already made remain in "
+                "the scene — undo or revert if that is not what you want."
+            )
+            return False
         finally:
+            self._progress_end()
             self.task_manager.run_deferred_restores()
             # Restore the pre-bake scene state recorded by smart_bake's session
             # manifest (swap the original actions back, unmute constraints and
@@ -555,7 +790,12 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 fbx_write_path = self.export_path
 
-            if getattr(self, "_usd_format", False):
+            usd = bool(getattr(self, "_usd_format", False))
+            self._progress_step("Writing USD…" if usd else "Writing FBX…")
+            # From here the deliverable is finished regardless of a stop
+            # request (see _emit_progress).
+            self._progress_cancellable = False
+            if usd:
                 self._write_usd(fbx_write_path, export_objects)
             else:
                 # Resolve -> repair -> report -> write, in that order: the settings
@@ -573,6 +813,7 @@ class SceneExporter(ptk.LoggingMixin):
 
             deliverable_path = self.export_path
             if glb_only:
+                self._progress_step("Converting to GLB…")
                 glb_path = self._create_glb(
                     fbx_path=fbx_write_path, announce=False, objects=export_objects
                 )
@@ -596,15 +837,24 @@ class SceneExporter(ptk.LoggingMixin):
             tm = self.task_manager
             t_cnt = getattr(tm, "_last_task_count", 0)
             c_cnt = getattr(tm, "_last_check_count", 0)
+            overridden = self._overridden_checks
+            f_cnt = len(overridden)
             if t_cnt or c_cnt:
                 export_info_lines.append("")
                 export_info_lines.append(f"Tasks Executed: {t_cnt}")
                 if c_cnt:
-                    export_info_lines.append(f"Checks Passed: {c_cnt}/{c_cnt}")
+                    # Never "N/N" after an override: the deliverable shipped
+                    # WITH known failures and the banner is the record of it.
+                    export_info_lines.append(f"Checks Passed: {c_cnt - f_cnt}/{c_cnt}")
+                    if f_cnt:
+                        export_info_lines.append(
+                            f"Checks Overridden: {', '.join(overridden)}"
+                        )
 
             self.logger.log_box("EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS")
 
             if create_glb_enabled and not glb_only:
+                self._progress_step("Converting to GLB…")
                 self._create_glb(objects=export_objects)
 
             # Write the scene-data sidecar (hierarchy baseline + data_export
@@ -619,7 +869,9 @@ class SceneExporter(ptk.LoggingMixin):
             # phantom would make the next run compare against it. Keyed off the
             # logical export path (output dir + stem), independent of where the
             # FBX was actually written. Mirror of mayatk's ordering.
+            self._progress_step("Writing scene sidecar…")
             self._write_scene_data_sidecar(export_objects)
+            self._progress_finish("Export complete")
         except Exception as e:
             self.logger.error(f"Failed to export objects: {e}")
             raise RuntimeError(f"Failed to export objects: {e}")
@@ -753,6 +1005,7 @@ class SceneExporter(ptk.LoggingMixin):
                 self.logger.warning("Scene sidecar skipped.", exc_info=True)
 
         self.logger.info("Converting FBX to GLB...")
+        self._progress_note("GLB: converting the FBX…")
         try:
             glb_path = ptk.MeshConvert.fbx_to_glb(
                 src,
@@ -786,6 +1039,7 @@ class SceneExporter(ptk.LoggingMixin):
         # dials, no pass" default shipped 280 MB where the preview showed 8.71.
         params = self.task_manager._glb_texture_params()
         carrier = params["image_format"]
+        self._progress_note(f"GLB: {carrier} texture pass…")
         try:
             summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
         except Exception as e:  # noqa: BLE001 — deliverable must not lie

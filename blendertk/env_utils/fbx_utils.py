@@ -613,8 +613,8 @@ class FbxUtils(_FbxUtilsInternal):
         # After "shots": it reads back the fbx_takes and fps that shots has
         # just republished, to place each gate against its own clip's zero.
         "visibility": (
-            "blendertk.mat_utils.render_opacity._render_opacity",
-            "RenderOpacity",
+            "blendertk.mat_utils.render_opacity.render_effects",
+            "RenderEffects",
             "refresh_export_metadata",
         ),
         "shadow": (
@@ -633,6 +633,26 @@ class FbxUtils(_FbxUtilsInternal):
             "refresh_export_metadata",
         ),
     }
+
+    #: Session preparers, name -> no-arg callable (mirror of mayatk's
+    #: ``_export_preparers``, minus the auto-export hook bpy cannot offer). A
+    #: preparer registered under a KNOWN producer's name replaces it for the
+    #: run and must therefore do that producer's refresh itself -- the horizon
+    #: preview's ``"shadow"`` preparer hands the planes back their visibility
+    #: and then republishes the metadata.
+    _export_preparers: dict = {}
+
+    @staticmethod
+    def register_export_preparer(name: str, prepare) -> None:
+        """Run *prepare* whenever the export preparers run this session
+        (mirror of mayatk's; there is no before-export event in bpy, so the
+        Scene Exporter's refresh is the dispatch point). Re-registering a
+        name replaces it; :meth:`unregister_export_preparer` removes it."""
+        FbxUtils._export_preparers[name] = prepare
+
+    @staticmethod
+    def unregister_export_preparer(name: str) -> None:
+        FbxUtils._export_preparers.pop(name, None)
 
     @staticmethod
     def run_export_preparers(only: Optional[Iterable[str]] = None) -> None:
@@ -656,9 +676,23 @@ class FbxUtils(_FbxUtilsInternal):
         import importlib
 
         wanted = None if only is None else set(only)
-        for name, (module_path, cls_name, method) in FbxUtils._KNOWN_PRODUCERS.items():
+        # Known producers in their contract order; a session preparer of the
+        # same name stands in for the producer, others run after (mirror of
+        # mayatk's rank sort).
+        ordered = list(FbxUtils._KNOWN_PRODUCERS) + [
+            n for n in FbxUtils._export_preparers if n not in FbxUtils._KNOWN_PRODUCERS
+        ]
+        for name in ordered:
             if wanted is not None and name not in wanted:
                 continue
+            session = FbxUtils._export_preparers.get(name)
+            if session is not None:
+                try:
+                    session()
+                except Exception:
+                    logger.warning("Export preparer %r failed.", name, exc_info=True)
+                continue
+            module_path, cls_name, method = FbxUtils._KNOWN_PRODUCERS[name]
             try:
                 producer = getattr(importlib.import_module(module_path), cls_name)
                 refresh = getattr(producer, method)
@@ -836,6 +870,65 @@ class FbxUtils(_FbxUtilsInternal):
             + ", ".join(n for n, _s, _e in norm)
         )
         return len(norm)
+
+    @staticmethod
+    def stage_curve_proxy(name: str, parent, fcurve, *markers: str):
+        """Stage one transient Empty whose ``scale.x`` carries *fcurve*, for an FBX write.
+
+        The curve-proxy transport shared by every producer that has to ship a
+        per-object (or per-group) float curve: Blender's FBX exporter cannot
+        ship custom-property animation, and Unity flattens what does arrive
+        onto the root Animator with empty paths. Object transform animation,
+        by contrast, keeps its hierarchy path through every consumer -- and
+        scale is the one channel unit conversion never touches. The Empty is
+        parented under *parent*, linked into its collections, keyed with each
+        keyframe of *fcurve* (interpolation copied per key) and stamped with
+        every *markers* custom property -- always including
+        ``ptk.MeshConvert.CURVE_PROXY_MARKER``, which the GLB conversion strips
+        on and the Unity importer recognises.
+
+        Returns:
+            The created proxy object, or ``None`` when *name* is already taken
+            (logged by the caller, who knows what the curve was for).
+        """
+        import bpy
+
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        if bpy.data.objects.get(name) is not None:
+            return None
+        proxy = bpy.data.objects.new(name, None)  # None data -> Empty
+        for marker in set(markers) | {ptk.MeshConvert.CURVE_PROXY_MARKER}:
+            proxy[marker] = True
+        proxy.parent = parent
+        collections = list(getattr(parent, "users_collection", ()) or ())
+        if not collections:
+            scene = getattr(bpy.context, "scene", None)
+            collections = [scene.collection] if scene is not None else []
+        for coll in collections:
+            coll.objects.link(proxy)
+        # keyframe_insert rather than action.fcurves.new -- slot-aware across
+        # Blender 4.4+/5.x -- then copy each key's interpolation. Keyed on the
+        # frame rounded to 1e-4, not to a whole number: sub-frame keys
+        # (0.4 / 0.6) would otherwise collide onto one entry.
+        for kp in sorted(fcurve.keyframe_points, key=lambda k: k.co[0]):
+            proxy.scale[0] = kp.co[1]
+            proxy.keyframe_insert(data_path="scale", index=0, frame=kp.co[0])
+        dst = next(
+            (
+                f
+                for f in AnimUtils.get_fcurves([proxy])
+                if f.data_path == "scale" and f.array_index == 0
+            ),
+            None,
+        )
+        if dst is not None:
+            interp = {
+                round(k.co[0], 4): k.interpolation for k in fcurve.keyframe_points
+            }
+            for k in dst.keyframe_points:
+                k.interpolation = interp.get(round(k.co[0], 4), k.interpolation)
+        return proxy
 
     @staticmethod
     def apply_takes_from_node(node=None, attr=None) -> int:
