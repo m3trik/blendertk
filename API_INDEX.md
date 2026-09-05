@@ -4,7 +4,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, unbake_keys, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, interpolation_value
+  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(ptk.LoggingMixin)`
@@ -37,6 +37,14 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Validator(ptk.LoggingMixin)`
   - methods: validate_meshes, validate_shape_setup
 
+### `anim_utils/key_stash/_key_stash.py` — Key Stash — park keyframes outside the working animation, retrieve later (Blender).
+- `class KeyStash(_KeyStashCore, _KeyStashInternal)`
+  - methods: active, rescale_to_fps, reconcile, stash, retrieve, drop, is_previewing, preview, end_preview
+
+### `anim_utils/key_stash/key_stash_slots.py` — Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
+- `class KeyStashSlots(ptk.LoggingMixin)`
+  - methods: store, refresh, b000, b001, b002, b003
+
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - `class ScaleKeys(_ScaleKeysInternal)`
   - methods: scale_keys
@@ -51,7 +59,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 - `class BlenderScenePersistence`
-  - methods: remove_callbacks, save, load
+  - methods: store_cls, remove_callbacks, save, load
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
   - methods: active, has_animation, detect_regions, assess, publish_export_view, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
@@ -295,7 +303,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `edit_utils/naming/_naming.py` — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - `class Naming(ptk.HelpMixin, ptk.LoggingMixin)`
-  - methods: SUFFIX_TYPES, affix_rules, scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, suffix_by_type, append_location_based_suffix
+  - methods: SUFFIX_TYPES, affix_rules, scene_objects, rename, generate_unique_name, strip_illegal_chars, strip_chars, set_case, type_key, affix_for, suffix_by_type, append_location_based_suffix
 
 ### `edit_utils/naming/naming_slots.py` — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
 - `class NamingSlots(Naming)`
@@ -325,7 +333,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/fbx_utils.py` — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 - `class FbxUtils(_FbxUtilsInternal)`
-  - methods: run_export_preparers, bake_range, reset_takes, apply_takes, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
+  - methods: register_export_preparer, unregister_export_preparer, run_export_preparers, bake_range, reset_takes, apply_takes, stage_curve_proxy, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
 
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
@@ -429,7 +437,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
-  - methods: confirm, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
+  - methods: confirm, confirm_check_override, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
@@ -597,9 +605,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MatUpdaterSlots(MatUpdater)`
   - methods: header_init, selection_mode, move_to_folder, cmb001_init, b001
 
-### `mat_utils/render_opacity/_render_opacity.py` — Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
-- `class RenderOpacity(ptk.LoggingMixin)`
-  - methods: objects_with_visibility_keys, create, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
+### `mat_utils/render_opacity/render_effects.py` — Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
+- `class RenderEffects(ptk.LoggingMixin)`
+  - methods: objects_with_visibility_keys, create, key_pulse, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_opacity_slots.py` — Switchboard slots for the Render Opacity panel (``render_opacity.ui``).
 - `class RenderOpacitySlots(ptk.LoggingMixin)`
@@ -717,11 +725,15 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class Controls(_ControlsInternal)`
   - methods: register_preset, shapes, create
 
+### `rig_utils/shadow_preview.py` — A live viewport preview of a horizon rig: the artist drags the light and
+- `class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin)`
+  - methods: refusal, is_enabled, status, is_attached, attached_planes, attach, detach, toggle, detach_all, prepare_for_export, fragment_source, vertex_source, params_struct, frame_params
+
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: create_contact_locator, get_or_create_shadow_source, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, bake, find_shadow_planes, bake_planes, delete, delete_rigs, refresh_export_metadata, create
+  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, current_model, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, from_plane, set_source, rebuild, silhouette_is_stale, refresh_silhouette, refresh_export_metadata, unit_scale, export_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
 - `class ShadowRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, b001, b002, perform_operation
+  - methods: header_init, cmb_type_init, b003_init, b002_init, prepare_operation, b001, chk_horizon_preview, b002, b003, b004, apply_source, rebuild_rig, restore_expression, b009, b010, perform_operation
 
 ### `rig_utils/telescope_rig.py` — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
 - `class TelescopeRigBundle`

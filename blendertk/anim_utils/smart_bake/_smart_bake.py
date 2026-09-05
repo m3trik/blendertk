@@ -46,7 +46,7 @@ import math
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -120,7 +120,7 @@ class BakeResult:
 
     optimized: List[str] = field(default_factory=list)
     """Objects (or shape-key datablock owners) that had keys optimized via
-    ``AnimUtils.optimize_keys()`` (if ``optimize_keys=True``)."""
+    ``AnimUtils.optimize_keys()`` (when ``optimize_keys`` names a level)."""
 
     @property
     def baked_count(self) -> int:
@@ -264,7 +264,7 @@ class _SmartBakeInternal(object):
         against the nominal ``end`` in that case would misclassify a hand-key sitting anywhere in the
         ``8..10`` gap as "inside" (silently discarding it) even though the baked curve never actually
         reached that far — using the baked curve's real extent instead means anything past its last
-        real sample is correctly treated as unbaked and gets preserved. Falls back to ``time_range``
+        real sample is correctly treated as reduced and gets preserved. Falls back to ``time_range``
         only for the (should not happen via ``nla.bake``) case of a baked fcurve with zero keys.
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
@@ -328,7 +328,7 @@ class SmartBake(_SmartBakeInternal):
         delete_sources: bool = False,
         bake_blend_shapes: bool = True,
         preserve_outside_keys: bool = True,
-        optimize_keys: bool = False,
+        optimize_keys: Union[bool, str, None] = False,
         restorable: bool = True,
         backup_file: Any = None,
     ):
@@ -363,10 +363,14 @@ class SmartBake(_SmartBakeInternal):
                 before the swap is finalized. ``False`` leaves the new action containing only the
                 freshly baked range — mirrors mayatk's own ``preserve_outside_keys=False``
                 semantics of discarding anything outside the bake window.
-            optimize_keys: Run ``AnimUtils.optimize_keys()`` (remove static curves + redundant
-                flat keys) on the objects — and driven shape-key datablocks — that were actually
-                baked (default: False). Mirrors mayatk's own ``optimize_keys`` precedent; see
-                :attr:`BakeResult.optimized` for which objects were touched.
+            optimize_keys: Optimization level for the baked output — the objects, and driven
+                shape-key datablocks, that were actually baked — run through
+                ``AnimUtils.optimize_keys()``. A key of ``AnimUtils.OPTIMIZE_LEVELS``
+                (``"static"``, ``"flat"``, ``"simplify"``, ``"extremes"``); ``True`` selects the
+                default level and anything falsy is OFF (default: False). An unknown level
+                raises here, before the scene is touched, rather than mid-bake. Mirrors
+                mayatk's ``optimize_keys`` key-for-key; see :attr:`BakeResult.optimized`
+                for which objects were touched.
             restorable: Record a restore-manifest session on the ``data_internal`` carrier
                 (default: True) so ``SmartBake.restore()`` can reverse the bake, even after a
                 scene save/reopen.
@@ -385,6 +389,12 @@ class SmartBake(_SmartBakeInternal):
         self.bake_blend_shapes = bake_blend_shapes
         self.preserve_outside_keys = preserve_outside_keys
         self.optimize_keys = optimize_keys
+        # Resolve NOW, not at the call site: an unknown level is a config error and must
+        # fail before the first scene mutation, not after N objects have been baked.
+        # Falsy resolves to None, which is what the optimization pass tests.
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        self._optimize_kwargs = AnimUtils.resolve_optimize_level(optimize_keys)
         self.restorable = restorable
         if backup_file is None:
             backup_file = bool(delete_sources)
@@ -884,7 +894,7 @@ class SmartBake(_SmartBakeInternal):
                 result.baked[obj.name].extend(names)
 
         # ---- Optimize keys on everything actually baked (transform + blend-shape) ----
-        if self.optimize_keys and result.baked:
+        if self._optimize_kwargs and result.baked:
             optimize_targets: List[Any] = []
             optimized_names: List[str] = []
             for obj in baked_objects_actual:
@@ -897,7 +907,9 @@ class SmartBake(_SmartBakeInternal):
                     if obj.name not in optimized_names:
                         optimized_names.append(obj.name)
             if optimize_targets:
-                _anim_utils.AnimUtils.optimize_keys(optimize_targets)
+                _anim_utils.AnimUtils.optimize_keys(
+                    optimize_targets, **self._optimize_kwargs
+                )
                 result.optimized = sorted(optimized_names)
 
         result.muted_constraints = muted_constraints

@@ -126,11 +126,28 @@ class BlenderScenePersistence:
     #: ``.blend``; a plain ID custom prop never serializes into an FBX export).
     ATTR_NAME = "shot_store"
 
-    def __init__(self, attr_name: Optional[str] = None):
+    def __init__(self, attr_name: Optional[str] = None, store_cls=None):
+        """
+        Parameters:
+            attr_name: Scene custom-property channel (default ``shot_store``).
+            store_cls: The active-store class this backend serves — invalidated
+                on file load, flushed before save, rescaled on a frame-rate
+                change.  Defaults to :class:`BlenderShotStore`; the key stash
+                passes its own class so both stores ride the scene on separate
+                channels without reacting to each other's events (mirror of
+                mayatk's ``MayaScenePersistence(store_cls=...)``).
+        """
         self._attr_name = attr_name or self.ATTR_NAME
+        self._store_cls = store_cls
         self._scene_subs_installed = False
         self._fps_sub_installed = False
         self._install_scene_jobs()
+
+    @property
+    def store_cls(self):
+        """The store class this backend serves (resolved lazily: the shot store
+        is defined below this class in the module)."""
+        return self._store_cls if self._store_cls is not None else BlenderShotStore
 
     # ---- scene lifecycle subscriptions ------------------------------------
 
@@ -217,8 +234,7 @@ class BlenderScenePersistence:
         panels rebind + re-register their non-persistent ``bpy.app`` handlers.
         The msgbus framerate watch is renewed here (file load clears it).
         """
-        BlenderShotStore._active = None
-        BlenderShotStore._notify_invalidated()
+        self.store_cls.invalidate()
         self._fps_sub_installed = False
         self._install_fps_watch()
 
@@ -230,8 +246,8 @@ class BlenderScenePersistence:
         invalidation, so the OLD scene's store can never be rescaled onto the
         NEW scene's carrier.
         """
-        store = BlenderShotStore._active
-        if store is None or not store.shots:
+        store = self.store_cls._active
+        if store is None or store.is_empty():
             return
         new_fps = _BlenderShotStoreInternal._get_scene_fps()
         old_fps = store.scene_fps
@@ -240,7 +256,7 @@ class BlenderScenePersistence:
 
     def _on_before_save(self, *args) -> None:
         """Flush dirty store data to the scene property before the file is written."""
-        store = BlenderShotStore._active
+        store = self.store_cls._active
         if store is not None and store._dirty:
             store.save()
 

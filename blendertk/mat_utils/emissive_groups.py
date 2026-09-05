@@ -500,7 +500,6 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         Returns:
             The created proxy objects (empty when nothing is keyed).
         """
-        import bpy
 
         cls.remove_export_curve_proxies()  # stale pre-clean (idempotent)
         carrier = DataNodes.get_export_node(create=False)
@@ -514,49 +513,20 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
             fc = cls._weight_fcurve(entry["name"])
             if fc is None or not len(fc.keyframe_points):
                 continue
-            if bpy.data.objects.get(attr) is not None:
+            # The shared transport (also RenderEffects'): stamped with this
+            # tool's own marker for its cleanup AND the ecosystem marker the
+            # GLB conversion strips on -- these proxies used to ship in the
+            # GLB as stray animated children of the carrier.
+            from blendertk.env_utils.fbx_utils import FbxUtils
+
+            proxy = FbxUtils.stage_curve_proxy(attr, carrier, fc, cls.PROXY_MARKER)
+            if proxy is None:
                 cls.logger.warning(
                     f"Curve-proxy name {attr!r} is taken by an existing object "
                     f"— group {entry['name']!r}'s weight animation will not "
                     "ship this export."
                 )
                 continue
-            proxy = bpy.data.objects.new(attr, None)  # None data -> Empty
-            proxy[cls.PROXY_MARKER] = True
-            proxy.parent = carrier
-            collections = list(carrier.users_collection)
-            if not collections:
-                vl = CoreUtils._active_view_layer()
-                if vl is not None:
-                    collections = [vl.id_data.collection]
-            for coll in collections:
-                coll.objects.link(proxy)
-            # Key scale.x per authored keyframe (keyframe_insert rather than
-            # action.fcurves.new — slot-aware across Blender 4.4+/5.x), then
-            # copy each key's interpolation from the source curve.
-            for kp in sorted(fc.keyframe_points, key=lambda k: k.co[0]):
-                frame, value = kp.co
-                proxy.scale[0] = value
-                proxy.keyframe_insert(data_path="scale", index=0, frame=frame)
-            from blendertk.anim_utils._anim_utils import AnimUtils
-
-            dst = next(
-                (
-                    f
-                    for f in AnimUtils.get_fcurves([proxy])
-                    if f.data_path == "scale" and f.array_index == 0
-                ),
-                None,
-            )
-            if dst is not None:
-                # Keyed on the frame rounded to 1e-4, not to a whole number:
-                # sub-frame keys (0.4 / 0.6) would otherwise collide onto one
-                # entry and one of them would inherit the wrong interpolation.
-                interp = {
-                    round(kp.co[0], 4): kp.interpolation for kp in fc.keyframe_points
-                }
-                for kp in dst.keyframe_points:
-                    kp.interpolation = interp.get(round(kp.co[0], 4), kp.interpolation)
             proxies.append(proxy)
         if proxies:
             cls.logger.info(
@@ -639,7 +609,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         for obj in cls._mesh_objects():
             for attr in obj.data.attributes:
                 if attr.name.startswith(cls.SET_PREFIX):
-                    name = attr.name[len(cls.SET_PREFIX):]
+                    name = attr.name[len(cls.SET_PREFIX) :]
                     if name not in known:
                         warnings.append(
                             f"{obj.name}: attribute {attr.name!r} has no "
@@ -661,13 +631,13 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
             for key in carrier.keys():
                 if (
                     key.startswith(cls.SET_PREFIX)
-                    and key[len(cls.SET_PREFIX):] not in known
+                    and key[len(cls.SET_PREFIX) :] not in known
                 ):
                     warnings.append(
                         f"Carrier prop {key!r} has no registry entry — a stale "
                         "keyable weight (removed or imported group); re-add the "
                         f"group or remove_keyable_weights"
-                        f"([{key[len(cls.SET_PREFIX):]!r}])."
+                        f"([{key[len(cls.SET_PREFIX) :]!r}])."
                     )
         # Foreign color attributes fight ours for Unity's single color stream.
         for obj_name in cls._member_meshes(known):
@@ -796,9 +766,7 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         if output_path is None:
             blend = bpy.data.filepath
             root = os.path.dirname(blend) if blend else tempfile.gettempdir()
-            stem = (
-                os.path.splitext(os.path.basename(blend))[0] if blend else "untitled"
-            )
+            stem = os.path.splitext(os.path.basename(blend))[0] if blend else "untitled"
             output_path = os.path.join(root, f"{stem}_EMask.png")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
@@ -987,12 +955,8 @@ class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):
             for col in (1, self.WEIGHT_COL, 3):
                 header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
 
-            widget.setSelectionBehavior(
-                self.sb.QtWidgets.QAbstractItemView.SelectRows
-            )
-            widget.setSelectionMode(
-                self.sb.QtWidgets.QAbstractItemView.SingleSelection
-            )
+            widget.setSelectionBehavior(self.sb.QtWidgets.QAbstractItemView.SelectRows)
+            widget.setSelectionMode(self.sb.QtWidgets.QAbstractItemView.SingleSelection)
             # Weight edits like a Maya channel-box field: MMB-drag to scrub,
             # single click to type.
             widget.set_scrub_columns([self.WEIGHT_COL])
@@ -1004,9 +968,9 @@ class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):
                 setText="Select Members",
                 setObjectName="select_members",
                 setToolTip=self.sb.tooltip.fmt(
-                title="Select Members",
-                body="Select the faces belonging to the highlighted group.",
-            ),
+                    title="Select Members",
+                    body="Select the faces belonging to the highlighted group.",
+                ),
             )
             widget.menu.add(
                 "QPushButton",
@@ -1027,18 +991,18 @@ class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):
                 setText="All On",
                 setObjectName="weights_all_on",
                 setToolTip=self.sb.tooltip.fmt(
-                title="All On",
-                body="Set every group's default weight to <b>1</b>.",
-            ),
+                    title="All On",
+                    body="Set every group's default weight to <b>1</b>.",
+                ),
             )
             widget.menu.add(
                 "QPushButton",
                 setText="All Off",
                 setObjectName="weights_all_off",
                 setToolTip=self.sb.tooltip.fmt(
-                title="All Off",
-                body="Set every group's default weight to <b>0</b>.",
-            ),
+                    title="All Off",
+                    body="Set every group's default weight to <b>0</b>.",
+                ),
             )
             widget.menu.add("Separator", setTitle="Keyable")
             widget.menu.add(
@@ -1315,8 +1279,7 @@ class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):
             setObjectName="chk000",
             setToolTip=self.sb.tooltip.fmt(
                 title="Force Over Foreign Color Set",
-                body="Bake even when a mesh already carries an unrelated "
-                "color set.",
+                body="Bake even when a mesh already carries an unrelated color set.",
                 notes=[
                     "The engine imports a single color stream, so the groups may "
                     "not survive the import.",
@@ -1391,9 +1354,7 @@ class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):
             if data.get("attr")
         ]
         if not keyable:
-            self.sb.message_box(
-                "No keyable weights — run Make Weights Keyable first."
-            )
+            self.sb.message_box("No keyable weights — run Make Weights Keyable first.")
             return
         for name in keyable:
             EmissiveGroups.key_weight(name)

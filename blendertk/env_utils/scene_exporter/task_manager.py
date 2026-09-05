@@ -708,21 +708,33 @@ class _TaskActionsMixin(_TaskDataMixin):
         ]
         # SmartBake never optimizes its own output -- that's the separate optimize_keys
         # task's job (TASK_ORDER runs it immediately after this one).
-        if getattr(self, "_optimize_keys_enabled", False):
+        if getattr(self, "_optimize_keys_level", False):
             log_parts.append("optimize_keys will run next")
         self.logger.info(", ".join(log_parts) + ".")
 
-    def optimize_keys(self):
-        """Remove redundant animation keys from all exported objects."""
+    def optimize_keys(self, level=True):
+        """Remove redundant animation data from all exported objects, at *level*.
+
+        Parameters:
+            level: A key of ``AnimUtils.OPTIMIZE_LEVELS`` (``"static"``, ``"flat"``,
+                ``"simplify"``, ``"extremes"``), ``True`` for the default level, or
+                anything falsy for OFF. Mirror of mayatk's task: the panel's Optimize
+                Keys combo supplies the token, a headless caller's legacy ``True``
+                keeps behaving as it did, and an unknown level raises out of the
+                resolver rather than silently optimizing at a setting nobody chose.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        kwargs = AnimUtils.resolve_optimize_level(level)
+        if not kwargs:  # OFF — a headless caller's falsy value; the panel's own
+            return  # OFF row never reaches the dispatcher (b000 filters it)
         if not self._has_keyframes:
             self.logger.debug("No keyframes found. Skipping optimization.")
             return
 
-        from blendertk.anim_utils._anim_utils import AnimUtils
-
-        _optimize_keys = AnimUtils.optimize_keys
-        self.logger.info("Optimizing baked animation keys...")
-        stats = _optimize_keys(self.objects)
+        resolved = AnimUtils.normalize_optimize_level(level)
+        self.logger.info(f"Optimizing baked animation keys ({resolved})...")
+        stats = AnimUtils.optimize_keys(self.objects, **kwargs)
         self.logger.info(
             f"Optimization completed: {stats['curves_before']} -> {stats['curves_after']} "
             f"curve(s), {stats['keys_before']} -> {stats['keys_after']} key(s)."
@@ -752,36 +764,144 @@ class _TaskActionsMixin(_TaskDataMixin):
         snapped = AnimUtils.snap_keys(self.objects)
         self.logger.info(f"Snapped {snapped} keyframe(s).")
 
-    def set_bake_animation_range(self):
-        """Set the scene's playback range to the exported objects' keyframe extent.
+    #: Bake Range sources, in the order the combo offers them. Mirrors mayatk's
+    #: tokens exactly, so one export template means the same thing in both DCCs.
+    BAKE_RANGE_MODES = ("auto", "keys", "scene")
 
-        Blender's FBX exporter bakes over the *scene's* frame range (``bake_anim=True`` in
-        ``_scene_exporter.py`` -- there is no separate "bake complex start/end" knob the way
-        Maya's FBX plugin exposes via MEL), so the analogue of mayatk's auto-range task is to
-        set the scene's own range for the export. Runs last in the animation phase
-        (TASK_ORDER) so it captures the final, post-processing extent.
+    def _require_range_coverage(self, start, end) -> None:
+        """Claim a frame span the export's bake range MUST cover.
 
-        **Staged, not ``set_``/``revert_``-paired** -- for the same reason as
-        :meth:`set_linear_unit`: the range is read by the *write*, and the paired
-        revert fires before it. Returns ``None`` so that pairing stays disarmed;
-        the restore rides ``stage_deferred_restore`` instead.
+        The seam every claimant uses instead of writing the range itself.
+        ``set_bake_animation_range`` runs last and widens to the union of every
+        claim, so a task that stages animation the write has to carry cannot
+        have its span silently clipped by whichever range source the user
+        picked -- and a future claimant registers here rather than editing the
+        range task.
 
-        The range is the FULL evaluated extent (``AnimUtils.get_animated_extent``):
-        active-action fcurves UNION non-muted NLA strip extents in scene time UNION
-        data-level / shape-key fcurve ranges. The FBX write bakes the *evaluated*
-        scene, so an NLA-strip-only or shape-key-driven object used to export with
-        a wrong bake range (the active-action reader saw no keys at all).
+        Two claimants today: the declared takes (a shot can outrun the last
+        keyframe, and shipping metadata for a clip the file truncates is wrong
+        in every deliverable at once) and, in blendertk, the staged
+        keyed-weight curve proxies (whose keys sit outside the exported
+        objects' own extent by construction).
+        """
+        current = getattr(self, "_required_range_coverage", None)
+        if current is None:
+            self._required_range_coverage = (start, end)
+        else:
+            self._required_range_coverage = (
+                min(current[0], start),
+                max(current[1], end),
+            )
+
+    def _bake_range_from_shots(self):
+        """The union of the scene's declared shots, or None when there are none.
+
+        Reads the ShotStore, never the published ``data_export`` carrier: the carrier
+        is a projection, and refreshing it to answer a question about RANGE would
+        stamp a metadata node as a side effect of computing a number -- on scenes
+        where the user deliberately switched that off. ``declared_range`` rounds
+        through the same ``resolve_clip_specs`` the export view uses, so this range
+        and the published ``fbx_takes`` cannot disagree about a fractional boundary.
+        """
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        return BlenderShotStore.declared_range()
+
+    def _bake_range_from_keys(self):
+        """The exported objects' FULL evaluated animated extent, or None.
+
+        ``AnimUtils.get_animated_extent``: active-action fcurves UNION non-muted NLA
+        strip extents in scene time UNION data-level / shape-key fcurve ranges. The
+        FBX write bakes the *evaluated* scene, so an NLA-strip-only or shape-key-driven
+        object used to export with a wrong bake range (the active-action reader saw no
+        keys at all).
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
 
         rng = AnimUtils.get_animated_extent(self.objects)
         if rng is None:
-            self.logger.debug("No keyframes found. Skipping frame range setting.")
+            return None
+        return math.floor(rng[0]), math.ceil(rng[1])
+
+    def _bake_range_from_scene(self):
+        """The scene's own frame range.
+
+        Mirrors mayatk's ``"scene"`` mode in MEANING -- "bake the scene's authored
+        range" -- though the mechanics differ: Maya copies the scene range onto a
+        separate FBX bake-complex range, while in Blender the range the exporter
+        bakes over IS the scene's, so this writes it back unchanged. It is therefore
+        a near no-op by design, and still differs from OFF: it participates in the
+        widen below, so a declared take is covered either way.
+        """
+        scene = self._scene()
+        return scene.frame_start, scene.frame_end
+
+    def set_bake_animation_range(self, mode="auto"):
+        """Set the scene's playback range for the export, from the selected source.
+
+        Blender's FBX exporter bakes over the *scene's* frame range (``bake_anim=True``
+        in ``_scene_exporter.py`` -- there is no separate "bake complex start/end" knob
+        the way Maya's FBX plugin exposes via MEL), so the analogue of mayatk's Bake
+        Range dial is to set the scene's own range for the export.
+
+        Mirror of mayatk's redesign: this task now OWNS the range and runs LAST in
+        TASK_ORDER, after ``apply_declared_takes``, instead of being overwritten by
+        that task's widen. Every mode is then widened to cover the takes realized this
+        run, so no source can write a range that clips a clip the same export
+        declared.
+
+        **Staged, not ``set_``/``revert_``-paired** -- for the same reason as
+        :meth:`set_linear_unit`: the range is read by the *write*, and the paired
+        revert fires before it. Returns ``None`` so that pairing stays disarmed;
+        the restore rides ``stage_deferred_restore`` (see :meth:`_set_frame_range`).
+
+        Parameters:
+            mode: ``"auto"`` (shot union, falling back to the animated extent when
+                the scene declares no shots), ``"keys"`` (animated extent),
+                ``"scene"`` (the scene's own range), or anything falsy for OFF.
+                A legacy ``True`` reads as ``"keys"`` -- what this task did as a
+                checkbox.
+        """
+        if not mode:  # OFF — as optimize_keys: the panel filters its own OFF row
+            return None  # out, so this is a headless caller's falsy value
+        mode = "keys" if mode is True else str(mode).strip().lower()
+        if mode not in self.BAKE_RANGE_MODES:
+            raise ValueError(
+                f"Unknown bake range mode {mode!r}; expected one of "
+                f"{', '.join(self.BAKE_RANGE_MODES)}."
+            )
+
+        if mode == "auto":
+            resolved, source = self._bake_range_from_shots(), "shot union"
+            if resolved is None:
+                resolved = self._bake_range_from_keys()
+                source = "animated extent (no shots declared)"
+        elif mode == "keys":
+            resolved, source = self._bake_range_from_keys(), "animated extent"
+        else:
+            resolved, source = self._bake_range_from_scene(), "scene frame range"
+
+        # Never clip a span another task claimed (:meth:`_require_range_coverage`),
+        # whatever the selected source measured.
+        required = getattr(self, "_required_range_coverage", None)
+        if required:
+            if resolved is None:
+                resolved, source = required, "required coverage"
+            else:
+                widened = (min(resolved[0], required[0]), max(resolved[1], required[1]))
+                if widened != resolved:
+                    resolved = widened
+                    source += ", widened to cover the required span"
+
+        if resolved is None:
+            self.logger.debug(
+                f"Nothing to measure for bake range mode {mode!r}. Skipping."
+            )
             return None
 
-        start, end = math.floor(rng[0]), math.ceil(rng[1])
+        start, end = int(math.floor(resolved[0])), int(math.ceil(resolved[1]))
         self._set_frame_range(start, end)
-        self.logger.info(f"Set animation range to start: {int(start)}, end: {int(end)}")
+        self.logger.info(f"Set bake range to {start}-{end} ({source}).")
         return None
 
     def export_data_node(self):
@@ -824,6 +944,20 @@ class _TaskActionsMixin(_TaskDataMixin):
                 EmissiveGroups.remove_export_curve_proxies,
             )
             self._cover_frame_range(proxies)
+
+        # The render-effect channels ride the same transport: one Empty per
+        # keyed channel per object, parented under it (the Unity importer
+        # rebinds by the parent path), removed after the write.
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        effect_proxies = RenderEffects.stage_export_proxies()
+        if effect_proxies:
+            self.objects = list(self.objects or []) + effect_proxies
+            self.stage_deferred_restore(
+                "render_effect_curve_proxies",
+                RenderEffects.remove_export_proxies,
+            )
+            self._cover_frame_range(effect_proxies)
 
         self._log_data_node_summary()
 
@@ -941,18 +1075,30 @@ class _TaskActionsMixin(_TaskDataMixin):
 
         Blender bakes animation over the SCENE range, so a curve keyed outside
         it ships flattened to its extrapolated value.  The weight-curve proxies
-        are staged in :meth:`export_data_node` -- after
-        :meth:`set_bake_animation_range` has already computed its extent, and
-        that task is a user-toggleable checkbox that may be off entirely -- so
-        the range they need is claimed here rather than inferred there.  Only
-        ever widens (never clips someone else's range), and rides the same
-        staged restore.
+        are staged in :meth:`export_data_node`, whose keys sit outside the
+        exported objects' own extent by construction, so the range they need is
+        claimed here rather than inferred by whichever source the Bake Range
+        dial selected.  Only ever widens (never clips someone else's range),
+        and rides the same staged restore.
+
+        Both halves are load-bearing.  The immediate widen covers the case
+        where Bake Range is OFF (nothing else sets the range at all), and the
+        :meth:`_require_range_coverage` claim covers the case where it is not:
+        that task runs LAST and would otherwise overwrite this widen with its
+        own measurement -- verified to clip a 300-400 proxy span back to the
+        exported objects' 10-200 before the claim existed.
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
 
         rng = AnimUtils._key_range(AnimUtils.get_fcurves(objects))
         if rng is None:
             return
+        # Claim FIRST, unconditionally: the widen below is skipped when the
+        # scene range already covers these keys, but set_bake_animation_range
+        # runs later and measures the EXPORTED OBJECTS, which is a different
+        # (and routinely narrower) span -- so a scene that needed no widen
+        # still needs the claim, or the proxies ship clipped anyway.
+        self._require_range_coverage(math.floor(rng[0]), math.ceil(rng[1]))
         scene = self._scene()
         start = min(scene.frame_start, math.floor(rng[0]))
         end = max(scene.frame_end, math.ceil(rng[1]))
@@ -975,10 +1121,14 @@ class _TaskActionsMixin(_TaskDataMixin):
         selection with them (a scene declaring none is a true no-op);
         the write realizes them by splitting its baked scene-range AnimStack
         (see ``fbx_utils``' module docstring for the divergence from Maya's
-        exporter-state mechanism).  Runs after ``set_bake_animation_range``
-        (TASK_ORDER) and widens the scene range to the union of the takes so
-        every window lies inside the baked span — the same "union range wins"
-        contract as the Maya twin's bake-complex widen.
+        exporter-state mechanism).
+
+        Widens the scene range to cover the takes it arms, so every window lies
+        inside the baked span whatever else runs — the same self-guarantee Maya's
+        ``FbxUtils.apply_takes`` makes internally. It no longer DECIDES the range:
+        ``set_bake_animation_range`` owns that and runs after this (TASK_ORDER),
+        widening in turn to cover what this task stamped. Splitting is all this
+        task means now; clamping an export to its shots is <b>Bake Range: Auto</b>.
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
@@ -1008,6 +1158,13 @@ class _TaskActionsMixin(_TaskDataMixin):
                     f"Widened the scene range to {start}-{end} so every take "
                     "window lies inside the baked span."
                 )
+            # The union this task realized, CLAIMED so set_bake_animation_range
+            # (which runs after it) widens to cover it. Read off the takes rather
+            # than off the scene range, which a later mode is about to overwrite.
+            self._require_range_coverage(
+                min(s for _n, s, _e in takes),
+                max(e for _n, _s, e in takes),
+            )
             self.logger.info(
                 f"Animation takes: {count} clip(s) armed from the declared "
                 "fbx_takes; shot metadata embedded on data_export."
@@ -2103,16 +2260,20 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         # (which would copy them into the project).
         "convert_textures",
         "optimize_textures",
-        # Phase 4 — Animation (bake THEN optimize THEN snap/tie THEN set range)
+        # Phase 4 — Animation (bake THEN optimize THEN snap/tie)
         "smart_bake",
         "optimize_keys",
         "snap_keys_to_frame",
         "tie_all_keyframes",
-        "set_bake_animation_range",
-        # Phase 5 — Metadata carrier (last, so it sees the final export set);
-        # takes AFTER it so one producer refresh serves both (mirror of mayatk)
+        # Phase 5 — Metadata carrier (so it sees the final export set); takes
+        # AFTER it so one producer refresh serves both (mirror of mayatk)
         "export_data_node",
         "apply_declared_takes",
+        # Phase 6 — the range, LAST: it owns the scene range for the export, and
+        # can only honor its "never clip a declared take" rule once the takes
+        # exist. It used to run BEFORE the split, which then overwrote its range
+        # as an undeclared side effect — the coupling the Bake Range combo ended.
+        "set_bake_animation_range",
     ]
 
     # Texture Output — do the texture-processing tasks (convert_textures,
@@ -2188,7 +2349,7 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         # smart_bake's completion log mentions the follow-on optimize_keys
         # task; the generic TaskFactory knows nothing about either, so the
         # flag is set here, in the consumer that reads it.
-        self._optimize_keys_enabled = bool(tasks_only.get("optimize_keys", False))
+        self._optimize_keys_level = tasks_only.get("optimize_keys", False)
         # convert_textures (write-back mode) runs after convert_to_relative_paths
         # and relativizes its own repathed images only if that task is on.
         self._relative_paths_enabled = bool(
@@ -2215,6 +2376,36 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
         self._objects = value
         self._cached_materials = None
         self._data_node_refreshed = False
+        # ... and of every frame span claimed through _require_range_coverage,
+        # which set_bake_animation_range widens to cover. Left standing, a run
+        # with no takes would widen to the PREVIOUS export's shots.
+        self._required_range_coverage = None
+
+    # Bake Range — ONE dial owning the range the export bakes over. Until this
+    # existed it was set by TWO tasks (this one's extent and
+    # apply_declared_takes' widen) and which won was decided by TASK_ORDER, so
+    # clamping an export to its shots meant arming a take SPLIT you might not
+    # want, and nothing in the panel said so. OFF is index 0 and the falsy
+    # sentinel: a TEMPLATE contract (combos persist by index), so never reorder
+    # or insert above it. Tokens mirror mayatk's exactly.
+    _bake_range_options: Dict[str, Any] = {
+        "OFF": None,
+        "Auto (Shots → Keyframes)": "auto",
+        "Keyframe Extent": "keys",
+        "Scene Animation Range": "scene",
+    }
+
+    # Optimize Keys — the pass switch and its aggressiveness in ONE combo. The
+    # SEMANTICS live in AnimUtils.OPTIMIZE_LEVELS (one table, shared with
+    # SmartBake and mayatk); these are the labels for them. Same index contract
+    # as every other combo: a level added later APPENDS.
+    _optimize_keys_options: Dict[str, Any] = {
+        "OFF": None,
+        "Static Curves Only": "static",
+        "Static + Flat Keys": "flat",
+        "+ Simplify (lossy)": "simplify",
+        "Reduce To Extremes": "extremes",
+    }
 
     @property
     def task_definitions(self) -> Dict[str, Dict[str, Any]]:
@@ -2522,20 +2713,45 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setChecked": True,
             },
             "optimize_keys": {
-                "widget_type": "QCheckBox",
+                "widget_type": "ComboBox",
                 "group": "Animation",
-                "setText": "Optimize Keys",
+                # NOT the old checkbox's objectName (mirror of mayatk): a
+                # template saved before this merge carries optimize_keys as a
+                # BOOL, and combos persist by index — restoring `true` would
+                # silently select index 1 (Static Curves Only), a level nobody
+                # chose. A fresh name trips the uncovered-keys warning instead.
+                "object_name": "optimize_level",
+                "set_row_label": "Optimize Keys",
                 "setToolTip": TooltipFormat.fmt(
                     title="Optimize Keys",
-                    body="Delete static curves and redundant flat keys from the "
-                    "exported objects, including the curves Smart Bake just "
-                    "created.",
+                    body="Remove animation data the deliverable does not need — "
+                    "including the curves Smart Bake just created — at the "
+                    "chosen level.",
+                    bullets=[
+                        "<b>OFF</b> — ship every curve and key as authored.",
+                        "<b>Static Curves Only</b> — delete curves whose value "
+                        "never changes; every surviving curve keeps all of its "
+                        "keys. The conservative rung.",
+                        "<b>Static + Flat Keys</b> — also drop the redundant "
+                        "interior keys of a flat run.",
+                        "<b>+ Simplify (lossy)</b> — also drop keys that lie on "
+                        "the line between their neighbours, within tolerance.",
+                        "<b>Reduce To Extremes</b> — reduce smooth "
+                        "curves to their extrema with handles refit to the "
+                        "baked motion. The one to reach for after <b>Smart "
+                        "Bake</b>: a per-frame bake has no redundant flat keys "
+                        "for the other levels to find. It thins a bake, it does "
+                        "not reverse one — that is the Smart Bake panel Unbake.",
+                    ],
                     notes=[
                         "Boundary keys are always kept.",
                         "Permanent scene change — not reverted after export.",
                     ],
                 ),
-                "setChecked": True,
+                "add": self._optimize_keys_options,
+                # Applied after 'add' (which lands on index 0): index 2 is
+                # Static + Flat Keys, exactly what the old checked box did.
+                "setCurrentIndex": 2,
             },
             "tie_all_keyframes": {
                 "widget_type": "QCheckBox",
@@ -2571,23 +2787,48 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                 "setChecked": False,
             },
             "set_bake_animation_range": {
-                "widget_type": "QCheckBox",
+                "widget_type": "ComboBox",
                 "group": "Animation",
-                "setText": "Auto Set Bake Animation Range",
+                # New objectName for the same reason as optimize_level above.
+                "object_name": "bake_range",
+                "set_row_label": "Bake Range",
                 "setToolTip": TooltipFormat.fmt(
-                    title="Auto Set Bake Animation Range",
-                    body="Set the scene's frame range to the first and last "
-                    "keyframe of the exported objects for the duration of the "
-                    "export.",
+                    title="Bake Range",
+                    body="Which frames the export bakes — Blender bakes over the "
+                    "scene's frame range, so this sets that range for the "
+                    "duration of the write.",
+                    bullets=[
+                        "<b>OFF</b> — export over the scene's range as it is.",
+                        "<b>Auto (Shots → Keyframes)</b> — the span of the shots "
+                        "declared in the <b>Shots</b> panel; a scene with no "
+                        "shots falls back to the keyframe extent. With shots "
+                        "authored, this is what keeps animation outside them "
+                        "out of the deliverable.",
+                        "<b>Keyframe Extent</b> — the full evaluated extent of "
+                        "the exported objects: action fcurves, non-muted NLA "
+                        "strips, and shape-key curves.",
+                        "<b>Scene Animation Range</b> — the scene's own range, "
+                        "written back unchanged (Blender bakes over it "
+                        "already). Kept for parity with the Maya panel, where "
+                        "the bake range is a separate setting.",
+                    ],
                     notes=[
-                        "Runs after Smart Bake, Optimize, Snap and Tie, so it "
-                        "measures the final keyframe extent — but <b>Export "
-                        "Shots as Animation Takes</b> runs after it and widens "
-                        "the range again.",
+                        "Runs last, so it measures the final state of the "
+                        "curves — and every mode is widened to cover the clips "
+                        "<b>Export Shots as Animation Takes</b> declared, so no "
+                        "choice here can ship metadata describing animation the "
+                        "file does not contain.",
                         "The original frame range is restored after the write.",
                     ],
                 ),
-                "setChecked": True,
+                "add": self._bake_range_options,
+                # Applied after 'add' (which lands on index 0): index 1 is Auto.
+                # With shots declared this reproduces what the old default pair
+                # did (the split's widen won); with none, the keyframe extent
+                # the old checkbox measured. The one behavior change is a scene
+                # WITH shots and the split switched off — which now clamps to
+                # them instead of shipping everything.
+                "setCurrentIndex": 1,
             },
             "apply_declared_takes": {
                 "widget_type": "QCheckBox",
@@ -2609,10 +2850,10 @@ class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin):
                         "with the per-shot ones, so turn it off when you need "
                         "the continuous clip. (Maya's exporter keeps both; "
                         "that difference is in the artifact, not in the API.)",
-                        "Forces Bake Animation on and widens the scene frame "
-                        "range to the union of all shots, overriding <b>Auto "
-                        "Set Bake Animation Range</b>. Both are restored after "
-                        "the write.",
+                        "Forces Bake Animation on, and widens the scene frame "
+                        "range to cover the takes it arms; <b>Bake Range</b> "
+                        "then widens to cover them in turn, so the two cannot "
+                        "disagree. Both are restored after the write.",
                     ],
                 ),
                 # Default ON, matching mayatk's mirror of this panel and for the

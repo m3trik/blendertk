@@ -28,6 +28,7 @@ either, so the Qt-only ``fmt`` import is deferred alongside it).
 """
 
 import os
+import html
 from typing import Dict, Any, Optional
 
 import pythontk as ptk
@@ -54,9 +55,7 @@ class SceneExporterSlots(SceneExporter):
 
         self._wire_dependencies()
 
-        self.ui.b009.setEnabled(True)
-        self.ui.b009.setChecked(False)
-        self.ui.b009.setStyleSheet("QPushButton:checked {background-color: #FF9999;}")
+        self._init_override_button(self.ui.b009)
 
         self.logger.setLevel(log_level)
         self.logger.hide_logger_name(True)
@@ -65,6 +64,21 @@ class SceneExporterSlots(SceneExporter):
 
         if hasattr(self.ui.txt003, "anchorClicked"):
             self.ui.txt003.anchorClicked.connect(self._on_log_link_clicked)
+
+    @staticmethod
+    def _init_override_button(widget) -> None:
+        """Arm-once styling for the Override Checks toggle.
+
+        ``restore_state = False`` is the load-bearing line: a registered widget
+        persists through QSettings by default and its restore runs AFTER the
+        slots ``__init__``, so the toggle used to come back armed in the next
+        session -- right over the ``setChecked(False)`` here. A per-run escape
+        hatch that survives a restart is a validation pass silently disabled.
+        """
+        widget.restore_state = False
+        widget.setEnabled(True)
+        widget.setChecked(False)
+        widget.setStyleSheet("QPushButton:checked {background-color: #FF9999;}")
 
     def _wire_dependencies(self) -> None:
         """Grey out a setting while a lower-level choice makes it irrelevant.
@@ -93,12 +107,23 @@ class SceneExporterSlots(SceneExporter):
         # Exclude HDR: the visible-geometry scope never contains a skydome
         # (surface shapes only); All / Selected can.
         sb.enable_when(
-            ui, "exclude_hdr", "export_visible_objects", lambda scope: scope != "visible"
+            ui,
+            "exclude_hdr",
+            "export_visible_objects",
+            lambda scope: scope != "visible",
         )
 
     def confirm(self, question: str) -> bool:
-        """The engine's consent seam as the panel's modal Yes/No."""
-        return self.sb.message_box(question, "Yes", "No") == "Yes"
+        """The engine's consent seam as the panel's modal Yes/No.
+
+        ``message_box`` takes HTML and hands it to Qt's rich-text engine, which
+        collapses a newline to a space -- so the seam's plain text (documented
+        as "newlines allowed") arrived as one run-on paragraph. Translate here,
+        at the one place that knows the destination is a rich-text widget,
+        rather than making every caller author HTML.
+        """
+        body = html.escape(question).replace("\n", "<br>")
+        return self.sb.message_box(body, "Yes", "No") == "Yes"
 
     def _on_log_link_clicked(self, url) -> None:
         """Dispatch clickable ``action://`` links from the log panel."""
@@ -424,9 +449,7 @@ class SceneExporterSlots(SceneExporter):
                 continue
             group = params.get("group")
             if group and group != current_group:
-                rows.append(
-                    (self.sb.registered_widgets.Separator(title=group), group)
-                )
+                rows.append((self.sb.registered_widgets.Separator(title=group), group))
                 current_group = group
             rows.append((self._make_definition_widget(name, params), name))
         return rows
@@ -490,7 +513,10 @@ class SceneExporterSlots(SceneExporter):
                 spec = self._SETTINGS_WIDGETS.get(name)
                 if spec is not None:
                     rows.append(
-                        (self._make_definition_widget(name, spec, object_name=name), name)
+                        (
+                            self._make_definition_widget(name, spec, object_name=name),
+                            name,
+                        )
                     )
                 elif name in definitions:
                     rows.append(
@@ -724,18 +750,38 @@ class SceneExporterSlots(SceneExporter):
 
         # Success/failure is otherwise surfaced via the log panel (self.logger
         # routes there); the return value is read only to disarm b009 below.
-        exported = self.perform_export(
-            objects=objects_to_export,
-            export_dir=self.ui.txt000.text(),
-            preset_name=self.ui.cmb000.currentData(),
-            export_visible=(export_mode != "selected"),
-            output_name=self.ui.txt001.text(),
-            name_regex=self.ui.txt002.text(),
-            timestamp=self.ui.chk004.isChecked(),
-            create_log_file=self.ui.b011.isChecked(),
-            log_level=self.ui.cmb003.currentData(),
-            tasks=export_tasks,
-        )
+        # The footer's bar (determinate -- the run's own step count arrives
+        # with the first tick) plus its busy spinner, because single steps
+        # (the FBX write, a GLB conversion) hold the event loop for seconds
+        # and a parked bar reads as hung. Esc held over the panel cancels
+        # through the same ``update``: perform_export stops before its next
+        # step while nothing has been written. ``sb.progress`` is a no-op on
+        # a UI without a footer, so the run itself never depends on one.
+        # Mirror of mayatk's b000.
+        with self.sb.progress(
+            ui=self.ui, text="Export: preparing…", busy=True
+        ) as update:
+            exported = self.perform_export(
+                objects=objects_to_export,
+                export_dir=self.ui.txt000.text(),
+                preset_name=self.ui.cmb000.currentData(),
+                export_visible=(export_mode != "selected"),
+                output_name=self.ui.txt001.text(),
+                name_regex=self.ui.txt002.text(),
+                timestamp=self.ui.chk004.isChecked(),
+                create_log_file=self.ui.b011.isChecked(),
+                log_level=self.ui.cmb003.currentData(),
+                tasks=export_tasks,
+                progress_callback=self.sb.progress_adapter(update),
+            )
+        footer = getattr(self.ui, "footer", None)
+        if footer is not None:
+            if exported:
+                footer.setText("Export complete", level="success")
+            elif self._export_cancelled:
+                footer.setText("Export cancelled", level="warning")
+            else:
+                footer.setText("Export aborted — see the log", level="warning")
 
         output_dir = self.ui.txt000.text()
         self.save_output_dir(output_dir)

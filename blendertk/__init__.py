@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.86"
+__version__ = "0.5.87"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -224,6 +224,8 @@ DEFAULT_INCLUDE = {
     ],
     # Per-object render opacity — engine + co-located panel (``RenderOpacitySlots`` discovered by the
     # handler, not registered). Mirror of mayatk's ``mat_utils.render_opacity`` subpackage.
+    "mat_utils.render_opacity.render_effects": ["RenderEffects"],
+    # One-release alias of RenderEffects (deprecated import path).
     "mat_utils.render_opacity._render_opacity": [
         "RenderOpacity",
     ],
@@ -280,6 +282,11 @@ DEFAULT_INCLUDE = {
     # (CSV → shots + fade/audio behaviors).  Co-located panel discovered by
     # BlenderUiHandler, not registered here.
     "anim_utils.shots.shot_manifest._shot_manifest": ["BlenderShotManifest"],
+    # Key stash — key clips parked out of the working animation (Blender adapter
+    # over ``ptk.KeyStash``; same name as mayatk's so the tentacle slots stay
+    # branch-free). Co-located ``KeyStashSlots`` panel discovered by
+    # ``BlenderUiHandler``, not registered here.
+    "anim_utils.key_stash._key_stash": "KeyStash",
     # Smart Bake — engine + session/restore store, mirror of mayatk's
     # ``anim_utils.smart_bake`` (the ``SmartBakeSlots`` panel is discovered by
     # ``BlenderUiHandler``, not registered here).

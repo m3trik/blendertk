@@ -239,6 +239,25 @@ class Naming(ptk.HelpMixin, ptk.LoggingMixin):
         return getattr(item, "type", "") or type(item).__name__
 
     @classmethod
+    def affix_for(cls, item, overrides=None, modes=None):
+        """The convention's affix rule for *item*'s OWN type -- mirror of mayatk's.
+
+        The single-item form of the join :meth:`suffix_by_type` runs in bulk:
+        :meth:`type_key` says what this host considers the item, and
+        :meth:`affix_rules` says what the shared convention calls that type.
+        Any tool naming an object the USER handed it should ask this rather
+        than hard-code a spelling, so a camera comes out ``_CAM`` where a mesh
+        comes out ``_GEO``.
+
+        Returns:
+            ptk.AffixRule: The rule for the item's type -- ``.text`` is the
+            spelling, ``.apply(name)`` places it. An empty (no-op) rule when
+            the type has no convention entry.
+        """
+        rules = cls.affix_rules(overrides, modes)
+        return rules.get(cls.type_key(item)) or ptk.AffixRule()
+
+    @classmethod
     def suffix_by_type(
         cls,
         objects,

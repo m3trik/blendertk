@@ -1528,9 +1528,17 @@ try:
             pass
 
     def _override_slots(export_result, calls, armed=True):
+        import contextlib
+
         _s = _Slots.__new__(_Slots)
         _s.task_manager = SimpleNamespace(task_definitions={}, check_definitions={})
-        _s.sb = SimpleNamespace(convert_to_legal_name=lambda n: n)
+        _s.sb = SimpleNamespace(
+            convert_to_legal_name=lambda n: n,
+            # The real Switchboard's footer-progress seam is a no-op on a UI
+            # without a footer (this one has none); the stub mirrors it.
+            progress=lambda **kw: contextlib.nullcontext(lambda *a: True),
+            progress_adapter=lambda update: update,
+        )
         _s.ui = SimpleNamespace(
             **{
                 n: _StubWidget()
@@ -1921,6 +1929,162 @@ try:
         "a failed texture delivery fails the deliverable (no silent fallback)",
         fail_result is False,
         f"result={fail_result}",
+    )
+
+    # ---- Override Checks: offered at the failure point, never carried over --------------
+    # A failed check used to abort outright, leaving "arm Override Checks and export
+    # again" as the only way through -- a second full pipeline (re-bake, re-optimize
+    # textures, re-rewrite paths) over a scene the first run had already mutated. The
+    # override is now offered where the check fails, so accepting it continues the SAME
+    # run. Mirror of mayatk's test_failed_checks_offer_the_override_in_the_same_run.
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    _ovr_dir = os.path.join(tmp, "check_override")
+    os.makedirs(_ovr_dir, exist_ok=True)
+
+    _runs = []
+    _asked = []
+
+    def _make_failing_exporter(answer):
+        exp = SceneExporter(log_level="DEBUG")
+
+        def _fail(tasks):
+            _runs.append(dict(tasks))
+            exp.task_manager._last_failed_checks = ["check_path_length"]
+            return False
+
+        exp.task_manager.run_tasks = _fail
+        exp.confirm = lambda question: (_asked.append(question), answer)[1]
+        return exp
+
+    _exp_ovr = _make_failing_exporter(True)
+    _ovr_result = _exp_ovr.perform_export(
+        objects=[bpy.context.object],
+        export_dir=_ovr_dir,
+        output_name="OverrideAccepted",
+        tasks={"check_path_length": 60},
+    )
+    check(
+        "an accepted override writes the file without re-running the task pipeline",
+        _ovr_result is True
+        and len(_runs) == 1
+        and os.path.exists(os.path.join(_ovr_dir, "OverrideAccepted.fbx")),
+        f"result={_ovr_result}, task runs={len(_runs)}",
+    )
+    check(
+        "the prompt names the failed check, and the run records what it shipped past",
+        len(_asked) == 1
+        and "check_path_length" in _asked[0]
+        and _exp_ovr._overridden_checks == ["check_path_length"],
+        f"asked={_asked}, overridden={_exp_ovr._overridden_checks}",
+    )
+
+    _exp_no = _make_failing_exporter(False)
+    _no_result = _exp_no.perform_export(
+        objects=[bpy.context.object],
+        export_dir=_ovr_dir,
+        output_name="OverrideDeclined",
+        tasks={"check_path_length": 60},
+    )
+    check(
+        "declining the override keeps the abort -- consent, never an automatic pass",
+        _no_result is False
+        and _exp_no._overridden_checks == []
+        and not os.path.exists(os.path.join(_ovr_dir, "OverrideDeclined.fbx")),
+        f"result={_no_result}",
+    )
+
+    # The runner stops dispatching tasks at the first failed check -- everything below it
+    # is work an aborted write would throw away. An override turns that write back on, so
+    # those tasks must run before it, or the file ships missing (say) the texture
+    # conversion the user asked for. Only the SKIPPED names re-dispatch; re-running the
+    # ones above would repeat their mutation. Mirror of mayatk's
+    # test_an_override_runs_the_tasks_the_failed_check_had_stopped.
+    _exp_res = SceneExporter(log_level="DEBUG")
+    _tm_res = _exp_res.task_manager
+    _dispatched = []
+
+    def _record(tasks):
+        _dispatched.append(dict(tasks))
+        return True
+
+    _tm_res._last_skipped_tasks = ["convert_to_relative_paths"]
+    _tm_res._last_task_count, _tm_res._last_check_count = 7, 4
+    _tm_res.run_tasks = _record
+    _exp_res._resume_skipped_tasks(
+        {"convert_to_relative_paths": True, "set_linear_unit": "cm"}
+    )
+    check(
+        "an override resumes ONLY the tasks the failed check had stopped",
+        _dispatched == [{"convert_to_relative_paths": True}],
+        f"dispatched={_dispatched}",
+    )
+    check(
+        "...and the resume keeps the first pass's banner counts",
+        (_tm_res._last_task_count, _tm_res._last_check_count) == (7, 4),
+        f"counts={(_tm_res._last_task_count, _tm_res._last_check_count)}",
+    )
+    _dispatched.clear()
+    _tm_res._last_skipped_tasks = []
+    _exp_res._resume_skipped_tasks({"set_linear_unit": "cm"})
+    check(
+        "a run the gate never cut short dispatches no second pass",
+        _dispatched == [],
+        f"dispatched={_dispatched}",
+    )
+
+    # sb.message_box hands its string to Qt's rich-text engine, which collapses a newline
+    # to a space -- so the seam's plain text (documented as "newlines allowed") arrived as
+    # one run-on paragraph, the KTX2 install prompt included. The panel's confirm
+    # translates instead of making every caller author HTML.
+    _seen = {}
+
+    class _MsgSB:
+        def message_box(self, string, *buttons):
+            _seen["string"] = string
+            _seen["buttons"] = buttons
+            return "Yes"
+
+    _msg_slots = _Slots.__new__(_Slots)
+    _msg_slots.sb = _MsgSB()
+    _confirmed = _msg_slots.confirm("line one\n\nline two & <three>")
+    check(
+        "the panel's confirm survives the rich-text engine (newlines kept, HTML escaped)",
+        _confirmed is True
+        and "<br><br>" in _seen["string"]
+        and "\n" not in _seen["string"]
+        and "&amp;" in _seen["string"]
+        and "<three>" not in _seen["string"]
+        and _seen["buttons"] == ("Yes", "No"),
+        f"string={_seen.get('string')!r}",
+    )
+
+    # Override Checks must not ride QSettings into the next session: a registered widget
+    # persists by default and its restore runs AFTER the slots __init__, which used to
+    # re-arm the toggle right over its setChecked(False) -- silently disabling every
+    # validation check on the next launch.
+    class _OverrideButton:
+        def __init__(self):
+            self.restore_state = True
+            self.checked = True
+            self.enabled = False
+            self.style = ""
+
+        def setEnabled(self, value):
+            self.enabled = value
+
+        def setChecked(self, value):
+            self.checked = value
+
+        def setStyleSheet(self, value):
+            self.style = value
+
+    _btn = _OverrideButton()
+    _Slots._init_override_button(_btn)
+    check(
+        "the Override Checks toggle never restores its armed state across sessions",
+        _btn.restore_state is False and _btn.checked is False and _btn.enabled is True,
+        f"restore_state={_btn.restore_state}, checked={_btn.checked}",
     )
 
     # ---- convert_to_relative_paths: scoped to the project; externals untouched ----------
@@ -2657,7 +2821,9 @@ try:
     # ---- check_valid_paths covers the lightmaps the bake markers name (mirror of mayatk) --
     # They have no Image datablock, so the image gate never saw them: a scene
     # migrated with all its textures passed the check and shipped its GLB unlit.
-    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker as _LmBaker
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+        LightmapBaker as _LmBaker,
+    )
 
     bpy.ops.mesh.primitive_cube_add()
     lm_cube = bpy.context.active_object
@@ -2678,7 +2844,9 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     other_cube = bpy.context.active_object
     other_cube.name = "NotShipping"
-    _LmBaker().commit_lightmap({other_cube.name: os.path.join(tmp, "gone", "NotShipping_LightMap.exr")})
+    _LmBaker().commit_lightmap(
+        {other_cube.name: os.path.join(tmp, "gone", "NotShipping_LightMap.exr")}
+    )
     passed, msgs = tm_lm.check_valid_paths(True)
     check(
         "a lightmap outside the export set is not reported",
@@ -2689,10 +2857,349 @@ try:
     passed, msgs = tm_lm.check_valid_paths(True)
     check(
         "check_valid_paths fails a lightmap found nowhere and names the object",
-        passed is False and any("Missing Lightmap" in m and "LitCube" in m for m in msgs),
+        passed is False
+        and any("Missing Lightmap" in m and "LitCube" in m for m in msgs),
         f"msgs={msgs}",
     )
     _LmBaker().revert()
+    reset_scene()
+
+    # ---- Bake Range: the one dial that owns the range the export bakes over -------------
+    # It used to share the range with apply_declared_takes, which widened to the shot
+    # union as an undeclared side effect of SPLITTING -- so clamping an export to its
+    # shots meant arming a split you might not want, and which won was decided by
+    # TASK_ORDER rather than by anything visible in the panel.  Mirrors mayatk's
+    # TestBakeRangeModes.
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+    def _br_manager():
+        reset_scene()
+        BlenderShotStore.clear_active()
+        obj = bpy.data.objects.new("br_probe", None)
+        bpy.context.collection.objects.link(obj)
+        obj.location.x = 0.0
+        obj.keyframe_insert(data_path="location", frame=10, index=0)
+        obj.location.x = 5.0
+        obj.keyframe_insert(data_path="location", frame=200, index=0)
+        scene = bpy.context.scene
+        scene.frame_start, scene.frame_end = 1, 48
+        tm = SceneExporter().task_manager
+        tm.objects = [obj]
+        return tm, scene
+
+    def _br_shots(*spans):
+        store = BlenderShotStore()
+        BlenderShotStore.set_active(store)
+        for i, (start, end) in enumerate(spans):
+            store.define_shot(f"Shot_{i}", start, end)
+        return store
+
+    _tm_br, _scene_br = _br_manager()
+    _br_shots((20, 60), (80, 120))
+    _tm_br.set_bake_animation_range("auto")
+    check(
+        "Auto clamps the export to the shot union, not the keyed extent",
+        (_scene_br.frame_start, _scene_br.frame_end) == (20, 120),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _tm_br.set_bake_animation_range("auto")
+    check(
+        "Auto falls back to the animated extent when the scene declares no shots",
+        (_scene_br.frame_start, _scene_br.frame_end) == (10, 200),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _br_shots((20, 60))
+    _tm_br.set_bake_animation_range("keys")
+    check(
+        "Keyframe Extent ignores the shots and measures the curves",
+        (_scene_br.frame_start, _scene_br.frame_end) == (10, 200),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _tm_br.set_bake_animation_range(None)
+    check(
+        "OFF leaves the scene range alone",
+        (_scene_br.frame_start, _scene_br.frame_end) == (1, 48),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _br_shots((20, 60))
+    _tm_br.set_bake_animation_range(True)
+    check(
+        "a headless caller's legacy True still reads as the keyframe extent",
+        (_scene_br.frame_start, _scene_br.frame_end) == (10, 200),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    # A shot can outrun the last keyframe (a hold authored on the sequencer), so a raw
+    # override would write a range CLIPPING a clip the same export declared -- metadata
+    # describing animation the file does not contain.  Every mode widens instead.
+    _tm_br, _scene_br = _br_manager()
+    _tm_br._required_range_coverage = (5, 260)
+    _tm_br.set_bake_animation_range("keys")
+    check(
+        "every mode widens to cover a realized take",
+        (_scene_br.frame_start, _scene_br.frame_end) == (5, 260),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _tm_br._required_range_coverage = (50, 60)
+    _tm_br.set_bake_animation_range("keys")
+    check(
+        "...and never narrows a source that is already wider",
+        (_scene_br.frame_start, _scene_br.frame_end) == (10, 200),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _tm_br._required_range_coverage = (5, 260)
+    _tm_br.objects = list(_tm_br.objects)  # the per-run reseed
+    check(
+        "the realized-take range is cleared per run (never leaks to the next export)",
+        _tm_br._required_range_coverage is None,
+    )
+
+    # REGRESSION (found while reordering): export_data_node stages the emissive
+    # keyed-weight curve proxies -- whose keys sit OUTSIDE the exported objects'
+    # extent by construction -- and widens the scene range for them. Moving the
+    # range task last made it overwrite that widen: a 300-400 proxy span was
+    # clipped back to the objects' 10-200, so the weight curves would have
+    # shipped flattened to their extrapolated value. _cover_frame_range now
+    # CLAIMS its span through _require_range_coverage as well as widening.
+    _tm_br, _scene_br = _br_manager()
+    _br_proxy = bpy.data.objects.new("br_proxy", None)
+    bpy.context.collection.objects.link(_br_proxy)
+    _br_proxy.scale.x = 0.0
+    _br_proxy.keyframe_insert(data_path="scale", frame=300, index=0)
+    _br_proxy.scale.x = 1.0
+    _br_proxy.keyframe_insert(data_path="scale", frame=400, index=0)
+    _tm_br._cover_frame_range([_br_proxy])
+    _covered = (_scene_br.frame_start, _scene_br.frame_end)
+    _tm_br.set_bake_animation_range("keys")
+    check(
+        "a staged proxy's claimed span survives the range task running last",
+        _covered == (1, 400) and _scene_br.frame_end >= 400,
+        f"covered={_covered} after={(_scene_br.frame_start, _scene_br.frame_end)}",
+    )
+
+    # ...including when the scene range ALREADY covers the proxies, so
+    # _cover_frame_range takes its no-widen-needed early return: the range task
+    # measures the EXPORTED OBJECTS (10-200 here), a different and narrower
+    # span, so the claim has to be registered before that return, not after it.
+    _tm_br, _scene_br = _br_manager()
+    _scene_br.frame_start, _scene_br.frame_end = 1, 500
+    _br_proxy2 = bpy.data.objects.new("br_proxy2", None)
+    bpy.context.collection.objects.link(_br_proxy2)
+    _br_proxy2.scale.x = 0.0
+    _br_proxy2.keyframe_insert(data_path="scale", frame=300, index=0)
+    _br_proxy2.scale.x = 1.0
+    _br_proxy2.keyframe_insert(data_path="scale", frame=400, index=0)
+    _tm_br._cover_frame_range([_br_proxy2])
+    _tm_br.set_bake_animation_range("keys")
+    check(
+        "a proxy span the scene range already covered is still claimed",
+        _scene_br.frame_end >= 400,
+        f"after={(_scene_br.frame_start, _scene_br.frame_end)}",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    _tm_br._require_range_coverage(100, 150)
+    _tm_br._require_range_coverage(40, 120)
+    check(
+        "coverage claims union rather than overwrite each other",
+        _tm_br._required_range_coverage == (40, 150),
+        f"{_tm_br._required_range_coverage}",
+    )
+
+    _tm_br, _scene_br = _br_manager()
+    try:
+        _tm_br.set_bake_animation_range("widest")
+        _br_raised = False
+    except ValueError:
+        _br_raised = True
+    check("an unknown bake range mode raises rather than guessing", _br_raised)
+
+    _br_order = _tm_br.TASK_ORDER
+    check(
+        "the range task runs AFTER the split, so it can cover the takes it declared",
+        _br_order.index("apply_declared_takes")
+        < _br_order.index("set_bake_animation_range"),
+    )
+
+    _tm_br.set_bake_animation_range("keys")
+    _tm_br.run_deferred_restores()
+    check(
+        "the original frame range is restored once the post-write cleanups run",
+        (_scene_br.frame_start, _scene_br.frame_end) == (1, 48),
+        f"({_scene_br.frame_start},{_scene_br.frame_end})",
+    )
+
+    # Templates persist combos by INDEX, so row 0 and the default index are contracts,
+    # and the retired checkbox's objectName must not resolve to the combo (a restored
+    # `true` would select index 1 -- a mode nobody chose).
+    _br_defs = SceneExporter().task_manager
+    _br_spec = _br_defs.task_definitions["set_bake_animation_range"]
+    _br_rows = list(_br_defs._bake_range_options.items())
+    check(
+        "Bake Range is a combo with OFF at index 0, defaulting to Auto",
+        _br_spec["widget_type"] == "ComboBox"
+        and _br_spec["object_name"] == "bake_range"
+        and _br_rows[0] == ("OFF", None)
+        and _br_rows[_br_spec["setCurrentIndex"]][1] == "auto",
+        f"{_br_spec.get('widget_type')} {_br_spec.get('object_name')} {_br_rows[:2]}",
+    )
+    check(
+        "every Bake Range row is a mode the task accepts",
+        sorted(v for v in _br_defs._bake_range_options.values() if v)
+        == sorted(_br_defs.BAKE_RANGE_MODES),
+    )
+
+    # ---- Optimize Keys levels ------------------------------------------------------------
+    from blendertk.anim_utils._anim_utils import AnimUtils as _BrAnimUtils
+
+    _ok_spec = _br_defs.task_definitions["optimize_keys"]
+    _ok_rows = list(_br_defs._optimize_keys_options.items())
+    check(
+        "Optimize Keys is a combo defaulting to the old checkbox's level",
+        _ok_spec["widget_type"] == "ComboBox"
+        and _ok_spec["object_name"] == "optimize_level"
+        and _ok_rows[0] == ("OFF", None)
+        and _ok_rows[_ok_spec["setCurrentIndex"]][1] == "flat",
+        f"{_ok_spec.get('widget_type')} {_ok_spec.get('object_name')} {_ok_rows[:2]}",
+    )
+    check(
+        "every Optimize Keys row is a level AnimUtils knows",
+        sorted(v for v in _br_defs._optimize_keys_options.values() if v)
+        == sorted(_BrAnimUtils.OPTIMIZE_LEVELS),
+    )
+    check(
+        "the level tokens mirror mayatk's exactly (one template, both DCCs)",
+        sorted(_BrAnimUtils.OPTIMIZE_LEVELS)
+        == ["extremes", "flat", "simplify", "static"],
+    )
+    check(
+        "a bare True still resolves to the pre-levels behavior",
+        _BrAnimUtils.resolve_optimize_level(True)
+        == dict(_BrAnimUtils.OPTIMIZE_LEVELS[_BrAnimUtils.DEFAULT_OPTIMIZE_LEVEL]),
+    )
+    check(
+        "every falsy value is OFF (None, so a caller SKIPS rather than runs a no-op pass)",
+        all(
+            _BrAnimUtils.resolve_optimize_level(v) is None for v in (None, False, "", 0)
+        ),
+    )
+    try:
+        _BrAnimUtils.resolve_optimize_level("aggressive")
+        _ok_raised = False
+    except ValueError:
+        _ok_raised = True
+    check(
+        "an unknown optimize level raises rather than silently defaulting", _ok_raised
+    )
+
+    # Static Curves Only must keep every flat key of a curve that carries motion.
+    reset_scene()
+    BlenderShotStore.clear_active()
+    _ok_obj = bpy.data.objects.new("ok_probe", None)
+    bpy.context.collection.objects.link(_ok_obj)
+    for _f, _v in ((1, 0.0), (10, 5.0), (20, 5.0), (30, 5.0), (40, 9.0)):
+        _ok_obj.location.x = _v
+        _ok_obj.keyframe_insert(data_path="location", frame=_f, index=0)
+    for _f in (1, 20, 40):
+        _ok_obj.location.y = 0.0
+        _ok_obj.keyframe_insert(data_path="location", frame=_f, index=1)
+
+    def _ok_counts():
+        counts = {}
+        for fc in _BrAnimUtils.get_fcurves([_ok_obj]):
+            counts[fc.array_index] = len(fc.keyframe_points)
+        return counts
+
+    _before = _ok_counts()
+    _tm_ok = SceneExporter().task_manager
+    _tm_ok.objects = [_ok_obj]
+    _tm_ok.optimize_keys(None)
+    check(
+        "OFF touches nothing",
+        _ok_counts() == _before,
+        f"{_ok_counts()} != {_before}",
+    )
+    _tm_ok.optimize_keys("static")
+    _after_static = _ok_counts()
+    check(
+        "Static Curves Only drops the static curve and keeps every flat key",
+        1 not in _after_static and _after_static.get(0) == 5,
+        f"{_after_static}",
+    )
+    _tm_ok.optimize_keys("flat")
+    check(
+        "...and Static + Flat Keys then drops the redundant interior key of the hold",
+        _ok_counts().get(0) == 4,
+        f"{_ok_counts()}",
+    )
+    reset_scene()
+    BlenderShotStore.clear_active()
+
+    # ---- progress stream (mirror of mayatk, 2026-09-04): ONE (current, total, message)
+    # feed drives the panel footer's bar; a False from it cancels before the write and is
+    # only reported after it. -----------------------------------------------------------
+    bpy.ops.mesh.primitive_cube_add()
+    _pcube = bpy.context.active_object
+    _pcube.name = "ProgressCube"
+    _pdir = os.path.join(tmp, "progress")
+    os.makedirs(_pdir, exist_ok=True)
+    _events = []
+    _presult = SceneExporter().perform_export(
+        export_dir=_pdir,
+        objects=[_pcube],
+        output_name="progress_test",
+        progress_callback=lambda c, t, m: _events.append((c, t, m)),
+    )
+    _currents = [c for c, _, _ in _events]
+    _pmsgs = [m for _, _, m in _events if m]
+    check(
+        "perform_export reports one monotonic (current, total, message) stream ending at total/total",
+        _presult is True
+        and bool(_events)
+        and _currents == sorted(_currents)
+        and {t for _, t, _ in _events} == {2}
+        and _events[-1][:2] == (2, 2)
+        and any(m.startswith("Writing FBX") for m in _pmsgs)
+        and any(m.startswith("Writing scene sidecar") for m in _pmsgs),
+        f"result={_presult} events={_events}",
+    )
+    _cresult = SceneExporter().perform_export(
+        export_dir=_pdir,
+        objects=[_pcube],
+        output_name="progress_cancelled",
+        progress_callback=lambda c, t, m: not (m or "").startswith("Writing"),
+    )
+    check(
+        "a False from progress_callback before the write cancels: False, nothing written",
+        _cresult is False
+        and not os.path.isfile(os.path.join(_pdir, "progress_cancelled.fbx")),
+        f"result={_cresult}",
+    )
+    _lresult = SceneExporter().perform_export(
+        export_dir=_pdir,
+        objects=[_pcube],
+        output_name="progress_late",
+        progress_callback=lambda c, t, m: (
+            not (m or "").startswith("Writing scene sidecar")
+        ),
+    )
+    check(
+        "a False after the write began is reported, not honoured: the deliverable is finished",
+        _lresult is True and os.path.isfile(os.path.join(_pdir, "progress_late.fbx")),
+        f"result={_lresult}",
+    )
     reset_scene()
 
     shutil.rmtree(tmp, ignore_errors=True)

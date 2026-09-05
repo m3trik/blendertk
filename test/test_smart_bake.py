@@ -37,7 +37,7 @@ range.
 and its ``check_untied_keyframes``/``check_floating_point_keys`` check methods directly against a
 constraint-driven object and a hand-built fractional-key rig, then drives the full
 ``TaskFactory.run_tasks`` dispatch to prove ``_execute_tasks_and_checks``'s
-``self._optimize_keys_enabled = bool(tasks_only.get("optimize_keys", False))`` line actually
+``self._optimize_keys_level = tasks_only.get("optimize_keys", False)`` line actually
 reaches ``smart_bake()`` *before* it runs (``TASK_ORDER`` puts ``smart_bake`` first) — captured
 via a plain ``logging.Handler`` on ``TaskManager.logger`` rather than mocking, since the forwarded
 flag only ever surfaces as an informational log line (``TaskManager`` has no ``optimize_keys``
@@ -1343,7 +1343,7 @@ def _run_task_manager_wiring_checks():
     ``tie_all_keyframes``, ``snap_keys_to_frame``, ``set_bake_animation_range`` +
     ``revert_bake_animation_range``, ``check_untied_keyframes``, ``check_floating_point_keys``)
     behave as documented, and that ``TaskFactory._execute_tasks_and_checks``'s
-    ``_optimize_keys_enabled`` forwarding actually reaches ``smart_bake()`` before it runs.
+    ``_optimize_keys_level`` forwarding actually reaches ``smart_bake()`` before it runs.
     Returns ``"OK ..."``/``"FAIL ..."`` lines, same convention as
     :func:`_run_data_internal_export_exclusion_checks`.
     """
@@ -1673,7 +1673,7 @@ def _run_task_manager_wiring_checks():
         )
         tm6.logger.removeHandler(handler6)
 
-        # ---- _optimize_keys_enabled forwarding reaches smart_bake() before it logs --------
+        # ---- _optimize_keys_level forwarding reaches smart_bake() before it logs --------
         reset()
         source2 = empty("WiringSource2")
         source2.location.x = 0.0
@@ -1720,8 +1720,8 @@ def _run_task_manager_wiring_checks():
             (scene3.frame_start, scene3.frame_end) == (1, 250),
         )
         check(
-            "_optimize_keys_enabled set before smart_bake runs",
-            tm3._optimize_keys_enabled is True,
+            "_optimize_keys_level set before smart_bake runs",
+            tm3._optimize_keys_level is True,
         )
         check(
             "smart_bake's log reflects the forwarded flag",
@@ -1746,8 +1746,8 @@ def _run_task_manager_wiring_checks():
         tm4.logger.addHandler(handler2)
         tm4.run_tasks({"smart_bake": True})
         check(
-            "_optimize_keys_enabled False when task absent from the dispatch dict",
-            tm4._optimize_keys_enabled is False,
+            "_optimize_keys_level False when task absent from the dispatch dict",
+            tm4._optimize_keys_level is False,
         )
         check(
             "smart_bake's log omits the forwarded-flag line when disabled",
@@ -1782,7 +1782,9 @@ def _run_exporter_bake_restore_checks():
     import shutil
 
     export_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "temp_tests", "exporter_bake_restore"
+        os.path.dirname(os.path.abspath(__file__)),
+        "temp_tests",
+        "exporter_bake_restore",
     )
     try:
         import bpy
@@ -2304,7 +2306,7 @@ def _run_session_fidelity_checks():
         check("re-add fixture bake succeeded", result.success, f"{result.baked}")
         # The user re-adds their own driver on the same weight before restoring.
         sk = mesh.data.shape_keys
-        user_drv = scripted_driver(sk.key_blocks["Key1"], target, expr="0.42")
+        scripted_driver(sk.key_blocks["Key1"], target, expr="0.42")
         restore_result = SmartBake.restore(result.session_id)
         check(
             "restore over a re-added driver completes (never raises)",

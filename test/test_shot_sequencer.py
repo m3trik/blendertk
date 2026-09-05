@@ -332,10 +332,10 @@ def _run_sequencer_checks():
     )
 
     # ---- resize_shot_bounds: boundary moves, keys stay -------------------
-    # Audit contract: a plain edge drag moves the BOUNDARY only.  A growing
-    # edge pushes neighbours away (spacing preserved); a shrinking edge
-    # leaves them in place — rippling them toward the pivot would drag them
-    # across the stranded keys a bounds-only resize promises not to touch.
+    # Audit contract: a plain edge drag moves the BOUNDARY only.  EVERY edge
+    # move ripples the neighbours on that side, so a gap keeps its width —
+    # growing pushes them away, shrinking pulls them in behind the bound —
+    # while the pivot's own keys, stranded ones included, never move.
     build_scene()
     store = fresh_store()
     seq = ShotSequencer(store)
@@ -360,12 +360,16 @@ def _run_sequencer_checks():
     seq.resize_shot_bounds(b_id, 20, 25)  # tail SHRINKS: strands keys 26..30
     b, c = store.shot_by_name("B"), store.shot_by_name("C")
     check(
-        "resize_shot_bounds: shrink leaves neighbours AND stranded keys alone",
+        "resize_shot_bounds: shrink pulls C in behind the bound, gap kept",
         (b.start, b.end) == (20, 25)
-        and (c.start, c.end) == (40, 50)
-        and key_times("B") == list(range(20, 31))
-        and key_times("C") == list(range(40, 51)),
+        and (c.start, c.end) == (35, 45)
+        and c.start - b.end == 10,
         f"B={(b.start, b.end)} C={(c.start, c.end)}",
+    )
+    check(
+        "resize_shot_bounds: shrink leaves the pivot's OWN stranded keys alone",
+        key_times("B") == list(range(20, 31)) and key_times("C") == list(range(35, 46)),
+        f"B={key_times('B')[:3]}.. C={key_times('C')[:3]}..",
     )
 
     build_scene()
@@ -445,6 +449,113 @@ def _run_sequencer_checks():
         f"{(a.start, a.end)} head={head} tail={tail}",
     )
 
+    # A trailing HOLD is not empty space: ``collect_shot_sequences`` reports
+    # MOTION, so a shot whose tail holds still read as empty at the end and
+    # the trim moved the bound in FRONT of real keys -- which then stayed
+    # behind while the downstream ripple pulled the next shot onto them.
+    # (mayatk parity: "Step 4.1" trimmed to 1313 with keys out to 1533,
+    # dragging "Step 4.8" from 1605 to 1328.)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    hold = keyed("H", [20, 60])  # motion 20..60
+    for f in (80, 95):  # ...then a flat hold out to 95
+        hold.location = (60 * 0.1, 0.0, 0.0)
+        hold.keyframe_insert(data_path="location", frame=f)
+    keyed("N", [160, 190])
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    store.define_shot("H", 0, 120, objects=["H"])
+    store.define_shot("N", 160, 200, objects=["N"])
+    seq = ShotSequencer(store)
+    h_id = store.shot_by_name("H").shot_id
+    head, tail = seq.trim_shot_to_content(h_id, edge="trailing")
+    h, n = store.shot_by_name("H"), store.shot_by_name("N")
+    check(
+        "trim: a trailing hold's keys hold the bound",
+        (h.start, h.end) == (0, 95) and tail == -25,
+        f"{(h.start, h.end)} head={head} tail={tail}",
+    )
+    check(
+        "trim: the next shot never lands on the keys the trim left behind",
+        min(key_times("N")) > max(key_times("H")) and n.start == 135,
+        f"N@{min(key_times('N'))} H@{max(key_times('H'))} n.start={n.start}",
+    )
+
+    # A slide ripples ONE side; the other has to hold.  Without the clamp a
+    # slide TOWARD the un-rippled side went straight over the neighbour and
+    # the store held two shots claiming one span.  (mayatk parity: an outer
+    # gap drag pulled "Step 4.8" 212 frames earlier onto "Step 4.4".)
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    keyed("SA", [0, 100])
+    keyed("SB", [100, 200])
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    store.define_shot("SA", 0, 100, objects=["SA"])  # zero gap: no room at all
+    store.define_shot("SB", 100, 200, objects=["SB"])
+    seq = ShotSequencer(store)
+    sa_id = store.shot_by_name("SA").shot_id
+    sb_id = store.shot_by_name("SB").shot_id
+
+    def _no_overlap(tag):
+        ss = store.sorted_shots()
+        bad = [
+            (a.name, a.end, b.name, b.start)
+            for a, b in zip(ss, ss[1:])
+            if b.start < a.end - 1e-6
+        ]
+        check(f"slide: {tag} leaves no overlap", not bad, f"{bad}")
+
+    seq.slide_shot(sb_id, 70, direction="downstream")
+    _no_overlap("SB earlier, rippling downstream")
+    seq.slide_shot(sa_id, 30, direction="upstream")
+    _no_overlap("SA later, rippling upstream")
+    seq.move_shot(sb_id, 70)
+    _no_overlap("move_shot(SB) earlier")
+    seq.set_shot_start(sb_id, 70, ripple=True)
+    _no_overlap("set_shot_start(SB) earlier")
+    check(
+        "slide: a clamped slide leaves both shots exactly where they were",
+        (store.shot_by_name("SA").start, store.shot_by_name("SA").end) == (0, 100)
+        and (store.shot_by_name("SB").start, store.shot_by_name("SB").end)
+        == (100, 200),
+        f"{[(s.name, s.start, s.end) for s in store.sorted_shots()]}",
+    )
+    # Open room still absorbs a slide — the clamp only holds at a neighbour.
+    store.update_shot(sb_id, start=140, end=240)
+    seq.slide_shot(sb_id, 120, direction="downstream")
+    check(
+        "slide: a slide into real room still moves",
+        store.shot_by_name("SB").start == 120,
+        f"{store.shot_by_name('SB').start}",
+    )
+
+    # A lock is a statement about a gap's WIDTH: both edge handles refuse,
+    # while a shot resize (which ripples, so the width survives) is free to
+    # run.  The lock used to be read by the respace planner and the overlay
+    # drawing only, so a locked gap dragged like any other.
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete()
+    keyed("LA", [0, 100])
+    keyed("LB", [115, 200])
+    BlenderShotStore.clear_active()
+    store = BlenderShotStore()
+    la = store.define_shot("LA", 0, 100, objects=["LA"])
+    lb = store.define_shot("LB", 115, 200, objects=["LB"])
+    seq = ShotSequencer(store)
+    store.lock_gap(la.shot_id, lb.shot_id)
+    check(
+        "lock: the gap reads as locked",
+        store.is_gap_locked(la.shot_id, lb.shot_id),
+    )
+    seq.resize_shot_bounds(la.shot_id, 0, 80)
+    a2, b2 = store.shot_by_name("LA"), store.shot_by_name("LB")
+    check(
+        "lock: a shot resize still ripples, so the locked width survives",
+        (a2.start, a2.end) == (0, 80) and b2.start - a2.end == 15,
+        f"LA={(a2.start, a2.end)} LB={(b2.start, b2.end)}",
+    )
+
     # ---- extend one-sided rescue -----------------------------------------
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
@@ -488,6 +599,28 @@ def _run_sequencer_checks():
         "move_object_in_shot: C rippled +5",
         (c.start, c.end) == (45, 55),
         f"{(c.start, c.end)}",
+    )
+
+    # An overrun that reaches PAST the next shot's start must still travel
+    # exactly the drag distance: committing the keys before the ripple let the
+    # downstream envelope sweep them a second time (mirrors mayatk).
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_id = store.shot_by_name("A").shot_id
+    seq.move_object_in_shot(a_id, "A", 0, 10, 15)  # new_end 25 > B.start 20
+    a, b, c = (store.shot_by_name(n) for n in ("A", "B", "C"))
+    check(
+        "move_object_in_shot: an overrunning clip is not rippled twice",
+        key_times("A") == [round(15 + i, 3) for i in range(11)],
+        f"{key_times('A')[:3]}..{key_times('A')[-1:]}",
+    )
+    check(
+        "move_object_in_shot: the overrun still ripples the downstream shots",
+        (a.start, a.end) == (0, 25)
+        and (b.start, b.end) == (35, 45)
+        and (c.start, c.end) == (55, 65),
+        f"{(a.start, a.end)} {(b.start, b.end)} {(c.start, c.end)}",
     )
 
     # ---- collect_object_segments: per-object keyed span ------------------
@@ -1309,9 +1442,7 @@ def _run_sequencer_checks():
     )
 
     build_scene()
-    fc = _lone_curve(
-        "collide_sparse", [(10, 1.0), (30, 2.0), (50, 3.0), (60, 9.0)]
-    )
+    fc = _lone_curve("collide_sparse", [(10, 1.0), (30, 2.0), (50, 3.0), (60, 9.0)])
     check(
         "landing zone: a key left BETWEEN the moved ones makes it sparse",
         not ShotSequencer._is_contiguous_run(fc, [10.0, 50.0]),
@@ -1421,6 +1552,36 @@ def _run_sequencer_checks():
         and interp_at(obs["shA"], 60) == "CONSTANT"
         and sq.ledger.step_count == 2,
         f"{interp_at(obs['shA'], 20)} / {interp_at(obs['shA'], 60)} / {sq.ledger}",
+    )
+
+    # A curve whose FIRST key sits in the gap is the next shot's lead-in, not
+    # this shot's overhang: shot membership is per object, so it reaches the
+    # seam scan on the strength of a SIBLING channel's content.  Holding it
+    # freezes the next shot's own motion.  (mayatk parity: production case
+    # ``FAILED_CMPT_LOC``, member of "Step 2.1" through its opacity fade while
+    # its translate curves start in the gap and run on into "Step 3.1".)
+    st, sq, obs = fresh({"leadA": {48: 0, 63: 1, 66: 1}})
+    lead = obs["leadA"]
+    for f, v in ((66, -16.8), (101, -3.75)):
+        lead.location.z = v
+        lead.keyframe_insert(data_path="location", index=2, frame=f)
+    fc_z = next(
+        fc
+        for fc in BlenderShotStore.iter_action_fcurves(lead)
+        if fc.data_path == "location" and fc.array_index == 2
+    )
+    sq.define_shot("A", 33, 65, objects=["leadA"])
+    sq.define_shot("B", 80, 256, objects=["leadA"])
+    sq._enforce_gap_holds()
+    check(
+        "gap hold: the next shot's lead-in key is not held",
+        fc_z.keyframe_points[0].interpolation != "CONSTANT",
+        f"{fc_z.keyframe_points[0].interpolation}",
+    )
+    check(
+        "gap hold: the seam on the pre-gap-fed channel still holds",
+        interp_at(lead, 66) == "CONSTANT",
+        f"{interp_at(lead, 66)}",
     )
 
     # -- a boundary sample follows its bound, or is cleaned up --------------
@@ -1547,17 +1708,49 @@ def _run_sequencer_checks():
         f"{sq.shot_by_id(sa.shot_id).objects} / {tail.objects}",
     )
 
-    # -- add_shot_space pads a head and carries the upstream shot ----------
+    # -- add_shot_space anchors the head and shifts everything later -------
     st, sq, obs = fresh({"padA": {1: 0, 20: 1}, "padB": {40: 0, 60: 1}})
     sq.define_shot("A", 1, 20, objects=["padA"])
     sb = sq.define_shot("B", 40, 60, objects=["padB"])
     head, tail = sq.add_shot_space(sb.shot_id, 10, edge="leading")
     check(
-        "add_shot_space: leading room, upstream shot carried",
-        (head, tail) == (-10.0, 0.0)
+        "add_shot_space: leading room opens in FRONT of the content",
+        (head, tail) == (0.0, 10.0)
         and [(s.name, s.start, s.end) for s in sq.sorted_shots()]
-        == [("A", -9.0, 10.0), ("B", 30.0, 60.0)],
-        f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]}",
+        == [("A", 1.0, 20.0), ("B", 40.0, 70.0)]
+        and times_of(obs["padB"]) == [50.0, 70.0]
+        and times_of(obs["padA"]) == [1.0, 20.0],
+        f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]} "
+        f"{times_of(obs['padB'])}",
+    )
+
+    # The pad pushes the downstream shots along, not the upstream ones.
+    st, sq, obs = fresh({"padE": {1: 0, 20: 1}, "padF": {40: 0, 60: 1}})
+    sa = sq.define_shot("A", 1, 20, objects=["padE"])
+    sq.define_shot("B", 40, 60, objects=["padF"])
+    head, tail = sq.add_shot_space(sa.shot_id, 10, edge="leading")
+    check(
+        "add_shot_space: leading room ripples downstream",
+        (head, tail) == (0.0, 10.0)
+        and [(s.name, s.start, s.end) for s in sq.sorted_shots()]
+        == [("A", 1.0, 30.0), ("B", 50.0, 70.0)]
+        and times_of(obs["padE"]) == [11.0, 30.0]
+        and times_of(obs["padF"]) == [50.0, 70.0],
+        f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]} "
+        f"{times_of(obs['padE'])} {times_of(obs['padF'])}",
+    )
+
+    # A negative pad reclaims only room that is actually empty.
+    st, sq, obs = fresh({"padG": {10: 0, 20: 1}})
+    sa = sq.define_shot("A", 1, 20, objects=["padG"])
+    head, tail = sq.add_shot_space(sa.shot_id, -30, edge="leading")
+    check(
+        "add_shot_space: removing leading room never drags keys out the front",
+        (head, tail) == (0.0, -9.0)
+        and [(s.name, s.start, s.end) for s in sq.sorted_shots()] == [("A", 1.0, 11.0)]
+        and times_of(obs["padG"]) == [1.0, 11.0],
+        f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]} "
+        f"{times_of(obs['padG'])}",
     )
 
     BlenderShotStore.clear_active()
