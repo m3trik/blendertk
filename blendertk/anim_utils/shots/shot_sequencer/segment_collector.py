@@ -220,10 +220,12 @@ class SegmentCollector:
         vis_keys = []
         vis_segs = []
         all_vals = []
+        broken = []  # per visible key: a FREE handle on either side
         for i in range(first_vis, last_vis + 1):
             kp = kps[i]
             vis_keys.append((kp.co[0], kp.co[1]))
             all_vals.append(kp.co[1])
+            broken.append("FREE" in (kp.handle_left_type, kp.handle_right_type))
 
         for i in range(first_vis, last_vis):
             k0, k1 = kps[i], kps[i + 1]
@@ -259,6 +261,7 @@ class SegmentCollector:
         return {
             "keys": vis_keys,
             "segments": vis_segs,
+            "broken": broken,
             "val_min": min(all_vals),
             "val_max": max(all_vals),
         }

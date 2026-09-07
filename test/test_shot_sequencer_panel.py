@@ -209,6 +209,35 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         ):
             self.assertTrue(callable(getattr(self.ui.slots, name, None)), name)
 
+    def test_move_to_shot_takes_stepped_and_read_only_clips(self):
+        """Mirror of mayatk's TestMoveToShotTakesEveryVisibleClip."""
+
+        class _Clip:
+            def __init__(self, **data):
+                self.data = data
+
+        class _Widget:
+            def __init__(self, clips):
+                self._clips = clips
+
+            def get_clip(self, cid):
+                return self._clips.get(cid)
+
+        widget = _Widget(
+            {
+                1: _Clip(obj="a", orig_start=10.0, orig_end=30.0),
+                2: _Clip(obj="a", is_stepped=True, orig_start=45.0, orig_end=45.0),
+                3: _Clip(obj="b", read_only=True, orig_start=70.0, orig_end=90.0),
+            }
+        )
+        ctl = self.ui.slots.controller
+        seqs = ctl._clips_to_sequences(widget, [1, 2, 3], include_read_only=True)
+        self.assertEqual([q["obj"] for q in seqs], ["a", "a", "b"])
+        self.assertEqual(seqs[1]["times"], [45.0])
+        self.assertEqual(
+            ctl._clips_to_sequences(widget, [3]), [], "drags keep the gate"
+        )
+
     def test_controller_parity_surface(self):
         """Every mayatk controller slot the widget/menu can reach exists here too."""
         ctl = self.ui.slots.controller

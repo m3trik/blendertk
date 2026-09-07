@@ -1,139 +1,78 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ e7e5d60)._
+_Diff vs the last release (origin/main @ a059164)._
 
-## Removed (11)
+## Removed (6)
 
-- `anim_utils/_anim_utils.py::AnimUtils.unbake_keys` — was `(objects=None, value_tolerance=0.001, stats=None)`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity` — was `(class)`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.create` — was `(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False)`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.ensure_connections` — was `(cls, objects=None) -> None`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.key_fade` — was `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR')`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.objects_with_visibility_keys` — was `(cls, objects) -> list`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.prepare_for_export` — was `(cls, objects=None) -> list`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.refresh_export_metadata` — was `(cls)`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.remove` — was `(cls, objects=None, mode=None)`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.sync_visibility_from_opacity` — was `(cls, objects=None) -> None`
-- `mat_utils/render_opacity/_render_opacity.py::RenderOpacity.visibility_tracks` — was `(cls) -> list`
+- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b002` — was `(self) -> None`
+- `mat_utils/render_opacity/render_opacity_slots.py::RenderOpacitySlots` — was `(class)`
+- `mat_utils/render_opacity/render_opacity_slots.py::RenderOpacitySlots.header_init` — was `(self, widget)`
+- `mat_utils/render_opacity/render_opacity_slots.py::RenderOpacitySlots.tb000` — was `(self, widget)`
+- `mat_utils/render_opacity/render_opacity_slots.py::RenderOpacitySlots.tb000_init` — was `(self, widget)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.b004` — was `(self)`
 
-## Added (98)
+## Added (30)
 
-- `anim_utils/_anim_utils.py::AnimUtils.create_preview_layer(sources, gate=None, name='previewLayer')`
-- `anim_utils/_anim_utils.py::AnimUtils.get_selected_key_times(objects=None)`
-- `anim_utils/_anim_utils.py::AnimUtils.get_timeline_selection()`
-- `anim_utils/_anim_utils.py::AnimUtils.normalize_optimize_level(cls, level)`
-- `anim_utils/_anim_utils.py::AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None)`
-- `anim_utils/_anim_utils.py::AnimUtils.remove_preview_layer(handle) -> bool`
-- `anim_utils/_anim_utils.py::AnimUtils.resolve_optimize_level(cls, level)`
-- `anim_utils/key_stash/_key_stash.py::KeyStash(class)`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.active(cls) -> 'KeyStash'`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.drop(self, clip_id: int) -> None`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.end_preview(self) -> bool`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.is_previewing(self, clip_id: Optional[int] = None) -> bool`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.preview(self, clip_id: int, in_context: bool = True, set_playback_range: bool = True) -> Dict[str, Any]`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.reconcile(self) -> List[int]`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.rescale_to_fps(self, new_fps: float) -> None`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.retrieve(self, clip_id: int, at: Optional[float] = None, mode: str = 'merge', target: Optional[str] = None) -> int`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.stash(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[StashedClip]`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots(class)`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b000(self) -> None`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b001(self) -> None`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b002(self) -> None`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.b003(self) -> None`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.refresh(self) -> None`
-- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.store(self) -> KeyStash`
-- `anim_utils/shots/_shots.py::BlenderScenePersistence.store_cls(self)`
-- `edit_utils/naming/_naming.py::Naming.affix_for(cls, item, overrides=None, modes=None)`
-- `env_utils/fbx_utils.py::FbxUtils.register_export_preparer(name: str, prepare) -> None`
-- `env_utils/fbx_utils.py::FbxUtils.stage_curve_proxy(name: str, parent, fcurve, *markers: str)`
-- `env_utils/fbx_utils.py::FbxUtils.unregister_export_preparer(name: str) -> None`
-- `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.confirm_check_override(self) -> bool`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects(class)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.ensure_connections(cls, objects=None) -> None`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.finish_export(cls)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_fade(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR')`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, color=None, auto_create=True, channel='highlight')`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.objects_with_visibility_keys(cls, objects) -> list`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.prepare_for_export(cls, objects=None) -> list`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.preview(cls, objects=None, channel='highlight', enabled=True)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.refresh_export_metadata(cls)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.remove(cls, objects=None, mode=None, channel=None)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.remove_export_proxies(cls)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.stage_export_proxies(cls)`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.sync_visibility_from_opacity(cls, objects=None) -> None`
-- `mat_utils/render_opacity/render_effects.py::RenderEffects.visibility_tracks(cls) -> list`
-- `rig_utils/shadow_preview.py::ShadowPreview(class)`
-- `rig_utils/shadow_preview.py::ShadowPreview.attach(cls, plane) -> None`
-- `rig_utils/shadow_preview.py::ShadowPreview.attached_planes(cls) -> List`
-- `rig_utils/shadow_preview.py::ShadowPreview.detach(cls, plane) -> bool`
-- `rig_utils/shadow_preview.py::ShadowPreview.detach_all(cls) -> List`
-- `rig_utils/shadow_preview.py::ShadowPreview.fragment_source(cls) -> str`
-- `rig_utils/shadow_preview.py::ShadowPreview.frame_params(contact_matrix, ground_height: float, local_a, local_b, local_up) -> Tuple[List[float], List[float], List[float], List[float], float]`
-- `rig_utils/shadow_preview.py::ShadowPreview.is_attached(cls, plane) -> bool`
-- `rig_utils/shadow_preview.py::ShadowPreview.is_enabled(cls) -> bool`
-- `rig_utils/shadow_preview.py::ShadowPreview.params_struct() -> str`
-- `rig_utils/shadow_preview.py::ShadowPreview.prepare_for_export(cls) -> None`
-- `rig_utils/shadow_preview.py::ShadowPreview.refusal(cls) -> str`
-- `rig_utils/shadow_preview.py::ShadowPreview.status(cls) -> str`
-- `rig_utils/shadow_preview.py::ShadowPreview.toggle(cls, planes: Sequence, on: bool) -> Tuple[List, List[str]]`
-- `rig_utils/shadow_preview.py::ShadowPreview.vertex_source() -> str`
-- `rig_utils/shadow_rig.py::ShadowRig.bake_horizon(self, bins=None, size=None, path=None, *, only_if_changed=False)`
-- `rig_utils/shadow_rig.py::ShadowRig.create_for_sources(cls, targets, sources, **kwargs)`
-- `rig_utils/shadow_rig.py::ShadowRig.create_horizon_for_sources(cls, targets, sources, **kwargs)`
-- `rig_utils/shadow_rig.py::ShadowRig.create_per_object(cls, targets, sources, **kwargs)`
-- `rig_utils/shadow_rig.py::ShadowRig.current_model(self)`
-- `rig_utils/shadow_rig.py::ShadowRig.ensure_source(cls, source_name=DEFAULT_SOURCE_NAME, position=(5.0, 5.0, 10.0))`
-- `rig_utils/shadow_rig.py::ShadowRig.export_record(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.for_node(cls, obj)`
-- `rig_utils/shadow_rig.py::ShadowRig.for_nodes(cls, objects)`
-- `rig_utils/shadow_rig.py::ShadowRig.from_plane(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.has_mesh_geometry(obj, recursive=True)`
-- `rig_utils/shadow_rig.py::ShadowRig.horizon_output_path(self)`
-- `rig_utils/shadow_rig.py::ShadowRig.pack_atlas(cls, planes=None, *, gutter=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.plane_is_atlased(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.plane_is_baked(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.plane_is_live(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.plane_type(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.planes_for_nodes(cls, objects)`
-- `rig_utils/shadow_rig.py::ShadowRig.rebuild(cls, plane, texture_res=None, recursive=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.refresh_silhouette(cls, planes=None, size=None, refit=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.set_source(self, source_name, position=(5.0, 5.0, 10.0), size=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.silhouette_is_stale(cls, plane)`
-- `rig_utils/shadow_rig.py::ShadowRig.source_is_directional(obj)`
-- `rig_utils/shadow_rig.py::ShadowRig.unbake_planes(cls, planes=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.unit_scale()`
-- `rig_utils/shadow_rig.py::ShadowRig.unpack_atlas(cls, planes=None)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.apply_source(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b002_init(self, widget)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b003(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b003_init(self, widget)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b004(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b009(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.b010(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.chk_horizon_preview(self, checked)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.cmb_type_init(self, widget)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.prepare_operation(self, objects)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.rebuild_rig(self)`
-- `rig_utils/shadow_rig.py::ShadowRigSlots.restore_expression(self)`
+- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.chk001(self, checked: bool) -> None`
+- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.header_init(self, widget) -> None`
+- `anim_utils/key_stash/key_stash_slots.py::KeyStashSlots.refresh_from_scene(self) -> None`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.move_attribute_keys(self, obj: str, attr: Optional[str], delta: float, times: Optional[List[float]] = None, window: Optional[tuple] = None) -> int`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.scale_shot_keys(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None`
+- `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py::ShotSequencerController.on_key_menu(self, menu, key_groups: list) -> None`
+- `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py::ShotSequencerController.on_key_tangent_dragged(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None`
+- `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py::ShotSequencerController.place_dragged_handle(kp, side: str, dt: float, dv: float) -> None`
+- `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.run_config_from_values(self, values: Dict[str, Any], override_checks: bool = False, ignore_groups_case_sensitive: bool = False) -> Dict[str, Any]`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots(class)`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.header_init(self, widget)`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb000(self, widget)`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb000_init(self, widget)`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001(self, widget)`
+- `mat_utils/render_opacity/render_effects_slots.py::RenderEffectsSlots.tb001_init(self, widget)`
+- `rig_utils/shadow_rig.py::ShadowRig.auto_recalculate(cls, on=True)`
+- `rig_utils/shadow_rig.py::ShadowRig.auto_recalculate_enabled(cls)`
+- `rig_utils/shadow_rig.py::ShadowRig.planes_lit_by(cls, source)`
+- `rig_utils/shadow_rig.py::ShadowRig.recalculate_stale(cls, planes=None)`
+- `rig_utils/shadow_rig.py::ShadowRig.set_source_softness(cls, source, value)`
+- `rig_utils/shadow_rig.py::ShadowRig.source_size(cls, source)`
+- `rig_utils/shadow_rig.py::ShadowRig.source_softness(cls, source)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.chk_follow(self, checked)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.chk_follow_init(self, widget)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.chk_horizon_preview_init(self, widget)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.reproject_sources(self)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.s001(self, value)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.s001_init(self, widget)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.source_from_selection(self)`
+- `rig_utils/shadow_rig.py::ShadowRigSlots.txt_source_init(self, widget)`
 
-## Signature changed (6)
+## Signature changed (10)
 
-- `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.perform_export`
-  - was: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: str = 'WARNING', hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None) -> bool`
-  - now: `(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool`
-- `env_utils/scene_exporter/task_manager.py::TaskManager.optimize_keys`
-  - was: `(self)`
-  - now: `(self, level=True)`
-- `env_utils/scene_exporter/task_manager.py::TaskManager.set_bake_animation_range`
-  - was: `(self)`
-  - now: `(self, mode='auto')`
+- `anim_utils/_anim_utils.py::AnimUtils.reduce_to_extremes`
+  - was: `(objects=None, value_tolerance=0.001, stats=None)`
+  - now: `(objects=None, value_tolerance=0.001, stats=None, max_error=None)`
+- `anim_utils/_anim_utils.py::AnimUtils.snap_keys`
+  - was: `(objects, selected_only=False, time_range=None, method='nearest')`
+  - now: `(objects=None, selected_only=False, time_range=None, method='nearest')`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.resize_shot_bounds`
+  - was: `(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None`
+  - now: `(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True, clamp: bool = True) -> None`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.ripple_downstream`
+  - was: `(self, shot_id: int, after_frame: float, delta: float) -> None`
+  - now: `(self, shot_id: int, after_frame: float, delta: float, carry_gap: bool = True) -> None`
+- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.ripple_upstream`
+  - was: `(self, shot_id: int, before_frame: float, delta: float) -> None`
+  - now: `(self, shot_id: int, before_frame: float, delta: float, carry_gap: bool = True) -> None`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_fade`
+  - was: `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR')`
+  - now: `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', preview=None, delete_visibility_keys=False, channel='opacity', whole_frames=True)`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_pulse`
+  - was: `(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, color=None, auto_create=True, channel='highlight')`
+  - now: `(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, auto_create=True, channel='highlight', preview=None, delete_visibility_keys=False, whole_frames=True)`
+- `rig_utils/shadow_rig.py::ShadowRig.bake_horizon`
+  - was: `(self, bins=None, size=None, path=None, *, only_if_changed=False)`
+  - now: `(self, size=None, spans=None, path=None, *, only_if_changed=False)`
 - `rig_utils/shadow_rig.py::ShadowRig.create`
-  - was: `(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name='shadow_source', recursive=True, mode='stretch', ground_height=0.0)`
-  - now: `(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name=DEFAULT_SOURCE_NAME, recursive=True, mode='orbit', ground_height=0.0, rig_type='projected', horizon_bins=None, horizon_size=None)`
-- `rig_utils/shadow_rig.py::ShadowRig.create_silhouette_texture`
-  - was: `(self, size=512, axis='auto', recursive=True, **kwargs)`
-  - now: `(self, size=512, axis='auto', recursive=True, path=None, *, refit=True, source_size=None, uniform_alpha=True, falloff_power=0.8, vertical_weight=0.3, blur_amount=1.0)`
-- `rig_utils/shadow_rig.py::ShadowRig.get_or_create_shadow_source`
-  - was: `(self, position=(5.0, 5.0, 10.0), source_name='shadow_source')`
-  - now: `(self, position=(5.0, 5.0, 10.0), source_name=DEFAULT_SOURCE_NAME)`
+  - was: `(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name=DEFAULT_SOURCE_NAME, recursive=True, mode='orbit', ground_height=0.0, rig_type='projected', horizon_bins=None, horizon_size=None)`
+  - now: `(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name=DEFAULT_SOURCE_NAME, recursive=True, mode='orbit', ground_height=0.0, rig_type='projected', horizon_size=None, horizon_spans=None)`
+- `rig_utils/shadow_rig.py::ShadowRig.silhouette_is_stale`
+  - was: `(cls, plane)`
+  - now: `(cls, plane, *, degrees=None, distance=None)`

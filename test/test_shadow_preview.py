@@ -41,7 +41,7 @@ class TestShaderText(unittest.TestCase):
         text = ShadowPreview.fragment_source()
         body = ptk.ShadowHorizon.shader_source("glsl")
         self.assertIn(body, text)
-        self.assertLess(text.index("SH_Fetch(int col"), text.index("float ShAlpha("))
+        self.assertLess(text.index("SH_Fetch(int tile"), text.index("float ShAlpha("))
         self.assertLess(text.index("float ShAlpha("), text.index("fragColor = "))
         self.assertIn("texelFetch(horizonMap", text)
 
@@ -56,7 +56,7 @@ class TestShaderText(unittest.TestCase):
             "axisUp",
             "source",
             "sourceSize",
-            "range",
+            "bounds",
             "rect",
         ):
             self.assertIn(f"vec4 {member};", struct)
@@ -133,8 +133,8 @@ class TestLifecycleHeadless(unittest.TestCase):
             light_pos=(5, 5, 10),
             texture_res=64,
             rig_type="horizon",
-            horizon_bins=8,
-            horizon_size=(32, 16),
+            horizon_size=32,
+            horizon_spans=2,
         )
         self.plane = self.rig.shadow_plane
         self._paths = [self.rig.texture_path, self.rig.horizon_path]
@@ -174,12 +174,12 @@ class TestLifecycleHeadless(unittest.TestCase):
         self.assertEqual(len(params), 32, "eight vec4s")
         record = ShadowRig.export_record(self.plane)
         hz = record["horizon"]
-        self.assertEqual(params[7], float(hz["bins"]))
-        self.assertEqual(params[11], float(hz["layout"][0]))
-        self.assertEqual(params[15], float(hz["layers"]))
+        self.assertEqual(params[7], float(hz["size"]))
+        self.assertEqual(params[11], float(hz["spans"]))
+        self.assertEqual(params[15], float(hz["levels"]))
         self.assertEqual(params[19], 1.0, "a positional source: w = 1")
-        self.assertEqual(params[22:24], [float(hz["tile"][0]), float(hz["tile"][1])])
-        self.assertEqual(params[24:27], [hz["r_min"], hz["r_max"], hz["max_stretch"]])
+        self.assertEqual(params[22], float(hz["height_scale"]))
+        self.assertEqual(params[24:28], [float(v) for v in hz["bounds"]])
         contact = ShadowRig._plane_contact(self.plane)
         for got, want in zip(params[0:3], contact.matrix_world.translation):
             self.assertAlmostEqual(got, want, places=6)
@@ -220,6 +220,47 @@ class TestLifecycleHeadless(unittest.TestCase):
         (record,) = [p for p in payload["planes"] if p["name"] == self.plane.name]
         self.assertTrue(record["texture"])
         self.assertEqual(record["type"], "horizon")
+
+    def _simulate_attach(self):
+        """What ``attach`` does past the refusal: the plane hidden and the
+        prop stamped, the name registered."""
+        self.plane[ShadowPreview.HIDDEN_PROP] = False
+        self.plane.hide_set(True)
+        ShadowPreview._planes.append(self.plane.name)
+
+    def test_deleting_a_previewed_rig_stands_the_preview_down_first(self):
+        """A delete stands a standing preview down before the plane goes, so
+        nothing stays registered for an object that no longer exists."""
+        import bpy
+
+        self._simulate_attach()
+        name = self.plane.name
+        ShadowRig.delete_rigs([self.plane])
+        self.assertIsNone(bpy.data.objects.get(name))
+        self.assertEqual(ShadowPreview.attached_planes(), [])
+        self.assertEqual(ShadowPreview._planes, [])
+
+    def test_a_recalculate_rebinds_a_standing_preview_or_only_warns(self):
+        """Recalculate re-bakes the map; a standing preview is re-attached.
+        Headless the re-attach is refused (no draw loop) and that is a
+        WARNING: the recalculate itself succeeds."""
+        self._simulate_attach()
+        refreshed = ShadowRig.refresh_silhouette([self.plane])
+        self.assertEqual([p.name for p in refreshed], [self.plane.name])
+        self.assertTrue(os.path.exists(self.rig.horizon_path))
+        self.assertTrue(ShadowPreview.is_attached(self.plane))
+
+    def test_a_rebuild_carries_the_preview_state_and_only_warns_headless(self):
+        """Rebuild deletes and re-creates the plane: the preview follows the
+        rig where a session can draw, is refused with a warning here, and
+        never blocks the rebuild."""
+        self._simulate_attach()
+        rebuilt = ShadowRig.rebuild(self.plane)
+        self.assertIsNotNone(rebuilt)
+        self._paths.extend([rebuilt.texture_path, rebuilt.horizon_path])
+        self.assertEqual(rebuilt.rig_type, "horizon")
+        self.assertEqual(ShadowPreview.attached_planes(), [])
+        self.assertFalse(rebuilt.shadow_plane.hide_get())
 
     def test_toggle_reports_per_plane_and_never_stops_at_a_failure(self):
         done, failed = ShadowPreview.toggle([self.plane, "no_such_plane"], on=False)

@@ -1551,27 +1551,36 @@ try:
     expected = [0.0, 10.0, 30.0, 50.0, 70.0, 90.0, 110.0, 120.0, 160.0, 200.0]
     loc = [fc for fc in btk.get_fcurves(u) if fc.data_path == "location"][0]
     rot = [fc for fc in btk.get_fcurves(u) if fc.data_path == "rotation_euler"][0]
+    loc_keys = [k.co.x for k in loc.keyframe_points]
+    rot_keys = [k.co.x for k in rot.keyframe_points]
+    # Every extremum and hold boundary survives; the residual refinement adds
+    # at most a handful beside them (a sine needs ~2% -> the 1% bound).
     check(
         "extremes keeps endpoints, extrema and hold boundaries",
-        [k.co.x for k in loc.keyframe_points] == expected
-        and [k.co.x for k in rot.keyframe_points] == expected,
-        f"{[k.co.x for k in loc.keyframe_points]}",
+        set(expected) <= set(loc_keys)
+        and set(expected) <= set(rot_keys)
+        and len(loc_keys) <= 2 * len(expected)
+        and len(rot_keys) <= 2 * len(expected),
+        f"{loc_keys}",
     )
-    hold_key = loc.keyframe_points[7]
+    by_frame = {k.co.x: k for k in loc.keyframe_points}
+    hold_key = by_frame[120.0]
     check(
         "extremes hold faces are flat and broken",
         hold_key.handle_right_type == "FREE"
         and abs(hold_key.handle_right.y - hold_key.co.y) < 1e-9
-        and loc.keyframe_points[3].handle_left_type == "ALIGNED",
+        and by_frame[30.0].handle_left_type == "ALIGNED",
     )
     worst = max(abs(loc.evaluate(f) - v) for f, v in baked.items())
     hold = max(abs(loc.evaluate(f)) for f in range(120, 161))
     worst_rot = max(
         abs(math.degrees(rot.evaluate(f)) - v * 9.0) for f, v in baked.items()
     )
+    # The refinement bound: 1% of each curve's own peak-to-peak span
+    # (location spans 20, rotation 180 degrees).
     check(
-        "extremes traces the bake (one cubic per half-wave ~2% of amplitude)",
-        worst < 0.3 and hold < 1e-6 and worst_rot < 2.7,
+        "extremes traces the bake within 1% of its span",
+        worst <= 0.2 + 1e-6 and hold < 1e-6 and worst_rot <= 1.8 + 1e-6,
         f"{worst} {hold} {worst_rot}",
     )
     check(
@@ -1584,8 +1593,8 @@ try:
     check(
         "extremes stats",
         stats["reduced"] == 2
-        and stats["reduce_keys_removed"] == 2 * (201 - 10)
-        and stats["reduce_max_error"] < 2.7
+        and stats["reduce_keys_removed"] == 2 * 201 - len(loc_keys) - len(rot_keys)
+        and stats["reduce_max_error"] <= 1.8 + 1e-6
         and stats["keys_after"] < stats["keys_before"],
         f"{stats}",
     )

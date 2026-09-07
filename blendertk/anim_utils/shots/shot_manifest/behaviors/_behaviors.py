@@ -213,19 +213,18 @@ class _BehaviorsInternal(object):
 
     @staticmethod
     def _ensure_opacity(obj) -> None:
-        """Seed the :class:`RenderOpacity` ``opacity`` property + material-alpha
-        driver on *obj* when absent (Maya: ``OpacityAttributeMode.create``).
+        """Seed the :class:`RenderEffects` ``opacity`` property on *obj* when
+        absent (Maya: ``OpacityAttributeMode.create``).
 
-        Uses the unguarded setup (not :meth:`RenderOpacity.create`, which wipes
+        Uses the unguarded setup (not :meth:`RenderEffects.create`, which wipes
         existing opacity curves first — a second behavior on the same object
-        would erase the first's keys).
+        would erase the first's keys).  The prop is the whole channel: the
+        material driver this used to wire was the viewport preview retired
+        2026-09-05, and calling it raised on every manifest apply since.
         """
-        from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
-        if RenderOpacity.ATTR_NAME in obj:
-            return
-        RenderOpacity._ensure_opacity_prop(obj)
-        RenderOpacity._refresh_drivers(RenderOpacity._drive_material_alpha(obj))
+        RenderEffects._ensure_opacity_prop(obj)
 
 
 class Behaviors(_PyBehaviors, _BehaviorsInternal):

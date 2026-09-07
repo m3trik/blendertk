@@ -80,36 +80,28 @@ try:
         RenderOpacity.ATTR_NAME in c and approx(c["opacity"], 1.0),
         f"{c.get('opacity')}",
     )
-    drv = alpha_driver(c.data.materials[0])
-    check("Principled Alpha driven by a driver", drv is not None)
+    # The driver preview that wired Principled Alpha to the prop is retired
+    # (2026-09-05): the material is the artist's, the prop is the channel.
     check(
-        "Alpha driver reads ['opacity'] SINGLE_PROP",
-        drv is not None
-        and any(
-            v.type == "SINGLE_PROP"
-            and v.targets[0].data_path == '["opacity"]'
-            and v.targets[0].id is c
-            for v in drv.driver.variables
-        ),
+        "create leaves the Principled Alpha undriven",
+        alpha_driver(c.data.materials[0]) is None,
     )
-
-    # ---- opacity drives Alpha (verified via the animated path — the real use case: a keyframed
-    # opacity scrubbed by the playhead, which re-evaluates the node-tree driver). ----
     pn = next(
         n for n in c.data.materials[0].node_tree.nodes if n.type == "BSDF_PRINCIPLED"
     )
     RenderOpacity.key_fade([c], start=1, end=11, direction="out")  # opacity 1 -> 0
     bpy.context.scene.frame_set(6)  # midpoint -> opacity 0.5
     check(
-        "Alpha tracks animated opacity (0.5 @ frame 6)",
-        approx(pn.inputs["Alpha"].default_value, 0.5, 1e-2),
+        "the prop animates (0.5 @ frame 6) while the material Alpha stays authored",
+        approx(c["opacity"], 0.5, 1e-2)
+        and approx(pn.inputs["Alpha"].default_value, 1.0),
         f"alpha={pn.inputs['Alpha'].default_value:.4f} opacity={c['opacity']:.4f}",
     )
     bpy.context.scene.frame_set(1)
     RenderOpacity.remove([c])  # clean slate for the next sub-test
     RenderOpacity.create([c])
 
-    # ============================ SHARED MATERIAL -> SINGLE-USER ============================
+    # ============================ SHARED MATERIAL STAYS SHARED ============================
     reset()
     a, b = cube("A"), cube("B")
     shared = mat("Shared")
@@ -122,9 +114,9 @@ try:
     )
     RenderOpacity.create([a, b])
     check(
-        "create made materials single-user (per-object opacity)",
-        a.data.materials[0] is not b.data.materials[0],
-        "distinct datablocks",
+        "create leaves a shared material shared (no per-object copy)",
+        a.data.materials[0] is b.data.materials[0] and shared.users == 2,
+        f"users={shared.users}",
     )
 
     # ============================ KEY FADE (dual-key) ============================
@@ -319,6 +311,20 @@ try:
         "refresh_export_metadata publishes the channel",
         published.get("version") == RenderOpacity.SCHEMA_VERSION,
     )
+    DataNodes.set_export_string("shot_metadata", "")
+    RenderOpacity.refresh_export_metadata()
+    republished = _json.loads(
+        DataNodes.get_export_string(RenderOpacity.DATA_CHANNEL) or "{}"
+    )
+    scene_fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
+    check(
+        "with no shots producer the channel carries the scene's own rate",
+        republished.get("fps") == scene_fps,
+        detail=repr(republished.get("fps")),
+    )
+    DataNodes.set_export_string(
+        "shot_metadata", _json.dumps({"version": 1, "fps": 30.0, "shots": []})
+    )
     check(
         "the rate is carried from the shots producer",
         published.get("fps") == 30.0,
@@ -402,21 +408,32 @@ try:
         and approx(box["highlight"], 0.0),
         detail=f"{dict(box.items())}",
     )
+    # The driver preview that copied a shared material per object is retired
+    # (2026-09-05): creating the channel leaves the authored material alone.
     check(
-        "a shared material is single-usered for the highlighted object",
-        box.data.materials[0] is not other.data.materials[0],
+        "create(highlight) leaves the shared material shared and undriven",
+        box.data.materials[0] is other.data.materials[0]
+        and not (box.data.materials[0].node_tree.animation_data or None),
     )
-    from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
-    node = _MatUtilsInternal._principled_node(box.data.materials[0])
-    nt = box.data.materials[0].node_tree
-    strength_path = node.inputs["Emission Strength"].path_from_id("default_value")
-    drivers = [
-        fc
-        for fc in (nt.animation_data.drivers if nt.animation_data else [])
-        if fc.data_path == strength_path
-    ]
-    check("Emission Strength is driven by highlight", len(drivers) == 1)
+    RenderEffects.key_pulse(
+        [box],
+        start=0,
+        end=200,
+        period=100,
+        bright_fraction=0.6,
+        ramp_fraction=0.2,
+        lead_in=40,
+        lead_out=0,
+    )
+    fc = RenderEffects._fcurve(box, '["highlight"]')
+    pts = sorted((k.co[0], k.co[1]) for k in fc.keyframe_points)
+    check(
+        "the two pulse gaps can be set apart",
+        pts[:2] == [(0.0, 0.0), (40.0, 1.0)]
+        and pts[-1] == (200.0, 0.0)
+        and pts[-2][0] == 199.0,
+        detail=f"{pts[:3]} .. {pts[-2:]}",
+    )
     keyed = RenderEffects.key_pulse(
         [box],
         start=0,
@@ -431,9 +448,17 @@ try:
     check(
         "key_pulse writes hold/ramp keys and the colour",
         keyed == ["Glow"]
-        and pts[:5] == [(0.0, 1.0), (40.0, 1.0), (60.0, 0.0), (80.0, 0.0), (100.0, 1.0)]
+        and pts[:5] == [(0.0, 0.0), (20.0, 1.0), (60.0, 1.0), (80.0, 0.0), (100.0, 0.0)]
         and list(box["highlightColor"])[:3] == [1.0, 0.0, 0.0],
         detail=f"{pts[:6]}",
+    )
+    # An F-Curve holds its first key backwards and its last forwards, so a
+    # train that merely BEGAN bright glowed for the whole timeline before it
+    # (measured on a production board keyed 725-845 of a 3468 frame scene).
+    check(
+        "the pulse is bracketed by dim keys at both ends",
+        pts[0] == (0.0, 0.0) and pts[-1] == (200.0, 0.0),
+        detail=f"{pts[0]} .. {pts[-1]}",
     )
     check(
         "key_pulse does not key visibility",
@@ -445,7 +470,7 @@ try:
         "a highlight-only object publishes its ramp and colour",
         t is not None
         and "visibility" not in t
-        and t["highlight"][0] == [0.0, 1.0]
+        and t["highlight"][0] == [0.0, 0.0]  # bracketed dim, not bright
         and t["highlight_color"] == [1.0, 0.0, 0.0],
         detail=repr(t),
     )
@@ -487,11 +512,118 @@ try:
         "remove(highlight) strips props, drivers and keys",
         "highlight" not in box
         and "highlightColor" not in box
-        and not [
-            f
-            for f in (nt.animation_data.drivers if nt.animation_data else [])
-            if f.data_path == strength_path
-        ],
+        and not (box.data.materials[0].node_tree.animation_data or None),
+    )
+
+    # ---- the key tools own channel creation (panel has no Create action) ------
+    def _emission_drivers(obj):
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        m = obj.data.materials[0]
+        n = _MatUtilsInternal._principled_node(m)
+        path = n.inputs["Emission Strength"].path_from_id("default_value")
+        ad = m.node_tree.animation_data
+        return [f for f in (ad.drivers if ad else []) if f.data_path == path]
+
+    reset()
+    box = cube("Quiet")
+    m = bpy.data.materials.new("QuietMat")
+    m.use_nodes = True
+    box.data.materials.append(m)
+    RenderEffects.key_pulse([box], start=0, end=100, period=50, preview=False)
+    check(
+        "key_pulse(preview=False) creates the prop and keys, wires no driver",
+        "highlight" in box
+        and RenderEffects._fcurve(box, '["highlight"]') is not None
+        and not _emission_drivers(box),
+    )
+    RenderEffects.key_pulse([box], start=0, end=100, period=50, preview=True)
+    check(
+        "key_pulse(preview=True) is honoured as a warning only -- no driver",
+        not _emission_drivers(box),
+    )
+    # A scene saved with the old preview on still heals through remove().
+    from blendertk.mat_utils._mat_utils import _MatUtilsInternal as _MI
+
+    n = _MI._principled_node(m)
+    fc = m.node_tree.driver_add(
+        n.inputs["Emission Strength"].path_from_id("default_value")
+    )
+    fc.driver.expression = "1.0"
+    check("legacy driver present before remove", len(_emission_drivers(box)) == 1)
+    RenderEffects.remove([box], channel="highlight")
+    check("remove() heals the retired preview's driver", not _emission_drivers(box))
+    reset()
+    box = cube("Vis")
+    box.hide_render = True
+    box.keyframe_insert(data_path="hide_render", frame=5)
+    box.hide_render = False
+    box.keyframe_insert(data_path="hide_render", frame=50)
+    RenderEffects.key_fade(
+        [box], start=10, end=20, direction="in", delete_visibility_keys=True
+    )
+    vis = RenderEffects._fcurve(box, "hide_render")
+    check(
+        "key_fade(delete_visibility_keys=True) clears old vis keys, writes the mirror",
+        vis is not None
+        and sorted(k.co[0] for k in vis.keyframe_points) == [10.0, 20.0],
+        detail=str(sorted(k.co[0] for k in vis.keyframe_points) if vis else None),
+    )
+
+    reset()
+    box = cube("WholeFrames")
+    # The pulse is authored in SECONDS, so its cadence is fractional in frames
+    # (2.86 s is 85.8 of them at 30 fps): every key snaps to a whole frame, and
+    # the cycle still advances by the exact period, so a long train does not
+    # drift off the asked-for cadence. Mirror of mayatk's TestWholeFrameKeys.
+    RenderEffects.key_pulse(
+        [box], start=10.4, end=110.6, period=85.8, bright_fraction=0.5
+    )
+    pts = sorted(
+        k.co[0] for k in RenderEffects._fcurve(box, '["highlight"]').keyframe_points
+    )
+    check(
+        "a fractional pulse keys whole frames only, window included",
+        pts
+        and not [t for t in pts if t != int(t)]
+        and (pts[0], pts[-1]) == (10.0, 111.0),
+        detail=f"{pts[:4]} .. {pts[-2:]}",
+    )
+
+    reset()
+    box = cube("SubFrames")
+    RenderEffects.key_pulse([box], start=0, end=400, period=85.8, whole_frames=False)
+    pts = sorted(
+        k.co[0] for k in RenderEffects._fcurve(box, '["highlight"]').keyframe_points
+    )
+    check(
+        "whole_frames=False still authors the sub-frame cadence",
+        any(t != int(t) for t in pts),
+        detail=f"{pts[:4]}",
+    )
+
+    reset()
+    box = cube("FadeWindow")
+    RenderEffects.key_fade([box], start=10.4, end=25.6, direction="in")
+    opa = sorted(
+        k.co[0] for k in RenderEffects._fcurve(box, '["opacity"]').keyframe_points
+    )
+    vis = sorted(
+        k.co[0] for k in RenderEffects._fcurve(box, "hide_render").keyframe_points
+    )
+    check(
+        "a fade snaps its window and its visibility mirror",
+        opa == [10.0, 26.0] and vis == [10.0, 26.0],
+        detail=f"{opa} / {vis}",
+    )
+
+    reset()
+    box = cube("FadeHl")
+    RenderEffects.key_fade([box], start=0, end=10, direction="in", channel="highlight")
+    check(
+        "key_fade(channel='highlight') keys the highlight prop and leaves visibility alone",
+        RenderEffects._fcurve(box, '["highlight"]') is not None
+        and RenderEffects._fcurve(box, "hide_render") is None,
     )
 
 except Exception as e:

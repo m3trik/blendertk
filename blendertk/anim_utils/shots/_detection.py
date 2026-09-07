@@ -52,9 +52,10 @@ class _DetectionInternal(object):
         """Map each animated object to the fcurves driving its transform channels.
 
         Returns ``dict[str, list[FCurve]]`` — *object_name* → [*fcurves*].
-        Fcurves that only drive custom / non-transform properties are skipped
-        (mirror of the Maya helper, which keeps only ``STANDARD_TRANSFORM_ATTRS``
-        destinations).  *ignore* channel patterns are honoured.
+        Fcurves that drive neither a transform channel nor a render-effect
+        property are skipped (mirror of the Maya helper, which keeps only
+        ``CONTENT_ATTRS`` destinations).  *ignore* channel patterns are
+        honoured.
         """
         from blendertk.anim_utils.shots._shots import (
             BlenderShotStore,
@@ -80,12 +81,13 @@ class _DetectionInternal(object):
     def _filter_flat_objects(
         candidates: List[Dict[str, Any]], value_tolerance: float = 1e-4
     ) -> List[Dict[str, Any]]:
-        """Remove objects whose animation is flat or only on custom trigger properties.
+        """Remove objects whose animation is flat or only on marker properties.
 
-        An object is genuine animated content if at least one of its transform
-        fcurves has changing values within the shot's range.  Objects animated
-        only on custom properties (e.g. an ``audio_trigger`` marker) are
-        boundary markers and are excluded.  Candidates with no remaining
+        An object is genuine animated content if at least one of its content
+        fcurves (transform channels, or a render-effect property) has changing
+        values within the shot's range.  Objects animated only on other custom
+        properties (e.g. an ``audio_trigger`` marker) are boundary markers and
+        are excluded.  Candidates with no remaining
         objects are kept (the boundary is still valid); only ``"objects"`` is
         pruned.  Mirror of the Maya helper.
         """

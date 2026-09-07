@@ -9,7 +9,7 @@ sense in one of the two environments this repo tests in, and neither needs the o
 ``TestSmartBakePanelLoads`` needs **Qt, not bpy** — it loads ``smart_bake.ui`` + wires
 ``SmartBakeSlots`` through a real (offscreen) Qt/Switchboard/BlenderUiHandler stack, none of
 which touch Blender (``SmartBakeSlots._refresh_session_state`` swallows the ``bpy``-import
-failure from ``SmartBake.list_sessions()`` the same way ``render_opacity_slots`` guards its
+failure from ``SmartBake.list_sessions()`` the same way ``render_effects_slots`` guards its
 ``ScriptJobManager`` touch — see its docstring). Run under the workspace ``.venv``::
 
     .venv\\Scripts\\python.exe blendertk/test/test_smart_bake.py

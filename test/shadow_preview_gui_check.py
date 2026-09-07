@@ -6,7 +6,7 @@
 can neither compile nor draw in the headless runner; ``test_shadow_preview.py``
 covers everything around it. This proves the part that needs a real draw
 loop: the shader compiles through ``gpu.shader.create_from_info``, the overlay
-draws, and its pixels ARE ``HorizonMap.alpha`` decoding the PNG the rig baked.
+draws, and its pixels ARE ``HeightFieldMap.alpha`` decoding the PNG the rig baked.
 The non-``test_`` name keeps it out of the headless runner.
 
 A table-shaped horizon rig is built, the preview attached, a top-down
@@ -117,8 +117,8 @@ def run():
         rig_type="horizon",
         light_pos=LIGHT,
         texture_res=128,
-        horizon_bins=32,
-        horizon_size=(128, 64),
+        horizon_size=128,
+        horizon_spans=2,
     )
     plane = rig.shadow_plane
     record_before = ShadowRig.export_record(plane)
@@ -245,14 +245,17 @@ def run():
     )
     hz = record_before["horizon"]
     png = np.asarray(Image.open(rig.horizon_path).convert("RGBA"))
-    hmap = __import__("pythontk").HorizonMap.from_rgba(
+    # Decoded as a Y-up map on purpose: the reference below is fed frame
+    # points laid out (a, up, b), and the map's texels are indexed by (a, b)
+    # whatever axis the bake called up.
+    hmap = __import__("pythontk").HeightFieldMap.from_rgba(
         png,
-        bins=hz["bins"],
-        size=hz["tile"],
-        r_min=hz["r_min"],
-        r_max=hz["r_max"],
+        size=hz["size"],
+        spans=hz["spans"],
+        bounds=hz["bounds"],
         ground=ground,
-        max_stretch=hz["max_stretch"],
+        up=1,
+        height_scale=hz["height_scale"],
     )
     rel = world - np.asarray(origin)
     # The map's frame: (dot A, dot Up, dot B) -- the reference is Y-up.

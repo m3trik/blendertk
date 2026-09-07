@@ -128,8 +128,9 @@ def _run_sequencer_checks():
     store = fresh_store()
     seq = ShotSequencer(store)
     b_id = store.shot_by_name("B").shot_id
-    # shift everything starting at/after frame 40 by +10 (only C qualifies)
-    seq.ripple_downstream(b_id, 40, 10)
+    # ripple from B's END: everything beyond that bound moves (only C qualifies;
+    # the sample ON the bound is B's own and stays)
+    seq.ripple_downstream(b_id, 30, 10)
     c = store.shot_by_name("C")
     check(
         "ripple_downstream: C bounds +10",
@@ -357,8 +358,14 @@ def _run_sequencer_checks():
     store = fresh_store()
     seq = ShotSequencer(store)
     b_id = store.shot_by_name("B").shot_id
-    seq.resize_shot_bounds(b_id, 20, 25)  # tail SHRINKS: strands keys 26..30
+    seq.resize_shot_bounds(b_id, 20, 25)  # tail SHRINKS onto content: it stops
     b, c = store.shot_by_name("B"), store.shot_by_name("C")
+    check(
+        "resize_shot_bounds: a plain shrink stops at the shot's content",
+        (b.start, b.end) == (20, 30) and (c.start, c.end) == (40, 50),
+        f"B={(b.start, b.end)} C={(c.start, c.end)}",
+    )
+    seq.resize_shot_bounds(b_id, 20, 25, clamp=False)  # the escape hatch strands 26..30
     check(
         "resize_shot_bounds: shrink pulls C in behind the bound, gap kept",
         (b.start, b.end) == (20, 25)
@@ -376,7 +383,7 @@ def _run_sequencer_checks():
     store = fresh_store()
     seq = ShotSequencer(store)
     b_id = store.shot_by_name("B").shot_id
-    seq.resize_shot_bounds(b_id, 32, 22)  # inverted input
+    seq.resize_shot_bounds(b_id, 32, 22, clamp=False)  # inverted input
     b = store.shot_by_name("B")
     check(
         "resize_shot_bounds: inverted bounds are normalised (start<=end)",
@@ -536,7 +543,9 @@ def _run_sequencer_checks():
     # drawing only, so a locked gap dragged like any other.
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()
-    keyed("LA", [0, 100])
+    keyed(
+        "LA", [0, 60]
+    )  # content ends short of the tail: the shrink is over empty space
     keyed("LB", [115, 200])
     BlenderShotStore.clear_active()
     store = BlenderShotStore()
@@ -1121,19 +1130,33 @@ def _run_sequencer_checks():
         spans_h and spans_h[0] == (0.0, 30.0),
         f"{spans_h}",
     )
-    # flat-only object still gets ONE backfill span (GUI invariant)
+    # a flat-keyed member draws no track; a drift below motion_rate still does
     bpy.ops.mesh.primitive_cube_add()
     fl = bpy.context.active_object
     fl.name = "Flat"
     for f in (0, 30):
         fl.location = (3.0, 0.0, 0.0)
         fl.keyframe_insert(data_path="location", index=0, frame=f)
-    store.update_shot(hid, objects=["Holder", "Flat"])
-    flat_segs = [sg for sg in seq.collect_object_segments(hid) if sg["obj"] == "Flat"]
+    bpy.ops.mesh.primitive_cube_add()
+    dr = bpy.context.active_object
+    dr.name = "Drift"
+    for f, x in ((0, 0.0), (30, 0.01)):  # 3.3e-4 / frame, under motion_rate
+        dr.location = (x, 0.0, 0.0)
+        dr.keyframe_insert(data_path="location", index=0, frame=f)
+    store.update_shot(hid, objects=["Holder", "Flat", "Drift"])
+    by_obj = {}
+    for sg in seq.collect_object_segments(hid):
+        by_obj.setdefault(sg["obj"], []).append((sg["start"], sg["end"]))
     check(
-        "segments: flat-keyed object backfilled as one span-of-keys segment",
-        len(flat_segs) == 1 and (flat_segs[0]["start"], flat_segs[0]["end"]) == (0, 30),
-        f"{[(sg['start'], sg['end']) for sg in flat_segs]}",
+        "segments: a flat-keyed member's few keys are markers, not a track",
+        by_obj.get("Flat") == [(0.0, 0.0), (30.0, 30.0)]
+        and "Flat" not in {q["obj"] for q in seq.collect_shot_sequences(hid)},
+        f"{by_obj.get('Flat')}",
+    )
+    check(
+        "segments: a drift below motion_rate is backfilled as one span",
+        by_obj.get("Drift") == [(0, 30)],
+        f"{by_obj.get('Drift')}",
     )
 
     # ---- audio: VSE strip as a sequence; travels with its shot -----------
@@ -1269,6 +1292,85 @@ def _run_sequencer_checks():
         "extend_shot_to_fit: keys owned by shot B don't drag A over it",
         (a.start, a.end) == (0, 10) and (head, tail) == (0, 0),
         f"{(a.start, a.end)} {(head, tail)}",
+    )
+    # A middle shot's probe reads its own envelope only: a key of ITS object
+    # in the gap before it belongs to the previous shot, one in a far gap
+    # to whoever precedes that -- only its own trailing gap may grow it.
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    b_obj = bpy.data.objects["B"]
+    for f in (15, 33, 55):
+        b_obj.location = (f * 0.1, 0.0, 0.0)
+        b_obj.keyframe_insert(data_path="location", frame=f)
+    b_id = store.shot_by_name("B").shot_id
+    head, tail = seq.extend_shot_to_fit(b_id)
+    b, c = store.shot_by_name("B"), store.shot_by_name("C")
+    check(
+        "extend_shot_to_fit: a middle shot claims only its trailing gap",
+        (b.start, b.end) == (20, 33) and (head, tail) == (0, 3),
+        f"{(b.start, b.end)} {(head, tail)}",
+    )
+    check(
+        "extend_shot_to_fit: the far-gap key never rippled C",
+        (c.start, c.end) == (43, 53),
+        f"{(c.start, c.end)}",
+    )
+
+    # ---- move_attribute_keys: a key selection, one channel ---------------
+    build_scene()
+    store = fresh_store()
+    seq = ShotSequencer(store)
+    a_obj = bpy.data.objects["A"]
+    a_obj.rotation_euler = (0.0, 0.0, 1.0)
+    a_obj.keyframe_insert(data_path="rotation_euler", frame=3)
+    a_id, b_id = (store.shot_by_name(n).shot_id for n in ("A", "B"))
+    seq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "A",
+                "attr": "translateX",
+                "times": [2.0, 4.0],
+                "start": 2.0,
+                "end": 4.0,
+            }
+        ],
+        b_id,
+    )
+
+    def channel_times(obj_name, data_path, index):
+        obj = bpy.data.objects[obj_name]
+        for fc in BlenderShotStore.iter_action_fcurves(obj):
+            if fc.data_path == data_path and fc.array_index == index:
+                return sorted(round(float(kp.co[0]), 3) for kp in fc.keyframe_points)
+        return []
+
+    tx = channel_times("A", "location", 0)
+    ty = channel_times("A", "location", 1)
+    check(
+        "move_attribute_keys: only the named keys of the named channel moved",
+        2.0 not in tx and 4.0 not in tx and 3.0 in tx and len(tx) == 11,
+        f"tx={tx}",
+    )
+    check(
+        "move_attribute_keys: sibling channels untouched",
+        ty == [float(i) for i in range(11)]
+        and channel_times("A", "rotation_euler", 2) == [3.0],
+        f"ty={ty}",
+    )
+    b = store.shot_by_name("B")
+    check(
+        "move_attribute_keys: the keys landed inside the destination",
+        all(
+            b.start <= t <= b.end for t in tx if t not in [float(i) for i in range(11)]
+        ),
+        f"B=({b.start},{b.end}) tx={tx}",
+    )
+    check(
+        "move_sequences_to_shot: membership re-decided for the moved object only",
+        "A" in store.shot_by_name("A").objects and "A" in b.objects,
+        f"A.objects={store.shot_by_name('A').objects} B.objects={b.objects}",
     )
 
     # ---- detect_shots / detect_next_shot -----------------------------------
@@ -1582,6 +1684,696 @@ def _run_sequencer_checks():
         "gap hold: the seam on the pre-gap-fed channel still holds",
         interp_at(lead, 66) == "CONSTANT",
         f"{interp_at(lead, 66)}",
+    )
+
+    # -- membership is a motion label; the envelope still carries a hold ---
+    st, sq, obs = fresh({"holdX": {10: 5, 40: 5}})
+    found = ShotSequencer._find_keyed_transforms(0, 50)
+    check(
+        "membership: a hold-only object is not discovered (keys are not motion)",
+        "holdX" not in found
+        and "holdX"
+        in ShotSequencer._find_keyed_transforms(0, 50, require_motion=False),
+        f"{found}",
+    )
+    s0 = sq.define_shot("S0", 0, 50)  # objects=None -> discover
+    sq.move_shot(s0.shot_id, 100)
+    check(
+        "membership: not a member, still inside the envelope, it travels unadopted",
+        s0.objects == [] and times_of(obs["holdX"]) == [110.0, 140.0],
+        f"objects={s0.objects} {times_of(obs['holdX'])}",
+    )
+
+    # -- a render-effect channel is content: a pulse is listed and travels --
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+    st, sq, obs = fresh({"pulseBoard": {}})
+    board = obs["pulseBoard"]
+    RenderEffects.key_pulse([board], start=10, end=100)
+    hl = RenderEffects._fcurve(board, '["highlight"]')
+    found = ShotSequencer._find_keyed_transforms(0, 120)
+    check(
+        "render effect: a highlight pulse keyed in the range is discovered",
+        hl is not None and "pulseBoard" in found,
+        f"{found}",
+    )
+    s0 = sq.define_shot("S0", 0, 120)  # objects=None -> discover
+    before = sorted(round(kp.co[0], 3) for kp in hl.keyframe_points)
+    sq.move_shot(s0.shot_id, 200)
+    after = sorted(round(kp.co[0], 3) for kp in hl.keyframe_points)
+    check(
+        "render effect: the pulse is a member and travels with its shot",
+        s0.objects == ["pulseBoard"] and after == [t + 200 for t in before],
+        f"objects={s0.objects} before={before[:3]}.. after={after[:3]}..",
+    )
+    bpy.ops.mesh.primitive_cube_add()
+    marker = bpy.context.active_object
+    marker.name = "audioMarker"
+    marker["audio_trigger"] = 0
+    marker.keyframe_insert(data_path='["audio_trigger"]', frame=10)
+    marker["audio_trigger"] = 1
+    marker.keyframe_insert(data_path='["audio_trigger"]', frame=20)
+    found = ShotSequencer._find_keyed_transforms(0, 120)
+    check(
+        "render effect: a marker property is still not content",
+        "audioMarker" not in found,
+        f"{found}",
+    )
+
+    # -- a bounds grow moves the neighbour WHOLE (a plain drag never claims) --
+    st, sq, obs = fresh(
+        {"leadOut": {10: 0, 20: 1, 40: 1, 50: 0}, "bOwn": {55: 0, 60: 1, 80: 1, 90: 5}}
+    )
+    a = sq.define_shot("A", 0, 40, objects=["leadOut"])
+    b = sq.define_shot("B", 55, 100, objects=["bOwn"])
+    sq.resize_shot_bounds(a.shot_id, 0, 75)  # +35, past B's start
+    check(
+        "bounds grow: the shot's own keys stay; the lead-out in the gap rides the ripple",
+        times_of(obs["leadOut"]) == [10.0, 20.0, 40.0, 85.0],
+        f"{times_of(obs['leadOut'])}",
+    )
+    check(
+        "bounds grow: the neighbour moves whole, its head keys too",
+        times_of(obs["bOwn"]) == [90.0, 95.0, 115.0, 125.0]
+        and (b.start, b.end) == (90, 135),
+        f"{times_of(obs['bOwn'])} B={(b.start, b.end)}",
+    )
+    check(
+        "bounds grow: the ramp is intact and the shot's last key holds the gap",
+        interp_at(obs["leadOut"], 20) != "CONSTANT"
+        and interp_at(obs["leadOut"], 85) == "CONSTANT",
+        f"{interp_at(obs['leadOut'], 20)} / {interp_at(obs['leadOut'], 85)}",
+    )
+    st, sq, obs = fresh({"aTail": {10: 0, 30: 5, 40: 5, 48: 2, 52: 0}})
+    a = sq.define_shot("A", 0, 40, objects=["aTail"])
+    b = sq.define_shot("B", 55, 100, objects=[])
+    sq.resize_shot_bounds(b.shot_id, 45, 100)  # head -10, over A's lead-out
+    check(
+        "bounds grow: a head grow carries the previous shot's lead-out with it",
+        times_of(obs["aTail"]) == [0.0, 20.0, 30.0, 38.0, 42.0]
+        and (a.start, a.end) == (-10, 30),
+        f"{times_of(obs['aTail'])} A={(a.start, a.end)}",
+    )
+    st, sq, obs = fresh({"aTail": {10: 0, 30: 5, 40: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["aTail"])
+    b = sq.define_shot("B", 55, 100, objects=[])
+    sq.resize_shot_bounds(b.shot_id, 30, 100)  # head -25, back over A's tail keys
+    check(
+        "bounds grow: a head grow past the previous shot's end moves it whole",
+        times_of(obs["aTail"]) == [-15.0, 5.0, 15.0] and (a.start, a.end) == (-25, 15),
+        f"{times_of(obs['aTail'])} A={(a.start, a.end)}",
+    )
+    # Every-frame content across a shared seam: the only new key is the
+    # neighbour's opening pose re-keyed at its new start (the fencepost split).
+    st, sq, obs = fresh({"baked": {t: float(t) for t in range(0, 121)}})
+    a = sq.define_shot("A", 0, 50, objects=["baked"])
+    b = sq.define_shot("B", 50, 100, objects=["baked"])
+    sq.resize_shot_bounds(a.shot_id, 0, 62)  # +12 over the shared seam
+    t = times_of(obs["baked"])
+    kv = sorted(
+        (round(kp.co[0], 3), round(kp.co[1], 3))
+        for kp in fc_of(obs["baked"]).keyframe_points
+    )
+    check(
+        "bounds grow: contiguous shots keep every key, plus the neighbour's opening pose",
+        t
+        == [float(x) for x in range(0, 51)]
+        + [62.0]
+        + [float(x) for x in range(63, 133)]
+        and kv[51] == (62.0, 50.0)
+        and (a.start, a.end, b.start, b.end) == (0, 62, 62, 112),
+        f"{len(t)} keys, {t[48:54]}, {kv[51]}, A={(a.start, a.end)} B={(b.start, b.end)}",
+    )
+
+    # -- content from before the destination lands at its HEAD --------------
+    st, sq, obs = fresh({"hdA": {20: 3, 110: 0, 140: 5}, "hdB": {120: 1, 150: 2}})
+    st.gap = 5
+    sq.define_shot("Src", 0, 50, objects=["hdA"])
+    d = sq.define_shot("Dest", 100, 160, objects=["hdA", "hdB"])
+    after = sq.define_shot("After", 170, 200, objects=[])
+    sep = sq.sequence_separation()
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "hdA",
+                "attr": "location",
+                "times": [20.0],
+                "start": 20.0,
+                "end": 20.0,
+            }
+        ],
+        d.shot_id,
+    )
+    ta, tb = set(times_of(obs["hdA"])), set(times_of(obs["hdB"]))
+    check(
+        "move to shot: from before -> lands at the start, content pushed later",
+        100.0 in ta and {110.0 + sep, 140.0 + sep} <= ta and not ({110.0, 140.0} & ta),
+        f"A={sorted(ta)} sep={sep}",
+    )
+    check(
+        "move to shot: the insert moves every object and the downstream shot",
+        {120.0 + sep, 150.0 + sep} <= tb
+        and (d.start, d.end) == (100, 160 + sep)
+        and (after.start, after.end) == (170 + sep, 200 + sep),
+        f"B={sorted(tb)} dest=({d.start}, {d.end}) after=({after.start}, {after.end})",
+    )
+
+    # -- a head run carries its gap overhang and keeps its timing -----------
+    st, sq, obs = fresh({"ovA": {45: 0, 54: 1, 64.2: 1, 71.7: 0, 84: 1}})
+    st.gap = 5
+    sq.define_shot("A", 0, 50, objects=["ovA"])
+    b = sq.define_shot("B", 60, 100, objects=["ovA"])
+    c = sq.define_shot("C", 110, 140, objects=[])
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "ovA",
+                "attr": "location",
+                "times": [45.0],
+                "start": 45.0,
+                "end": 45.0,
+            }
+        ],
+        b.shot_id,
+    )
+    check(
+        "move to shot: the run carries its overhang and the train follows as one",
+        times_of(obs["ovA"]) == [60.0, 69.0, 79.2, 86.7, 99.0]
+        and (b.start, b.end) == (60, 115)
+        and (c.start, c.end) == (125, 155),
+        f"{times_of(obs['ovA'])} B=({b.start}, {b.end}) C=({c.start}, {c.end})",
+    )
+    st, sq, obs = fresh({"ovN": {20: 3, 40: 0, 54: 1, 64.2: 1, 84: 0}})
+    st.gap = 5
+    sq.define_shot("A", 0, 50, objects=["ovN"])
+    b = sq.define_shot("B", 60, 100, objects=["ovN"])
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "ovN",
+                "attr": "location",
+                "times": [20.0],
+                "start": 20.0,
+                "end": 20.0,
+            }
+        ],
+        b.shot_id,
+    )
+    t = times_of(obs["ovN"])
+    check(
+        "move to shot: the overhang stays when the run is not the curve's last",
+        60.0 in t and 40.0 in t and 54.0 in t,
+        f"{t}",
+    )
+
+    st, sq, obs = fresh({"ovS": {45: 0, 50: 0, 54: 1, 64.2: 1, 71.7: 0, 84: 1}})
+    st.gap = 5
+    a = sq.define_shot("A", 0, 50, objects=["ovS"])
+    b = sq.define_shot("B", 60, 100, objects=["ovS"])
+    sq.ledger.record_key(_SSI._fc_key("ovS", fc_of(obs["ovS"])), 50.0, a.shot_id, "end")
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "ovS",
+                "attr": "location",
+                "times": [45.0],
+                "start": 45.0,
+                "end": 45.0,
+            }
+        ],
+        b.shot_id,
+    )
+    t = times_of(obs["ovS"])
+    check(
+        "move to shot: a system seam sample neither pins the overhang nor travels",
+        69.0 in t and 50.0 in t and 54.0 not in t,
+        f"{t}",
+    )
+
+    # -- trim: the system's own sample on the bound is not content ---------
+    st, sq, obs = fresh({"pinned": {20: 0, 60: 10, 200: 10}})
+    s0 = sq.define_shot("S0", 0, 200, objects=["pinned"])
+    sq.ledger.record_key(
+        _SSI._fc_key("pinned", fc_of(obs["pinned"])), 200.0, s0.shot_id, "end"
+    )
+    _h, tail = sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    check(
+        "trim: the system's own end sample is not content (a pinned end trims)",
+        (s0.start, s0.end) == (0, 60) and tail == -140,
+        f"{(s0.start, s0.end)} tail={tail}",
+    )
+    st, sq, obs = fresh({"stepped": {20: 0, 150: 10}})
+    s0 = sq.define_shot("S0", 0, 200, objects=["stepped"])
+    sq.ledger.record_step(
+        _SSI._fc_key("stepped", fc_of(obs["stepped"])), 150.0, "BEZIER", "BEZIER"
+    )
+    _h, tail = sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    check(
+        "trim: a hold stepped onto the animator's own key still holds the bound",
+        (s0.start, s0.end) == (0, 150),
+        f"{(s0.start, s0.end)} tail={tail}",
+    )
+    st, sq, obs = fresh(
+        {"mover": {20: 0, 60: 10}, "proxyFlat": {t: 1.0 for t in range(0, 201, 2)}}
+    )
+    s0 = sq.define_shot("S0", 0, 100, objects=["mover", "proxyFlat"])
+    _h, tail = sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    check(
+        "trim: a member with no motion in the shot holds no bound (a flat bake)",
+        (s0.start, s0.end) == (0, 60)
+        and tail == -40
+        and len(times_of(obs["proxyFlat"])) == 101,
+        f"{(s0.start, s0.end)} tail={tail} proxy keys={len(times_of(obs['proxyFlat']))}",
+    )
+
+    # -- a moving bound takes the system's own samples with it -------------
+    # Mirror of mayatk's Step 3.1 -> Shot 3.3 case: the trim rippled the
+    # neighbour back onto the frames the shot gave up and only then
+    # reconciled, leaving the pivot's end sample mid-content ("the plug
+    # animation now jumps").  mayatk's tests carry the production numbers.
+    def play(ob, frames):
+        fc = fc_of(ob)
+        return [round(fc.evaluate(f), 4) for f in frames]
+
+    st, sq, obs = fresh(
+        {
+            "plugY": {
+                20: -7.6,
+                40: -5.9,
+                50: 0.0,
+                100: 0.0,
+                115: 0.0,
+                120: 0.0,
+                140: -5.9,
+                170: -7.6,
+            }
+        }
+    )
+    s0 = sq.define_shot("S0", 0, 100, objects=["plugY"])
+    s1 = sq.define_shot("S1", 115, 200, objects=["plugY"])
+    pkey = _SSI._fc_key("plugY", fc_of(obs["plugY"]))
+    sq.ledger.record_key(pkey, 100.0, s0.shot_id, "end")
+    before = play(obs["plugY"], range(115, 171))
+    _h, tail = sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    after = play(obs["plugY"], range(65, 121))
+    check(
+        "trim: the end sample leaves before the neighbour lands on its frames",
+        tail == -50
+        and (s0.start, s0.end, s1.start, s1.end) == (0, 50, 65, 150)
+        and times_of(obs["plugY"]) == [20.0, 40.0, 50.0, 65.0, 70.0, 90.0, 120.0]
+        and list(sq.ledger.key_times(pkey)) == []
+        and before == after,
+        f"tail={tail} bounds={(s0.start, s0.end, s1.start, s1.end)} "
+        f"times={times_of(obs['plugY'])} claims={list(sq.ledger.key_times(pkey))} "
+        f"playback_same={before == after}",
+    )
+
+    st, sq, obs = fresh({"headShared": {10: 0, 40: 5, 60: 5, 120: 5, 150: 9, 200: 9}})
+    p = sq.define_shot("P", 0, 50, objects=["headShared"])
+    sm = sq.define_shot("S", 60, 200, objects=["headShared"])
+    hkey = _SSI._fc_key("headShared", fc_of(obs["headShared"]))
+    for kp in fc_of(obs["headShared"]).keyframe_points:
+        if abs(kp.co[0] - 40) < 1e-3:
+            kp.interpolation = "CONSTANT"  # the cut can reshape nothing
+    fc_of(obs["headShared"]).update()
+    sq.ledger.record_key(hkey, 60.0, sm.shot_id, "start")
+    head, tail = sq.trim_shot_to_content(sm.shot_id, edge="leading")
+    check(
+        "trim: a leading trim takes its own start sample with it",
+        (head, tail) == (60, 0)
+        and (p.start, p.end, sm.start, sm.end) == (60, 110, 120, 200)
+        and times_of(obs["headShared"]) == [70.0, 100.0, 120.0, 150.0, 200.0]
+        and list(sq.ledger.key_times(hkey)) == [],
+        f"deltas={(head, tail)} bounds={(p.start, p.end, sm.start, sm.end)} "
+        f"times={times_of(obs['headShared'])} claims={list(sq.ledger.key_times(hkey))}",
+    )
+
+    st, sq, obs = fresh(
+        {"moverA": {20: 0, 50: 10}, "holdB": {10: 3, 100: 3, 115: 3, 140: 8}}
+    )
+    s0 = sq.define_shot("S0", 0, 100, objects=["moverA", "holdB"])
+    s1 = sq.define_shot("S1", 115, 200, objects=["holdB"])
+    hkey = _SSI._fc_key("holdB", fc_of(obs["holdB"]))
+    sq.ledger.record_key(hkey, 100.0, s0.shot_id, "end")
+    sq.trim_shot_to_content(s0.shot_id, edge="trailing")
+    check(
+        "trim: the end sample follows the bound onto a free frame, claim intact",
+        (s0.start, s0.end, s1.start, s1.end) == (0, 50, 65, 150)
+        and times_of(obs["holdB"]) == [10.0, 50.0, 65.0, 90.0]
+        and sorted(sq.ledger.key_times(hkey)) == [50.0],
+        f"bounds={(s0.start, s0.end, s1.start, s1.end)} times={times_of(obs['holdB'])} "
+        f"claims={sorted(sq.ledger.key_times(hkey))}",
+    )
+
+    st, sq, obs = fresh(
+        {
+            "dragged": {
+                20: -7.6,
+                40: -5.9,
+                50: 0.0,
+                100: 0.0,
+                115: 0.0,
+                120: 0.0,
+                140: -5.9,
+                170: -7.6,
+            }
+        }
+    )
+    a = sq.define_shot("A", 0, 100, objects=["dragged"])
+    b = sq.define_shot("B", 115, 200, objects=["dragged"])
+    gkey = _SSI._fc_key("dragged", fc_of(obs["dragged"]))
+    sq.ledger.record_key(gkey, 100.0, a.shot_id, "end")
+    before = play(obs["dragged"], range(115, 171))
+    sq.resize_shot_bounds(a.shot_id, 0, 50)
+    after = play(obs["dragged"], range(65, 121))
+    check(
+        "resize_shot_bounds: a tail shrink takes its end sample with it",
+        (a.start, a.end, b.start, b.end) == (0, 50, 65, 150)
+        and times_of(obs["dragged"]) == [20.0, 40.0, 50.0, 65.0, 70.0, 90.0, 120.0]
+        and list(sq.ledger.key_times(gkey)) == []
+        and before == after,
+        f"bounds={(a.start, a.end, b.start, b.end)} times={times_of(obs['dragged'])} "
+        f"claims={list(sq.ledger.key_times(gkey))} playback_same={before == after}",
+    )
+
+    # -- a bound change ripples the gap's content too; a shrink stops at content
+    # (mirrors mayatk's batch of 2026-09-06; its tests carry the measurements)
+    def constant(ob, *frames):
+        fc = fc_of(ob)
+        for kp in fc.keyframe_points:
+            if any(abs(kp.co[0] - f) < 1e-3 for f in frames):
+                kp.interpolation = "CONSTANT"
+        fc.update()
+
+    def bounds(*shots_):
+        return tuple(float(v) for sh in shots_ for v in (sh.start, sh.end))
+
+    st, sq, obs = fresh({"tail": {10: 0, 20: 1, 45: 1}, "nbr": {60: 0, 80: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["tail"])
+    b = sq.define_shot("B", 55, 100, objects=["nbr"])
+    sq.resize_shot_bounds(a.shot_id, 0, 50)
+    check(
+        "carry_gap: a tail grow carries the gap content away",
+        bounds(a, b) == (0, 50, 65, 110)
+        and times_of(obs["tail"]) == [10.0, 20.0, 55.0]
+        and times_of(obs["nbr"]) == [70.0, 90.0],
+        f"bounds={bounds(a, b)} tail={times_of(obs['tail'])} nbr={times_of(obs['nbr'])}",
+    )
+
+    st, sq, obs = fresh({"tail": {10: 0, 20: 1, 45: 1}, "nbr": {60: 0, 80: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["tail"])
+    b = sq.define_shot("B", 55, 100, objects=["nbr"])
+    sq.resize_shot_bounds(a.shot_id, 0, 30)
+    check(
+        "carry_gap: a tail shrink carries the gap content in",
+        bounds(a, b) == (0, 30, 45, 90)
+        and times_of(obs["tail"]) == [10.0, 20.0, 35.0]
+        and times_of(obs["nbr"]) == [50.0, 70.0],
+        f"bounds={bounds(a, b)} tail={times_of(obs['tail'])} nbr={times_of(obs['nbr'])}",
+    )
+
+    st, sq, obs = fresh({"cl": {10: 0, 20: 1, 35: 4}, "nbr": {60: 0, 80: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["cl"])
+    b = sq.define_shot("B", 55, 100, objects=["nbr"])
+    sq.resize_shot_bounds(a.shot_id, 0, 15)
+    check(
+        "clamp: a plain shrink stops at the shot's content",
+        bounds(a, b) == (0, 35, 50, 95)
+        and times_of(obs["cl"]) == [10.0, 20.0, 35.0]
+        and times_of(obs["nbr"]) == [55.0, 75.0],
+        f"bounds={bounds(a, b)} cl={times_of(obs['cl'])} nbr={times_of(obs['nbr'])}",
+    )
+
+    st, sq, obs = fresh({"tail": {10: 0, 20: 1, 45: 1}, "nbr": {60: 0, 80: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["tail"])
+    b = sq.define_shot("B", 55, 100, objects=["nbr"])
+    sq.slide_shot(a.shot_id, 20, direction="downstream")
+    check(
+        "carry_gap: a whole-shot slide carries its gap exactly once",
+        bounds(a, b) == (20, 60, 75, 120)
+        and times_of(obs["tail"]) == [30.0, 40.0, 65.0]
+        and times_of(obs["nbr"]) == [80.0, 100.0],
+        f"bounds={bounds(a, b)} tail={times_of(obs['tail'])} nbr={times_of(obs['nbr'])}",
+    )
+
+    st, sq, obs = fresh(
+        {"deb": {20: -7.6, 40: -5.9, 50: 0.0, 100: 0.0, 115: 0.0, 140: 5.0}}
+    )
+    constant(obs["deb"], 50, 100, 115)
+    a = sq.define_shot("A", 0, 100, objects=["deb"])
+    b = sq.define_shot("B", 115, 200, objects=["deb"])
+    _h, tail = sq.trim_shot_to_content(a.shot_id, edge="trailing")
+    check(
+        "trim: a redundant unclaimed key on the bound holds nothing and is cut",
+        tail == -50
+        and bounds(a, b) == (0, 50, 65, 150)
+        and times_of(obs["deb"]) == [20.0, 40.0, 50.0, 65.0, 90.0],
+        f"tail={tail} bounds={bounds(a, b)} times={times_of(obs['deb'])}",
+    )
+
+    st, sq, obs = fresh(
+        {"ret": {10: 0, 20: 5, 30: 5, 40: 5, 52: 5, 60: 5, 70: 9, 100: 9}}
+    )
+    constant(obs["ret"], 30, 40, 52, 60)
+    a = sq.define_shot("A", 0, 30, objects=["ret"])
+    ins = sq.define_shot("INS", 40, 52, objects=[])
+    c = sq.define_shot("C", 60, 100, objects=["ret"])
+    rkey = _SSI._fc_key("ret", fc_of(obs["ret"]))
+    for t, owner, edge_ in (
+        (30.0, a, "end"),
+        (40.0, ins, "start"),
+        (52.0, ins, "end"),
+        (60.0, c, "start"),
+    ):
+        sq.ledger.record_key(rkey, t, owner.shot_id, edge_)
+    sq.delete_shot(ins.shot_id)
+    check(
+        "delete: an empty shot's pins go before the gap closes on them",
+        bounds(a, c) == (0, 30, 40, 80)
+        and times_of(obs["ret"]) == [10.0, 20.0, 30.0, 40.0, 50.0, 80.0]
+        and round(fc_of(obs["ret"]).evaluate(52.0), 3) == 9.0
+        and sorted(sq.ledger.key_times(rkey)) == [30.0, 40.0],
+        f"bounds={bounds(a, c)} times={times_of(obs['ret'])} "
+        f"at52={fc_of(obs['ret']).evaluate(52.0)} claims={sorted(sq.ledger.key_times(rkey))}",
+    )
+
+    st, sq, obs = fresh({"stl": {10: 0, 20: 1, 38: 1, 44: 0}, "snb": {60: 0, 70: 5}})
+    a = sq.define_shot("A", 0, 40, objects=["stl"])
+    b = sq.define_shot("B", 55, 100, objects=["snb"])
+    sq.slide_shot(a.shot_id, 20, direction=None)
+    check(
+        "slide: the tail lands before the neighbour starts",
+        bounds(a, b) == (10, 50, 55, 100)
+        and times_of(obs["stl"]) == [20.0, 30.0, 48.0, 54.0]
+        and times_of(obs["snb"]) == [60.0, 70.0],
+        f"bounds={bounds(a, b)} stl={times_of(obs['stl'])} snb={times_of(obs['snb'])}",
+    )
+
+    # -- a moved key lands INSIDE the destination, twin or not -------------
+    st, sq, obs = fresh({"twinA": {10: 0, 20: 5, 30: 9}})
+    sq.define_shot("A", 0, 40, objects=["twinA"])
+    b = sq.define_shot("B", 60, 100, objects=[])
+    twin = 30.0 + 2.12585e-7
+    fc = fc_of(obs["twinA"])
+    fc.keyframe_points.insert(31.0, 9.0)
+    next(kp for kp in fc.keyframe_points if abs(kp.co[0] - 31.0) < 1e-3).co[0] = twin
+    fc.update()
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "twinA",
+                "attr": "location",
+                "times": [twin],
+                "start": twin,
+                "end": twin,
+            }
+        ],
+        b.shot_id,
+    )
+    landed = [kp.co[0] for kp in fc_of(obs["twinA"]).keyframe_points if kp.co[0] > 40]
+    check(
+        "move to shot: a near-duplicate twin still lands inside the destination",
+        bool(landed) and min(landed) >= b.start,
+        f"landed={landed} b.start={b.start}",
+    )
+
+    # -- the destination keeps an object whose moved key carries no motion --
+    st, sq, obs = fresh({"flatM": {10: 5, 20: 5}})
+    sq.define_shot("A", 0, 40, objects=["flatM"])
+    b = sq.define_shot("B", 60, 100, objects=[])
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "flatM",
+                "attr": "location",
+                "times": [20.0],
+                "start": 20.0,
+                "end": 20.0,
+            }
+        ],
+        b.shot_id,
+    )
+    dest = sq.shot_by_id(b.shot_id)
+    check(
+        "move to shot: the destination owns what was moved into it",
+        "flatM" in dest.objects,
+        f"objects={dest.objects}",
+    )
+
+    # -- every retime ripples BEFORE it scales (mirror of mayatk) ------------
+    st, sq, obs = fresh({"rtA": {10: 0, 40: 5}, "rtB": {70: 0, 90: 5}})
+    a = sq.define_shot("A", 0, 50, objects=["rtA"])
+    b = sq.define_shot("B", 60, 100, objects=["rtB"])
+    sq.set_shot_duration(a.shot_id, 100)
+    check(
+        "retime order: set_shot_duration keeps the scaled key out of the ripple",
+        times_of(obs["rtA"]) == [20.0, 80.0]
+        and times_of(obs["rtB"]) == [120.0, 140.0]
+        and (b.start, b.end) == (110, 150),
+        f"A={times_of(obs['rtA'])} B={times_of(obs['rtB'])} {(b.start, b.end)}",
+    )
+    st, sq, obs = fresh({"roA": {10: 0, 40: 5}, "roB": {70: 0, 90: 5}})
+    a = sq.define_shot("A", 0, 50, objects=["roA"])
+    b = sq.define_shot("B", 60, 100, objects=["roB"])
+    sq.resize_object(a.shot_id, "roA", 10, 40, 10, 80)
+    check(
+        "retime order: resize_object keeps the scaled key out of the ripple",
+        times_of(obs["roA"]) == [10.0, 80.0]
+        and times_of(obs["roB"]) == [100.0, 120.0]
+        and (b.start, b.end) == (90, 130),
+        f"A={times_of(obs['roA'])} B={times_of(obs['roB'])} {(b.start, b.end)}",
+    )
+
+    # -- a Move to Shot that extends its destination carries the end sample --
+    st, sq, obs = fresh({"mvA": {10: 0, 20: 5, 30: 9}, "mvH": {50: 1, 70: 1, 110: 3}})
+    sa = sq.define_shot("A", 0, 40, objects=["mvA"])
+    sb = sq.define_shot("B", 60, 70, objects=["mvH"])
+    sc = sq.define_shot("C", 80, 120, objects=[])
+    hkey = _SSI._fc_key("mvH", fc_of(obs["mvH"]))
+    sq.ledger.record_key(hkey, 70.0, sb.shot_id, "end")
+    sq._enforce_gap_holds()
+    check(
+        "move to shot: setup -- the seam before C holds at 70",
+        sq.ledger.owns_step(hkey, 70.0) and interp_at(obs["mvH"], 70) == "CONSTANT",
+    )
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "mvA",
+                "attr": "translateX",
+                "times": [10.0, 20.0, 30.0],
+                "start": 10.0,
+                "end": 30.0,
+            }
+        ],
+        sb.shot_id,
+    )
+    b, c = sq.shot_by_id(sb.shot_id), sq.shot_by_id(sc.shot_id)
+    check(
+        "move to shot: the destination grew and C rippled",
+        (b.start, b.end) == (60, 80) and (c.start, c.end) == (90, 130),
+        f"B=({b.start},{b.end}) C=({c.start},{c.end})",
+    )
+    check(
+        "move to shot: the claimed end sample followed the extended bound",
+        times_of(obs["mvH"]) == [50.0, 80.0, 120.0]
+        and sq.ledger.key_records(hkey) == [(80.0, sb.shot_id, "end")],
+        f"{times_of(obs['mvH'])} {sq.ledger.key_records(hkey)}",
+    )
+    check(
+        "move to shot: the hold moved to the new seam",
+        interp_at(obs["mvH"], 80) == "CONSTANT"
+        and not sq.ledger.owns_step(hkey, 70.0)
+        and interp_at(obs["mvA"], 80) == "CONSTANT",
+        f"H@80={interp_at(obs['mvH'], 80)} A@80={interp_at(obs['mvA'], 80)}",
+    )
+
+    # -- a dragged tangent handle lands on the keyframe point ---------------
+    from blendertk.anim_utils.shots.shot_sequencer.shot_sequencer_slots import (
+        ShotSequencerController as _Ctrl,
+    )
+
+    st, sq, obs = fresh({"tanA": {0: 0, 10: 5, 20: 0}})
+    sq.define_shot("A", 0, 20, objects=["tanA"])
+    tan_footers = []
+
+    class _TanClip:
+        data = {"obj": "tanA", "attr_name": "translateX", "shot_id": 0}
+
+    class _TanWidget:
+        @staticmethod
+        def get_clip(_cid):
+            return _TanClip()
+
+        @staticmethod
+        def select_keys(_wanted):
+            return 0
+
+    class _TanCtl(_Ctrl):
+        def __init__(self):  # bypass the panel's __init__
+            self._segment_cache = {}
+            self._sub_row_cache = {}
+            self._audio_segments_cache = None
+            self._syncing = False
+
+        sequencer = sq
+
+        def _get_sequencer_widget(self):
+            return _TanWidget()
+
+        def _set_footer(self, text, **kw):
+            tan_footers.append(text)
+
+        def _sync_to_widget(self, **kw):
+            pass
+
+    tan_ctl = _TanCtl()
+    fc_tan = fc_of(obs["tanA"])
+    kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
+    kp_mid.handle_left_type = kp_mid.handle_right_type = "AUTO_CLAMPED"
+    fc_tan.update()
+    tan_ctl.on_key_tangent_dragged(1, 10.0, "out", 3.0, 4.0)
+    kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
+    hr = (round(kp_mid.handle_right[0], 3), round(kp_mid.handle_right[1], 3))
+    hl = (kp_mid.handle_left[0] - 10.0, kp_mid.handle_left[1] - 5.0)
+    check(
+        "handle drag: the OUT handle lands on co + (dt, dv) and both sides go ALIGNED",
+        hr == (13.0, 9.0)
+        and kp_mid.handle_right_type == "ALIGNED"
+        and kp_mid.handle_left_type == "ALIGNED",
+        f"right={hr} types={kp_mid.handle_left_type}/{kp_mid.handle_right_type}",
+    )
+    check(
+        "handle drag: the aligned IN handle is re-aimed opposite, length kept",
+        abs(hl[0] * 4.0 - hl[1] * 3.0) < 1e-3 and hl[0] < 0,
+        f"left vector={hl}",
+    )
+    kp_mid.handle_left_type = "FREE"
+    fc_tan.update()
+    from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+        SegmentCollector as _SC,
+    )
+
+    check(
+        "preview: a FREE handle marks the key broken",
+        _SC.build_curve_preview(fc_tan, 0, 20)["broken"] == [False, True, False],
+        f"{_SC.build_curve_preview(fc_tan, 0, 20).get('broken')}",
+    )
+    tan_ctl.on_key_tangent_dragged(1, 10.0, "in", -2.0, 1.0)
+    kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
+    check(
+        "handle drag: a FREE side takes the vector as-is and stays FREE",
+        (round(kp_mid.handle_left[0], 3), round(kp_mid.handle_left[1], 3)) == (8.0, 6.0)
+        and kp_mid.handle_left_type == "FREE"
+        and any("handle dragged" in f for f in tan_footers),
+        f"left={tuple(kp_mid.handle_left)} type={kp_mid.handle_left_type}",
     )
 
     # -- a boundary sample follows its bound, or is cleaned up --------------
