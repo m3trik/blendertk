@@ -235,8 +235,9 @@ class SegmentKeys(_SegmentKeysInternal):
             motion_only: Rate-normalised motion classification (see
                 :meth:`_get_active_animation_segments`).
             motion_rate: Per-frame rate threshold for *motion_only*.
-            transform_only: Only transform channels (location/rotation/scale)
-                — the sequencer's scope; ``False`` takes every fcurve.
+            transform_only: Only content channels (location/rotation/scale and
+                the render-effect properties) — the sequencer's scope;
+                ``False`` takes every fcurve.
 
         Returns:
             List of segment dicts (see module docstring).

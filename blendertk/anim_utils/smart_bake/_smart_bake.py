@@ -102,6 +102,11 @@ class BakeResult:
     time_range: Tuple[int, int] = (0, 0)
     """Time range used for baking (start, end)."""
 
+    object_time_ranges: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+    """The range each baked entry was sampled over -- mirror of mayatk's field.
+    ``nla.bake`` samples every object over the one ``time_range``, so every
+    entry carries it; mayatk narrows per object where its drivers allow."""
+
     muted_constraints: List[str] = field(default_factory=list)
     """Constraint names muted across the whole bake (report; see also ``baked``)."""
 
@@ -832,6 +837,7 @@ class SmartBake(_SmartBakeInternal):
                         muted_drivers.append(fc.data_path)
 
             result.baked[key] = constraint_names + list(driver_paths)
+            result.object_time_ranges[key] = tuple(time_range)
 
         # ---- Phase 2: blend-shape bake (snapshot drivers, then bake_blend_shapes) ----
         baked_bs_objects: List[Any] = []
@@ -892,6 +898,7 @@ class SmartBake(_SmartBakeInternal):
                 names = data.driven_sources.get("blend_shape", []) if data else []
                 result.baked.setdefault(obj.name, [])
                 result.baked[obj.name].extend(names)
+                result.object_time_ranges[obj.name] = tuple(time_range)
 
         # ---- Optimize keys on everything actually baked (transform + blend-shape) ----
         if self._optimize_kwargs and result.baked:

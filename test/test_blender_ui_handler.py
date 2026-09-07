@@ -90,7 +90,7 @@ PANELS = [
     "telescope_rig",
     "wheel_rig",
     "shadow_rig",
-    "render_opacity",
+    "render_effects",
     "tube_rig",
     "shots",
     "shot_manifest",
@@ -271,7 +271,7 @@ try:
             "shadow_rig",
             "ShadowRigSlots",
         ),  # __init__ (Preview + btn connect) is bpy-free
-        ("render_opacity", "RenderOpacitySlots"),  # __init__ (btn connect) is bpy-free
+        ("render_effects", "RenderEffectsSlots"),  # __init__ (btn connect) is bpy-free
         (
             "tube_rig",
             "TubeRigSlots",

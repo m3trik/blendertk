@@ -43,7 +43,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/key_stash/key_stash_slots.py` — Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
 - `class KeyStashSlots(ptk.LoggingMixin)`
-  - methods: store, refresh, b000, b001, b002, b003
+  - methods: header_init, store, refresh, refresh_from_scene, b000, b001, chk001, b003
 
 ### `anim_utils/scale_keys.py` — Dedicated scale-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 - `class ScaleKeys(_ScaleKeysInternal)`
@@ -91,7 +91,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/shot_sequencer/_shot_sequencer.py` — Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 - `class ShotSequencer(_ShotSequencerInternal)`
-  - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, reconcile_all_shots, define_shot, collect_object_segments, collect_shot_sequences, sequence_separation, move_sequences_to_shot, fit_shot_to_content, trim_shot_to_content, extend_shot_to_fit, detect_shots, detect_next_shot, move_curve_keys, recreate_curve_keys, move_object_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, move_shot, slide_shot, ripple_downstream, ripple_upstream, ledger, reconcile_system_edits, delete_shot, merge_shots, split_shot, add_shot_space, expand_shot, resize_object, set_shot_duration, resize_shot, resize_shot_bounds, insert_shot, set_shot_start, move_shot_to_position, respace, apply_gap, to_dict, from_dict
+  - methods: shots, hidden_objects, markers, is_object_hidden, set_object_hidden, sorted_shots, shot_by_id, shot_by_name, reconcile_all_shots, define_shot, collect_object_segments, collect_shot_sequences, sequence_separation, move_sequences_to_shot, fit_shot_to_content, trim_shot_to_content, extend_shot_to_fit, detect_shots, detect_next_shot, move_curve_keys, recreate_curve_keys, move_object_keys, move_attribute_keys, move_stepped_keys, scale_object_keys, move_object_in_shot, move_shot, slide_shot, ripple_downstream, ripple_upstream, ledger, reconcile_system_edits, delete_shot, merge_shots, split_shot, add_shot_space, expand_shot, resize_object, scale_shot_keys, set_shot_duration, resize_shot, resize_shot_bounds, insert_shot, set_shot_start, move_shot_to_position, respace, apply_gap, to_dict, from_dict
 
 ### `anim_utils/shots/shot_sequencer/clip_motion.py` — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 - `class ClipMotionMixin(_ClipMotionMixinInternal)`
@@ -115,7 +115,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
 - `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`
-  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_gap_menu, on_key_selection_changed
+  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_key_menu, place_dragged_handle, on_key_tangent_dragged, on_gap_menu, on_key_selection_changed
 - `class ShotEditDialog`
   - methods: show
 - `class ShotSequencerSlots(ptk.LoggingMixin)`
@@ -437,7 +437,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
-  - methods: confirm, confirm_check_override, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
+  - methods: confirm, confirm_check_override, run_config_from_values, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
@@ -609,9 +609,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class RenderEffects(ptk.LoggingMixin)`
   - methods: objects_with_visibility_keys, create, key_pulse, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
 
-### `mat_utils/render_opacity/render_opacity_slots.py` — Switchboard slots for the Render Opacity panel (``render_opacity.ui``).
-- `class RenderOpacitySlots(ptk.LoggingMixin)`
-  - methods: header_init, tb000_init, tb000
+### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
+- `class RenderEffectsSlots(ptk.LoggingMixin)`
+  - methods: header_init, tb000_init, tb000, tb001_init, tb001
 
 ### `mat_utils/shader_templates.py` — Shader Templates tool panel — Switchboard slot wiring for the co-located
 - `class ShaderTemplatesSlots(ptk.LoggingMixin)`
@@ -731,9 +731,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, current_model, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, from_plane, set_source, rebuild, silhouette_is_stale, refresh_silhouette, refresh_export_metadata, unit_scale, export_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
+  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, source_size, source_softness, set_source_softness, planes_lit_by, current_model, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, from_plane, set_source, rebuild, silhouette_is_stale, auto_recalculate, auto_recalculate_enabled, recalculate_stale, refresh_silhouette, refresh_export_metadata, unit_scale, export_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
 - `class ShadowRigSlots(ptk.LoggingMixin)`
-  - methods: header_init, cmb_type_init, b003_init, b002_init, prepare_operation, b001, chk_horizon_preview, b002, b003, b004, apply_source, rebuild_rig, restore_expression, b009, b010, perform_operation
+  - methods: header_init, cmb_type_init, txt_source_init, b003_init, b002_init, prepare_operation, b001, chk_follow_init, chk_follow, s001_init, s001, chk_horizon_preview_init, chk_horizon_preview, b002, b003, source_from_selection, reproject_sources, apply_source, rebuild_rig, restore_expression, b009, b010, perform_operation
 
 ### `rig_utils/telescope_rig.py` — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
 - `class TelescopeRigBundle`

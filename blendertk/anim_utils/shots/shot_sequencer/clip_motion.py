@@ -262,13 +262,18 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             was_syncing = self._syncing
             self._syncing = True
             try:
+                # Ripple FIRST, from the bound the shot is about to have, so
+                # the store never reads the two shots as contiguous for a
+                # moment and "splits" a sample that was never shared; the
+                # planner's carry rule keeps the dragged key on the seam as
+                # this shot's (mirrors mayatk).
+                if abs(start_delta) > 1e-6:
+                    self.sequencer.ripple_upstream(shot_id, expanded_start, start_delta)
+                if abs(end_delta) > 1e-6:
+                    self.sequencer.ripple_downstream(shot_id, expanded_end, end_delta)
                 self.sequencer.store.update_shot(
                     shot_id, start=expanded_start, end=expanded_end
                 )
-                if abs(start_delta) > 1e-6:
-                    self.sequencer.ripple_upstream(shot_id, prior_start, start_delta)
-                if abs(end_delta) > 1e-6:
-                    self.sequencer.ripple_downstream(shot_id, prior_end, end_delta)
             finally:
                 self._syncing = was_syncing
             self._segment_cache.clear()
@@ -516,6 +521,10 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 self._commit_curve_moves(
                     curve_moves, ledger=seq.ledger if seq is not None else None
                 )
+                # The drag may have grown a bound and it may have moved the
+                # seam: the system's own samples follow, in the same step.
+                if seq is not None:
+                    seq.reconcile_system_edits()
         finally:
             self._syncing = was_syncing
 

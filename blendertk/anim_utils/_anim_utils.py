@@ -356,14 +356,14 @@ class _AnimUtilsInternal(object):
         return removed
 
     @staticmethod
-    def _reduce_fcurve_to_extremes(fc, tolerance):
+    def _reduce_fcurve_to_extremes(fc, tolerance, max_error=None):
         """Reduce a baked fcurve to its shape-defining keys and refit the handles.
 
-        Keeps endpoints, peaks, valleys and hold boundaries
-        (``ptk.IterUtils.find_extrema_indices``); the tweens go and the survivors get
-        Bezier handles at the segment thirds carrying the slopes
-        ``ptk.MathUtils.fit_hermite_slopes`` fits against the dropped samples, so the
-        sparse curve traces the bake.  A hold stays exactly flat (``FREE`` handles, the
+        Keeps endpoints, peaks, valleys and hold boundaries, plus any sample the
+        refit would miss by more than ``max_error`` (``ptk.MathUtils.reduce_samples``;
+        None = 1% of the curve's own amplitude); the tweens go and the survivors get
+        Bezier handles at the segment thirds carrying the fitted slopes, so the
+        sparse curve traces the bake within the bound.  A hold stays exactly flat (``FREE`` handles, the
         facing one level); elsewhere the handles are ``ALIGNED``.  Returns
         ``(keys_removed, max_error)`` or ``None`` when the curve has stepped keys (no
         tween to refit) or nothing to drop."""
@@ -372,12 +372,11 @@ class _AnimUtilsInternal(object):
             return None
         times = [k.co.x for k in pts]
         values = [k.co.y for k in pts]
-        keep = [int(i) for i in ptk.IterUtils.find_extrema_indices(values, tolerance)]
+        keep, in_slopes, out_slopes = ptk.MathUtils.reduce_samples(
+            times, values, value_tolerance=tolerance, max_error=max_error
+        )
         if len(keep) == len(pts):
             return None
-        in_slopes, out_slopes = ptk.MathUtils.fit_hermite_slopes(
-            times, values, keep, flat_tolerance=tolerance
-        )
         kept = [(times[i], values[i]) for i in keep]
         pts.clear()
         pts.add(len(kept))
@@ -1277,7 +1276,7 @@ class AnimUtils(_AnimUtilsInternal):
                 fc.update()
 
     @staticmethod
-    def snap_keys(objects, selected_only=False, time_range=None, method="nearest"):
+    def snap_keys(objects=None, selected_only=False, time_range=None, method="nearest"):
         """Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
 
         ``method`` is any :meth:`pythontk.MathUtils.round_value` mode — DRY reuse of the same
@@ -1288,11 +1287,17 @@ class AnimUtils(_AnimUtilsInternal):
         * ``selected_only`` — only snap keys selected in the Dope Sheet / Graph Editor.
         * ``time_range`` — a ``(start, end)`` window; only keys inside it are snapped.
 
+        ``objects`` defaults to every scene object, as ``repair_corrupted_curves`` does — the
+        scope a repair pass wants when nothing is selected.
+
         Returns the number of keys that actually moved."""
         if method == "none":
             return 0
+        import bpy
+
+        pool = objects if objects is not None else list(bpy.data.objects)
         snapped = 0
-        for fc in _AnimUtilsInternal._fcurves(objects):
+        for fc in _AnimUtilsInternal._fcurves(pool):
             touched = False
             for k in fc.keyframe_points:
                 if selected_only and not k.select_control_point:
@@ -1578,7 +1583,9 @@ class AnimUtils(_AnimUtilsInternal):
         return pasted
 
     @staticmethod
-    def reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None):
+    def reduce_to_extremes(
+        objects=None, value_tolerance=0.001, stats=None, max_error=None
+    ):
         """Reduce baked fcurves to their shape-defining keys and refit the handles —
         mirror of ``mtk.AnimUtils.reduce_to_extremes``.
 
@@ -1592,8 +1599,9 @@ class AnimUtils(_AnimUtilsInternal):
 
         ``objects`` defaults to every scene object.  Pass a dict as ``stats`` to
         receive ``reduced`` (curve count), ``reduce_keys_removed`` and
-        ``reduce_max_error`` (largest deviation from the baked samples).  Returns the
-        reduced fcurves.
+        ``reduce_max_error`` (largest deviation from the baked samples).
+        ``max_error`` bounds that deviation (None = 1% of each curve's own
+        amplitude; 0 keeps the extrema alone).  Returns the reduced fcurves.
         """
         import bpy
 
@@ -1602,24 +1610,24 @@ class AnimUtils(_AnimUtilsInternal):
             if objects is not None
             else list(bpy.data.objects)
         )
-        reduced, removed, max_error = [], 0, 0.0
+        reduced, removed, worst_error = [], 0, 0.0
         for o in pool:
             for action, slot in _AnimUtilsInternal._actions([o]):
                 for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
                     result = _AnimUtilsInternal._reduce_fcurve_to_extremes(
-                        fc, value_tolerance
+                        fc, value_tolerance, max_error
                     )
                     if result is None:
                         continue
                     reduced.append(fc)
                     removed += result[0]
-                    max_error = max(max_error, result[1])
+                    worst_error = max(worst_error, result[1])
         if stats is not None:
             stats.update(
                 {
                     "reduced": len(reduced),
                     "reduce_keys_removed": removed,
-                    "reduce_max_error": max_error,
+                    "reduce_max_error": worst_error,
                 }
             )
         return reduced

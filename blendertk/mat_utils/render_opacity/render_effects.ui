@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>render_opacity</class>
- <widget class="QMainWindow" name="render_opacity">
+ <class>render_effects</class>
+ <widget class="QMainWindow" name="render_effects">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
     <width>218</width>
-    <height>197</height>
+    <height>110</height>
    </rect>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -48,95 +48,12 @@
        </font>
       </property>
       <property name="text">
-       <string>RENDER OPACITY</string>
+       <string>RENDER EFFECTS</string>
       </property>
      </widget>
     </item>
     <item>
-     <widget class="CollapsableGroup" name="apply_group">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="title">
-       <string>Create Attribute</string>
-      </property>
-      <layout class="QHBoxLayout" name="horizontalLayout">
-       <property name="spacing">
-        <number>1</number>
-       </property>
-       <property name="leftMargin">
-        <number>1</number>
-       </property>
-       <property name="topMargin">
-        <number>1</number>
-       </property>
-       <property name="rightMargin">
-        <number>1</number>
-       </property>
-       <property name="bottomMargin">
-        <number>1</number>
-       </property>
-       <item>
-        <widget class="QComboBox" name="cmb_mode">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>19</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>16777215</width>
-           <height>19</height>
-          </size>
-         </property>
-         <property name="toolTip">
-          <string>Adds a keyable 'opacity' custom property (0-1) and drives each material's Principled BSDF Alpha from it (single-user per object).
-Both modes behave the same in Blender — kept for parity with Maya's Attribute/Material modes (Blender has no StingrayPBS).</string>
-         </property>
-         <item>
-          <property name="text">
-           <string>Attribute</string>
-          </property>
-         </item>
-         <item>
-          <property name="text">
-           <string>Material</string>
-          </property>
-         </item>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="b000">
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>19</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>60</width>
-           <height>19</height>
-          </size>
-         </property>
-         <property name="toolTip">
-          <string>Apply opacity to the selected object(s).
-If nothing is selected, a cube is created first.</string>
-         </property>
-         <property name="text">
-          <string>Create</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
-     <widget class="CollapsableGroup" name="fade_group">
+     <widget class="CollapsableGroup" name="key_group">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
         <horstretch>0</horstretch>
@@ -146,7 +63,7 @@ If nothing is selected, a cube is created first.</string>
       <property name="title">
        <string>Key</string>
       </property>
-      <layout class="QVBoxLayout" name="fadeLayout">
+      <layout class="QVBoxLayout" name="keyLayout">
        <property name="spacing">
         <number>1</number>
        </property>
@@ -176,47 +93,13 @@ If nothing is selected, a cube is created first.</string>
            <height>19</height>
           </size>
          </property>
-         <property name="toolTip">
-          <string>Key an opacity fade on selected objects.
-Use the option box to configure frames, direction, and timing.</string>
-         </property>
          <property name="text">
-          <string>Key Render Opacity</string>
+          <string>Key Opacity Fade</string>
          </property>
         </widget>
        </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
-     <widget class="CollapsableGroup" name="manage_group">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="title">
-       <string>Manage</string>
-      </property>
-      <layout class="QVBoxLayout" name="manageLayout">
-       <property name="spacing">
-        <number>1</number>
-       </property>
-       <property name="leftMargin">
-        <number>1</number>
-       </property>
-       <property name="topMargin">
-        <number>1</number>
-       </property>
-       <property name="rightMargin">
-        <number>1</number>
-       </property>
-       <property name="bottomMargin">
-        <number>1</number>
-       </property>
        <item>
-        <widget class="QPushButton" name="b003">
+        <widget class="PushButton" name="tb001">
          <property name="minimumSize">
           <size>
            <width>0</width>
@@ -229,11 +112,8 @@ Use the option box to configure frames, direction, and timing.</string>
            <height>19</height>
           </size>
          </property>
-         <property name="toolTip">
-          <string>Remove all opacity artifacts (prop, Alpha driver, keys) from the selected object(s).</string>
-         </property>
          <property name="text">
-          <string>Remove Opacity</string>
+          <string>Key Highlight Pulse</string>
          </property>
         </widget>
        </item>

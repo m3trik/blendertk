@@ -26,6 +26,7 @@ Example:
     >>> preview.push()              # opens a tab on the first call
     >>> preview.push()              # the open tab swaps to the new version
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -61,9 +62,9 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
 
         Mirror of the Maya producer: the skeleton's FBX payload plus a sidecar
         riding on ``Payload.extras``. The sections come from
-        :class:`SceneState` (the shared reader column) and the versioned
-        envelope they travel in is built by
-        :meth:`pythontk.MeshConvert.build_scene_sidecar` via the bridge's
+        :class:`SceneState` (the shared reader column, the one the Scene
+        Exporter's GLB stage reads too) and the envelope is built by
+        :meth:`pythontk.GlbPipeline.envelope` through the bridge's
         ``_attach_sidecar``, so neither can fork against mayatk's twin.
         """
         payload = super()._produce(objects, request)
@@ -72,8 +73,11 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
 
         # The closed export set, not the raw selection: a group Empty ships its
         # descendants, and their materials must travel with them.
-        sections = SceneState.read(
-            payload.extras.get("export_set") or objects,
-            include_textures=request.params.get("EMBED_TEXTURES", True),
+        return self._attach_sidecar(
+            payload,
+            lambda: SceneState.read(
+                payload.extras.get("export_set") or objects,
+                include_textures=request.params.get("EMBED_TEXTURES", True),
+            ),
+            source=SceneState.source(),
         )
-        return self._attach_sidecar(payload, sections, source=SceneState.source())

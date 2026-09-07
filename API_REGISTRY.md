@@ -133,7 +133,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/mat_manifest.py`](#mat_utils--mat_manifest) — Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 - [`mat_utils/mat_updater.py`](#mat_utils--mat_updater) — Material Updater tool panel — Switchboard slot wiring for the co-located ``mat_updater.ui``.
 - [`mat_utils/render_opacity/render_effects.py`](#mat_utils--render_opacity--render_effects) — Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
-- [`mat_utils/render_opacity/render_opacity_slots.py`](#mat_utils--render_opacity--render_opacity_slots) — Switchboard slots for the Render Opacity panel (``render_opacity.ui``).
+- [`mat_utils/render_opacity/render_effects_slots.py`](#mat_utils--render_opacity--render_effects_slots) — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader Templates tool panel — Switchboard slot wiring for the co-located
 - [`mat_utils/substance_bridge/_substance_bridge.py`](#mat_utils--substance_bridge--_substance_bridge) — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - [`mat_utils/substance_bridge/connection.py`](#mat_utils--substance_bridge--connection) — Substance 3D Painter connection module.
@@ -192,7 +192,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
-- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L440)** — Namespace mirror (helpers also exposed module-level).
+- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L439)** — Namespace mirror (helpers also exposed module-level).
   - `AnimUtils.normalize_optimize_level(cls, level)` *(class)* — The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
   - `AnimUtils.resolve_optimize_level(cls, level)` *(class)* — Resolve an optimization level into :meth:`optimize_keys` kwargs.
   - `AnimUtils.key_arrays(fc)` *(static)* — ``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).
@@ -216,7 +216,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.remove_intermediate_keys(objects, time_range=None, ignore_visibility=False)` *(static)* — Remove every key strictly between each fcurve's first and last (keeps only the
   - `AnimUtils.select_keys(objects, time=None, add_to_selection=False)` *(static)* — Select keyframe points (``select_control_point`` — visible in the Dope Sheet /
   - `AnimUtils.invert_keys(objects, mode='time', value_pivot=0.0, start_frame=None, relative=True, delete_original=False)` *(static)* — Mirror keys to reverse motion — Blender analogue of Maya's invert (modes mirror its X/Y/both
-  - `AnimUtils.snap_keys(objects, selected_only=False, time_range=None, method='nearest')` *(static)* — Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
+  - `AnimUtils.snap_keys(objects=None, selected_only=False, time_range=None, method='nearest')` *(static)* — Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
   - `AnimUtils.set_interpolation(objects, interpolation='CONSTANT', handle=None)` *(static)* — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
   - `AnimUtils.set_stepped(objects, stepped=True)` *(static)* — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
   - `AnimUtils.delete_keys(objects, time=None)` *(static)* — Remove animation from the given objects — mirror of ``mtk.delete_keys``.
@@ -224,7 +224,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.copy_keys(source, mode='action')` *(static)* — Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
   - `AnimUtils.paste_keys(objects, buffer, target_time=None)` *(static)* — Paste a copy-buffer from :func:`copy_keys` onto ``objects`` — mirror of
   - `AnimUtils.transfer_keyframes(objects, relative=False, optimize=False)` *(static)* — Transfer keyframes from the first object (source) onto the rest (targets) — mirror of
-  - `AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None)` *(static)* — Reduce baked fcurves to their shape-defining keys and refit the handles —
+  - `AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None, max_error=None)` *(static)* — Reduce baked fcurves to their shape-defining keys and refit the handles —
   - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
   - `AnimUtils.repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)` *(static)* — Detect and repair corrupted animation fcurves — mirror of
   - `AnimUtils.tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False)` *(static)* — Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
@@ -366,11 +366,13 @@ Key Stash — park keyframes outside the working animation, retrieve later (Blen
 Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
 
 - **[`class KeyStashSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/key_stash/key_stash_slots.py#L13)** — Controller wiring key_stash.ui to the :class:`KeyStash` store.
+  - `KeyStashSlots.header_init(self, widget) -> None` — Configure header buttons, the refresh action and the help text.
   - `KeyStashSlots.store(self) -> KeyStash` *(property)* — The active store, (re)bound to this panel's change listener.
   - `KeyStashSlots.refresh(self) -> None` — Repaint the clip list from the store.
+  - `KeyStashSlots.refresh_from_scene(self) -> None` — Header refresh: prune clips whose stash actions are gone, then repaint.
   - `KeyStashSlots.b000(self) -> None` — Store Keys
   - `KeyStashSlots.b001(self) -> None` — Retrieve
-  - `KeyStashSlots.b002(self) -> None` — Preview (toggle)
+  - `KeyStashSlots.chk001(self, checked: bool) -> None` — Preview (toggle)
   - `KeyStashSlots.b003(self) -> None` — Drop
 
 <a id="anim_utils--scale_keys"></a>
@@ -395,7 +397,7 @@ Animation-segment collection over Blender fcurves (mirror of ``mtk.SegmentKeys``
 
 Shot-region detection — Blender scene acquisition over the pure engine math.
 
-- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L121)** — Detection — module namespace.
+- **[`class Detection(_DetectionInternal)`](blendertk/blendertk/anim_utils/shots/_detection.py#L123)** — Detection — module namespace.
   - `Detection.resolve_to_transform(node, cache=None)` *(static)* — Resolve an fcurve owner (ID datablock or object name) to its object name.
   - `Detection.detect_shot_regions(objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore=None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` *(static)* — Detect animation regions by clustering per-object motion segments.
   - `Detection.regions_from_selected_keys(gap_threshold: float = 5.0, key_filter: str = 'all') -> List[Dict[str, Any]]` *(static)* — Build shot regions from currently selected keyframes.
@@ -405,12 +407,12 @@ Shot-region detection — Blender scene acquisition over the pure engine math.
 
 Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 
-- **[`class BlenderScenePersistence`](blendertk/blendertk/anim_utils/shots/_shots.py#L98)** — Persist the store as a JSON string on a scene custom property.
+- **[`class BlenderScenePersistence`](blendertk/blendertk/anim_utils/shots/_shots.py#L99)** — Persist the store as a JSON string on a scene custom property.
   - `BlenderScenePersistence.store_cls(self)` *(property)* — The store class this backend serves (resolved lazily: the shot store
   - `BlenderScenePersistence.remove_callbacks(self) -> None` — Tear down every SJM subscription + msgbus watch owned by this backend.
   - `BlenderScenePersistence.save(self, data: Dict[str, Any]) -> None`
   - `BlenderScenePersistence.load(self) -> Optional[Dict[str, Any]]`
-- **[`class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L409)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+- **[`class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L419)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
   - `BlenderShotStore.active(cls) -> 'BlenderShotStore'` *(class)* — Return the active store, auto-installing the Blender backend once.
   - `BlenderShotStore.has_animation() -> bool` *(static)* — True if any scene object has a moving-or-keyed transform fcurve.
   - `BlenderShotStore.detect_regions(self) -> List[Dict[str, Any]]` — Detect shot candidates using the store's detection settings.
@@ -436,7 +438,7 @@ Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
 Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
-- **[`class Behaviors(_PyBehaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L231)** — Behaviors — module namespace.
+- **[`class Behaviors(_PyBehaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L230)** — Behaviors — module namespace.
   - `Behaviors.apply_behavior(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None) -> None` *(static)* — Apply a named behavior template to an object over a time range.
   - `Behaviors.verify_behavior(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None) -> bool` *(static)* — Check whether expected behavior keyframes exist on an object.
   - `Behaviors.apply_audio_clip(obj: str, start: float, end: float, source_path: str = '') -> None` *(static)* — Place (or re-place) the sound strip *obj* at *start*.
@@ -493,7 +495,7 @@ Tree-widget presentation mixin for the Shot Manifest controller.
 
 Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 
-- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L160)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
+- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L167)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
   - `ShotSequencer.shots(self)` *(property)*
   - `ShotSequencer.hidden_objects(self) -> set` *(property)*
   - `ShotSequencer.markers(self)` *(property)*
@@ -516,13 +518,14 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
   - `ShotSequencer.move_curve_keys(cls, crv, times: list, delta: float, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
   - `ShotSequencer.recreate_curve_keys(cls, crv, pairs: list, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Move the keys named by ``[(old_time, new_time), ...]`` on *crv*.
   - `ShotSequencer.move_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float) -> None` — Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.
+  - `ShotSequencer.move_attribute_keys(self, obj: str, attr: Optional[str], delta: float, times: Optional[List[float]] = None, window: Optional[tuple] = None) -> int` — Shift keys of *obj* by *delta* frames -- one attribute's, or all.
   - `ShotSequencer.move_stepped_keys(self, obj: str, old_time: float, new_time: float, attr_name: Optional[str] = None, eps: float = 0.001) -> None` — Move the key(s) at *old_time* to *new_time*.
   - `ShotSequencer.scale_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.
   - `ShotSequencer.move_object_in_shot(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float) -> None` — Move one object's keys within a shot, growing the shot + rippling when it overruns.
   - `ShotSequencer.move_shot(self, shot_id: int, new_start: float) -> None` — Move an entire shot to *new_start*, rippling downstream (duration preserved).
   - `ShotSequencer.slide_shot(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None` — Slide a shot intact to *new_start*, rippling only in *direction*.
-  - `ShotSequencer.ripple_downstream(self, shot_id: int, after_frame: float, delta: float) -> None` — Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).
-  - `ShotSequencer.ripple_upstream(self, shot_id: int, before_frame: float, delta: float) -> None` — Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).
+  - `ShotSequencer.ripple_downstream(self, shot_id: int, after_frame: float, delta: float, carry_gap: bool = True) -> None` — Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).
+  - `ShotSequencer.ripple_upstream(self, shot_id: int, before_frame: float, delta: float, carry_gap: bool = True) -> None` — Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).
   - `ShotSequencer.ledger(self)` *(property)* — The store's :class:`~pythontk.ShotEditLedger` (system-write claims).
   - `ShotSequencer.reconcile_system_edits(self) -> Dict[str, int]` — Release every shot-system write whose boundary has moved on.
   - `ShotSequencer.delete_shot(self, shot_id: int, delete_contents: bool = True, close_gap: bool = True) -> Dict[str, Any]` — Remove a shot — by default with its keys, and closing up behind it.
@@ -531,9 +534,10 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
   - `ShotSequencer.add_shot_space(self, shot_id: int, frames: float, edge: str = 'leading') -> Tuple[float, float]` — Insert empty room at a shot's head and/or tail, rippling downstream.
   - `ShotSequencer.expand_shot(self, shot_id: int, new_end: float) -> float` — Expand a shot's end frame and ripple downstream (never contracts).
   - `ShotSequencer.resize_object(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys and ripple neighbours by the head/tail deltas.
+  - `ShotSequencer.scale_shot_keys(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Retime every key inside ``[old_start, old_end]`` into the new span.
   - `ShotSequencer.set_shot_duration(self, shot_id: int, new_duration: float) -> None` — Change a shot's duration (start fixed), scaling its keys + rippling downstream.
   - `ShotSequencer.resize_shot(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None` — Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.
-  - `ShotSequencer.resize_shot_bounds(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None` — Move a shot's boundaries WITHOUT touching its keyframes.
+  - `ShotSequencer.resize_shot_bounds(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True, clamp: bool = True) -> None` — Move a shot's boundaries WITHOUT touching its keyframes.
   - `ShotSequencer.insert_shot(self, name: str, duration: float, after_shot_id: Optional[int] = None, at_position: Optional[int] = None, gap: Optional[float] = None, objects: Optional[List[str]] = None, description: str = '')` — Create a shot BETWEEN existing shots, pushing later ones downstream.
   - `ShotSequencer.set_shot_start(self, shot_id: int, new_start: float, ripple: bool = True) -> None` — Move a shot to *new_start*;
   - `ShotSequencer.move_shot_to_position(self, shot_id: int, target_pos: int) -> None` — Reorder *shot_id* to 1-based timeline position *target_pos*.
@@ -563,9 +567,9 @@ Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 Gap and range-highlight handlers for the shot sequencer controller (Blender).
 
 - **[`class GapManagerMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/gap_manager.py#L21)** — Mixin supplying gap-overlay and range-highlight handlers.
-  - `GapManagerMixin.on_range_highlight_changed(self, start: float, end: float) -> None` — Update the active shot boundaries when the range highlight is dragged.
-  - `GapManagerMixin.on_gap_resized(self, original_next_start: float, new_next_start: float) -> None` — Handle right-edge gap drag (a shot's ``.start``).
-  - `GapManagerMixin.on_gap_left_resized(self, original_prev_end: float, new_prev_end: float) -> None` — Handle left-edge gap drag (a shot's ``.end``).
+  - `GapManagerMixin.on_range_highlight_changed(self, start: float, end: float) -> None` — Update the active shot when a range-highlight handle is dragged.
+  - `GapManagerMixin.on_gap_resized(self, original_next_start: float, new_next_start: float) -> None` — Handle a right-edge gap drag: the following shot's ``.start``.
+  - `GapManagerMixin.on_gap_left_resized(self, original_prev_end: float, new_prev_end: float) -> None` — Handle a left-edge gap drag: the preceding shot's ``.end``.
   - `GapManagerMixin.on_gap_moved(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Handle body gap drag — slide the gap while preserving its width.
   - `GapManagerMixin.on_gap_lock_changed(self, gap_start: float, gap_end: float, locked: bool) -> None` — Handle a single gap's lock state being toggled via context menu.
   - `GapManagerMixin.on_gap_lock_all(self) -> None` — Lock all gaps so they are preserved during respace.
@@ -631,11 +635,14 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_clip_renamed(self, clip_id: int, new_label: str) -> None` — Renaming a clip is display-only in Blender (object names own identity).
   - `ShotSequencerController.on_playhead_moved(self, frame: float) -> None` — Widget playhead drag → set the scene frame (scrub audio via Blender).
   - `ShotSequencerController.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
+  - `ShotSequencerController.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
+  - `ShotSequencerController.place_dragged_handle(kp, side: str, dt: float, dv: float) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
+  - `ShotSequencerController.on_key_tangent_dragged(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None` — Write the handle a dragged tangent grab point asks for (see
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2488)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2772)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot')` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2544)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L2828)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -707,7 +714,7 @@ Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` a
 - **[`class BakeResult`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L92)** — Result container for ``SmartBake.bake()``.
   - `BakeResult.baked_count(self) -> int` *(property)* — Number of objects successfully baked.
   - `BakeResult.success(self) -> bool` *(property)* — True if any objects were baked.
-- **[`class SmartBake(_SmartBakeInternal)`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L309)** — Intelligent bake+restore with automatic detection of what needs baking.
+- **[`class SmartBake(_SmartBakeInternal)`](blendertk/blendertk/anim_utils/smart_bake/_smart_bake.py#L314)** — Intelligent bake+restore with automatic detection of what needs baking.
   - `SmartBake.analyze(self) -> Dict[str, BakeAnalysis]` — Analyze objects to determine what needs baking.
   - `SmartBake.get_time_range(self, analysis: Optional[Dict[str, BakeAnalysis]] = None) -> Tuple[int, int]` — Determine the optimal bake time range from driver/constraint-target animation.
   - `SmartBake.bake(self, analysis: Optional[Dict[str, BakeAnalysis]] = None, time_range: Optional[Tuple[int, int]] = None) -> BakeResult` — Bake every driven source :func:`analyze` found.
@@ -972,7 +979,7 @@ Live-preview driver for the tentacle Blender tool panels — the Blender analogu
 
 Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
 
-- **[`class ScriptJobManager`](blendertk/blendertk/core_utils/script_job_manager.py#L86)** — Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).
+- **[`class ScriptJobManager`](blendertk/blendertk/core_utils/script_job_manager.py#L90)** — Centralized Blender event dispatcher (mirror of mayatk's ``ScriptJobManager``).
   - `ScriptJobManager.instance(cls) -> 'ScriptJobManager'` *(class)* — Return the module-wide singleton, creating it on first access.
   - `ScriptJobManager.reset(cls) -> None` *(class)* — Tear down the singleton and allow a fresh one to be created (tests / reload).
   - `ScriptJobManager.subscribe(self, event: str, callback: Callable, *, owner: Any = None, ephemeral: bool = False) -> int` — Register *callback* (called with no args) for a Maya-named *event*.
@@ -1774,6 +1781,7 @@ Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L118)**
   - `SceneExporter.confirm(self, question: str) -> bool` — Yes/no consent for an export-time side effect (a tool download).
   - `SceneExporter.confirm_check_override(self) -> bool` — Ask, at the failure point, whether to export despite failed checks.
+  - `SceneExporter.run_config_from_values(self, values: Dict[str, Any], override_checks: bool = False, ignore_groups_case_sensitive: bool = False) -> Dict[str, Any]` — Widget values -> the inputs :meth:`perform_export` takes.
   - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx') -> str` — Generate the full export file path.
   - `SceneExporter.format_export_name(self, name: str) -> str` — Format the export name using a regex pattern and replacement (e.g.
@@ -1946,7 +1954,7 @@ USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 
 Push the Blender selection to a live browser / WebXR preview.
 
-- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L39)** — Live browser / WebXR preview of the Blender selection.
+- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L40)** — Live browser / WebXR preview of the Blender selection.
 
 <a id="env_utils--workspace_editor"></a>
 ### `env_utils/workspace_editor.py`
@@ -2429,31 +2437,33 @@ Material Updater tool panel — Switchboard slot wiring for the co-located ``mat
 
 Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
 
-- **[`class RenderEffects(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L32)** — Per-object opacity: keyable ``opacity`` prop + Principled-Alpha driver + visibility mirror.
+- **[`class RenderEffects(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L32)** — Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
   - `RenderEffects.objects_with_visibility_keys(cls, objects) -> list` *(class)* — The subset of *objects* that already have keyframes on render visibility.
-  - `RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')` *(class)* — Add the ``opacity`` prop to *objects* and drive each material's Principled Alpha from it.
-  - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, color=None, auto_create=True, channel='highlight')` *(class)* — Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
-  - `RenderEffects.preview(cls, objects=None, channel='highlight', enabled=True)` *(class)* — Bind (or unbind) a channel's material drivers for lookdev.
+  - `RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')` *(class)* — Add the channel's prop to *objects* (or remove it).
+  - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, auto_create=True, channel='highlight', preview=None, delete_visibility_keys=False, whole_frames=True)` *(class)* — Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
+  - `RenderEffects.preview(cls, objects=None, channel='highlight', enabled=True)` *(class)* — DEPRECATED (one release).
   - `RenderEffects.stage_export_proxies(cls)` *(class)* — Stage one transient Empty per keyed channel per object, for the FBX write.
   - `RenderEffects.remove_export_proxies(cls)` *(class)* — Delete every staged render-effect curve proxy and its action.
   - `RenderEffects.finish_export(cls)` *(class)* — Undo :meth:`prepare_for_export`'s staging (mirror of mayatk's).
-  - `RenderEffects.remove(cls, objects=None, mode=None, channel=None)` *(class)* — Remove a channel's prop, its material drivers and its anim curves from *objects*.
-  - `RenderEffects.key_fade(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR')` *(class)* — Key an opacity fade (linear) and mirror it to render visibility (stepped).
+  - `RenderEffects.remove(cls, objects=None, mode=None, channel=None)` *(class)* — Remove a channel's prop and anim curves from *objects*, and heal the
+  - `RenderEffects.key_fade(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', preview=None, delete_visibility_keys=False, channel='opacity', whole_frames=True)` *(class)* — Key an opacity fade (linear) and mirror it to render visibility (stepped).
   - `RenderEffects.sync_visibility_from_opacity(cls, objects=None) -> None` *(class)* — Rebuild the ``hide_render`` curve from the ``opacity`` curve (stepped, hidden when ≤ 0).
-  - `RenderEffects.ensure_connections(cls, objects=None) -> None` *(class)* — Re-establish the Alpha driver on objects that have ``opacity`` but lost it (e.g.
+  - `RenderEffects.ensure_connections(cls, objects=None) -> None` *(class)* — Kept for mayatk API parity;
   - `RenderEffects.prepare_for_export(cls, objects=None) -> list` *(class)* — Dual-key safety net before FBX export: for every object with an animated ``opacity`` but
   - `RenderEffects.visibility_tracks(cls) -> list` *(class)* — Every visibility-keyed object in the file, as stepped on/off tracks.
   - `RenderEffects.refresh_export_metadata(cls)` *(class)* — Republish the ``visibility_tracks`` channel (``FbxUtils._KNOWN_PRODUCERS``).
 
-<a id="mat_utils--render_opacity--render_opacity_slots"></a>
-### `mat_utils/render_opacity/render_opacity_slots.py`
+<a id="mat_utils--render_opacity--render_effects_slots"></a>
+### `mat_utils/render_opacity/render_effects_slots.py`
 
-Switchboard slots for the Render Opacity panel (``render_opacity.ui``).
+Switchboard slots for the Render Effects panel (``render_effects.ui``).
 
-- **[`class RenderOpacitySlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_opacity_slots.py#L21)** — Switchboard slots for the Render Opacity UI.
-  - `RenderOpacitySlots.header_init(self, widget)` — Configure header menu.
-  - `RenderOpacitySlots.tb000_init(self, widget)` — Key Render Opacity Init — configure option-box menu.
-  - `RenderOpacitySlots.tb000(self, widget)` — Key Render Opacity — key a fade on the opacity property (+ mirror to visibility).
+- **[`class RenderEffectsSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects_slots.py#L26)** — Switchboard slots for the Render Effects UI.
+  - `RenderEffectsSlots.header_init(self, widget)` — Configure header menu.
+  - `RenderEffectsSlots.tb000_init(self, widget)` — Key Opacity Fade Init — configure option-box menu.
+  - `RenderEffectsSlots.tb000(self, widget)` — Key Opacity Fade — key a fade on the opacity property (created if missing).
+  - `RenderEffectsSlots.tb001_init(self, widget)` — Key Highlight Pulse Init — configure option-box menu.
+  - `RenderEffectsSlots.tb001(self, widget)` — Key Highlight Pulse — key a repeating glow on the highlight property (created if missing).
 
 <a id="mat_utils--shader_templates"></a>
 ### `mat_utils/shader_templates.py`
@@ -2855,11 +2865,11 @@ Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Cont
 
 A live viewport preview of a horizon rig: the artist drags the light and
 
-- **[`class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_preview.py#L166)** — Enable / disable the live horizon overlay on shadow planes (module doc).
+- **[`class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_preview.py#L162)** — Enable / disable the live horizon overlay on shadow planes (module doc).
   - `ShadowPreview.refusal(cls) -> str` *(class)* — Why the overlay cannot run in this session (empty when it can).
   - `ShadowPreview.is_enabled(cls) -> bool` *(class)*
   - `ShadowPreview.status(cls) -> str` *(class)* — ``"ok"``, or the reason the overlay stood down.
-  - `ShadowPreview.is_attached(cls, plane) -> bool` *(class)*
+  - `ShadowPreview.is_attached(cls, plane) -> bool` *(class)* — Whether *plane* stands behind the overlay: registered, its
   - `ShadowPreview.attached_planes(cls) -> List` *(class)*
   - `ShadowPreview.attach(cls, plane) -> None` *(class)* — Show the live preview on *plane* (a horizon rig's plane).
   - `ShadowPreview.detach(cls, plane) -> bool` *(class)* — Give the plane its visibility back;
@@ -2882,6 +2892,10 @@ Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.
   - `ShadowRig.ensure_source(cls, source_name=DEFAULT_SOURCE_NAME, position=(5.0, 5.0, 10.0))` *(class)* — The object named *source_name*, created as an Empty if absent.
   - `ShadowRig.get_or_create_shadow_source(self, position=(5.0, 5.0, 10.0), source_name=DEFAULT_SOURCE_NAME)` — Bind this rig to :meth:`ensure_source`'s object for *source_name*.
   - `ShadowRig.source_is_directional(obj)` *(static)* — Is *obj* projected along its direction (a ``SUN`` light) rather than
+  - `ShadowRig.source_size(cls, source)` *(class)* — The size the shadow gives *source*, the penumbra's cause: its
+  - `ShadowRig.source_softness(cls, source)` *(class)* — The Softness set on *source* -- world units, degrees for a sun --
+  - `ShadowRig.set_source_softness(cls, source, value)` *(class)* — Give *source* a Softness (added on first use;
+  - `ShadowRig.planes_lit_by(cls, source)` *(class)* — The shadow planes whose stamped source is *source*.
   - `ShadowRig.current_model(self)` — The projection model at the source's CURRENT position, for the stamped
   - `ShadowRig.create_shadow_plane(self)` — Create the unit quad on the XY ground (normal +Z), centred at the footprint, with
   - `ShadowRig.create_silhouette_texture(self, size=512, axis='auto', recursive=True, path=None, *, refit=True, source_size=None, uniform_alpha=True, falloff_power=0.8, vertical_weight=0.3, blur_amount=1.0)` — Rasterize the targets' shadow — their evaluated geometry projected onto the ground
@@ -2901,32 +2915,42 @@ Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.
   - `ShadowRig.from_plane(cls, plane)` *(class)* — A rig instance re-attached to an existing *plane* via its stamps, or None when the
   - `ShadowRig.set_source(self, source_name, position=(5.0, 5.0, 10.0), size=None)` — Re-point this rig at another source — an existing object or light, or an empty to
   - `ShadowRig.rebuild(cls, plane, texture_res=None, recursive=None)` *(class)* — Tear a rig down and build it again from its own stamps — the same targets, source
-  - `ShadowRig.silhouette_is_stale(cls, plane)` *(class)* — Has the source moved past :attr:`_STALE_BEARING_DEG` from the direction the plane's
+  - `ShadowRig.silhouette_is_stale(cls, plane, *, degrees=None, distance=None)` *(class)* — Has the source moved past *degrees* (default :attr:`_STALE_BEARING_DEG`) from
+  - `ShadowRig.auto_recalculate(cls, on=True)` *(class)* — Follow Source: re-render a silhouette as soon as its source -- or its target
+  - `ShadowRig.auto_recalculate_enabled(cls)` *(class)* — Is Follow Source on?
+  - `ShadowRig.recalculate_stale(cls, planes=None)` *(class)* — Recalculate the silhouettes (of *planes*, default all) whose source moved past
   - `ShadowRig.refresh_silhouette(cls, planes=None, size=None, refit=None)` *(class)* — Re-rasterize shadow planes' silhouettes from their source's CURRENT position,
   - `ShadowRig.refresh_export_metadata(cls)` *(class)* — Republish the ``shadow_metadata`` channel on the ``data_export`` carrier
   - `ShadowRig.unit_scale()` *(static)* — Metres per scene linear unit (the record's ``unit_scale``): an
   - `ShadowRig.export_record(cls, plane)` *(class)* — One plane's ``shadow_metadata`` v2 record (the engine contract in
   - `ShadowRig.plane_type(cls, plane)` *(class)* — The rig type stamped on *plane* (``projected`` for a rig built
   - `ShadowRig.horizon_output_path(self)` — ``<base>_horizon.png`` beside the silhouette.
-  - `ShadowRig.bake_horizon(self, bins=None, size=None, path=None, *, only_if_changed=False)` — Bake the targets' coverage-aware horizon map
+  - `ShadowRig.bake_horizon(self, size=None, spans=None, path=None, *, only_if_changed=False)` — Bake the targets' height-field shadow map
   - `ShadowRig.plane_is_atlased(cls, plane)` *(class)* — True while the plane samples the shared silhouette atlas.
   - `ShadowRig.pack_atlas(cls, planes=None, *, gutter=None)` *(class)* — Pack the file's shadow tiles into one atlas per kind — every plane's
   - `ShadowRig.unpack_atlas(cls, planes=None)` *(class)* — Undo :meth:`pack_atlas` for *planes* (all when None): unit UVs, the
-  - `ShadowRig.create(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name=DEFAULT_SOURCE_NAME, recursive=True, mode='orbit', ground_height=0.0, rig_type='projected', horizon_bins=None, horizon_size=None)` *(class)* — Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``).
+  - `ShadowRig.create(cls, targets, light_pos=(5.0, 5.0, 10.0), texture_res=512, axis='auto', source_name=DEFAULT_SOURCE_NAME, recursive=True, mode='orbit', ground_height=0.0, rig_type='projected', horizon_size=None, horizon_spans=None)` *(class)* — Build a projected-shadow rig for ``targets`` (mirror of mayatk's ``ShadowRig.create``).
   - `ShadowRig.create_for_sources(cls, targets, sources, **kwargs)` *(class)* — One shadow rig per source — N lights cast N shadows (mirror of mayatk's).
   - `ShadowRig.create_horizon_for_sources(cls, targets, sources, **kwargs)` *(class)* — :meth:`create_for_sources` for the ``horizon`` rig type.
   - `ShadowRig.create_per_object(cls, targets, sources, **kwargs)` *(class)* — One rig per target per source — the panel's *Per object* planes.
-- **[`class ShadowRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L2397)** — Switchboard slot wiring for the Shadow Rig panel.
+- **[`class ShadowRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L2686)** — Switchboard slot wiring for the Shadow Rig panel.
   - `ShadowRigSlots.header_init(self, widget)` — Configure header help text.
   - `ShadowRigSlots.cmb_type_init(self, widget)` — A rig type the panel only plans for is listed but not selectable.
+  - `ShadowRigSlots.txt_source_init(self, widget)` — Source Name's option box: the two actions about the source --
   - `ShadowRigSlots.b003_init(self, widget)` — Recalculate Silhouette's option box: the deeper updates of an
   - `ShadowRigSlots.b002_init(self, widget)` — Bake to Keyframes' option box: Restore Expression, its inverse.
   - `ShadowRigSlots.prepare_operation(self, objects)` — Preview's one-shot precondition, run at enable outside the datablock snapshot:
   - `ShadowRigSlots.b001(self)` — Reset to Defaults — restore all UI widgets to their default values.
+  - `ShadowRigSlots.chk_follow_init(self, widget)` — Follow Source arms the engine's watcher from the box's (saved)
+  - `ShadowRigSlots.chk_follow(self, checked)` — Follow Source: re-render a silhouette as soon as its source -- or
+  - `ShadowRigSlots.s001_init(self, widget)` — Softness shows the file's value for the first Source Name -- its
+  - `ShadowRigSlots.s001(self, value)` — Softness: the diameter the shadow gives the source(s) named in
+  - `ShadowRigSlots.chk_horizon_preview_init(self, widget)` — The box mirrors the FILE, never a saved setting: checked while a
   - `ShadowRigSlots.chk_horizon_preview(self, checked)` — Live Horizon Preview: a viewport overlay on the horizon plane(s) the
   - `ShadowRigSlots.b002(self)` — Bake to Keyframes: bake the rig(s) the selection touches (or all) to keys over
   - `ShadowRigSlots.b003(self)` — Recalculate Silhouette: re-render the rig(s) the selection touches (or all)
-  - `ShadowRigSlots.b004(self)` — Source From Selection: the selected object(s) become the source(s).
+  - `ShadowRigSlots.source_from_selection(self)` — Source From Selection (Source Name's option box): the selected
+  - `ShadowRigSlots.reproject_sources(self)` — Reproject (Source Name's option box): re-render the silhouette of
   - `ShadowRigSlots.apply_source(self)` — Apply Source (Recalculate's option box): re-point the rig(s) the
   - `ShadowRigSlots.rebuild_rig(self)` — Rebuild Rig (Recalculate's option box): re-create the rig(s) the
   - `ShadowRigSlots.restore_expression(self)` — Restore Expression (Bake's option box): un-bake the rig(s) the

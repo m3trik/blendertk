@@ -18,6 +18,9 @@ Maya event          Blender backing
 ``SceneSaved``      ``bpy.app.handlers.save_post``
 ``timeChanged``     ``bpy.app.handlers.frame_change_post``
 ``SelectionChanged``  ``bpy.app.handlers.depsgraph_update_post`` (filtered by a selection diff)
+``DepsgraphUpdated``  ``bpy.app.handlers.depsgraph_update_post`` (every update; the callback
+                      decides what changed -- Maya's analogue is an OpenMaya attribute
+                      callback through ``add_om_callback``)
 ``Undo`` / ``Redo``   ``bpy.app.handlers.undo_post`` / ``redo_post``
 ==================  ==========================================================
 
@@ -61,6 +64,7 @@ _HANDLER_EVENTS: Dict[str, str] = {
     "SceneSaved": "save_post",
     "timeChanged": "frame_change_post",
     "SelectionChanged": "depsgraph_update_post",
+    "DepsgraphUpdated": "depsgraph_update_post",
     "Undo": "undo_post",
     "Redo": "redo_post",
 }

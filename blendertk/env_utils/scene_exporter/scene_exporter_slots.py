@@ -589,10 +589,7 @@ class SceneExporterSlots(SceneExporter):
         """
         if not widget.is_initialized:
             widget.restore_state = True
-        widget.add(
-            {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb", "USD": "usd"},
-            clear=True,
-        )
+        widget.add(dict(self.OUTPUT_FORMATS), clear=True)
 
     def cmb005_init(self, widget) -> None:
         """Init Texture Template (mirror of mayatk's ``cmb005_init``).
@@ -629,104 +626,25 @@ class SceneExporterSlots(SceneExporter):
                 widget.setItemData(index, description, QtCore.Qt.ToolTipRole)
 
     def b000(self) -> None:
-        """Export: run the scene export with the configured tasks and settings."""
+        """Export: run the scene export with the configured tasks and settings.
+
+        The panel's widgets are read into values and turned into the run
+        configuration by :meth:`run_config_from_values` -- the button's contract
+        written once (:class:`pythontk.ExportProfile`), shared with mayatk's
+        panel so the two cannot drift on what a row means.
+        """
         self.ui.txt003.clear()
-        task_params = {}
-        check_params = {}
-
-        for task_name, params in self.task_manager.task_definitions.items():
-            widget_type = params.get("widget_type", "QCheckBox")
-            object_name = params.get(
-                "object_name", self.sb.convert_to_legal_name(task_name)
-            )
-            value_method = params.get("value_method")
-
-            widget = getattr(self.ui, object_name, None)
-
-            if not value_method:
-                value_method = (
-                    "isChecked" if widget_type == "QCheckBox" else "currentData"
-                )
-
-            if widget and hasattr(widget, value_method):
-                value = getattr(widget, value_method)()
-                task_params[task_name] = value
-
-        for check_name, params in self.task_manager.check_definitions.items():
-            widget_type = params.get("widget_type", "QCheckBox")
-            object_name = params.get(
-                "object_name", self.sb.convert_to_legal_name(check_name)
-            )
-            value_method = params.get("value_method")
-
-            widget = getattr(self.ui, object_name, None)
-
-            if not value_method:
-                value_method = (
-                    "isChecked" if widget_type == "QCheckBox" else "currentData"
-                )
-
-            if widget and hasattr(widget, value_method):
-                value = getattr(widget, value_method)()
-                check_params[check_name] = value
-
-        # Texture template: the ``convert_textures`` Tasks row (``cmb005``),
-        # already collected above by the definition loop. Mirror it onto the
-        # check half here — the gate has no row of its own. The ONE
-        # definition both pipeline hooks reference. Folded BEFORE the override
-        # filter so "override checks" keeps the conversion but skips the gate.
-        texture_template = task_params.get("convert_textures")
-        if texture_template:
-            check_params["check_material_compatibility"] = texture_template
-
-        # Optimize Textures (one combo, mirror of mayatk): its value carries
-        # the pass switch AND the size ceiling — decomposed here into the two
-        # inputs the engine has always taken. The ceiling (an int, or the
-        # template-budget sentinel) rides the tasks payload as
-        # ``texture_max_size``, which perform_export pops into the per-run
-        # mode, so headless callers' explicit key keeps working unchanged.
-        # The pass then rides cmb005's template when one is selected — the
-        # template's per-map-type output spec drives container/bit depth, its
-        # budget stays advisory unless the ceiling half asks for it — else it
-        # is the generic per-map-type pass (True). Folded BEFORE the override
-        # filter for the same reason as the template: "override checks" keeps
-        # the optimization, skips the gate. Where both land (export copies vs
-        # the scene's files) is the Texture Output combo, collected above as
-        # the ``texture_write_back`` flag perform_export pops.
-        optimize_choice = task_params.get("optimize_textures")
-        if optimize_choice:
-            if optimize_choice is not True:
-                task_params["texture_max_size"] = optimize_choice
-            optimize_value = texture_template or True
-            task_params["optimize_textures"] = optimize_value
-            check_params["check_texture_optimization"] = optimize_value
-
-        override = self.ui.b009.isChecked()
-
-        if override:
-            task_params = {k: v for k, v in task_params.items() if v}
-            check_params = {}
-        else:
-            task_params = {k: v for k, v in task_params.items() if v}
-            check_params = {k: v for k, v in check_params.items() if v}
-
-        # Ignore Groups (mirror of mayatk): the match mode lives on the row's
-        # option-box toggle rather than a row of its own, so the value goes out
-        # as the kwargs dict the task dispatcher unpacks instead of a bare
-        # string (which ``ignore_groups`` still accepts, at its insensitive
-        # default). Folded AFTER the falsy filter above — a dict is always
-        # truthy, so folding earlier would keep an empty field in the payload
-        # and dispatch a no-op task that still counts toward the task total.
-        if "ignore_groups" in task_params:
-            task_params["ignore_groups"] = {
-                "names": task_params["ignore_groups"],
-                "case_sensitive": self._ignore_groups_case_sensitive(),
-            }
-
-        self.logger.debug(f"Task parameters: {task_params}")
-        self.logger.debug(f"Check parameters: {check_params}")
-
-        export_mode = task_params.pop("export_visible_objects", "visible")
+        tasks_def, checks_def = self._definition_tables()
+        values = ptk.ExportProfile.read_values(self.ui, tasks_def, checks_def)
+        values["cmb004"] = self.ui.cmb004.currentData()
+        config = self.run_config_from_values(
+            values,
+            override_checks=self.ui.b009.isChecked(),
+            ignore_groups_case_sensitive=self._ignore_groups_case_sensitive(),
+        )
+        export_tasks = config["tasks"]
+        export_mode = config["export_mode"]
+        self.logger.debug(f"Run configuration: {config}")
 
         def objects_to_export():
             import bpy
@@ -734,9 +652,6 @@ class SceneExporterSlots(SceneExporter):
             from blendertk.node_utils.data_nodes import DataNodes
 
             if export_mode == "selected":
-                # data_internal is an ordinary, fully-selectable Empty (no hide_select) -- a
-                # plain "Select All" before an export-selected workflow would otherwise sweep
-                # its bake-session manifest into the export object set.
                 return [
                     o for o in btk.selected_objects() if o.name != DataNodes.INTERNAL
                 ]
@@ -744,9 +659,6 @@ class SceneExporterSlots(SceneExporter):
                 return [o for o in bpy.context.scene.objects if o.type == "MESH"]
             else:  # "visible" (also the fallback for any unknown mode)
                 return btk.get_visible_geometry()
-
-        export_tasks = {**task_params, **check_params}
-        export_tasks["output_format"] = self.ui.cmb004.currentData()
 
         # Success/failure is otherwise surfaced via the log panel (self.logger
         # routes there); the return value is read only to disarm b009 below.
@@ -765,7 +677,7 @@ class SceneExporterSlots(SceneExporter):
                 objects=objects_to_export,
                 export_dir=self.ui.txt000.text(),
                 preset_name=self.ui.cmb000.currentData(),
-                export_visible=(export_mode != "selected"),
+                export_visible=config["export_visible"],
                 output_name=self.ui.txt001.text(),
                 name_regex=self.ui.txt002.text(),
                 timestamp=self.ui.chk004.isChecked(),

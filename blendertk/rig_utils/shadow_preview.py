@@ -57,12 +57,12 @@ __all__ = ["ShadowPreview"]
 _PARAMS_STRUCT = """struct ShParams
 {
     vec4 origin;      // xyz the contact origin (world), w the ground height in the frame
-    vec4 axisA;       // xyz, w = bins
-    vec4 axisB;       // xyz, w = cols
-    vec4 axisUp;      // xyz, w = layers
+    vec4 axisA;       // xyz, w = footprint pixels per side (S)
+    vec4 axisB;       // xyz, w = solid spans per column (K)
+    vec4 axisUp;      // xyz, w = pyramid levels
     vec4 source;      // xyz world; w 1 = position, 0 = the direction it shines
-    vec4 sourceSize;  // x diameter, y angular diameter, z tileW, w tileH
-    vec4 range;       // rMin, rMax, maxStretch, opacity * intensity
+    vec4 sourceSize;  // x diameter, y angular diameter, z height scale, w opacity * intensity
+    vec4 bounds;      // the footprint in the frame: a0, a1, b0, b1
     vec4 rect;        // the tile block inside its image: sx, sy, ox, oy
 };
 """
@@ -83,18 +83,15 @@ void main()
 _FRAGMENT_HEAD = """
 #define SH_ROWS_FROM_BOTTOM {rows_from_bottom}
 
-vec4 SH_Fetch(int col, int row, int xi, int yi)
+vec4 SH_Fetch(int tile, int xi, int yi)
 {{
     ivec2 size = textureSize(horizonMap, 0);
-    int tileW = int(params.sourceSize.z + 0.5);
-    int tileH = int(params.sourceSize.w + 0.5);
-    int cols = int(params.axisB.w + 0.5);
-    int rows = (int(params.axisUp.w + 0.5) * int(params.axisA.w + 0.5) + cols - 1) / cols;
-    int px = int(params.rect.z * float(size.x) + 0.5) + col * tileW + xi;
+    int S = int(params.axisA.w + 0.5);
+    int px = int(params.rect.z * float(size.x) + 0.5) + tile * S + xi;
 #if SH_ROWS_FROM_BOTTOM
-    int py = int(params.rect.w * float(size.y) + 0.5) + (rows - 1 - row) * tileH + (tileH - 1 - yi);
+    int py = int(params.rect.w * float(size.y) + 0.5) + (S - 1 - yi);
 #else
-    int py = int((1.0 - params.rect.w - params.rect.y) * float(size.y) + 0.5) + row * tileH + yi;
+    int py = int((1.0 - params.rect.w - params.rect.y) * float(size.y) + 0.5) + yi;
 #endif
     return texelFetch(horizonMap, ivec2(px, py), 0);
 }}
@@ -103,13 +100,12 @@ vec4 SH_Fetch(int col, int row, int xi, int yi)
 _FRAGMENT_MAIN = """
 void main()
 {
-    ShGrid g = ShMakeGrid(
+    ShField g = ShMakeField(
         int(params.axisA.w + 0.5), int(params.axisB.w + 0.5), int(params.axisUp.w + 0.5),
-        int(params.sourceSize.z + 0.5), int(params.sourceSize.w + 0.5),
-        params.range.x, params.range.y, params.range.z, params.origin.w);
+        params.bounds, params.sourceSize.z, params.origin.w);
     float a = ShAlpha(g, world, params.origin.xyz, params.axisA.xyz, params.axisB.xyz,
                       params.axisUp.xyz, params.source, params.sourceSize.xy);
-    fragColor = vec4(0.0, 0.0, 0.0, a * params.range.w);
+    fragColor = vec4(0.0, 0.0, 0.0, a * params.sourceSize.w);
 }
 """
 
@@ -204,7 +200,13 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
     # ------------------------------------------------------------------- state
     @classmethod
     def is_attached(cls, plane) -> bool:
-        return cls.is_enabled() and plane.name in cls._planes
+        """Whether *plane* stands behind the overlay: registered, its
+        visibility borrowed. Independent of the draw handler on purpose --
+        ``attached_planes`` and ``detach`` read the same registry, and a
+        delete or rebuild that asked here while the handler was down (a
+        stood-down overlay, a headless session) left the plane hidden and
+        registered for an object that no longer existed."""
+        return plane.name in cls._planes
 
     @classmethod
     def attached_planes(cls) -> List:
@@ -527,7 +529,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         else:
             src = [0.0, 0.0, -1.0, 0.0]  # no source: noon
         rect = horizon.get("rect") or [1.0, 1.0, 0.0, 0.0]
-        tile = horizon.get("tile") or [1, 1]
+        bounds = horizon.get("bounds") or [-1.0, 1.0, -1.0, 1.0]
         fade = float(plane.get(ShadowRig.OPACITY_ATTR, 1.0)) * float(
             plane.get("shadowIntensity", 1.0)
         )
@@ -535,21 +537,18 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
             *origin,
             ground,
             *a,
-            float(horizon.get("bins", 1)),
+            float(horizon.get("size", ptk.ShadowHorizon.DEFAULT_SIZE)),
             *b,
-            float((horizon.get("layout") or [1, 1])[0]),
+            float(horizon.get("spans", ptk.ShadowHorizon.DEFAULT_SPANS)),
             *up,
-            float(horizon.get("layers", ptk.ShadowHorizon.LAYERS)),
+            float(horizon.get("levels", 0)),
             *src,
             diameter,
             angle,
-            float(tile[0]),
-            float(tile[1]),
-            float(horizon.get("r_min", 0.1)),
-            float(horizon.get("r_max", 1.0)),
-            # The BAKE's cot scale, never the plane's live placement cap.
-            float(horizon.get("max_stretch", ptk.ShadowProjection.DEFAULT_MAX_STRETCH)),
+            # The map's own height scale, never anything of the plane's.
+            float(horizon.get("height_scale", 1.0)),
             fade,
+            *[float(v) for v in bounds],
             *[float(v) for v in rect],
         ]
         return params, image

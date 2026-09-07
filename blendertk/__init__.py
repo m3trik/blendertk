@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.87"
+__version__ = "0.5.88"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -222,8 +222,9 @@ DEFAULT_INCLUDE = {
     "mat_utils.image_to_plane._image_to_plane": [
         "ImageToPlane",
     ],
-    # Per-object render opacity — engine + co-located panel (``RenderOpacitySlots`` discovered by the
-    # handler, not registered). Mirror of mayatk's ``mat_utils.render_opacity`` subpackage.
+    # Per-object render effects — engine + co-located panel (``RenderEffectsSlots``
+    # discovered by the handler, not registered). Mirror of mayatk's
+    # ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity.render_effects": ["RenderEffects"],
     # One-release alias of RenderEffects (deprecated import path).
     "mat_utils.render_opacity._render_opacity": [

@@ -30,7 +30,8 @@ import pythontk as ptk
 
 
 class RenderEffects(ptk.LoggingMixin):
-    """Per-object opacity: keyable ``opacity`` prop + Principled-Alpha driver + visibility mirror."""
+    """Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
+    to render visibility) and the ``highlight`` prop with its colour."""
 
     ATTR_NAME = "opacity"
     #: The highlight channel: an additive emissive intensity (0-1) plus its
@@ -39,6 +40,10 @@ class RenderEffects(ptk.LoggingMixin):
     HIGHLIGHT_ATTR = "highlight"
     HIGHLIGHT_COLOR_ATTR = "highlightColor"
     CHANNELS = ("opacity", "highlight")
+    #: The fcurve data paths of every render-effect property (the channels
+    #: and the highlight colour) -- the mirror of mayatk's ``ChannelSpec.attrs``,
+    #: what the shot system reads as content beside the transform channels.
+    PROP_PATHS = tuple(f'["{n}"]' for n in CHANNELS + (HIGHLIGHT_COLOR_ATTR,))
     #: Custom property stamping a transient curve-proxy Empty
     #: (``ptk.MeshConvert.CURVE_PROXY_MARKER``): the GLB conversion strips
     #: nodes carrying it and the Unity importer rebinds and deletes them.
@@ -100,26 +105,6 @@ class RenderEffects(ptk.LoggingMixin):
             except (RuntimeError, ReferenceError, ValueError):
                 pass
 
-    @staticmethod
-    def _refresh_drivers(node_trees):
-        """Force-recompile the Alpha drivers (script-built-driver stale-compile gotcha: a freshly
-        built driver first evaluates with an incomplete variable set → 0; settle the depsgraph, then
-        re-assign each expression). Mirror of ``RigUtils.refresh_drivers`` for material node trees.
-
-        No-op on an empty list — a spurious ``view_layer.update()`` rebuilds the depsgraph and can
-        *re-stale* an already-compiled cross-datablock driver (material Alpha ← object prop) that we
-        then never re-assign, so only update when there is something to refresh."""
-        if not node_trees:
-            return
-        import bpy
-
-        bpy.context.view_layer.update()
-        for nt in node_trees:
-            ad = getattr(nt, "animation_data", None)
-            for d in ad.drivers if ad else ():
-                d.driver.expression = d.driver.expression
-
-    # ------------------------------------------------------------------ visibility-key queries
     @classmethod
     def objects_with_visibility_keys(cls, objects) -> list:
         """The subset of *objects* that already have keyframes on render visibility."""
@@ -136,11 +121,14 @@ class RenderEffects(ptk.LoggingMixin):
         delete_visibility_keys: bool = False,
         channel: str = "opacity",
     ):
-        """Add the ``opacity`` prop to *objects* and drive each material's Principled Alpha from it.
+        """Add the channel's prop to *objects* (or remove it).
 
-        ``mode`` is accepted for mayatk API parity ("attribute"/"material" behave identically in
-        Blender; "remove" delegates to :meth:`remove`). Objects with existing visibility keys are
-        skipped with a warning unless *delete_visibility_keys* is True (then their vis keys are cut).
+        ``mode`` mirrors mayatk: ``"attribute"`` adds the prop, ``"remove"``
+        delegates to :meth:`remove`, and ``"material"`` is DEPRECATED (2026-09-05,
+        one release) -- the material drivers that showed the channel in the
+        viewport copied a shared material per object and were retired; it is
+        the attribute mode with a warning. Objects with existing visibility keys
+        are skipped with a warning unless *delete_visibility_keys* is True.
         """
 
         objects = cls._resolve(objects)
@@ -162,87 +150,33 @@ class RenderEffects(ptk.LoggingMixin):
                     "Keys' or remove them manually before applying opacity."
                 )
 
-        cls.remove(objects)  # always clean prior state first
+        if mode == "material":
+            cls._warn_preview_retired()
+        cls.remove(objects)  # always clean prior state first (legacy drivers too)
         if mode == "remove":
             return {}
 
         results = {}
-        node_trees = []
         for obj in objects:
             if channel == cls.HIGHLIGHT_ATTR:
                 cls._ensure_highlight_props(obj)
-                node_trees.extend(cls._drive_material_emission(obj))
             else:
                 cls._ensure_opacity_prop(obj, 1.0)
-                node_trees.extend(cls._drive_material_alpha(obj))
             results[obj.name] = {channel: True}
-        cls._refresh_drivers(
-            node_trees
-        )  # post-build recompile (script-built driver gotcha)
         return results
 
     @classmethod
-    def _drive_material_alpha(cls, obj):
-        """Single-user each Principled material on *obj* and drive its Alpha from ``opacity``.
-
-        Returns the list of material node trees wired (for a post-build driver refresh). Objects
-        with no Principled material get the prop but no viewport feedback (the prop still exports) —
-        mirror of Maya's attribute-only objects.
-        """
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
-        slots = getattr(obj.data, "materials", None)
-        if not slots:
-            return []
-        wired = []
-        for i, mat in enumerate(slots):
-            if mat is None:
-                continue
-            node = _MatUtilsInternal._principled_node(mat)
-            if node is None:
-                continue
-            if (
-                mat.users > 1
-            ):  # shared datablock -> per-object copy so opacity is per-object
-                mat = mat.copy()
-                obj.data.materials[i] = mat
-                node = _MatUtilsInternal._principled_node(mat)
-            mat.use_nodes = True
-            cls._set_blend(mat)
-            cls._alpha_driver(mat, node, obj)
-            wired.append(mat.node_tree)
-        return wired
-
-    @staticmethod
-    def _set_blend(mat):
-        """Legacy-EEVEE alpha-blend knobs (EEVEE-Next drops them — alpha is socket-driven)."""
-        for attr, val in (("blend_method", "BLEND"), ("shadow_method", "HASHED")):
-            try:
-                setattr(mat, attr, val)
-            except (AttributeError, TypeError):
-                pass
-
-    @classmethod
-    def _alpha_driver(cls, mat, node, obj):
-        """Driver: material Alpha ← obj['opacity'] (re-entrant)."""
-        nt = mat.node_tree
-        path = node.inputs["Alpha"].path_from_id("default_value")
-        try:
-            nt.driver_remove(path)
-        except (TypeError, RuntimeError):
-            pass
-        fc = nt.driver_add(path)
-        drv = fc.driver
-        drv.type = "SCRIPTED"
-        var = drv.variables.new()
-        var.name = "opacity"
-        var.type = "SINGLE_PROP"
-        var.targets[0].id = obj
-        var.targets[0].data_path = f'["{cls.ATTR_NAME}"]'
-        drv.expression = "opacity"
-        return fc
-
-    # ------------------------------------------------------------------ highlight channel
+    def _warn_preview_retired(cls):
+        """One line, once per session: the in-scene preview is gone, and why."""
+        if getattr(cls, "_preview_warned", False):
+            return
+        cls._preview_warned = True
+        cls.logger.warning(
+            "The viewport material preview was retired (2026-09-05): it copied "
+            "the authored material per object and cost every export a restore "
+            "step. Keys are written as before; preview the deliverable with the "
+            "WebXR push."
+        )
 
     @classmethod
     def _ensure_highlight_props(cls, obj, color=(0.2, 0.5, 1.0)):
@@ -263,73 +197,6 @@ class RenderEffects(ptk.LoggingMixin):
                 )
             except (AttributeError, TypeError, KeyError):
                 pass
-
-    @classmethod
-    def _drive_material_emission(cls, obj):
-        """Single-user each Principled material on *obj* and drive its emission from
-        ``highlight`` (strength) and ``highlightColor`` (colour) -- the additive
-        highlight the GLB route writes to ``emissiveFactor`` and Unity adds to
-        ``_EmissionColor``. Returns the node trees wired (for a driver refresh)."""
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
-        slots = getattr(obj.data, "materials", None)
-        if not slots:
-            return []
-        wired = []
-        for i, mat in enumerate(slots):
-            if mat is None:
-                continue
-            node = _MatUtilsInternal._principled_node(mat)
-            if node is None:
-                continue
-            if mat.users > 1:  # shared datablock -> per-object copy
-                mat = mat.copy()
-                obj.data.materials[i] = mat
-                node = _MatUtilsInternal._principled_node(mat)
-            mat.use_nodes = True
-            cls._emission_drivers(mat, node, obj)
-            wired.append(mat.node_tree)
-        return wired
-
-    @classmethod
-    def _emission_drivers(cls, mat, node, obj):
-        """Drivers: Emission Strength <- obj['highlight']; Emission Color.rgb <- obj['highlightColor']."""
-        nt = mat.node_tree
-        strength = node.inputs.get("Emission Strength")
-        color = node.inputs.get("Emission Color")
-        made = []
-        if strength is not None:
-            path = strength.path_from_id("default_value")
-            try:
-                nt.driver_remove(path)
-            except (TypeError, RuntimeError):
-                pass
-            fc = nt.driver_add(path)
-            var = fc.driver.variables.new()
-            var.name = "highlight"
-            var.type = "SINGLE_PROP"
-            var.targets[0].id = obj
-            var.targets[0].data_path = f'["{cls.HIGHLIGHT_ATTR}"]'
-            fc.driver.type = "SCRIPTED"
-            fc.driver.expression = "highlight"
-            made.append(fc)
-        if color is not None:
-            path = color.path_from_id("default_value")
-            for index in range(3):
-                try:
-                    nt.driver_remove(path, index)
-                except (TypeError, RuntimeError):
-                    pass
-                fc = nt.driver_add(path, index)
-                var = fc.driver.variables.new()
-                var.name = "c"
-                var.type = "SINGLE_PROP"
-                var.targets[0].id = obj
-                var.targets[0].data_path = f'["{cls.HIGHLIGHT_COLOR_ATTR}"][{index}]'
-                fc.driver.type = "SCRIPTED"
-                fc.driver.expression = "c"
-                made.append(fc)
-        return made
 
     @classmethod
     def _remove_emission_drivers(cls, obj):
@@ -365,27 +232,46 @@ class RenderEffects(ptk.LoggingMixin):
         period=86,
         bright_fraction=0.59,
         ramp_fraction=0.25,
+        lead_in=None,
+        lead_out=None,
         color=None,
         auto_create=True,
         channel="highlight",
+        preview=None,
+        delete_visibility_keys=False,
+        whole_frames=True,
     ):
         """Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
 
         Mirror of mayatk's ``RenderEffects.key_pulse``: four LINEAR keys per
         cycle (bright hold, ramp down, dim hold, ramp up), because the published
         ramp is read linearly. The defaults are the cadence measured on the
-        WebXR reference at 30 fps. Returns the keyed objects' names.
+        WebXR reference at 30 fps. Channel creation is owned here too (see
+        :meth:`_ensure_channel`). *preview* is DEPRECATED and ignored (one
+        release): the driver preview was retired 2026-09-05.
+
+        The train is bracketed by dim keys at *start* and *end*, because an
+        F-Curve holds its first key value backwards and its last forwards: a
+        pulse that merely BEGAN bright glowed for the whole timeline before it.
+        *lead_in* / *lead_out* are the frames each bracket ramp takes; None
+        takes the cycle's own ramp, so the ends match every interior
+        transition, and 0 cuts as hard as the floor allows (one frame
+        under *whole_frames*).
+
+        *whole_frames* (the default) snaps every key to a whole frame and
+        widens the brackets to :attr:`WHOLE_FRAME_GAP_MIN`; the cycle itself
+        still advances by the exact *period*, so the cadence is kept. Mirror of
+        mayatk's twin.
+
+        Returns the keyed objects' names.
         """
         objects = cls._resolve(objects)
+        start, end = cls._frames(whole_frames, start, end)
         if not objects or period <= 0 or end <= start:
             return []
-        if auto_create:
-            node_trees = []
-            for o in objects:
-                if cls.HIGHLIGHT_ATTR not in o:
-                    cls._ensure_highlight_props(o)
-                    node_trees.extend(cls._drive_material_emission(o))
-            cls._refresh_drivers(node_trees)
+        cls._ensure_channel(
+            objects, cls.HIGHLIGHT_ATTR, auto_create, preview, delete_visibility_keys
+        )
         ramp = max(0.0, min(0.5, ramp_fraction)) * period
         bright = max(0.0, min(1.0, bright_fraction)) * period
         bright_hold = max(0.0, bright - ramp)
@@ -396,6 +282,11 @@ class RenderEffects(ptk.LoggingMixin):
             (bright_hold + ramp, 0.0),
             (bright_hold + ramp + dim_hold, 0.0),
         ]
+        gap_min = cls.WHOLE_FRAME_GAP_MIN if whole_frames else cls.PULSE_GAP_MIN
+        head, tail = cls._pulse_gaps(start, end, ramp, lead_in, lead_out, gap_min)
+        train_start, train_end = cls._frames(
+            whole_frames, float(start) + head, float(end) - tail
+        )
         path = f'["{cls.HIGHLIGHT_ATTR}"]'
         keyed = []
         for obj in objects:
@@ -403,20 +294,35 @@ class RenderEffects(ptk.LoggingMixin):
                 continue
             fc = cls._fcurve(obj, path)
             if fc is not None:
-                for kp in [k for k in fc.keyframe_points if start <= k.co[0] <= end]:
-                    fc.keyframe_points.remove(kp)
-            t0 = float(start)
+                # Highest index first, re-fetched each time: a removal shifts the
+                # array, so a held KeyframePoint reference goes stale (RuntimeError
+                # 'Keyframe not in F-Curve' when re-keying over an existing pulse).
+                hits = [
+                    i
+                    for i, k in enumerate(fc.keyframe_points)
+                    if start <= k.co[0] <= end
+                ]
+                for i in reversed(hits):
+                    fc.keyframe_points.remove(fc.keyframe_points[i])
+            cls._set_key(obj, path, start, 0.0, "LINEAR")  # backward hold is dim
+            t0 = train_start
             last = None
-            while t0 < end:
+            while t0 < train_end:
                 for offset, value in cycle:
-                    t = t0 + offset
-                    if t > end:
+                    # The cycle advances unrounded; only the key itself snaps,
+                    # so a whole-frame train keeps the asked-for cadence
+                    # instead of accumulating the rounding error.
+                    (t,) = cls._frames(whole_frames, t0 + offset)
+                    if t > train_end:
                         break
                     cls._set_key(obj, path, t, value, "LINEAR")
                     last = value
                 t0 += period
+            # The train's last value at the cut, so the trail-out falls over the
+            # gap it was given rather than over the rest of the cycle it cut.
             if last is not None:
-                cls._set_key(obj, path, end, last, "LINEAR")
+                cls._set_key(obj, path, train_end, last, "LINEAR")
+            cls._set_key(obj, path, end, 0.0, "LINEAR")  # ...forward hold likewise
             if color is not None:
                 obj[cls.HIGHLIGHT_COLOR_ATTR] = [float(c) for c in color[:3]]
             keyed.append(obj.name)
@@ -424,44 +330,37 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def preview(cls, objects=None, channel="highlight", enabled=True):
-        """Bind (or unbind) a channel's material drivers for lookdev.
-
-        In Blender the material wiring IS the preview (no attribute/material
-        split), so ``enabled`` re-runs the driver setup and ``False`` removes the
-        drivers while keeping the prop and its keys.
-        """
+        """DEPRECATED (one release). ``enabled=False`` removes the material drivers
+        a scene saved with the old preview still carries; ``True`` warns and does
+        nothing -- the prop and its keys are the whole authoring now."""
         objects = cls._resolve(objects)
         if not objects:
             return {}
         if enabled:
-            node_trees = []
-            for o in objects:
-                if channel == cls.HIGHLIGHT_ATTR:
-                    cls._ensure_highlight_props(o)
-                    node_trees.extend(cls._drive_material_emission(o))
-                else:
-                    cls._ensure_opacity_prop(o)
-                    node_trees.extend(cls._drive_material_alpha(o))
-            cls._refresh_drivers(node_trees)
-            return {o.name: {channel: True} for o in objects}
+            cls._warn_preview_retired()
+            return {}
         for o in objects:
-            if channel == cls.HIGHLIGHT_ATTR:
-                cls._remove_emission_drivers(o)
-            else:
-                from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
-                for mat in getattr(o.data, "materials", None) or []:
-                    node = _MatUtilsInternal._principled_node(mat) if mat else None
-                    if node is not None:
-                        try:
-                            mat.node_tree.driver_remove(
-                                node.inputs["Alpha"].path_from_id("default_value")
-                            )
-                        except (TypeError, RuntimeError):
-                            pass
+            cls._remove_legacy_drivers(o, channel)
         return {}
 
-    # ------------------------------------------------------------------ curve-proxy transport
+    @classmethod
+    def _remove_legacy_drivers(cls, obj, channel):
+        """Strip the retired preview's drivers for *channel* off *obj*'s materials."""
+        if channel == cls.HIGHLIGHT_ATTR:
+            cls._remove_emission_drivers(obj)
+            return
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
+        for mat in getattr(obj.data, "materials", None) or []:
+            node = _MatUtilsInternal._principled_node(mat) if mat else None
+            if node is None:
+                continue
+            try:
+                mat.node_tree.driver_remove(
+                    node.inputs["Alpha"].path_from_id("default_value")
+                )
+            except (TypeError, RuntimeError):
+                pass
 
     @classmethod
     def stage_export_proxies(cls):
@@ -538,7 +437,8 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def remove(cls, objects=None, mode=None, channel=None):
-        """Remove a channel's prop, its material drivers and its anim curves from *objects*.
+        """Remove a channel's prop and anim curves from *objects*, and heal the
+        retired preview's material drivers.
 
         *channel* ``None`` removes every channel; ``mode`` is accepted for mayatk
         API parity.
@@ -546,27 +446,15 @@ class RenderEffects(ptk.LoggingMixin):
         channels = cls.CHANNELS if channel is None else (channel,)
         if cls.HIGHLIGHT_ATTR in channels:
             for obj in cls._resolve(objects):
-                cls._remove_emission_drivers(obj)
+                cls._remove_legacy_drivers(obj, cls.HIGHLIGHT_ATTR)
                 cls._remove_fc(obj, cls._fcurve(obj, f'["{cls.HIGHLIGHT_ATTR}"]'))
                 for attr in (cls.HIGHLIGHT_ATTR, cls.HIGHLIGHT_COLOR_ATTR):
                     if attr in obj:
                         del obj[attr]
         if cls.ATTR_NAME not in channels:
             return
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
         for obj in cls._resolve(objects):
-            # Alpha drivers on this object's materials.
-            for mat in getattr(obj.data, "materials", None) or []:
-                node = _MatUtilsInternal._principled_node(mat) if mat else None
-                if node is None:
-                    continue
-                try:
-                    mat.node_tree.driver_remove(
-                        node.inputs["Alpha"].path_from_id("default_value")
-                    )
-                except (TypeError, RuntimeError):
-                    pass
+            cls._remove_legacy_drivers(obj, cls.ATTR_NAME)
             # Opacity + mirrored visibility anim curves.
             for dp in (f'["{cls.ATTR_NAME}"]', cls.VIS_PATH):
                 cls._remove_fc(obj, cls._fcurve(obj, dp))
@@ -574,6 +462,49 @@ class RenderEffects(ptk.LoggingMixin):
                 del obj[cls.ATTR_NAME]
 
     # ------------------------------------------------------------------ keying
+    #: The narrowest a pulse bracket may be: a gap of zero still needs its dim
+    #: key strictly BEFORE the train's first bright one, or the two collide on
+    #: one frame -- and Blender MERGES an inserted key into an existing one
+    #: within 0.01 frames, so the floor has to clear that threshold, not sit
+    #: on it. Mirror of mayatk's ``PULSE_GAP_MIN`` (and of ``_STEP_JUMP``).
+    PULSE_GAP_MIN = 0.05
+
+    #: The same floor for a whole-frame pulse (the default): a snapped bracket
+    #: has to be a whole frame wide, or it rounds onto the train key it exists
+    #: to stay clear of. Mirror of mayatk's twin.
+    WHOLE_FRAME_GAP_MIN = 1.0
+
+    @staticmethod
+    def _frames(whole, *times):
+        """*times* as floats, snapped to whole frames when *whole*.
+
+        Half-up (``ptk.MathUtils.round_value``) rather than :func:`round`,
+        whose banker's rounding would send two equal half-frames in one cycle
+        to different frames. Mirror of mayatk's twin.
+        """
+        return tuple(
+            float(ptk.MathUtils.round_value(t, mode="half_up")) if whole else float(t)
+            for t in times
+        )
+
+    @classmethod
+    def _pulse_gaps(cls, start, end, ramp, lead_in, lead_out, gap_min=None):
+        """``(head, tail)`` frames for a pulse's dim brackets, fitted to the window.
+
+        ``None`` takes the cycle's own *ramp*. The pair is held to half the
+        window so there is always as much pulse as bracket, and each is floored
+        at *gap_min* (:attr:`PULSE_GAP_MIN`). Mirror of mayatk's twin.
+        """
+        gap_min = cls.PULSE_GAP_MIN if gap_min is None else gap_min
+        head = ramp if lead_in is None else max(0.0, float(lead_in))
+        tail = ramp if lead_out is None else max(0.0, float(lead_out))
+        budget = (float(end) - float(start)) / 2.0
+        total = head + tail
+        if total > budget and total > 0:
+            scale = budget / total
+            head, tail = head * scale, tail * scale
+        return max(head, gap_min), max(tail, gap_min)
+
     @staticmethod
     def _set_key(obj, data_path, frame, value, interp, index=-1):
         """Set *value* then insert a keyframe at *frame* with the given interpolation."""
@@ -591,9 +522,9 @@ class RenderEffects(ptk.LoggingMixin):
                     kp.interpolation = interp
 
     @classmethod
-    def _resolve_auto_fade(cls, obj, reference_frame):
-        """True → fade-in, False → fade-out, from the most recent opacity key ≤ *reference_frame*."""
-        fc = cls._fcurve(obj, f'["{cls.ATTR_NAME}"]')
+    def _resolve_auto_fade(cls, obj, reference_frame, channel=None):
+        """True → fade-in, False → fade-out, from the most recent key of *channel* ≤ *reference_frame*."""
+        fc = cls._fcurve(obj, f'["{channel or cls.ATTR_NAME}"]')
         prev = None
         for kp in sorted(getattr(fc, "keyframe_points", []), key=lambda k: k.co[0]):
             if kp.co[0] <= reference_frame:
@@ -601,6 +532,35 @@ class RenderEffects(ptk.LoggingMixin):
             else:
                 break
         return True if prev is None else prev < 0.5
+
+    @classmethod
+    def _ensure_channel(
+        cls, objects, channel, auto_create, preview, delete_visibility_keys
+    ):
+        """Give *objects* the channel's prop (and its material drivers) before keying.
+
+        Mirror of mayatk's ``RenderEffects._ensure_channel``. Objects lacking the
+        prop get it; with *delete_visibility_keys* the opacity channel's create
+        path clears their render-visibility keys first, otherwise the keying
+        mirror writes over whatever is there -- NOT via :meth:`create`, whose
+        guard would raise. *preview* is the retired driver preview's kwarg:
+        honoured as a warning, nothing more.
+        """
+        if preview:
+            cls._warn_preview_retired()
+        ensure = (
+            cls._ensure_highlight_props
+            if channel == cls.HIGHLIGHT_ATTR
+            else cls._ensure_opacity_prop
+        )
+        if auto_create:
+            for o in objects:
+                if channel in o:
+                    continue
+                if delete_visibility_keys and channel == cls.ATTR_NAME:
+                    cls._remove_fc(o, cls._fcurve(o, cls.VIS_PATH))
+                    o.hide_render = False
+                ensure(o)
 
     @classmethod
     def key_fade(
@@ -611,47 +571,50 @@ class RenderEffects(ptk.LoggingMixin):
         direction="in",
         auto_create=True,
         tangent="LINEAR",
+        preview=None,
+        delete_visibility_keys=False,
+        channel="opacity",
+        whole_frames=True,
     ):
         """Key an opacity fade (linear) and mirror it to render visibility (stepped).
 
-        ``direction``: ``"in"`` (0→1), ``"out"`` (1→0), or ``"auto"`` (from the last opacity key).
+        ``direction``: ``"in"`` (0→1), ``"out"`` (1→0), or ``"auto"`` (from the last key).
+        Channel creation is owned here (see :meth:`_ensure_channel`). ``channel`` picks the prop
+        (mirror of mayatk's); only the opacity channel mirrors to render visibility.
+        *whole_frames* (the default) snaps the window to whole frames.
         Returns ``[(object_name, "in"|"out")]``.
         """
         objects = cls._resolve(objects)
         if not objects:
             cls.logger.warning("No objects selected.")
             return []
-        if auto_create:
-            # Set up the prop + Alpha driver directly — NOT via create(), which guards on existing
-            # visibility keys and would raise here (key_fade overwrites visibility anyway). Mirrors
-            # Maya, whose key_fade calls the unguarded attribute-mode create.
-            node_trees = []
-            for o in objects:
-                if cls.ATTR_NAME not in o:
-                    cls._ensure_opacity_prop(o)
-                    node_trees.extend(cls._drive_material_alpha(o))
-            cls._refresh_drivers(node_trees)
+        start, end = cls._frames(whole_frames, start, end)
+        cls._ensure_channel(
+            objects, channel, auto_create, preview, delete_visibility_keys
+        )
 
+        path = f'["{channel}"]'
         keyed = []
         for obj in objects:
-            if cls.ATTR_NAME not in obj:
+            if channel not in obj:
                 continue
             fade_in = (
-                cls._resolve_auto_fade(obj, start)
+                cls._resolve_auto_fade(obj, start, channel)
                 if direction == "auto"
                 else direction == "in"
             )
             start_val, end_val = (0.0, 1.0) if fade_in else (1.0, 0.0)
 
-            cls._set_key(obj, f'["{cls.ATTR_NAME}"]', start, start_val, tangent)
-            cls._set_key(obj, f'["{cls.ATTR_NAME}"]', end, end_val, tangent)
-            # Visibility mirror: hidden (hide_render=1) when opacity ≤ 0, else visible; stepped.
-            cls._set_key(
-                obj, cls.VIS_PATH, start, 0.0 if start_val > 0 else 1.0, "CONSTANT"
-            )
-            cls._set_key(
-                obj, cls.VIS_PATH, end, 0.0 if end_val > 0 else 1.0, "CONSTANT"
-            )
+            cls._set_key(obj, path, start, start_val, tangent)
+            cls._set_key(obj, path, end, end_val, tangent)
+            if channel == cls.ATTR_NAME:
+                # Visibility mirror: hidden (hide_render=1) when opacity ≤ 0, else visible; stepped.
+                cls._set_key(
+                    obj, cls.VIS_PATH, start, 0.0 if start_val > 0 else 1.0, "CONSTANT"
+                )
+                cls._set_key(
+                    obj, cls.VIS_PATH, end, 0.0 if end_val > 0 else 1.0, "CONSTANT"
+                )
             keyed.append((obj.name, "in" if fade_in else "out"))
         return keyed
 
@@ -677,13 +640,12 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def ensure_connections(cls, objects=None) -> None:
-        """Re-establish the Alpha driver on objects that have ``opacity`` but lost it (e.g. after a
-        material was reassigned). Idempotent; safe to call before keying."""
-        node_trees = []
-        for obj in cls._resolve(objects):
-            if cls.ATTR_NAME in obj:
-                node_trees.extend(cls._drive_material_alpha(obj))
-        cls._refresh_drivers(node_trees)
+        """Kept for mayatk API parity; there is no wiring to re-establish.
+
+        The prop IS the channel in Blender, and the material drivers that used
+        to shadow it were the retired preview. A no-op.
+        """
+        return None
 
     @classmethod
     def prepare_for_export(cls, objects=None) -> list:
@@ -834,10 +796,17 @@ class RenderEffects(ptk.LoggingMixin):
         metadata = cls._carrier_json("shot_metadata")
         from blendertk.env_utils.fbx_utils import FbxUtils
 
+        # The scene's own rate when the shots producer published none (a
+        # shot-less scene, or a hand-off that refreshes only this producer):
+        # without a rate the GLB appliers cannot place the frames in time and
+        # drop every track and ramp -- measured 2026-09-05 on the WebXR preview
+        # ("carry no frame rate ... not applied"; mayatk has done this since
+        # 2026-09-02).
+        fps = (metadata or {}).get("fps") or cls._scene_fps()
         text = json.dumps(
             ptk.MeshConvert.build_visibility_tracks(
                 tracks,
-                fps=(metadata or {}).get("fps"),
+                fps=fps,
                 clip_spans=ptk.MeshConvert.clip_spans(
                     cls._scene_key_frames(),
                     cls._carrier_json("fbx_takes") or [],
@@ -856,6 +825,14 @@ class RenderEffects(ptk.LoggingMixin):
             len(tracks),
         )
         return text
+
+    @staticmethod
+    def _scene_fps() -> float:
+        """The scene's playback rate (``fps / fps_base``)."""
+        import bpy
+
+        render = bpy.context.scene.render
+        return float(render.fps) / float(render.fps_base or 1.0)
 
     @staticmethod
     def _carrier_json(attr):

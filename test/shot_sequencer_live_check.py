@@ -485,12 +485,20 @@ try:
         {"Delete Key", "Lock Others", "Unlock All", "Move to Shot"} <= set(titles),
         f"{titles}",
     )
+    labels = (
+        ["---" if a.isSeparator() else a.text() for a in sub_menu.actions()]
+        if sub_menu is not None
+        else []
+    )
+    check(
+        "clip menu: Move to Shot leads with the neighbours, then the named shots",
+        labels[:2] == ["Previous Shot  (B)", "---"],
+        f"{labels}",
+    )
     check(
         "clip menu: Move to Shot lists the OTHER shots only",
-        sub_menu is not None
-        and len(sub_menu.actions()) == 2
-        and all("C" not in a.text().split("  ")[0] for a in sub_menu.actions()),
-        f"{sub_menu and [a.text() for a in sub_menu.actions()]}",
+        len(labels) == 4 and all("C" not in lab.split("  ")[0] for lab in labels[2:]),
+        f"{labels}",
     )
 
     # ---- shot combo helpers --------------------------------------------------------------------

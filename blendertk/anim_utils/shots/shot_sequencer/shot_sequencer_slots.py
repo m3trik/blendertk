@@ -1320,6 +1320,9 @@ class ShotSequencerController(
         chk_snap_keys = getattr(self.ui, "chk_snap_to_keys", None)
         if chk_snap_keys is not None:
             widget.snap_to_keys = bool(chk_snap_keys.isChecked())
+        chk_overlay = getattr(self.ui, "chk_shortcut_overlay", None)
+        if chk_overlay is not None:
+            widget.shortcut_overlay_visible = bool(chk_overlay.isChecked())
         spn_gap = getattr(self.ui, "spn_gap", None)
         if spn_gap is not None:
             stored_gap = self.sequencer.store.gap if self.sequencer else 0
@@ -1913,7 +1916,9 @@ class ShotSequencerController(
 
         # "Move to Shot" submenu — anim/audio clips moved as sequences.
         if self.sequencer:
-            seqs = self._clips_to_sequences(widget, selected_ids)
+            seqs = self._clips_to_sequences(
+                widget, selected_ids, include_read_only=True
+            )
             shots = self.sequencer.sorted_shots()
             if seqs and len(shots) > 1:
                 menu.addSeparator()
@@ -1925,59 +1930,114 @@ class ShotSequencerController(
 
                 move_menu = QtWidgets.QMenu(move_label, menu)
                 menu.addMenu(move_menu)
-                source_ids = {self.sequencer._source_shot_id_for(sq) for sq in seqs}
-                for sh in shots:
-                    if len(source_ids) == 1 and sh.shot_id in source_ids:
-                        continue  # all sequences already live here
-                    act = move_menu.addAction(
-                        f"{sh.name}  [{sh.start:.0f}–{sh.end:.0f}]"
-                    )
-                    act.triggered.connect(
-                        lambda _checked=False, sid=sh.shot_id: self._move_clips_to_shot(
-                            seqs, sid
-                        )
-                    )
+                self._populate_move_to_shot(move_menu, seqs)
 
-    def _clips_to_sequences(self, widget, clip_ids):
+    def _clips_to_sequences(self, widget, clip_ids, include_read_only=False):
         """Convert widget clip ids to unified sequence dicts.
 
-        Stepped (zero-duration) clips, read-only clips (non-active visible
-        shots) and single-attribute sub-row clips are skipped — a whole-object
-        sequence move would relocate EVERY attribute's keys in the span, not
-        just the one the user grabbed.  Duplicates (one segment spanning several
-        visible shots) are collapsed.
+        A stepped (zero-duration) clip is ONE key and moves as one (the
+        key-level ``"times"`` path); a single-attribute sub-row clip moves as
+        THAT attribute's sequence (``"attr"``).  Read-only clips (non-active
+        visible shots) are skipped unless *include_read_only*, which Move to
+        Shot passes -- the engine resolves each sequence's source shot itself.
+        Duplicates (one segment spanning several visible shots) are collapsed.
+        Mirrors mayatk.
         """
         seqs = []
         seen: set = set()
         for cid in clip_ids:
             clip = widget.get_clip(cid)
-            if clip is None or clip.data.get("read_only"):
+            if clip is None:
                 continue
-            if clip.data.get("is_stepped") or clip.data.get("attr_name"):
+            if clip.data.get("read_only") and not include_read_only:
                 continue
             start = clip.data.get("orig_start")
             end = clip.data.get("orig_end")
-            if start is None or end is None or end <= start:
+            if start is None or end is None:
                 continue
+            stepped = bool(clip.data.get("is_stepped"))
+            if end <= start and not stepped:
+                continue
+            attr = None
             if clip.data.get("is_audio"):
                 obj, kind = clip.data.get("audio_track_id"), "audio"
             else:
                 obj, kind = clip.data.get("obj"), "anim"
+                attr = clip.data.get("attr_name") or None
             if not obj:
                 continue
-            key = (kind, obj, round(start, 6), round(end, 6))
+            key = (kind, obj, attr, round(start, 6), round(end, 6))
             if key in seen:
                 continue
             seen.add(key)
-            seqs.append({"kind": kind, "obj": obj, "start": start, "end": end})
+            seq = {"kind": kind, "obj": obj, "start": start, "end": end}
+            if attr:
+                seq["attr"] = attr
+            if stepped:
+                seq["times"] = [float(start)]
+                seq["end"] = start
+            seqs.append(seq)
         return seqs
 
-    def _move_clips_to_shot(self, sequences, dest_shot_id):
+    #: The two moves an animator makes most: one shot along the sequence.
+    _RELATIVE_MOVES = (("Next Shot", "merge_next"), ("Previous Shot", "merge_prev"))
+
+    def _populate_move_to_shot(self, move_menu, seqs: list, noun: str = "clip"):
+        """Fill a Move to Shot submenu: the neighbours first, then every shot.
+
+        **Next Shot** and **Previous Shot** head the list so the common move --
+        nudging a selection one shot along the sequence -- is always in the
+        same place, whatever the shots are called.  They are relative to the
+        shot the selection lives in (the active shot when it spans several),
+        and each is listed only when that neighbour exists.  Below a
+        separator comes every shot by name and range, minus the one the whole
+        selection already occupies.
+
+        Parameters:
+            move_menu: The submenu to fill.
+            seqs: Sequence dicts to move (clips or key selections).
+            noun: What the footer counts afterwards -- ``"clip"`` or ``"key"``.
+        """
+        source_ids = {self.sequencer._source_shot_id_for(sq) for sq in seqs}
+        single = next(iter(source_ids)) if len(source_ids) == 1 else None
+        anchor = single if single is not None else self.active_shot_id
+        near = (
+            self._neighbour_shots(anchor)
+            if anchor is not None
+            else {"merge_prev": None, "merge_next": None}
+        )
+        entries = [
+            (f"{label}  ({near[key].name})", near[key].shot_id)
+            for label, key in self._RELATIVE_MOVES
+            if near[key] is not None
+        ]
+        if entries:
+            entries.append(None)  # separator
+        entries += [
+            (f"{sh.name}  [{sh.start:.0f}–{sh.end:.0f}]", sh.shot_id)
+            for sh in self.sequencer.sorted_shots()
+            if single is None or sh.shot_id != single
+        ]
+        for entry in entries:
+            if entry is None:
+                move_menu.addSeparator()
+                continue
+            label, shot_id = entry
+            act = move_menu.addAction(label)
+            act.triggered.connect(
+                lambda _checked=False, sid=shot_id: self._move_clips_to_shot(
+                    seqs, sid, noun=noun
+                )
+            )
+
+    def _move_clips_to_shot(self, sequences, dest_shot_id, noun: str = "clip"):
         """Run ``move_sequences_to_shot``, undoable, then refresh.
 
         Reports the outcome in the footer (mirror of mayatk): the move is a
         no-op whenever every selected sequence already lives in the
         destination — which used to look like the command silently failing.
+        *noun* is what the footer counts: a clip menu moves clips, a key menu
+        moves keys.
         """
         if self.sequencer is None or not sequences:
             self._set_footer(
@@ -2006,11 +2066,235 @@ class ShotSequencerController(
         self._sync_to_widget()
         self._sync_combobox()
         self._apply_view_playback_range()
-        n = len(movable)
+        n = (
+            sum(len(sq.get("times") or ()) for sq in movable)
+            if noun == "key"
+            else len(movable)
+        )
         self._set_footer(
-            f"Moved {n} clip{'s' if n != 1 else ''} to "
+            f"Moved {n} {noun}{'s' if n != 1 else ''} to "
             f"{dest.name if dest else dest_shot_id}"
         )
+
+    # -- key context menu (mirror of mayatk; Blender-idiomatic entries) -----
+
+    #: Handle types a key's context menu offers: ``(label, handle type)``.
+    _TANGENT_TYPES = (
+        ("Free", "FREE"),
+        ("Aligned", "ALIGNED"),
+        ("Vector", "VECTOR"),
+        ("Automatic", "AUTO"),
+        ("Auto Clamped", "AUTO_CLAMPED"),
+    )
+    #: Interpolation modes: ``(label, interpolation)``.
+    _INTERPOLATIONS = (
+        ("Constant", "CONSTANT"),
+        ("Linear", "LINEAR"),
+        ("Bezier", "BEZIER"),
+    )
+
+    def _key_targets(self, widget, key_groups: list) -> list:
+        """``[(obj, attr, [times], shot_id), ...]`` for a key selection."""
+        targets = []
+        for group in key_groups:
+            clip = widget.get_clip(group["clip_id"])
+            if clip is None or clip.data.get("read_only"):
+                continue
+            obj = clip.data.get("obj")
+            attr = clip.data.get("attr_name")
+            times = sorted(group.get("times") or [])
+            if not obj or not attr or not times:
+                continue
+            targets.append((obj, attr, times, clip.data.get("shot_id")))
+        return targets
+
+    @staticmethod
+    def _key_targets_to_sequences(targets: list) -> list:
+        """The key-level sequence dicts ``move_sequences_to_shot`` takes."""
+        return [
+            {
+                "kind": "anim",
+                "obj": obj,
+                "attr": attr,
+                "times": list(times),
+                "start": times[0],
+                "end": times[-1],
+            }
+            for obj, attr, times, _sid in targets
+        ]
+
+    def on_key_menu(self, menu, key_groups: list) -> None:
+        """Add the key actions to a key's context menu.
+
+        Handle types for both sides (Tangents), one side (In/Out), the
+        interpolation mode, Break / Unify (free vs aligned handles), and the
+        sequencer's own Move to Shot for exactly the selected keys, per
+        attribute.  The widget appends Delete.
+        """
+        widget = self._get_sequencer_widget()
+        if widget is None:
+            return
+        targets = self._key_targets(widget, key_groups)
+        if not targets:
+            return
+        from qtpy import QtWidgets
+
+        n = sum(len(t) for _o, _a, t, _s in targets)
+        suffix = f" ({n})" if n > 1 else ""
+
+        for label, sides in (
+            ("Tangents", ("in", "out")),
+            ("In Tangent", ("in",)),
+            ("Out Tangent", ("out",)),
+        ):
+            sub = QtWidgets.QMenu(label, menu)
+            menu.addMenu(sub)
+            for name, handle in self._TANGENT_TYPES:
+                act = sub.addAction(name)
+                act.triggered.connect(
+                    lambda _checked=False, h=handle, s=sides: self._set_key_tangents(
+                        targets, h, s
+                    )
+                )
+        interp = QtWidgets.QMenu("Interpolation", menu)
+        menu.addMenu(interp)
+        for name, mode in self._INTERPOLATIONS:
+            act = interp.addAction(name)
+            act.triggered.connect(
+                lambda _checked=False, m=mode: self._set_key_interpolation(targets, m)
+            )
+        act_break = menu.addAction(f"Break Tangents{suffix}")
+        act_break.triggered.connect(lambda: self._lock_key_tangents(targets, False))
+        act_unify = menu.addAction(f"Unify Tangents{suffix}")
+        act_unify.triggered.connect(lambda: self._lock_key_tangents(targets, True))
+
+        if self.sequencer:
+            seqs = self._key_targets_to_sequences(targets)
+            shots = self.sequencer.sorted_shots()
+            if seqs and len(shots) > 1:
+                menu.addSeparator()
+                move_menu = QtWidgets.QMenu(f"Move to Shot{suffix}", menu)
+                menu.addMenu(move_menu)
+                self._populate_move_to_shot(move_menu, seqs, noun="key")
+
+    def _set_key_tangents(self, targets: list, tangent: str, sides=("in", "out")):
+        """Set the handle type on the selected keys (one or both sides)."""
+
+        def apply(kp):
+            if "in" in sides:
+                kp.handle_left_type = tangent
+            if "out" in sides:
+                kp.handle_right_type = tangent
+
+        side = "" if len(sides) == 2 else f" {sides[0]}"
+        self._edit_key_tangents(targets, apply, f"{tangent.lower()}{side}")
+
+    def _set_key_interpolation(self, targets: list, mode: str) -> None:
+        """Set the interpolation mode of the selected keys."""
+
+        def apply(kp):
+            kp.interpolation = mode
+
+        self._edit_key_tangents(targets, apply, mode.lower())
+
+    def _lock_key_tangents(self, targets: list, lock: bool) -> None:
+        """Break (free handles) or unify (aligned handles) the selected keys."""
+        self._set_key_tangents(targets, "ALIGNED" if lock else "FREE")
+
+    @staticmethod
+    def place_dragged_handle(kp, side: str, dt: float, dv: float) -> None:
+        """Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
+
+        The preview's control points ARE the handles (``handle_left`` /
+        ``handle_right``), so the vector lands directly.  A computed handle
+        (auto, auto-clamped, vector) cannot hold a position -- ``update()``
+        re-derives it -- so the first drag makes it what the Graph Editor
+        would: ALIGNED, both sides, unless the other side is already FREE,
+        in which case the dragged side goes FREE too.  On an aligned key
+        the opposite handle is re-aimed along the new line, keeping its
+        length, which is what aligned means.
+        """
+        import math
+
+        co_t, co_v = float(kp.co[0]), float(kp.co[1])
+        dragged, other = (
+            ("handle_right", "handle_left")
+            if side == "out"
+            else ("handle_left", "handle_right")
+        )
+        d_type, o_type = dragged + "_type", other + "_type"
+        if getattr(kp, d_type) in ("AUTO", "AUTO_CLAMPED", "VECTOR"):
+            new = "FREE" if getattr(kp, o_type) == "FREE" else "ALIGNED"
+            setattr(kp, d_type, new)
+            if new == "ALIGNED":
+                setattr(kp, o_type, "ALIGNED")
+        setattr(kp, dragged, (co_t + dt, co_v + dv))
+        if getattr(kp, d_type) == "ALIGNED" and getattr(kp, o_type) == "ALIGNED":
+            ox, oy = getattr(kp, other)
+            length = math.hypot(float(ox) - co_t, float(oy) - co_v)
+            norm = math.hypot(dt, dv)
+            if norm > 1e-9 and length > 1e-9:
+                setattr(
+                    kp, other, (co_t - dt / norm * length, co_v - dv / norm * length)
+                )
+
+    def on_key_tangent_dragged(
+        self, clip_id: int, time: float, side: str, dt: float, dv: float
+    ) -> None:
+        """Write the handle a dragged tangent grab point asks for (see
+        :meth:`place_dragged_handle`); one undo step, selection kept."""
+        widget = self._get_sequencer_widget()
+        if widget is None:
+            return
+        targets = self._key_targets(widget, [{"clip_id": clip_id, "times": [time]}])
+        if not targets:
+            return
+        self._edit_key_tangents(
+            targets,
+            lambda kp: self.place_dragged_handle(kp, side, dt, dv),
+            f"{side} handle dragged",
+        )
+
+    def _edit_key_tangents(self, targets: list, apply, what: str) -> None:
+        """Run *apply* on every selected keyframe point, one undo step.
+
+        The rebuild that follows retires every key dot, so the selection is
+        put back by object/attribute/time afterwards -- the user is looking
+        at the handles they just changed, and they must stay selected to
+        show them.
+        """
+        widget = self._get_sequencer_widget()
+        if widget is None or not targets:
+            return
+        shot_id = next((sid for _o, _a, _t, sid in targets if sid is not None), None)
+        n = 0
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with CoreUtils.undo_chunk("Key tangents"):
+                for obj, attr, times, _sid in targets:
+                    for fc in ClipMotionMixin.curves_for_attr(obj, attr):
+                        kt = AnimUtils.key_times(fc)
+                        touched = False
+                        for t in times:
+                            i0, i1 = AnimUtils.window_indices(kt, t - 1e-3, t + 1e-3)
+                            for i in range(i0, i1):
+                                apply(fc.keyframe_points[i])
+                                touched = True
+                                n += 1
+                        if touched:
+                            fc.update()
+        finally:
+            self._syncing = was_syncing
+        self._sub_row_cache.clear()
+        self._sync_to_widget(shot_id=shot_id)
+        widget.select_keys(
+            [
+                {"data": {"obj": obj, "attr_name": attr}, "times": list(times)}
+                for obj, attr, times, _sid in targets
+            ]
+        )
+        self._set_footer(f"Tangents {what} on {n} key{'s' if n != 1 else ''}")
 
     def on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None:
         """Add domain-specific actions to a gap overlay's context menu (none by default)."""
@@ -2580,6 +2864,8 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         ("keys_batch_moved", "on_keys_batch_moved"),
         ("keys_deleted", "on_keys_deleted"),
         ("key_selection_changed", "on_key_selection_changed"),
+        ("key_menu_requested", "on_key_menu"),
+        ("key_tangent_dragged", "on_key_tangent_dragged"),
     ]
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -2810,6 +3096,12 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             self.logger.debug("shot nav option-box setup failed", exc_info=True)
         self.controller._cmb_mode_widget = getattr(self.ui, "cmb_mode", None)
 
+    def _on_shortcut_overlay_toggled(self, checked: bool) -> None:
+        """Show or hide the corner legend of gestures and keys."""
+        widget = self.controller._get_sequencer_widget()
+        if widget is not None:
+            widget.shortcut_overlay_visible = bool(checked)
+
     def _on_snap_to_keys_toggled(self, checked: bool) -> None:
         """Turn the opt-in pull onto existing key frames on or off.
 
@@ -2995,6 +3287,13 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             setToolTip="Pull clip and key drags onto frames that already carry keys.\nAlignment guides are shown either way.",
         )
         chk_snap_keys.toggled.connect(self._on_snap_to_keys_toggled)
+        chk_overlay = widget.menu.add(
+            "QCheckBox",
+            setText="Shortcut Overlay",
+            setObjectName="chk_shortcut_overlay",
+            setToolTip="Keep a legend of the drag grammar and keys in the timeline's corner;\nthe group under the pointer is lit.",
+        )
+        chk_overlay.toggled.connect(self._on_shortcut_overlay_toggled)
         cmb_pb = widget.menu.add(
             WidgetComboBox,
             setObjectName="cmb_playback_range",
@@ -3101,17 +3400,19 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                             "<b>Drag body</b> — Move in time (ripple editing).",
                             "<b>Drag edge</b> — Resize the clip (scales its keyframes).",
                             "<b>Shift+drag</b> — Move across shot boundaries without changing them.",
-                            "<b>Ctrl+drag</b> — Per-frame snap override.",
+                            "<b>Ctrl</b> while dragging — Snap to whole frames.",
                             "A drag that lands on a frame already carrying keys is marked with a guide; <i>Snap to Keys</i> in the header menu also pulls the drag onto it.",
-                            "<b>Right-click</b> — Lock/Unlock, Move to Shot, Delete Key. All edits undoable (Ctrl+Z).",
+                            "<b>Right-click</b> — Lock/Unlock, Move to Shot (Next / Previous Shot lead the list), Delete Key. On a key: handle types, interpolation, Break/Unify Tangents, Move to Shot (keys); drag a selected key's handles to shape its tangents. All edits undoable (Ctrl+Z).",
                         ],
                     ),
                     (
                         "Shot Edges",
                         [
-                            "<b>Drag a shot edge</b> — The boundary moves; keyframes stay put.",
-                            "<b>Shift+drag a shot edge</b> — Retime: the shot's keyframes scale into the new range.",
-                            "The last shot has a handle at its end, same as every other shot.",
+                            "The shot's own edges (and the ruler band's edges) never move its keyframes:",
+                            "<b>Drag</b> — Move the bound; the neighbouring shots move with their keys to keep the gaps.",
+                            "<b>Ctrl+drag</b> — Move the bound and nothing else: the shot grows into the gap (taking the keys it covers) or shrinks and leaves them for the next shot.",
+                            "<b>Shift+drag</b> — Retime: the shot's keyframes scale into the new range.",
+                            "<b>Drag the ruler band</b> — Move the shot with its keys. A gap's edge belongs to the shot beyond it: drag to slide that shot, Ctrl moves that bound only, Shift retimes it. The <i>Shortcut Overlay</i> (header menu) keeps this legend in the timeline's corner.",
                         ],
                     ),
                     (
@@ -3120,7 +3421,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                             "<b>Ruler:</b> Click/drag to move playhead, double-click to add a marker, scroll to zoom, middle-drag to pan.",
                             "<b>Shot Lane:</b> Right-click a shot block on the ruler to select, edit, insert before/after, or trim that shot.",
                             "<b>Tracks:</b> Double-click header to expand per-attribute sub-rows. Right-click to hide, delete, or reveal in Outliner.",
-                            "<b>Gaps:</b> Drag body to slide adjacent shots, drag edge to resize (Shift retimes). Right-click to lock.",
+                            "<b>Gaps:</b> Drag an edge to slide the shot beyond it (Ctrl moves the bound only, Shift retimes); drag the body to slide the gap. Right-click to lock.",
                             "<b>Markers:</b> M or double-click ruler to add. Drag to move. Right-click to edit note, color, or style.",
                             "<b>Audio:</b> Auto-discovered from VSE sound strips. Drag to move; Move to Shot groups them with animation.",
                         ],

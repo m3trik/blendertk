@@ -378,6 +378,57 @@ class SceneExporter(ptk.LoggingMixin):
         self._progress_open = False
         self._emit_progress(message)
 
+    # ------------------------------------------------------------------
+    # The export button's contract (the panel's b000, written once)
+    # ------------------------------------------------------------------
+
+    #: The Output Format row (``cmb004``): label -> ``output_format`` token.
+    #: APPEND-ONLY -- the combo (and every saved preset) persists by index.
+    OUTPUT_FORMATS = {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb", "USD": "usd"}
+
+    def _definition_tables(self):
+        """``(tasks, checks)`` -- the panel's two definition tables, built once.
+
+        The two properties assemble every row's tooltip on each access, and a
+        button press consults them more than once. Mirror of mayatk's.
+        """
+        tables = getattr(self, "_definition_tables_cache", None)
+        if tables is None:
+            tm = self.task_manager
+            tables = (tm.task_definitions, tm.check_definitions)
+            self._definition_tables_cache = tables
+        return tables
+
+    def run_config_from_values(
+        self,
+        values: Dict[str, Any],
+        override_checks: bool = False,
+        ignore_groups_case_sensitive: bool = False,
+    ) -> Dict[str, Any]:
+        """Widget values -> the inputs :meth:`perform_export` takes.
+
+        The export button's contract, through
+        :meth:`pythontk.ExportProfile.run_config` (the one copy both DCC panels
+        read their widgets with); this adds the settings row that is not a task
+        definition: ``output_format`` (``cmb004``) into the tasks. Mirror of
+        mayatk's.
+
+        Returns:
+            ``{"tasks", "export_mode", "export_visible"}``.
+        """
+        tasks_def, checks_def = self._definition_tables()
+        config = ptk.ExportProfile.run_config(
+            values,
+            tasks_def,
+            checks_def,
+            override_checks=override_checks,
+            ignore_groups_case_sensitive=ignore_groups_case_sensitive,
+        )
+        output_format = values.get("cmb004")
+        if output_format:
+            config["tasks"]["output_format"] = output_format
+        return config
+
     def perform_export(
         self,
         export_dir: str,
@@ -953,20 +1004,22 @@ class SceneExporter(ptk.LoggingMixin):
         announce: bool = True,
         objects: Optional[List] = None,
     ) -> Optional[str]:
-        """Convert an exported FBX to a GLB via pythontk's ``MeshConvert``.
+        """Convert an exported FBX to a GLB through the shared build.
 
         Runs after the FBX has been written; :meth:`perform_export` invokes this
         explicitly rather than as part of the pre-export task pipeline. Mirror of
         mayatk's ``TaskManager.create_glb``, kept on the engine here because
-        blendertk's ``TaskManager`` carries no ``export_path`` of its own — the
+        blendertk's ``TaskManager`` carries no ``export_path`` of its own -- the
         FBX path is resolved from this engine's :attr:`export_path` instead.
 
-        The conversion is handed the scene sidecar built from *objects*
-        (:class:`~blendertk.env_utils.scene_state.SceneState` — the same
-        readers the WebXR preview uses), so the production GLB gets the same
-        translation repairs the preview shows, and the envelope rides embedded
-        in the GLB's ``extras``. A sidecar read failure degrades to a bare
-        conversion rather than costing the deliverable.
+        The build is :class:`pythontk.GlbPipeline` -- the SAME chain the WebXR
+        preview publishes through -- handed this run's dials: the scene sidecar
+        built from *objects* (:class:`~blendertk.env_utils.scene_state.SceneState`,
+        the readers the preview shares), where the maps live NOW
+        (:meth:`_lightmap_search_dirs`) and the GLB's half of the panel's two
+        texture dials (``TaskManager._glb_texture_params``). A sidecar read
+        failure degrades to a bare conversion rather than costing the
+        deliverable; a failed conversion or texture pass fails it.
 
         Parameters:
             fbx_path: FBX to convert. Defaults to :attr:`export_path` (the
@@ -978,83 +1031,35 @@ class SceneExporter(ptk.LoggingMixin):
                 sidecar (bare conversion).
 
         Returns:
-            The created ``.glb`` path, or ``None`` if conversion failed.
+            The created ``.glb`` path, or ``None`` if the build failed.
         """
         from blendertk.env_utils.scene_state import SceneState
 
         src = fbx_path or self.export_path
         sidecar = None
         if objects:
-            try:
-                sections = SceneState.read(objects)
-                sidecar = ptk.MeshConvert.build_scene_sidecar(
-                    sections,
-                    source=SceneState.source(),
-                    asset=os.path.basename(src),
-                )
-                if sections:
-                    # Mirror of mayatk's wording: the sections are written INTO
-                    # the GLB's own material JSON, with a copy in `extras` as
-                    # provenance -- no companion file is produced or required.
-                    self.logger.info(
-                        "Scene sidecar (%s) written into the GLB's materials "
-                        "(copy embedded in extras; no companion file).",
-                        ", ".join(sorted(sections)),
-                    )
-            except Exception:  # noqa: BLE001 — a bare GLB still beats no GLB
-                self.logger.warning("Scene sidecar skipped.", exc_info=True)
-
-        self.logger.info("Converting FBX to GLB...")
-        self._progress_note("GLB: converting the FBX…")
+            sidecar = ptk.GlbPipeline.envelope(
+                lambda: SceneState.read(objects),
+                source=SceneState.source(),
+                asset=os.path.basename(src),
+                logger=self.logger,
+            )
         try:
-            glb_path = ptk.MeshConvert.fbx_to_glb(
+            built = ptk.GlbPipeline.build(
                 src,
-                overwrite=True,
-                auto_install=True,
-                prompt=False,
                 sidecar=sidecar,
-                # Where the maps are NOW. The manifest riding the FBX carries
-                # the folder the bake was committed from, and the applier tries
-                # that first -- but it is history, not a contract: reorganise
-                # the project and every EXR lookup misses, shipping an unlit
-                # deliverable while the bake sits one folder away. The
-                # workspace's texture folders plus wherever the markers' maps
-                # were actually found (the applier can only JOIN a basename
-                # against a list; a map in a subfolder needs its folder named).
+                # Where the maps are NOW: the manifest's recorded authoring
+                # folder goes stale the moment the project is reorganised.
                 lightmap_dirs=self._lightmap_search_dirs(objects),
+                texture_params=self.task_manager._glb_texture_params(),
+                progress=self._progress_note,
+                logger=self.logger,
             )
-        except (FileNotFoundError, RuntimeError) as e:
-            self.logger.error(f"GLB conversion failed: {e}")
+        except (OSError, RuntimeError, ValueError) as e:
+            self.logger.error(f"GLB build failed: {e}")
             return None
 
-        # GLB texture pass — the GLB's half of the panel's TWO general texture
-        # dials (Texture File Type + Optimize Textures), resolved against the
-        # shared web-delivery policy by ``TaskManager._glb_texture_params``
-        # (mirror of mayatk's, whose ``create_glb`` lives on the task manager).
-        # Runs LAST: a KTX2 GLB is opaque to every PIL-based post-tool, so
-        # nothing may follow the encode. ONE ``optimize_glb_textures`` call — a
-        # second would re-decode and re-encode every image, and a KTX2 payload
-        # cannot be re-encoded at all. Unconditional since 2026-08-29: the
-        # deliverable this panel writes is a web asset, and the previous "no
-        # dials, no pass" default shipped 280 MB where the preview showed 8.71.
-        params = self.task_manager._glb_texture_params()
-        carrier = params["image_format"]
-        self._progress_note(f"GLB: {carrier} texture pass…")
-        try:
-            summary = ptk.MeshConvert.optimize_glb_textures(glb_path, **params)
-        except Exception as e:  # noqa: BLE001 — deliverable must not lie
-            self.logger.error(f"GLB texture pass ({carrier}) failed: {e}")
-            return None
-        # Worded by the converter that produced the summary, so this can no
-        # longer drift from mayatk's copy (it already had): an empty summary
-        # still speaks, and a populated one reports what was RESAMPLED
-        # rather than which mode ran.
-        self.logger.info(
-            ptk.MeshConvert.describe_texture_pass(
-                summary, carrier, params.get("max_size") or 0
-            )
-        )
-
+        glb_path = built["glb"]
         if announce:
             self.logger.success(f"GLB created: {glb_path}")
         return glb_path

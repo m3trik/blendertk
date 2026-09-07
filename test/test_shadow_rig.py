@@ -15,9 +15,9 @@ plane's kept canvas), set_source, unbake, rebuild, BAKE (keys on the transform A
 the chain stripped, the Z rotation unrolled, the material following the keyed fade), delete,
 export metadata (the v2 record's keys, rounding and unit_scale — mayatk's schema), multi-source,
 the lifecycle guards (retired mode alias, create rollback, uniquified re-create, evaluated
-footprint, linked-library skip). Then the HORIZON rig (the map is baked and recorded — bins,
-tile, layout, mapping, range, the Blender frame ``b = -Z``, the PNG's size and its r_min-on-top
-orientation; Recalculate re-bakes only on a geometry change; rebuild keeps the type) and PER
+footprint, linked-library skip). Then the HORIZON rig (the height-field map is baked and
+recorded — size, spans, levels, bounds, height scale, the Blender frame ``b = -Z``, the PNG's
+size and its decode; Recalculate re-bakes only on a geometry change; rebuild keeps the type) and PER
 OBJECT + ATLAS (one rig per target; packing remaps the quad's UVs into its inset rect, rebinds
 the material to the atlas, keeps each plane's own PNG, rewrites one tile in place without
 touching the other's bytes; horizon maps pack into their own atlas; unpack restores unit UVs).
@@ -55,7 +55,7 @@ try:
     import numpy as np
     import bpy
     from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
-    from pythontk import ShadowAtlas, ShadowHorizon, ShadowProjection
+    from pythontk import HeightFieldMap, ShadowAtlas, ShadowHorizon, ShadowProjection
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -483,17 +483,26 @@ try:
         return (ev(p).matrix_world @ __import__("mathutils").Vector((0, local_y, 0))).x
 
     near_high = edge_x(-0.5)
+    u0 = rig.canvas[0]
+    feet = -u0 / (1.0 - u0)  # the anchor's fraction of the canvas
+    feet_high = edge_x(-0.5 + feet)
     rig.light.location = (6, 0, 4)
-    near_low = edge_x(-0.5)
+    feet_low = edge_x(-0.5 + feet)
     check(
-        "near edge stays at the feet as the source lowers (stamped in footprint radii)",
-        approx(near_low, near_high, 1e-3) and abs(near_high - 1.0) < 0.2,
-        f"high {near_high:.3f} low {near_low:.3f} (the near face is x = 1)",
+        "the drawn feet stay under the box's as the source lowers (the anchor keeps "
+        "its stamped fraction of the canvas)",
+        abs(feet_high) < 0.05 and abs(feet_low) < 0.05 and abs(near_high - 1.0) < 0.2,
+        f"feet high {feet_high:.3f} low {feet_low:.3f}; near edge high {near_high:.3f}",
     )
     check(
         "far edge lands where the top's far corner projects (x = -8)",
         abs(edge_x(0.5) + 8.0) < 0.3,
         f"{edge_x(0.5):.3f}",
+    )
+    check(
+        "the canvas's back edge, not the feet, moved to keep them",
+        edge_x(-0.5) > near_high + 1.0,
+        f"near edge low {edge_x(-0.5):.3f} vs high {near_high:.3f}",
     )
     plane_matches_model(p, "lowered source")
 
@@ -1239,8 +1248,8 @@ try:
         light_pos=(5, 5, 10),
         texture_res=32,
         rig_type="horizon",
-        horizon_bins=8,
-        horizon_size=(32, 16),
+        horizon_size=32,
+        horizon_spans=2,
     )
     check(
         "rig_type='horizon' bakes the map",
@@ -1262,28 +1271,29 @@ try:
     )
     hz = rec["horizon"]
     check(
-        "horizon block: texture / bins / layers / tile",
+        "horizon block: texture / mapping / encoding",
         hz["texture"] == "Box_horizon.png"
-        and (hz["bins"], hz["layers"], hz["tile"]) == (8, 2, [32, 16]),
+        and (hz["mapping"], hz["encoding"]) == ("heightfield", ShadowHorizon.ENCODING),
         f"{hz}",
     )
     check(
-        "horizon block: layout is the 2 x bins tile grid",
-        hz["layout"] == [4, 4],
-        f"{hz['layout']}",
+        "horizon block: size / spans / levels",
+        (hz["size"], hz["spans"], hz["levels"]) == (32, 2, 5),
+        f"{hz}",
     )
+    a0, a1, b0, b1 = hz["bounds"]
     check(
-        "horizon block: log-polar mapping over a positive range",
-        hz["mapping"] == "logpolar" and hz["r_max"] > hz["r_min"] > 0,
-        f"{hz['mapping']} {hz['r_min']}..{hz['r_max']}",
+        "horizon block: the footprint bounds pad the 2 m cube",
+        a0 < -1.0 < 1.0 < a1 and b0 < -1.0 < 1.0 < b1,
+        f"{hz['bounds']}",
     )
-    # The cotangents are encoded against the maxStretch the map was BAKED
-    # with; the artist can retune the live property afterwards, so the block
-    # carries its own scale rather than letting the engine read the live one.
+    # The map's own height scale, apart from the plane's live maxStretch (a
+    # placement cap the artist can retune without a re-bake).
+    # The 2 m cube straddles the world ground: 1 m of it stands above.
     check(
-        "horizon block: carries the encode scale it was baked with",
-        approx(hz["max_stretch"], 6.0, 1e-6) and approx(rec["max_stretch"], 6.0, 1e-6),
-        f"horizon {hz['max_stretch']} / record {rec['max_stretch']}",
+        "horizon block: the height scale is the cube's height above the ground",
+        approx(hz["height_scale"], 1.0, 0.01) and approx(rec["max_stretch"], 6.0, 1e-6),
+        f"height_scale {hz['height_scale']} / record max_stretch {rec['max_stretch']}",
     )
     # Blender's exporter maps local +Y to FBX -Z, so frame_b is (0, 0, -1)
     # where Maya writes (0, 0, 1) — the one axis divergence in the contract.
@@ -1297,23 +1307,33 @@ try:
         (tuple(hz["frame_a"]), tuple(hz["frame_b"])) == ShadowRig.HORIZON_FRAME,
     )
     check(
-        "horizon block: encoding + identity rect while unpacked",
-        hz["encoding"] == ShadowHorizon.ENCODING and hz["rect"] == [1.0, 1.0, 0.0, 0.0],
+        "horizon block: identity rect while unpacked",
+        hz["rect"] == [1.0, 1.0, 0.0, 0.0],
         f"{hz}",
     )
     hpx = ShadowRig._read_png(rig.horizon_path)
     check(
-        "horizon PNG holds the 2 x bins tiles the layout says",
-        hpx is not None and hpx.shape[:2] == (4 * 16, 4 * 32),
+        "horizon PNG holds the K + 2 tiles, S texels square, side by side",
+        hpx is not None and hpx.shape[:2] == (32, 4 * 32),
         f"{None if hpx is None else hpx.shape}",
     )
-    # Orientation: the PNG's TOP row is the r_min ring (the contract), so the
-    # grounded tile 0 falls off downward — a missing flip would invert this.
-    tile0 = hpx[0:16, 0:32]
+    # The map decodes back to the cube in the contact's Z-up frame: its
+    # centre column is one solid span from the ground to the top.
+    hmap = HeightFieldMap.from_rgba(
+        hpx,
+        size=hz["size"],
+        spans=hz["spans"],
+        bounds=hz["bounds"],
+        ground=0.0,
+        up=2,
+        height_scale=hz["height_scale"],
+    )
     check(
-        "horizon PNG top row is the r_min ring (r_max row is the faint one)",
-        int(tile0[0].sum()) > 2 * int(tile0[-1].sum()),
-        f"top {int(tile0[0].sum())} vs bottom {int(tile0[-1].sum())}",
+        "horizon PNG decodes to the cube's column",
+        abs(float(hmap.lo[0, 16, 16])) < 1e-3
+        and abs(float(hmap.hi[0, 16, 16]) - 1.0) < 0.01
+        and bool(np.isnan(hmap.hi[1, 16, 16])),
+        f"{hmap.lo[0, 16, 16]} .. {hmap.hi[0, 16, 16]}",
     )
     again = ShadowRig.from_plane(rig.shadow_plane)
     check(
@@ -1337,24 +1357,32 @@ try:
         os.path.getmtime(rig.horizon_path) > before,
         f"{os.path.getmtime(rig.horizon_path)} vs {before}",
     )
-    # Retuning maxStretch changes what the map's cotangents mean, so it
-    # re-bakes too — and the record carries the new encode scale.
+    rec = record("Box_shadow")
+    # The cube scaled x2 in Z about its origin now stands 2 m above the
+    # ground -- in WORLD units, since the bake runs in a rigid frame whatever
+    # scale the contact empty inherits from the target.
+    check(
+        "the re-bake carries the scaled cube's height in world units",
+        approx(rec["horizon"]["height_scale"], 2.0, 0.02),
+        f"{rec['horizon']['height_scale']}",
+    )
+    # maxStretch is the plane's placement cap, not a scale the map is
+    # encoded against: retuning it leaves the map alone.
     after = os.path.getmtime(rig.horizon_path)
     rig.shadow_plane["maxStretch"] = 3.0
     rig.shadow_plane.update_tag()
     bpy.context.view_layer.update()
     ShadowRig.refresh_silhouette([rig.shadow_plane])
     check(
-        "retuning maxStretch re-bakes the map (it is the encode scale)",
-        os.path.getmtime(rig.horizon_path) > after,
+        "retuning maxStretch does not re-bake the map (a placement cap)",
+        os.path.getmtime(rig.horizon_path) == after,
         f"{os.path.getmtime(rig.horizon_path)} vs {after}",
     )
     rec = record("Box_shadow")
     check(
-        "the retuned scale reaches both the horizon block and the record",
-        approx(rec["horizon"]["max_stretch"], 3.0, 1e-6)
-        and approx(rec["max_stretch"], 3.0, 1e-6),
-        f"horizon {rec['horizon']['max_stretch']} / record {rec['max_stretch']}",
+        "the retuned cap reaches the record",
+        approx(rec["max_stretch"], 3.0, 1e-6),
+        f"record {rec['max_stretch']}",
     )
 
     # ---- rebuild keeps the type and the horizon params ----
@@ -1365,8 +1393,8 @@ try:
         f"{None if rebuilt is None else rebuilt.rig_type}",
     )
     check(
-        "rebuild keeps the horizon bins",
-        record("Box_shadow")["horizon"]["bins"] == 8,
+        "rebuild keeps the horizon size",
+        record("Box_shadow")["horizon"]["size"] == 32,
         f"{record('Box_shadow')['horizon']}",
     )
 
@@ -1562,8 +1590,8 @@ try:
         ["shadow_source"],
         texture_res=32,
         rig_type="horizon",
-        horizon_bins=8,
-        horizon_size=(32, 16),
+        horizon_size=32,
+        horizon_spans=2,
     )
     packed = ShadowRig.pack_atlas([r.shadow_plane for r in rigs])
     check(
@@ -1572,9 +1600,13 @@ try:
         f"{sorted(packed)}",
     )
     hz = record("Box_shadow")["horizon"]
+    # A data map's rect is the block's EXACT rect, never gutter-inset: two
+    # 128 x 32 blocks in a 256 x 32 atlas are each exactly half its width.
     check(
-        "the horizon block names the horizon atlas and a packed rect",
-        hz["texture"] == "shadow_atlas_horizon.png" and hz["rect"][0] < 0.5,
+        "the horizon block names the horizon atlas and its exact packed rect",
+        hz["texture"] == "shadow_atlas_horizon.png"
+        and approx(hz["rect"][0], 0.5, 1e-6)
+        and approx(hz["rect"][1], 1.0, 1e-6),
         f"{hz['texture']} {hz['rect']}",
     )
     check(
@@ -1607,6 +1639,14 @@ try:
         s = ShadowRigSlots.__new__(ShadowRigSlots)
         s.ui = types.SimpleNamespace(
             chk_combine=types.SimpleNamespace(isChecked=lambda: True),
+            # the Live Horizon Preview box the panel syncs after delete / rebuild / commit
+            chk_horizon_preview=types.SimpleNamespace(
+                setChecked=lambda v: None,
+                setEnabled=lambda v: None,
+                blockSignals=lambda v: None,
+                toolTip=lambda: "",
+                setToolTip=lambda t: None,
+            ),
             txt_source=types.SimpleNamespace(
                 text=lambda: ShadowRig.DEFAULT_SOURCE_NAME
             ),
@@ -1614,8 +1654,20 @@ try:
             cmb_planes=types.SimpleNamespace(currentText=lambda: f"Planes:  {planes}"),
             cmb_atlas=types.SimpleNamespace(currentText=lambda: f"Atlas:  {atlas}"),
             s000=types.SimpleNamespace(currentText=lambda: f"Resolution: {res}"),
+            # Softness: the panel re-reads it after a commit / source edit
+            s001=types.SimpleNamespace(
+                setValue=lambda v: None,
+                blockSignals=lambda v: None,
+                toolTip=lambda: "",
+                setToolTip=lambda t: None,
+                value=lambda: 0.0,
+            ),
+            chk_follow=types.SimpleNamespace(isChecked=lambda: False),
         )
-        s.sb = types.SimpleNamespace(message_box=lambda *a, **k: None)
+        s.sb = types.SimpleNamespace(
+            message_box=lambda *a, **k: None,
+            tooltip=types.SimpleNamespace(fmt=lambda **k: ""),
+        )
         s._preview_textures = []
         s._built_rigs = []
         s._built_sources = None
@@ -1699,6 +1751,171 @@ try:
         slots_stub(rig="Horizon")._rig_builder()
         == ShadowRig.create_horizon_for_sources,
     )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ---------------------------------------------------------- softness
+    reset()
+    c = cube("Box")
+    bpy.context.view_layer.update()
+    rig = ShadowRig.create([c], light_pos=(5.0, 5.0, 10.0), texture_res=64)
+    plane = rig.shadow_plane
+    source = rig.light
+    sharp = alpha_of(bpy.data.images.load(rig.texture_path, check_existing=False))
+    check("an empty source has no Softness", ShadowRig.source_softness(source) is None)
+    check("and no size", ShadowRig.source_size(source) == 0.0)
+    lit = ShadowRig.set_source_softness(source, 3.0)
+    check("Softness reports the planes the source lights", lit == [plane], f"{lit}")
+    check("Softness reads back", ShadowRig.source_softness(source) == 3.0)
+    check("Softness is the source's size", ShadowRig.source_size(source) == 3.0)
+    ShadowRig.refresh_silhouette([plane])
+    check("Recalculate stamps it on the plane", approx(plane["sourceSize"], 3.0, 1e-6))
+    soft = alpha_of(bpy.data.images.load(rig.texture_path, check_existing=False))
+    partial = lambda a: int(((a * 255 > 12) & (a * 255 < 243)).sum())  # noqa: E731
+    check(
+        "a soft source draws a penumbra",
+        partial(soft) > partial(sharp) * 1.3,
+        f"{partial(soft)} vs {partial(sharp)}",
+    )
+    check(
+        "the record carries it",
+        ShadowRig.export_record(plane)["source_size"] == 3.0,
+    )
+    ShadowRig.set_source_softness(source, 0.0)
+    check(
+        "0 is a sharp override, not absence", ShadowRig.source_softness(source) == 0.0
+    )
+    try:
+        ShadowRig.set_source_softness(None, 1.0)
+        check("a missing source is refused", False)
+    except ValueError:
+        check("a missing source is refused", True)
+    sun_data = bpy.data.lights.new("softSun", type="SUN")
+    sun = bpy.data.objects.new("softSun", sun_data)
+    bpy.context.scene.collection.objects.link(sun)
+    rig2 = ShadowRig.create([c], source_name=sun.name, texture_res=64)
+    ShadowRig.set_source_softness(sun, 2.0)
+    check(
+        "a sun takes Softness in degrees",
+        approx(ShadowRig.source_size(sun), math.radians(2.0), 1e-9),
+    )
+    ShadowRig.refresh_silhouette([rig2.shadow_plane])
+    check(
+        "the record carries the angle",
+        approx(
+            ShadowRig.export_record(rig2.shadow_plane)["source_angle"],
+            round(math.radians(2.0), 6),
+            1e-6,
+        ),
+    )
+    ShadowRig.delete_rigs(None, delete_textures=True)
+
+    # ------------------------------------------------------ follow source
+    reset()
+    c = cube("Box")
+    post = cube("Post", loc=(0.7, -0.7, 1.0))
+    post.scale = (0.3, 0.3, 2.0)  # 0.6 x 0.6 x 4
+    post.parent = c
+    bpy.context.view_layer.update()
+    # The event queues the pass on a bpy timer, which a --background run
+    # never services: the queued flag is the observable, the pass is driven.
+    ShadowRig.auto_recalculate(True)
+    try:
+        check("Follow Source reports on", ShadowRig.auto_recalculate_enabled())
+        rig = ShadowRig.create([c], light_pos=(5.0, 5.0, 10.0), texture_res=64)
+        plane, source = rig.shadow_plane, rig.light
+        check("create watches its source", source.name in ShadowRig._auto_watched)
+        before = open(rig.texture_path, "rb").read()
+        check(
+            "nothing moved: nothing recalculated", ShadowRig.recalculate_stale() == []
+        )
+        source.location.x += 0.05
+        bpy.context.view_layer.update()
+        ShadowRig._on_depsgraph()  # what the DepsgraphUpdated event does
+        check("a moved source queues one pass", ShadowRig._auto_pending)
+        ShadowRig._auto_pending = False
+        ShadowRig._on_depsgraph()
+        check("an unmoved source queues none", not ShadowRig._auto_pending)
+        check("a nudge is under 2 deg", ShadowRig.recalculate_stale() == [])
+        source.location = (-5.0, -5.0, 10.0)
+        bpy.context.view_layer.update()
+        done = ShadowRig.recalculate_stale()
+        check("a real move re-renders", done == [plane], f"{done}")
+        check("the PNG changed", open(rig.texture_path, "rb").read() != before)
+        check(
+            "and is fresh by the auto rule",
+            not ShadowRig.silhouette_is_stale(
+                plane, degrees=ShadowRig.AUTO_RECALCULATE_DEG, distance=0.1
+            ),
+        )
+        stamped = float(plane[ShadowRig._DISTANCE_PROP])
+        check("the distance is stamped", stamped > 0.0, f"{stamped}")
+        source.location = (-10.0, -10.0, 20.0)
+        bpy.context.view_layer.update()
+        check(
+            "same bearing: not stale by bearing",
+            not ShadowRig.silhouette_is_stale(plane),
+        )
+        check(
+            "but stale by distance",
+            ShadowRig.silhouette_is_stale(plane, distance=0.1),
+        )
+        check("distance re-renders", ShadowRig.recalculate_stale() == [plane])
+        restamped = float(plane[ShadowRig._DISTANCE_PROP])
+        check(
+            "the distance restamps",
+            restamped > 1.5 * stamped
+            and approx(restamped, rig._source_distance(), 1e-3),
+            f"{restamped} vs {rig._source_distance()}",
+        )
+        # a parent's move moves the world matrix the watcher compares
+        grp = bpy.data.objects.new("lightRig", None)
+        bpy.context.scene.collection.objects.link(grp)
+        source.parent = grp
+        bpy.context.view_layer.update()
+        ShadowRig._watch_nodes([source])
+        grp.location.z += 3.0
+        bpy.context.view_layer.update()
+        ShadowRig._on_depsgraph()
+        check("a parent's move queues a pass too", ShadowRig._auto_pending)
+        # the target is watched too: carried to another bearing under the
+        # source, or turned, its silhouette is another projection
+        ShadowRig._auto_pending = False
+        check("create watches its target", c.name in ShadowRig._auto_watched)
+        c.location.x += 6.0
+        bpy.context.view_layer.update()
+        ShadowRig._on_depsgraph()
+        check("a target's move queues a pass too", ShadowRig._auto_pending)
+        ShadowRig._auto_pending = False
+        check("and re-renders", ShadowRig.recalculate_stale() == [plane])
+        c.rotation_euler.z += math.pi / 2
+        bpy.context.view_layer.update()
+        ShadowRig._on_depsgraph()
+        check("a target's turn queues a pass too", ShadowRig._auto_pending)
+        ShadowRig._auto_pending = False
+        check(
+            "a turned target is stale (the bearing is stamped in its frame)",
+            ShadowRig.silhouette_is_stale(
+                plane, degrees=ShadowRig.AUTO_RECALCULATE_DEG
+            ),
+        )
+        check("and re-renders", ShadowRig.recalculate_stale() == [plane])
+        check(
+            "then is fresh",
+            not ShadowRig.silhouette_is_stale(
+                plane, degrees=ShadowRig.AUTO_RECALCULATE_DEG
+            ),
+        )
+    finally:
+        ShadowRig._auto_pending = False
+        ShadowRig.auto_recalculate(False)
+        while bpy.app.timers.is_registered(ShadowRig._auto_fire):
+            bpy.app.timers.unregister(ShadowRig._auto_fire)
+    check("off: nothing watched", ShadowRig._auto_watched == {})
+    source.location = (30.0, 30.0, 10.0)
+    bpy.context.view_layer.update()
+    check("the check itself still works", ShadowRig.recalculate_stale() == [plane])
+    ShadowRig._on_depsgraph()
+    check("off: no pass", not ShadowRig._auto_pending)
     ShadowRig.delete_rigs(None, delete_textures=True)
 
     reset()

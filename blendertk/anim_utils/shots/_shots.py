@@ -72,6 +72,7 @@ from pythontk import ShotStore
 
 from blendertk.anim_utils.shots._detection import Detection
 from blendertk.anim_utils._anim_utils import AnimUtils
+from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
 _log = logging.getLogger(__name__)
 
@@ -310,8 +311,17 @@ class _BlenderShotStoreInternal(object):
 
     @staticmethod
     def _is_transform_path(data_path: str) -> bool:
-        """True if *data_path* drives an object/bone transform channel."""
-        if data_path in _TRANSFORM_CHANNELS:
+        """True if *data_path* is shot content: an object/bone transform
+        channel, or a render-effect property (``RenderEffects.PROP_PATHS`` --
+        deliverable animation, so a pulse keyed inside a shot is that shot's
+        content and travels with it; any other custom property, a marker such
+        as ``["audio_trigger"]``, never makes an object look animated).
+
+        The one predicate membership, detection, the tracks and the movers'
+        content walk share (mayatk: ``Detection.first_standard_destination``
+        over ``CONTENT_ATTRS``).
+        """
+        if data_path in _TRANSFORM_CHANNELS or data_path in RenderEffects.PROP_PATHS:
             return True
         return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
 
