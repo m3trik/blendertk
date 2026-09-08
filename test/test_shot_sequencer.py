@@ -1640,6 +1640,36 @@ def _run_sequencer_checks():
         interp_at(obs["ledA"], 10) == "CONSTANT",
     )
 
+    # -- the system's own bound samples are never a member's marks ---------
+    # Mirror of mayatk's TestEdgeCaseSegmentDetection (2026-09-07): a flat
+    # member whose only keys in the shot are its two bound samples draws
+    # nothing, claimed or released; the animator's own hold key inside does.
+    def marks_of(keys, claim):
+        st, sq, obs = fresh({"pinned": keys})
+        sh = sq.define_shot("P", 10, 50, objects=["pinned"])
+        if claim:
+            key = _SSI._fc_key("pinned", fc_of(obs["pinned"]))
+            sq.ledger.record_key(key, 10.0, sh.shot_id, "start")
+            sq.ledger.record_key(key, 50.0, sh.shot_id, "end")
+        return [
+            (sg["start"], sg.get("marker", False))
+            for sg in sq.collect_object_segments(sh.shot_id)
+            if sg["obj"] == "pinned"
+        ]
+
+    flat = {0: 2.0, 10: 2.0, 50: 2.0, 100: 2.0}
+    check("marks: two claimed bound samples draw nothing", marks_of(flat, True) == [])
+    check(
+        "marks: a released sample on a bound that holds nothing draws nothing",
+        marks_of(flat, False) == [],
+        f"{marks_of(flat, False)}",
+    )
+    check(
+        "marks: the animator's own hold key inside is still drawn",
+        marks_of({0: 2.0, 10: 2.0, 30: 2.0, 50: 2.0, 100: 2.0}, True) == [(30.0, True)],
+        f"{marks_of({0: 2.0, 10: 2.0, 30: 2.0, 50: 2.0, 100: 2.0}, True)}",
+    )
+
     # One curve spanning three shots holds at EACH of its two seams -- shot
     # objects are routinely shared, so collapsing the seam set to one entry per
     # curve leaves every gap but the last one interpolating across the cut.

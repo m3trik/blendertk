@@ -386,23 +386,23 @@ class ShotSequencer(_ShotSequencerInternal):
                     obj = _ShotSequencerInternal._object(n)
                     if obj is None:
                         continue
-                    if _ShotSequencerInternal._has_motion(obj, shot.start, shot.end):
+                    fcurves = _ShotSequencerInternal._transform_fcurves(obj)
+                    if any(
+                        _ShotSequencerInternal._fcurve_moves_in(
+                            fc, shot.start, shot.end
+                        )
+                        for fc in fcurves
+                    ):
                         moving.append(n)
                         continue
-                    # A FEW value-less keys are the animator's marks (the lone
-                    # key Move to Shot just brought here) and draw as stepped
-                    # points; many are a bake, which draws nothing.  Mirrors
-                    # mayatk.
-                    kt = sorted(
-                        {
-                            t
-                            for fc in _ShotSequencerInternal._transform_fcurves(obj)
-                            for t in AnimUtils.key_times(fc)
-                            if shot.start <= t <= shot.end
-                        }
-                    )
-                    if 0 < len(kt) <= self.ISOLATED_KEY_LIMIT:
-                        segments.extend(self._point_segment(n, t) for t in kt)
+                    # A FEW value-less keys of the animator's OWN are marks
+                    # (the lone key Move to Shot just brought here) and draw
+                    # as stepped points; many are a bake, which draws
+                    # nothing, and the system's bound samples are never
+                    # marks (see _animator_marks).  Mirrors mayatk.
+                    marks = self._animator_marks(n, fcurves, shot)
+                    if 0 < len(marks) <= self.ISOLATED_KEY_LIMIT:
+                        segments.extend(self._point_segment(n, t) for t in marks)
                 segments.extend(
                     self._span_segments(scene, moving, shot.start, shot.end)
                 )
@@ -411,6 +411,25 @@ class ShotSequencer(_ShotSequencerInternal):
     #: A flat member with this many keys in a shot (or fewer) shows them as
     #: stepped points; more is a bake, which draws nothing.
     ISOLATED_KEY_LIMIT = 4
+
+    def _animator_marks(self, obj_name: str, fcurves, shot) -> List[float]:
+        """The keys of *fcurves* inside *shot* that are the animator's own marks.
+
+        Mirror of mayatk's: the samples the system planted for a bound (the
+        ledger's claims, :meth:`_animator_key_times`) are left out, and so is
+        an unclaimed key ON a bound that provably holds nothing
+        (:meth:`_sample_is_redundant`) -- the shape a released bound sample
+        takes.  mayatk's docstring carries the production measurement.
+        """
+        marks: set = set()
+        for fc in fcurves:
+            for t in self._animator_key_times(obj_name, fc, (shot.start, shot.end)):
+                if abs(t - shot.start) <= _SLOP or abs(t - shot.end) <= _SLOP:
+                    idx = _ShotSequencerInternal._key_index_at(fc, t)
+                    if idx is not None and self._sample_is_redundant(fc, idx):
+                        continue
+                marks.add(float(t))
+        return sorted(marks)
 
     @staticmethod
     def _point_segment(obj: str, t: float) -> Dict[str, Any]:
