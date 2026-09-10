@@ -129,7 +129,22 @@ class ShotNavMixin:
         if self.sequencer is None:
             cmb.blockSignals(False)
             return
+        cells = getattr(cmb, "cell_spec", None)
         for shot in self.sequencer.sorted_shots():
+            if cells:
+                # One cell per field: the popup reads as a table and a
+                # double-click edits the fields in place (see
+                # _on_shot_cells_edited).
+                cmb.add_cells(
+                    {
+                        "name": shot.name,
+                        "start": shot.start,
+                        "end": shot.end,
+                        "description": shot.description or "",
+                    },
+                    shot.shot_id,
+                )
+                continue
             label = f"{shot.name}  [{shot.start:.0f}-{shot.end:.0f}]"
             if shot.description:
                 label += f"  {shot.description}"
@@ -142,6 +157,66 @@ class ShotNavMixin:
                     break
         cmb.blockSignals(False)
         self._update_shot_nav_state()
+
+    def _configure_shot_combobox(self, cmb) -> None:
+        """Make *cmb* a multi-cell shot list whose rows edit in place
+        (mirror of mayatk's; idempotent, late-bound through
+        ``cmb._nav_controller``)."""
+        set_cells = getattr(cmb, "set_cells", None)
+        if not callable(set_cells):
+            return  # a plain QComboBox (tests): the label form stands
+        set_cells(self.SHOT_CELLS, cell_format=self.SHOT_CELL_FORMAT)
+        cmb.rename_on_double_click = True
+        cmb._nav_controller = self
+        if not getattr(cmb, "_shot_cells_wired", False):
+            cmb.on_cells_edited.connect(
+                lambda index, cells, c=cmb: c._nav_controller._on_shot_cells_edited(
+                    index, cells
+                )
+            )
+            cmb._shot_cells_wired = True
+
+    def _on_shot_cells_edited(self, index: int, cells: dict) -> None:
+        """Apply an inline edit of the shot combobox's cells to that shot:
+        name / description are plain fields, a new start MOVES the shot
+        (keys ride), a new end moves that bound alone (keys stay); start
+        before end so both can be typed together (mirror of mayatk's)."""
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if self.sequencer is None or self._cmb_mode != "shots":
+            return
+        cmb = getattr(self.ui, "cmb_shot", None)
+        sid = cmb.itemData(index) if cmb is not None else None
+        shot = self.sequencer.shot_by_id(sid) if sid is not None else None
+        if shot is None:
+            return
+        store = self.sequencer.store
+        fields = {}
+        if "name" in cells and str(cells["name"]).strip():
+            fields["name"] = str(cells["name"]).strip()
+        if "description" in cells:
+            fields["description"] = str(cells["description"])
+        was_syncing = self._syncing
+        self._syncing = True
+        self._save_shot_state()
+        try:
+            with CoreUtils.undo_chunk():
+                if fields:
+                    store.update_shot(shot.shot_id, **fields)
+                if "start" in cells and abs(float(cells["start"]) - shot.start) > 1e-6:
+                    self.sequencer.move_shot(shot.shot_id, float(cells["start"]))
+                if "end" in cells and abs(float(cells["end"]) - shot.end) > 1e-6:
+                    self.sequencer.resize_shot_bounds(
+                        shot.shot_id, shot.start, float(cells["end"])
+                    )
+        except ShotBoundaryConflict as exc:
+            self._discard_shot_state()
+            self.logger.warning(str(exc))
+            self._set_footer(str(exc))
+        finally:
+            self._syncing = was_syncing
+        self._after_shot_change(shot_id=shot.shot_id)
 
     def _update_shot_nav_state(self) -> None:
         """Enable/disable prev/next option box actions based on combobox index."""

@@ -247,6 +247,10 @@ class GapManagerMixin:
             return
 
         ctrl_held, shift_held = self._drag_modifiers()
+        # The head cap: the FIRST shot's start, with no gap before it to
+        # slide into -- a shot's own bound, so it moves as every other shot
+        # border does (the bound alone, keys stay), never a slide.
+        is_head_cap = self._neighbour_shots(target.shot_id)["merge_prev"] is None
 
         self._save_shot_state()
         self._syncing = True
@@ -257,6 +261,10 @@ class GapManagerMixin:
                         target, new_start=new_next_start, scale=shift_held
                     ):
                         self.sequencer.reconcile_system_edits()
+                elif is_head_cap:
+                    self.sequencer.resize_shot_bounds(
+                        target.shot_id, new_next_start, target.end
+                    )
                 else:
                     self.sequencer.slide_shot(
                         target.shot_id, new_next_start, direction=None
@@ -295,6 +303,10 @@ class GapManagerMixin:
             return
 
         ctrl_held, shift_held = self._drag_modifiers()
+        # The tail cap is the LAST shot's own bound (no gap follows): a plain
+        # drag moves that bound and nothing else, like every other shot
+        # border -- it used to slide the whole shot (mirror of mayatk).
+        is_tail_cap = self._neighbour_shots(target.shot_id)["merge_next"] is None
 
         self._save_shot_state()
         self._syncing = True
@@ -305,6 +317,10 @@ class GapManagerMixin:
                         target, new_end=new_prev_end, scale=shift_held
                     ):
                         self.sequencer.reconcile_system_edits()
+                elif is_tail_cap:
+                    self.sequencer.resize_shot_bounds(
+                        target.shot_id, target.start, new_prev_end
+                    )
                 else:
                     self.sequencer.slide_shot(
                         target.shot_id, target.start + delta, direction=None

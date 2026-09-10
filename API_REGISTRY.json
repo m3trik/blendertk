@@ -1093,7 +1093,7 @@
               "name": "stash",
               "qualname": "KeyStash.stash",
               "kind": "method",
-              "signature": "(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None) -> Optional[StashedClip]",
+              "signature": "(self, objects=None, time_range: Optional[Tuple[float, float]] = None, selected_keys: bool = False, attributes: Optional[Sequence[str]] = None, fcurves=None, label: Optional[str] = None, source_shot_id: Optional[int] = None, metadata: Optional[Dict[str, Any]] = None, targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None) -> Optional[StashedClip]",
               "summary": "Move keys off the working animation into a stored clip.",
               "line": 321,
               "deprecated": false
@@ -1104,7 +1104,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, at: Optional[float] = None, mode: str = 'merge', target: Optional[str] = None) -> int",
               "summary": "Put a stored clip's keys back and forget the clip.",
-              "line": 453,
+              "line": 491,
               "deprecated": false
             },
             {
@@ -1113,7 +1113,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int) -> None",
               "summary": "Discard a stored clip and delete its stash action.",
-              "line": 538,
+              "line": 576,
               "deprecated": false
             },
             {
@@ -1122,7 +1122,7 @@
               "kind": "method",
               "signature": "(self, clip_id: Optional[int] = None) -> bool",
               "summary": "Whether a preview is active (for *clip_id*, when given).",
-              "line": 568,
+              "line": 606,
               "deprecated": false
             },
             {
@@ -1131,7 +1131,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, in_context: bool = True, set_playback_range: bool = True) -> Dict[str, Any]",
               "summary": "Play a stored clip on its objects without retrieving it.",
-              "line": 574,
+              "line": 612,
               "deprecated": false
             },
             {
@@ -1140,7 +1140,7 @@
               "kind": "method",
               "signature": "(self) -> bool",
               "summary": "Tear the preview tracks down and restore the preview range.",
-              "line": 633,
+              "line": 671,
               "deprecated": false
             }
           ]
@@ -1929,7 +1929,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, include_audio: bool = True) -> List[Dict[str, Any]]",
               "summary": "All sequences (anim + audio) inside a shot's range.",
-              "line": 520,
+              "line": 522,
               "deprecated": false
             },
             {
@@ -1938,7 +1938,7 @@
               "kind": "method",
               "signature": "(self) -> float",
               "summary": "Room to leave between a moved sequence and what it lands after.",
-              "line": 600,
+              "line": 602,
               "deprecated": false
             },
             {
@@ -1947,16 +1947,16 @@
               "kind": "method",
               "signature": "(self, sequences: List[Dict[str, Any]], dest_shot_id: int) -> None",
               "summary": "Move *sequences* (anim and/or audio) into *dest_shot_id*.",
-              "line": 611,
+              "line": 613,
               "deprecated": false
             },
             {
               "name": "fit_shot_to_content",
               "qualname": "ShotSequencer.fit_shot_to_content",
               "kind": "method",
-              "signature": "(self, shot_id: int, mode: str = 'fit', edge: str = 'both') -> Tuple[float, float]",
+              "signature": "(self, shot_id: int, mode: str = 'fit', edge: str = 'both', reach: Optional[float] = None) -> Tuple[float, float]",
               "summary": "Resize a shot's boundaries to its sequence content, rippling neighbours.",
-              "line": 793,
+              "line": 795,
               "deprecated": false
             },
             {
@@ -1965,16 +1965,16 @@
               "kind": "method",
               "signature": "(self, shot_id: int, edge: str = 'both') -> Tuple[float, float]",
               "summary": "Shrink shot boundaries inward so they exactly enclose content.",
-              "line": 968,
+              "line": 1000,
               "deprecated": false
             },
             {
               "name": "extend_shot_to_fit",
               "qualname": "ShotSequencer.extend_shot_to_fit",
               "kind": "method",
-              "signature": "(self, shot_id: int) -> Tuple[float, float]",
+              "signature": "(self, shot_id: int, edge: str = 'both', reach: Optional[float] = None) -> Tuple[float, float]",
               "summary": "Expand shot boundaries outward to enclose all of its sequences.",
-              "line": 978,
+              "line": 1010,
               "deprecated": false
             },
             {
@@ -1983,7 +1983,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]",
               "summary": "Detect shot boundaries from existing animation (delegates to ``Detection``).",
-              "line": 984,
+              "line": 1022,
               "deprecated": false
             },
             {
@@ -1992,7 +1992,7 @@
               "kind": "method",
               "signature": "(self, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001) -> Optional[Dict[str, Any]]",
               "summary": "Detect the first animation cluster not yet covered by a shot.",
-              "line": 1007,
+              "line": 1045,
               "deprecated": false
             },
             {
@@ -2001,7 +2001,7 @@
               "kind": "classmethod",
               "signature": "(cls, crv, times: list, delta: float, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None",
               "summary": "Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).",
-              "line": 1513,
+              "line": 1551,
               "deprecated": false
             },
             {
@@ -2010,7 +2010,7 @@
               "kind": "classmethod",
               "signature": "(cls, crv, pairs: list, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None",
               "summary": "Move the keys named by ``[(old_time, new_time), ...]`` on *crv*.",
-              "line": 1601,
+              "line": 1639,
               "deprecated": false
             },
             {
@@ -2019,7 +2019,7 @@
               "kind": "method",
               "signature": "(self, obj: str, old_start: float, old_end: float, new_start: float) -> None",
               "summary": "Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.",
-              "line": 1642,
+              "line": 1680,
               "deprecated": false
             },
             {
@@ -2028,7 +2028,7 @@
               "kind": "method",
               "signature": "(self, obj: str, attr: Optional[str], delta: float, times: Optional[List[float]] = None, window: Optional[tuple] = None) -> int",
               "summary": "Shift keys of *obj* by *delta* frames -- one attribute's, or all.",
-              "line": 1710,
+              "line": 1748,
               "deprecated": false
             },
             {
@@ -2037,7 +2037,7 @@
               "kind": "method",
               "signature": "(self, obj: str, old_time: float, new_time: float, attr_name: Optional[str] = None, eps: float = 0.001) -> None",
               "summary": "Move the key(s) at *old_time* to *new_time*.",
-              "line": 1773,
+              "line": 1811,
               "deprecated": false
             },
             {
@@ -2046,7 +2046,7 @@
               "kind": "method",
               "signature": "(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
               "summary": "Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.",
-              "line": 1835,
+              "line": 1873,
               "deprecated": false
             },
             {
@@ -2055,7 +2055,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float) -> None",
               "summary": "Move one object's keys within a shot, growing the shot + rippling when it overruns.",
-              "line": 1889,
+              "line": 1927,
               "deprecated": false
             },
             {
@@ -2064,7 +2064,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float) -> None",
               "summary": "Move an entire shot to *new_start*, rippling downstream (duration preserved).",
-              "line": 1932,
+              "line": 1970,
               "deprecated": false
             },
             {
@@ -2073,7 +2073,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None",
               "summary": "Slide a shot intact to *new_start*, rippling only in *direction*.",
-              "line": 1975,
+              "line": 2013,
               "deprecated": false
             },
             {
@@ -2082,7 +2082,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, after_frame: float, delta: float, carry_gap: bool = True) -> None",
               "summary": "Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).",
-              "line": 2020,
+              "line": 2058,
               "deprecated": false
             },
             {
@@ -2091,7 +2091,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, before_frame: float, delta: float, carry_gap: bool = True) -> None",
               "summary": "Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).",
-              "line": 2038,
+              "line": 2076,
               "deprecated": false
             },
             {
@@ -2100,7 +2100,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "The store's :class:`~pythontk.ShotEditLedger` (system-write claims).",
-              "line": 2061,
+              "line": 2099,
               "deprecated": false
             },
             {
@@ -2109,7 +2109,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, int]",
               "summary": "Release every shot-system write whose boundary has moved on.",
-              "line": 2321,
+              "line": 2397,
               "deprecated": false
             },
             {
@@ -2118,7 +2118,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, delete_contents: bool = True, close_gap: bool = True) -> Dict[str, Any]",
               "summary": "Remove a shot — by default with its keys, and closing up behind it.",
-              "line": 2406,
+              "line": 2482,
               "deprecated": false
             },
             {
@@ -2127,7 +2127,7 @@
               "kind": "method",
               "signature": "(self, shot_ids: List[int], name: Optional[str] = None)",
               "summary": "Fuse two or more shots into one spanning all of them.",
-              "line": 2461,
+              "line": 2537,
               "deprecated": false
             },
             {
@@ -2136,7 +2136,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, at_frame: float, name: Optional[str] = None, gap: float = 0.0)",
               "summary": "Cut a shot in two at *at_frame*, leaving its content where it is.",
-              "line": 2508,
+              "line": 2584,
               "deprecated": false
             },
             {
@@ -2145,7 +2145,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, frames: float, edge: str = 'leading') -> Tuple[float, float]",
               "summary": "Insert empty room at a shot's head and/or tail, rippling downstream.",
-              "line": 2579,
+              "line": 2655,
               "deprecated": false
             },
             {
@@ -2154,7 +2154,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_end: float) -> float",
               "summary": "Expand a shot's end frame and ripple downstream (never contracts).",
-              "line": 2659,
+              "line": 2735,
               "deprecated": false
             },
             {
@@ -2163,7 +2163,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
               "summary": "Scale one object's keys and ripple neighbours by the head/tail deltas.",
-              "line": 2676,
+              "line": 2752,
               "deprecated": false
             },
             {
@@ -2172,7 +2172,7 @@
               "kind": "method",
               "signature": "(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
               "summary": "Retime every key inside ``[old_start, old_end]`` into the new span.",
-              "line": 2707,
+              "line": 2783,
               "deprecated": false
             },
             {
@@ -2181,7 +2181,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_duration: float) -> None",
               "summary": "Change a shot's duration (start fixed), scaling its keys + rippling downstream.",
-              "line": 2727,
+              "line": 2803,
               "deprecated": false
             },
             {
@@ -2190,7 +2190,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None",
               "summary": "Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.",
-              "line": 2744,
+              "line": 2820,
               "deprecated": false
             },
             {
@@ -2199,7 +2199,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True, clamp: bool = True) -> None",
               "summary": "Move a shot's boundaries WITHOUT touching its keyframes.",
-              "line": 2778,
+              "line": 2854,
               "deprecated": false
             },
             {
@@ -2208,7 +2208,7 @@
               "kind": "method",
               "signature": "(self, name: str, duration: float, after_shot_id: Optional[int] = None, at_position: Optional[int] = None, gap: Optional[float] = None, objects: Optional[List[str]] = None, description: str = '')",
               "summary": "Create a shot BETWEEN existing shots, pushing later ones downstream.",
-              "line": 2858,
+              "line": 2934,
               "deprecated": false
             },
             {
@@ -2217,7 +2217,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, new_start: float, ripple: bool = True) -> None",
               "summary": "Move a shot to *new_start*;",
-              "line": 2935,
+              "line": 3011,
               "deprecated": false
             },
             {
@@ -2226,25 +2226,25 @@
               "kind": "method",
               "signature": "(self, shot_id: int, target_pos: int) -> None",
               "summary": "Reorder *shot_id* to 1-based timeline position *target_pos*.",
-              "line": 2963,
+              "line": 3039,
               "deprecated": false
             },
             {
               "name": "respace",
               "qualname": "ShotSequencer.respace",
               "kind": "method",
-              "signature": "(self, gap: float = 0, start_frame: float = 1) -> None",
-              "summary": "Lay all shots out sequentially from *start_frame* with *gap* spacing (locked gaps kept).",
-              "line": 3020,
+              "signature": "(self, gap: float = 0, start_frame: float = 1, respect_locks: bool = True) -> None",
+              "summary": "Lay all shots out sequentially from *start_frame* with *gap* spacing.",
+              "line": 3096,
               "deprecated": false
             },
             {
               "name": "apply_gap",
               "qualname": "ShotSequencer.apply_gap",
               "kind": "method",
-              "signature": "(self, gap: float, scope: str = 'all', shot_id: Optional[int] = None) -> bool",
+              "signature": "(self, gap: float, scope: str = 'all', shot_id: Optional[int] = None, respect_locks: bool = True) -> bool",
               "summary": "Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).",
-              "line": 3025,
+              "line": 3111,
               "deprecated": false
             },
             {
@@ -2253,7 +2253,7 @@
               "kind": "method",
               "signature": "(self) -> Dict[str, Any]",
               "summary": "Serialise shots and settings to a plain dict.",
-              "line": 3056,
+              "line": 3152,
               "deprecated": false
             },
             {
@@ -2262,7 +2262,7 @@
               "kind": "classmethod",
               "signature": "(cls, data: Dict[str, Any]) -> 'ShotSequencer'",
               "summary": "Restore from serialised data.",
-              "line": 3061,
+              "line": 3157,
               "deprecated": false
             }
           ]
@@ -2393,7 +2393,7 @@
               "kind": "method",
               "signature": "(self, original_prev_end: float, new_prev_end: float) -> None",
               "summary": "Handle a left-edge gap drag: the preceding shot's ``.end``.",
-              "line": 268,
+              "line": 276,
               "deprecated": false
             },
             {
@@ -2402,7 +2402,7 @@
               "kind": "method",
               "signature": "(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None",
               "summary": "Handle body gap drag — slide the gap while preserving its width.",
-              "line": 316,
+              "line": 332,
               "deprecated": false
             },
             {
@@ -2411,7 +2411,7 @@
               "kind": "method",
               "signature": "(self, gap_start: float, gap_end: float, locked: bool) -> None",
               "summary": "Handle a single gap's lock state being toggled via context menu.",
-              "line": 394,
+              "line": 410,
               "deprecated": false
             },
             {
@@ -2420,7 +2420,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Lock all gaps so they are preserved during respace.",
-              "line": 437,
+              "line": 453,
               "deprecated": false
             },
             {
@@ -2429,7 +2429,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Unlock all gaps so they follow the global gap value.",
-              "line": 446,
+              "line": 462,
               "deprecated": false
             }
           ]
@@ -2584,7 +2584,7 @@
               "kind": "method",
               "signature": "(self, shot_name: str) -> None",
               "summary": "Select a shot by name when its block is clicked in the shot lane.",
-              "line": 189,
+              "line": 264,
               "deprecated": false
             }
           ]
@@ -2615,7 +2615,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[ShotSequencer]",
               "summary": "",
-              "line": 171,
+              "line": 193,
               "deprecated": false
             },
             {
@@ -2624,7 +2624,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Detach all scene handlers + listeners (call on teardown).",
-              "line": 289,
+              "line": 312,
               "deprecated": false
             },
             {
@@ -2632,8 +2632,8 @@
               "qualname": "ShotSequencerController.on_zone_context_menu",
               "kind": "method",
               "signature": "(self, zone: str, time: float, global_pos) -> None",
-              "summary": "``\"shot_lane\"`` is every click at a time some shot covers, at any",
-              "line": 545,
+              "summary": "``\"shot_lane\"`` is every click on the lane, plus every click over",
+              "line": 581,
               "deprecated": false
             },
             {
@@ -2642,7 +2642,16 @@
               "kind": "method",
               "signature": "(self, shot_id: int) -> None",
               "summary": "Delete *shot_id* with its contents, closing the timeline behind it.",
-              "line": 664,
+              "line": 749,
+              "deprecated": false
+            },
+            {
+              "name": "move_shot_to_position",
+              "qualname": "ShotSequencerController.move_shot_to_position",
+              "kind": "method",
+              "signature": "(self, shot_id: int, position: int) -> None",
+              "summary": "Re-slot *shot_id* at 1-based *position*, pushing the rest along.",
+              "line": 792,
               "deprecated": false
             },
             {
@@ -2651,7 +2660,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, other_id: int) -> None",
               "summary": "Fuse two neighbouring shots into one spanning both.",
-              "line": 707,
+              "line": 818,
               "deprecated": false
             },
             {
@@ -2660,7 +2669,7 @@
               "kind": "method",
               "signature": "(self, shot_id: int, time: float) -> None",
               "summary": "Cut *shot_id* in two at *time*, leaving its content where it is.",
-              "line": 725,
+              "line": 836,
               "deprecated": false
             },
             {
@@ -2669,7 +2678,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[int]",
               "summary": "",
-              "line": 969,
+              "line": 1168,
               "deprecated": false
             },
             {
@@ -2678,7 +2687,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Widget undo_requested — restore the shot snapshot, then Blender undo.",
-              "line": 1012,
+              "line": 1234,
               "deprecated": false
             },
             {
@@ -2687,7 +2696,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Widget redo_requested — re-apply the redo-side bounds, then Blender redo.",
-              "line": 1032,
+              "line": 1254,
               "deprecated": false
             },
             {
@@ -2696,7 +2705,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "",
-              "line": 1089,
+              "line": 1311,
               "deprecated": false
             },
             {
@@ -2705,7 +2714,7 @@
               "kind": "method",
               "signature": "(self, track_names) -> None",
               "summary": "",
-              "line": 1728,
+              "line": 1955,
               "deprecated": false
             },
             {
@@ -2714,7 +2723,7 @@
               "kind": "method",
               "signature": "(self, track_name: str) -> None",
               "summary": "",
-              "line": 1737,
+              "line": 1964,
               "deprecated": false
             },
             {
@@ -2723,7 +2732,7 @@
               "kind": "method",
               "signature": "(self, track_names) -> None",
               "summary": "",
-              "line": 1743,
+              "line": 1970,
               "deprecated": false
             },
             {
@@ -2732,7 +2741,7 @@
               "kind": "method",
               "signature": "(self, clip_ids: list) -> None",
               "summary": "",
-              "line": 1752,
+              "line": 1979,
               "deprecated": false
             },
             {
@@ -2741,7 +2750,7 @@
               "kind": "method",
               "signature": "(self, track_names: list) -> None",
               "summary": "",
-              "line": 1784,
+              "line": 2011,
               "deprecated": false
             },
             {
@@ -2750,7 +2759,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, locked: bool) -> None",
               "summary": "",
-              "line": 1789,
+              "line": 2016,
               "deprecated": false
             },
             {
@@ -2759,7 +2768,7 @@
               "kind": "method",
               "signature": "(self, menu, track_names) -> None",
               "summary": "",
-              "line": 1809,
+              "line": 2036,
               "deprecated": false
             },
             {
@@ -2768,7 +2777,7 @@
               "kind": "method",
               "signature": "(self, menu) -> None",
               "summary": "Header background context menu — no domain actions this phase.",
-              "line": 1844,
+              "line": 2071,
               "deprecated": false
             },
             {
@@ -2777,7 +2786,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, new_label: str) -> None",
               "summary": "Renaming a clip is display-only in Blender (object names own identity).",
-              "line": 1847,
+              "line": 2074,
               "deprecated": false
             },
             {
@@ -2786,7 +2795,7 @@
               "kind": "method",
               "signature": "(self, frame: float) -> None",
               "summary": "Widget playhead drag → set the scene frame (scrub audio via Blender).",
-              "line": 1850,
+              "line": 2077,
               "deprecated": false
             },
             {
@@ -2795,7 +2804,7 @@
               "kind": "method",
               "signature": "(self, menu, clip_id: int) -> None",
               "summary": "Add Delete-key + lock actions to a clip's context menu.",
-              "line": 1884,
+              "line": 2111,
               "deprecated": false
             },
             {
@@ -2804,7 +2813,7 @@
               "kind": "method",
               "signature": "(self, menu, key_groups: list) -> None",
               "summary": "Add the key actions to a key's context menu.",
-              "line": 2126,
+              "line": 2352,
               "deprecated": false
             },
             {
@@ -2813,7 +2822,7 @@
               "kind": "staticmethod",
               "signature": "(kp, side: str, dt: float, dv: float) -> None",
               "summary": "Put one handle of keyframe point *kp* at ``co + (dt, dv)``.",
-              "line": 2205,
+              "line": 2742,
               "deprecated": false
             },
             {
@@ -2822,7 +2831,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None",
               "summary": "Write the handle a dragged tangent grab point asks for (see",
-              "line": 2241,
+              "line": 2778,
               "deprecated": false
             },
             {
@@ -2831,7 +2840,7 @@
               "kind": "method",
               "signature": "(self, menu, gap_start: float, gap_end: float) -> None",
               "summary": "Add domain-specific actions to a gap overlay's context menu (none by default).",
-              "line": 2299,
+              "line": 2836,
               "deprecated": false
             },
             {
@@ -2840,7 +2849,7 @@
               "kind": "method",
               "signature": "(self, key_groups: list) -> None",
               "summary": "Sync the Graph Editor's key selection to match the sequencer.",
-              "line": 2302,
+              "line": 2839,
               "deprecated": false
             }
           ]
@@ -2848,7 +2857,7 @@
         {
           "name": "ShotEditDialog",
           "summary": "Lightweight dialog for creating or editing a shot (plain Qt widgets).",
-          "line": 2772,
+          "line": 3320,
           "bases": [],
           "members": [
             {
@@ -2857,7 +2866,7 @@
               "kind": "staticmethod",
               "signature": "(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot')",
               "summary": "Show a modal dialog and return the result tuple or ``None``.",
-              "line": 2779,
+              "line": 3327,
               "deprecated": false
             }
           ]
@@ -2865,7 +2874,7 @@
         {
           "name": "ShotSequencerSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 2828,
+          "line": 3376,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -2876,7 +2885,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Build the header menu controls (mirror of mayatk's sequencer header).",
-              "line": 3270,
+              "line": 3785,
               "deprecated": false
             },
             {
@@ -2885,7 +2894,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the attribute color configuration dialog.",
-              "line": 3480,
+              "line": 4027,
               "deprecated": false
             },
             {
@@ -2894,7 +2903,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Set the snap interval on the sequencer widget.",
-              "line": 3512,
+              "line": 4059,
               "deprecated": false
             },
             {
@@ -2903,7 +2912,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the sequencer shortcut editor.",
-              "line": 3518,
+              "line": 4065,
               "deprecated": false
             },
             {
@@ -2912,7 +2921,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 3524,
+              "line": 4071,
               "deprecated": false
             },
             {
@@ -2921,7 +2930,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Handle direct combobox selection of a shot or marker.",
-              "line": 3528,
+              "line": 4075,
               "deprecated": false
             }
           ]
@@ -2947,7 +2956,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Remove store listeners and invalidation subscription (call on teardown).",
-              "line": 186,
+              "line": 188,
               "deprecated": false
             },
             {
@@ -2956,7 +2965,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Central enable/disable refresh for all Shots UI widgets.",
-              "line": 260,
+              "line": 262,
               "deprecated": false
             },
             {
@@ -2965,7 +2974,7 @@
               "kind": "method",
               "signature": "(self, value: float) -> None",
               "summary": "",
-              "line": 517,
+              "line": 524,
               "deprecated": false
             },
             {
@@ -2974,7 +2983,7 @@
               "kind": "method",
               "signature": "(self, index: int) -> None",
               "summary": "",
-              "line": 525,
+              "line": 532,
               "deprecated": false
             },
             {
@@ -2983,7 +2992,7 @@
               "kind": "method",
               "signature": "(self, value: float) -> None",
               "summary": "",
-              "line": 535,
+              "line": 542,
               "deprecated": false
             },
             {
@@ -2992,7 +3001,7 @@
               "kind": "method",
               "signature": "(self, checked: bool) -> None",
               "summary": "",
-              "line": 543,
+              "line": 550,
               "deprecated": false
             },
             {
@@ -3001,16 +3010,16 @@
               "kind": "method",
               "signature": "(self, index: int) -> None",
               "summary": "",
-              "line": 572,
+              "line": 579,
               "deprecated": false
             },
             {
               "name": "on_gap_changed",
               "qualname": "ShotsController.on_gap_changed",
               "kind": "method",
-              "signature": "(self, value, scope: str = 'all') -> None",
-              "summary": "",
-              "line": 582,
+              "signature": "(self, value, scope: str = 'all', respect_locks: bool = True) -> None",
+              "summary": "Set the store gap and re-space per *scope*.",
+              "line": 589,
               "deprecated": false
             },
             {
@@ -3019,7 +3028,7 @@
               "kind": "method",
               "signature": "(self, index: int) -> None",
               "summary": "User picked a different shot from the combobox.",
-              "line": 604,
+              "line": 623,
               "deprecated": false
             },
             {
@@ -3028,7 +3037,7 @@
               "kind": "method",
               "signature": "(self, text: str) -> None",
               "summary": "",
-              "line": 623,
+              "line": 642,
               "deprecated": false
             },
             {
@@ -3037,7 +3046,7 @@
               "kind": "method",
               "signature": "(self, value: float) -> None",
               "summary": "",
-              "line": 626,
+              "line": 645,
               "deprecated": false
             },
             {
@@ -3046,7 +3055,7 @@
               "kind": "method",
               "signature": "(self, value: float) -> None",
               "summary": "",
-              "line": 648,
+              "line": 667,
               "deprecated": false
             },
             {
@@ -3055,7 +3064,7 @@
               "kind": "method",
               "signature": "(self, text: str) -> None",
               "summary": "",
-              "line": 672,
+              "line": 691,
               "deprecated": false
             },
             {
@@ -3064,7 +3073,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Delete the active shot after confirmation.",
-              "line": 803,
+              "line": 850,
               "deprecated": false
             },
             {
@@ -3073,7 +3082,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Delete every shot after confirmation.",
-              "line": 856,
+              "line": 903,
               "deprecated": false
             },
             {
@@ -3082,7 +3091,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Move the active shot to the position specified by spn_move_to.",
-              "line": 883,
+              "line": 930,
               "deprecated": false
             },
             {
@@ -3091,7 +3100,7 @@
               "kind": "method",
               "signature": "(self, edge: str = 'both') -> None",
               "summary": "Trim empty space from the active shot, at *edge*.",
-              "line": 921,
+              "line": 968,
               "deprecated": false
             },
             {
@@ -3100,7 +3109,16 @@
               "kind": "method",
               "signature": "(self, edge: str = 'both') -> None",
               "summary": "Trim empty space from every shot, at *edge*.",
-              "line": 942,
+              "line": 989,
+              "deprecated": false
+            },
+            {
+              "name": "on_shift_all_shots",
+              "qualname": "ShotsController.on_shift_all_shots",
+              "kind": "method",
+              "signature": "(self, start: float) -> None",
+              "summary": "Shift every shot so the first one starts on *start*.",
+              "line": 1010,
               "deprecated": false
             },
             {
@@ -3109,7 +3127,7 @@
               "kind": "method",
               "signature": "(self, edge: str = 'leading') -> None",
               "summary": "Pad the active shot with ``spn_space`` frames of room at *edge*.",
-              "line": 963,
+              "line": 1043,
               "deprecated": false
             }
           ]
@@ -3117,7 +3135,7 @@
         {
           "name": "ShotsSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 987,
+          "line": 1067,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -3128,7 +3146,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 1000,
+              "line": 1080,
               "deprecated": false
             },
             {
@@ -3137,7 +3155,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Detection threshold changed.",
-              "line": 1059,
+              "line": 1140,
               "deprecated": false
             },
             {
@@ -3146,7 +3164,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Detection mode combobox changed.",
-              "line": 1063,
+              "line": 1144,
               "deprecated": false
             },
             {
@@ -3155,7 +3173,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Initial shot length changed.",
-              "line": 1067,
+              "line": 1148,
               "deprecated": false
             },
             {
@@ -3164,7 +3182,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Fit mode combobox changed.",
-              "line": 1071,
+              "line": 1152,
               "deprecated": false
             },
             {
@@ -3173,7 +3191,7 @@
               "kind": "method",
               "signature": "(self, checked)",
               "summary": "Snap-to-whole-frames checkbox toggled.",
-              "line": 1075,
+              "line": 1156,
               "deprecated": false
             },
             {
@@ -3182,7 +3200,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Shot selector combobox changed.",
-              "line": 1081,
+              "line": 1162,
               "deprecated": false
             },
             {
@@ -3191,7 +3209,7 @@
               "kind": "method",
               "signature": "(self, text=None)",
               "summary": "Shot name edited.",
-              "line": 1085,
+              "line": 1166,
               "deprecated": false
             },
             {
@@ -3200,7 +3218,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Shot start frame changed.",
-              "line": 1091,
+              "line": 1172,
               "deprecated": false
             },
             {
@@ -3209,7 +3227,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Shot end frame changed.",
-              "line": 1095,
+              "line": 1176,
               "deprecated": false
             },
             {
@@ -3218,7 +3236,7 @@
               "kind": "method",
               "signature": "(self, text=None)",
               "summary": "Shot description edited.",
-              "line": 1099,
+              "line": 1180,
               "deprecated": false
             },
             {
@@ -3227,7 +3245,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete the selected shot.",
-              "line": 1105,
+              "line": 1186,
               "deprecated": false
             },
             {
@@ -3236,7 +3254,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Delete every shot (All Shots group).",
-              "line": 1109,
+              "line": 1190,
               "deprecated": false
             },
             {
@@ -3245,7 +3263,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Move shot to the position in spn_move_to.",
-              "line": 1113,
+              "line": 1194,
               "deprecated": false
             },
             {
@@ -3254,7 +3272,16 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Apply gap value with the scope selected in the option box.",
-              "line": 1117,
+              "line": 1198,
+              "deprecated": false
+            },
+            {
+              "name": "btn_shift_all",
+              "qualname": "ShotsSlots.btn_shift_all",
+              "kind": "method",
+              "signature": "(self)",
+              "summary": "Re-base every shot onto the frame in spn_shift_all.",
+              "line": 1213,
               "deprecated": false
             },
             {
@@ -3263,7 +3290,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim both ends of the selected shot.",
-              "line": 1126,
+              "line": 1219,
               "deprecated": false
             },
             {
@@ -3272,7 +3299,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim the selected shot's leading space.",
-              "line": 1130,
+              "line": 1223,
               "deprecated": false
             },
             {
@@ -3281,7 +3308,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim the selected shot's trailing space.",
-              "line": 1134,
+              "line": 1227,
               "deprecated": false
             },
             {
@@ -3290,7 +3317,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim both ends of the selected shot (option box twin of the button).",
-              "line": 1138,
+              "line": 1231,
               "deprecated": false
             },
             {
@@ -3299,7 +3326,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim both ends of every shot.",
-              "line": 1142,
+              "line": 1235,
               "deprecated": false
             },
             {
@@ -3308,7 +3335,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim every shot's leading space.",
-              "line": 1146,
+              "line": 1239,
               "deprecated": false
             },
             {
@@ -3317,7 +3344,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim every shot's trailing space.",
-              "line": 1150,
+              "line": 1243,
               "deprecated": false
             },
             {
@@ -3326,7 +3353,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Trim both ends of every shot (option box twin of the button).",
-              "line": 1154,
+              "line": 1247,
               "deprecated": false
             },
             {
@@ -3335,7 +3362,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Add empty room before the selected shot.",
-              "line": 1158,
+              "line": 1251,
               "deprecated": false
             },
             {
@@ -3344,7 +3371,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Deprecated alias for :meth:`btn_delete_all`.",
-              "line": 1168,
+              "line": 1261,
               "deprecated": false
             },
             {
@@ -3353,7 +3380,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Deprecated alias for :meth:`btn_trim_all`.",
-              "line": 1172,
+              "line": 1265,
               "deprecated": false
             },
             {
@@ -3362,7 +3389,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Add empty room after the selected shot.",
-              "line": 1176,
+              "line": 1269,
               "deprecated": false
             }
           ]

@@ -328,10 +328,18 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         label: Optional[str] = None,
         source_shot_id: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        targets: Optional[Sequence[Tuple[str, Any, float, float]]] = None,
     ) -> Optional[StashedClip]:
         """Move keys off the working animation into a stored clip.
 
-        Two selection sources, as in mayatk:
+        Three selection sources, as in mayatk, all producing ONE clip:
+
+        * *targets* — ``(object, fcurves, start, end)`` scopes, each resolved
+          on its own and merged, for a caller that already knows the exact
+          curves and spans it wants and wants them stored as one thing rather
+          than one clip per channel.  ``fcurves`` may be ``None`` for every
+          curve on the object.  (mayatk's twin names channels by attribute;
+          this fork takes curves, exactly as ``fcurves=`` does above.)
 
         * ``selected_keys=True`` — the Graph Editor / Dope Sheet key selection,
           per fcurve (optionally narrowed to *objects*).
@@ -351,7 +359,37 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         import bpy
 
         entries: List[Tuple[Any, Any, List[float]]] = []
-        if selected_keys:
+        if targets:
+            # Every target carries its own object, channels and span, so a
+            # set of unrelated scopes still resolves to ONE clip.  Keyed per
+            # fcurve because two targets can legitimately name the same curve
+            # over spans that touch or overlap.
+            merged: Dict[Any, Any] = {}
+            for obj, curves, start, end in targets:
+                o = self._as_object(obj)
+                if o is None:
+                    continue
+                lo, hi = float(start), float(end)
+                cands = (
+                    list(curves)
+                    if curves is not None
+                    else list(BlenderShotStore.iter_action_fcurves(o))
+                )
+                for fc in cands:
+                    times = {
+                        k.co.x
+                        for k in fc.keyframe_points
+                        if lo - self._EPS <= k.co.x <= hi + self._EPS
+                    }
+                    if not times:
+                        continue
+                    key = (o.name, fc.data_path, fc.array_index)
+                    if key in merged:
+                        merged[key][2].update(times)
+                    else:
+                        merged[key] = (o, fc, set(times))
+            entries = [(o, fc, sorted(ts)) for o, fc, ts in merged.values()]
+        elif selected_keys:
             objs = (
                 [self._as_object(o) for o in objects]
                 if objects

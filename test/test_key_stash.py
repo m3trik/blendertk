@@ -333,6 +333,53 @@ try:
     )
     reset_store()
 
+    # ---- targets: one gesture, one clip ----
+    reset()
+    cube = keyed_cube()
+    for f, v in ((5, 0.0), (15, 1.0)):
+        cube.location.y = v
+        cube.keyframe_insert("location", index=1, frame=f)
+
+    def fc_of(o, index):
+        return next(
+            (
+                fc
+                for fc in BlenderShotStore.iter_action_fcurves(o)
+                if fc.data_path == "location" and fc.array_index == index
+            ),
+            None,
+        )
+
+    tx, ty = fc_of(cube, 0), fc_of(cube, 1)
+    clip = KeyStash.active().stash(
+        targets=[(cube, [tx], 10, 30), (cube, [ty], 0, 20)]
+    )
+    check(
+        "targets merge into ONE clip, not one per channel",
+        clip is not None and len(clip.curves) == 2 and clip.key_count == 5,
+        f"{None if clip is None else (len(clip.curves), clip.key_count)}",
+    )
+    check(
+        "targets take exactly the keys their own scopes name",
+        frames(fc_of(cube, 0)) == [1, 40] and frames(fc_of(cube, 1)) == [],
+        f"x={frames(fc_of(cube, 0))} y={frames(fc_of(cube, 1))}",
+    )
+
+    # ---- targets are per-scope, not a bounding box over the union ----
+    reset()
+    cube = keyed_cube()
+    for f, v in ((1, 0.0), (30, 1.0)):
+        cube.location.y = v
+        cube.keyframe_insert("location", index=1, frame=f)
+    tx, ty = fc_of(cube, 0), fc_of(cube, 1)
+    KeyStash.active().stash(targets=[(cube, [tx], 10, 20), (cube, [ty], 25, 35)])
+    check(
+        "a merged scope list does not cross channel with span",
+        frames(fc_of(cube, 0)) == [1, 30, 40] and frames(fc_of(cube, 1)) == [1],
+        f"x={frames(fc_of(cube, 0))} y={frames(fc_of(cube, 1))}",
+    )
+    reset_store()
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

@@ -426,7 +426,9 @@ class ShotSequencer(_ShotSequencerInternal):
             for t in self._animator_key_times(obj_name, fc, (shot.start, shot.end)):
                 if abs(t - shot.start) <= _SLOP or abs(t - shot.end) <= _SLOP:
                     idx = _ShotSequencerInternal._key_index_at(fc, t)
-                    if idx is not None and self._sample_is_redundant(fc, idx):
+                    if idx is not None and self._sample_is_redundant(
+                        fc, idx, terminal=False
+                    ):
                         continue
                 marks.add(float(t))
         return sorted(marks)
@@ -791,16 +793,22 @@ class ShotSequencer(_ShotSequencerInternal):
     # ---- shot fit / trim / extend ----------------------------------------
 
     def fit_shot_to_content(
-        self, shot_id: int, mode: str = "fit", edge: str = "both"
+        self,
+        shot_id: int,
+        mode: str = "fit",
+        edge: str = "both",
+        reach: Optional[float] = None,
     ) -> Tuple[float, float]:
         """Resize a shot's boundaries to its sequence content, rippling neighbours.
 
         ``"fit"`` snaps both edges to content; ``"trim"`` only contracts;
         ``"extend"`` only expands to enclose out-of-range content.  *edge*
         restricts which end may move: ``"both"`` (default), ``"leading"`` or
-        ``"trailing"``.  Keys owned by OTHER shots are never attributed to this
-        one (shared objects), but keys in gaps (fade tails) still count.
-        Returns ``(head_delta, tail_delta)``.
+        ``"trailing"``.  *reach* (frames) bounds the outer probe and widens
+        it to BOTH gaps -- the explicit "extend to the keys I set" form; see
+        :meth:`_key_extent`.  Keys owned by OTHER shots are never attributed
+        to this one (shared objects), but keys in gaps (fade tails) still
+        count.  Returns ``(head_delta, tail_delta)``.
         """
         shot = self.shot_by_id(shot_id)
         if shot is None:
@@ -817,7 +825,7 @@ class ShotSequencer(_ShotSequencerInternal):
         # (Mirrors mayatk; see its twin for the production case.)
         probe_outside = mode in ("extend", "fit")
         inner_start, inner_end, outer_start, outer_end, on_bound = self._key_extent(
-            shot, probe_outside
+            shot, probe_outside, reach=reach
         )
 
         probes = (inner_start, outer_start, outer_end)
@@ -879,10 +887,18 @@ class ShotSequencer(_ShotSequencerInternal):
         )
         shot.start = new_start
         shot.end = new_end
+        # A GROWING edge ripples from the NEW bound so the keys it grew over
+        # stay enclosed (from the old bound they rode away with the
+        # neighbour); a shrink still ripples from the old one.  Mirrors
+        # mayatk; see its twin for the measured case.
         if abs(tail_delta) > _EPS:
-            self.ripple_downstream(shot_id, old_end, tail_delta)
+            self.ripple_downstream(
+                shot_id, new_end if tail_delta > 0 else old_end, tail_delta
+            )
         if abs(head_delta) > _EPS:
-            self.ripple_upstream(shot_id, old_start, head_delta)
+            self.ripple_upstream(
+                shot_id, new_start if head_delta < 0 else old_start, head_delta
+            )
         # reconcile, not just enforce: this moved a shot BOUND, which is
         # exactly when a boundary sample the system created has to follow
         # it or be cleaned up.
@@ -890,7 +906,9 @@ class ShotSequencer(_ShotSequencerInternal):
         self.store.mark_dirty()
         return head_delta, tail_delta
 
-    def _key_extent(self, shot, probe_outside: bool) -> tuple:
+    def _key_extent(
+        self, shot, probe_outside: bool, reach: Optional[float] = None
+    ) -> tuple:
         """Where *shot*'s content sits, as the keys tell it -- the one scan behind
         :meth:`fit_shot_to_content` and the plain drag's clamp in
         :meth:`resize_shot_bounds`.  Mirrors mayatk's (its docstring carries the
@@ -902,6 +920,9 @@ class ShotSequencer(_ShotSequencerInternal):
         ``on_bound`` lists the UNCLAIMED keys sitting exactly on a bound that
         are provably redundant (:meth:`_sample_is_redundant`) -- a disowned
         pin -- which hold nothing and are cut once a bound moves past them.
+        *reach* (frames) is the explicit "extend to the keys I set" probe:
+        BOTH gaps, each cut at *reach* from the bound, the leading one up to
+        (never on) the previous shot's end; a neighbour's span is never read.
         """
         inner_start = inner_end = None
         outer_start = outer_end = None
@@ -911,10 +932,14 @@ class ShotSequencer(_ShotSequencerInternal):
         ordered = self.sorted_shots()
         idx = next(i for i, s in enumerate(ordered) if s.shot_id == shot.shot_id)
         head_is_open = idx == 0
+        prev_end = ordered[idx - 1].end if idx > 0 else None
         tail_ceiling = ordered[idx + 1].start if idx + 1 < len(ordered) else None
         if probe_outside:
             lo = -1e9 if head_is_open else shot.start
             hi = 1e9 if tail_ceiling is None else tail_ceiling
+            if reach is not None:
+                lo = max(shot.start - reach, -1e9 if prev_end is None else prev_end)
+                hi = min(shot.end + reach, hi)
         else:
             lo, hi = shot.start, shot.end
         for name in self._shot_nodes(shot):
@@ -935,10 +960,17 @@ class ShotSequencer(_ShotSequencerInternal):
                     if not probe_outside:
                         continue
                     if t < shot.start:
-                        if not head_is_open:
+                        if reach is not None:
+                            if t < lo - _SLOP or (
+                                prev_end is not None and t <= prev_end + _SLOP
+                            ):
+                                continue  # out of reach, or the previous shot's fencepost
+                        elif not head_is_open:
                             continue  # the leading gap is the previous shot's
                         outer_start = t if outer_start is None else min(outer_start, t)
                     elif tail_ceiling is None or t < tail_ceiling - _EPS:
+                        if reach is not None and t > hi + _SLOP:
+                            continue
                         outer_end = t if outer_end is None else max(outer_end, t)
         return inner_start, inner_end, outer_start, outer_end, on_bound
 
@@ -975,9 +1007,15 @@ class ShotSequencer(_ShotSequencerInternal):
         """
         return self.fit_shot_to_content(shot_id, mode="trim", edge=edge)
 
-    def extend_shot_to_fit(self, shot_id: int) -> Tuple[float, float]:
-        """Expand shot boundaries outward to enclose all of its sequences."""
-        return self.fit_shot_to_content(shot_id, mode="extend")
+    def extend_shot_to_fit(
+        self, shot_id: int, edge: str = "both", reach: Optional[float] = None
+    ) -> Tuple[float, float]:
+        """Expand shot boundaries outward to enclose all of its sequences.
+
+        *edge* limits the growth to one end; *reach* (frames) is the user's
+        "extend to the keys I set" form (see :meth:`fit_shot_to_content`).
+        """
+        return self.fit_shot_to_content(shot_id, mode="extend", edge=edge, reach=reach)
 
     # ---- automatic shot detection ----------------------------------------
 
@@ -2194,8 +2232,13 @@ class ShotSequencer(_ShotSequencerInternal):
         self._apply_gap_holds(seams)
 
     @classmethod
-    def _sample_is_redundant(cls, fc, idx: int) -> bool:
+    def _sample_is_redundant(cls, fc, idx: int, terminal: bool = True) -> bool:
         """True when removing point *idx* cannot change what *fc* plays.
+
+        *terminal* admits the curve's first/last point to the test (see
+        :meth:`_terminal_sample_is_redundant`); the marker scan turns it off
+        -- a flat member's bookend on a bound is the animator's own mark to
+        draw (mirror of mayatk).
 
         Two conditions, and equal values alone is NOT one of them:
 
@@ -2214,8 +2257,20 @@ class ShotSequencer(_ShotSequencerInternal):
         of the keys a move is about to land on (mirrors mayatk).
         """
         pts = fc.keyframe_points
-        if idx <= 0 or idx >= len(pts) - 1:
-            return False  # no neighbour on one side: the hold beyond it is shape
+        if idx < 0 or idx >= len(pts) or len(pts) < 2:
+            return False
+        if idx == 0 or idx == len(pts) - 1:
+            if not terminal:
+                return False
+            # No neighbour on one side.  The hold beyond a terminal point is
+            # shape only while something can differ there: under CONSTANT
+            # extrapolation the curve holds its terminal value forever, so a
+            # terminal point that duplicates its one neighbour across a flat
+            # span changes nothing by going.  Mirrors mayatk: this is where
+            # the LAST shot's end samples ended up -- never redundant by the
+            # plateau test, never cut, and once disowned they pinned every
+            # trailing trim of the last shot.
+            return cls._terminal_sample_is_redundant(fc, idx)
         prev, nxt = pts[idx - 1], pts[idx + 1]
         here = pts[idx].co[1]
         if abs(prev.co[1] - here) > _POSE_TOL or abs(nxt.co[1] - here) > _POSE_TOL:
@@ -2228,6 +2283,27 @@ class ShotSequencer(_ShotSequencerInternal):
         return (
             abs(prev.handle_right[1] - prev.co[1]) <= _POSE_TOL
             and abs(nxt.handle_left[1] - nxt.co[1]) <= _POSE_TOL
+        )
+
+    @classmethod
+    def _terminal_sample_is_redundant(cls, fc, idx: int) -> bool:
+        """The first/last point case of :meth:`_sample_is_redundant`:
+        CONSTANT extrapolation beyond it, its one neighbour carrying its
+        value, and the span between them playing flat."""
+        if getattr(fc, "extrapolation", "CONSTANT") != "CONSTANT":
+            return False
+        pts = fc.keyframe_points
+        last = idx == len(pts) - 1
+        here = pts[idx]
+        neighbour = pts[idx - 1] if last else pts[idx + 1]
+        if abs(neighbour.co[1] - here.co[1]) > _POSE_TOL:
+            return False
+        earlier, later = (neighbour, here) if last else (here, neighbour)
+        if earlier.interpolation in _FLAT_SPAN_INTERPOLATIONS:
+            return True
+        return (
+            abs(earlier.handle_right[1] - earlier.co[1]) <= _POSE_TOL
+            and abs(later.handle_left[1] - later.co[1]) <= _POSE_TOL
         )
 
     def _reconcile_boundary_keys(
@@ -3017,15 +3093,33 @@ class ShotSequencer(_ShotSequencerInternal):
 
     # ---- timing redistribution -------------------------------------------
 
-    def respace(self, gap: float = 0, start_frame: float = 1) -> None:
-        """Lay all shots out sequentially from *start_frame* with *gap* spacing (locked gaps kept)."""
-        self._apply(ShotPlanner.plan_respace(self.store, gap, start_frame))
+    def respace(
+        self, gap: float = 0, start_frame: float = 1, respect_locks: bool = True
+    ) -> None:
+        """Lay all shots out sequentially from *start_frame* with *gap* spacing.
+
+        A locked gap keeps its own width unless *respect_locks* is False; the
+        locks are left set either way.
+        """
+        self._apply(
+            ShotPlanner.plan_respace(
+                self.store, gap, start_frame, respect_locks=respect_locks
+            )
+        )
         self._enforce_gap_holds()
 
     def apply_gap(
-        self, gap: float, scope: str = "all", shot_id: Optional[int] = None
+        self,
+        gap: float,
+        scope: str = "all",
+        shot_id: Optional[int] = None,
+        respect_locks: bool = True,
     ) -> bool:
         """Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).
+
+        *respect_locks* False re-spaces locked gaps too.  Only ``"all"``
+        consults the lock table -- the scoped modes ripple through
+        ``move_shot``, which never asks -- so it changes nothing for those.
 
         Returns ``True`` when any shot was repositioned.
         """
@@ -3033,7 +3127,9 @@ class ShotSequencer(_ShotSequencerInternal):
         if not sorted_s:
             return False
         if scope == "all":
-            self.respace(gap=gap, start_frame=sorted_s[0].start)
+            self.respace(
+                gap=gap, start_frame=sorted_s[0].start, respect_locks=respect_locks
+            )
             return True
         if shot_id is None:
             return False
