@@ -481,8 +481,13 @@ try:
     titles = [a.text() for a in menu.actions() if a.text()]
     sub_menu = next((a.menu() for a in menu.actions() if a.menu() is not None), None)
     check(
-        "clip menu: Delete Key / Lock Others / Unlock All / Move to Shot",
-        {"Delete Key", "Lock Others", "Unlock All", "Move to Shot"} <= set(titles),
+        "clip menu: Store Keys / Lock Others / Unlock All / Move to Shot",
+        {"Store Keys", "Lock Others", "Unlock All", "Move to Shot"} <= set(titles),
+        f"{titles}",
+    )
+    check(
+        "clip menu: no Delete row (the Delete key owns it)",
+        not any("Delete" in t for t in titles),
         f"{titles}",
     )
     labels = (

@@ -110,6 +110,7 @@ class TestShotsPanelLoads(unittest.TestCase):
             "b000",
             # All Shots group
             "spn_gap",
+            "spn_shift_all",
             "btn_trim_all",
             "btn_delete_all",
         ]
@@ -156,10 +157,80 @@ class TestShotsPanelLoads(unittest.TestCase):
                 "btn_trim_all_both",
                 "cmb_gap_scope",
                 "btn_apply_gap",
+                "chk_override_locks",
+                "btn_shift_all",
             )
             if getattr(self.ui, name, None) is None
         ]
         self.assertEqual(missing, [])
+
+    def test_shift_all_defaults_to_zero(self):
+        """A re-base target is about THIS sequence, not the last one."""
+        self.assertAlmostEqual(self.ui.spn_shift_all.value(), 0.0)
+
+    def test_override_locked_gaps_is_off_by_default(self):
+        """A lock is honoured unless the user says otherwise."""
+        self.assertFalse(self.ui.chk_override_locks.isChecked())
+
+    def test_shift_all_reports_a_sequence_already_there(self):
+        """The no-op arm needs no scene, so the panel suite can hold it.
+
+        The move itself shifts audio through ``bpy`` -- checked under the
+        Blender harness in ``test_shot_sequencer.py``.
+        """
+        from pythontk import ShotBlock
+
+        store = self.ui.slots.controller._active_store()
+        store.shots = [ShotBlock(1, "A", 0, 20, [])]
+        self.ui.spn_shift_all.setValue(0)
+        self.ui.slots.btn_shift_all()
+        self.assertEqual([(s.start, s.end) for s in store.sorted_shots()], [(0, 20)])
+
+    def test_every_option_box_button_survives_being_pressed(self):
+        """A slot reaching a controller helper through ``self`` raises here.
+
+        No shots in the store, so every controller returns early -- this is
+        about the slot's own attribute access, which no "widget exists"
+        assertion covers.
+        """
+        store = self.ui.slots.controller._active_store()
+        store.shots = []
+        for name in (
+            "btn_apply_gap",
+            "btn_shift_all",
+            "btn_trim_all",
+            "btn_trim_all_leading",
+            "btn_trim_all_trailing",
+            "btn_trim_all_both",
+            "btn_move_shot",
+            "btn_trim_empty",
+            "btn_trim_leading",
+            "btn_trim_trailing",
+            "btn_trim_both",
+            "btn_add_leading_space",
+            "btn_add_trailing_space",
+        ):
+            slot = getattr(self.ui.slots, name, None)
+            self.assertIsNotNone(slot, f"{name} has no slot method")
+            with self.subTest(button=name):
+                slot()
+
+    def test_override_locked_gaps_reaches_the_controller(self):
+        """The checkbox has to arrive as ``respect_locks``, inverted."""
+        seen = {}
+        ctrl = self.ui.slots.controller
+        real = ctrl.on_gap_changed
+        ctrl.on_gap_changed = lambda v, **kw: seen.update(kw)
+        try:
+            self.ui.chk_override_locks.setChecked(True)
+            self.ui.slots.btn_apply_gap()
+            self.assertIs(seen.get("respect_locks"), False, seen)
+            self.ui.chk_override_locks.setChecked(False)
+            self.ui.slots.btn_apply_gap()
+            self.assertIs(seen.get("respect_locks"), True, seen)
+        finally:
+            ctrl.on_gap_changed = real
+            self.ui.chk_override_locks.setChecked(False)
 
     def test_gap_scope_combo_items(self):
         cmb = getattr(self.ui, "cmb_gap_scope", None)

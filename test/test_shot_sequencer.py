@@ -174,6 +174,59 @@ def _run_sequencer_checks():
         f"{key_times('C')[:3]}..",
     )
 
+    # ---- Shift To: re-base the whole sequence onto a start frame ---------
+    build_scene()
+    store = fresh_store()
+    store.gap = 10
+    seq = ShotSequencer(store)
+    first = seq.sorted_shots()[0]
+    spans_before = [(s.start, s.end) for s in seq.sorted_shots()]
+    seq.move_shot(first.shot_id, first.start - 100)
+    spans_after = [(s.start, s.end) for s in seq.sorted_shots()]
+    check(
+        "shift all: every shot moved by the same delta",
+        [(s - 100, e - 100) for s, e in spans_before] == spans_after,
+        f"{spans_before} -> {spans_after}",
+    )
+    check(
+        "shift all: the keys came with them",
+        key_times("B") == [round(t - 100, 3) for t in range(20, 31)],
+        f"{key_times('B')[:3]}..",
+    )
+
+    # ---- apply_gap(all) can override a locked gap ------------------------
+    build_scene()
+    store = fresh_store()
+    store.gap = 5
+    a0, b0 = (store.shot_by_name(n) for n in ("A", "B"))
+    store.lock_gap(a0.shot_id, b0.shot_id)
+    locked_width = b0.start - a0.end
+    seq = ShotSequencer(store)
+    seq.apply_gap(5, scope="all")
+    a, b = (store.shot_by_name(n) for n in ("A", "B"))
+    check(
+        "apply_gap all: a locked gap keeps its width by default",
+        abs((b.start - a.end) - locked_width) < 1e-6,
+        f"{b.start - a.end} vs {locked_width}",
+    )
+    build_scene()
+    store = fresh_store()
+    store.gap = 5
+    a0, b0 = (store.shot_by_name(n) for n in ("A", "B"))
+    store.lock_gap(a0.shot_id, b0.shot_id)
+    seq = ShotSequencer(store)
+    seq.apply_gap(5, scope="all", respect_locks=False)
+    a, b = (store.shot_by_name(n) for n in ("A", "B"))
+    check(
+        "apply_gap all: respect_locks=False spends the gap on it anyway",
+        abs((b.start - a.end) - 5) < 1e-6,
+        f"{b.start - a.end}",
+    )
+    check(
+        "apply_gap all: the lock itself survives the override",
+        store.is_gap_locked(a0.shot_id, b0.shot_id),
+    )
+
     # ---- move_shot_to_position: reorder via plan_reorder + park/land ------
     build_scene()
     store = fresh_store()
@@ -2573,6 +2626,93 @@ def _run_sequencer_checks():
         and times_of(obs["padG"]) == [1.0, 11.0],
         f"{(head, tail)} {[(s.name, s.start, s.end) for s in sq.sorted_shots()]} "
         f"{times_of(obs['padG'])}",
+    )
+
+    # -- extend: the reached key stays enclosed, the neighbour ripples ------
+    st, sq, obs = fresh({"extA": {0: 0, 40: 5, 55: 6}, "extB": {80: 0, 100: 5}})
+    s0 = sq.define_shot("S0", 0, 50, objects=["extA"])
+    s1 = sq.define_shot("S1", 70, 120, objects=["extB"])
+    head, tail = sq.extend_shot_to_fit(s0.shot_id)
+    s1 = sq.shot_by_id(s1.shot_id)
+    check(
+        "extend: the gap key stays enclosed and S1 ripples from the NEW bound",
+        (head, tail) == (0, 5)
+        and sq.shot_by_id(s0.shot_id).end == 55
+        and times_of(obs["extA"]) == [0, 40, 55]
+        and (s1.start, s1.end) == (75, 125)
+        and times_of(obs["extB"]) == [85, 105],
+        f"{(head, tail)} S0.end={sq.shot_by_id(s0.shot_id).end} "
+        f"A={times_of(obs['extA'])} S1={(s1.start, s1.end)} B={times_of(obs['extB'])}",
+    )
+
+    # -- extend reach: bounded, and it reads the leading gap too ------------
+    st, sq, obs = fresh({"rchA": {0: 0, 40: 5, 55: 6, 66: 7}, "rchB": {80: 0, 100: 5}})
+    s0 = sq.define_shot("S0", 0, 50, objects=["rchA"])
+    sq.define_shot("S1", 70, 120, objects=["rchB"])
+    head, tail = sq.extend_shot_to_fit(s0.shot_id, reach=8)
+    check(
+        "extend reach: a key past the reach is not reached for",
+        (head, tail) == (0, 5) and times_of(obs["rchA"]) == [0, 40, 55, 71],
+        f"{(head, tail)} A={times_of(obs['rchA'])}",
+    )
+    st, sq, obs = fresh({"ldA": {0: 0, 40: 5}, "ldB": {45: -2, 62: -1, 80: 0, 100: 5}})
+    s0 = sq.define_shot("S0", 0, 50, objects=["ldA"])
+    s1 = sq.define_shot("S1", 70, 120, objects=["ldB"])
+    head, tail = sq.extend_shot_to_fit(s1.shot_id, reach=10)
+    s0, s1 = sq.shot_by_id(s0.shot_id), sq.shot_by_id(s1.shot_id)
+    check(
+        "extend reach: the leading gap counts, the previous shot's span never",
+        (head, tail) == (-8, 0)
+        and s1.start == 62
+        and times_of(obs["ldB"]) == [37, 62, 80, 100]
+        and (s0.start, s0.end) == (-8, 42)
+        and times_of(obs["ldA"]) == [-8, 32],
+        f"{(head, tail)} S1.start={s1.start} B={times_of(obs['ldB'])} "
+        f"S0={(s0.start, s0.end)} A={times_of(obs['ldA'])}",
+    )
+    st, sq, obs = fresh({"noA": {0: 0, 40: 5}, "noB": {62: -1, 80: 0, 100: 5}})
+    sq.define_shot("S0", 0, 50, objects=["noA"])
+    s1 = sq.define_shot("S1", 70, 120, objects=["noB"])
+    check(
+        "extend without reach: the leading gap is still the previous shot's",
+        sq.extend_shot_to_fit(s1.shot_id) == (0.0, 0.0),
+    )
+
+    # -- a flat key on the LAST shot's end holds no bound --------------------
+    st, sq, obs = fresh({"trmA": {0: 0, 40: 5}, "trmB": {60: 0, 100: 5, 120: 5}})
+    sq.define_shot("S0", 0, 50, objects=["trmA"])
+    s1 = sq.define_shot("S1", 60, 120, objects=["trmB"])
+    head, tail = sq.trim_shot_to_content(s1.shot_id, edge="trailing")
+    check(
+        "trim trailing: passes a flat key on the last shot's end and cuts it",
+        (head, tail) == (0, -20)
+        and sq.shot_by_id(s1.shot_id).end == 100
+        and times_of(obs["trmB"]) == [60, 100],
+        f"{(head, tail)} end={sq.shot_by_id(s1.shot_id).end} B={times_of(obs['trmB'])}",
+    )
+    st, sq, obs = fresh({"shpA": {0: 0, 40: 5}, "shpB": {60: 0, 100: 5, 120: 7}})
+    sq.define_shot("S0", 0, 50, objects=["shpA"])
+    s1 = sq.define_shot("S1", 60, 120, objects=["shpB"])
+    check(
+        "trim trailing: a shaped end key still holds the bound",
+        sq.trim_shot_to_content(s1.shot_id, edge="trailing") == (0.0, 0.0)
+        and times_of(obs["shpB"]) == [60, 100, 120],
+        f"B={times_of(obs['shpB'])}",
+    )
+    st, sq, obs = fresh({"cycB": {60: 0, 100: 5, 120: 5}})
+    s1 = sq.define_shot("S1", 60, 120, objects=["cycB"])
+    fc_of(obs["cycB"]).extrapolation = "LINEAR"
+    check(
+        "trim trailing: a flat end key under non-constant extrapolation holds",
+        sq.trim_shot_to_content(s1.shot_id, edge="trailing") == (0.0, 0.0),
+    )
+    st, sq, obs = fresh({"fstA": {0: 0, 20: 0, 40: 5}})
+    s0 = sq.define_shot("S0", 0, 50, objects=["fstA"])
+    head, tail = sq.trim_shot_to_content(s0.shot_id, edge="leading")
+    check(
+        "trim leading: a flat key on the first shot's start gives way too",
+        (head, tail) == (20, 0) and times_of(obs["fstA"]) == [20, 40],
+        f"{(head, tail)} A={times_of(obs['fstA'])}",
     )
 
     BlenderShotStore.clear_active()
