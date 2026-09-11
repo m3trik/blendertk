@@ -44,6 +44,7 @@ class SceneState:
         "base_color": "_read_base_color",
         "emissive": "_read_emissive",
         "metallic_roughness": "_read_metallic_roughness",
+        "alpha_mode": "_read_alpha_mode",
     }
 
     @staticmethod
@@ -122,6 +123,138 @@ class SceneState:
                 continue
             result[material.name] = {"color": list(socket.default_value)[:3]}
         return result
+
+    @classmethod
+    def _read_alpha_mode(
+        cls, materials: List[Any], textures: Dict[str, Dict[str, str]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """``{material: {"mode": "MASK"|"BLEND", "cutoff": float}}`` for *materials*.
+
+        The FBX cannot say which glTF ``alphaMode`` a material wants, and
+        FBX2glTF decides from the base colour's alpha channel alone, so a
+        transparent material reaches WebXR OPAQUE with its silhouette embedded
+        and renders as a solid square. Measured on the Maya side 2026-09-02;
+        the Blender side ships two producers down the same route -- the shadow
+        rig's plane and the Horizon rig's -- and the plane's fade is exactly
+        what a viewer without the shim falls back to.
+
+        A material with nothing to say is OMITTED, which leaves the converter's
+        ``OPAQUE`` in place. Getting that boundary right is the whole job here,
+        because Blender's defaults are not neutral: a brand-new material
+        already reads ``blend_method='HASHED'`` and
+        ``surface_render_method='DITHERED'`` (probed on 5.1.2), so "not
+        OPAQUE" would mark every material in the scene transparent. Only
+        deliberate authoring counts, and both of this package's own producers
+        are covered: ``MatUtils`` sets ``CLIP`` for a cutout (with
+        ``alpha_threshold`` as the cutoff) and wires the Principled ``Alpha``,
+        while the shadow rigs mix a Transparent BSDF into the surface output.
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        for material in materials:
+            entry = cls._alpha_mode_of(material)
+            if entry:
+                result[material.name] = entry
+        return result
+
+    #: How ``MatUtils`` marks a cutout in the graph -- a labelled ``GREATER_THAN``
+    #: Math node thresholding the alpha, whose second input is the cutoff.
+    MASK_NODE_LABEL = "Mask Threshold"
+
+    @classmethod
+    def _alpha_mode_of(cls, material: Any) -> Optional[Dict[str, Any]]:
+        """One material's glTF ``alphaMode``, or None to leave it OPAQUE.
+
+        MASK is read from the GRAPH, not from ``blend_method``. On 4.2+ that
+        property is a compatibility shim over ``surface_render_method`` and
+        EEVEE Next kept only two methods: probed on 5.1.2, assigning ``CLIP``
+        (or ``OPAQUE``) silently leaves ``HASHED``/``DITHERED``, and only
+        ``BLEND`` survives the round trip. A cutout therefore cannot be stated
+        at material level any more, which is why ``MatUtils`` thresholds the
+        alpha in the node graph instead -- and that node is the durable signal.
+        The property is still read first for a file authored on 4.1 or earlier,
+        where ``CLIP`` does stick.
+        """
+        entry = cls._mask_entry(material)
+        if entry:
+            return entry
+        if getattr(material, "blend_method", None) == "CLIP":
+            entry = {"mode": "MASK"}
+            cutoff = getattr(material, "alpha_threshold", None)
+            if isinstance(cutoff, (int, float)):
+                entry["cutoff"] = float(cutoff)
+            return entry
+        if (
+            getattr(material, "blend_method", None) == "BLEND"
+            or getattr(material, "surface_render_method", None) == "BLENDED"
+        ):
+            return {"mode": "BLEND"}
+        if cls._surface_mixes_transparency(material):
+            return {"mode": "BLEND"}
+        node = cls._principled(material)
+        if node is not None:
+            alpha = node.inputs.get("Alpha")
+            if alpha is not None:
+                try:
+                    if alpha.is_linked or float(alpha.default_value) < 1.0:
+                        return {"mode": "BLEND"}
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    @classmethod
+    def _mask_entry(cls, material: Any) -> Optional[Dict[str, Any]]:
+        """MASK + cutoff when a threshold node drives the Principled alpha."""
+        node = cls._principled(material)
+        alpha = node.inputs.get("Alpha") if node is not None else None
+        if alpha is None or not alpha.is_linked:
+            return None
+        source = alpha.links[0].from_node
+        if source.type != "MATH" or source.operation != "GREATER_THAN":
+            return None
+        if (source.label or "") != cls.MASK_NODE_LABEL:
+            return None
+        entry: Dict[str, Any] = {"mode": "MASK"}
+        try:
+            entry["cutoff"] = float(source.inputs[1].default_value)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            pass  # glTF's default cutoff (0.5) then applies
+        return entry
+
+    @staticmethod
+    def _surface_mixes_transparency(material: Any, limit: int = 64) -> bool:
+        """Does a Transparent BSDF reach the surface output through the graph?
+
+        The shadow rigs build exactly this -- a Mix Shader blending a
+        Transparent BSDF against the shaded result -- and set no Principled
+        alpha at all, so the socket check alone would miss them. Walked from
+        the ACTIVE output backwards and bounded, because a node tree may hold
+        several outputs and disconnected experiments, and a group cycle must
+        not hang an export.
+        """
+        tree = getattr(material, "node_tree", None)
+        if tree is None:
+            return False
+        outputs = [n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"]
+        start = next((n for n in outputs if n.is_active_output), None) or (
+            outputs[0] if outputs else None
+        )
+        if start is None:
+            return False
+        surface = start.inputs.get("Surface")
+        if surface is None or not surface.is_linked:
+            return False
+        seen, queue = set(), [surface.links[0].from_node]
+        while queue and len(seen) < limit:
+            node = queue.pop()
+            if node is None or node.name in seen:
+                continue
+            seen.add(node.name)
+            if node.type == "BSDF_TRANSPARENT":
+                return True
+            for socket in node.inputs:
+                for link in socket.links:
+                    queue.append(link.from_node)
+        return False
 
     @classmethod
     def _read_emissive(

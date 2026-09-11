@@ -210,7 +210,9 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
     carriers = ("fbx", "usd")
     usd_flattens_instances = True
 
-    def _model_writers(self) -> Dict[str, Callable[[str, Any, ptk.HandoffRequest], None]]:
+    def _model_writers(
+        self,
+    ) -> Dict[str, Callable[[str, Any, ptk.HandoffRequest], None]]:
         """``{carrier: writer(path, objects, request)}`` (mirror of mayatk's)."""
         return {"fbx": self._export_model_fbx, "usd": self._export_model_usd}
 
@@ -218,13 +220,17 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
         """Write *objects* to *path* in the carrier its extension names."""
         self._model_writers()[self.carrier_of(path)](path, objects, request)
 
-    def _export_model_fbx(self, path: str, objects, request: ptk.HandoffRequest) -> None:
+    def _export_model_fbx(
+        self, path: str, objects, request: ptk.HandoffRequest
+    ) -> None:
         """The Toolbag-tuned kwargs plus the caller's ``fbx_options`` extra."""
         options = dict(_DEFAULT_FBX_OPTIONS)
         options.update(request.get("fbx_options") or {})
         FbxUtils.export_selection_fbx(filepath=path, objects=objects, **options)
 
-    def _export_model_usd(self, path: str, objects, request: ptk.HandoffRequest) -> None:
+    def _export_model_usd(
+        self, path: str, objects, request: ptk.HandoffRequest
+    ) -> None:
         """The Toolbag USD set plus the ``usd_options`` extra -- flat, with a
         warning when the set holds linked duplicates (each bakes as its own mesh)."""
         import bpy
@@ -349,7 +355,9 @@ class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal):
                     targets.append(node)
         return sources, targets
 
-    def _cage_measurements(self, sources: Sequence, targets: Sequence) -> Dict[str, Any]:
+    def _cage_measurements(
+        self, sources: Sequence, targets: Sequence
+    ) -> Dict[str, Any]:
         """Measure what the auto cage needs -- mirror of mayatk's ``_cage_measurements``.
 
         The cage has to travel from the bake target out past the source's

@@ -4,6 +4,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 
 ## Index
 
+- [`__init__.py`](#__init__)
 - [`anim_utils/_anim_utils.py`](#anim_utils--_anim_utils) — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - [`anim_utils/blendshape_animator/_blendshape_animator.py`](#anim_utils--blendshape_animator--_blendshape_animator) — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - [`anim_utils/blendshape_animator/applicator.py`](#anim_utils--blendshape_animator--applicator) — Applies tween mesh edits back to the master shape key — mirror of mayatk's
@@ -146,6 +147,10 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--project_ops) — Project-level ops: inspect the open project and reload its mesh.
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--setup_ops) — Project-setup ops: resolution, the baking high poly, and mesh maps.
 - [`mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py`](#mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--system_ops) — Painter-specific system ops: version reporting and script evaluation.
+- [`mat_utils/substance_bridge/templates/bake_lighting.py`](#mat_utils--substance_bridge--templates--bake_lighting) — Import the FBX as a new project, then bake Iray lighting into diffuse.
+- [`mat_utils/substance_bridge/templates/import.py`](#mat_utils--substance_bridge--templates--import) — Send the FBX to Painter as a new project.
+- [`mat_utils/substance_bridge/templates/reimport.py`](#mat_utils--substance_bridge--templates--reimport) — Update the running Painter's open project from a fresh FBX export.
+- [`mat_utils/substance_bridge/templates/render.py`](#mat_utils--substance_bridge--templates--render) — Render the current Painter project via Iray (JS body unverified).
 - [`mat_utils/texture_baker.py`](#mat_utils--texture_baker) — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - [`mat_utils/texture_path_editor.py`](#mat_utils--texture_path_editor) — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - [`node_utils/_node_utils.py`](#node_utils--_node_utils) — Node / datablock utilities — instancing via shared object data.
@@ -186,6 +191,11 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`xform_utils/matrices.py`](#xform_utils--matrices) — Matrix utilities — the Blender counterpart of mayatk's ``xform_utils.matrices``
 
 ---
+
+<a id="__init__"></a>
+### `__init__.py`
+
+- [`DEFAULT_INCLUDE`](blendertk/blendertk/__init__.py#L31) — constant
 
 <a id="anim_utils--_anim_utils"></a>
 ### `anim_utils/_anim_utils.py`
@@ -274,6 +284,13 @@ Applies tween mesh edits back to the master shape key — mirror of mayatk's
 
 Switchboard slots controller for the co-located ``blendshape_animator.ui`` — Blender port of
 
+- [`COL_NAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L32) — constant
+- [`COL_WEIGHT`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L33) — constant
+- [`COL_FRAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L34) — constant
+- [`COL_TOPOLOGY`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L35) — constant
+- [`COL_STATUS`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L36) — constant
+- [`MODE_WEIGHT`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L39) — constant
+- [`MODE_FRAME`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L40) — constant
 - **[`class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/blendshape_animator_slots.py#L79)** — Controller wiring blendshape_animator.ui to the BlendshapeAnimator domain class.
   - `BlendshapeAnimatorSlots.header_init(self, widget) -> None` — Configure header buttons + about menu.
   - `BlendshapeAnimatorSlots.b000_init(self, widget) -> None` — Create Setup button — option_box exposes an alternative entrypoint.
@@ -323,6 +340,7 @@ Master shape-key value keyframe animation — mirror of mayatk's
 
 Tween mesh wrappers and registry — mirror of mayatk's
 
+- [`TWEEN_GROUP_NAME`](blendertk/blendertk/anim_utils/blendshape_animator/target.py#L26) — constant
 - **[`class Target`](blendertk/blendertk/anim_utils/blendshape_animator/target.py#L31)** — Represents a single tween (in-between) target mesh object.
   - `Target.mesh(self) -> str` *(property)* — The tween object's name (string) — mirrors mayatk's ``Target.mesh`` string attribute.
   - `Target.weight(self) -> float` *(property)*
@@ -450,6 +468,18 @@ Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
 Constants, column layout, and pure helper functions for the Shot Manifest UI.
 
+- [`SETTINGS_NS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L25) — constant
+- [`HEADERS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L28) — constant
+- [`COL_STEP`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L31) — constant
+- [`COL_SECTION`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L32) — constant
+- [`COL_DESC`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L33) — constant
+- [`COL_BEHAVIORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L34) — constant
+- [`COL_START`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L35) — constant
+- [`COL_END`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L36) — constant
+- [`STEP_ICON_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L38) — constant
+- [`PASTEL_STATUS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L41) — constant
+- [`BEHAVIOR_STATUS_COLORS`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L45) — constant
+- [`ERROR_COLOR`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L51) — constant
 - **[`class ManifestData`](blendertk/blendertk/anim_utils/shots/shot_manifest/manifest_data.py#L54)** — ManifestData — module namespace.
   - `ManifestData.fmt_behavior(name: str) -> str` *(static)* — ``'fade_in'`` → ``'Fade In'``.
   - `ManifestData.format_behavior_html(behaviors, broken=(), status_color=None) -> str` *(static)* — Return rich-text HTML for a list of behavior names.
@@ -551,8 +581,10 @@ Blender shot sequencer engine — ripple editing + key motion over the shared pl
 
 Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 
+- [`FLOAT_ZERO_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L23) — constant
 - **[`class ClipMotionMixin(_ClipMotionMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_motion.py#L50)** — Mixin supplying clip move, resize, and batch-move handlers.
-  - `ClipMotionMixin.on_clip_resized(self, clip_id: int, new_start: float, new_duration: float) -> None` — Resize a clip — attribute sub-row (scale one channel) or main track (``resize_object``).
+  - `ClipMotionMixin.on_clip_resized(self, clip_id: int, new_start: float, new_duration: float) -> None` — Resize one clip — see :meth:`_commit_clip_resizes`.
+  - `ClipMotionMixin.on_clips_batch_resized(self, resizes) -> None` — An edge drag that scaled a SELECTION of clips as one unit.
   - `ClipMotionMixin.on_clip_moved(self, clip_id: int, new_start: float) -> None` — Handle clip move — routes to audio (deferred) or shot-level logic.
   - `ClipMotionMixin.on_clips_batch_moved(self, moves) -> None` — Handle a batch of clip moves (group drag), syncing once at the end.
   - `ClipMotionMixin.on_keys_moved(self, clip_id: int, changes: list) -> None` — Move individual keyframes on the fcurves, then refresh.
@@ -566,6 +598,7 @@ Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 
 Gap and range-highlight handlers for the shot sequencer controller (Blender).
 
+- [`TIME_SNAP_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/gap_manager.py#L16) — constant
 - **[`class GapManagerMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/gap_manager.py#L21)** — Mixin supplying gap-overlay and range-highlight handlers.
   - `GapManagerMixin.on_range_highlight_changed(self, start: float, end: float) -> None` — Update the active shot when a range-highlight handle is dragged.
   - `GapManagerMixin.on_gap_resized(self, original_next_start: float, new_next_start: float) -> None` — Handle a right-edge gap drag: the following shot's ``.start``.
@@ -591,6 +624,7 @@ Marker persistence for the shot sequencer controller (Blender).
 
 Segment collection and attribute extraction for the shot sequencer (Blender).
 
+- [`KEY_PROXIMITY_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/segment_collector.py#L22) — constant
 - **[`class SegmentCollector`](blendertk/blendertk/anim_utils/shots/shot_sequencer/segment_collector.py#L43)** — SegmentCollector — module namespace.
   - `SegmentCollector.attr_label(fcurve) -> str` *(static)* — ``location[0]`` → ``translateX`` (mayatk-style channel label).
   - `SegmentCollector.abbreviate_attrs(attrs) -> str` *(static)* — Compact, sorted summary of channel labels (``translateX`` -> ``tx``).
@@ -777,6 +811,8 @@ Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of may
 
 Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 
+- [`DEFAULT_CHANNEL`](blendertk/blendertk/audio_utils/_audio_utils.py#L59) — constant
+- [`MAX_CHANNEL_SEARCH`](blendertk/blendertk/audio_utils/_audio_utils.py#L62) — constant
 - **[`class AudioUtils(ptk.LoggingMixin)`](blendertk/blendertk/audio_utils/_audio_utils.py#L73)** — Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
   - `AudioUtils.ensure_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, creating it if this is the first strip.
   - `AudioUtils.get_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, or ``None`` when it doesn't exist yet.
@@ -912,6 +948,8 @@ Scene auto-instancer: convert geometrically identical meshes to instances.
 
 Logic for separating and reassembling mesh assemblies (bpy adapter).
 
+- [`ASSEMBLY_TAG_ATTR`](blendertk/blendertk/core_utils/auto_instancer/assembly_reconstructor.py#L42) — constant
+- [`CANONICAL_BAKE_PREFIX`](blendertk/blendertk/core_utils/auto_instancer/assembly_reconstructor.py#L48) — constant
 - **[`class AssemblyReconstructor(_AssemblyReconstructorInternal)`](blendertk/blendertk/core_utils/auto_instancer/assembly_reconstructor.py#L65)** — Handles the separation and intelligent reassembly of combined meshes.
   - `AssemblyReconstructor.separate_combined_meshes(self, objects: List[object]) -> List[object]` — Separate any combined (multi-shell) meshes into their shells.
   - `AssemblyReconstructor.cleanup_empty_sources(self) -> None` — No-op (API parity with mayatk).
@@ -1062,6 +1100,7 @@ Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui`
 
 Per-object **outliner text colour** for Blender — the true analogue of Maya's
 
+- [`COLOR_PROP`](blendertk/blendertk/display_utils/outliner_tint.py#L46) — constant
 - **[`class OutlinerTint(_OutlinerTintInternal)`](blendertk/blendertk/display_utils/outliner_tint.py#L256)** — Per-object outliner text colour (Maya ``outlinerColor`` analogue).
   - `OutlinerTint.set_color(objects: Sequence, color: Color) -> int` *(static)* — Stamp ``color`` as each object's outliner colour;
   - `OutlinerTint.get_color(obj) -> Optional[Color]` *(static)* — The object's stored outliner colour, or None.
@@ -1184,6 +1223,7 @@ Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_a
 
 Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 
+- [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L26) — constant
 - **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L29)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
   - `DuplicateGrid.duplicate_grid(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')` *(static)* — Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.
 - **[`class DuplicateGridSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_grid.py#L106)** — Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of
@@ -1398,6 +1438,15 @@ Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 
 Target Weld — interactive drag-a-vertex-onto-another merge tool.
 
+- [`COLOR_PRESELECT`](blendertk/blendertk/edit_utils/target_weld.py#L51) — constant
+- [`COLOR_SOURCE`](blendertk/blendertk/edit_utils/target_weld.py#L52) — constant
+- [`COLOR_LINE`](blendertk/blendertk/edit_utils/target_weld.py#L53) — constant
+- [`COLOR_HALO`](blendertk/blendertk/edit_utils/target_weld.py#L54) — constant
+- [`COLOR_PROMPT_BG`](blendertk/blendertk/edit_utils/target_weld.py#L55) — constant
+- [`COLOR_PROMPT_TEXT`](blendertk/blendertk/edit_utils/target_weld.py#L56) — constant
+- [`PICK_RADIUS`](blendertk/blendertk/edit_utils/target_weld.py#L58) — constant
+- [`MARKER_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L59) — constant
+- [`HALO_SIZE`](blendertk/blendertk/edit_utils/target_weld.py#L60) — constant
 - **[`class TargetWeld(_TargetWeldInternal)`](blendertk/blendertk/edit_utils/target_weld.py#L526)** — Namespace class (mirror of the co-located-tool convention;
   - `TargetWeld.activate(merge_to_center: bool = False) -> bool` *(static)* — Public entry point — start the interactive Target Weld tool (see :meth:`target_weld`).
   - `TargetWeld.project_points(mvp: np.ndarray, coords: np.ndarray, width: float, height: float) -> Tuple[np.ndarray, np.ndarray]` *(static)* — Project ``coords`` (N,3) through the 4x4 ``mvp`` into pixel space.
@@ -1454,6 +1503,7 @@ blendertk environment / scene-library utilities — the engine behind the Refere
 
 Launch a FRESH headless Blender to run a script / code string and capture its output — the
 
+- [`RESULT_PASS`](blendertk/blendertk/env_utils/blender_connection.py#L26) — constant
 - **[`class BlenderConnection`](blendertk/blendertk/env_utils/blender_connection.py#L29)** — Run scripts in fresh headless Blender instances (mirror of ``MayaConnection``'s role).
   - `BlenderConnection.find_blender(cls) -> Optional[str]` *(class)* — Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` → common install
   - `BlenderConnection.run_script(self, script_path: str, script_args=None, *, blend_file: Optional[str] = None, extra_args=None, timeout: Optional[float] = 600, output_file: Optional[str] = None, env: Optional[dict] = None)` — Run *script_path* in a fresh headless Blender;
@@ -1627,6 +1677,7 @@ Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 
 Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 
+- [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L49) — constant
 - **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L143)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
   - `MayaBridge.headless_app_path(self) -> Optional[str]` *(property)* — The ``mayapy`` interpreter for the blocking ``save_as`` run.
@@ -1642,6 +1693,11 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 
+- [`SUPPORTED_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L68) — constant
+- [`BAKE_SOURCE_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L73) — constant
+- [`BAKE_SOURCE_SUFFIX`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L79) — constant
+- [`MAYA_GROUP_EMPTY_DISPLAY_SIZE`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L95) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L99) — constant
 - **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L174)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
@@ -1676,6 +1732,7 @@ Slots for the Maya bridge panel.
 
 Registry of user-tunable Maya-bridge parameters exposed to the panel.
 
+- [`PARAMS`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L38) — constant
 - **[`class Parameters`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L114)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
@@ -1693,6 +1750,10 @@ Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blen
 - [`apply_visibility(engine, imported)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L196) — Replay the manifest's smart-bake ``visibility`` section through the shared
 - [`apply_scene(engine, is_usd)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L215) — Adopt the source scene's time setup (fps / playback + animation ranges /
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L235)
+- [`SRC_FILE`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L46) — constant
+- [`OUT_BLEND`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L47) — constant
+- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L48) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L50) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene"></a>
 ### `env_utils/maya_bridge/templates/_import_scene.py`
@@ -1704,6 +1765,15 @@ Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L458) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
 - [`write_manifest(entries, visibility, node_types, scene, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L483) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L775)
+- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L44) — constant
+- [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L45) — constant
+- [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L46) — constant
+- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L47) — constant
+- [`SMART_BAKE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
+- [`MODERN_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L61) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L64) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L67) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L77) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
@@ -1717,6 +1787,13 @@ Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L613) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
 - [`write_manifest(cmds, materials=None, shading_groups=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L638) — Sidecar beside the USD carrying what USD itself cannot: instance groups,
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L672)
+- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L33) — constant
+- [`OUT_USD`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L34) — constant
+- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L35) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L39) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L42) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L52) — constant
+- [`STINGRAY_DATA_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L63) — constant
 
 <a id="env_utils--maya_bridge--templates--_save_scene"></a>
 ### `env_utils/maya_bridge/templates/_save_scene.py`
@@ -1730,6 +1807,14 @@ Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 - [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L173) — Restore imported Empties as the correct Maya node types (see module docstring).
 - [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L199) — Replay the sidecar manifest through mayatk's applier (see module docstring).
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L217)
+- [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L39) — constant
+- [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L50) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L51) — constant
+- [`CARRIER`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L52) — constant
+- [`OUT_FILE`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L53) — constant
+- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L56) — constant
+- [`SHADER_TYPE`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L59) — constant
+- [`USD_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L67) — constant
 
 <a id="env_utils--maya_bridge--templates--import"></a>
 ### `env_utils/maya_bridge/templates/import.py`
@@ -1743,6 +1828,15 @@ Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
 - [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L207) — Restore imported Empties as the CORRECT Maya node types (see module docstring).
 - [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L252) — Replay the sidecar manifest through mayatk's applier (see module docstring).
 - [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L274)
+- [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L35) — constant
+- [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L48) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L49) — constant
+- [`CARRIER`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L50) — constant
+- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L53) — constant
+- [`CLEAR_SCENE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L54) — constant
+- [`FRAME_VIEW`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L55) — constant
+- [`SHADER_TYPE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L58) — constant
+- [`USD_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L66) — constant
 
 <a id="env_utils--pm_doctor"></a>
 ### `env_utils/pm_doctor.py`
@@ -1911,6 +2005,7 @@ Unity bridge engine -- export the Blender selection into a Unity project's Asset
 
 User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 
+- [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L27) — constant
 - **[`class Parameters`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L165)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
@@ -1934,6 +2029,7 @@ Slots for the Unity bridge panel -- mirror of mayatk's
 
 USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/usd.py#L41) — constant
 - **[`class UsdUtils(_UsdUtilsInternal)`](blendertk/blendertk/env_utils/usd.py#L129)** — USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``).
   - `UsdUtils.is_usd_file(filepath) -> bool` *(static)* — True when *filepath* is a USD layer/package (delegates to pythontk).
   - `UsdUtils.export(filepath=None, objects=None, selection_only=True, frame_range=None, include_hidden=True, **usd_opts)` *(static)* — Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.
@@ -2082,6 +2178,7 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L633) — constant
 - **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L709)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
 - **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L975)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
@@ -2244,6 +2341,10 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
 Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
+- [`APP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L45) — constant
+- [`SEND_TO`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L64) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L65) — constant
+- [`ROUNDTRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L68) — constant
 - **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L79)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
   - `MarmosetEngine.toolbag_path(self) -> Optional[str]` *(property)* — Resolve the Toolbag executable path.
   - `MarmosetEngine.toolbag_log_path(self) -> Optional[str]` *(property)* — Resolve Toolbag's application log file (script prints + tracebacks).
@@ -2260,6 +2361,9 @@ Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
 Shared helpers for Marmoset Toolbag template scripts.
 
+- [`SLOT_MAP`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L648) — constant
+- [`MODULE_NEUTRAL_FIELDS`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L671) — constant
+- [`SUBROUTINE_FIXES`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L684) — constant
 - **[`class ToolbagHelpers(_ToolbagHelpersInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/_toolbag_helpers.py#L200)** — ToolbagHelpers — module namespace.
   - `ToolbagHelpers.derive_per_run_log_path(manifest_path)` *(static)* — Return the ``<base>.toolbag.log`` path next to *manifest_path*.
   - `ToolbagHelpers.begin_log(reference_path)` *(static)* — Start a fresh log file alongside *reference_path*.
@@ -2290,6 +2394,8 @@ Slots for the Marmoset Toolbag bridge panel -- mirror of mayatk's
 
 JSON-RPC client bound to the marmoset_rpc Toolbag plugin.
 
+- [`DEFAULT_HOST`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/connection.py#L37) — constant
+- [`DEFAULT_PORT`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/connection.py#L38) — constant
 - **[`class MarmosetConnection(RpcClient, _MarmosetConnectionInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/connection.py#L52)** — JSON-RPC client bound to Toolbag's default port + finder.
 
 <a id="mat_utils--marmoset_bridge--marmoset_rpc--installer"></a>
@@ -2316,10 +2422,11 @@ One-shot batch pipeline for the marmoset_rpc bridge.
 
 Marmoset Toolbag RPC plugin -- entry point.
 
-- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L52) — Start the RPC server (idempotent).
-- [`stop_server()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L57) — Shut the server down (tests / hot-reload).
-- [`is_running()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L62) — True while the server is bound.
-- [`autostart()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L67) — Start on plugin load, gated to the Toolbag host.
+- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L53) — Start the RPC server (idempotent).
+- [`stop_server()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L58) — Shut the server down (tests / hot-reload).
+- [`is_running()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L63) — True while the server is bound.
+- [`autostart()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L68) — Start on plugin load, gated to the Toolbag host.
+- [`PLUGIN`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py#L33) — constant
 
 <a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--_rpc_core"></a>
 ### `mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py`
@@ -2350,7 +2457,7 @@ The in-application half of the RPC pair: registry + marshaller + server.
 
 Scene-inspection ops.
 
-- [`summary()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py#L14) — High-level snapshot of the current Toolbag scene.
+- [`summary()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py#L15) — High-level snapshot of the current Toolbag scene.
 - [`list_materials()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py#L39) — Material names in the current scene.
 
 <a id="mat_utils--marmoset_bridge--marmoset_rpc--plugin_src--marmoset_rpc--ops--system_ops"></a>
@@ -2358,13 +2465,15 @@ Scene-inspection ops.
 
 Toolbag-specific system ops.
 
-- [`version()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L14) — Toolbag build number (e.g.
+- [`version()`](blendertk/blendertk/mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py#L15) — Toolbag build number (e.g.
 
 <a id="mat_utils--marmoset_bridge--parameters"></a>
 ### `mat_utils/marmoset_bridge/parameters.py`
 
 Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 
+- [`PARAMS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L32) — constant
+- [`SUPERSESSIONS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L390) — constant
 - **[`class Parameters`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L409)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
@@ -2375,6 +2484,7 @@ Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 
 Plain default values + literal formatting for Marmoset template tokens.
 
+- [`DEFAULTS`](blendertk/blendertk/mat_utils/marmoset_bridge/template_params.py#L26) — constant
 - **[`class TemplateParams`](blendertk/blendertk/mat_utils/marmoset_bridge/template_params.py#L97)** — TemplateParams — module namespace.
   - `TemplateParams.derive_auto_maps(manifest: Dict[str, Any]) -> Dict[str, bool]` *(static)* — Return the ``{MAP_*: bool}`` roster *manifest*'s textures imply.
   - `TemplateParams.derive_bake_values(values: Dict[str, Any]) -> Dict[str, Any]` *(static)* — Return the managed bake tokens derived from *values*.
@@ -2388,6 +2498,43 @@ Plain default values + literal formatting for Marmoset template tokens.
 Bake source detail + surface maps onto the target meshes.
 
 - [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L662)
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L22) — constant
+- [`MODEL_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L42) — constant
+- [`SOURCE_MODEL_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L43) — constant
+- [`PAIRS_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L44) — constant
+- [`MANIFEST_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L45) — constant
+- [`OUTPUT_DIR`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L46) — constant
+- [`SAVE_PATH`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L47) — constant
+- [`SHOULD_QUIT`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L48) — constant
+- [`BAKE_SIZE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L58) — constant
+- [`BAKE_SAMPLES`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L59) — constant
+- [`BAKE_PADDING`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L60) — constant
+- [`BAKE_BITS`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L61) — constant
+- [`OUTPUT_FORMAT`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L62) — constant
+- [`MAP_NORMAL`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L65) — constant
+- [`MAP_AO`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L66) — constant
+- [`MAP_CURVATURE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L67) — constant
+- [`MAP_THICKNESS`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L68) — constant
+- [`MAP_POSITION`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L69) — constant
+- [`MAP_MATID`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L70) — constant
+- [`MAP_ALBEDO`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L71) — constant
+- [`MAP_ROUGHNESS`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L72) — constant
+- [`MAP_METALNESS`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L73) — constant
+- [`MAP_EMISSIVE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L74) — constant
+- [`HIGH_SUFFIX`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L77) — constant
+- [`LOW_SUFFIX`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L78) — constant
+- [`SUFFIX_INCLUDE_CHILDREN`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L79) — constant
+- [`CAGE_OFFSET`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L80) — constant
+- [`AUTO_CAGE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L81) — constant
+- [`IGNORE_BACKFACES`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L82) — constant
+- [`CAGE_STANDOFFS`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L93) — constant
+- [`CAGE_HOST_DIAGONAL`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L94) — constant
+- [`CAGE_REACH_FACTOR`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L103) — constant
+- [`AUTO_CAGE_MARGIN`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L108) — constant
+- [`AUTO_CAGE_FLOOR`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L126) — constant
+- [`AUTO_CAGE_BOUNDS_FLOOR`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L127) — constant
+- [`AUTO_CAGE_CEILING`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L128) — constant
+- [`AUTO_CAGE_GAP_MARGIN`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/bake.py#L132) — constant
 
 <a id="mat_utils--marmoset_bridge--templates--import"></a>
 ### `mat_utils/marmoset_bridge/templates/import.py`
@@ -2395,6 +2542,11 @@ Bake source detail + surface maps onto the target meshes.
 Open the model in Toolbag and wire materials from the manifest.
 
 - [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L35)
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L12) — constant
+- [`MODEL_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L25) — constant
+- [`MANIFEST_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L26) — constant
+- [`SAVE_PATH`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L27) — constant
+- [`SHOULD_QUIT`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/import.py#L28) — constant
 
 <a id="mat_utils--marmoset_bridge--templates--lookdev"></a>
 ### `mat_utils/marmoset_bridge/templates/lookdev.py`
@@ -2402,6 +2554,13 @@ Open the model in Toolbag and wire materials from the manifest.
 Open the model in Toolbag, apply a Sky preset, and frame the model.
 
 - [`main()`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L38)
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L12) — constant
+- [`MODEL_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L25) — constant
+- [`MANIFEST_FILE`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L26) — constant
+- [`SAVE_PATH`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L27) — constant
+- [`SHOULD_QUIT`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L28) — constant
+- [`SKY_PRESET`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L30) — constant
+- [`FRAME_SELECTION`](blendertk/blendertk/mat_utils/marmoset_bridge/templates/lookdev.py#L31) — constant
 
 <a id="mat_utils--marmoset_bridge--toolbag_log"></a>
 ### `mat_utils/marmoset_bridge/toolbag_log.py`
@@ -2444,6 +2603,9 @@ Render Opacity — Blender per-object opacity for engine-ready transparency (mir
   - `RenderEffects.objects_with_visibility_keys(cls, objects) -> list` *(class)* — The subset of *objects* that already have keyframes on render visibility.
   - `RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')` *(class)* — Add the channel's prop to *objects* (or remove it).
   - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, auto_create=True, channel='highlight', preview=None, delete_visibility_keys=False, whole_frames=True)` *(class)* — Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
+  - `RenderEffects.objects_with_channel(cls, channel='highlight') -> list` *(class)* — Every object carrying the channel's property.
+  - `RenderEffects.channel_colors(cls, objects=None, channel='highlight') -> dict` *(class)* — What each object's channel colour is authored as right now.
+  - `RenderEffects.set_channel_color(cls, objects=None, color=None, channel='highlight') -> list` *(class)* — Restate an already-authored channel colour, leaving its keys alone.
   - `RenderEffects.preview(cls, objects=None, channel='highlight', enabled=True)` *(class)* — DEPRECATED (one release).
   - `RenderEffects.stage_export_proxies(cls)` *(class)* — Stage one transient Empty per keyed channel per object, for the FBX write.
   - `RenderEffects.remove_export_proxies(cls)` *(class)* — Delete every staged render-effect curve proxy and its action.
@@ -2495,6 +2657,12 @@ Shader Templates tool panel — Switchboard slot wiring for the co-located
 
 Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
+- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L54) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L55) — constant
+- [`ROUNDTRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L58) — constant
+- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L70) — constant
+- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L71) — constant
+- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L72) — constant
 - **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L163)** — The scene's high-poly bake source, stored as a stamped Collection.
   - `HighPolySet.collection(cls)` *(class)* — The stamped high-poly collection, or ``None`` when absent.
   - `HighPolySet.exists(cls) -> bool` *(class)* — Whether the high-poly collection is present in the file.
@@ -2520,6 +2688,7 @@ Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
 Substance 3D Painter connection module.
 
+- [`APP`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L50) — constant
 - **[`class SubstanceConnection(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L64)** — Launch Painter and expose its stdio, log, and RPC under one object.
   - `SubstanceConnection.open(self) -> 'SubstanceConnection'` — Launch Painter and start readers, tailer, and RPC client.
   - `SubstanceConnection.close(self, terminate: bool = False, timeout: float = 5.0) -> None` — Stop readers and tailer;
@@ -2533,6 +2702,7 @@ Substance 3D Painter connection module.
 
 Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 
+- [`PARAMS`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L75) — constant
 - **[`class Parameters`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L255)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
@@ -2558,7 +2728,8 @@ Slots for the Substance Painter bridge panel -- mirror of mayatk's
 
 HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 
-- **[`class PainterRpcClient(RpcClient)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L34)** — RPC client bound to the substance_rpc plugin's defaults.
+- [`DEFAULT_RPC_PORT`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L32) — constant
+- **[`class PainterRpcClient(RpcClient)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L35)** — RPC client bound to the substance_rpc plugin's defaults.
   - `PainterRpcClient.wait_until_ready(self, timeout: float = 60.0, poll_interval: float = 0.5) -> bool` — Poll ``/health`` until the plugin answers, or *timeout* expires.
   - `PainterRpcClient.invoke(self, op: str, timeout: Optional[float] = None, **kwargs: Any) -> Any` — :meth:`RpcClient.invoke` with this client's default timeout.
   - `PainterRpcClient.eval_js(self, script: str) -> Any` — Evaluate *script* in Painter's JS engine (``alg.*`` API surface).
@@ -2572,6 +2743,7 @@ HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 
 Install the substance_rpc plugin into Painter's user plugin folder.
 
+- [`PLUGIN_NAME`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L27) — constant
 - **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L87)** — Installer — module namespace.
   - `Installer.user_plugin_dir() -> Optional[Path]` *(static)* — Resolve Painter's Python plugins folder.
   - `Installer.is_installed() -> bool` *(static)* — True if the plugin is present at the resolved user plugin dir.
@@ -2584,12 +2756,13 @@ Install the substance_rpc plugin into Painter's user plugin folder.
 
 Substance 3D Painter RPC plugin -- entry point.
 
-- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L53) — Start the RPC server (idempotent).
-- [`stop_server()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L58) — Shut the server down (close_plugin hook / tests / hot-reload).
-- [`is_running()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L63) — True while the server is bound.
-- [`autostart()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L68) — Start on plugin load, gated to the Painter host.
-- [`start_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L73) — Painter lifecycle hook: start the RPC server (idempotent).
-- [`close_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L80) — Painter lifecycle hook: shut the RPC server down.
+- [`start_server(port=None, host=None)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L54) — Start the RPC server (idempotent).
+- [`stop_server()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L59) — Shut the server down (close_plugin hook / tests / hot-reload).
+- [`is_running()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L64) — True while the server is bound.
+- [`autostart()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L69) — Start on plugin load, gated to the Painter host.
+- [`start_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L74) — Painter lifecycle hook: start the RPC server (idempotent).
+- [`close_plugin()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L81) — Painter lifecycle hook: shut the RPC server down.
+- [`PLUGIN`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/__init__.py#L34) — constant
 
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--_rpc_core"></a>
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py`
@@ -2620,29 +2793,80 @@ The in-application half of the RPC pair: registry + marshaller + server.
 
 Project-level ops: inspect the open project and reload its mesh.
 
-- [`project_info()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L27) — Return ``{is_open, file_path, mesh_path, needs_saving}`` (best-effort).
-- [`mesh_reload(mesh_path='', preserve_strokes=True, import_cameras=False)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L60) — Reload the open project's mesh from *mesh_path* (async).
-- [`mesh_reload_status()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L102) — Outcome of the last ``mesh.reload``: pending / success / failure.
+- [`project_info()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L28) — Return ``{is_open, file_path, mesh_path, needs_saving}`` (best-effort).
+- [`mesh_reload(mesh_path='', preserve_strokes=True, import_cameras=False)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L61) — Reload the open project's mesh from *mesh_path* (async).
+- [`mesh_reload_status()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py#L103) — Outcome of the last ``mesh.reload``: pending / success / failure.
 
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--setup_ops"></a>
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py`
 
 Project-setup ops: resolution, the baking high poly, and mesh maps.
 
-- [`teardown()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L83) — Drop any pending values and unsubscribe (plugin-disable hook).
-- [`set_resolution(size=0)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L157) — Set the document resolution of every texture set to *size* px square.
-- [`set_high_poly(mesh_path='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L220) — Set the Hipoly Mesh of every texture set's baking parameters.
-- [`apply_mesh_maps(manifest_path='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L351) — Wire each material's baked maps onto its own texture set.
-- [`pending_setup()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L378) — Return what is queued for the next project-open (diagnostics).
+- [`teardown()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L84) — Drop any pending values and unsubscribe (plugin-disable hook).
+- [`set_resolution(size=0)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L158) — Set the document resolution of every texture set to *size* px square.
+- [`set_high_poly(mesh_path='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L221) — Set the Hipoly Mesh of every texture set's baking parameters.
+- [`apply_mesh_maps(manifest_path='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L352) — Wire each material's baked maps onto its own texture set.
+- [`pending_setup()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py#L379) — Return what is queued for the next project-open (diagnostics).
 
 <a id="mat_utils--substance_bridge--substance_rpc--plugin_src--substance_rpc--ops--system_ops"></a>
 ### `mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py`
 
 Painter-specific system ops: version reporting and script evaluation.
 
-- [`version()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L18) — Return Painter + plugin API version info (best-effort).
-- [`eval_python(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L38) — Exec *script* (Python source) inside Painter's interpreter.
-- [`js_evaluate(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L60) — Evaluate *script* in Painter's JavaScript engine (``alg.*`` API).
+- [`version()`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L19) — Return Painter + plugin API version info (best-effort).
+- [`eval_python(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L39) — Exec *script* (Python source) inside Painter's interpreter.
+- [`js_evaluate(script='')`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py#L61) — Evaluate *script* in Painter's JavaScript engine (``alg.*`` API).
+
+<a id="mat_utils--substance_bridge--templates--bake_lighting"></a>
+### `mat_utils/substance_bridge/templates/bake_lighting.py`
+
+Import the FBX as a new project, then bake Iray lighting into diffuse.
+
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L52) — constant
+- [`LAUNCH_ARGS`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L66) — constant
+- [`RPC_SCRIPT`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L76) — constant
+- [`BUILD_MANIFEST`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L102) — constant
+- [`FBX_OPTIONS`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L107) — constant
+- [`TARGET_INSTANCE`](blendertk/blendertk/mat_utils/substance_bridge/templates/bake_lighting.py#L112) — constant
+
+<a id="mat_utils--substance_bridge--templates--import"></a>
+### `mat_utils/substance_bridge/templates/import.py`
+
+Send the FBX to Painter as a new project.
+
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L14) — constant
+- [`LAUNCH_ARGS`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L47) — constant
+- [`RPC_SCRIPT`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L53) — constant
+- [`BUILD_MANIFEST`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L60) — constant
+- [`FBX_OPTIONS`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L64) — constant
+- [`TARGET_INSTANCE`](blendertk/blendertk/mat_utils/substance_bridge/templates/import.py#L70) — constant
+
+<a id="mat_utils--substance_bridge--templates--reimport"></a>
+### `mat_utils/substance_bridge/templates/reimport.py`
+
+Update the running Painter's open project from a fresh FBX export.
+
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L29) — constant
+- [`LAUNCH_ARGS`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L45) — constant
+- [`RPC_OPS`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L50) — constant
+- [`RPC_SCRIPT`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L61) — constant
+- [`BUILD_MANIFEST`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L63) — constant
+- [`REUSE_RECORDED_EXPORT`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L68) — constant
+- [`TARGET_INSTANCE`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L74) — constant
+- [`NO_CONNECTION_HINT`](blendertk/blendertk/mat_utils/substance_bridge/templates/reimport.py#L76) — constant
+
+<a id="mat_utils--substance_bridge--templates--render"></a>
+### `mat_utils/substance_bridge/templates/render.py`
+
+Render the current Painter project via Iray (JS body unverified).
+
+- [`BRIDGE_MODES`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L25) — constant
+- [`LAUNCH_ARGS`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L28) — constant
+- [`EXPORT_FBX`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L33) — constant
+- [`FBX_OPTIONS`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L34) — constant
+- [`RPC_SCRIPT`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L49) — constant
+- [`BUILD_MANIFEST`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L58) — constant
+- [`TARGET_INSTANCE`](blendertk/blendertk/mat_utils/substance_bridge/templates/render.py#L61) — constant
 
 <a id="mat_utils--texture_baker"></a>
 ### `mat_utils/texture_baker.py`
@@ -2994,19 +3218,20 @@ Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_ri
 
 Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 
-- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig.py#L60)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
-- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig.py#L75)** — Base tube-rig strategy.
+- [`TUBE_STRATEGIES`](blendertk/blendertk/rig_utils/tube_rig.py#L304) — constant
+- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig.py#L62)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
+- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig.py#L77)** — Base tube-rig strategy.
   - `TubeStrategy.register(cls)` *(static)* — Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension
   - `TubeStrategy.defaults(self) -> dict`
   - `TubeStrategy.resolve(self, opts: Optional[dict]) -> dict` — Merge caller *opts* over the declared defaults (``None`` values fall back to default).
   - `TubeStrategy.build(self, rig: 'TubeRig', **opts) -> TubeRigBundle`
-- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L106)**
+- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L108)**
   - `SplineIKStrategy.build(self, rig, **opts)`
-- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L196)**
+- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L203)**
   - `AnchorStrategy.build(self, rig, **opts)`
-- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L249)**
+- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L259)**
   - `FKChainStrategy.build(self, rig, **opts)`
-- **[`class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig.py#L351)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
+- **[`class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig.py#L365)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
   - `TubeRig.collection(self)` *(property)*
   - `TubeRig.resolve_centerline(self, num_joints, precision=None, edges=None)` — The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a
   - `TubeRig.create_root(self)`
@@ -3018,8 +3243,8 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `TubeRig.make_control(self, shape, name, size, location, root, color=(1, 1, 0), axis='x')` — Create a control curve at *location*, parented under *root* (keeping its world pos).
   - `TubeRig.hook_curve_controls(self, curve, radius, root)` — One control per curve control-point, each Hook-bound to its point (the live-reshape
   - `TubeRig.constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)` — Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
-  - `TubeRig.build(self, strategy='spline', **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
-- **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L792)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
+  - `TubeRig.build(self, strategy='spline', progress: Optional[Callable] = None, **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
+- **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L868)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
   - `TubeRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
   - `TubeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TubeRigSlots.b000(self)` — Build Rig — run the selected strategy on the selected tube mesh.
@@ -3057,6 +3282,7 @@ Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui
 
 UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 
+- [`EDITOR_TYPES`](blendertk/blendertk/ui_utils/_ui_utils.py#L16) — constant
 - **[`class UiUtils(_UiUtilsInternal)`](blendertk/blendertk/ui_utils/_ui_utils.py#L149)** — Namespace mirror (helpers also exposed module-level).
   - `UiUtils.get_editor_types()` *(static)* — The friendly-name → ``Area.ui_type`` map understood by :func:`open_editor`.
   - `UiUtils.open_editor(editor, properties_context=None)` *(static)* — Open ``editor`` (a friendly name from :data:`EDITOR_TYPES` or a raw ``ui_type``)
@@ -3174,6 +3400,7 @@ Harvest a native Blender menu into a live ``QMenu`` — the Blender half of Maya
 
 Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
 
+- [`ICON_COLOR`](blendertk/blendertk/ui_utils/node_icons.py#L45) — constant
 - **[`class NodeIcons`](blendertk/blendertk/ui_utils/node_icons.py#L48)** — Resolve Blender object-type icons as Qt QIcons.
   - `NodeIcons.icon_name_for_type(obj_type: str) -> Optional[str]` *(static)* — Return the uitk icon name for a Blender ``Object.type`` (or ``None``).
   - `NodeIcons.icon_name_for_node(obj_name: str) -> Optional[str]` *(static)* — Return the icon name for the named scene object.
@@ -3200,6 +3427,7 @@ Dock any Qt widget into a native Blender area — a true child window, not an ov
 
 Match Blender's app UI chrome to another DCC's look using Blender's NATIVE theme-preset system.
 
+- [`STYLES_DIR`](blendertk/blendertk/ui_utils/style_setter/_style_setter.py#L49) — constant
 - **[`class StyleSetter(_StyleSetterInternal)`](blendertk/blendertk/ui_utils/style_setter/_style_setter.py#L135)** — Public namespace for the style-setter helpers (``btk.StyleSetter.set_style("Maya")`` …).
   - `StyleSetter.list_styles()` *(static)* — Names of the shipped theme presets (e.g.
   - `StyleSetter.user_preset_dir(create=False)` *(static)* — Blender's per-user ``presets/interface_theme`` dir — the dropdown's writable source.
@@ -3241,6 +3469,8 @@ External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
 
 UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 
+- [`DEFAULT_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L22) — constant
+- [`LIGHTMAP_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L41) — constant
 - **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L414)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
@@ -3279,6 +3509,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 
 RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
+- [`APP`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L68) — constant
 - **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L110)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
   - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
@@ -3294,6 +3525,10 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
+- [`PARAMS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L47) — constant
+- [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L470) — constant
+- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L656) — constant
+- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L666) — constant
 - **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L479)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.

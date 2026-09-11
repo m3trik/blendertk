@@ -3,6 +3,23 @@
   "source_root": "blendertk/blendertk",
   "modules": [
     {
+      "relpath": "__init__.py",
+      "summary": "",
+      "functions": [],
+      "classes": [],
+      "constants": [
+        {
+          "name": "DEFAULT_INCLUDE",
+          "qualname": "DEFAULT_INCLUDE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 31,
+          "deprecated": false
+        }
+      ]
+    },
+    {
       "relpath": "anim_utils/_anim_utils.py",
       "summary": "Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's",
       "functions": [],
@@ -431,7 +448,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/blendshape_animator/_blendshape_animator.py",
@@ -556,7 +574,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/blendshape_animator/applicator.py",
@@ -600,7 +619,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/blendshape_animator/blendshape_animator_slots.py",
@@ -771,6 +791,71 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "COL_NAME",
+          "qualname": "COL_NAME",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 32,
+          "deprecated": false
+        },
+        {
+          "name": "COL_WEIGHT",
+          "qualname": "COL_WEIGHT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 33,
+          "deprecated": false
+        },
+        {
+          "name": "COL_FRAME",
+          "qualname": "COL_FRAME",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 34,
+          "deprecated": false
+        },
+        {
+          "name": "COL_TOPOLOGY",
+          "qualname": "COL_TOPOLOGY",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 35,
+          "deprecated": false
+        },
+        {
+          "name": "COL_STATUS",
+          "qualname": "COL_STATUS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 36,
+          "deprecated": false
+        },
+        {
+          "name": "MODE_WEIGHT",
+          "qualname": "MODE_WEIGHT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 39,
+          "deprecated": false
+        },
+        {
+          "name": "MODE_FRAME",
+          "qualname": "MODE_FRAME",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 40,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -834,7 +919,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/blendshape_animator/keyframes.py",
@@ -905,7 +991,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/blendshape_animator/target.py",
@@ -1011,6 +1098,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "TWEEN_GROUP_NAME",
+          "qualname": "TWEEN_GROUP_NAME",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -1046,7 +1144,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/key_stash/_key_stash.py",
@@ -1145,7 +1244,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/key_stash/key_stash_slots.py",
@@ -1234,7 +1334,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/scale_keys.py",
@@ -1260,7 +1361,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/segment_keys.py",
@@ -1295,7 +1397,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/_detection.py",
@@ -1339,7 +1442,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/_shots.py",
@@ -1473,7 +1577,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/_shot_manifest.py",
@@ -1527,7 +1632,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/behaviors/_behaviors.py",
@@ -1590,7 +1696,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/manifest_data.py",
@@ -1632,6 +1739,116 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "SETTINGS_NS",
+          "qualname": "SETTINGS_NS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 25,
+          "deprecated": false
+        },
+        {
+          "name": "HEADERS",
+          "qualname": "HEADERS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 28,
+          "deprecated": false
+        },
+        {
+          "name": "COL_STEP",
+          "qualname": "COL_STEP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 31,
+          "deprecated": false
+        },
+        {
+          "name": "COL_SECTION",
+          "qualname": "COL_SECTION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 32,
+          "deprecated": false
+        },
+        {
+          "name": "COL_DESC",
+          "qualname": "COL_DESC",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 33,
+          "deprecated": false
+        },
+        {
+          "name": "COL_BEHAVIORS",
+          "qualname": "COL_BEHAVIORS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 34,
+          "deprecated": false
+        },
+        {
+          "name": "COL_START",
+          "qualname": "COL_START",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 35,
+          "deprecated": false
+        },
+        {
+          "name": "COL_END",
+          "qualname": "COL_END",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 36,
+          "deprecated": false
+        },
+        {
+          "name": "STEP_ICON_COLOR",
+          "qualname": "STEP_ICON_COLOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 38,
+          "deprecated": false
+        },
+        {
+          "name": "PASTEL_STATUS",
+          "qualname": "PASTEL_STATUS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 41,
+          "deprecated": false
+        },
+        {
+          "name": "BEHAVIOR_STATUS_COLORS",
+          "qualname": "BEHAVIOR_STATUS_COLORS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
+        },
+        {
+          "name": "ERROR_COLOR",
+          "qualname": "ERROR_COLOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 51,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -1656,7 +1873,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/shot_manifest_slots.py",
@@ -1774,7 +1992,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_manifest/table_presenter.py",
@@ -1809,7 +2028,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_sequencer/_shot_sequencer.py",
@@ -2267,7 +2487,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_sequencer/clip_motion.py",
@@ -2287,8 +2508,17 @@
               "qualname": "ClipMotionMixin.on_clip_resized",
               "kind": "method",
               "signature": "(self, clip_id: int, new_start: float, new_duration: float) -> None",
-              "summary": "Resize a clip — attribute sub-row (scale one channel) or main track (``resize_object``).",
+              "summary": "Resize one clip — see :meth:`_commit_clip_resizes`.",
               "line": 61,
+              "deprecated": false
+            },
+            {
+              "name": "on_clips_batch_resized",
+              "qualname": "ClipMotionMixin.on_clips_batch_resized",
+              "kind": "method",
+              "signature": "(self, resizes) -> None",
+              "summary": "An edge drag that scaled a SELECTION of clips as one unit.",
+              "line": 67,
               "deprecated": false
             },
             {
@@ -2297,7 +2527,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, new_start: float) -> None",
               "summary": "Handle clip move — routes to audio (deferred) or shot-level logic.",
-              "line": 281,
+              "line": 321,
               "deprecated": false
             },
             {
@@ -2306,7 +2536,7 @@
               "kind": "method",
               "signature": "(self, moves) -> None",
               "summary": "Handle a batch of clip moves (group drag), syncing once at the end.",
-              "line": 307,
+              "line": 347,
               "deprecated": false
             },
             {
@@ -2315,7 +2545,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, changes: list) -> None",
               "summary": "Move individual keyframes on the fcurves, then refresh.",
-              "line": 479,
+              "line": 519,
               "deprecated": false
             },
             {
@@ -2324,7 +2554,7 @@
               "kind": "method",
               "signature": "(self, groups) -> None",
               "summary": "Commit one key drag that spanned any number of clips.",
-              "line": 490,
+              "line": 530,
               "deprecated": false
             },
             {
@@ -2333,7 +2563,7 @@
               "kind": "method",
               "signature": "(self, clip_id: int, times: list) -> None",
               "summary": "Delete individual keyframes from the fcurves, then refresh.",
-              "line": 541,
+              "line": 581,
               "deprecated": false
             },
             {
@@ -2342,7 +2572,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str) -> list",
               "summary": "Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.",
-              "line": 579,
+              "line": 619,
               "deprecated": false
             },
             {
@@ -2351,10 +2581,21 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> bool",
               "summary": "Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).",
-              "line": 607,
+              "line": 647,
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "FLOAT_ZERO_EPS",
+          "qualname": "FLOAT_ZERO_EPS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 23,
+          "deprecated": false
         }
       ]
     },
@@ -2434,6 +2675,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "TIME_SNAP_EPS",
+          "qualname": "TIME_SNAP_EPS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 16,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -2487,7 +2739,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_sequencer/segment_collector.py",
@@ -2556,6 +2809,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "KEY_PROXIMITY_EPS",
+          "qualname": "KEY_PROXIMITY_EPS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 22,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -2589,7 +2853,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shot_sequencer/shot_sequencer_slots.py",
@@ -2885,7 +3150,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Build the header menu controls (mirror of mayatk's sequencer header).",
-              "line": 3785,
+              "line": 3786,
               "deprecated": false
             },
             {
@@ -2894,7 +3159,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the attribute color configuration dialog.",
-              "line": 4027,
+              "line": 4028,
               "deprecated": false
             },
             {
@@ -2903,7 +3168,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Set the snap interval on the sequencer widget.",
-              "line": 4059,
+              "line": 4060,
               "deprecated": false
             },
             {
@@ -2912,7 +3177,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the sequencer shortcut editor.",
-              "line": 4065,
+              "line": 4066,
               "deprecated": false
             },
             {
@@ -2921,7 +3186,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 4071,
+              "line": 4072,
               "deprecated": false
             },
             {
@@ -2930,12 +3195,13 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Handle direct combobox selection of a shot or marker.",
-              "line": 4075,
+              "line": 4076,
               "deprecated": false
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/shots/shots_slots.py",
@@ -3394,7 +3660,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/smart_bake/_smart_bake.py",
@@ -3526,7 +3793,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/smart_bake/bake_session.py",
@@ -3694,7 +3962,8 @@
           "bases": [],
           "members": []
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/smart_bake/smart_bake_slots.py",
@@ -3765,7 +4034,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "anim_utils/stagger_keys.py",
@@ -3791,7 +4061,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "audio_utils/_audio_utils.py",
@@ -3961,6 +4232,26 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULT_CHANNEL",
+          "qualname": "DEFAULT_CHANNEL",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 59,
+          "deprecated": false
+        },
+        {
+          "name": "MAX_CHANNEL_SEARCH",
+          "qualname": "MAX_CHANNEL_SEARCH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 62,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -4086,7 +4377,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "audio_utils/segments.py",
@@ -4130,7 +4422,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "cam_utils/_cam_utils.py",
@@ -4192,7 +4485,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "cam_utils/camera_visibility.py",
@@ -4306,7 +4600,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/_core_utils.py",
@@ -4522,7 +4817,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/auto_instancer/_auto_instancer.py",
@@ -4681,7 +4977,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/auto_instancer/assembly_reconstructor.py",
@@ -4769,6 +5066,26 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "ASSEMBLY_TAG_ATTR",
+          "qualname": "ASSEMBLY_TAG_ATTR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 42,
+          "deprecated": false
+        },
+        {
+          "name": "CANONICAL_BAKE_PREFIX",
+          "qualname": "CANONICAL_BAKE_PREFIX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 48,
+          "deprecated": false
         }
       ]
     },
@@ -4868,7 +5185,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/auto_instancer/instancing_strategy.py",
@@ -4908,7 +5226,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/diagnostics/mesh_diag.py",
@@ -4934,7 +5253,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/diagnostics/transform_diag.py",
@@ -4969,7 +5289,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/preview.py",
@@ -5029,7 +5350,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "core_utils/script_job_manager.py",
@@ -5152,7 +5474,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "display_utils/_display_utils.py",
@@ -5214,7 +5537,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "display_utils/color_id.py",
@@ -5500,7 +5824,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "display_utils/exploded_view.py",
@@ -5562,7 +5887,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "display_utils/outliner_tint.py",
@@ -5660,6 +5986,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "COLOR_PROP",
+          "qualname": "COLOR_PROP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 46,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -5704,7 +6041,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/_edit_utils.py",
@@ -6081,7 +6419,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/bevel.py",
@@ -6133,7 +6472,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/bridge.py",
@@ -6185,7 +6525,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/curtain.py",
@@ -6290,7 +6631,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/cut_on_axis.py",
@@ -6334,7 +6676,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/duplicate_grid.py",
@@ -6394,6 +6737,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "GRID_MAX_COPIES",
+          "qualname": "GRID_MAX_COPIES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
         }
       ]
     },
@@ -6465,7 +6819,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/duplicate_radial.py",
@@ -6546,7 +6901,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/dynamic_pipe.py",
@@ -6590,7 +6946,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/macros.py",
@@ -7142,7 +7499,8 @@
           ],
           "members": []
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/mirror.py",
@@ -7186,7 +7544,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/naming/_naming.py",
@@ -7312,7 +7671,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/naming/naming_slots.py",
@@ -7491,7 +7851,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/selection.py",
@@ -7721,7 +8082,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/snap.py",
@@ -7801,7 +8163,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "edit_utils/target_weld.py",
@@ -7880,6 +8243,89 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "COLOR_PRESELECT",
+          "qualname": "COLOR_PRESELECT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 51,
+          "deprecated": false
+        },
+        {
+          "name": "COLOR_SOURCE",
+          "qualname": "COLOR_SOURCE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "COLOR_LINE",
+          "qualname": "COLOR_LINE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 53,
+          "deprecated": false
+        },
+        {
+          "name": "COLOR_HALO",
+          "qualname": "COLOR_HALO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 54,
+          "deprecated": false
+        },
+        {
+          "name": "COLOR_PROMPT_BG",
+          "qualname": "COLOR_PROMPT_BG",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 55,
+          "deprecated": false
+        },
+        {
+          "name": "COLOR_PROMPT_TEXT",
+          "qualname": "COLOR_PROMPT_TEXT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 56,
+          "deprecated": false
+        },
+        {
+          "name": "PICK_RADIUS",
+          "qualname": "PICK_RADIUS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 58,
+          "deprecated": false
+        },
+        {
+          "name": "MARKER_SIZE",
+          "qualname": "MARKER_SIZE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 59,
+          "deprecated": false
+        },
+        {
+          "name": "HALO_SIZE",
+          "qualname": "HALO_SIZE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 60,
+          "deprecated": false
         }
       ]
     },
@@ -8213,7 +8659,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/blender_connection.py",
@@ -8263,6 +8710,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "RESULT_PASS",
+          "qualname": "RESULT_PASS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
         }
       ]
     },
@@ -8389,7 +8847,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/handoff_export.py",
@@ -8413,7 +8872,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/_fbx_stage_worker.py",
@@ -8429,7 +8889,8 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/_hierarchy_sync.py",
@@ -8572,7 +9033,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/hierarchy_sync_slots.py",
@@ -8941,7 +9403,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/scene_data_sidecar.py",
@@ -9127,7 +9590,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/tree_renderer.py",
@@ -9261,7 +9725,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/hierarchy_sync/tree_utils.py",
@@ -9351,7 +9816,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/maya_bridge/_maya_bridge.py",
@@ -9440,6 +9906,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULTS",
+          "qualname": "DEFAULTS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 49,
+          "deprecated": false
         }
       ]
     },
@@ -9593,6 +10070,53 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "SUPPORTED_EXTENSIONS",
+          "qualname": "SUPPORTED_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 68,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_SOURCE_EXTENSIONS",
+          "qualname": "BAKE_SOURCE_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 73,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_SOURCE_SUFFIX",
+          "qualname": "BAKE_SOURCE_SUFFIX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 79,
+          "deprecated": false
+        },
+        {
+          "name": "MAYA_GROUP_EMPTY_DISPLAY_SIZE",
+          "qualname": "MAYA_GROUP_EMPTY_DISPLAY_SIZE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 95,
+          "deprecated": false
+        },
+        {
+          "name": "USD_EXTENSIONS",
+          "qualname": "USD_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 99,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -9655,7 +10179,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/maya_bridge/parameters.py",
@@ -9696,6 +10221,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "PARAMS",
+          "qualname": "PARAMS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 38,
+          "deprecated": false
         }
       ]
     },
@@ -9767,7 +10303,45 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "SRC_FILE",
+          "qualname": "SRC_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 46,
+          "deprecated": false
+        },
+        {
+          "name": "OUT_BLEND",
+          "qualname": "OUT_BLEND",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "EXTRA_SYS_PATH",
+          "qualname": "EXTRA_SYS_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 48,
+          "deprecated": false
+        },
+        {
+          "name": "USD_EXTENSIONS",
+          "qualname": "USD_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "env_utils/maya_bridge/templates/_import_scene.py",
@@ -9819,7 +10393,90 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "SRC_PATH",
+          "qualname": "SRC_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 44,
+          "deprecated": false
+        },
+        {
+          "name": "OUT_FBX",
+          "qualname": "OUT_FBX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
+        },
+        {
+          "name": "EMBED_TEXTURES",
+          "qualname": "EMBED_TEXTURES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 46,
+          "deprecated": false
+        },
+        {
+          "name": "INCLUDE_ANIMATION",
+          "qualname": "INCLUDE_ANIMATION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "SMART_BAKE",
+          "qualname": "SMART_BAKE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        },
+        {
+          "name": "MODERN_SHADER_TYPES",
+          "qualname": "MODERN_SHADER_TYPES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 61,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_SHADER_TYPES",
+          "qualname": "STINGRAY_SHADER_TYPES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 64,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_TEX_SLOTS",
+          "qualname": "STINGRAY_TEX_SLOTS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 67,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_SLOT_CHANNELS",
+          "qualname": "STINGRAY_SLOT_CHANNELS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 77,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "env_utils/maya_bridge/templates/_import_scene_usd.py",
@@ -9889,7 +10546,72 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "SRC_PATH",
+          "qualname": "SRC_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 33,
+          "deprecated": false
+        },
+        {
+          "name": "OUT_USD",
+          "qualname": "OUT_USD",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 34,
+          "deprecated": false
+        },
+        {
+          "name": "INCLUDE_ANIMATION",
+          "qualname": "INCLUDE_ANIMATION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 35,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_SHADER_TYPES",
+          "qualname": "STINGRAY_SHADER_TYPES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 39,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_TEX_SLOTS",
+          "qualname": "STINGRAY_TEX_SLOTS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 42,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_SLOT_CHANNELS",
+          "qualname": "STINGRAY_SLOT_CHANNELS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "STINGRAY_DATA_SLOTS",
+          "qualname": "STINGRAY_DATA_SLOTS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 63,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "env_utils/maya_bridge/templates/_save_scene.py",
@@ -9959,7 +10681,81 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 39,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_PATH",
+          "qualname": "FBX_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        },
+        {
+          "name": "USD_EXTENSIONS",
+          "qualname": "USD_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 51,
+          "deprecated": false
+        },
+        {
+          "name": "CARRIER",
+          "qualname": "CARRIER",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "OUT_FILE",
+          "qualname": "OUT_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 53,
+          "deprecated": false
+        },
+        {
+          "name": "EXTRA_SYS_PATH",
+          "qualname": "EXTRA_SYS_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 56,
+          "deprecated": false
+        },
+        {
+          "name": "SHADER_TYPE",
+          "qualname": "SHADER_TYPE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 59,
+          "deprecated": false
+        },
+        {
+          "name": "USD_IMPORT_OPTIONS",
+          "qualname": "USD_IMPORT_OPTIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 67,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "env_utils/maya_bridge/templates/import.py",
@@ -10029,7 +10825,90 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 35,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_PATH",
+          "qualname": "FBX_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 48,
+          "deprecated": false
+        },
+        {
+          "name": "USD_EXTENSIONS",
+          "qualname": "USD_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 49,
+          "deprecated": false
+        },
+        {
+          "name": "CARRIER",
+          "qualname": "CARRIER",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        },
+        {
+          "name": "EXTRA_SYS_PATH",
+          "qualname": "EXTRA_SYS_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 53,
+          "deprecated": false
+        },
+        {
+          "name": "CLEAR_SCENE",
+          "qualname": "CLEAR_SCENE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 54,
+          "deprecated": false
+        },
+        {
+          "name": "FRAME_VIEW",
+          "qualname": "FRAME_VIEW",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 55,
+          "deprecated": false
+        },
+        {
+          "name": "SHADER_TYPE",
+          "qualname": "SHADER_TYPE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 58,
+          "deprecated": false
+        },
+        {
+          "name": "USD_IMPORT_OPTIONS",
+          "qualname": "USD_IMPORT_OPTIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 66,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "env_utils/pm_doctor.py",
@@ -10054,7 +10933,8 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "env_utils/reference_manager.py",
@@ -10224,7 +11104,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/scene_exporter/_scene_exporter.py",
@@ -10385,7 +11266,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/scene_exporter/scene_exporter_slots.py",
@@ -10600,7 +11482,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/scene_exporter/task_manager.py",
@@ -10641,7 +11524,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return the check definitions for the UI.",
-              "line": 2943,
+              "line": 2957,
               "deprecated": false
             },
             {
@@ -10650,7 +11533,7 @@
               "kind": "property",
               "signature": "(self) -> Dict[str, Dict[str, Any]]",
               "summary": "Return all definitions combined for backward compatibility.",
-              "line": 3214,
+              "line": 3228,
               "deprecated": false
             },
             {
@@ -10943,7 +11826,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/scene_state.py",
@@ -10962,7 +11846,7 @@
               "kind": "staticmethod",
               "signature": "() -> Dict[str, str]",
               "summary": "This host's identity for the envelope's ``source`` key.",
-              "line": 50,
+              "line": 51,
               "deprecated": false
             },
             {
@@ -10971,12 +11855,13 @@
               "kind": "classmethod",
               "signature": "(cls, objects: List[Any], include_textures: bool = True, sections: Optional[List[str]] = None) -> Dict[str, Any]",
               "summary": "Scene state the FBX cannot express, one key per requested section.",
-              "line": 57,
+              "line": 58,
               "deprecated": false
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/script_output.py",
@@ -11072,7 +11957,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/unity_bridge/_unity_bridge.py",
@@ -11117,7 +12003,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/unity_bridge/parameters.py",
@@ -11158,6 +12045,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "PARAMS",
+          "qualname": "PARAMS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 27,
+          "deprecated": false
         }
       ]
     },
@@ -11230,7 +12128,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/usd.py",
@@ -11391,6 +12290,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "USD_EXTENSIONS",
+          "qualname": "USD_EXTENSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 41,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -11408,7 +12318,8 @@
           ],
           "members": []
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "env_utils/workspace_editor.py",
@@ -11515,7 +12426,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "light_utils/_light_utils.py",
@@ -11658,7 +12570,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "light_utils/hdr_manager.py",
@@ -11819,7 +12732,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "light_utils/lightmap_baker/lightmap_baker.py",
@@ -12171,7 +13085,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "light_utils/lightmap_baker/web_export.py",
@@ -12242,7 +13157,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/_mat_utils.py",
@@ -12666,6 +13582,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "SHADER_TEMPLATES",
+          "qualname": "SHADER_TEMPLATES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 633,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -12757,7 +13684,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/emissive_groups.py",
@@ -13084,7 +14012,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/game_shader.py",
@@ -13256,7 +14185,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/image_to_plane/_image_to_plane.py",
@@ -13291,7 +14221,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/image_to_plane/image_to_plane_slots.py",
@@ -13326,7 +14257,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/_marmoset_bridge.py",
@@ -13384,12 +14316,13 @@
               "kind": "staticmethod",
               "signature": "(objects: Sequence, high_suffix: str, low_suffix: str, include_children: bool = True) -> Dict[str, str]",
               "summary": "Build the ``{mesh_name: 'source'|'target'}`` sidecar for the bake -- mirror of mayatk's",
-              "line": 439,
+              "line": 447,
               "deprecated": false
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/_marmoset_engine.py",
@@ -13487,6 +14420,44 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "APP",
+          "qualname": "APP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
+        },
+        {
+          "name": "SEND_TO",
+          "qualname": "SEND_TO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 64,
+          "deprecated": false
+        },
+        {
+          "name": "ROUND_TRIP",
+          "qualname": "ROUND_TRIP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 65,
+          "deprecated": false
+        },
+        {
+          "name": "ROUNDTRIP",
+          "qualname": "ROUNDTRIP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 68,
+          "deprecated": false
         }
       ]
     },
@@ -13595,6 +14566,35 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "SLOT_MAP",
+          "qualname": "SLOT_MAP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 648,
+          "deprecated": false
+        },
+        {
+          "name": "MODULE_NEUTRAL_FIELDS",
+          "qualname": "MODULE_NEUTRAL_FIELDS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 671,
+          "deprecated": false
+        },
+        {
+          "name": "SUBROUTINE_FIXES",
+          "qualname": "SUBROUTINE_FIXES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 684,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -13666,7 +14666,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/connection.py",
@@ -13682,6 +14683,26 @@
             "_MarmosetConnectionInternal"
           ],
           "members": []
+        }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULT_HOST",
+          "qualname": "DEFAULT_HOST",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 37,
+          "deprecated": false
+        },
+        {
+          "name": "DEFAULT_PORT",
+          "qualname": "DEFAULT_PORT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 38,
+          "deprecated": false
         }
       ]
     },
@@ -13736,7 +14757,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/job.py",
@@ -13760,7 +14782,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/__init__.py",
@@ -13772,7 +14795,7 @@
           "kind": "function",
           "signature": "(port=None, host=None)",
           "summary": "Start the RPC server (idempotent).",
-          "line": 52,
+          "line": 53,
           "deprecated": false
         },
         {
@@ -13781,7 +14804,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Shut the server down (tests / hot-reload).",
-          "line": 57,
+          "line": 58,
           "deprecated": false
         },
         {
@@ -13790,7 +14813,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "True while the server is bound.",
-          "line": 62,
+          "line": 63,
           "deprecated": false
         },
         {
@@ -13799,11 +14822,22 @@
           "kind": "function",
           "signature": "()",
           "summary": "Start on plugin load, gated to the Toolbag host.",
-          "line": 67,
+          "line": 68,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "PLUGIN",
+          "qualname": "PLUGIN",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 33,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/_rpc_core.py",
@@ -13975,7 +15009,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/scene_ops.py",
@@ -13987,7 +15022,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "High-level snapshot of the current Toolbag scene.",
-          "line": 14,
+          "line": 15,
           "deprecated": false
         },
         {
@@ -14000,7 +15035,8 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/marmoset_rpc/plugin_src/marmoset_rpc/ops/system_ops.py",
@@ -14012,11 +15048,12 @@
           "kind": "function",
           "signature": "()",
           "summary": "Toolbag build number (e.g.",
-          "line": 14,
+          "line": 15,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "mat_utils/marmoset_bridge/parameters.py",
@@ -14057,6 +15094,26 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "PARAMS",
+          "qualname": "PARAMS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 32,
+          "deprecated": false
+        },
+        {
+          "name": "SUPERSESSIONS",
+          "qualname": "SUPERSESSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 390,
+          "deprecated": false
         }
       ]
     },
@@ -14118,6 +15175,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULTS",
+          "qualname": "DEFAULTS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -14134,7 +15202,342 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 22,
+          "deprecated": false
+        },
+        {
+          "name": "MODEL_FILE",
+          "qualname": "MODEL_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 42,
+          "deprecated": false
+        },
+        {
+          "name": "SOURCE_MODEL_FILE",
+          "qualname": "SOURCE_MODEL_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 43,
+          "deprecated": false
+        },
+        {
+          "name": "PAIRS_FILE",
+          "qualname": "PAIRS_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 44,
+          "deprecated": false
+        },
+        {
+          "name": "MANIFEST_FILE",
+          "qualname": "MANIFEST_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
+        },
+        {
+          "name": "OUTPUT_DIR",
+          "qualname": "OUTPUT_DIR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 46,
+          "deprecated": false
+        },
+        {
+          "name": "SAVE_PATH",
+          "qualname": "SAVE_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "SHOULD_QUIT",
+          "qualname": "SHOULD_QUIT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 48,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_SIZE",
+          "qualname": "BAKE_SIZE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 58,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_SAMPLES",
+          "qualname": "BAKE_SAMPLES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 59,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_PADDING",
+          "qualname": "BAKE_PADDING",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 60,
+          "deprecated": false
+        },
+        {
+          "name": "BAKE_BITS",
+          "qualname": "BAKE_BITS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 61,
+          "deprecated": false
+        },
+        {
+          "name": "OUTPUT_FORMAT",
+          "qualname": "OUTPUT_FORMAT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 62,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_NORMAL",
+          "qualname": "MAP_NORMAL",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 65,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_AO",
+          "qualname": "MAP_AO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 66,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_CURVATURE",
+          "qualname": "MAP_CURVATURE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 67,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_THICKNESS",
+          "qualname": "MAP_THICKNESS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 68,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_POSITION",
+          "qualname": "MAP_POSITION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 69,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_MATID",
+          "qualname": "MAP_MATID",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 70,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_ALBEDO",
+          "qualname": "MAP_ALBEDO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 71,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_ROUGHNESS",
+          "qualname": "MAP_ROUGHNESS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 72,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_METALNESS",
+          "qualname": "MAP_METALNESS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 73,
+          "deprecated": false
+        },
+        {
+          "name": "MAP_EMISSIVE",
+          "qualname": "MAP_EMISSIVE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 74,
+          "deprecated": false
+        },
+        {
+          "name": "HIGH_SUFFIX",
+          "qualname": "HIGH_SUFFIX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 77,
+          "deprecated": false
+        },
+        {
+          "name": "LOW_SUFFIX",
+          "qualname": "LOW_SUFFIX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 78,
+          "deprecated": false
+        },
+        {
+          "name": "SUFFIX_INCLUDE_CHILDREN",
+          "qualname": "SUFFIX_INCLUDE_CHILDREN",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 79,
+          "deprecated": false
+        },
+        {
+          "name": "CAGE_OFFSET",
+          "qualname": "CAGE_OFFSET",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 80,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE",
+          "qualname": "AUTO_CAGE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 81,
+          "deprecated": false
+        },
+        {
+          "name": "IGNORE_BACKFACES",
+          "qualname": "IGNORE_BACKFACES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 82,
+          "deprecated": false
+        },
+        {
+          "name": "CAGE_STANDOFFS",
+          "qualname": "CAGE_STANDOFFS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 93,
+          "deprecated": false
+        },
+        {
+          "name": "CAGE_HOST_DIAGONAL",
+          "qualname": "CAGE_HOST_DIAGONAL",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 94,
+          "deprecated": false
+        },
+        {
+          "name": "CAGE_REACH_FACTOR",
+          "qualname": "CAGE_REACH_FACTOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 103,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE_MARGIN",
+          "qualname": "AUTO_CAGE_MARGIN",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 108,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE_FLOOR",
+          "qualname": "AUTO_CAGE_FLOOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 126,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE_BOUNDS_FLOOR",
+          "qualname": "AUTO_CAGE_BOUNDS_FLOOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 127,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE_CEILING",
+          "qualname": "AUTO_CAGE_CEILING",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 128,
+          "deprecated": false
+        },
+        {
+          "name": "AUTO_CAGE_GAP_MARGIN",
+          "qualname": "AUTO_CAGE_GAP_MARGIN",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 132,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/marmoset_bridge/templates/import.py",
@@ -14150,7 +15553,54 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 12,
+          "deprecated": false
+        },
+        {
+          "name": "MODEL_FILE",
+          "qualname": "MODEL_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 25,
+          "deprecated": false
+        },
+        {
+          "name": "MANIFEST_FILE",
+          "qualname": "MANIFEST_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
+        },
+        {
+          "name": "SAVE_PATH",
+          "qualname": "SAVE_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 27,
+          "deprecated": false
+        },
+        {
+          "name": "SHOULD_QUIT",
+          "qualname": "SHOULD_QUIT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 28,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/marmoset_bridge/templates/lookdev.py",
@@ -14166,7 +15616,72 @@
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 12,
+          "deprecated": false
+        },
+        {
+          "name": "MODEL_FILE",
+          "qualname": "MODEL_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 25,
+          "deprecated": false
+        },
+        {
+          "name": "MANIFEST_FILE",
+          "qualname": "MANIFEST_FILE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 26,
+          "deprecated": false
+        },
+        {
+          "name": "SAVE_PATH",
+          "qualname": "SAVE_PATH",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 27,
+          "deprecated": false
+        },
+        {
+          "name": "SHOULD_QUIT",
+          "qualname": "SHOULD_QUIT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 28,
+          "deprecated": false
+        },
+        {
+          "name": "SKY_PRESET",
+          "qualname": "SKY_PRESET",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 30,
+          "deprecated": false
+        },
+        {
+          "name": "FRAME_SELECTION",
+          "qualname": "FRAME_SELECTION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 31,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/marmoset_bridge/toolbag_log.py",
@@ -14217,7 +15732,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/mat_manifest.py",
@@ -14252,7 +15768,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/mat_updater.py",
@@ -14314,7 +15831,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/render_opacity/render_effects.py",
@@ -14357,12 +15875,39 @@
               "deprecated": false
             },
             {
+              "name": "objects_with_channel",
+              "qualname": "RenderEffects.objects_with_channel",
+              "kind": "classmethod",
+              "signature": "(cls, channel='highlight') -> list",
+              "summary": "Every object carrying the channel's property.",
+              "line": 351,
+              "deprecated": false
+            },
+            {
+              "name": "channel_colors",
+              "qualname": "RenderEffects.channel_colors",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, channel='highlight') -> dict",
+              "summary": "What each object's channel colour is authored as right now.",
+              "line": 370,
+              "deprecated": false
+            },
+            {
+              "name": "set_channel_color",
+              "qualname": "RenderEffects.set_channel_color",
+              "kind": "classmethod",
+              "signature": "(cls, objects=None, color=None, channel='highlight') -> list",
+              "summary": "Restate an already-authored channel colour, leaving its keys alone.",
+              "line": 397,
+              "deprecated": false
+            },
+            {
               "name": "preview",
               "qualname": "RenderEffects.preview",
               "kind": "classmethod",
               "signature": "(cls, objects=None, channel='highlight', enabled=True)",
               "summary": "DEPRECATED (one release).",
-              "line": 332,
+              "line": 453,
               "deprecated": false
             },
             {
@@ -14371,7 +15916,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Stage one transient Empty per keyed channel per object, for the FBX write.",
-              "line": 366,
+              "line": 487,
               "deprecated": false
             },
             {
@@ -14380,7 +15925,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Delete every staged render-effect curve proxy and its action.",
-              "line": 415,
+              "line": 536,
               "deprecated": false
             },
             {
@@ -14389,7 +15934,7 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Undo :meth:`prepare_for_export`'s staging (mirror of mayatk's).",
-              "line": 434,
+              "line": 555,
               "deprecated": false
             },
             {
@@ -14398,7 +15943,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, mode=None, channel=None)",
               "summary": "Remove a channel's prop and anim curves from *objects*, and heal the",
-              "line": 439,
+              "line": 560,
               "deprecated": false
             },
             {
@@ -14407,7 +15952,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', preview=None, delete_visibility_keys=False, channel='opacity', whole_frames=True)",
               "summary": "Key an opacity fade (linear) and mirror it to render visibility (stepped).",
-              "line": 566,
+              "line": 687,
               "deprecated": false
             },
             {
@@ -14416,7 +15961,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> None",
               "summary": "Rebuild the ``hide_render`` curve from the ``opacity`` curve (stepped, hidden when ≤ 0).",
-              "line": 622,
+              "line": 743,
               "deprecated": false
             },
             {
@@ -14425,7 +15970,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> None",
               "summary": "Kept for mayatk API parity;",
-              "line": 642,
+              "line": 763,
               "deprecated": false
             },
             {
@@ -14434,7 +15979,7 @@
               "kind": "classmethod",
               "signature": "(cls, objects=None) -> list",
               "summary": "Dual-key safety net before FBX export: for every object with an animated ``opacity`` but",
-              "line": 651,
+              "line": 772,
               "deprecated": false
             },
             {
@@ -14443,7 +15988,7 @@
               "kind": "classmethod",
               "signature": "(cls) -> list",
               "summary": "Every visibility-keyed object in the file, as stepped on/off tracks.",
-              "line": 689,
+              "line": 810,
               "deprecated": false
             },
             {
@@ -14452,12 +15997,13 @@
               "kind": "classmethod",
               "signature": "(cls)",
               "summary": "Republish the ``visibility_tracks`` channel (``FbxUtils._KNOWN_PRODUCERS``).",
-              "line": 774,
+              "line": 895,
               "deprecated": false
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/render_opacity/render_effects_slots.py",
@@ -14487,7 +16033,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Key Opacity Fade Init — configure option-box menu.",
-              "line": 233,
+              "line": 253,
               "deprecated": false
             },
             {
@@ -14496,7 +16042,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Key Opacity Fade — key a fade on the opacity property (created if missing).",
-              "line": 282,
+              "line": 302,
               "deprecated": false
             },
             {
@@ -14505,7 +16051,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Key Highlight Pulse Init — configure option-box menu.",
-              "line": 323,
+              "line": 343,
               "deprecated": false
             },
             {
@@ -14514,12 +16060,13 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Key Highlight Pulse — key a repeating glow on the highlight property (created if missing).",
-              "line": 427,
+              "line": 521,
               "deprecated": false
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/shader_templates.py",
@@ -14671,7 +16218,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/substance_bridge/_substance_bridge.py",
@@ -14781,7 +16329,7 @@
               "kind": "method",
               "signature": "(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]",
               "summary": "Export *objects*, render *template* in *mode*, hand off to Painter.",
-              "line": 486,
+              "line": 484,
               "deprecated": false
             },
             {
@@ -14790,7 +16338,7 @@
               "kind": "method",
               "signature": "(self) -> None",
               "summary": "Install -- or refresh -- the Painter-side substance_rpc plugin.",
-              "line": 984,
+              "line": 976,
               "deprecated": false
             },
             {
@@ -14799,7 +16347,7 @@
               "kind": "classmethod",
               "signature": "(cls, fbx_path: str) -> str",
               "summary": "``.../asset.fbx`` -> ``.../asset_high.fbx``.",
-              "line": 1049,
+              "line": 1041,
               "deprecated": false
             },
             {
@@ -14808,7 +16356,7 @@
               "kind": "classmethod",
               "signature": "(cls, paths: List[str]) -> List[str]",
               "summary": "The subset of *paths* Painter can actually use as mesh maps.",
-              "line": 1131,
+              "line": 1123,
               "deprecated": false
             },
             {
@@ -14817,7 +16365,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Path]",
               "summary": "Return user-visible templates in ``templates/`` (skips underscore-prefixed).",
-              "line": 1594,
+              "line": 1586,
               "deprecated": false
             },
             {
@@ -14826,7 +16374,7 @@
               "kind": "staticmethod",
               "signature": "(template_path: Path) -> Dict[str, Any]",
               "summary": "Read a template's metadata constants without executing the file.",
-              "line": 1601,
+              "line": 1593,
               "deprecated": false
             },
             {
@@ -14835,7 +16383,7 @@
               "kind": "staticmethod",
               "signature": "() -> List[Tuple[str, str]]",
               "summary": "Return ``[(stem, mode), ...]`` for every (template, mode) pairing.",
-              "line": 1699,
+              "line": 1691,
               "deprecated": false
             },
             {
@@ -14844,10 +16392,66 @@
               "kind": "staticmethod",
               "signature": "(painter_exe: Optional[str] = None) -> Optional[str]",
               "summary": "Return the path to Painter's application log.",
-              "line": 1708,
+              "line": 1700,
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "SEND_TO",
+          "qualname": "SEND_TO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 54,
+          "deprecated": false
+        },
+        {
+          "name": "ROUND_TRIP",
+          "qualname": "ROUND_TRIP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 55,
+          "deprecated": false
+        },
+        {
+          "name": "ROUNDTRIP",
+          "qualname": "ROUNDTRIP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 58,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_AUTO",
+          "qualname": "TARGET_AUTO",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 70,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_NEW",
+          "qualname": "TARGET_NEW",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 71,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_CURRENT",
+          "qualname": "TARGET_CURRENT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 72,
+          "deprecated": false
         }
       ]
     },
@@ -14920,6 +16524,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "APP",
+          "qualname": "APP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -14979,6 +16594,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "PARAMS",
+          "qualname": "PARAMS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 75,
+          "deprecated": false
         }
       ]
     },
@@ -15051,7 +16677,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/substance_bridge/substance_rpc/client.py",
@@ -15061,7 +16688,7 @@
         {
           "name": "PainterRpcClient",
           "summary": "RPC client bound to the substance_rpc plugin's defaults.",
-          "line": 34,
+          "line": 35,
           "bases": [
             "RpcClient"
           ],
@@ -15072,7 +16699,7 @@
               "kind": "method",
               "signature": "(self, timeout: float = 60.0, poll_interval: float = 0.5) -> bool",
               "summary": "Poll ``/health`` until the plugin answers, or *timeout* expires.",
-              "line": 54,
+              "line": 55,
               "deprecated": false
             },
             {
@@ -15081,7 +16708,7 @@
               "kind": "method",
               "signature": "(self, op: str, timeout: Optional[float] = None, **kwargs: Any) -> Any",
               "summary": ":meth:`RpcClient.invoke` with this client's default timeout.",
-              "line": 65,
+              "line": 66,
               "deprecated": false
             },
             {
@@ -15090,7 +16717,7 @@
               "kind": "method",
               "signature": "(self, script: str) -> Any",
               "summary": "Evaluate *script* in Painter's JS engine (``alg.*`` API surface).",
-              "line": 73,
+              "line": 74,
               "deprecated": false
             },
             {
@@ -15099,7 +16726,7 @@
               "kind": "method",
               "signature": "(self, script: str) -> Any",
               "summary": "Exec *script* (Python) inside Painter;",
-              "line": 77,
+              "line": 78,
               "deprecated": false
             },
             {
@@ -15108,7 +16735,7 @@
               "kind": "method",
               "signature": "(self, mesh_path: str, preserve_strokes: bool = True, import_cameras: bool = False) -> Any",
               "summary": "Ask Painter to reload the open project's mesh from *mesh_path*.",
-              "line": 81,
+              "line": 82,
               "deprecated": false
             },
             {
@@ -15117,7 +16744,7 @@
               "kind": "method",
               "signature": "(self) -> Any",
               "summary": "Outcome of the last reload: ``{\"status\": ..., \"mesh_path\": ...}``.",
-              "line": 99,
+              "line": 100,
               "deprecated": false
             },
             {
@@ -15126,10 +16753,21 @@
               "kind": "method",
               "signature": "(self) -> Any",
               "summary": "``{is_open, file_path, mesh_path, needs_saving}`` for the open project.",
-              "line": 103,
+              "line": 104,
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULT_RPC_PORT",
+          "qualname": "DEFAULT_RPC_PORT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 32,
+          "deprecated": false
         }
       ]
     },
@@ -15193,6 +16831,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "PLUGIN_NAME",
+          "qualname": "PLUGIN_NAME",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 27,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -15205,7 +16854,7 @@
           "kind": "function",
           "signature": "(port=None, host=None)",
           "summary": "Start the RPC server (idempotent).",
-          "line": 53,
+          "line": 54,
           "deprecated": false
         },
         {
@@ -15214,7 +16863,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Shut the server down (close_plugin hook / tests / hot-reload).",
-          "line": 58,
+          "line": 59,
           "deprecated": false
         },
         {
@@ -15223,7 +16872,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "True while the server is bound.",
-          "line": 63,
+          "line": 64,
           "deprecated": false
         },
         {
@@ -15232,7 +16881,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Start on plugin load, gated to the Painter host.",
-          "line": 68,
+          "line": 69,
           "deprecated": false
         },
         {
@@ -15241,7 +16890,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Painter lifecycle hook: start the RPC server (idempotent).",
-          "line": 73,
+          "line": 74,
           "deprecated": false
         },
         {
@@ -15250,11 +16899,22 @@
           "kind": "function",
           "signature": "()",
           "summary": "Painter lifecycle hook: shut the RPC server down.",
-          "line": 80,
+          "line": 81,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": [
+        {
+          "name": "PLUGIN",
+          "qualname": "PLUGIN",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 34,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/_rpc_core.py",
@@ -15426,7 +17086,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/project_ops.py",
@@ -15438,7 +17099,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Return ``{is_open, file_path, mesh_path, needs_saving}`` (best-effort).",
-          "line": 27,
+          "line": 28,
           "deprecated": false
         },
         {
@@ -15447,7 +17108,7 @@
           "kind": "function",
           "signature": "(mesh_path='', preserve_strokes=True, import_cameras=False)",
           "summary": "Reload the open project's mesh from *mesh_path* (async).",
-          "line": 60,
+          "line": 61,
           "deprecated": false
         },
         {
@@ -15456,11 +17117,12 @@
           "kind": "function",
           "signature": "()",
           "summary": "Outcome of the last ``mesh.reload``: pending / success / failure.",
-          "line": 102,
+          "line": 103,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/setup_ops.py",
@@ -15472,7 +17134,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Drop any pending values and unsubscribe (plugin-disable hook).",
-          "line": 83,
+          "line": 84,
           "deprecated": false
         },
         {
@@ -15481,7 +17143,7 @@
           "kind": "function",
           "signature": "(size=0)",
           "summary": "Set the document resolution of every texture set to *size* px square.",
-          "line": 157,
+          "line": 158,
           "deprecated": false
         },
         {
@@ -15490,7 +17152,7 @@
           "kind": "function",
           "signature": "(mesh_path='')",
           "summary": "Set the Hipoly Mesh of every texture set's baking parameters.",
-          "line": 220,
+          "line": 221,
           "deprecated": false
         },
         {
@@ -15499,7 +17161,7 @@
           "kind": "function",
           "signature": "(manifest_path='')",
           "summary": "Wire each material's baked maps onto its own texture set.",
-          "line": 351,
+          "line": 352,
           "deprecated": false
         },
         {
@@ -15508,11 +17170,12 @@
           "kind": "function",
           "signature": "()",
           "summary": "Return what is queued for the next project-open (diagnostics).",
-          "line": 378,
+          "line": 379,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
     },
     {
       "relpath": "mat_utils/substance_bridge/substance_rpc/plugin_src/substance_rpc/ops/system_ops.py",
@@ -15524,7 +17187,7 @@
           "kind": "function",
           "signature": "()",
           "summary": "Return Painter + plugin API version info (best-effort).",
-          "line": 18,
+          "line": 19,
           "deprecated": false
         },
         {
@@ -15533,7 +17196,7 @@
           "kind": "function",
           "signature": "(script='')",
           "summary": "Exec *script* (Python source) inside Painter's interpreter.",
-          "line": 38,
+          "line": 39,
           "deprecated": false
         },
         {
@@ -15542,11 +17205,287 @@
           "kind": "function",
           "signature": "(script='')",
           "summary": "Evaluate *script* in Painter's JavaScript engine (``alg.*`` API).",
-          "line": 60,
+          "line": 61,
           "deprecated": false
         }
       ],
-      "classes": []
+      "classes": [],
+      "constants": []
+    },
+    {
+      "relpath": "mat_utils/substance_bridge/templates/bake_lighting.py",
+      "summary": "Import the FBX as a new project, then bake Iray lighting into diffuse.",
+      "functions": [],
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 52,
+          "deprecated": false
+        },
+        {
+          "name": "LAUNCH_ARGS",
+          "qualname": "LAUNCH_ARGS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 66,
+          "deprecated": false
+        },
+        {
+          "name": "RPC_SCRIPT",
+          "qualname": "RPC_SCRIPT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 76,
+          "deprecated": false
+        },
+        {
+          "name": "BUILD_MANIFEST",
+          "qualname": "BUILD_MANIFEST",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 102,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_OPTIONS",
+          "qualname": "FBX_OPTIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 107,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_INSTANCE",
+          "qualname": "TARGET_INSTANCE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 112,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "relpath": "mat_utils/substance_bridge/templates/import.py",
+      "summary": "Send the FBX to Painter as a new project.",
+      "functions": [],
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 14,
+          "deprecated": false
+        },
+        {
+          "name": "LAUNCH_ARGS",
+          "qualname": "LAUNCH_ARGS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "RPC_SCRIPT",
+          "qualname": "RPC_SCRIPT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 53,
+          "deprecated": false
+        },
+        {
+          "name": "BUILD_MANIFEST",
+          "qualname": "BUILD_MANIFEST",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 60,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_OPTIONS",
+          "qualname": "FBX_OPTIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 64,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_INSTANCE",
+          "qualname": "TARGET_INSTANCE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 70,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "relpath": "mat_utils/substance_bridge/templates/reimport.py",
+      "summary": "Update the running Painter's open project from a fresh FBX export.",
+      "functions": [],
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 29,
+          "deprecated": false
+        },
+        {
+          "name": "LAUNCH_ARGS",
+          "qualname": "LAUNCH_ARGS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
+        },
+        {
+          "name": "RPC_OPS",
+          "qualname": "RPC_OPS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 50,
+          "deprecated": false
+        },
+        {
+          "name": "RPC_SCRIPT",
+          "qualname": "RPC_SCRIPT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 61,
+          "deprecated": false
+        },
+        {
+          "name": "BUILD_MANIFEST",
+          "qualname": "BUILD_MANIFEST",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 63,
+          "deprecated": false
+        },
+        {
+          "name": "REUSE_RECORDED_EXPORT",
+          "qualname": "REUSE_RECORDED_EXPORT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 68,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_INSTANCE",
+          "qualname": "TARGET_INSTANCE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 74,
+          "deprecated": false
+        },
+        {
+          "name": "NO_CONNECTION_HINT",
+          "qualname": "NO_CONNECTION_HINT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 76,
+          "deprecated": false
+        }
+      ]
+    },
+    {
+      "relpath": "mat_utils/substance_bridge/templates/render.py",
+      "summary": "Render the current Painter project via Iray (JS body unverified).",
+      "functions": [],
+      "classes": [],
+      "constants": [
+        {
+          "name": "BRIDGE_MODES",
+          "qualname": "BRIDGE_MODES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 25,
+          "deprecated": false
+        },
+        {
+          "name": "LAUNCH_ARGS",
+          "qualname": "LAUNCH_ARGS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 28,
+          "deprecated": false
+        },
+        {
+          "name": "EXPORT_FBX",
+          "qualname": "EXPORT_FBX",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 33,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_OPTIONS",
+          "qualname": "FBX_OPTIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 34,
+          "deprecated": false
+        },
+        {
+          "name": "RPC_SCRIPT",
+          "qualname": "RPC_SCRIPT",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 49,
+          "deprecated": false
+        },
+        {
+          "name": "BUILD_MANIFEST",
+          "qualname": "BUILD_MANIFEST",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 58,
+          "deprecated": false
+        },
+        {
+          "name": "TARGET_INSTANCE",
+          "qualname": "TARGET_INSTANCE",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 61,
+          "deprecated": false
+        }
+      ]
     },
     {
       "relpath": "mat_utils/texture_baker.py",
@@ -15617,7 +17556,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "mat_utils/texture_path_editor.py",
@@ -15850,7 +17790,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "node_utils/_node_utils.py",
@@ -15930,7 +17871,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "node_utils/attributes/channels/_channels.py",
@@ -16206,7 +18148,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "node_utils/attributes/channels/channels_slots.py",
@@ -16275,7 +18218,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "node_utils/data_nodes.py",
@@ -16389,7 +18333,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "nurbs_utils/_nurbs_utils.py",
@@ -16505,7 +18450,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "nurbs_utils/curve_to_tube.py",
@@ -16568,7 +18514,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "nurbs_utils/image_tracer.py",
@@ -16703,7 +18650,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/_rig_utils.py",
@@ -16952,7 +18900,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/controls.py",
@@ -17003,7 +18952,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/shadow_preview.py",
@@ -17147,7 +19097,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/shadow_rig.py",
@@ -17795,7 +19746,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/telescope_rig.py",
@@ -17911,7 +19863,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/tube_path.py",
@@ -17953,7 +19906,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "rig_utils/tube_rig.py",
@@ -17963,14 +19917,14 @@
         {
           "name": "TubeRigBundle",
           "summary": "Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.",
-          "line": 60,
+          "line": 62,
           "bases": [],
           "members": []
         },
         {
           "name": "TubeStrategy",
           "summary": "Base tube-rig strategy.",
-          "line": 75,
+          "line": 77,
           "bases": [
             "ABC"
           ],
@@ -17981,7 +19935,7 @@
               "kind": "staticmethod",
               "signature": "(cls)",
               "summary": "Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension",
-              "line": 84,
+              "line": 86,
               "deprecated": false
             },
             {
@@ -17990,7 +19944,7 @@
               "kind": "method",
               "signature": "(self) -> dict",
               "summary": "",
-              "line": 92,
+              "line": 94,
               "deprecated": false
             },
             {
@@ -17999,7 +19953,7 @@
               "kind": "method",
               "signature": "(self, opts: Optional[dict]) -> dict",
               "summary": "Merge caller *opts* over the declared defaults (``None`` values fall back to default).",
-              "line": 95,
+              "line": 97,
               "deprecated": false
             },
             {
@@ -18008,7 +19962,7 @@
               "kind": "method",
               "signature": "(self, rig: 'TubeRig', **opts) -> TubeRigBundle",
               "summary": "",
-              "line": 103,
+              "line": 105,
               "deprecated": false
             }
           ]
@@ -18016,7 +19970,7 @@
         {
           "name": "SplineIKStrategy",
           "summary": "",
-          "line": 106,
+          "line": 108,
           "bases": [
             "TubeStrategy"
           ],
@@ -18027,7 +19981,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 174,
+              "line": 176,
               "deprecated": false
             }
           ]
@@ -18035,7 +19989,7 @@
         {
           "name": "AnchorStrategy",
           "summary": "",
-          "line": 196,
+          "line": 203,
           "bases": [
             "TubeStrategy"
           ],
@@ -18046,7 +20000,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 218,
+              "line": 225,
               "deprecated": false
             }
           ]
@@ -18054,7 +20008,7 @@
         {
           "name": "FKChainStrategy",
           "summary": "",
-          "line": 249,
+          "line": 259,
           "bases": [
             "TubeStrategy"
           ],
@@ -18065,7 +20019,7 @@
               "kind": "method",
               "signature": "(self, rig, **opts)",
               "summary": "",
-              "line": 273,
+              "line": 283,
               "deprecated": false
             }
           ]
@@ -18073,7 +20027,7 @@
         {
           "name": "TubeRig",
           "summary": "Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.",
-          "line": 351,
+          "line": 365,
           "bases": [
             "ptk.LoggingMixin",
             "_TubeRigInternal"
@@ -18085,7 +20039,7 @@
               "kind": "property",
               "signature": "(self)",
               "summary": "",
-              "line": 366,
+              "line": 380,
               "deprecated": false
             },
             {
@@ -18094,7 +20048,7 @@
               "kind": "method",
               "signature": "(self, num_joints, precision=None, edges=None)",
               "summary": "The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a",
-              "line": 373,
+              "line": 387,
               "deprecated": false
             },
             {
@@ -18103,7 +20057,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "",
-              "line": 385,
+              "line": 399,
               "deprecated": false
             },
             {
@@ -18112,7 +20066,7 @@
               "kind": "method",
               "signature": "(self, centerline, radius=None)",
               "summary": "Armature + bone chain along *centerline*, parented under the rig root.",
-              "line": 391,
+              "line": 405,
               "deprecated": false
             },
             {
@@ -18121,7 +20075,7 @@
               "kind": "method",
               "signature": "(self, centerline, radius=1.0, reverse=False)",
               "summary": "Bones-only build step — mirror of mayatk's ``generate_joint_chain`` + lazy",
-              "line": 405,
+              "line": 419,
               "deprecated": false
             },
             {
@@ -18130,7 +20084,7 @@
               "kind": "method",
               "signature": "(self, armature, bones, radius=1.0)",
               "summary": "Progressive roll twist for a Spline-IK chain — Blender's Spline IK ignores the driver",
-              "line": 441,
+              "line": 455,
               "deprecated": false
             },
             {
@@ -18139,7 +20093,7 @@
               "kind": "method",
               "signature": "(self, armature, bones, num_controls=3, radius=1.0, enable_stretch=True, enable_squash=False, enable_volume=False, enable_auto_bend=False, enable_twist=False)",
               "summary": "Curve + Spline IK + hooked controls on an EXISTING bone chain — mirror of mayatk's",
-              "line": 491,
+              "line": 505,
               "deprecated": false
             },
             {
@@ -18148,7 +20102,7 @@
               "kind": "method",
               "signature": "(self, points, count)",
               "summary": "A low-res NURBS driver curve (``count`` control points resampled along *points*) for the",
-              "line": 545,
+              "line": 559,
               "deprecated": false
             },
             {
@@ -18157,7 +20111,7 @@
               "kind": "method",
               "signature": "(self, shape, name, size, location, root, color=(1, 1, 0), axis='x')",
               "summary": "Create a control curve at *location*, parented under *root* (keeping its world pos).",
-              "line": 580,
+              "line": 594,
               "deprecated": false
             },
             {
@@ -18166,7 +20120,7 @@
               "kind": "method",
               "signature": "(self, curve, radius, root)",
               "summary": "One control per curve control-point, each Hook-bound to its point (the live-reshape",
-              "line": 601,
+              "line": 615,
               "deprecated": false
             },
             {
@@ -18175,16 +20129,16 @@
               "kind": "method",
               "signature": "(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)",
               "summary": "Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff",
-              "line": 686,
+              "line": 700,
               "deprecated": false
             },
             {
               "name": "build",
               "qualname": "TubeRig.build",
               "kind": "method",
-              "signature": "(self, strategy='spline', **opts) -> TubeRigBundle",
+              "signature": "(self, strategy='spline', progress: Optional[Callable] = None, **opts) -> TubeRigBundle",
               "summary": "Build the rig with the named *strategy* (``\"spline\"`` / ``\"anchor\"`` / ``\"fk\"`` or a",
-              "line": 776,
+              "line": 841,
               "deprecated": false
             }
           ]
@@ -18192,7 +20146,7 @@
         {
           "name": "TubeRigSlots",
           "summary": "Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.",
-          "line": 792,
+          "line": 868,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -18203,7 +20157,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Rig-name field — optional, so clearing back to auto-naming is a state.",
-              "line": 817,
+              "line": 893,
               "deprecated": false
             },
             {
@@ -18212,7 +20166,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Configure header help text.",
-              "line": 821,
+              "line": 897,
               "deprecated": false
             },
             {
@@ -18221,7 +20175,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Build Rig — run the selected strategy on the selected tube mesh.",
-              "line": 904,
+              "line": 987,
               "deprecated": false
             },
             {
@@ -18230,7 +20184,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls",
-              "line": 947,
+              "line": 1042,
               "deprecated": false
             },
             {
@@ -18239,7 +20193,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING",
-              "line": 973,
+              "line": 1067,
               "deprecated": false
             },
             {
@@ -18248,7 +20202,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic",
-              "line": 1017,
+              "line": 1112,
               "deprecated": false
             },
             {
@@ -18257,10 +20211,21 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and",
-              "line": 1046,
+              "line": 1142,
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "TUBE_STRATEGIES",
+          "qualname": "TUBE_STRATEGIES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 304,
+          "deprecated": false
         }
       ]
     },
@@ -18433,7 +20398,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/_ui_utils.py",
@@ -18585,6 +20551,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "EDITOR_TYPES",
+          "qualname": "EDITOR_TYPES",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 16,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -18656,7 +20633,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/blender_native_menus.py",
@@ -18700,7 +20678,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/blender_ui_handler.py",
@@ -18753,7 +20732,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/blender_window.py",
@@ -18876,7 +20856,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/calculator.py",
@@ -19045,7 +21026,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/cancel_provider.py",
@@ -19089,7 +21071,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/menu_harvest.py",
@@ -19133,7 +21116,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/node_icons.py",
@@ -19183,6 +21167,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "ICON_COLOR",
+          "qualname": "ICON_COLOR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 45,
+          "deprecated": false
         }
       ]
     },
@@ -19271,7 +21266,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "ui_utils/style_setter/_style_setter.py",
@@ -19368,6 +21364,17 @@
               "deprecated": false
             }
           ]
+        }
+      ],
+      "constants": [
+        {
+          "name": "STYLES_DIR",
+          "qualname": "STYLES_DIR",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 49,
+          "deprecated": false
         }
       ]
     },
@@ -19485,7 +21492,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "uv_utils/_auto_unwrap.py",
@@ -19499,7 +21507,8 @@
           "bases": [],
           "members": []
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "uv_utils/_uv_utils.py",
@@ -19795,6 +21804,26 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "DEFAULT_UV_SET",
+          "qualname": "DEFAULT_UV_SET",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 22,
+          "deprecated": false
+        },
+        {
+          "name": "LIGHTMAP_UV_SET",
+          "qualname": "LIGHTMAP_UV_SET",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 41,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -19885,6 +21914,17 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "APP",
+          "qualname": "APP",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 68,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -19963,6 +22003,44 @@
             }
           ]
         }
+      ],
+      "constants": [
+        {
+          "name": "PARAMS",
+          "qualname": "PARAMS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 47,
+          "deprecated": false
+        },
+        {
+          "name": "DERIVED_KEYS",
+          "qualname": "DERIVED_KEYS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 470,
+          "deprecated": false
+        },
+        {
+          "name": "MIN_VERSIONS",
+          "qualname": "MIN_VERSIONS",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 656,
+          "deprecated": false
+        },
+        {
+          "name": "FBX_USE_UV_SET_NAMES_MIN_VERSION",
+          "qualname": "FBX_USE_UV_SET_NAMES_MIN_VERSION",
+          "kind": "constant",
+          "signature": "",
+          "summary": "",
+          "line": 666,
+          "deprecated": false
+        }
       ]
     },
     {
@@ -20034,7 +22112,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "uv_utils/shell_xform.py",
@@ -20321,7 +22400,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "uv_utils/texture_transfer.py",
@@ -20456,7 +22536,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "xform_utils/_xform_utils.py",
@@ -20662,7 +22743,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     },
     {
       "relpath": "xform_utils/matrices.py",
@@ -20803,7 +22885,8 @@
             }
           ]
         }
-      ]
+      ],
+      "constants": []
     }
   ]
 }

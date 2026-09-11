@@ -688,6 +688,114 @@ try:
             arm, bones = rig.create_armature([(0, 0, 0), (0, 0, 4)])
             return TubeRigBundle(root, arm, bones)
 
+    # ========================== PROGRESS ===============================
+    # A build suspends global undo and redraws nothing until it ends, so a
+    # silent panel reads as hung. The engine reports phases indeterminately
+    # (the count varies with the strategy and its options, so a percentage
+    # would be a fiction) and the slot wires them to the footer.
+    reset()
+    t = tube("ProgHose", depth=8.0)
+    ticks = []
+    TubeRig(t, rig_name="proghose").build(
+        "spline",
+        num_joints=12,
+        num_controls=3,
+        radius=0.6,
+        progress=lambda current, total, message: ticks.append(
+            (current, total, message)
+        ),
+    )
+    check(
+        "progress: the build reports phases", len(ticks) >= 4, f"{len(ticks)} tick(s)"
+    )
+    check(
+        "progress: ticks are INDETERMINATE (no fabricated percentage)",
+        all(c is None and tot == 0 for c, tot, _ in ticks),
+        str(ticks[:2]),
+    )
+    check(
+        "progress: the last phase says it finished",
+        ticks and "complete" in ticks[-1][2].lower(),
+        ticks[-1][2] if ticks else "",
+    )
+
+    reset()
+    t = tube("NoHookHose", depth=8.0)
+    TubeRig(t, rig_name="nohook").build("spline", num_joints=8, num_controls=3)
+    check("progress: a build with no hook still succeeds", True)
+
+    reset()
+    t = tube("BadHookHose", depth=8.0)
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("footer died")
+
+    try:
+        b = TubeRig(t, rig_name="badhook").build(
+            "spline", num_joints=8, num_controls=3, progress=_boom
+        )
+        survived = b.armature.type == "ARMATURE"
+    except Exception:
+        survived = False
+    check(
+        "progress: a hook that raises is dropped, not allowed to abort the rig",
+        survived,
+    )
+
+    # ============================ UNDO =================================
+    # A rig build is one gesture and must be one Ctrl+Z. Before 2026-09-10
+    # nothing here pushed a step at all: the armature, curve, hooks, vertex
+    # groups and the auto-bend distance driver each landed separately, so
+    # backing out a build meant an unbounded number of presses and the driver
+    # usually survived them. The Maya twin has been one step per build since
+    # 2026-09-01.
+    reset()
+    t = tube("UndoHose", depth=8.0)
+    before = len(bpy.ops.ed.undo_history() or [])
+    steps_work = True
+    try:
+        bpy.ops.ed.undo_push(message="probe")
+        steps_work = len(bpy.ops.ed.undo_history() or []) > before
+    except Exception:
+        steps_work = False
+
+    if not steps_work:
+        # --background keeps no undo stack; the structural half still holds.
+        check(
+            "undo: build carries a checkpoint decorator (stack unavailable headless)",
+            hasattr(TubeRig.build, "__wrapped__"),
+        )
+    else:
+        base = len(bpy.ops.ed.undo_history() or [])
+        TubeRig(t, rig_name="undohose").build(
+            "spline", num_joints=12, num_controls=3, radius=0.6
+        )
+        after = len(bpy.ops.ed.undo_history() or [])
+        check(
+            "undo: one build pushes exactly one step",
+            after - base == 1,
+            f"{after - base} step(s)",
+        )
+        bpy.ops.ed.undo()
+        leftover = [
+            o.name
+            for o in bpy.data.objects
+            if o.name.startswith("undohose") or "undohose" in o.name
+        ]
+        check("undo: one press removes the whole rig", not leftover, str(leftover[:4]))
+
+    check(
+        "undo: b000 is NOT decorated (build already pushes; a second is a 2nd step)",
+        not hasattr(TubeRigSlots.b000, "__wrapped__"),
+    )
+    check(
+        "undo: the granular step slots ARE decorated",
+        all(
+            hasattr(getattr(TubeRigSlots, n), "__wrapped__")
+            for n in ("b001", "b002", "b003", "b004")
+        ),
+    )
+
     check(
         "TubeStrategy.register extends the registry", "custom_test" in TUBE_STRATEGIES
     )

@@ -3379,6 +3379,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
     # (widget signal, controller slot) wiring table — mirror of mayatk's.
     _WIRING = [
         ("clip_resized", "on_clip_resized"),
+        ("clips_batch_resized", "on_clips_batch_resized"),
         ("clip_moved", "on_clip_moved"),
         ("clips_batch_moved", "on_clips_batch_moved"),
         ("clip_renamed", "on_clip_renamed"),

@@ -44,12 +44,14 @@ same end-user model, no cross-call rig registry). The centerline comes from the 
 :class:`~blendertk.rig_utils.tube_path.TubePath`. ``import bpy`` is deferred into the call bodies.
 """
 
+import contextlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.rig_utils._rig_utils import RigUtils
 from blendertk.rig_utils.controls import Controls
 from blendertk.rig_utils.tube_path import TubePath
@@ -173,9 +175,12 @@ class SplineIKStrategy(TubeStrategy):
 
     def build(self, rig, **opts):
         o = self.resolve(opts)
+        rig._report("Building spline IK: reading the tube's centerline…")
         centerline = rig.resolve_centerline(o["num_joints"])
         root = rig.create_root()
+        rig._report(f"Building spline IK: creating {len(centerline)} joints…")
         arm, bones = rig.create_armature(centerline)
+        rig._report("Building spline IK: creating curve, IK and controls…")
         # Steps 2 (IK/controls + deform) is the shared attach_spline_rig — the same engine path the
         # granular b002 button drives, so the one-shot and step workflows can't diverge.
         curve, controls = rig.attach_spline_rig(
@@ -189,7 +194,9 @@ class SplineIKStrategy(TubeStrategy):
             enable_auto_bend=o["enable_auto_bend"],
             enable_twist=o["enable_twist"],
         )
+        rig._report("Building spline IK: binding skin…")
         RigUtils.bind_armature(rig.mesh, arm, auto_weights=True)
+        rig._report("Spline IK build complete.")
         return TubeRigBundle(root, arm, bones, curve=curve, controls=controls)
 
 
@@ -217,10 +224,13 @@ class AnchorStrategy(TubeStrategy):
 
     def build(self, rig, **opts):
         o = self.resolve(opts)
+        rig._report("Building anchor rig: reading the tube's centerline…")
         centerline = rig.resolve_centerline(2)
         start, end = centerline[0], centerline[-1]
         root = rig.create_root()
+        rig._report("Building anchor rig: creating end joints…")
         arm, bones = rig.create_armature([start, end])
+        rig._report("Building anchor rig: creating controls…")
         c_start, c_end = (
             rig.make_control(
                 "cube",
@@ -272,8 +282,10 @@ class FKChainStrategy(TubeStrategy):
 
     def build(self, rig, **opts):
         o = self.resolve(opts)
+        rig._report("Building FK chain: reading the tube's centerline…")
         centerline = rig.resolve_centerline(o["num_joints"])
         root = rig.create_root()
+        rig._report(f"Building FK chain: creating {len(centerline)} bones…")
         arm, bones = rig.create_armature(centerline)
         # native bone-hierarchy FK: the deform bones ARE the controls; a curve custom shape per bone
         # makes each grabbable (rotating one carries its descendants through the connected chain).
@@ -282,7 +294,9 @@ class FKChainStrategy(TubeStrategy):
         )
         for bn in bones:
             arm.pose.bones[bn].custom_shape = shape
+        rig._report("Building FK chain: binding skin…")
         RigUtils.bind_armature(rig.mesh, arm, auto_weights=True)
+        rig._report("FK chain build complete.")
         return TubeRigBundle(root, arm, bones, controls=list(bones))
 
 
@@ -773,15 +787,77 @@ class TubeRig(ptk.LoggingMixin, _TubeRigInternal):
         return anchor_bone
 
     # -- dispatch --------------------------------------------------------------
-    def build(self, strategy="spline", **opts) -> TubeRigBundle:
+    #: Deliberately per-operation state (scoped by :meth:`_reporting`) rather
+    #: than a constructor argument: a hook set at construction would outlive
+    #: the UI that owns it, and a later script call would tick a footer that is
+    #: no longer on screen. Mirror of mayatk's ``TubeRig._progress``.
+    _progress = None
+
+    @contextlib.contextmanager
+    def _reporting(self, progress: Optional[Callable]):
+        """Route this operation's phase reports to *progress* for its duration.
+
+        A nested operation without a hook of its own INHERITS the caller's, so
+        a rebuild's teardown still reports. Outside any operation the ambient
+        hook is ``None``, so a standalone script call reports nothing.
+
+        Parameters:
+            progress: ``callable(current, total, message)`` -- the ecosystem's
+                progress-callback shape, so ``Switchboard.progress_adapter``
+                wires a footer straight in. ``None`` inherits (or disables).
+        """
+        prev = self._progress
+        self._progress = progress if progress is not None else prev
+        try:
+            yield
+        finally:
+            self._progress = prev
+
+    def _report(self, message: str) -> None:
+        """Announce a build phase: log it, and tick the progress hook.
+
+        One call site for both, so a phase can never be logged but not shown
+        (or the reverse). The tick is indeterminate -- ``current=None``,
+        ``total=0`` -- because a rig's phase count varies with the strategy and
+        the options, so a percentage would be a fiction; the message is what
+        tells the user the tool is working. A build runs with global undo off
+        and no per-step redraw, which is exactly when a silent panel reads as
+        hung.
+
+        A hook that raises is dropped rather than allowed to abort the rig:
+        feedback failing is never a reason to leave a half-built rig behind.
+        """
+        self.logger.info(message)
+        cb = self._progress
+        if cb is None:
+            return
+        try:
+            cb(None, 0, message)
+        except Exception as e:  # noqa: BLE001
+            self._progress = None
+            self.logger.debug(f"Progress hook dropped ({e}).")
+
+    @CoreUtils.undo_checkpoint
+    def build(
+        self, strategy="spline", progress: Optional[Callable] = None, **opts
+    ) -> TubeRigBundle:
         """Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
-        registered custom one); *opts* override the strategy's declared option defaults."""
+        registered custom one); *opts* override the strategy's declared option defaults.
+
+        Parameters:
+            progress: Optional ``callable(current, total, message)``. The build
+                runs with global undo suspended and no per-step redraw, so
+                without a hook the panel is the only thing telling the user the
+                tool is working rather than hung. Wire a footer with
+                ``sb.progress_adapter(update)``.
+        """
         cls = TUBE_STRATEGIES.get(strategy)
         if cls is None:
             raise ValueError(
                 f"Unknown tube rig strategy '{strategy}'. Available: {sorted(TUBE_STRATEGIES)}"
             )
-        return cls().build(self, **opts)
+        with self._reporting(progress):
+            return cls().build(self, **opts)
 
 
 # ----------------------------------------------------------------------------
@@ -901,10 +977,15 @@ class TubeRigSlots(ptk.LoggingMixin):
         return {k: KindFactory.read_value(w) for k, w in self._option_widgets.items()}
 
     # ------------------------------------------------------------------ build
+    # NOTE: not decorated -- `TubeRig.build` already pushes one. Blender's
+    # `undo_push` is a flat checkpoint marker, not a Maya-style
+    # openChunk/closeChunk pair, so a second decorator here would make TWO undo
+    # steps for one click rather than nesting into one (same reasoning as
+    # `WheelRigSlots.b000`). The granular steps below DO carry it, because the
+    # methods they call are also reached from inside `build` and decorating
+    # those would split every full build in three.
     def b000(self):
         """Build Rig — run the selected strategy on the selected tube mesh."""
-        from blendertk.core_utils._core_utils import CoreUtils
-
         meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         if not meshes:
             self.sb.message_box("Select a tube mesh to rig.")
@@ -916,7 +997,20 @@ class TubeRigSlots(ptk.LoggingMixin):
         rig_name = (self.ui.txt000.text() or "").strip() or None
         try:
             rig = TubeRig(meshes[-1], rig_name=rig_name)
-            bundle = rig.build(name, **self._collect_opts())
+            # The build suspends global undo and redraws nothing until it ends,
+            # so the footer is the only thing saying the tool is working rather
+            # than hung. A marquee, not a bar: the phase count varies with the
+            # strategy and its options, so a percentage would be a fiction.
+            # ``sb.progress`` is a no-op on a UI without a footer, so the build
+            # never depends on one. Mirror of mayatk's b000.
+            with self.sb.progress(
+                ui=self.ui, text="Tube Rig: preparing…", busy=True
+            ) as update:
+                bundle = rig.build(
+                    name,
+                    progress=self.sb.progress_adapter(update),
+                    **self._collect_opts(),
+                )
         except Exception as e:  # surface the engine's reason (e.g. non-tube mesh)
             self.sb.message_box(f"Tube rig failed: {e}")
             return
@@ -944,11 +1038,10 @@ class TubeRigSlots(ptk.LoggingMixin):
         chains = [walk(b) for b in armature.data.bones if b.parent is None]
         return max(chains, key=len) if chains else []
 
+    @CoreUtils.undoable
     def b001(self):
         """Step 1 — create the joint/bone chain from the selected tube mesh's centerline (no controls
         or bind yet). Mirror of Maya's ``b001`` create_joints_from_tube; Reverse Direction = chk000."""
-        from blendertk.core_utils._core_utils import CoreUtils
-
         meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
         if not meshes:
             self.sb.message_box("Select a tube mesh to create joints from.")
@@ -970,6 +1063,7 @@ class TubeRigSlots(ptk.LoggingMixin):
             f"<hl>Step 1: created {len(bones)} joints on {meshes[-1].name}.</hl>"
         )
 
+    @CoreUtils.undo_checkpoint
     def b002(self):
         """Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING
         bone chain (Maya's ``b002`` for Spline mode). Reads the deform toggles from the mode options."""
@@ -1014,6 +1108,7 @@ class TubeRigSlots(ptk.LoggingMixin):
             f"<hl>Step 2: added Spline IK + {len(controls)} controls to {arm.name}.</hl>"
         )
 
+    @CoreUtils.undoable
     def b003(self):
         """Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic
         weights). Mirror of Maya's ``b003`` bind_joint_chain."""
@@ -1043,6 +1138,7 @@ class TubeRigSlots(ptk.LoggingMixin):
         dims = sorted(mesh.dimensions)  # ascending world bbox dims (min, mid, max)
         return max((dims[0] + dims[1]) / 4.0, 1e-3)
 
+    @CoreUtils.undoable  # constraints only, no driver: a trailing push is safe
     def b004(self):
         """Utility — Constrain Ends to Anchors, one anchor or two: select the rig's armature and
         the anchor object for each tube end to constrain; each anchor constrains its NEAREST end
