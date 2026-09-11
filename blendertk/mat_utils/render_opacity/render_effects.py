@@ -328,6 +328,127 @@ class RenderEffects(ptk.LoggingMixin):
             keyed.append(obj.name)
         return keyed
 
+    # ------------------------------------------------------------------ colour
+
+    @classmethod
+    def _color_attr(cls, channel) -> str:
+        """The colour property *channel* owns.
+
+        Raises:
+            KeyError: For a channel that is not a render-effect channel.
+            ValueError: For one that owns no colour.
+        """
+        if channel not in cls.CHANNELS:
+            raise KeyError(
+                f"Unknown render-effect channel {channel!r}. "
+                f"Known: {', '.join(cls.CHANNELS)}."
+            )
+        if channel != cls.HIGHLIGHT_ATTR:
+            raise ValueError(f"Channel {channel!r} has no colour attribute.")
+        return cls.HIGHLIGHT_COLOR_ATTR
+
+    @classmethod
+    def objects_with_channel(cls, channel="highlight") -> list:
+        """Every object carrying the channel's property.
+
+        Parameters:
+            channel: The channel name; ``"highlight"``.
+
+        Returns:
+            Blender objects, in data order.
+        """
+        import bpy
+
+        if channel not in cls.CHANNELS:
+            raise KeyError(
+                f"Unknown render-effect channel {channel!r}. "
+                f"Known: {', '.join(cls.CHANNELS)}."
+            )
+        return [o for o in bpy.data.objects if channel in o]
+
+    @classmethod
+    def channel_colors(cls, objects=None, channel="highlight") -> dict:
+        """What each object's channel colour is authored as right now.
+
+        The read half of :meth:`set_channel_color` -- what a revision starts
+        from, and what proves one landed.
+
+        Parameters:
+            objects: Objects to read. ``None`` reads every object carrying the
+                channel.
+            channel: The channel name; ``"highlight"``.
+
+        Returns:
+            ``{object name: (r, g, b)}``, skipping objects without the colour.
+        """
+        attr = cls._color_attr(channel)
+        pool = (
+            cls.objects_with_channel(channel)
+            if objects is None
+            else cls._resolve(objects)
+        )
+        colors = {}
+        for obj in pool:
+            if attr in obj:
+                colors[obj.name] = tuple(float(c) for c in list(obj[attr])[:3])
+        return colors
+
+    @classmethod
+    def set_channel_color(cls, objects=None, color=None, channel="highlight") -> list:
+        """Restate an already-authored channel colour, leaving its keys alone.
+
+        The revision path for a look signed off after the pulses were keyed.
+        The colour is its own property rather than part of the curve, so it can
+        be rewritten at any time and the animation is untouched -- which is what
+        makes a scene-wide recolour a one-liner instead of a re-key.
+
+        Parameters:
+            objects: Objects to write. ``None`` takes the selection, and falls
+                back to every object carrying the channel when nothing is
+                selected -- the scene-wide revision this exists for.
+            color: ``(r, g, b)``, linear 0-1. Required.
+            channel: The channel name; ``"highlight"``.
+
+        Returns:
+            The names of the objects written.
+
+        Raises:
+            ValueError: When *color* is missing or is not three components, or
+                the channel owns no colour.
+        """
+        attr = cls._color_attr(channel)
+        if color is None:
+            raise ValueError("A colour is required.")
+        rgb = [float(c) for c in tuple(color)[:3]]
+        if len(rgb) != 3:
+            raise ValueError(f"Expected an (r, g, b) colour, got {color!r}.")
+
+        pool = cls._resolve(objects)
+        if objects is None and not pool:
+            pool = cls.objects_with_channel(channel)
+        if not pool:
+            cls.logger.warning(f"No objects carry the {channel} channel.")
+            return []
+
+        written = []
+        for obj in pool:
+            if channel not in obj:
+                cls.logger.warning(f"No {channel} channel on {obj.name}; skipped.")
+                continue
+            obj[attr] = rgb
+            try:
+                obj.id_properties_ui(attr).update(subtype="COLOR", min=0.0, max=1.0)
+            except (AttributeError, TypeError, KeyError):
+                pass
+            written.append(obj.name)
+        cls.logger.info(
+            "Set %s colour to (%s) on %d object(s).",
+            channel,
+            ", ".join(f"{c:.3f}" for c in rgb),
+            len(written),
+        )
+        return written
+
     @classmethod
     def preview(cls, objects=None, channel="highlight", enabled=True):
         """DEPRECATED (one release). ``enabled=False`` removes the material drivers

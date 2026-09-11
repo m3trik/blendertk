@@ -373,6 +373,82 @@ try:
         detail=repr(_Fbx.bake_range()),
     )
 
+    # What the bake-range seed for clip_span["*"] actually describes, measured
+    # 2026-09-10 through FbxUtils.export rather than raw bpy.ops -- the answer
+    # differs by mode, which is why mayatk's fix cannot be mirrored blindly.
+    #
+    #   takes armed    -> the write is ONE scene-range stack (blendertk forces
+    #                     bake_anim_use_nla_strips / use_all_actions off), so a
+    #                     curve keyed 0-100 is written as 60 frames under a
+    #                     20-80 range and the seed is TRUE.
+    #   no takes armed -> Blender's operator defaults apply, the exporter emits
+    #                     per-action start-zeroed stacks over each action's OWN
+    #                     range, and the same curve is written whole: 100 frames
+    #                     against a seed of 60.
+    #
+    # Maya writes the curve whole in BOTH cases, which is why its fix measures
+    # the key extent instead. Publishing a measured extent here would OVERSTATE
+    # the takes-armed write, so these two checks pin the split rather than the
+    # conclusion.
+    _cube = bpy.data.objects.new("ClipSpanProbe", bpy.data.meshes.new("ClipSpanProbe"))
+    bpy.context.collection.objects.link(_cube)
+    for _f, _x in ((0, 0.0), (100, 10.0)):
+        _cube.location.x = _x
+        _cube.keyframe_insert(data_path="location", index=0, frame=_f)
+
+    _dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_tests")
+    os.makedirs(_dir, exist_ok=True)
+    _fbx = os.path.join(_dir, "btk_clip_span_probe.fbx")
+    _prior_takes = _Fbx._pending_takes
+
+    def _written_span(takes):
+        """Frames the real export path writes for the probe, under *takes*."""
+        _scene.frame_start, _scene.frame_end = 20, 80
+        _Fbx._pending_takes = takes
+        seen = {a.name for a in bpy.data.actions}
+        try:
+            _Fbx.export(filepath=_fbx, objects=[_cube], bake_anim=True)
+            bpy.ops.import_scene.fbx(filepath=_fbx)
+        except Exception as exc:  # noqa: BLE001
+            return f"export/import failed: {exc}"
+        spans = [
+            round(a.frame_range[1] - a.frame_range[0])
+            for a in bpy.data.actions
+            if a.name not in seen
+        ]
+        for a in [a for a in bpy.data.actions if a.name not in seen]:
+            bpy.data.actions.remove(a, do_unlink=True)
+        for o in [
+            o
+            for o in bpy.data.objects
+            if o.name.startswith("ClipSpanProbe") and o is not _cube
+        ]:
+            bpy.data.objects.remove(o, do_unlink=True)
+        return max(spans) if spans else None
+
+    _armed = _written_span([("probe", 20, 80)])
+    check(
+        "takes armed: the write is one scene-range stack, so the bake-range seed is TRUE",
+        _armed == 60,
+        detail=f"authored 100 frames, wrote {_armed} under a 20-80 range",
+    )
+
+    _bare = _written_span(None)
+    check(
+        "no takes: per-action stacks carry the curve WHOLE, so the seed understates it",
+        _bare == 100,
+        detail=f"authored 100 frames, wrote {_bare} against a 60-frame seed",
+    )
+
+    _Fbx._pending_takes = _prior_takes
+    try:
+        os.remove(_fbx)
+    except OSError:
+        pass
+    for _o in [o for o in bpy.data.objects if o.name.startswith("ClipSpanProbe")]:
+        bpy.data.objects.remove(_o, do_unlink=True)
+    _scene.frame_start, _scene.frame_end = 0, 100
+
     DataNodes.set_export_string(
         "fbx_takes", _json.dumps([{"name": "x"}, {"name": "y", "start": 2, "end": 4}])
     )
@@ -514,6 +590,79 @@ try:
         and "highlightColor" not in box
         and not (box.data.materials[0].node_tree.animation_data or None),
     )
+
+    # ---- colour revision: restate the colour without touching the keys -------
+    reset()
+    a = cube("ReviseA")
+    b = cube("ReviseB")
+    plain = cube("NoChannel")
+    RenderEffects.create([a, b], channel="highlight")
+    RenderEffects.key_pulse(
+        [a], start=0, end=100, period=50, bright_fraction=0.6, ramp_fraction=0.2
+    )
+    path = '["highlight"]'
+    before = sorted(
+        (k.co[0], k.co[1]) for k in RenderEffects._fcurve(a, path).keyframe_points
+    )
+    written = RenderEffects.set_channel_color([a], color=(0.045, 0.39, 1.0))
+    after = sorted(
+        (k.co[0], k.co[1]) for k in RenderEffects._fcurve(a, path).keyframe_points
+    )
+    check(
+        "set_channel_color writes the named objects",
+        written == ["ReviseA"]
+        and all(
+            approx(g, e)
+            for g, e in zip(list(a["highlightColor"])[:3], (0.045, 0.39, 1.0))
+        ),
+        detail=f"{list(a['highlightColor'])[:3]}",
+    )
+    check("a recolour leaves the pulse keys alone", before == after)
+    check(
+        "an object without the channel is skipped",
+        RenderEffects.set_channel_color([a, plain], color=(1.0, 0.0, 0.0))
+        == ["ReviseA"]
+        and "highlightColor" not in plain,
+    )
+    check(
+        "objects_with_channel finds only the carriers",
+        sorted(o.name for o in RenderEffects.objects_with_channel("highlight"))
+        == ["ReviseA", "ReviseB"],
+    )
+    for o in bpy.data.objects:
+        try:
+            o.select_set(False)
+        except RuntimeError:  # not linked to the view layer
+            pass
+    written_all = RenderEffects.set_channel_color(color=(0.045, 0.39, 1.0))
+    colors = RenderEffects.channel_colors()
+    check(
+        "no selection falls back to every object with the channel",
+        sorted(written_all) == ["ReviseA", "ReviseB"],
+        detail=repr(written_all),
+    )
+    check(
+        "channel_colors reads back what was written",
+        sorted(colors) == ["ReviseA", "ReviseB"]
+        and all(
+            approx(g, e)
+            for rgb in colors.values()
+            for g, e in zip(rgb, (0.045, 0.39, 1.0))
+        ),
+        detail=repr(colors),
+    )
+    try:
+        RenderEffects.set_channel_color([a])
+        refused = False
+    except ValueError:
+        refused = True
+    check("a missing colour is refused", refused)
+    try:
+        RenderEffects.set_channel_color([a], color=(1.0, 0.0, 0.0), channel="opacity")
+        refused = False
+    except ValueError:
+        refused = True
+    check("a channel without a colour is refused", refused)
 
     # ---- the key tools own channel creation (panel has no Create action) ------
     def _emission_drivers(obj):

@@ -2918,32 +2918,42 @@ class ShotSequencerController(
 
         self._save_shot_state()
         deleted = 0
-        with CoreUtils.undo_chunk():
-            for cid in clip_ids:
-                clip = widget.get_clip(cid)
-                if clip is None or clip.data.get("read_only"):
-                    continue
-                obj = bpy.data.objects.get(clip.data.get("obj", ""))
-                if obj is None:
-                    continue
-                s, e = clip.data.get("orig_start"), clip.data.get("orig_end")
-                if s is None or e is None:
-                    continue
-                attr = clip.data.get("attr_name")
-                fcurves = (
-                    ClipMotionMixin.curves_for_attr(obj.name, attr)
-                    if attr
-                    else ShotSequencer._transform_fcurves(obj)
-                )
-                for fc in fcurves:
-                    i0, i1 = AnimUtils.window_indices(
-                        AnimUtils.key_times(fc), s - 1e-3, e + 1e-3
+        # Guarded like every other edit path here: removing a keyframe point
+        # tags its Action and the depsgraph handler reacts to exactly that.
+        # Whether Blender delivers that synchronously is NOT measured (mayatk's
+        # equivalent proved to be idle-deferred, 2026-09-11), so this is for
+        # consistency with the sibling paths, not a measured saving.
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with CoreUtils.undo_chunk():
+                for cid in clip_ids:
+                    clip = widget.get_clip(cid)
+                    if clip is None or clip.data.get("read_only"):
+                        continue
+                    obj = bpy.data.objects.get(clip.data.get("obj", ""))
+                    if obj is None:
+                        continue
+                    s, e = clip.data.get("orig_start"), clip.data.get("orig_end")
+                    if s is None or e is None:
+                        continue
+                    attr = clip.data.get("attr_name")
+                    fcurves = (
+                        ClipMotionMixin.curves_for_attr(obj.name, attr)
+                        if attr
+                        else ShotSequencer._transform_fcurves(obj)
                     )
-                    for i in reversed(range(i0, i1)):
-                        fc.keyframe_points.remove(fc.keyframe_points[i])
-                        deleted += 1
-                    if i1 > i0:
-                        fc.update()
+                    for fc in fcurves:
+                        i0, i1 = AnimUtils.window_indices(
+                            AnimUtils.key_times(fc), s - 1e-3, e + 1e-3
+                        )
+                        for i in reversed(range(i0, i1)):
+                            fc.keyframe_points.remove(fc.keyframe_points[i])
+                            deleted += 1
+                        if i1 > i0:
+                            fc.update()
+        finally:
+            self._syncing = was_syncing
         if deleted:
             self._segment_cache.clear()
             self._sub_row_cache.clear()
@@ -3108,29 +3118,39 @@ class ShotSequencerController(
 
         if by_clip:
             deleted = 0
-            with CoreUtils.undo_chunk("Delete Keys"):
-                for clip_id, times in by_clip.items():
-                    clip = widget.get_clip(clip_id)
-                    if clip is None:
-                        continue
-                    obj_name = clip.data.get("obj")
-                    attr_name = clip.data.get("attr_name")
-                    if not obj_name or not attr_name:
-                        continue
-                    curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
-                    for t in times:
-                        cut_ok = False
-                        for fc in curves:
-                            i0, i1 = AnimUtils.window_indices(
-                                AnimUtils.key_times(fc), t - 1e-3, t + 1e-3
-                            )
-                            for i in reversed(range(i0, i1)):
-                                fc.keyframe_points.remove(fc.keyframe_points[i])
-                                cut_ok = True
-                            if i1 > i0:
-                                fc.update()
-                        if cut_ok:
-                            deleted += 1
+            # Guarded like every other edit path here: removing a keyframe point
+            # tags its Action and the depsgraph handler reacts to exactly that.
+            # Whether Blender delivers that synchronously is NOT measured (mayatk's
+            # equivalent proved to be idle-deferred, 2026-09-11), so this is for
+            # consistency with the sibling paths, not a measured saving.
+            was_syncing = self._syncing
+            self._syncing = True
+            try:
+                with CoreUtils.undo_chunk("Delete Keys"):
+                    for clip_id, times in by_clip.items():
+                        clip = widget.get_clip(clip_id)
+                        if clip is None:
+                            continue
+                        obj_name = clip.data.get("obj")
+                        attr_name = clip.data.get("attr_name")
+                        if not obj_name or not attr_name:
+                            continue
+                        curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
+                        for t in times:
+                            cut_ok = False
+                            for fc in curves:
+                                i0, i1 = AnimUtils.window_indices(
+                                    AnimUtils.key_times(fc), t - 1e-3, t + 1e-3
+                                )
+                                for i in reversed(range(i0, i1)):
+                                    fc.keyframe_points.remove(fc.keyframe_points[i])
+                                    cut_ok = True
+                                if i1 > i0:
+                                    fc.update()
+                            if cut_ok:
+                                deleted += 1
+            finally:
+                self._syncing = was_syncing
             if deleted:
                 self._save_shot_state()
                 shot_id = self.active_shot_id
@@ -3379,6 +3399,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
     # (widget signal, controller slot) wiring table — mirror of mayatk's.
     _WIRING = [
         ("clip_resized", "on_clip_resized"),
+        ("clips_batch_resized", "on_clips_batch_resized"),
         ("clip_moved", "on_clip_moved"),
         ("clips_batch_moved", "on_clips_batch_moved"),
         ("clip_renamed", "on_clip_renamed"),

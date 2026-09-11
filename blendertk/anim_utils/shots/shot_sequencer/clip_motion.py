@@ -61,54 +61,94 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
     def on_clip_resized(
         self, clip_id: int, new_start: float, new_duration: float
     ) -> None:
-        """Resize a clip — attribute sub-row (scale one channel) or main track (``resize_object``)."""
-        if self.sequencer is None:
-            return
-        widget = self._get_sequencer_widget()
+        """Resize one clip — see :meth:`_commit_clip_resizes`."""
+        self._commit_clip_resizes([(clip_id, new_start, new_duration)])
+
+    def on_clips_batch_resized(self, resizes) -> None:
+        """An edge drag that scaled a SELECTION of clips as one unit.
+
+        *resizes* is ``[(clip_id, new_start, new_duration), ...]``, already
+        ordered by the widget so committing them one at a time never lands a
+        clip on a span another has not left yet.  One undo chunk for the
+        whole gesture (mirrors mayatk).
+        """
+        self._commit_clip_resizes(list(resizes))
+
+    def _resize_one_clip(self, widget, clip_id, new_start, new_duration):
+        """Scale one clip's keys into its new span — attribute sub-row (one
+        channel) or main track (``resize_object``).
+
+        Returns the label to report the clip by, or ``None`` when nothing was
+        written (missing clip, audio, curves gone, zero-length span).
+        """
         clip = widget.get_clip(clip_id) if widget else None
-        if clip is None:
-            return
-        if clip.data.get("is_audio"):
-            return
+        if clip is None or clip.data.get("is_audio"):
+            return None
         shot_id = clip.data.get("shot_id")
         obj_name = clip.data.get("obj")
         if shot_id is None or obj_name is None:
-            return
+            return None
         orig_start = clip.data.get("orig_start")
         orig_end = clip.data.get("orig_end")
         if orig_start is None or orig_end is None:
+            return None
+
+        new_end = new_start + new_duration
+        attr_name = clip.data.get("attr_name")
+        if attr_name:
+            if not ClipMotionMixin.scale_attribute_keys(
+                obj_name, attr_name, orig_start, orig_end, new_start, new_end
+            ):
+                return None
+            return f"{obj_name}.{attr_name}"
+        self.sequencer.resize_object(
+            shot_id, obj_name, orig_start, orig_end, new_start, new_end
+        )
+        return obj_name
+
+    def _commit_clip_resizes(self, resizes) -> None:
+        """Commit one edge-drag gesture, however many clips it scaled.
+
+        Every clip is written inside ONE undo chunk — the gesture is one
+        edit, so it is one undo step — and the epilogue runs once at the
+        end rather than once per clip.
+        """
+        if self.sequencer is None:
+            return
+        widget = self._get_sequencer_widget()
+        if widget is None or not resizes:
             return
 
         self._save_shot_state()
-        new_end = new_start + new_duration
-        attr_name = clip.data.get("attr_name")
         # _syncing up while our own fcurve edits run: the controller's
         # depsgraph/keyframe callbacks fire on them and would arm the
         # debounce into a SECOND full rebuild after the epilogue's own sync
         # (the issue-7 refresh storm).  Same pattern as the gap handlers;
         # the epilogue runs after the guard is released.
+        labels: list = []
+        spans: list = []
         was_syncing = self._syncing
         self._syncing = True
         try:
             with CoreUtils.undo_chunk():
-                if attr_name:
-                    written = ClipMotionMixin.scale_attribute_keys(
-                        obj_name, attr_name, orig_start, orig_end, new_start, new_end
+                for clip_id, new_start, new_duration in resizes:
+                    label = self._resize_one_clip(
+                        widget, clip_id, new_start, new_duration
                     )
-                else:
-                    self.sequencer.resize_object(
-                        shot_id, obj_name, orig_start, orig_end, new_start, new_end
-                    )
-                    written = True
+                    if label is None:
+                        continue
+                    labels.append(label)
+                    spans.append((new_start, new_start + new_duration))
         finally:
             self._syncing = was_syncing
-        if not written:
+        if not labels:
             self._discard_shot_state()
             return
         self._gap_edit_epilogue()
-        label = f"{obj_name}.{attr_name}" if attr_name else obj_name
-        dur = int(new_end - new_start)
-        self._set_footer(f"Resized {label} · {new_start:.0f}–{new_end:.0f} ({dur}f)")
+        lo = min(a for a, _b in spans)
+        hi = max(b for _a, b in spans)
+        what = labels[0] if len(labels) == 1 else f"{len(labels)} clips"
+        self._set_footer(f"Resized {what} · {lo:.0f}–{hi:.0f} ({int(hi - lo)}f)")
 
     def _apply_clip_move(self, clip_id: int, new_start: float) -> bool:
         """Move a single clip's keys without rebuilding the widget. Returns whether a sync is needed."""
@@ -553,17 +593,27 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             return
 
         deleted = False
-        with CoreUtils.undo_chunk():
-            for t in times:
-                for fc in curves:
-                    i0, i1 = AnimUtils.window_indices(
-                        AnimUtils.key_times(fc), t - _EPS, t + _EPS
-                    )
-                    for i in reversed(range(i0, i1)):
-                        fc.keyframe_points.remove(fc.keyframe_points[i])
-                        deleted = True
-                    if i1 > i0:
-                        fc.update()
+        # Guarded like every other edit path here: removing a keyframe point
+        # tags its Action and the depsgraph handler reacts to exactly that.
+        # Whether Blender delivers that synchronously is NOT measured (mayatk's
+        # equivalent proved to be idle-deferred, 2026-09-11), so this is for
+        # consistency with the sibling paths, not a measured saving.
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with CoreUtils.undo_chunk():
+                for t in times:
+                    for fc in curves:
+                        i0, i1 = AnimUtils.window_indices(
+                            AnimUtils.key_times(fc), t - _EPS, t + _EPS
+                        )
+                        for i in reversed(range(i0, i1)):
+                            fc.keyframe_points.remove(fc.keyframe_points[i])
+                            deleted = True
+                        if i1 > i0:
+                            fc.update()
+        finally:
+            self._syncing = was_syncing
         if not deleted:
             return
 
