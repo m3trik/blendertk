@@ -593,17 +593,27 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             return
 
         deleted = False
-        with CoreUtils.undo_chunk():
-            for t in times:
-                for fc in curves:
-                    i0, i1 = AnimUtils.window_indices(
-                        AnimUtils.key_times(fc), t - _EPS, t + _EPS
-                    )
-                    for i in reversed(range(i0, i1)):
-                        fc.keyframe_points.remove(fc.keyframe_points[i])
-                        deleted = True
-                    if i1 > i0:
-                        fc.update()
+        # Guarded like every other edit path here: removing a keyframe point
+        # tags its Action and the depsgraph handler reacts to exactly that.
+        # Whether Blender delivers that synchronously is NOT measured (mayatk's
+        # equivalent proved to be idle-deferred, 2026-09-11), so this is for
+        # consistency with the sibling paths, not a measured saving.
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            with CoreUtils.undo_chunk():
+                for t in times:
+                    for fc in curves:
+                        i0, i1 = AnimUtils.window_indices(
+                            AnimUtils.key_times(fc), t - _EPS, t + _EPS
+                        )
+                        for i in reversed(range(i0, i1)):
+                            fc.keyframe_points.remove(fc.keyframe_points[i])
+                            deleted = True
+                        if i1 > i0:
+                            fc.update()
+        finally:
+            self._syncing = was_syncing
         if not deleted:
             return
 

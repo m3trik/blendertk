@@ -2572,7 +2572,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str) -> list",
               "summary": "Return the fcurves driving *attr_name* (a ``translateX``-style label) on *obj_name*.",
-              "line": 619,
+              "line": 629,
               "deprecated": false
             },
             {
@@ -2581,7 +2581,7 @@
               "kind": "staticmethod",
               "signature": "(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> bool",
               "summary": "Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).",
-              "line": 647,
+              "line": 657,
               "deprecated": false
             }
           ]
@@ -3122,7 +3122,7 @@
         {
           "name": "ShotEditDialog",
           "summary": "Lightweight dialog for creating or editing a shot (plain Qt widgets).",
-          "line": 3320,
+          "line": 3340,
           "bases": [],
           "members": [
             {
@@ -3131,7 +3131,7 @@
               "kind": "staticmethod",
               "signature": "(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot')",
               "summary": "Show a modal dialog and return the result tuple or ``None``.",
-              "line": 3327,
+              "line": 3347,
               "deprecated": false
             }
           ]
@@ -3139,7 +3139,7 @@
         {
           "name": "ShotSequencerSlots",
           "summary": "Switchboard slot class — routes UI events to the controller.",
-          "line": 3376,
+          "line": 3396,
           "bases": [
             "ptk.LoggingMixin"
           ],
@@ -3150,7 +3150,7 @@
               "kind": "method",
               "signature": "(self, widget)",
               "summary": "Build the header menu controls (mirror of mayatk's sequencer header).",
-              "line": 3786,
+              "line": 3806,
               "deprecated": false
             },
             {
@@ -3159,7 +3159,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the attribute color configuration dialog.",
-              "line": 4028,
+              "line": 4048,
               "deprecated": false
             },
             {
@@ -3168,7 +3168,7 @@
               "kind": "method",
               "signature": "(self, value)",
               "summary": "Set the snap interval on the sequencer widget.",
-              "line": 4060,
+              "line": 4080,
               "deprecated": false
             },
             {
@@ -3177,7 +3177,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the sequencer shortcut editor.",
-              "line": 4066,
+              "line": 4086,
               "deprecated": false
             },
             {
@@ -3186,7 +3186,7 @@
               "kind": "method",
               "signature": "(self)",
               "summary": "Open the shared shots settings panel.",
-              "line": 4072,
+              "line": 4092,
               "deprecated": false
             },
             {
@@ -3195,7 +3195,7 @@
               "kind": "method",
               "signature": "(self, index)",
               "summary": "Handle direct combobox selection of a shot or marker.",
-              "line": 4076,
+              "line": 4096,
               "deprecated": false
             }
           ]
