@@ -7,7 +7,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
+  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(ptk.LoggingMixin)`
@@ -44,7 +44,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/key_stash/_key_stash.py` — Key Stash — park keyframes outside the working animation, retrieve later (Blender).
 - `class KeyStash(_KeyStashCore, _KeyStashInternal)`
-  - methods: active, rescale_to_fps, reconcile, stash, retrieve, drop, is_previewing, preview, end_preview
+  - methods: active, rescale_to_fps, reconcile, stash, retrieve, drop, preview, end_preview
 
 ### `anim_utils/key_stash/key_stash_slots.py` — Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
 - `class KeyStashSlots(ptk.LoggingMixin)`
@@ -64,7 +64,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/_shots.py` — Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
 - `class BlenderScenePersistence`
-  - methods: store_cls, remove_callbacks, save, load
+  - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
   - methods: active, has_animation, detect_regions, assess, publish_export_view, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
@@ -124,7 +124,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
 - `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`
-  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, move_shot_to_position, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_key_menu, place_dragged_handle, on_key_tangent_dragged, on_gap_menu, on_key_selection_changed
+  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, move_shot_to_position, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_sub_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_key_menu, place_dragged_handle, on_key_tangent_dragged, on_gap_menu, on_key_selection_changed
 - `class ShotEditDialog`
   - methods: show
 - `class ShotSequencerSlots(ptk.LoggingMixin)`
@@ -391,7 +391,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 - constants: SUPPORTED_EXTENSIONS, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, MAYA_GROUP_EMPTY_DISPLAY_SIZE, USD_EXTENSIONS
 - `class MayaSceneImport(ptk.LoggingMixin)`
-  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
+  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
 
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BlenderBridgeSlotsBase)`
@@ -460,15 +460,15 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
-  - methods: confirm, confirm_check_override, run_config_from_values, perform_export, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
+  - methods: confirm, confirm_check_override, run_config_from_values, perform_export, name_context, resolve_export_path, generate_export_path, format_export_name, generate_log_file_path, setup_file_logging, close_file_handlers, list_fbx_presets, fbx_preset_dir, fbx_preset_path, save_fbx_preset, delete_fbx_preset, load_fbx_export_preset, verify_fbx_preset
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
+  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, output_name_preview, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
 
-### `env_utils/scene_exporter/task_manager.py` — Blender-specific task/check methods for the Scene Exporter pipeline -- mirror of mayatk's
-- `class TaskManager(TaskFactory, _TaskActionsMixin, _TaskChecksMixin)`
-  - methods: objects, task_definitions, check_definitions, definitions, set_linear_unit, exclude_hdr, ignore_groups, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, convert_textures, optimize_textures, check_material_compatibility, check_texture_optimization, check_path_length, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys
+### `env_utils/scene_exporter/task_manager.py` — The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
+- `class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`
+  - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, publish_clip_mode, set_bake_animation_range, export_data_node, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -640,9 +640,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class MatUpdaterSlots(MatUpdater)`
   - methods: header_init, selection_mode, move_to_folder, cmb001_init, b001
 
-### `mat_utils/render_opacity/render_effects.py` — Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
+### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(ptk.LoggingMixin)`
-  - methods: objects_with_visibility_keys, create, key_pulse, objects_with_channel, channel_colors, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
+  - methods: objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - `class RenderEffectsSlots(ptk.LoggingMixin)`
@@ -743,7 +743,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/attributes/channels/_channels.py` — Channels — Blender attribute query / mutation logic.
 - `class Channels`
-  - methods: is_pinned, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_values, paste_values, freeze_transforms, unfreeze_transforms, has_unfreeze_info
+  - methods: is_pinned, single_object_mode, pin_targets, get_selected_nodes, collect_channels, get_channel_value, format_value, parse_value, is_locked, toggle_lock, set_lock, classify_connection, build_table_data, set_channel_value, reset_to_default, toggle_key_at_current_time, set_key_at_current_time, break_connections, set_mute, set_breakdown_key, select_connections, create_attribute, delete_attributes, rename_attribute, rename_node, copy_values, paste_values, freeze_transforms, unfreeze_transforms, has_unfreeze_info
 
 ### `node_utils/attributes/channels/channels_slots.py` — UI slots for the Channels panel (``channels.ui``).
 - `class ChannelsSlots`

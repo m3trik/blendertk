@@ -219,7 +219,8 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
     a save made mid-preview.
 
     Every scene operation — :meth:`stash`, :meth:`retrieve`, :meth:`drop`,
-    :meth:`preview`, :meth:`end_preview` — is ONE undo step.
+    :meth:`preview`, :meth:`end_preview` — is ONE undo step that carries the
+    record, and :meth:`active` re-reads a record an undo or redo moved.
     """
 
     ATTR_NAME = "key_stash"
@@ -280,6 +281,10 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         except Exception:
             self._flush_pending = False
             self._flush_dirty()
+
+    def _undo_chunk(self, name: str):
+        """One Blender undo step (:meth:`CoreUtils.undo_chunk`)."""
+        return CoreUtils.undo_chunk(name)
 
     def _on_activated(self) -> None:
         self.reconcile()
@@ -444,7 +449,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         if not entries:
             return None
 
-        with CoreUtils.undo_chunk("Store Keys"):
+        with self._undo_step("Store Keys"):
             action = bpy.data.actions.new(f"{self.STASH_ACTION_PREFIX}{self._next_id}")
             action.use_fake_user = True
             slots: Dict[str, Any] = {}
@@ -479,7 +484,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 metadata=metadata,
             )
             # Copy-before-cut: manifest + stash action exist before a live key goes.
-            self.save()
+            self._save_in_step()
             for o, fc, times in entries:
                 self._remove_keys(fc, times)
                 if not len(fc.keyframe_points):
@@ -527,7 +532,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         remaining: List[Dict[str, Any]] = []
         problems: List[str] = []
         actions_touched = {rec.get("action") for rec in clip.curves}
-        with CoreUtils.undo_chunk("Retrieve Stored Keys"):
+        with self._undo_step("Retrieve Stored Keys"):
             for rec in clip.curves:
                 action = bpy.data.actions.get(rec.get("action") or "")
                 cb_src, src = self._stash_fcurve(action, rec)
@@ -568,7 +573,6 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
             else:
                 self.remove_clip(clip_id, kind="retrieved")
             self._gc_actions(actions_touched)
-            self.save()
         for msg in problems:
             _log.warning("KeyStash.retrieve: %s", msg)
         return restored
@@ -585,10 +589,9 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         if self.is_previewing(clip_id):
             self.end_preview()
         actions = {rec.get("action") for rec in clip.curves}
-        with CoreUtils.undo_chunk("Drop Stored Keys"):
+        with self._undo_step("Drop Stored Keys"):
             self.remove_clip(clip_id, kind="dropped")
             self._gc_actions(actions)
-            self.save()
 
     def _gc_actions(self, names) -> None:
         """Delete the stash actions in *names* that no remaining record references."""
@@ -602,12 +605,6 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                     bpy.data.actions.remove(action)
 
     # ---- preview -------------------------------------------------------
-
-    def is_previewing(self, clip_id: Optional[int] = None) -> bool:
-        """Whether a preview is active (for *clip_id*, when given)."""
-        if not self.active_preview:
-            return False
-        return clip_id is None or self.active_preview.get("clip_id") == clip_id
 
     def preview(
         self,
@@ -651,7 +648,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         if not sources:
             raise RuntimeError("preview: none of the clip's objects are in the scene")
         payload: Dict[str, Any] = {"in_context": bool(in_context)}
-        with CoreUtils.undo_chunk("Preview Stored Keys"):
+        with self._undo_step("Preview Stored Keys"):
             handle = AnimUtils.create_preview_layer(
                 sources,
                 gate=self.gate_range(clip) if in_context else None,
@@ -664,8 +661,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
                 scene.use_preview_range = True
                 scene.frame_preview_start = int(math.floor(clip.start))
                 scene.frame_preview_end = int(math.ceil(clip.end))
-        self.set_preview(clip_id, payload)
-        self.save()
+            self.set_preview(clip_id, payload)
         return handle
 
     def end_preview(self) -> bool:
@@ -674,11 +670,10 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
         Returns:
             ``True`` if a preview was active.
         """
-        payload = self.clear_preview()
-        if payload is None:
+        if not self.active_preview:
             return False
-        with CoreUtils.undo_chunk("End Stored Keys Preview"):
+        with self._undo_step("End Stored Keys Preview"):
+            payload = self.clear_preview()
             AnimUtils.remove_preview_layer(payload.get("handle"))
             self._restore_playback(payload)
-        self.save()
         return True

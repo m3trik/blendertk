@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.5.93"
+__version__ = "0.6.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.

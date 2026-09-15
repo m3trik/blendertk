@@ -1019,9 +1019,9 @@ class LightmapBaker(ptk.LoggingMixin):
     def _material_texture_base(material_name: Optional[str]) -> Optional[str]:
         """Base name of the texture SET *material_name* already wears, or ``None``.
 
-        ``OFFICE_ENV_Base_color.png`` -> ``OFFICE_ENV``, so the lightmap lands in
+        ``ROOM_ENV_Base_color.png`` -> ``ROOM_ENV``, so the lightmap lands in
         sourceimages beside the maps it belongs to rather than under the material's own
-        name (``MAT_OFFICE_ENV_Lightmap.exr`` next to ``OFFICE_ENV_Base_color.png`` reads
+        name (``MAT_ROOM_ENV_Lightmap.exr`` next to ``ROOM_ENV_Base_color.png`` reads
         as a stray from a different set). The material name is an authoring detail; the
         texture set is what the rest of the maps are keyed on. Suffix matching is
         delegated to ``ptk.ImgUtils.get_base_texture_name`` — the map-suffix SSoT — so

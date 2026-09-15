@@ -322,7 +322,7 @@ class _TubeRigInternal(object):
         A crossed call — handing the far end's anchor to ``bone_index=0`` (or the near end's
         to ``-1``) — builds a rig that looks right at rest and tears off BOTH ends the moment
         the anchor moves: the anchor bone is created at the far end but named for, and hooked
-        to, the near end's control. Found in Maya (VDATS_DA, 2026-08-25) on 2 of 7 tubes; the
+        to, the near end's control. Found in Maya (PROPS_DA, 2026-08-25) on 2 of 7 tubes; the
         Blender port had the same unguarded primitive.
 
         Only the two END indices can be crossed; a mid-chain index is returned unchanged. The

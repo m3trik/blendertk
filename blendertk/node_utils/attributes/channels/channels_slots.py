@@ -443,9 +443,12 @@ class ChannelsSlots:
                             "Each row is one channel on the active selection.",
                             "Edit values directly in the Value column, or MMB-drag / mouse-wheel "
                             "over it to scrub numeric channels.",
-                            "Click the lock icon to lock/unlock a transform channel.",
-                            "Click the key icon to set/remove a keyframe at the current frame; "
-                            "Ctrl+click to break the animation/driver.",
+                            "Click the lock icon to lock a transform channel; <b>Alt</b>+click "
+                            "to unlock it.",
+                            "Click the key icon to key the current frame; <b>Alt</b>+click to "
+                            "remove that key; <b>Ctrl</b>+click to break the animation/driver.",
+                            "Drag down either icon column to lock / key (or, with <b>Alt</b>, "
+                            "unlock / remove) every row the drag crosses.",
                             "A muted F-curve / driver shows the key icon in olive.",
                         ],
                     ),
@@ -854,23 +857,28 @@ class ChannelsSlots:
             row=6,
         )
 
-        _numeric = [
-            sep_range,
-            lbl_default,
-            spn_default,
-            lbl_min,
-            spn_min,
-            lbl_max,
-            spn_max,
-        ]
+        # Which fields each type shows: a table rather than a predicate, so a
+        # type that names no fields shows none, and the popup re-fits to the
+        # form it is now rather than keeping the height of the widest type.
+        # Qt-only (uitk imports qtpy), so imported here: headless Blender ships
+        # no Qt binding and the module must import without one.
+        from uitk.managers.field_visibility import FieldVisibility
 
-        def _on_type_changed(text):
-            is_ranged = text in _ranged
-            for w in _numeric:
-                w.setVisible(is_ranged)
-
-        cmb_type.currentTextChanged.connect(_on_type_changed)
-        _on_type_changed(cmb_type.currentText())
+        fields = FieldVisibility()
+        for ranged in _ranged:
+            fields.define(
+                ranged,
+                [
+                    sep_range,
+                    lbl_default,
+                    spn_default,
+                    lbl_min,
+                    spn_min,
+                    lbl_max,
+                    spn_max,
+                ],
+            )
+        fields.bind(cmb_type)
 
         def _on_create():
             name = le_name.text().strip().replace(" ", "_")
@@ -950,17 +958,18 @@ class ChannelsSlots:
         clr = self.ACTION_COLOR_MAP
         widget.actions.add(
             self.COL_LOCK,
+            drag_action=self._on_icon_cells_dragged,
             states={
                 "locked": {
                     "icon": "lock",
                     "color": clr["locked"],
-                    "tooltip": "Locked — click to unlock",
+                    "tooltip": "Locked — Alt+click to unlock (drag to cover several rows).",
                     "action": self._on_icon_cell_clicked,
                 },
                 "unlocked": {
                     "icon": "unlock",
                     "color": clr["off"],
-                    "tooltip": "Unlocked — click to lock",
+                    "tooltip": "Unlocked — click to lock (drag to cover several rows).",
                     "action": self._on_icon_cell_clicked,
                 },
             },
@@ -969,19 +978,21 @@ class ChannelsSlots:
             "none": {
                 "icon": "disconnect",
                 "color": clr["off"],
-                "tooltip": "Not animated — click to key at the current frame.",
+                "tooltip": "Not animated — click to key at the current frame (drag to cover several rows).",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe": {
                 "icon": "connect",
                 "color": clr["keyframe"],
-                "tooltip": "Animated — click to key at the current frame.\nCtrl+click: break animation.",
+                "tooltip": "Animated — click to key at the current frame (drag to cover several rows)."
+                "\nCtrl+click: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe_active": {
                 "icon": "connect",
                 "color": clr["keyframe_active"],
-                "tooltip": "Key on current frame — click to remove it.\nCtrl+click: break animation.",
+                "tooltip": "Key on current frame — Alt+click to remove it (a click re-keys the value)."
+                "\nCtrl+click: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "driven_key": {
@@ -1005,7 +1016,9 @@ class ChannelsSlots:
                 "action": self._on_icon_cell_clicked,
             },
         }
-        widget.actions.add(self.COL_CONN, states=conn_states)
+        widget.actions.add(
+            self.COL_CONN, states=conn_states, drag_action=self._on_icon_cells_dragged
+        )
 
     def _setup_context_menu(self, widget):
         """Build the table's right-click context menu and bind handlers.
@@ -1292,26 +1305,46 @@ class ChannelsSlots:
         return None
 
     def _on_icon_cell_clicked(self, row, col):
-        """Lock toggle (lock col) or key set/remove + Ctrl-break (key col)."""
+        """Press on a Lock / Key icon cell: apply it, then refresh the table."""
+        if self._apply_icon_cell(row, col):
+            self._refresh_table(self.ui.tbl000)
+
+    def _on_icon_cells_dragged(self, rows, col):
+        """Drag down the Lock / Key column: apply every crossed row, then refresh once."""
+        changed = [self._apply_icon_cell(row, col) for row in rows]
+        if any(changed):
+            self._refresh_table(self.ui.tbl000)
+
+    def _apply_icon_cell(self, row, col):
+        """Lock / key a channel on a press, unlock / remove its key on Alt+press; Ctrl+press on
+        the key column breaks the animation / driver. Returns ``True`` if it acted.
+
+        Neither column toggles, so a press or a drag leaves every row the same whatever state
+        each started in.
+        """
         descriptor = self._descriptor_at(row)
         objects = self.controller.get_selected_nodes()
-        if descriptor is None or not objects:
-            return
+        if (
+            descriptor is None
+            or not objects
+            or col not in (self.COL_LOCK, self.COL_CONN)
+        ):
+            return False
 
-        if col == self.COL_LOCK:
-            self.controller.toggle_lock(objects, descriptor)
-            self._refresh_table(self.ui.tbl000)
-            return
-        if col != self.COL_CONN:
-            return
-
+        # cellClicked carries no modifier info; query the current state instead.
         Qt = self.sb.QtCore.Qt
         modifiers = self.sb.QtWidgets.QApplication.keyboardModifiers()
-        if modifiers & Qt.ControlModifier:
+        clear = bool(modifiers & Qt.AltModifier)
+
+        if col == self.COL_LOCK:
+            self.controller.set_lock(objects, [descriptor], not clear)
+        elif modifiers & Qt.ControlModifier:
             self.controller.break_connections(objects, descriptor)
         else:
-            self.controller.toggle_key_at_current_time(objects, descriptor)
-        self._refresh_table(self.ui.tbl000)
+            self.controller.set_key_at_current_time(
+                objects, descriptor, keyed=not clear
+            )
+        return True
 
     def _handle_cell_edit(self, row, col):
         """Value edit (Value col) or custom-property rename (Name col)."""

@@ -436,7 +436,7 @@ try:
     )
 
     # The scene-data sidecar records what shipped: decoded carrier channels +
-    # exported hierarchy paths (engine-side `_write_scene_data_sidecar`).
+    # exported hierarchy paths (`TaskManager.write_scene_data_sidecar`).
     from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
     sc_data = SceneDataSidecar.read_data(carrier_file) or {}
@@ -497,11 +497,119 @@ try:
     # did not ship, so nothing is recorded (and with nothing else to record,
     # no sidecar at all).
     DataNodes.set_export_string("test_channel", json.dumps({"v": 1}))
-    exp5._write_scene_data_sidecar([lone])
+    exp5.task_manager.objects = [lone]
+    exp5.task_manager.write_scene_data_sidecar()
     check(
         "carrier outside the export set records no data",
         SceneDataSidecar.read_manifest(os.path.join(out_dir, "no_carrier_test.fbx"))
         is None,
+    )
+
+    # After a GLB the sidecar records the lightmap manifest the GLB ships (mirror of
+    # mayatk's): the GLB pass corrects that copy to the encoded map and the scalar
+    # restoring the bake range, while the scene's still names the pre-encode .exr
+    # at 1.0. An FBX-only run records the scene's. Added: 2026-09-15
+    import struct as _struct
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    _sg_cube = bpy.context.active_object
+    _sg_cube.name = "SidecarGlbCube"
+    _sg_entry = {"name": "SidecarGlbCube", "map": "room_Lightmap.exr", "intensity": 1.0}
+    _sg_scene = {"version": 1, "objects": [_sg_entry]}
+    _sg_shipped = {
+        "version": 1,
+        "objects": [dict(_sg_entry, map="room_Lightmap.png", intensity=0.5)],
+    }
+    DataNodes.set_export_string("lightmap_metadata", json.dumps(_sg_scene))
+    _sg_gltf = {
+        "asset": {"version": "2.0"},
+        "nodes": [
+            {
+                "name": "data_export",
+                "extras": {"lightmap_metadata": json.dumps(_sg_shipped)},
+            }
+        ],
+    }
+    _sg_chunk = json.dumps(_sg_gltf).encode("utf-8")
+    _sg_chunk += b" " * (-len(_sg_chunk) % 4)
+    _sg_glb = os.path.join(out_dir, "sidecar_glb.glb")
+    with open(_sg_glb, "wb") as _sg_file:
+        _sg_file.write(_struct.pack("<4sII", b"glTF", 2, 20 + len(_sg_chunk)))
+        _sg_file.write(_struct.pack("<I4s", len(_sg_chunk), b"JSON") + _sg_chunk)
+    _sg_fbx = os.path.join(out_dir, "sidecar_glb.fbx")
+    _sg_tm = SceneExporter().task_manager
+    _sg_tm.run = _sg_tm.run.replace(export_path=_sg_fbx)
+    _sg_tm.objects = [_sg_cube, DataNodes.get_export_node(create=False)]
+    _sg_tm.write_scene_data_sidecar(glb_path=_sg_glb)
+    _sg_data = SceneDataSidecar.read_data(_sg_fbx) or {}
+    check(
+        "after a GLB the sidecar records the lightmap manifest the GLB ships",
+        _sg_data.get("lightmap_metadata") == _sg_shipped,
+        f"{_sg_data!r}",
+    )
+    _sg_tm.write_scene_data_sidecar()
+    _sg_data = SceneDataSidecar.read_data(_sg_fbx) or {}
+    check(
+        "...and without a GLB it records the scene's",
+        _sg_data.get("lightmap_metadata") == _sg_scene,
+        f"{_sg_data!r}",
+    )
+
+    # A run that stops before its write names what its tasks KEPT, and only that.
+    # Blender's key tasks keep their edits (no Animation Output gate yet), so a run
+    # blocked after a snap names them -- and not the material cleanup and texture
+    # rewrites a fixed list claimed. Added: 2026-09-15
+    import logging as _bk_logging
+
+    class _BlockedLog(_bk_logging.Handler):
+        def __init__(self):
+            super().__init__(level=_bk_logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    reset_scene()
+    bpy.ops.mesh.primitive_cube_add()
+    _bk_cube = bpy.context.active_object
+    _bk_cube.name = "BlockedKeysCube"
+    _bk_cube.location = (0.0, 0.0, 0.0)
+    _bk_cube.keyframe_insert("location", index=0, frame=1.5)  # the snap moves it
+    _bk_cube.keyframe_insert("location", index=1, frame=1)  # ends at 1: untied
+    _bk_cube.location = (2.0, 0.0, 0.0)
+    _bk_cube.keyframe_insert("location", index=0, frame=10)
+    _bk_exp = SceneExporter()
+    _bk_exp.confirm = lambda question: False
+    _bk_log = _BlockedLog()
+    _bk_exp.logger.addHandler(_bk_log)
+    try:
+        _bk_result = _bk_exp.perform_export(
+            export_dir=out_dir,
+            objects=[_bk_cube],
+            output_name="blocked_keys",
+            export_visible=True,
+            tasks={"snap_keys_to_frame": True, "check_untied_keyframes": True},
+        )
+    finally:
+        _bk_exp.logger.removeHandler(_bk_log)
+    _bk_blocked = [m for m in _bk_log.messages if "Export blocked" in m]
+    check(
+        "a blocked export returns False and says so once",
+        _bk_result is False and len(_bk_blocked) == 1,
+        f"{_bk_result} {_bk_log.messages}",
+    )
+    check(
+        "...naming the key edits the snap kept",
+        bool(_bk_blocked) and "key edits" in _bk_blocked[0],
+        f"{_bk_blocked}",
+    )
+    check(
+        "...and no material or texture edit that never happened",
+        bool(_bk_blocked)
+        and "material" not in _bk_blocked[0]
+        and "texture" not in _bk_blocked[0],
+        f"{_bk_blocked}",
     )
 
     # ---- keyed-weight curve proxies: staged through the write, gone after --------------------
@@ -710,6 +818,32 @@ try:
         _missing == [],
         f"unlabelled={_missing}",
     )
+
+    # ---- Below floor: a depth spin box, 0 = OFF (mirrors mayatk, 2026-09-13) --
+    _bf_spec = _tm_defs.check_definitions["check_objects_below_floor"]
+    check(
+        "the below-floor check is a depth spin box, OFF at zero, under a fresh objectName",
+        _bf_spec["widget_type"] == "SpinBox"
+        and _bf_spec["object_name"] == "floor_depth"
+        and _bf_spec["setCustomDisplayValues"] == {0: "OFF"}
+        and _bf_spec["value_method"] == "value"
+        and _bf_spec["setValue"] == _tm_defs._DEFAULT_FLOOR_TOLERANCE,
+        detail=f"{_bf_spec}",
+    )
+    bpy.ops.mesh.primitive_cube_add(size=2.0, location=(0.0, 0.0, -0.75))
+    _bf_cube = bpy.context.active_object  # min z = -1.75
+    _tm_defs.objects = [_bf_cube]
+    check(
+        "0, None and False disable the check; True means the default depth; a depth is a limit",
+        _tm_defs.check_objects_below_floor(0)[0]
+        and _tm_defs.check_objects_below_floor(None)[0]
+        and _tm_defs.check_objects_below_floor(False)[0]
+        and not _tm_defs.check_objects_below_floor(True)[0]
+        and not _tm_defs.check_objects_below_floor(1.0)[0]
+        and _tm_defs.check_objects_below_floor(2.0)[0],
+        detail=f"{_tm_defs.check_objects_below_floor(True)}",
+    )
+    bpy.data.objects.remove(_bf_cube, do_unlink=True)
 
     # ---- Duplicate Names: one check, four widths (mirrors mayatk) -------------
     # Added: 2026-08-29. The check was Empty-only, so a duplicate bone name
@@ -959,7 +1093,7 @@ try:
         )
         tm_ct = SceneExporter().task_manager
         tm_ct.objects = [tex_cube]
-        tm_ct._texture_write_back = True
+        tm_ct.run = tm_ct.run.replace(texture_write_back=True)
         tm_ct.convert_textures(None)
         check(
             "convert_textures no-ops without a template",
@@ -1001,8 +1135,8 @@ try:
         _mu.MatUpdater.update_materials = classmethod(_fake_repath)
         tm_st = SceneExporter().task_manager
         tm_st.objects = [tex_cube]
-        tm_st._glb_only = True  # temp staging
-        tm_st._texture_write_back = False
+        tm_st.run = tm_st.run.replace(output_format="glb")  # temp staging
+        tm_st.run = tm_st.run.replace(texture_write_back=False)
         tm_st.convert_textures("glTF 2.0")
         cfg = seen.get("config") or {}
         staging = cfg.get("move_to_folder")
@@ -1151,6 +1285,40 @@ try:
         f"msgs={msgs}",
     )
 
+    # ---- the same gates for a u#_v# set, which Blender stores as <UVTILE> (a
+    # create_pbr_material build of *.u1_v1 + *.u2_v1 tiles does, measured 5.1). The
+    # helpers substituted <UDIM> alone, so a valid UVTILE set read as missing and
+    # its tiles were never size-probed.
+    uvtile = bpy.data.images.new("uvtile_set", 4, 4, tiled=True)
+    uvtile.filepath = os.path.join(tex_dir, "uvtile_set.<UVTILE>.png")
+    pu_mat.node_tree.nodes.new("ShaderNodeTexImage").image = uvtile
+    passed, msgs = tm_pu.check_valid_paths(True)
+    check(
+        "check_valid_paths fails a UVTILE image with no tiles on disk",
+        passed is False and any("uvtile_set" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    with open(os.path.join(tex_dir, "uvtile_set.u1_v1.png"), "wb") as fh:
+        fh.write(b"\0" * 1024)
+    passed, msgs = tm_pu.check_valid_paths(True)
+    check(
+        "check_valid_paths passes a UVTILE image whose first tile (u1_v1) exists",
+        passed is True,
+        f"msgs={msgs}",
+    )
+    with open(os.path.join(tex_dir, "uvtile_set.u2_v1.png"), "wb") as fh:
+        fh.write(b"\0" * (2 * 1024 * 1024))  # 2 MB -- the tile that must be probed
+    passed, msgs = tm_pu.check_texture_file_size(1)
+    check(
+        "check_texture_file_size probes the largest existing UVTILE tile",
+        passed is False and any("uvtile_set.u2_v1" in m for m in msgs),
+        f"msgs={msgs}",
+    )
+    pu_mat.node_tree.nodes.remove(
+        next(n for n in pu_mat.node_tree.nodes if getattr(n, "image", None) is uvtile)
+    )
+    bpy.data.images.remove(uvtile)
+
     # ---- UDIM size gate: getsize on the raw <UDIM> token path raised OSError into a
     # silent continue, so multi-GB tile sets passed unmeasured. The largest existing
     # tile is now the probe.
@@ -1187,6 +1355,51 @@ try:
         passed is True,
         f"msgs={msgs}",
     )
+    # The row is read by pythontk's one reading (ExportProfile.
+    # texture_size_limit_bytes), which both exporters share: a negative limit
+    # is OFF, not a gate every map fails.
+    passed, msgs = tm_pu.check_texture_file_size(-1)
+    check(
+        "a negative size limit is OFF (ptk.ExportProfile.texture_size_limit_bytes)",
+        passed is True and msgs == [],
+        f"msgs={msgs}",
+    )
+    # The failure names the fix by the Optimize Textures dial the run used: a
+    # production "Optimize" run failed this gate and read as if the pass never
+    # ran -- without a ceiling it never resamples (mirrors mayatk, 2026-09-13).
+    for optimize, max_size, expected in (
+        (False, None, "Optimize Textures is OFF"),
+        (True, None, "no size ceiling"),
+        (True, 1024, "clamped to 1024 px"),
+    ):
+        tm_pu.run = tm_pu.run.replace(optimize_textures=optimize)
+        tm_pu.run = tm_pu.run.replace(texture_max_size=max_size)
+        passed, msgs = tm_pu.check_texture_file_size(1)
+        check(
+            f"check_texture_file_size names the remedy ({expected})",
+            passed is False and any(expected in m for m in msgs),
+            f"msgs={msgs}",
+        )
+    tm_pu.run = tm_pu.run.replace(optimize_textures=False)
+    tm_pu.run = tm_pu.run.replace(texture_max_size=None)
+    # A GLB-only export ships no scene map (its GLB pass re-encodes each one),
+    # so the check steps aside; FBX + GLB still gates and names the FBX as the
+    # carrier (mirrors mayatk, 2026-09-13).
+    tm_pu.run = tm_pu.run.replace(output_format="glb")
+    passed, msgs = tm_pu.check_texture_file_size(1)
+    check(
+        "check_texture_file_size steps aside for GLB-only output",
+        passed is True and msgs == [],
+        f"msgs={msgs}",
+    )
+    tm_pu.run = tm_pu.run.replace(output_format="fbx_glb")
+    passed, msgs = tm_pu.check_texture_file_size(1)
+    check(
+        "check_texture_file_size names the FBX as the carrier for FBX + GLB",
+        passed is False and "the FBX" in msgs[0],
+        f"msgs={msgs}",
+    )
+    tm_pu.run = tm_pu.run.replace(output_format="fbx")
 
     # Drop this section's datablocks so the later embed-texture FBX writes don't
     # trip over the deliberately-stale packed/UDIM images (log noise only).
@@ -1291,7 +1504,7 @@ try:
     os.makedirs(glb_dir, exist_ok=True)
     exp8 = SceneExporter()
     # Deterministic conversion failure (ptk.MeshConvert is environment-dependent).
-    exp8._create_glb = lambda fbx_path=None, announce=True, objects=None: None
+    exp8.task_manager.create_glb = lambda fbx_path=None, announce=True: None
     result = exp8.perform_export(
         export_dir=glb_dir,
         objects=[gcube],
@@ -1312,14 +1525,14 @@ try:
     )
 
     # ... and with a working conversion the deliverable lands AND the sidecar is written.
-    def _fake_glb(fbx_path=None, announce=True, objects=None):
+    def _fake_glb(fbx_path=None, announce=True):
         p = os.path.splitext(fbx_path)[0] + ".glb"
         with open(p, "wb") as fh:
             fh.write(b"GLBDATA")
         return p
 
     exp9 = SceneExporter()
-    exp9._create_glb = _fake_glb
+    exp9.task_manager.create_glb = _fake_glb
     result = exp9.perform_export(
         export_dir=glb_dir,
         objects=[gcube],
@@ -1347,7 +1560,7 @@ try:
     # GLB that shipped. Mirror of mayatk's TestSidecarWriteOrdering.
     order = []
 
-    def _ordered_glb(fbx_path=None, announce=True, objects=None):
+    def _ordered_glb(fbx_path=None, announce=True):
         order.append("glb")
         p = os.path.splitext(fbx_path or "")[0] + ".glb" if fbx_path else None
         if p:
@@ -1358,14 +1571,14 @@ try:
     both_dir = os.path.join(tmp, "fbx_glb_order")
     os.makedirs(both_dir, exist_ok=True)
     exp10 = SceneExporter()
-    exp10._create_glb = _ordered_glb
-    _real_sidecar = exp10._write_scene_data_sidecar
+    exp10.task_manager.create_glb = _ordered_glb
+    _real_sidecar = exp10.task_manager.write_scene_data_sidecar
 
-    def _ordered_sidecar(export_objects):
+    def _ordered_sidecar(**kwargs):
         order.append("sidecar")
-        return _real_sidecar(export_objects)
+        return _real_sidecar(**kwargs)
 
-    exp10._write_scene_data_sidecar = _ordered_sidecar
+    exp10.task_manager.write_scene_data_sidecar = _ordered_sidecar
     result = exp10.perform_export(
         export_dir=both_dir,
         objects=[gcube],
@@ -1385,7 +1598,7 @@ try:
     fail_dir = os.path.join(tmp, "fbx_glb_fail")
     os.makedirs(fail_dir, exist_ok=True)
     exp11 = SceneExporter()
-    exp11._create_glb = lambda fbx_path=None, announce=True, objects=None: None
+    exp11.task_manager.create_glb = lambda fbx_path=None, announce=True: None
     result = exp11.perform_export(
         export_dir=fail_dir,
         objects=[gcube],
@@ -1399,6 +1612,258 @@ try:
         and SceneDataSidecar.read_manifest(os.path.join(fail_dir, "both_fail.fbx"))
         is not None,
         f"result={result}",
+    )
+
+    # ---- Check scheduling: CHECK_DEPENDENCIES hoists each check above the tasks it does
+    # not read (pythontk TaskFactory._schedule), so a failing gate aborts BEFORE the
+    # texture and animation phases run. blendertk declared no map until 2026-09-13, so
+    # every check ran after the whole pipeline. Mirror of mayatk's TestCheckScheduling.
+    from unittest import mock as _sched_mock
+    from blendertk.env_utils.scene_exporter.task_manager import TaskManager as _TM
+
+    _sched_tm = SceneExporter().task_manager
+    _sched_checks = {
+        n for n in dir(_TM) if n.startswith("check_") and n != "check_definitions"
+    }
+    check(
+        "every check declares what it reads (an undeclared one runs after EVERY task)",
+        not (_sched_checks - set(_TM.CHECK_DEPENDENCIES)),
+        f"undeclared={sorted(_sched_checks - set(_TM.CHECK_DEPENDENCIES))}",
+    )
+    check(
+        "no entry names a check that does not exist",
+        all(hasattr(_TM, n) for n in _TM.CHECK_DEPENDENCIES),
+        f"{[n for n in _TM.CHECK_DEPENDENCIES if not hasattr(_TM, n)]}",
+    )
+    _sched_bad = {
+        c: [t for t in ts if t not in _TM.TASK_ORDER]
+        for c, ts in _TM.CHECK_DEPENDENCIES.items()
+    }
+    check(
+        "every dependency names a TASK_ORDER task (an unknown name hoists to the front)",
+        not any(_sched_bad.values()),
+        f"{ {k: v for k, v in _sched_bad.items() if v} }",
+    )
+    _sched_tasks = {n: True for n in _TM.TASK_ORDER}
+    _sched_order = list(
+        _sched_tm._schedule(
+            _sched_tasks, {"check_referenced_objects": True, "check_valid_paths": True}
+        )
+    )
+    check(
+        "a scene-wide check is decided before the scene is touched",
+        _sched_order[0] == "check_referenced_objects",
+        f"{_sched_order[:3]}",
+    )
+    _sched_after = _sched_order[_sched_order.index("check_valid_paths") :]
+    check(
+        "a path check is decided before the animation phase",
+        all(
+            t in _sched_after
+            for t in ("smart_bake", "optimize_keys", "tie_all_keyframes")
+        ),
+        f"{_sched_order}",
+    )
+    check(
+        "TASK_ORDER is never reordered by scheduling",
+        [
+            n
+            for n in _sched_tm._schedule(
+                _sched_tasks, {n: True for n in _TM.CHECK_DEPENDENCIES}
+            )
+            if n in _sched_tasks
+        ]
+        == list(_TM.TASK_ORDER),
+    )
+    _sched_ran = []
+    with (
+        _sched_mock.patch.object(
+            _TM,
+            "reassign_duplicate_materials",
+            lambda self_tm: _sched_ran.append("reassign"),
+        ),
+        _sched_mock.patch.object(
+            _TM, "smart_bake", lambda self_tm: _sched_ran.append("bake")
+        ),
+        _sched_mock.patch.object(
+            _TM,
+            "check_referenced_objects",
+            lambda self_tm: (_sched_ran.append("check"), (False, ["a library link"]))[
+                1
+            ],
+        ),
+    ):
+        _sched_passed = _sched_tm.run_tasks(
+            {
+                "reassign_duplicate_materials": True,
+                "smart_bake": True,
+                "check_referenced_objects": True,
+            }
+        )
+    check(
+        "a failing early check never reaches the costly tasks",
+        _sched_passed is False and _sched_ran == ["check"],
+        f"ran={_sched_ran}",
+    )
+
+    # ---- Shared tables + declared parity gaps (2026-09-13) ----------------------------
+    # TASK_ORDER / CHECK_DEPENDENCIES are ptk.ExportProfile's, scoped to this class by
+    # its decorator; what is scoped away is PARITY_GAPS, pinned here so porting a name
+    # means deleting its entry and a task mayatk adds shows up as an undeclared gap.
+    _gaps = ptk.ExportProfile.unimplemented(_TM)
+    check(
+        "the scoped tables' gap is exactly the declared PARITY_GAPS",
+        set(_gaps["tasks"] + _gaps["checks"]) == set(_TM.PARITY_GAPS),
+        f"derived={_gaps} declared={sorted(_TM.PARITY_GAPS)}",
+    )
+    check(
+        "TASK_ORDER is the shared order minus the gaps",
+        _TM.TASK_ORDER
+        == [t for t in ptk.ExportProfile.TASK_ORDER if t not in _TM.PARITY_GAPS],
+        f"{_TM.TASK_ORDER}",
+    )
+    check(
+        "check_output_writable is ported and decided before the first task",
+        callable(getattr(_TM, "check_output_writable", None))
+        and _TM.CHECK_DEPENDENCIES.get("check_output_writable") == ()
+        and list(_sched_tm._schedule(_sched_tasks, {"check_output_writable": True}))[0]
+        == "check_output_writable",
+    )
+    _ow_tm = SceneExporter().task_manager
+    _ow_tm.begin_run(
+        ptk.ExportRun(export_path=os.path.join(tmp, "ow.fbx"), output_format="fbx_glb")
+    )
+    check(
+        "check_output_writable passes on destinations that do not exist yet",
+        _ow_tm.check_output_writable() == (True, [])
+        and _ow_tm._deliverable_paths()
+        == [os.path.join(tmp, "ow.fbx"), os.path.join(tmp, "ow.glb")],
+        f"{_ow_tm._deliverable_paths()}",
+    )
+
+    # ---- _live_objects: a removed datablock never poisons a bulk read -----------------
+    _lo_tm = SceneExporter().task_manager
+    _lo_mesh = bpy.data.meshes.new("LiveMesh")
+    _lo_obj = bpy.data.objects.new("LiveObj", _lo_mesh)
+    _lo_keep = bpy.data.objects.new("KeepObj", bpy.data.meshes.new("KeepMesh"))
+    _lo_tm.objects = [_lo_obj, _lo_keep]
+    bpy.data.objects.remove(_lo_obj, do_unlink=True)
+    check(
+        "_live_objects drops a removed object and the material read survives",
+        [o.name for o in _lo_tm._live_objects()] == ["KeepObj"]
+        and _lo_tm._get_all_materials() == [],
+    )
+    bpy.data.objects.remove(_lo_keep, do_unlink=True)
+
+    # ---- exclude_hdr: a real filter (was a documented no-op) --------------------------
+    _hdr_tm = SceneExporter().task_manager
+    _hdr_light_data = bpy.data.lights.new("HdrSun", type="SUN")
+    _hdr_light_data.use_nodes = True
+    _hdr_light_data.node_tree.nodes.new("ShaderNodeTexEnvironment")
+    _hdr_light = bpy.data.objects.new("HdrSun", _hdr_light_data)
+    _plain_light = bpy.data.objects.new(
+        "PlainSun", bpy.data.lights.new("PlainSun", type="SUN")
+    )
+    _dome_mat = bpy.data.materials.new("HdrDome")
+    _dome_mat.use_nodes = True
+    _dome_mat.node_tree.nodes.new("ShaderNodeTexEnvironment")
+    _dome = bpy.data.objects.new("HdrDome", bpy.data.meshes.new("HdrDomeMesh"))
+    _dome.data.materials.append(_dome_mat)
+    _prop = bpy.data.objects.new("Prop", bpy.data.meshes.new("PropMesh"))
+    _prop.data.materials.append(bpy.data.materials.new("PlainMat"))
+    _hdr_tm.objects = [_hdr_light, _plain_light, _dome, _prop]
+    _hdr_tm.exclude_hdr()
+    check(
+        "exclude_hdr drops the environment-textured light and the HDR dome only",
+        [o.name for o in _hdr_tm.objects] == ["PlainSun", "Prop"],
+        f"{[o.name for o in _hdr_tm.objects]}",
+    )
+    # The released exclude_hdr(enabled) call works for one release, and the
+    # shim takes nothing positional, so the dispatcher still gates the task on
+    # its checkbox (TaskFactory._task_is_disabled counts positional parameters).
+    _hdr_tm.objects = [_hdr_light, _plain_light, _dome, _prop]
+    try:
+        _hdr_tm.exclude_hdr(False)
+        _hdr_tm.exclude_hdr(enabled=False)
+        _legacy_off = [o.name for o in _hdr_tm.objects]
+        _hdr_tm.exclude_hdr(True)
+        _legacy_on = [o.name for o in _hdr_tm.objects]
+    except TypeError as _e:
+        _legacy_off = _legacy_on = repr(_e)
+    check(
+        "the released exclude_hdr(enabled) call still works: False keeps, True strips",
+        _legacy_off == ["HdrSun", "PlainSun", "HdrDome", "Prop"]
+        and _legacy_on == ["PlainSun", "Prop"],
+        f"{_legacy_off} / {_legacy_on}",
+    )
+    check(
+        "the dispatcher still gates Exclude HDR on its checkbox",
+        _hdr_tm._task_is_disabled(_hdr_tm.exclude_hdr, False)
+        and not _hdr_tm._task_is_disabled(_hdr_tm.exclude_hdr, True),
+    )
+    # The Visible scope holds a visible mesh dome, which is why the panel keeps
+    # Exclude HDR on screen there (mayatk hides it: its sky dome is a light).
+    from blendertk.display_utils._display_utils import DisplayUtils
+
+    bpy.context.scene.collection.objects.link(_dome)
+    _visible = DisplayUtils.get_visible_geometry()
+    _hdr_tm.objects = list(_visible)
+    _hdr_tm.exclude_hdr()
+    check(
+        "the Visible scope can hold an HDR dome, and exclude_hdr strips it there",
+        _dome in _visible and _dome not in _hdr_tm.objects,
+        f"visible={[o.name for o in _visible]}",
+    )
+    for _o in (_hdr_light, _plain_light, _dome, _prop):
+        bpy.data.objects.remove(_o, do_unlink=True)
+
+    # ---- Animation Clips: the takes row is the three-mode combo (mirror of mayatk) ----
+    _clips_tm = SceneExporter().task_manager
+    _clips_tm.begin_run(ptk.ExportRun())
+    _clips_tm.apply_declared_takes("full")
+    check(
+        "apply_declared_takes records the Animation Clips choice for create_glb",
+        _clips_tm._clip_mode == "full"
+        and _clips_tm._animation_clips_mode(True) == "both"
+        and _clips_tm._animation_clips_mode(None) == "full"
+        and _clips_tm._animation_clips_mode("Shots") == "shots",
+    )
+    _clips_tm.objects = list(_clips_tm.objects or [])
+    check(
+        "assigning objects mid-run keeps the choice; begin_run resets it",
+        _clips_tm._clip_mode == "full"
+        and (_clips_tm.begin_run(ptk.ExportRun()) or _clips_tm._clip_mode == "both"),
+    )
+    _clips_row = _clips_tm.task_definitions["apply_declared_takes"]
+    check(
+        "the Animation Clips row is a combo keyed by a fresh objectName",
+        _clips_row["widget_type"] == "ComboBox"
+        and _clips_row["object_name"] == "animation_clips"
+        and _clips_row["add"] is ptk.ExportProfile.ANIMATION_CLIPS_OPTIONS
+        and _clips_row["setCurrentIndex"] == 2,
+    )
+
+    # ---- smart_bake stages its own restore (was a block in perform_export's finally) --
+    from types import SimpleNamespace as _NS
+
+    _sb_tm = SceneExporter().task_manager
+    _sb_tm.begin_run(ptk.ExportRun())
+    _sb_tm.objects = []
+    with _sched_mock.patch(
+        "blendertk.anim_utils.smart_bake._smart_bake.SmartBake"
+    ) as _Baker:
+        _Baker.return_value.analyze.return_value = {"x": _NS(requires_bake=True)}
+        _Baker.return_value.bake.return_value = _NS(
+            session_id="bake_s1", baked_count=1, time_range=(1, 10)
+        )
+        _sb_tm.smart_bake()
+        _sb_staged = "smart_bake" in _sb_tm._deferred_restores
+        _sb_tm.run_deferred_restores()
+        _sb_restored = _Baker.restore.call_args_list == [_sched_mock.call("bake_s1")]
+    check(
+        "smart_bake stages its restore and run_deferred_restores restores the session",
+        _sb_staged and _sb_restored and _sb_tm._bake_session_id is None,
+        f"staged={_sb_staged} restore_calls={_Baker.restore.call_args_list}",
     )
 
     # ---- Texture File Type: ONE container dial for every texture the export ships -------
@@ -1444,6 +1909,10 @@ try:
         "ktx2" in dict(_tf_options).values(),
     )
     check(
+        "KTX2 + PNG/JPEG is offered too (the importable twin-carrying GLB)",
+        SceneExporter().task_manager.KTX2_WITH_FALLBACK in dict(_tf_options).values(),
+    )
+    check(
         "texture template moved to the Tasks combo as convert_textures (cmb005)",
         _tf_defs.get("convert_textures", {}).get("object_name") == "cmb005"
         and _tf_defs["convert_textures"].get("group") == "Textures"
@@ -1460,8 +1929,62 @@ try:
             "convert_textures",
             "optimize_textures",
             "texture_file_type",
+            "secondary_max_size",
+            "uastc_rdo",
         ],
         f"{list(dict(_Slots._SETTINGS_LAYOUT))}",
+    )
+    # The GLB key tolerance is the GLB half of Optimize Keys: directly under
+    # it, defaulting to the measured 1e-4 (2026-09-14). Mirrors mayatk.
+    _anim = [k for k in _tf_defs if _tf_defs[k].get("group") == "Animation"]
+    check(
+        "GLB Key Tolerance sits directly under Optimize Keys and defaults to 1e-4",
+        _anim[_anim.index("optimize_keys") + 1] == "glb_key_tolerance"
+        and _tf_defs["glb_key_tolerance"].get("setCurrentIndex") == 2
+        and list(_tf_defs["glb_key_tolerance"]["add"].values())[2] == 1e-4,
+        f"{_anim}",
+    )
+    # The dependency rules hide (show_when), and gate the GLB-only, KTX2-only
+    # and FBX-only rows. Mirrors mayatk's
+    # test_wire_dependencies_hides_irrelevant_settings.
+    _calls = []
+
+    class _RuleSB:
+        def show_when(self, ui, targets, trigger, condition=True, **kw):
+            _calls.append((targets, trigger, condition))
+
+        def enable_when(self, *args, **kw):
+            raise AssertionError("greyed out where it should be hidden")
+
+    _rs = _Slots.__new__(_Slots)
+    _rs.sb = _RuleSB()
+    _rs.ui = object()
+    _rs._wire_dependencies()
+    _by = {t: (trig, cond) for t, trig, cond in _calls}
+    _rdo = _by.get("uastc_rdo", (None, lambda *a: None))[1]
+    _keys = _by.get("glb_key_tolerance", (None, lambda *a: None))[1]
+    _usd = _by.get("cmb000,animation_clips,bake_range", (None, lambda *a: None))[1]
+    check(
+        "the dependency rules are show_when and gate the GLB/KTX2/FBX-only rows",
+        _by.get("texture_write_back", (None,))[0] == ["texture_optimize", "cmb005"]
+        and _by.get("secondary_max_size") == ("cmb004", {"glb", "fbx_glb"})
+        and _by.get("uastc_rdo", (None,))[0] == ["cmb004", "texture_file_type"]
+        and (_rdo("glb", "ktx2"), _rdo("fbx", "ktx2"), _rdo("glb", "png"))
+        == (True, False, False)
+        and _by.get("glb_key_tolerance", (None,))[0] == ["cmb004", "optimize_level"]
+        and (_keys("glb", "extremes"), _keys("glb", None), _keys("fbx", "extremes"))
+        == (True, False, False)
+        and (_usd("fbx"), _usd("usd")) == (True, False),
+        f"{sorted(_by)}",
+    )
+    # A deliberate divergence from mayatk's rule, pinned so a re-mirror cannot
+    # restore it: Blender's exclusion also strips a visible mesh dome, which the
+    # Visible scope holds (the exclude_hdr checks above), and a hidden row still
+    # applies its value.
+    check(
+        "Exclude HDR has no show_when rule: the Visible scope can hold a dome it strips",
+        "exclude_hdr" not in _by,
+        f"{_by.get('exclude_hdr')}",
     )
 
     # The manager's class-shared logger never reaches the panel's txt003 sink
@@ -1547,7 +2070,6 @@ try:
                     "txt001",
                     "txt002",
                     "txt003",
-                    "chk004",
                     "b009",
                     "b011",
                     "cmb000",
@@ -1614,10 +2136,10 @@ try:
     _tm = SceneExporter().task_manager
 
     def _glb_params(file_type=None, optimize=False, max_size=None, template=None):
-        _tm._texture_file_type = file_type
-        _tm._optimize_textures_enabled = optimize
-        _tm._texture_max_size = max_size
-        _tm._texture_template = template
+        _tm.run = _tm.run.replace(texture_file_type=file_type)
+        _tm.run = _tm.run.replace(optimize_textures=optimize)
+        _tm.run = _tm.run.replace(texture_max_size=max_size)
+        _tm.run = _tm.run.replace(texture_template=template)
         return _tm._glb_texture_params()
 
     # CONTRACT CHANGE (2026-08-29): untouched dials used to mean no pass at all.
@@ -1634,31 +2156,71 @@ try:
     _p = _glb_params(file_type="webp")
     check(
         "file type alone overrides the container and keeps the policy ceiling",
-        _p == {"image_format": "WEBP", "max_size": _policy["max_size"]},
+        _p == {**_policy, "image_format": "WEBP"},
         f"{_p}",
     )
     _p = _glb_params(optimize=True, max_size=1024)
     check(
         "optimize alone overrides the ceiling and keeps the policy container",
-        _p == {"image_format": _policy["image_format"], "max_size": 1024},
+        _p == {**_policy, "max_size": 1024},
         f"{_p}",
     )
     _p = _glb_params(file_type="webp", optimize=True, max_size=1024)
     check(
         "the GLB honors the general Max Texture Size dial (ONE size policy)",
-        _p == {"image_format": "WEBP", "max_size": 1024},
+        _p == {**_policy, "image_format": "WEBP", "max_size": 1024},
         f"{_p}",
     )
     _p = _glb_params(file_type="webp", optimize=True, max_size=None)
     check(
         "a dial naming no ceiling takes the policy's, never 'keep every pixel'",
-        _p == {"image_format": "WEBP", "max_size": _policy["max_size"]},
+        _p == {**_policy, "image_format": "WEBP"},
         f"{_p}",
     )
     _p = _glb_params(file_type="tga", optimize=False)
     check(
         "a container glTF cannot embed falls back to the web-delivery container",
         _p == _policy,
+        f"{_p}",
+    )
+    # The GLB-only dials (2026-09-13): the packed-data ceiling and the UASTC
+    # RDO lambda ride the same policy call; the key-reduction bound reaches
+    # the pipeline as key_tolerance. Mirrors mayatk's test.
+    from unittest import mock as _mock
+
+    _tm.run = _tm.run.replace(
+        secondary_max_size=2048, uastc_rdo=1.0, glb_key_tolerance=1e-4
+    )
+    _p = _tm._glb_texture_params()
+    check(
+        "secondary map size and UASTC RDO ride the policy call",
+        (_p.get("secondary_max_size"), _p.get("uastc_rdo")) == (2048, 1.0),
+        f"{_p}",
+    )
+    with (
+        _mock.patch.object(
+            ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}
+        ) as _build,
+        _mock.patch.object(ptk.GlbPipeline, "envelope", return_value={}),
+    ):
+        try:
+            _built = _tm.create_glb("x.fbx", announce=False)
+        except Exception as _e:  # noqa: BLE001 -- reported by the check
+            _built = _e
+    check(
+        "create_glb forwards the key-reduction bound as key_tolerance",
+        _built == "x.glb"
+        and _build.called
+        and _build.call_args.kwargs.get("key_tolerance") == 1e-4,
+        f"built={_built!r} kwargs={_build.call_args.kwargs if _build.called else None}",
+    )
+    _tm.run = _tm.run.replace(
+        secondary_max_size=None, uastc_rdo=None, glb_key_tolerance=None
+    )
+    _p = _tm._glb_texture_params()
+    check(
+        "unset GLB dials take the policy (off)",
+        (_p.get("secondary_max_size"), _p.get("uastc_rdo")) == (0, None),
         f"{_p}",
     )
 
@@ -1674,12 +2236,12 @@ try:
     )
 
     # -- the scene half: _resolved_output_type ------------------------------------------
-    _tm._texture_file_type = "tga"
+    _tm.run = _tm.run.replace(texture_file_type="tga")
     check(
         "a chosen container outranks the template's per-map spec",
         _tm._resolved_output_type("C:/tex/rock_Base_color.png", "glTF 2.0") == "tga",
     )
-    _tm._texture_file_type = "ktx2"
+    _tm.run = _tm.run.replace(texture_file_type="ktx2")
     check(
         "a delivery-only container never reaches a scene image (source kept)",
         _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) == "png",
@@ -1687,7 +2249,7 @@ try:
     # WebP is clamped here even though Blender itself reads it: the constraint
     # is the FBX's consumers (a Maya file node reports a .webp as 0x0, measured
     # 2026-08-25, and a shipped webp-textured FBX bound nothing anywhere).
-    _tm._texture_file_type = "webp"
+    _tm.run = _tm.run.replace(texture_file_type="webp")
     check(
         "webp never reaches a scene image or the FBX (source kept)",
         _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) == "png"
@@ -1696,7 +2258,7 @@ try:
         f"{_tm._resolved_output_type('C:/tex/rock_Base_color.png', None)}",
     )
     # (that the GLB still carries webp is pinned above, by the container-only check)
-    _tm._texture_file_type = None
+    _tm.run = _tm.run.replace(texture_file_type=None)
     check(
         "Original defers to the template",
         _tm._resolved_output_type("C:/tex/rock_Base_color.png", None) is None,
@@ -1733,8 +2295,8 @@ try:
         )
     check(
         "KTX2 is inert (and ungated) for FBX-only output — it ships only in a GLB",
-        exp_ktx.task_manager._texture_file_type is None,
-        f"{exp_ktx.task_manager._texture_file_type!r}",
+        exp_ktx.task_manager.run.texture_file_type is None,
+        f"{exp_ktx.task_manager.run.texture_file_type!r}",
     )
 
     gate_dir = os.path.join(tmp, "ktx2_gate")
@@ -1754,6 +2316,39 @@ try:
         "a missing toktx aborts before any file is written",
         gate_result is False and os.listdir(gate_dir) == [],
         f"result={gate_result}, dir={os.listdir(gate_dir)}",
+    )
+
+    # KTX2 + PNG/JPEG reaches every consumer as the ktx2 container, plus the one
+    # flag the GLB pass forwards; stamped per run, so plain KTX2 and Original
+    # never inherit the previous run's twins. Mirror of mayatk's.
+    twin_dir = os.path.join(tmp, "ktx2_fallback")
+    os.makedirs(twin_dir, exist_ok=True)
+    exp_twin = SceneExporter(log_level="DEBUG")
+    twin_seen = []
+    for _file_type in (exp_twin.task_manager.KTX2_WITH_FALLBACK, "ktx2", ""):
+        with (
+            mock.patch.object(ptk.ImgUtils, "ktx2_available", return_value=True),
+            mock.patch.object(ptk.ImgUtils, "ensure_ktx2_encoder", return_value=None),
+            mock.patch.object(exp_twin, "_initialize_objects", return_value=[]),
+        ):
+            exp_twin.perform_export(
+                objects=[bpy.context.object],
+                export_dir=twin_dir,
+                tasks={"output_format": "glb", "texture_file_type": _file_type},
+            )
+        twin_seen.append(
+            (
+                exp_twin.task_manager.run.texture_file_type,
+                exp_twin.task_manager.run.ktx2_fallback,
+                exp_twin.task_manager._glb_texture_params()["ktx2_fallback"],
+            )
+        )
+    check(
+        "KTX2 + PNG/JPEG = the ktx2 container plus the twin flag; plain KTX2 and "
+        "Original never inherit it",
+        twin_seen
+        == [("ktx2", True, True), ("ktx2", False, False), (None, False, False)],
+        f"{twin_seen}",
     )
 
     # Consent seam: a missing toktx is OFFERED through confirm() (the panel's
@@ -1800,9 +2395,9 @@ try:
         consent_result is False
         and len(asked) == 1
         and "KTX-Software" in asked[0]
-        and exp_consent.task_manager._texture_file_type == "ktx2",
+        and exp_consent.task_manager.run.texture_file_type == "ktx2",
         f"result={consent_result}, asked={asked}, "
-        f"type={exp_consent.task_manager._texture_file_type!r}",
+        f"type={exp_consent.task_manager.run.texture_file_type!r}",
     )
 
     declined_dir = os.path.join(tmp, "ktx2_declined")
@@ -1857,9 +2452,9 @@ try:
     check(
         "a template saved before the unification still loads (legacy key mapped)",
         legacy_result is True
-        and exp_legacy.task_manager._texture_file_type == "webp"
+        and exp_legacy.task_manager.run.texture_file_type == "webp"
         and delivered.get("image_format") == "WEBP",
-        f"result={legacy_result}, stamp={exp_legacy.task_manager._texture_file_type!r}, "
+        f"result={legacy_result}, stamp={exp_legacy.task_manager.run.texture_file_type!r}, "
         f"delivered={delivered}",
     )
 
@@ -1876,14 +2471,15 @@ try:
         )
     check(
         "the new key wins over the legacy one",
-        exp_both.task_manager._texture_file_type == "png",
-        f"{exp_both.task_manager._texture_file_type!r}",
+        exp_both.task_manager.run.texture_file_type == "png",
+        f"{exp_both.task_manager.run.texture_file_type!r}",
     )
 
     # REGRESSION: run_tasks returns early on an empty task dict, so a run with
-    # nothing checked never reaches _execute_tasks_and_checks. Stamping the
-    # texture dials there let the PREVIOUS run's Optimize Textures survive and
-    # re-encode the next GLB behind the user; perform_export stamps them now.
+    # nothing checked never reaches the dispatcher. Stamping the texture dials
+    # there let the PREVIOUS run's Optimize Textures survive and re-encode the
+    # next GLB behind the user; perform_export hands the manager a fresh
+    # ExportRun (begin_run) now, which every run goes through.
     exp_stale = SceneExporter(log_level="DEBUG")
     stale_dir = os.path.join(tmp, "stale_state")
     os.makedirs(stale_dir, exist_ok=True)
@@ -1893,7 +2489,7 @@ try:
             export_dir=stale_dir,
             tasks={"output_format": "glb", "optimize_textures": True},
         )
-    first = exp_stale.task_manager._optimize_textures_enabled
+    first = exp_stale.task_manager.run.optimize_textures
     with mock.patch.object(ptk.MeshConvert, "fbx_to_glb", side_effect=_fake_convert):
         exp_stale.perform_export(
             objects=[bpy.context.object],
@@ -1903,10 +2499,10 @@ try:
     check(
         "a run with no tasks does not inherit the prior run's texture pass",
         first is True
-        and exp_stale.task_manager._optimize_textures_enabled is False
+        and exp_stale.task_manager.run.optimize_textures is False
         and exp_stale.task_manager._glb_texture_params()
         == ptk.MeshConvert.web_delivery_texture_params(),
-        f"first={first}, second={exp_stale.task_manager._optimize_textures_enabled}",
+        f"first={first}, second={exp_stale.task_manager.run.optimize_textures}",
     )
 
     fail_dir = os.path.join(tmp, "glb_delivery_fail")
@@ -2004,13 +2600,16 @@ try:
     _tm_res = _exp_res.task_manager
     _dispatched = []
 
-    def _record(tasks):
-        _dispatched.append(dict(tasks))
+    # The resume goes to the dispatcher directly, never through run_tasks:
+    # run_tasks re-derives the run's task-driven modes from what it is handed,
+    # and a subset would zero the Optimize Keys level mid-run (mirror of mayatk).
+    def _record(tasks_only, checks_only):
+        _dispatched.append(dict(tasks_only))
         return True
 
     _tm_res._last_skipped_tasks = ["convert_to_relative_paths"]
     _tm_res._last_task_count, _tm_res._last_check_count = 7, 4
-    _tm_res.run_tasks = _record
+    _tm_res._execute_tasks_and_checks = _record
     _exp_res._resume_skipped_tasks(
         {"convert_to_relative_paths": True, "set_linear_unit": "cm"}
     )
@@ -2362,8 +2961,10 @@ try:
 
         tb_tm = SceneExporter().task_manager
         tb_tm.objects = [tb_cube]
-        tb_tm._glb_only = True  # temp staging; the GLB embeds its own copies
-        tb_tm._texture_write_back = False
+        tb_tm.run = tb_tm.run.replace(
+            output_format="glb"
+        )  # temp staging; the GLB embeds its own copies
+        tb_tm.run = tb_tm.run.replace(texture_write_back=False)
         tb_orig_fp = tb_tex_node.image.filepath
         tb_src_size = os.path.getsize(tb_src)
 
@@ -2436,7 +3037,7 @@ try:
             and "texture_max_size" not in tb_tm.TASK_ORDER,
             f"sizes={tb_sizes}",
         )
-        tb_tm._texture_max_size = tb_tm.TEXTURE_MAX_SIZE_TEMPLATE
+        tb_tm.run = tb_tm.run.replace(texture_max_size=tb_tm.TEXTURE_MAX_SIZE_TEMPLATE)
         check(
             "_texture_size_clamp: sentinel enforces the template budget "
             "(no POT), no-op without a template; ceiling = max_size; OFF = {}",
@@ -2444,11 +3045,11 @@ try:
             == {"enforce_budget": True, "force_pot": False}
             and tb_tm._texture_size_clamp(None) == {}
             and (
-                setattr(tb_tm, "_texture_max_size", "1024")
+                setattr(tb_tm, "run", tb_tm.run.replace(texture_max_size="1024"))
                 or tb_tm._texture_size_clamp(None) == {"max_size": 1024}
             )
             and (
-                setattr(tb_tm, "_texture_max_size", "OFF")
+                setattr(tb_tm, "run", tb_tm.run.replace(texture_max_size="OFF"))
                 or tb_tm._texture_size_clamp("glTF 2.0") == {}
             ),
         )
@@ -2460,7 +3061,7 @@ try:
         _PILImage.new("RGB", (512, 256), (128, 128, 128)).save(tb_big)
         tb_tex_node.image = bpy.data.images.load(tb_big)
         tb_big_fp = tb_tex_node.image.filepath
-        tb_tm._texture_max_size = 128
+        tb_tm.run = tb_tm.run.replace(texture_max_size=128)
         passed, msgs = tb_tm.check_texture_optimization(True)
         check(
             "max size: over-size source fails the gate before the task",
@@ -2484,12 +3085,42 @@ try:
             f"staged={clamped_dims} src={big_dims} msgs={msgs}",
         )
         tb_tm.run_deferred_restores()
-        tb_tm._texture_max_size = None
+        tb_tm.run = tb_tm.run.replace(texture_max_size=None)
         check(
             "max size: restore repoints the image",
             tb_tex_node.image.filepath == tb_big_fp,
             f"filepath={tb_tex_node.image.filepath}",
         )
+
+        # An inefficiently encoded PNG with nothing to change is re-encoded when
+        # the deliverable carries the scene's maps, and the copy ships only when
+        # it saves RECOMPRESS_MIN_SAVING; GLB-only skips it (the GLB pass
+        # re-encodes every map). Mirrors mayatk, 2026-09-13.
+        tb_bloated = os.path.join(tmp, "bloated_src.png")
+        _PILImage.new("RGB", (256, 256), (128, 128, 128)).save(
+            tb_bloated, compress_level=0
+        )
+        tb_tex_node.image = bpy.data.images.load(tb_bloated)
+        tb_bloated_fp = tb_tex_node.image.filepath
+        tb_tm.run = tb_tm.run.replace(output_format="glb")
+        tb_tm.optimize_textures(True)
+        check(
+            "recompress: GLB-only leaves a bloated PNG to the GLB pass",
+            tb_tex_node.image.filepath == tb_bloated_fp,
+            f"filepath={tb_tex_node.image.filepath}",
+        )
+        tb_tm.run = tb_tm.run.replace(output_format="fbx")
+        tb_tm.optimize_textures(True)
+        tb_recompressed = tb_tex_node.image.filepath
+        check(
+            "recompress: an FBX deliverable ships a smaller re-encode of the same pixels",
+            os.path.normcase(tb_recompressed) != os.path.normcase(tb_bloated_fp)
+            and os.path.isfile(tb_recompressed)
+            and os.path.getsize(tb_recompressed) < os.path.getsize(tb_bloated) / 2,
+            f"staged={tb_recompressed}",
+        )
+        tb_tm.run_deferred_restores()
+        tb_tm.run = tb_tm.run.replace(output_format="glb")
 
     # ---- tiled-token substitution: <uvtile>/<f> must not collapse onto "1001" -------------
     # Bug: the single-token substitution used "1001" for every token kind. <udim> -> "1001"
@@ -2580,12 +3211,10 @@ try:
     # The default is part of the parity: off, a scene with shots exports
     # shot_metadata naming clips the file does not contain (mayatk pins the
     # same, test_scene_exporter.test_takes_are_default_on_beside_the_carrier).
+    _takes_row = SceneExporter().task_manager.task_definitions["apply_declared_takes"]
     check(
-        "apply_declared_takes defaults ON, like the carrier it describes",
-        SceneExporter().task_manager.task_definitions["apply_declared_takes"][
-            "setChecked"
-        ]
-        is True,
+        "apply_declared_takes defaults to Shots + Full Sequence, like the carrier it describes",
+        list(_takes_row["add"].values())[_takes_row["setCurrentIndex"]] == "both",
         "off, the deliverable describes shots it cannot play",
     )
 
@@ -2661,6 +3290,36 @@ try:
         bool(meta_raw)
         and [s["clip"] for s in json.loads(meta_raw)["shots"]] == ["open", "close"],
         f"{meta_raw!r}",
+    )
+
+    # A Full Sequence Only export DECLARES its mode on the shot_metadata envelope
+    # (mirror of mayatk's): fbx_takes still lists every shot, so the deliverable
+    # gate reads the declared mode instead of calling the shots missing.
+    # Added: 2026-09-15
+    reset_scene()
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    bpy.ops.mesh.primitive_cube_add()
+    full_cube = bpy.context.active_object
+    full_cube.name = "FullSequenceCube"
+    for frame, x in ((1, 0.0), (30, 4.0)):
+        full_cube.location.x = x
+        full_cube.keyframe_insert("location", frame=frame)
+    takes_store.publish_export_view()
+    full_result = SceneExporter().perform_export(
+        export_dir=out_dir,
+        objects=[full_cube],
+        output_name="takes_full_test",
+        export_visible=True,
+        tasks={"export_data_node": True, "apply_declared_takes": "full"},
+    )
+    full_data = SceneDataSidecar.read_data(os.path.join(out_dir, "takes_full_test.fbx"))
+    full_meta = (full_data or {}).get("shot_metadata") or {}
+    check(
+        "a Full Sequence Only export declares its mode on the shot_metadata envelope",
+        full_result is True
+        and full_meta.get(ptk.MeshConvert.SHOT_CLIP_MODE_KEY) == "full",
+        f"result={full_result} meta={full_meta!r}",
     )
 
     # An empty store publishes a CLEAR; the takes task then finds no channel
@@ -2960,10 +3619,13 @@ try:
 
     _tm_br, _scene_br = _br_manager()
     _tm_br._required_range_coverage = (5, 260)
-    _tm_br.objects = list(_tm_br.objects)  # the per-run reseed
+    _tm_br.objects = list(_tm_br.objects)  # tasks assign this mid-run: no reset
+    _kept_mid_run = _tm_br._required_range_coverage == (5, 260)
+    _tm_br.begin_run(_tm_br.run)  # the per-run reset
     check(
         "the realized-take range is cleared per run (never leaks to the next export)",
-        _tm_br._required_range_coverage is None,
+        _kept_mid_run and _tm_br._required_range_coverage is None,
+        f"kept mid-run={_kept_mid_run} after={_tm_br._required_range_coverage}",
     )
 
     # REGRESSION (found while reordering): export_data_node stages the emissive
@@ -3200,6 +3862,177 @@ try:
         _lresult is True and os.path.isfile(os.path.join(_pdir, "progress_late.fbx")),
         f"result={_lresult}",
     )
+    reset_scene()
+
+    # ---- Output Filename: one wildcard for the default, {tokens} for the rest -------------
+    # The field composes LAST — after the RegEx, which shapes the default name the
+    # wildcard stands for. Mirrors mayatk's test_scene_exporter.py.
+    _ndir = os.path.join(tmp, "names")
+    os.makedirs(_ndir, exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ndir, "test_scene.blend"))
+
+    def _stem_for(output_name, name_regex=None, timestamp=False):
+        _e = SceneExporter()
+        _e.export_dir = _ndir
+        _e.output_name = output_name
+        _e.name_regex = name_regex
+        _e.timestamp = timestamp
+        return os.path.splitext(os.path.basename(_e.generate_export_path()))[0]
+
+    for _pattern, _expected in (
+        (None, "test_scene"),
+        ("", "test_scene"),
+        ("*", "test_scene"),
+        ("*_export", "test_scene_export"),
+        ("WIP_*", "WIP_test_scene"),
+        ("WIP_*_export", "WIP_test_scene_export"),
+        ("asset", "asset"),  # no wildcard — a literal name
+    ):
+        _got = _stem_for(_pattern)
+        check(
+            f"output name {_pattern!r} resolves to {_expected!r}",
+            _got == _expected,
+            f"got={_got!r}",
+        )
+
+    _got = _stem_for("{folder}_{scene}")
+    check(
+        "{tokens} fill from the .blend",
+        _got == f"{os.path.basename(_ndir)}_test_scene",
+        f"got={_got!r}",
+    )
+    _got = _stem_for("{nope}_x")
+    check(
+        "an unsupported token is left in the name as typed",
+        _got == "{nope}_x",
+        f"got={_got!r}",
+    )
+    _got = _stem_for("WIP_*", name_regex="test_->prod_")
+    check(
+        "the wildcard resolves AFTER the regex, which shapes the default name",
+        _got == "WIP_prod_scene",
+        f"got={_got!r}",
+    )
+    _got = _stem_for("test_asset", name_regex="test_->prod_")
+    check(
+        "a literal name is the user's explicit choice — the regex leaves it be",
+        _got == "test_asset",
+        f"got={_got!r}",
+    )
+    _got = _stem_for("{scene}_my text", name_regex="test_->prod_")
+    check(
+        "the regex shapes {scene} too — every token spelling the file name carries it",
+        _got == "prod_scene_my text",
+        f"got={_got!r}",
+    )
+    _got = _stem_for("*_v{n:03d}")
+    check(
+        "a {n} counter versions the export", _got == "test_scene_v001", f"got={_got!r}"
+    )
+    open(os.path.join(_ndir, "test_scene_v003.fbx"), "w").close()
+    _got = _stem_for("*_v{n:03d}")
+    check(
+        "the counter takes the next free version",
+        _got == "test_scene_v004",
+        f"got={_got!r}",
+    )
+    open(os.path.join(_ndir, "test_scene_v006.glb"), "w").close()
+    _e = SceneExporter()
+    _glb = _e.resolve_export_path("*_v{n:03d}", _ndir, output_format="glb")
+    _pair = _e.resolve_export_path("*_v{n:03d}", _ndir, output_format="fbx_glb")
+    check(
+        "a GLB-only export counts .glb siblings; FBX + GLB versions as one pair",
+        [os.path.basename(p) for p in _glb["paths"]] == ["test_scene_v007.glb"]
+        and [os.path.basename(p) for p in _pair["paths"]]
+        == ["test_scene_v007.fbx", "test_scene_v007.glb"],
+        f"glb={_glb['paths']} pair={_pair['paths']}",
+    )
+    _e = SceneExporter()
+    _e.export_dir, _e.output_name = _ndir, "WIP_*"
+    _legacy = os.path.basename(
+        _e.generate_export_path(version_format="{stem}_v{n:03d}")
+    )
+    check(
+        "the retired Version pattern still resolves for one release",
+        _legacy == "WIP_test_scene_v001.fbx",
+        f"got={_legacy!r}",
+    )
+    import logging as _layout_logging
+
+    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
+        SceneExporterSlots as _LayoutSlots,
+    )
+    from blendertk.env_utils.scene_exporter.task_manager import (
+        TaskManager as _LayoutTasks,
+    )
+
+    check(
+        "the Version row and the Timestamp checkbox are folded into the filename",
+        "version"
+        not in _LayoutTasks(_layout_logging.getLogger("layout")).task_definitions
+        and "version"
+        not in [n for _, names in _LayoutSlots._SETTINGS_LAYOUT for n in names]
+        and "n" in SceneExporter.NAME_TOKENS,
+    )
+    for _stale in ("test_scene_v003.fbx", "test_scene_v006.glb"):
+        os.remove(os.path.join(_ndir, _stale))
+    _got = _stem_for("*_a?b")
+    check(
+        "a character illegal in a filename cannot reach the write",
+        _got == "test_scene_ab",
+        f"got={_got!r}",
+    )
+    # The field's hover resolves through the same call as the write, so the two
+    # cannot drift — and it resolves QUIETLY, since it renders the diagnostics
+    # itself and a hover must not file a warning per mouse-over.
+    import logging as _logging
+    from types import SimpleNamespace as _NS
+
+    from uitk.widgets.mixins.tooltip_mixin import TooltipFormat as _Tip
+    from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
+        SceneExporterSlots as _Slots,
+    )
+
+    _slots = _Slots.__new__(_Slots)
+    _slots.sb = _NS(tooltip=_Tip)
+    _slots.ui = _NS(
+        txt000=_NS(text=lambda: _ndir),
+        txt001=_NS(text=lambda: "WIP_*_{nope}"),
+        txt002=_NS(text=lambda: ""),
+        cmb004=_NS(currentData=lambda: "fbx"),
+    )
+
+    class _Counter(_logging.Handler):
+        count = 0
+
+        def emit(self, record):
+            _Counter.count += 1
+
+    _handler = _Counter(level=_logging.WARNING)
+    _slots.logger.addHandler(_handler)
+    _html = _slots.output_name_preview()
+    _slots.logger.removeHandler(_handler)
+
+    check(
+        "hovering the field logs nothing — the tooltip shows the diagnostics itself",
+        _Counter.count == 0,
+        f"records={_Counter.count}",
+    )
+    check(
+        "the tooltip teaches every token, with the wildcard first",
+        ">*</td>" in _html and all("{" + t + "}" in _html for t in _slots.NAME_TOKENS),
+    )
+    check(
+        "an unsupported token is flagged, not silently kept",
+        "unknown" in _html,
+    )
+    check(
+        "the tooltip previews the path the export would write",
+        os.path.join(_ndir, "WIP_test_scene_{nope}.fbx") in _html,
+        _html[-200:],
+    )
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()
 
     shutil.rmtree(tmp, ignore_errors=True)

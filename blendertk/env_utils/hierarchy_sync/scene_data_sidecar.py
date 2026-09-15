@@ -93,8 +93,9 @@ class SceneDataSidecar:
     """
 
     # Anchored to end-of-stem so it only matches genuine version suffixes, not mid-name
-    # occurrences like 'arch_v2_proxy'.
-    VERSION_SUFFIX_RE = re.compile(r"_v\d+$", re.IGNORECASE)
+    # occurrences like 'arch_v2_proxy'. pythontk's one copy, which the Output Filename's
+    # version counter writes against and ExportVerifier reads.
+    VERSION_SUFFIX_RE = ptk.ExportProfile.VERSION_SUFFIX_RE
 
     FORMAT_VERSION = 3
 

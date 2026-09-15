@@ -93,6 +93,11 @@ class _AnimUtilsInternal(object):
         return AnimUtils.get_fcurves(objects)
 
     @staticmethod
+    def _is_fcurve(obj):
+        """Whether *obj* is an fcurve rather than something that owns some."""
+        return hasattr(obj, "keyframe_points") and hasattr(obj, "data_path")
+
+    @staticmethod
     def _animation_data_owners(o):
         """``(level, animation_data)`` pairs for every place *o* can hang animation:
         the object itself, its data block (mesh/camera/light properties), and its
@@ -341,13 +346,19 @@ class _AnimUtilsInternal(object):
         )
 
     @staticmethod
-    def _remove_flat_keys(fc, tolerance):
+    def _remove_flat_keys(fc, tolerance, candidate=None):
         """Remove interior keys that sit on a flat segment (value equal to both neighbours within
-        ``tolerance``); keeps the boundary keys. Returns the number removed."""
+        ``tolerance``); keeps the boundary keys. Returns the number removed.
+
+        ``candidate(key)`` narrows WHICH interior keys may go; a key it refuses
+        stays and becomes a boundary for the rest (:func:`AnimUtils.get_redundant_flat_keys`)."""
         pts = fc.keyframe_points
         removed = 0
         i = len(pts) - 2
         while i >= 1:
+            if candidate is not None and not candidate(pts[i]):
+                i -= 1
+                continue
             prev_v, cur_v, next_v = pts[i - 1].co.y, pts[i].co.y, pts[i + 1].co.y
             if abs(cur_v - prev_v) <= tolerance and abs(next_v - cur_v) <= tolerance:
                 pts.remove(pts[i], fast=True)
@@ -398,15 +409,38 @@ class _AnimUtilsInternal(object):
         return len(times) - len(kept), max_error
 
     @staticmethod
-    def _simplify_fcurve(fc, tolerance):
+    def _simplify_fcurve(fc, tolerance, candidate=None):
         """Greedy collinear reduction — drop an interior key when its value is within ``tolerance``
         of the straight line between its neighbours (a light decimate). Returns the number removed.
         The caller (:func:`optimize_keys`) runs ``fc.update()`` once afterward (as for
-        :func:`_remove_flat_keys`)."""
+        :func:`_remove_flat_keys`).
+
+        ``candidate(key)`` narrows WHICH interior keys may go — a key it refuses is
+        kept and becomes a neighbour the rest are measured against, which is how a
+        windowed or selection-scoped pass keeps its two ends and everything outside
+        it (:func:`AnimUtils.simplify_curve`). The first and last key of the curve are
+        never candidates whatever it says."""
         pts = fc.keyframe_points
         removed = 0
         i = 1
         while i < len(pts) - 1:
+            if candidate is not None and not candidate(pts[i]):
+                i += 1
+                continue
+            # A key reached by a STEP is not on any line: the segment before it
+            # holds the previous value, so dropping it extends that hold and
+            # moves every frame in between.  Maya's keyReducer refuses a
+            # stepped curve outright for the same reason; here the refusal is
+            # per key, and a stepped HOLD is still cleaned -- by the flat pass
+            # (:meth:`AnimUtils.get_redundant_flat_keys`), where equal values
+            # make the removal exact.  Without this a staircase 0/5/10 read as
+            # collinear and simplified into a ramp.
+            if (
+                pts[i - 1].interpolation == "CONSTANT"
+                or pts[i].interpolation == "CONSTANT"
+            ):
+                i += 1
+                continue
             x0, y0 = pts[i - 1].co
             x1, y1 = pts[i].co
             x2, y2 = pts[i + 1].co
@@ -642,12 +676,24 @@ class AnimUtils(_AnimUtilsInternal):
 
     @staticmethod
     def get_fcurves(objects):
-        """All fcurves across the given objects' actions (slot-aware; public for slot code/tests)."""
-        return [
-            fc
-            for action, slot in _AnimUtilsInternal._actions(objects)
-            for fc in _AnimUtilsInternal._slot_fcurves(action, slot)
-        ]
+        """All fcurves across the given objects' actions (slot-aware; public for slot code/tests).
+
+        An FCURVE passed in comes straight back out, so a caller that already
+        holds the channels it means -- a sub-row's ``curves_for_attr`` -- can
+        hand them to any helper here and have the edit stop at those channels.
+        The mirror of ``mtk.AnimUtils.objects_to_curves`` passing anim curves
+        through, and the reason an attribute scope needs no name matching on
+        this side: in Blender the fcurve IS the channel.
+        """
+        objs, curves = [], []
+        for o in ptk.make_iterable(objects):
+            (curves if _AnimUtilsInternal._is_fcurve(o) else objs).append(o)
+        for action, slot in _AnimUtilsInternal._actions(objs):
+            curves.extend(_AnimUtilsInternal._slot_fcurves(action, slot))
+        # Not de-duplicated, as before: ``is`` is unreliable on non-ID RNA structs
+        # (see ``_actions``) and an O(n^2) scan would cost every scene-wide caller
+        # for a case only a mixed objects+fcurves argument can produce.
+        return curves
 
     @staticmethod
     def get_animated_extent(objects):
@@ -1636,6 +1682,130 @@ class AnimUtils(_AnimUtilsInternal):
     #: read as reversing a bake (that is ``SmartBake.restore``) when it only
     #: thins one. Remove in the release after.
     unbake_keys = reduce_to_extremes
+
+    @staticmethod
+    def get_redundant_flat_keys(
+        objects,
+        value_tolerance=1e-5,
+        remove=False,
+        time_range=None,
+        selected_only=False,
+    ):
+        """Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.
+
+        A key whose value matches both neighbours within *value_tolerance* is
+        redundant: the boundary pair alone reproduces the hold. Returns
+        ``[(fcurve, [times]), ...]``; ``remove=True`` deletes them.
+
+        This is the pass that matters on hand-animated footage, where a hold is
+        usually spelled with ``CONSTANT`` interpolation — and a stepped curve is
+        exactly what :func:`simplify_curve` will not touch. Scope narrows the same
+        two ways as that function and *objects* may be fcurves.
+        """
+
+        def candidate(key):
+            if selected_only and not key.select_control_point:
+                return False
+            if time_range is not None:
+                return time_range[0] <= key.co.x <= time_range[1]
+            return True
+
+        scoped = time_range is not None or selected_only
+        out = []
+        for fc in _AnimUtilsInternal._fcurves(objects):
+            before = {k.co.x for k in fc.keyframe_points}
+            n = (
+                _AnimUtilsInternal._remove_flat_keys(
+                    fc, value_tolerance, candidate if scoped else None
+                )
+                if remove
+                else 0
+            )
+            if remove:
+                if n:
+                    fc.update()
+                    gone = sorted(before - {k.co.x for k in fc.keyframe_points})
+                    out.append((fc, gone))
+                continue
+            pts = list(fc.keyframe_points)
+            gone = [
+                pts[i].co.x
+                for i in range(1, len(pts) - 1)
+                if (not scoped or candidate(pts[i]))
+                and abs(pts[i].co.y - pts[i - 1].co.y) <= value_tolerance
+                and abs(pts[i + 1].co.y - pts[i].co.y) <= value_tolerance
+            ]
+            if gone:
+                out.append((fc, gone))
+        return out
+
+    @staticmethod
+    def simplify_curve(
+        objects, value_tolerance=0.001, time_range=None, selected_only=False
+    ):
+        """Drop the keys that do not contribute to a curve's shape — mirror of
+        ``mtk.AnimUtils.simplify_curve``. Returns the fcurves that lost a key.
+
+        The optimizer's ``simplify`` rung (:func:`_simplify_fcurve`) offered on its own
+        so a caller can aim it at a SELECTION instead of a scene. Scope narrows two ways
+        and both keep the boundary keys: ``time_range`` reduces only inside the window,
+        ``selected_only`` only the keys selected in the Dope Sheet / Graph Editor. They
+        compose with *objects*, which may be fcurves — the attribute-level scope, since
+        in Blender the fcurve is the channel.
+
+        A key reached by a STEP is never removed: it is not on any line, so dropping it
+        would extend the hold before it. Stepped HOLDS are the flat pass's job
+        (:meth:`get_redundant_flat_keys`), where equal values make the cut exact.
+
+        Maya reduces through ``filterCurve(keyReducer)``, which weighs a key against the
+        whole curve's shape; this is the greedy collinear pass, which weighs it against
+        its two neighbours. Same verb and same scope rules, different engine — the
+        parity contract is behaviour, not the arithmetic.
+        """
+
+        def in_scope(key):
+            if selected_only and not key.select_control_point:
+                return False
+            if time_range is not None:
+                return time_range[0] <= key.co.x <= time_range[1]
+            return True
+
+        def protected(fc):
+            """The x of the first and last key of each in-scope RUN.
+
+            Measured against Maya, which is the reference here: reducing the
+            selected keys 3-7 and 13-17 of a 0-20 ramp leaves 3, 7, 13 and 17
+            standing.  Without this the greedy pass eats a run whole -- its
+            out-of-scope neighbours anchor the line -- and the motion OUTSIDE
+            the selection changes, which is the one thing a scoped edit must
+            not do.
+            """
+            ends, run = set(), []
+            for key in sorted(fc.keyframe_points, key=lambda k: k.co.x):
+                if in_scope(key):
+                    run.append(key.co.x)
+                    continue
+                if run:
+                    ends.update((run[0], run[-1]))
+                    run = []
+            if run:
+                ends.update((run[0], run[-1]))
+            return ends
+
+        scoped = time_range is not None or selected_only
+        simplified = []
+        for fc in _AnimUtilsInternal._fcurves(objects):
+            candidate = None
+            if scoped:
+                ends = protected(fc)
+
+                def candidate(key, _ends=ends):
+                    return in_scope(key) and key.co.x not in _ends
+
+            if _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance, candidate):
+                fc.update()
+                simplified.append(fc)
+        return simplified
 
     @staticmethod
     def optimize_keys(

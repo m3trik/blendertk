@@ -398,6 +398,55 @@ try:
         json.dumps(manifest.get("materials", {}))[:120] if manifest else "",
     )
 
+    # Every lightmap copy the native export ships says what it ships. The bake
+    # writes each object's marker before the web encode exists -- the EXR at 1.0
+    # beside its authoring folder (measured 2026-09-15) -- so the written file is
+    # corrected (ptk.MeshConvert.fix_glb_lightmap_metadata).
+    def floor_marker_and_map(parsed, web_manifest):
+        node = next(
+            (n for n in parsed.get("nodes", []) if n.get("name") == "floor"), {}
+        )
+        raw_marker = (node.get("extras") or {}).get("lightmapInfo")
+        marker = json.loads(raw_marker) if isinstance(raw_marker, str) else {}
+        if "mesh" not in node:
+            return marker, {}
+        prim = parsed["meshes"][node["mesh"]]["primitives"][0]
+        material = parsed["materials"][prim["material"]]["name"]
+        return marker, (web_manifest or {}).get("materials", {}).get(material, {})
+
+    marker, worn = floor_marker_and_map(gltf, manifest)
+    check(
+        "the floor's marker names the embedded map at its scalar",
+        bool(worn)
+        and marker.get("map") == worn.get("map")
+        and marker.get("intensity") == worn.get("intensity"),
+        f"marker={marker} lightmap_web={worn}",
+    )
+    check("...and ships no authoring folder", bool(marker) and "dir" not in marker)
+
+    # The route a caller composes itself (tentacle's scene slot): a direct export
+    # inside wired_for_export, which corrects the file it is given on exit.
+    direct_glb = os.path.join(tmp_dir, "direct.glb")
+    with web.wired_for_export(glb_path=direct_glb):
+        bpy.ops.export_scene.gltf(
+            filepath=direct_glb, export_format="GLB", export_extras=True
+        )
+    dgltf = glb_json(direct_glb)
+    draw = ((dgltf.get("scenes") or [{}])[0].get("extras") or {}).get(
+        LightmapWebExport.EXTRAS_KEY
+    )
+    dmarker, dworn = floor_marker_and_map(
+        dgltf, json.loads(draw) if isinstance(draw, str) else draw
+    )
+    check(
+        "a direct export inside wired_for_export(glb_path=) is corrected too",
+        bool(dworn)
+        and dmarker.get("map") == dworn.get("map")
+        and dmarker.get("intensity") == dworn.get("intensity")
+        and "dir" not in dmarker,
+        f"marker={dmarker} lightmap_web={dworn}",
+    )
+
     # The wiring is transport-only: the source materials must come back untouched.
     leftover = [
         n.name

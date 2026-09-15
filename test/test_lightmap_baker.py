@@ -611,21 +611,21 @@ try:
 
     # --- the lightmap is named after the TEXTURE SET, not the material -------------
     # A lightmap is one more map of the set the object already wears, so it has to sort
-    # beside them: MAT_OFFICE_ENV_Lightmap.exr next to OFFICE_ENV_Base_color.png reads as
+    # beside them: MAT_ROOM_ENV_Lightmap.exr next to ROOM_ENV_Base_color.png reads as
     # a stray from a different set. The material above carries no image nodes, so nothing
     # here is exercised by the atlas checks -- a regression would pass them silently.
-    named_mat = btk.create_mat("standard", name="MAT_OFFICE_ENV")
-    for fname in ("OFFICE_ENV_Base_color.png", "OFFICE_ENV_Normal.png", "stray_noise.png"):
+    named_mat = btk.create_mat("standard", name="MAT_ROOM_ENV")
+    for fname in ("ROOM_ENV_Base_color.png", "ROOM_ENV_Normal.png", "stray_noise.png"):
         img = bpy.data.images.new(fname, 4, 4)
         img.name = fname
         tex_node = named_mat.node_tree.nodes.new("ShaderNodeTexImage")
         tex_node.image = img
     check("naming: the texture set's base name wins over the material name",
-          atlas_baker._material_texture_base("MAT_OFFICE_ENV") == "OFFICE_ENV",
-          f"{atlas_baker._material_texture_base('MAT_OFFICE_ENV')}")
+          atlas_baker._material_texture_base("MAT_ROOM_ENV") == "ROOM_ENV",
+          f"{atlas_baker._material_texture_base('MAT_ROOM_ENV')}")
     check("naming: one oddly-named map cannot rename the whole set",
-          atlas_baker._atlas_base("MAT_OFFICE_ENV", ["AtlasA"]) == "OFFICE_ENV",
-          f"{atlas_baker._atlas_base('MAT_OFFICE_ENV', ['AtlasA'])}")
+          atlas_baker._atlas_base("MAT_ROOM_ENV", ["AtlasA"]) == "ROOM_ENV",
+          f"{atlas_baker._atlas_base('MAT_ROOM_ENV', ['AtlasA'])}")
     check("naming: a material with no textures falls back to its own name",
           atlas_baker._atlas_base("atlas_shared_mat", ["AtlasA"]) == "atlas_shared_mat",
           f"{atlas_baker._atlas_base('atlas_shared_mat', ['AtlasA'])}")
@@ -644,7 +644,7 @@ try:
     named = atlas_baker.bake_atlas([named_cube], output_dir=named_cube_dir, suffix="_Lightmap")
     named_files = sorted(os.listdir(named_cube_dir)) if os.path.isdir(named_cube_dir) else []
     check("naming: a solo group's map is named for its texture set, not the object",
-          named_files == ["OFFICE_ENV_Lightmap.exr"], f"{named_files}")
+          named_files == ["ROOM_ENV_Lightmap.exr"], f"{named_files}")
     atlas_baker.revert([named_cube])
 
     # --- the bake leaves the source material alone ------------------------
@@ -1248,7 +1248,7 @@ try:
     dep_baker.revert()
 
     # --- a HIDDEN mesh is baked, not refused ------------------------------
-    # Production blocker: one hidden mesh among 48 in the OFFICE_ENV room aborted
+    # Production blocker: one hidden mesh among 48 in the ROOM_ENV room aborted
     # the whole lightmap job. ``bpy.ops.object.mode_set`` refuses a hidden object
     # ("Cannot edit hidden object"), so create_lightmap_uvs raised out of the
     # entire batch; and even past that, Cycles skips a ``hide_render`` object, so

@@ -1977,12 +1977,20 @@ class ShotSequencerController(
         self._sync_to_widget()
 
     def on_selection_changed(self, clip_ids: list) -> None:
+        """Select the clicked clips' objects, and their CHANNEL if they name one.
+
+        A sub-row clip means one channel, exactly as picking it in the Dope
+        Sheet does; an object row means the whole object and clears the
+        channel selection rather than listing the object's channels, so a
+        mixed selection is object-scoped.
+        """
         if not clip_ids or self._syncing:
             return
         widget = self._get_sequencer_widget()
         if widget is None:
             return
         resolved, labels = [], []
+        chan_attrs, whole_object = [], False
         for cid in clip_ids:
             clip = widget.get_clip(cid)
             if clip is None:
@@ -1991,9 +1999,13 @@ class ShotSequencerController(
             if not obj:
                 continue
             resolved.append(self._resolve_full_name(obj))
-            attrs = clip.data.get("attributes") or (
-                [clip.data.get("attr_name")] if clip.data.get("attr_name") else []
-            )
+            attr_name = clip.data.get("attr_name")
+            if attr_name:
+                if attr_name not in chan_attrs:
+                    chan_attrs.append(attr_name)
+            else:
+                whole_object = True
+            attrs = clip.data.get("attributes") or ([attr_name] if attr_name else [])
             start, end = clip.data.get("orig_start"), clip.data.get("orig_end")
             parts = [obj]
             if attrs:
@@ -2002,6 +2014,8 @@ class ShotSequencerController(
                 parts.append(f"{start:.0f}–{end:.0f} ({int(end - start)}f)")
             labels.append(" · ".join(parts))
         self._select_and_show(resolved)
+        if chan_attrs or whole_object:  # something addressable was clicked
+            self._select_channels(resolved, () if whole_object else chan_attrs)
         if labels:
             self._set_footer(
                 "  |  ".join(labels[:3])
@@ -2011,7 +2025,66 @@ class ShotSequencerController(
     def on_track_selected(self, track_names: list) -> None:
         if not track_names:
             return
-        self._select_and_show([self._resolve_full_name(n) for n in track_names])
+        names = [self._resolve_full_name(n) for n in track_names]
+        self._select_and_show(names)
+        self._select_channels(names)  # a header label is the whole object
+
+    def on_sub_track_selected(self, rows: list) -> None:
+        """Select a channel when its sub-row label is clicked in the header.
+
+        ``rows`` is ``[(track_name, attr_name), ...]``.  Mirror of mayatk's
+        handler; where that one highlights the Channel Box, this selects the
+        fcurve CHANNELS, which is what the Dope Sheet and Graph Editor scope
+        their own operations by.
+        """
+        if not rows:
+            return
+        objs, attrs = [], []
+        for track_name, attr_name in rows:
+            full = self._resolve_full_name(track_name)
+            if full not in objs:
+                objs.append(full)
+            if attr_name and attr_name not in attrs:
+                attrs.append(attr_name)
+        self._select_and_show(objs)
+        self._select_channels(objs, attrs)
+        shown = ", ".join(attrs[:6]) + (f" +{len(attrs) - 6}" if len(attrs) > 6 else "")
+        self._set_footer(
+            f"{len(attrs)} channel{'s' if len(attrs) != 1 else ''}: {shown}"
+        )
+
+    def _select_channels(self, obj_names, attrs=()) -> None:
+        """Select *attrs*' fcurves on the named objects; no attrs clears the selection.
+
+        Blender has no Channel Box: the channel scope IS the fcurve's own
+        ``select`` flag, which the Dope Sheet and Graph Editor show and read.
+        Everything on the objects is deselected first so the flag states the
+        panel's pick rather than adding to whatever was there.
+
+        *obj_names* are names, what every caller holds (``_resolve_full_name``),
+        resolved to objects once here: ``AnimUtils.get_fcurves`` reads
+        ``animation_data`` off an object, so handed a name it found no fcurves
+        and the clear was a silent no-op.
+        """
+        from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
+            ClipMotionMixin,
+        )
+
+        try:
+            import bpy
+        except ImportError:
+            return
+        objects = [
+            obj
+            for obj in (bpy.data.objects.get(name) for name in obj_names)
+            if obj is not None
+        ]
+        for fc in AnimUtils.get_fcurves(objects):
+            fc.select = False
+        for obj in objects:
+            for attr in attrs:
+                for fc in ClipMotionMixin.curves_for_attr(obj.name, attr):
+                    fc.select = True
 
     def on_clip_locked(self, clip_id: int, locked: bool) -> None:
         widget = self._get_sequencer_widget()
@@ -2408,9 +2481,12 @@ class ShotSequencerController(
 
     #: The key edits offered under the key menu's Edit row, as
     #: ``(label, method name)``.  Declared rather than inlined so the two
-    #: forks can be read side by side: these four are spelled identically in
-    #: both, unlike the tangent rows above them.
+    #: forks can be read side by side: these five are spelled identically in
+    #: both -- a test on each side pins the LIST, so a row added to one
+    #: fork and not the other fails on the side that drifted -- unlike
+    #: the tangent rows above them.
     _KEY_EDITS = (
+        ("Simplify", "_simplify_selected_keys"),
         ("Remove Intermediate Keys", "_thin_selected_keys"),
         ("Snap Fractional Keys", "_snap_selected_keys"),
         ("Invert Keys", "_invert_selected_keys"),
@@ -2446,6 +2522,23 @@ class ShotSequencerController(
     def _target_objects(targets: list) -> list:
         """*targets*' objects, de-duplicated, in the order they appear."""
         return list(dict.fromkeys(obj for obj, _a, _t, _s in targets))
+
+    @staticmethod
+    def _target_curves(targets: list) -> list:
+        """The fcurves behind *targets*' (object, attribute) pairs.
+
+        The attribute-level scope: an edit handed these reaches only the
+        channels the user selected, where one handed :meth:`_target_objects`
+        reaches every channel those objects carry.
+        """
+        from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
+            ClipMotionMixin,
+        )
+
+        curves = []
+        for obj, attr, _times, _sid in targets:
+            curves.extend(ClipMotionMixin.curves_for_attr(obj, attr))
+        return curves
 
     @staticmethod
     def _target_span(targets: list) -> tuple:
@@ -2546,13 +2639,59 @@ class ShotSequencerController(
         result = self._key_scene_edit(label, lambda: fn(objects, span), shot_id=shot_id)
         return True, result
 
+    def _simplify_selected_keys(self, targets) -> None:
+        """Drop the selected keys that do not change the curve's shape.
+
+        Both of the optimizer's middle passes, aimed at a key selection
+        instead of a scene: the FLAT pass (``get_redundant_flat_keys``), which
+        is the one that matters on real footage because a hold is normally
+        spelled with ``CONSTANT`` interpolation and a stepped curve is exactly
+        what the reducer will not touch, then the SHAPE pass
+        (``simplify_curve``).  Both are scoped to the selected channels'
+        fcurves and, within them, the selected keys, so neither reaches the
+        channels beside the one the user highlighted and the selection's ends
+        survive.  Mirror of mayatk's ``_simplify_selected_keys``.
+        """
+        curves = self._target_curves(targets)
+
+        def _run(_objects, span):
+            flat = AnimUtils.get_redundant_flat_keys(
+                curves, remove=True, selected_only=True, time_range=span
+            )
+            shaped = AnimUtils.simplify_curve(
+                curves, selected_only=True, time_range=span
+            )
+            return sum(len(times) for _c, times in flat), len(shaped)
+
+        ran, counts = self._key_selection_edit(targets, "Simplify", _run)
+        if not ran:
+            return
+        n_flat, n_shaped = counts or (0, 0)
+        if n_flat or n_shaped:
+            parts = []
+            if n_flat:
+                parts.append(f"{n_flat} flat key{'s' if n_flat != 1 else ''}")
+            if n_shaped:
+                parts.append(f"{n_shaped} curve{'s' if n_shaped != 1 else ''} reduced")
+            self._set_footer("Simplified: " + ", ".join(parts))
+        else:
+            self._set_footer(
+                "Nothing to simplify — every selected key carries value or shape"
+            )
+
     def _thin_selected_keys(self, targets) -> None:
-        """Keep only the first and last key of each selected fcurve."""
+        """Keep only the first and last key of each selected fcurve.
+
+        The fcurves are passed outright rather than the objects that own them:
+        an fcurve IS a channel here, so this is the attribute scope mayatk
+        states with ``remove_intermediate_keys(attributes=...)``.
+        """
+        curves = self._target_curves(targets)
         ran, n = self._key_selection_edit(
             targets,
             "Remove Intermediate Keys",
-            lambda objects, span: AnimUtils.remove_intermediate_keys(
-                objects, time_range=span
+            lambda _objects, span: AnimUtils.remove_intermediate_keys(
+                curves, time_range=span
             ),
         )
         if ran:
@@ -3409,6 +3548,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         ("track_deleted", "delete_track"),
         ("selection_changed", "on_selection_changed"),
         ("track_selected", "on_track_selected"),
+        ("sub_track_selected", "on_sub_track_selected"),
         ("track_menu_requested", "on_track_menu"),
         ("clip_locked", "on_clip_locked"),
         ("undo_requested", "on_undo"),

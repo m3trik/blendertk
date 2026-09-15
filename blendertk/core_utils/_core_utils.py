@@ -518,7 +518,9 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         correctly once its expression is re-assigned as the *last* operation (see
         ``RigUtils.refresh_drivers``), and a trailing ``undo_push`` (as :func:`undoable` does) re-stales
         it. Pushing the checkpoint first keeps the build a single undo step while leaving the driver
-        recompile as the final operation.
+        recompile as the final operation. The cost: no step holds the state AFTER ``fn``, so
+        Redo right after cannot bring the build back (measured in background Blender 5.1,
+        2026-09-15).
         """
 
         @wraps(fn)

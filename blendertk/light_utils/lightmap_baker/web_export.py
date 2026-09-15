@@ -551,8 +551,10 @@ class LightmapWebExport(ptk.LoggingMixin):
         Native rather than the FBX->FBX2glTF chain the Maya deliverable uses: the source is
         already Blender, so Principled BSDF maps straight onto ``pbrMetallicRoughness`` with
         no second translation, and the exporter is what emits ``TEXCOORD_1`` for the wired
-        lightmap. *manifest* rides the scene's custom properties into the glTF root
-        ``extras``, so the deliverable is self-describing.
+        lightmap. *manifest* rides the scene's custom properties into the first scene's
+        ``extras``, so the deliverable is self-describing. The exporter writes each
+        object's lightmap marker as the scene holds it, so the written file is then
+        corrected to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``).
 
         Passing *objects* exports **only those objects**: Blender's exporter has no
         "include ancestors" option, so a mesh list drops the group Empties above it. World
@@ -617,6 +619,10 @@ class LightmapWebExport(ptk.LoggingMixin):
                     del scene[self.EXTRAS_KEY]
                 else:
                     scene[self.EXTRAS_KEY] = prior
+        # The markers (and any manifest) ride out as the scene holds them -- the
+        # EXR at 1.0 beside its authoring folder -- so the file is told what it
+        # ships. A no-op on an unbaked scene.
+        ptk.MeshConvert.fix_glb_lightmap_metadata(path)
         return path
 
     def _downsize_images(self, max_size: Optional[int]) -> List[Any]:
@@ -668,6 +674,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         objects=None,
         carrier: str = "occlusion",
         percentile: Optional[float] = None,
+        glb_path: Optional[str] = None,
     ) -> Iterator[Optional[Dict[str, Any]]]:
         """The scene's COMMITTED lightmaps, wired for a native glTF export.
 
@@ -682,6 +689,13 @@ class LightmapWebExport(ptk.LoggingMixin):
         A scene with no committed bake yields ``None`` and touches nothing, which is what
         makes it safe to wrap around *every* GLB export unconditionally: the exporter needs
         no knowledge of whether, or how, the scene was baked.
+
+        *glb_path* is the GLB the block writes. Blender's exporter ships each object's
+        marker (and the data_export manifest) as the scene holds them -- the EXR at
+        1.0 beside its authoring folder -- so on a clean exit that file is corrected
+        to what it ships (``ptk.MeshConvert.fix_glb_lightmap_metadata``).
+        :meth:`export_glb` does this for its own file; a caller exporting directly
+        passes *glb_path*.
         """
         import bpy
 
@@ -740,6 +754,8 @@ class LightmapWebExport(ptk.LoggingMixin):
         scene[self.EXTRAS_KEY] = json.dumps(manifest)
         try:
             yield manifest
+            if glb_path and os.path.isfile(glb_path):
+                ptk.MeshConvert.fix_glb_lightmap_metadata(glb_path)
         finally:
             self.unwire_lightmaps(token)
             if prior is None:
