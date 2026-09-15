@@ -50,7 +50,6 @@ import json
 import shutil
 import time
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Union, Any
 
@@ -215,6 +214,25 @@ class SceneExporter(ptk.LoggingMixin):
         """
         return bool(ptk.AppInstaller.consent(True, question))
 
+    def _warn_stopped_before_write(self, verdict: str) -> None:
+        """Warn that the run stopped before its write, naming what it left behind.
+
+        Mirror of mayatk's: every staged edit unwinds in :meth:`perform_export`'s
+        ``finally``, and what stays is what a finished export keeps too -- the
+        repairs, the key tasks' edits (no Animation Output gate here yet), and a
+        write-back mode's in-place edits -- which the tasks record as they make
+        them (``TaskFactory.kept_edits``). Named only when a task left one.
+        """
+        kept = self.task_manager.kept_edits
+        if not kept:
+            self.logger.warning(verdict)
+            return
+        self.logger.warning(
+            f"{verdict} Kept in the scene, as a finished export keeps them: "
+            f"{', '.join(kept)}. Revert to the saved file if that is not what "
+            "you want."
+        )
+
     def confirm_check_override(self) -> bool:
         """Ask, at the failure point, whether to export despite failed checks.
 
@@ -258,9 +276,10 @@ class SceneExporter(ptk.LoggingMixin):
 
         Only the skipped names are re-dispatched; the tasks above the failed
         check already ran, and re-running them would repeat their mutation.
-        Safe because every ``set_`` task here registers a deferred restore
-        rather than a ``revert_`` pair, so the first pass's staged state is
-        still in effect (see ``TaskFactory._get_revert_method``).
+        The first pass's staged state is still in effect (deferred restores
+        unwind once, from perform_export's ``finally``), and the run's modes
+        are NOT re-derived from this subset -- ``run_tasks`` reads them off
+        the full dict, so the resume goes through the dispatcher directly.
         """
         tm = self.task_manager
         skipped = [
@@ -279,14 +298,18 @@ class SceneExporter(ptk.LoggingMixin):
             getattr(tm, "_last_task_count", 0),
             getattr(tm, "_last_check_count", 0),
         )
+        # ...and the checks the abort skipped, which the second pass (tasks
+        # only) would clear: the banner must not count them as passed.
+        skipped_checks = list(getattr(tm, "_last_skipped_checks", ()) or ())
         # The first pass closed its progress stream with every entry done,
         # these included; rewind so the resumed entries advance to, never
         # past, that mark.
         self._progress_base = max(0, self._progress_current - len(skipped))
         try:
-            tm.run_tasks({name: tasks[name] for name in skipped})
+            tm._execute_tasks_and_checks({name: tasks[name] for name in skipped}, {})
         finally:
             tm._last_task_count, tm._last_check_count = counts
+            tm._last_skipped_checks = skipped_checks
 
     # ------------------------------------------------------------------
     # Progress -- one (current, total, message) stream for the whole run
@@ -384,7 +407,7 @@ class SceneExporter(ptk.LoggingMixin):
 
     #: The Output Format row (``cmb004``): label -> ``output_format`` token.
     #: APPEND-ONLY -- the combo (and every saved preset) persists by index.
-    OUTPUT_FORMATS = {"FBX": "fbx", "GLB": "glb", "FBX + GLB": "fbx_glb", "USD": "usd"}
+    OUTPUT_FORMATS = ptk.ExportProfile.OUTPUT_FORMATS
 
     def _definition_tables(self):
         """``(tasks, checks)`` -- the panel's two definition tables, built once.
@@ -461,9 +484,12 @@ class SceneExporter(ptk.LoggingMixin):
         ``False`` cancels the run before its next step: nothing is written,
         and the tasks that already ran stay applied (as after a failed
         check). Once the write has begun a ``False`` is reported and ignored.
-        """
-        import bpy
 
+        *tasks* is EXACT (mirror of mayatk): only the entries it names run, and
+        an absent task or check is off -- there are no implicit defaults. The
+        panel sends every row (``ptk.ExportProfile.read_values``), so a headless
+        caller that wants the panel's behaviour passes every row it wants on.
+        """
         # First, so a caller's level/handler sees every message of this run,
         # the early aborts below included.
         self._setup_logging(log_level, log_handler)
@@ -471,21 +497,18 @@ class SceneExporter(ptk.LoggingMixin):
         self.logger.info("Starting export process ...")
 
         # Default to the saved .blend's directory when none is given.
+        self.export_dir = self._resolve_export_dir(export_dir)
+        if not self.export_dir:
+            self.logger.error(
+                "Export directory not set and the file is unsaved — save "
+                "the file or specify an output directory."
+            )
+            return False
         if not export_dir:
-            if bpy.data.filepath:
-                export_dir = os.path.dirname(bpy.data.filepath)
-                self.logger.info(
-                    f"No export directory given; exporting alongside the .blend "
-                    f"file: {export_dir}"
-                )
-            else:
-                self.logger.error(
-                    "Export directory not set and the file is unsaved — save "
-                    "the file or specify an output directory."
-                )
-                return False
-
-        self.export_dir = os.path.abspath(os.path.expandvars(export_dir))
+            self.logger.info(
+                f"No export directory given; exporting alongside the .blend "
+                f"file: {self.export_dir}"
+            )
 
         if not os.path.isdir(self.export_dir):
             self.logger.error(f"Export directory does not exist: {self.export_dir}")
@@ -499,23 +522,24 @@ class SceneExporter(ptk.LoggingMixin):
         self.hide_log_file = hide_log_file
 
         tasks = dict(tasks) if tasks else {}
-        version_format = tasks.pop("version", "") or ""
-        # Non-empty => sidecar paths route through the version base-stem so all
-        # versions of a series share one scene-data sidecar (mirror of mayatk's
-        # ``task_manager._version_format`` flag).
-        self._version_format = version_format
-        output_format = (tasks.pop("output_format", "") or "").lower()
-        if not output_format:
-            output_format = "fbx"
-        create_glb_enabled = output_format in ("glb", "fbx_glb")
-        glb_only = output_format == "glb"
+        # Every UI-only setting the export button's dict carries beside the
+        # tasks -- output format, texture file type, the two write-back flags,
+        # the size dial, the verification row and their legacy spellings --
+        # is popped into ONE frozen value object (``ptk.ExportRun``), the
+        # same parse mayatk uses, so none reaches the dispatcher as an unknown
+        # task and nothing is stamped on the manager piecemeal.
+        run, tasks, notes = ptk.ExportRun.from_tasks(
+            tasks, TaskManager._texture_file_type_options.values()
+        )
+        for level, message in notes:
+            getattr(self.logger, level)(message)
+        if any(level == "error" for level, _ in notes):
+            return False  # a config error (an unknown texture file type)
         # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
         # up to the write; the FBX-only knobs (preset, takes, GLB) are reported
         # inert rather than silently ignored.
-        usd = output_format == "usd"
-        self._usd_format = usd
         self._usd_options = dict(usd_options or {})
-        if usd:
+        if run.usd:
             for key in ("apply_declared_takes", "set_bake_animation_range"):
                 if tasks.get(key):
                     self.logger.warning(
@@ -527,147 +551,70 @@ class SceneExporter(ptk.LoggingMixin):
                     "The FBX export preset does not apply to a USD export "
                     f"(ignored: {self.preset_name})."
                 )
+        if run.texture_file_type == "ktx2":
+            # Encoder presence is ENVIRONMENT state, so this gate is
+            # unconditional (never a user-toggleable check row) and runs
+            # before the first scene mutation — a missing toktx is settled
+            # in second zero, not after N-1 objects already exported.
+            # Missing = offer the managed KTX-Software install through
+            # :meth:`confirm` (the panel's dialog; a console [y/N]
+            # headless) and carry on when accepted; a decline or a failed
+            # install aborts with the install URL. Abort idiom, not a
+            # raise: the panel's export button reads the return value and
+            # the log.
+            try:
+                if not ptk.ImgUtils.ktx2_available():
+                    self.logger.info(
+                        "KTX2 delivery needs KTX-Software's toktx, which is "
+                        "not installed: offering the managed install."
+                    )
+                installed = ptk.ImgUtils.ensure_ktx2_encoder(prompt=self.confirm)
+            except FileNotFoundError as e:
+                self.logger.error(f"Export aborted: {e}")
+                return False
+            if installed:
+                self.logger.info(f"Installed KTX-Software (toktx): {installed}")
 
-        # Texture File Type: ONE container dial for every texture the export
-        # ships — the scene maps the optimization pass writes AND a GLB's
-        # embedded copies (each destination clamps what it cannot carry; see
-        # TaskManager._resolved_output_type / _glb_texture_params). Parsed here
-        # so the KTX2 gate can fail BEFORE any scene work, and stamped on the
-        # task manager (mirror of mayatk).
-        #
-        # ``glb_texture_format`` is the legacy key this replaced (it drove the
-        # GLB alone, beside a redundant "Optimize GLB Textures" flag that the
-        # general Optimize Textures now covers); an older template keeps
-        # working, with the new key winning when both are present.
-        texture_file_type = str(tasks.pop("texture_file_type", "") or "").lower()
-        legacy_glb_format = str(tasks.pop("glb_texture_format", "") or "").lower()
-        tasks.pop("glb_optimize_textures", None)  # redundant: see Optimize Textures
-        if not texture_file_type and legacy_glb_format:
-            texture_file_type = legacy_glb_format
-            self.logger.debug(
-                f"Legacy 'glb_texture_format' {legacy_glb_format!r} read as "
-                "'texture_file_type'."
-            )
-        texture_file_type = texture_file_type.lstrip(".") or None
-        known = set(TaskManager._texture_file_type_options.values()) - {None, ""}
-        if texture_file_type and texture_file_type not in known:
-            # A hand-edited template / headless caller can send anything; an
-            # unknown value discovered here is a config error and aborts
-            # loudly — discovered at encode time it would fail per-image and
-            # ship an effectively-unencoded texture set behind warning noise.
-            self.logger.error(
-                f"Export aborted: unknown texture_file_type "
-                f"{texture_file_type!r} (expected one of "
-                f"{', '.join(sorted(known))}, or empty for Original)."
-            )
-            return False
-        if texture_file_type == "ktx2":
-            if not create_glb_enabled:
-                # KTX2 is a delivery-only container: no scene image or FBX
-                # importer reads it, so with no GLB to carry it the choice has
-                # nowhere to land. Inert, not an error.
-                self.logger.info(
-                    "Texture File Type 'KTX2' ignored: it can only ship inside "
-                    "a GLB, and the output format produces none."
-                )
-                texture_file_type = None
-            else:
-                # Encoder presence is ENVIRONMENT state, so this gate is
-                # unconditional (never a user-toggleable check row) and runs
-                # before the first scene mutation — a missing toktx is settled
-                # in second zero, not after N-1 objects already exported.
-                # Missing = offer the managed KTX-Software install through
-                # :meth:`confirm` (the panel's dialog; a console [y/N]
-                # headless) and carry on when accepted; a decline or a failed
-                # install aborts with the install URL. Abort idiom, not a
-                # raise: the panel's export button reads the return value and
-                # the log.
-                try:
-                    if not ptk.ImgUtils.ktx2_available():
-                        self.logger.info(
-                            "KTX2 delivery needs KTX-Software's toktx, which is "
-                            "not installed: offering the managed install."
-                        )
-                    installed = ptk.ImgUtils.ensure_ktx2_encoder(prompt=self.confirm)
-                except FileNotFoundError as e:
-                    self.logger.error(f"Export aborted: {e}")
-                    return False
-                if installed:
-                    self.logger.info(f"Installed KTX-Software (toktx): {installed}")
-        self.task_manager._texture_file_type = texture_file_type
-
-        # Texture Output write-back flag: a mode read by convert_textures and
-        # optimize_textures, never a dispatched task — popped here (mirror of
-        # mayatk) and stamped on the task manager.
-        # Legacy key (mirror of mayatk): presets saved before the rename carry
-        # ``optimize_textures_write_back``. Left unmapped it survives the pop,
-        # reaches the task dispatch as an unknown task, and the run silently
-        # falls back to Export Copies -- losing the user's saved setting with
-        # only a log line.
-        _write_back = tasks.pop("texture_write_back", None)
-        if _write_back is None:
-            _write_back = tasks.pop("optimize_textures_write_back", False)
-        else:
-            tasks.pop("optimize_textures_write_back", None)  # new key wins
-        self.task_manager._texture_write_back = bool(_write_back)
-        # The optimization pass's size dial (OFF / a pixel ceiling / the
-        # template-budget sentinel), read by optimize_textures and its paired
-        # check through _texture_size_clamp — a mode like the write-back flag,
-        # never a dispatched task. In the panel it rides the Optimize Textures
-        # combo (b000 decomposes the choice into this key); headless callers
-        # pass it explicitly. Falsy = OFF. Mirrors mayatk.
-        self.task_manager._texture_max_size = tasks.pop("texture_max_size", None)
-        # What the texture pass was asked for, read (not popped — they are real
-        # tasks) so the GLB half can resolve the same two dials after the
-        # pipeline has run (``TaskManager._glb_texture_params``). Stamped HERE
-        # with every other per-run mode rather than inside
-        # ``_execute_tasks_and_checks``: ``run_tasks`` returns early on an empty
-        # task dict, so a run with nothing checked would otherwise leave the
-        # PREVIOUS run's values standing and re-encode the GLB behind the user.
-        optimize_textures = tasks.get("optimize_textures")
-        self.task_manager._optimize_textures_enabled = bool(optimize_textures)
-        template = tasks.get("convert_textures")
-        self.task_manager._texture_template = (
-            template
-            if isinstance(template, str)
-            else (optimize_textures if isinstance(optimize_textures, str) else None)
+        resolved = self.resolve_export_path(
+            self.output_name,
+            self.export_dir,
+            output_format=run.output_format,
+            version_format=run.version_format,
+            timestamp=self.timestamp,
         )
-
-        self.export_path = self.generate_export_path(
-            version_format=version_format, extension=".usd" if usd else ".fbx"
-        )
+        self.export_path = resolved["path"]
         self.logger.debug(f"Generated export path: {self.export_path}")
-        # Texture-budget staging inputs (mirror of mayatk's stamps): the
-        # optimize_textures task keys its staging policy off whether the
-        # deliverable carries its own texture copies, and needs the export
-        # path to place durable staging beside the deliverable. Stamping the
-        # path also lets check_path_length measure it, as the Maya twin does.
-        self.task_manager.export_path = self.export_path
-        self.task_manager._glb_only = glb_only
 
         if self.create_log_file:
             self._setup_file_logging()
+
+        # The FBX export kwargs for this run: the named preset merged over the
+        # built-in defaults, or the defaults alone when no preset is selected.
+        # Called unconditionally so a prior run's loaded preset never leaks
+        # into one with none picked -- and BEFORE the run begins, because
+        # whether the deliverable carries its own texture copies
+        # (``embed_textures``, or ``path_mode COPY``) is a run mode the
+        # texture passes key their staging on: either way nothing references
+        # staged files after the write, so they may stage into a temp dir.
+        self.load_fbx_export_preset(self.preset_name)
+        fbx_options = self._resolved_fbx_options()
+        run = run.replace(
+            export_path=self.export_path,
+            # A versioned name routes the sidecar through the base stem so
+            # every version of a series shares one manifest.
+            versioned=resolved["n"] is not None,
+            fbx_media_selfcontained=bool(fbx_options.get("embed_textures"))
+            or str(fbx_options.get("path_mode", "")).upper() == "COPY",
+        )
+        # The ONE per-run reset: the manager adopts this run's modes and drops
+        # every marker a previous run left, BEFORE the export set is seeded --
+        # so a run with no task checked still starts clean.
+        self.task_manager.begin_run(run)
 
         initialized_objs = self._initialize_objects(objects)
         if not initialized_objs:
             self.logger.error("Export aborted: No objects available for export.")
             return False
-
-        # Resolve the FBX export kwargs for this run: the named preset merged over the
-        # built-in defaults, or the defaults alone when no preset is selected. Called
-        # unconditionally so a prior run's loaded preset never leaks into one with none picked.
-        self.load_fbx_export_preset(self.preset_name)
-
-        # Whether the FBX deliverable carries its own texture copies —
-        # ``embed_textures`` packs them inside the file; ``path_mode COPY``
-        # makes the exporter copy the (possibly staged) sources beside it.
-        # Either way nothing references staged files after the write, so the
-        # optimize_textures task may stage into a temp dir and clean up.
-        fbx_options = self._resolved_fbx_options()
-        self.task_manager._fbx_media_selfcontained = (
-            bool(fbx_options.get("embed_textures"))
-            or str(fbx_options.get("path_mode", "")).upper() == "COPY"
-        )
 
         # Everything from here on can stage export-transient state (scene units,
         # the bake frame range, EmissiveGroups' keyed-weight curve proxies) that
@@ -678,9 +625,7 @@ class SceneExporter(ptk.LoggingMixin):
         self._overridden_checks = []  # per-run; see the attribute's __init__ note
         # Progress (mirror of mayatk): the pipeline's entries, then the write,
         # a GLB conversion and the sidecar -- one count for the run.
-        self._progress_begin(
-            progress_callback, tasks, phases=2 + int(create_glb_enabled)
-        )
+        self._progress_begin(progress_callback, tasks, phases=2 + int(run.create_glb))
         try:
             self._progress_note("Preparing export…")
             if tasks:
@@ -701,15 +646,10 @@ class SceneExporter(ptk.LoggingMixin):
                         )
                         self._resume_skipped_tasks(tasks)
                     else:
-                        # Checks run AFTER tasks, and tasks mutate the scene with
-                        # no automatic rollback — a blocked export must say so
-                        # instead of leaving the mutation silent. (The smart_bake
-                        # session IS restored, in the finally below.)
-                        self.logger.warning(
-                            "Export blocked by failed checks, but export tasks "
-                            "already ran — task edits (material cleanup, key "
-                            "snapping/tying, texture path rewrites, …) remain in "
-                            "the scene. Undo or revert if that is not what you want."
+                        # The staged edits unwind in the finally below; what the
+                        # tasks kept is named.
+                        self._warn_stopped_before_write(
+                            "Export blocked by failed checks."
                         )
                         return False
 
@@ -740,53 +680,26 @@ class SceneExporter(ptk.LoggingMixin):
                 self.logger.error("No objects to export.")
                 return False
 
-            return self._write_export(
-                export_objects, glb_only, create_glb_enabled, start_time
-            )
+            return self._write_export(export_objects, start_time)
         except ptk.OperationCancelled as e:
             # The progress callback asked to stop (Esc held over the panel's
             # footer; a headless caller's own gate). Only reachable before the
-            # write -- see _emit_progress -- so nothing shipped; the tasks that
-            # already ran stay applied, exactly as after a failed check.
+            # write -- see _emit_progress -- so nothing shipped; the staged
+            # edits unwind in the finally below and what the tasks kept is
+            # named, exactly as after a failed check.
             self._export_cancelled = True
-            self.logger.warning(
-                f"Export {e or 'cancelled'}. Task edits already made remain in "
-                "the scene — undo or revert if that is not what you want."
-            )
+            self._warn_stopped_before_write(f"Export {e or 'cancelled'}.")
             return False
         finally:
             self._progress_end()
             self.task_manager.run_deferred_restores()
-            # Restore the pre-bake scene state recorded by smart_bake's session
-            # manifest (swap the original actions back, unmute constraints and
-            # drivers) — mirror of mayatk's finally-block restore.  Without
-            # this, every export with Smart Bake on permanently muted the
-            # user's constraint/driver network and left the baked Action in
-            # place, despite the task's "restorable" contract.
-            _session = getattr(self.task_manager, "_bake_session_id", None)
-            if _session:
-                try:
-                    from blendertk.anim_utils.smart_bake._smart_bake import (
-                        SmartBake,
-                    )
-
-                    restore = SmartBake.restore(_session)
-                    if restore.success:
-                        self.logger.info(
-                            f"Restored pre-bake scene state (session '{_session}')."
-                        )
-                    else:
-                        # The session stays in the manifest until a restore
-                        # completes, so a manual retry is possible.
-                        self.logger.warning(
-                            f"SmartBake restore failed for session '{_session}' "
-                            "— constraints/drivers may still be muted; retry "
-                            f"with SmartBake.restore('{_session}')."
-                        )
-                except Exception as e:
-                    # Never mask an export exception from inside finally.
-                    self.logger.error(f"SmartBake restore failed: {e}")
-                self.task_manager._bake_session_id = None
+            # The bake session is among what run_deferred_restores just
+            # unwound: smart_bake stages its restore after every earlier
+            # task's, so LIFO undoes it first (it used to be a hand-rolled
+            # block here, before the registry). Every export with Smart Bake
+            # on once permanently muted the user's constraint/driver network
+            # and left the baked Action in place, despite the task's
+            # "restorable" contract.
             # Closed here rather than around the write: a failed check or an
             # aborted task returns before the write and used to leak the handler
             # (and with it the open .log file).
@@ -818,22 +731,20 @@ class SceneExporter(ptk.LoggingMixin):
             )
         return exportable
 
-    def _write_export(
-        self,
-        export_objects: List,
-        glb_only: bool,
-        create_glb_enabled: bool,
-        start_time: float,
-    ) -> bool:
+    def _write_export(self, export_objects: List, start_time: float) -> bool:
         """Write the FBX (and any GLB deliverable) for an already-prepared export
         set. Split out of :meth:`perform_export` so the staged-state cleanup can
         wrap the whole task+write span in one ``finally`` without nesting."""
         from blendertk.env_utils.fbx_utils import FbxUtils
 
+        run = self.task_manager.run
+        # From here the manager's set IS what ships: the GLB's scene sidecar,
+        # the scene-data sidecar and every post-write read describe it.
+        self.task_manager.objects = export_objects
         export_succeeded = False
         glb_tempdir = None
         try:
-            if glb_only:
+            if run.glb_only:
                 glb_tempdir = ptk.TempArtifacts("scene_exporter_glb").dir_path()
                 fbx_write_path = os.path.join(
                     glb_tempdir, os.path.basename(self.export_path)
@@ -841,12 +752,14 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 fbx_write_path = self.export_path
 
-            usd = bool(getattr(self, "_usd_format", False))
-            self._progress_step("Writing USD…" if usd else "Writing FBX…")
+            # Declared after every task (mirror of mayatk's bracket): the
+            # deliverable gates read the Animation Clips mode from it.
+            self.task_manager.publish_clip_mode()
+            self._progress_step("Writing USD…" if run.usd else "Writing FBX…")
             # From here the deliverable is finished regardless of a stop
             # request (see _emit_progress).
             self._progress_cancellable = False
-            if usd:
+            if run.usd:
                 self._write_usd(fbx_write_path, export_objects)
             else:
                 # Resolve -> repair -> report -> write, in that order: the settings
@@ -863,10 +776,10 @@ class SceneExporter(ptk.LoggingMixin):
             export_succeeded = True
 
             deliverable_path = self.export_path
-            if glb_only:
+            if run.glb_only:
                 self._progress_step("Converting to GLB…")
-                glb_path = self._create_glb(
-                    fbx_path=fbx_write_path, announce=False, objects=export_objects
+                glb_path = self.task_manager.create_glb(
+                    fbx_path=fbx_write_path, announce=False
                 )
                 if not (glb_path and os.path.exists(glb_path)):
                     self.logger.error(
@@ -890,28 +803,36 @@ class SceneExporter(ptk.LoggingMixin):
             c_cnt = getattr(tm, "_last_check_count", 0)
             overridden = self._overridden_checks
             f_cnt = len(overridden)
+            # Checks the failed one's abort dropped never ran; an override
+            # resumes the tasks, not them, so they are not "passed".
+            n_cnt = len(getattr(tm, "_last_skipped_checks", ()) or ())
             if t_cnt or c_cnt:
                 export_info_lines.append("")
                 export_info_lines.append(f"Tasks Executed: {t_cnt}")
                 if c_cnt:
                     # Never "N/N" after an override: the deliverable shipped
                     # WITH known failures and the banner is the record of it.
-                    export_info_lines.append(f"Checks Passed: {c_cnt - f_cnt}/{c_cnt}")
+                    export_info_lines.append(
+                        f"Checks Passed: {c_cnt - f_cnt - n_cnt}/{c_cnt}"
+                    )
                     if f_cnt:
                         export_info_lines.append(
                             f"Checks Overridden: {', '.join(overridden)}"
                         )
+                    if n_cnt:
+                        export_info_lines.append(f"Checks Not Run: {n_cnt}")
 
             self.logger.log_box("EXPORT SUCCESSFUL", export_info_lines, level="SUCCESS")
 
-            if create_glb_enabled and not glb_only:
+            glb_alongside = None
+            if run.create_glb and not run.glb_only:
                 self._progress_step("Converting to GLB…")
-                self._create_glb(objects=export_objects)
+                glb_alongside = self.task_manager.create_glb()
 
             # Write the scene-data sidecar (hierarchy baseline + data_export
             # snapshot) as the single LAST step of every mode, so it can
             # describe the deliverable that actually shipped rather than the
-            # state before the GLB existed. Safe after _create_glb because that
+            # state before the GLB existed. Safe after create_glb because that
             # never raises -- every failure path inside it logs and returns None
             # -- so a failed conversion still leaves the sidecar written, simply
             # without a section describing the GLB. An export that shipped
@@ -921,7 +842,9 @@ class SceneExporter(ptk.LoggingMixin):
             # logical export path (output dir + stem), independent of where the
             # FBX was actually written. Mirror of mayatk's ordering.
             self._progress_step("Writing scene sidecar…")
-            self._write_scene_data_sidecar(export_objects)
+            self.task_manager.write_scene_data_sidecar(
+                glb_path=deliverable_path if run.glb_only else glb_alongside
+            )
             self._progress_finish("Export complete")
         except Exception as e:
             self.logger.error(f"Failed to export objects: {e}")
@@ -934,141 +857,6 @@ class SceneExporter(ptk.LoggingMixin):
             return False
 
         return True
-
-    def _data_export_snapshot(self, export_objects: List) -> dict:
-        """Decoded copy of every ``data_export`` channel, as shipped in the FBX.
-
-        Empty dict when the carrier is absent, empty, or not part of
-        *export_objects* — the carrier is a hidden Empty, so it only ships
-        when the ``export_data_node`` task folded it into the export set,
-        and the record must only claim what actually shipped.  Never raises
-        — the record must not break the export it records.
-        """
-        try:
-            from blendertk.node_utils.data_nodes import DataNodes
-
-            carrier = DataNodes.get_export_node(create=False)
-            if carrier is None or carrier not in export_objects:
-                return {}
-            return DataNodes.dump(decode=True).get(DataNodes.EXPORT) or {}
-        except Exception:
-            self.logger.debug("data_export snapshot skipped.", exc_info=True)
-            return {}
-
-    def _write_scene_data_sidecar(self, export_objects: List) -> None:
-        """Write the sidecar JSON recording what shipped in the export.
-
-        Mirror of mayatk's ``TaskManager.write_scene_data_sidecar``, kept on
-        the engine here for the same reason as :meth:`_create_glb` —
-        blendertk's ``TaskManager`` carries no ``export_path`` of its own.
-        The hierarchy section is maintained when a manifest already exists
-        (the exporter-side hierarchy *check* isn't ported yet, so unlike
-        mayatk there is no check-ran trigger); the data section is recorded
-        whenever the ``data_export`` carrier shipped content.  A
-        metadata-free export leaves no sidecar.  Best-effort: the record
-        must never break the export it records.
-        """
-        export_path = getattr(self, "export_path", None)
-        if not export_path or not export_objects:
-            return
-        try:
-            sk = {"base_stem": bool(getattr(self, "_version_format", ""))}
-            SceneDataSidecar.migrate_legacy(export_path, **sk)
-            manifest_path = SceneDataSidecar.manifest_path_for(export_path, **sk)
-
-            data = self._data_export_snapshot(export_objects)
-            if not data and not os.path.exists(manifest_path):
-                return
-
-            paths = SceneDataSidecar.build_full_path_set(export_objects)
-            if (
-                SceneDataSidecar.write_manifest(export_path, paths, data=data, **sk)
-                is None
-            ):
-                self.logger.debug("Could not write scene-data sidecar")
-        except Exception:
-            self.logger.debug("scene-data sidecar write skipped.", exc_info=True)
-
-    @staticmethod
-    def _lightmap_search_dirs(objects: Optional[List] = None) -> List[str]:
-        """Folders the GLB applier joins the manifest's basenames against
-        (:meth:`LightmapBaker.search_dirs`, scoped to *objects*; mirror of
-        mayatk's ``TaskManager._lightmap_search_dirs``)."""
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
-
-        return LightmapBaker.search_dirs(objects or None)
-
-    def _create_glb(
-        self,
-        fbx_path: Optional[str] = None,
-        announce: bool = True,
-        objects: Optional[List] = None,
-    ) -> Optional[str]:
-        """Convert an exported FBX to a GLB through the shared build.
-
-        Runs after the FBX has been written; :meth:`perform_export` invokes this
-        explicitly rather than as part of the pre-export task pipeline. Mirror of
-        mayatk's ``TaskManager.create_glb``, kept on the engine here because
-        blendertk's ``TaskManager`` carries no ``export_path`` of its own -- the
-        FBX path is resolved from this engine's :attr:`export_path` instead.
-
-        The build is :class:`pythontk.GlbPipeline` -- the SAME chain the WebXR
-        preview publishes through -- handed this run's dials: the scene sidecar
-        built from *objects* (:class:`~blendertk.env_utils.scene_state.SceneState`,
-        the readers the preview shares), where the maps live NOW
-        (:meth:`_lightmap_search_dirs`) and the GLB's half of the panel's two
-        texture dials (``TaskManager._glb_texture_params``). A sidecar read
-        failure degrades to a bare conversion rather than costing the
-        deliverable; a failed conversion or texture pass fails it.
-
-        Parameters:
-            fbx_path: FBX to convert. Defaults to :attr:`export_path` (the
-                FBX-alongside case). The GLB-only path passes the temp FBX so the
-                ``.glb`` lands beside it (then gets moved into the output dir).
-            announce: When True, log the resulting path. The GLB-only path sets
-                this False and logs the final (moved) path itself.
-            objects: The export set the sidecar describes; ``None`` skips the
-                sidecar (bare conversion).
-
-        Returns:
-            The created ``.glb`` path, or ``None`` if the build failed.
-        """
-        from blendertk.env_utils.scene_state import SceneState
-
-        src = fbx_path or self.export_path
-        sidecar = None
-        if objects:
-            sidecar = ptk.GlbPipeline.envelope(
-                lambda: SceneState.read(objects),
-                source=SceneState.source(),
-                asset=os.path.basename(src),
-                logger=self.logger,
-            )
-        try:
-            built = ptk.GlbPipeline.build(
-                src,
-                sidecar=sidecar,
-                # Where the maps are NOW: the manifest's recorded authoring
-                # folder goes stale the moment the project is reorganised.
-                lightmap_dirs=self._lightmap_search_dirs(objects),
-                texture_params=self.task_manager._glb_texture_params(),
-                progress=self._progress_note,
-                logger=self.logger,
-            )
-        except (OSError, RuntimeError, ValueError) as e:
-            self.logger.error(f"GLB build failed: {e}")
-            return None
-
-        glb_path = built["glb"]
-        if announce:
-            self.logger.success(f"GLB created: {glb_path}")
-        return glb_path
-
-    #: The extensions an output name may carry -- stripped before the format's
-    #: own is appended, so "asset.fbx" typed into a USD export lands as
-    #: "asset.usd" rather than "asset.fbx.usd". The carrier vocabulary, not a
-    #: second list (``CARRIER_BY_EXTENSION`` holds every USD spelling too).
-    _DELIVERABLE_EXTENSIONS = tuple(ptk.CARRIER_BY_EXTENSION)
 
     #: ``wm.usd_export`` kwargs for the USD output format: the shared interchange
     #: set (``btk.UsdUtils.INTERCHANGE_EXPORT_OPTIONS``; a MaterialX network is a
@@ -1122,151 +910,162 @@ class SceneExporter(ptk.LoggingMixin):
         self.logger.info(f"USD written: {written}")
         return written
 
-    @classmethod
-    def _strip_deliverable_extension(cls, name: str) -> str:
-        """*name* without a trailing deliverable extension (whitelist strip: a
-        dotted version token is not an extension)."""
-        return ptk.StrUtils.strip_suffix(name, cls._DELIVERABLE_EXTENSIONS)
+    #: Stamped by ``perform_export`` from the panel's fields. Class-level
+    #: defaults so a name can be resolved before the first run -- the panel's
+    #: live tooltip preview resolves one on every hover. ``timestamp`` is the
+    #: retired Timestamp checkbox, honoured for one release
+    #: (``ptk.ExportProfile.fold_legacy_naming``).
+    output_name: Optional[str] = None
+    name_regex: Optional[str] = None
+    timestamp: bool = False
 
-    def generate_export_path(
-        self, version_format: str = "", extension: str = ".fbx"
-    ) -> str:
-        """Generate the full export file path.
+    #: The Output Filename's wildcard (``*``), version counter (``{n}``) and the
+    #: files each output format ships: the contract ``ptk.ExportProfile`` owns
+    #: for both DCC panels, re-exposed so the panel reads them off ``self``.
+    NAME_WILDCARD = ptk.ExportProfile.NAME_WILDCARD
+    VERSION_TOKEN = ptk.ExportProfile.VERSION_TOKEN
+    OUTPUT_EXTENSIONS = ptk.ExportProfile.OUTPUT_EXTENSIONS
 
-        Parameters:
-            version_format: If non-empty, treat as a pythontk-style
-                placeholder template (e.g. ``{stem}_v{n:03d}``) and resolve
-                the next-version path via ``FileUtils.next_version_path``.
-        """
+    #: Token -> meaning for every placeholder the Output Filename accepts, in
+    #: tooltip order (meanings are tooltip markup). A subclass extends the
+    #: vocabulary here; pythontk supplies the universal clock/user tokens.
+    NAME_TOKENS: Dict[str, str] = {
+        "name": "the default name: {scene}, or untitled while the file is unsaved",
+        "scene": "the .blend's basename with the RegEx applied (requires a saved file)",
+        "folder": "name of the folder the .blend lives in",
+        VERSION_TOKEN: "version number: one past the highest this name already "
+        "has in the output folder &mdash; <b>{n:03d}</b> pads it to 3 digits",
+        **ptk.StrUtils.NAME_PATTERN_TOKENS,
+    }
+
+    def _resolve_export_dir(self, export_dir: Optional[str]) -> str:
+        """The folder an export writes to: *export_dir* expanded, else the saved
+        .blend's own folder; ``""`` when there is neither (an unsaved file with
+        no directory set, which :meth:`perform_export` refuses)."""
         import bpy
 
-        if self.output_name and any(char in self.output_name for char in "*?"):
-            import glob
+        if export_dir:
+            return os.path.abspath(os.path.expandvars(export_dir))
+        return os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
 
-            pattern = self._strip_deliverable_extension(self.output_name)
-            pattern += extension.lower()
+    def name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]:
+        """Live value for every token in :attr:`NAME_TOKENS` but the counter.
 
-            search_path = os.path.join(self.export_dir, pattern)
-            matches = glob.glob(search_path)
+        The .blend's own tokens; pythontk adds the universal ones (date/time/user)
+        and samples them once, so a pattern using several cannot straddle a tick.
+        The counter resolves later, against the output folder
+        (:meth:`resolve_export_path`).
 
-            if matches:
-                matches.sort()
-                action = "using as version seed" if version_format else "overwriting"
-                self.logger.info(
-                    f"Wildcard '{self.output_name}' matched {len(matches)} files; "
-                    f"{action}: {matches[-1]}"
-                )
-                return self._apply_versioning(matches[-1], version_format)
-
-        scene_path = bpy.data.filepath or "untitled"
-        scene_name = os.path.splitext(os.path.basename(scene_path))[0]
-        export_name = self.output_name or scene_name
-        export_name = self._strip_deliverable_extension(export_name)
-        if self.timestamp:
-            export_name += f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-        export_name = self.format_export_name(export_name)
-        path = os.path.join(self.export_dir, f"{export_name}{extension.lower()}")
-        return self._apply_versioning(path, version_format)
-
-    def _apply_versioning(self, path: str, template: str) -> str:
-        """Resolve a version template into a concrete versioned path.
-
-        Two-stage substitution:
-          - Stage 1: substitute ``{date}``, ``{user}``, ``{scene}`` via
-            ``StrUtils.replace_placeholders`` (which preserves unresolved
-            ``{stem}``/``{n:NNd}`` placeholders along with their format spec).
-          - Stage 2: ``FileUtils.next_version_path`` resolves the next
-            available ``{n}`` by scanning the parent directory.
-
-        Returns the original path unchanged when the template is empty or
-        a guard condition prevents safe versioning (logs a warning in that
-        case so the user sees what happened).
+        *name_regex* overrides :attr:`name_regex` -- the panel reads its field
+        straight from the UI so the tooltip previews what the next export writes.
         """
         import bpy
-
-        if not template:
-            return path
-
-        if "{ext}" in template:
-            self.logger.warning(
-                "Version format should not include '{ext}' — extension is "
-                "handled automatically. Versioning skipped."
-            )
-            return path
-
-        stem, ext = os.path.splitext(os.path.basename(path))
-        if not stem or stem.lower() == "untitled":
-            self.logger.warning(
-                "Skipping versioning: export name is untitled — save the "
-                "file or pass an explicit output_name."
-            )
-            return path
-
-        import getpass
 
         scene_path = bpy.data.filepath or ""
-        scene_name = (
-            os.path.splitext(os.path.basename(scene_path))[0] if scene_path else ""
+        basename = os.path.splitext(os.path.basename(scene_path))[0]
+        # The RegEx shapes the file NAME, so every token spelling it carries
+        # it -- {scene} as much as * -- while typed text stays literal.
+        # "untitled" keeps an unsaved file exporting as it always has.
+        scene = self.format_export_name(basename, name_regex) if basename else ""
+        return ptk.StrUtils.name_pattern_context(
+            name=scene or "untitled",
+            scene=scene,
+            folder=os.path.basename(os.path.dirname(scene_path)),
         )
 
-        if "{scene}" in template and not scene_name:
-            self.logger.error(
-                "Version format uses '{scene}' but the file is unsaved. "
-                "Save the file or remove '{scene}' from the format. "
-                "Versioning skipped."
-            )
-            return path
+    def resolve_export_path(
+        self,
+        pattern: Optional[str] = None,
+        export_dir: Optional[str] = None,
+        output_format: str = "fbx",
+        name_regex: Optional[str] = None,
+        report: bool = True,
+        version_format: str = "",
+        timestamp: bool = False,
+    ) -> Dict[str, Any]:
+        """Resolve the Output Filename field into the file(s) an export writes.
 
-        expanded = ptk.StrUtils.replace_placeholders(
-            template,
-            date=datetime.now().date().isoformat(),
-            user=getpass.getuser(),
-            scene=scene_name,
+        ONE call behind the write and the panel's "writes" preview, so the two
+        cannot disagree (mirror of mayatk): this file's tokens
+        (:meth:`name_context`) through ``ptk.ExportProfile.resolve_output_path``,
+        the rule both DCC panels share (wildcard, ``{n}`` counter, the files the
+        format ships).
+
+        Parameters:
+            pattern: The Output Filename text.
+            export_dir: The folder written to; the counter scans it.
+            output_format: An :attr:`OUTPUT_EXTENSIONS` key.
+            name_regex: Overrides :attr:`name_regex` (see :meth:`name_context`).
+            report: Log what the pattern hit. The tooltip passes False: it
+                resolves on every hover and shows the diagnostics itself.
+            version_format: DEPRECATED -- the retired Version pattern.
+            timestamp: DEPRECATED -- the retired Timestamp checkbox.
+
+        Returns:
+            ``ExportProfile.resolve_output_path``'s dict (``path``, ``paths``,
+            ``n``, ``expanded``, ...) plus ``"context"``, the token values it
+            resolved against.
+        """
+        context = self.name_context(name_regex)
+        resolved = ptk.ExportProfile.resolve_output_path(
+            pattern,
+            context,
+            export_dir or "",
+            output_format=output_format,
+            version_format=version_format,
+            timestamp=timestamp,
         )
+        if report:
+            for level, message in ptk.ExportProfile.naming_report(
+                resolved,
+                self.NAME_TOKENS,
+                version_suffix=SceneDataSidecar.VERSION_SUFFIX_RE,
+            ):
+                getattr(self.logger, level)(message)
+        return dict(resolved, context=context)
 
-        if "{stem}" not in expanded and "{scene}" not in template:
-            self.logger.warning(
-                "Version format missing '{stem}' and '{scene}' — output name "
-                "and file identity will not appear in the resulting filename."
-            )
+    def generate_export_path(
+        self,
+        version_format: str = "",
+        extension: str = ".fbx",
+        output_format: Optional[str] = None,
+    ) -> str:
+        """The full export path, from the fields :meth:`perform_export` stamps.
 
-        internal_format = expanded + "{ext}"
+        A view of :meth:`resolve_export_path`, which the panel's preview calls
+        too.
 
-        class _Dummy(dict):
-            def __missing__(self, key):
-                return "x"
+        Parameters:
+            version_format: DEPRECATED -- the retired Version pattern; write a
+                ``{n}`` counter into the Output Filename instead.
+            extension: ``.usd`` selects the USD format when *output_format* is
+                not given; anything else FBX.
+            output_format: An :attr:`OUTPUT_EXTENSIONS` key.
+        """
+        if output_format is None:
+            output_format = "usd" if extension.lower() == ".usd" else "fbx"
+        return self.resolve_export_path(
+            self.output_name,
+            self.export_dir,
+            output_format=output_format,
+            version_format=version_format,
+            timestamp=self.timestamp,
+        )["path"]
 
-        try:
-            test_name = internal_format.format_map(_Dummy(stem="test", n=1, ext=ext))
-            test_stem = os.path.splitext(test_name)[0]
-            if not SceneDataSidecar.VERSION_SUFFIX_RE.search(test_stem):
-                self.logger.warning(
-                    f"Version format {template!r} produces names not matching '_v<N>'."
-                )
-        except (ValueError, IndexError, KeyError) as e:
-            self.logger.warning(f"Could not validate version format: {e}")
+    def format_export_name(self, name: str, name_regex: Optional[str] = None) -> str:
+        """Format the export name using a regex pattern and replacement (e.g. 'pattern->replace').
 
-        try:
-            new_path = ptk.FileUtils.next_version_path(path, format=internal_format)
-        except ValueError as e:
-            self.logger.error(f"Version format invalid: {e}. Versioning skipped.")
-            return path
-
-        self.logger.info(
-            f"Versioned export path: {os.path.basename(path)} -> "
-            f"{os.path.basename(new_path)}"
-        )
-        return new_path
-
-    def format_export_name(self, name: str) -> str:
-        """Format the export name using a regex pattern and replacement (e.g. 'pattern->replace')."""
-        if self.name_regex:
+        *name_regex* overrides :attr:`name_regex` (the panel passes its field's
+        live text so a tooltip preview matches the next export).
+        """
+        name_regex = self.name_regex if name_regex is None else name_regex
+        if name_regex:
             for delim in ("->", "=>", "|"):
-                if delim in self.name_regex:
-                    pattern, replacement = self.name_regex.split(delim, 1)
+                if delim in name_regex:
+                    pattern, replacement = name_regex.split(delim, 1)
                     break
             else:
-                pattern, replacement = self.name_regex, ""
+                pattern, replacement = name_regex, ""
             pattern = pattern.strip()
             replacement = replacement.strip()
             try:

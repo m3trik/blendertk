@@ -1110,6 +1110,58 @@ def _run_sequencer_checks():
     )
     check("_select_and_show still selected the in-layer object", vlg_vis.select_get())
 
+    # ---- _select_channels: every caller hands NAMES, and the pick replaces ----
+    # (pre-fix: the clear read ``animation_data`` off the name strings, found no
+    # fcurves, and left every earlier channel selected beside the new pick)
+    bpy.ops.mesh.primitive_cube_add()
+    chan_obj = bpy.context.active_object
+    chan_obj.name = "ChanSel"
+    chan_obj.keyframe_insert(data_path="location", frame=1)
+    chan_obj.keyframe_insert(data_path="rotation_euler", frame=1)
+
+    def _picked_channels():
+        return sorted(
+            (fc.data_path, fc.array_index)
+            for fc in BlenderShotStore.iter_action_fcurves(chan_obj)
+            if fc.select
+        )
+
+    def _pick_every_channel():
+        for fc in BlenderShotStore.iter_action_fcurves(chan_obj):
+            fc.select = True
+
+    chan_ctl = ShotSequencerController.__new__(ShotSequencerController)
+    chan_ctl.ui = None  # no footer to write to
+    chan_ctl._syncing = False
+    chan_ctl._get_sequencer_widget = lambda: _FakeWidget(
+        _FakeClip({"obj": "ChanSel", "attr_name": "rotateZ"})
+    )
+    for label, act, expected in (
+        (
+            "a header label clears the object's channel selection",
+            lambda: chan_ctl.on_track_selected(["ChanSel"]),
+            [],
+        ),
+        (
+            "a sub-row label selects only its channel",
+            lambda: chan_ctl.on_sub_track_selected([("ChanSel", "translateX")]),
+            [("location", 0)],
+        ),
+        (
+            "a sub-row clip selects only its channel",
+            lambda: chan_ctl.on_selection_changed([1]),
+            [("rotation_euler", 2)],
+        ),
+    ):
+        _pick_every_channel()
+        try:
+            act()
+            picked = _picked_channels()
+        except Exception as e:  # report, don't abort the suite
+            picked = repr(e)
+        check(f"_select_channels: {label}", picked == expected, f"{picked}")
+    bpy.data.objects.remove(chan_obj, do_unlink=True)
+
     # =====================================================================
     # mayatk-parity surface (2026-08-22): gap holds, motion/hold segments,
     # audio sequences, extend/fit, detect, expand/set_shot_start, to/from_dict

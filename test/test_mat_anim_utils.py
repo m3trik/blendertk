@@ -1520,6 +1520,205 @@ try:
         f"{stats}",
     )
 
+    # ---- simplify_curve -----------------------------------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    s = bpy.context.active_object
+    for f in range(0, 21):  # straight ramps: every middle key is shape-neutral
+        s.location.x = float(f)
+        s.location.z = float(f)
+        s.keyframe_insert("location", index=0, frame=f)
+        s.keyframe_insert("location", index=2, frame=f)
+    for fc in btk.get_fcurves(s):
+        for k in fc.keyframe_points:
+            k.interpolation = "LINEAR"
+
+    def _fc(obj, index):
+        return [
+            fc
+            for fc in btk.get_fcurves(obj)
+            if fc.data_path == "location" and fc.array_index == index
+        ][0]
+
+    def _times(obj, index):
+        return sorted(k.co.x for k in _fc(obj, index).keyframe_points)
+
+    # an FCURVE argument is the attribute scope: the sibling channel is untouched
+    btk.simplify_curve([_fc(s, 0)])
+    check(
+        "simplify_curve scopes to the fcurves it is given",
+        _times(s, 0) == [0.0, 20.0] and len(_times(s, 2)) == 21,
+        f"x={_times(s, 0)} z={len(_times(s, 2))}",
+    )
+
+    # time_range keeps the window's two ends and everything outside it
+    btk.simplify_curve([_fc(s, 2)], time_range=(5, 12))
+    check(
+        "simplify_curve time_range keeps the window ends",
+        _times(s, 2)
+        == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0] + [float(f) for f in range(12, 21)],
+        f"{_times(s, 2)}",
+    )
+
+    # selected_only follows the Dope Sheet / Graph Editor key selection
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    t = bpy.context.active_object
+    for f in range(0, 21):
+        t.location.x = float(f)
+        t.keyframe_insert("location", index=0, frame=f)
+    tfc = _fc(t, 0)
+    for k in tfc.keyframe_points:
+        k.interpolation = "LINEAR"
+        k.select_control_point = 5 <= k.co.x <= 12
+    btk.simplify_curve([tfc], selected_only=True)
+    check(
+        "simplify_curve selected_only follows the key selection",
+        _times(t, 0)
+        == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0] + [float(f) for f in range(12, 21)],
+        f"{_times(t, 0)}",
+    )
+
+    # two disjoint selected runs keep FOUR ends -- measured against Maya's
+    # keyReducer on the same ramp (3, 7, 13, 17 stand).
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    d = bpy.context.active_object
+    for f in range(0, 21):
+        d.location.x = float(f)
+        d.keyframe_insert("location", index=0, frame=f)
+    dfc = _fc(d, 0)
+    for k in dfc.keyframe_points:
+        k.interpolation = "LINEAR"
+        k.select_control_point = 3 <= k.co.x <= 7 or 13 <= k.co.x <= 17
+    btk.simplify_curve([dfc], selected_only=True)
+    check(
+        "simplify_curve keeps each selected RUN's ends",
+        _times(d, 0)
+        == [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            7.0,
+            8.0,
+            9.0,
+            10.0,
+            11.0,
+            12.0,
+            13.0,
+            17.0,
+            18.0,
+            19.0,
+            20.0,
+        ],
+        f"{_times(d, 0)}",
+    )
+
+    # ---- get_redundant_flat_keys --------------------------------------------
+    # The pass that matters on hand-animated footage: a hold spelled with
+    # CONSTANT interpolation, which the shape reducer above will not touch.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    h = bpy.context.active_object
+    for f in (0, 10, 20, 30, 40, 50):
+        h.location.x = 1.0
+        h.keyframe_insert("location", index=0, frame=f)
+    hfc = _fc(h, 0)
+    for k in hfc.keyframe_points:
+        k.interpolation = "CONSTANT"
+    btk.simplify_curve([hfc])
+    check(
+        "simplify_curve refuses a key reached by a step",
+        len(_times(h, 0)) == 6,
+        f"{_times(h, 0)}",
+    )
+    btk.get_redundant_flat_keys([hfc], remove=True, value_tolerance=1e-4)
+    check(
+        "get_redundant_flat_keys strips a stepped hold's interiors",
+        _times(h, 0) == [0.0, 50.0],
+        f"{_times(h, 0)}",
+    )
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    h2 = bpy.context.active_object
+    for f in (0, 10, 20, 30, 40, 50):
+        h2.location.x = 1.0
+        h2.keyframe_insert("location", index=0, frame=f)
+    btk.get_redundant_flat_keys(
+        [_fc(h2, 0)], remove=True, time_range=(10, 30), value_tolerance=1e-4
+    )
+    # Every in-scope interior goes, the window's own edges included: a key
+    # whose neighbours hold the same value is redundant WHEREVER it sits, and
+    # removing it cannot move the curve.  Only the run's true boundaries --
+    # here 0 and 50, which are outside the window -- have to stand.
+    check(
+        "get_redundant_flat_keys honours a time window",
+        _times(h2, 0) == [0.0, 40.0, 50.0],
+        f"{_times(h2, 0)}",
+    )
+
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    h3 = bpy.context.active_object
+    for f in (0, 10, 20, 30, 40, 50):
+        h3.location.x = 1.0
+        h3.keyframe_insert("location", index=0, frame=f)
+    h3fc = _fc(h3, 0)
+    for k in h3fc.keyframe_points:
+        k.select_control_point = 20 <= k.co.x <= 40
+    btk.get_redundant_flat_keys(
+        [h3fc], remove=True, selected_only=True, value_tolerance=1e-4
+    )
+    check(
+        "get_redundant_flat_keys honours the key selection",
+        _times(h3, 0) == [0.0, 10.0, 50.0],
+        f"{_times(h3, 0)}",
+    )
+
+    # A STAIRCASE is not a ramp: evenly spaced stepped keys read as collinear,
+    # and simplifying them into a ramp would move every frame between them.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    st = bpy.context.active_object
+    for f, v in ((0, 0.0), (10, 5.0), (20, 10.0), (30, 15.0)):
+        st.location.x = v
+        st.keyframe_insert("location", index=0, frame=f)
+    stfc = _fc(st, 0)
+    for k in stfc.keyframe_points:
+        k.interpolation = "CONSTANT"
+    mid_before = stfc.evaluate(15.0)
+    btk.simplify_curve([stfc])
+    check(
+        "simplify_curve keeps a stepped staircase",
+        _times(st, 0) == [0.0, 10.0, 20.0, 30.0]
+        and abs(stfc.evaluate(15.0) - mid_before) < 1e-6,
+        f"{_times(st, 0)} mid={stfc.evaluate(15.0)}",
+    )
+
+    # ---- remove_intermediate_keys, scoped by fcurve --------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    r = bpy.context.active_object
+    for f in range(0, 21):
+        r.location.x = float(f)
+        r.location.z = float(f)
+        r.keyframe_insert("location", index=0, frame=f)
+        r.keyframe_insert("location", index=2, frame=f)
+    btk.remove_intermediate_keys([_fc(r, 0)])
+    check(
+        "remove_intermediate_keys narrows to the fcurves it is given",
+        _times(r, 0) == [0.0, 20.0] and len(_times(r, 2)) == 21,
+        f"x={_times(r, 0)} z={len(_times(r, 2))}",
+    )
+    btk.remove_intermediate_keys([r])
+    check(
+        "remove_intermediate_keys unscoped still strips every channel",
+        _times(r, 0) == [0.0, 20.0] and _times(r, 2) == [0.0, 20.0],
+        f"x={_times(r, 0)} z={_times(r, 2)}",
+    )
+
     # ---- optimize_keys extremes mode (value_tolerance=-1) --------------------
     reset()
     import math

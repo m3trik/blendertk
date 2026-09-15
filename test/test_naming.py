@@ -102,9 +102,9 @@ try:
 
     # ---- rename: strip collapses separator residue (mayatk parity) ----------------------------
     reset()
-    o = empty("vdat__uninst_tmp__uninst_tmpShape702")
+    o = empty("prop__uninst_tmp__uninst_tmpShape702")
     Naming.rename([o], "", fltr="*uninst_tmp*")
-    check("rename strip collapses residue", o.name == "vdat_Shape702", o.name)
+    check("rename strip collapses residue", o.name == "prop_Shape702", o.name)
     reset()
     o = empty("PlainCube")
     Naming.rename([o], "foo__bar")

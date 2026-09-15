@@ -8,6 +8,7 @@ import pythontk as ptk
 
 from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.key_stash._key_stash import KeyStash
+from blendertk.core_utils.script_job_manager import ScriptJobManager
 
 
 class KeyStashSlots(ptk.LoggingMixin):
@@ -82,6 +83,13 @@ class KeyStashSlots(ptk.LoggingMixin):
         tree.itemSelectionChanged.connect(self._sync_buttons)
         tree.itemDoubleClicked.connect(self._select_clip_objects)
         KeyStash.add_invalidation_listener(self._on_store_invalidated)
+        # The operations write the record inside their undo steps, so an undo
+        # or redo can move it under the store: asking for the store re-reads
+        # it, and the store's change event repaints this panel.
+        jobs = ScriptJobManager.instance()
+        for event in ("Undo", "Redo"):
+            jobs.subscribe(event, KeyStash.active, owner=self)
+        jobs.connect_cleanup(self.ui, owner=self)
         self.refresh()
 
     @property

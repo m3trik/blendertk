@@ -525,9 +525,6 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
             if len(set(paths)) == 1
         }
 
-    # Tiled-image filename tokens -> the glob that finds their tiles on disk.
-    _TILE_TOKENS = (("<UDIM>", "[0-9]" * 4), ("<UVTILE>", "u*_v*"))
-
     @classmethod
     def _resolved_image_file(cls, image) -> Optional[str]:
         """Absolute on-disk path of *image*, or None (packed-only / missing / generated).
@@ -540,6 +537,8 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
 
         import bpy
 
+        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
+
         if image is None:
             return None
         try:
@@ -549,7 +548,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         if not path:
             return None
         path = os.path.abspath(path)
-        for token, pattern in cls._TILE_TOKENS:
+        for token, pattern in _MatUtilsInternal._TILE_TOKENS:
             if token in path:
                 tiles = sorted(
                     _glob.glob(_glob.escape(path).replace(token, pattern))

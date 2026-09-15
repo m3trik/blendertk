@@ -346,7 +346,7 @@ def export_usd(cmds):
         # sharing. Neither is Blender's linked-duplicate model. So the export
         # flattens (materials + clean structure), `collect_instance_groups`
         # records the relationship in the sidecar, and the Blender side rebuilds
-        # native shared mesh datablocks from it -- VDATS_RF lands at 628
+        # native shared mesh datablocks from it -- PROPS_RF lands at 628
         # datablocks for 755 objects, matching the FBX route's 627.
         # Pinned by the e2e's e2e_inst_* trap.
         "exportInstances": False,

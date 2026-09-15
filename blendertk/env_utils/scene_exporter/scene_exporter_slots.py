@@ -81,36 +81,64 @@ class SceneExporterSlots(SceneExporter):
         widget.setStyleSheet("QPushButton:checked {background-color: #FF9999;}")
 
     def _wire_dependencies(self) -> None:
-        """Grey out a setting while a lower-level choice makes it irrelevant.
+        """Hide a setting while a lower-level choice makes it irrelevant.
 
-        One ``sb.enable_when`` rule per dependency — declared once here, order-
+        One ``sb.show_when`` rule per dependency — declared once here, order-
         independent (the rows register later; the rule picks them up), and
         re-applied by the trigger's own change signal, so there is no per-
         trigger slot and no ``_sync_*`` helper to keep in step. A preset load
-        applies with signals unblocked (``cmb007_init``), so these follow it too.
+        applies with signals unblocked (``cmb007_init``), so these follow it
+        too. Hidden rather than greyed (2026-09-14): a row that cannot apply
+        to what was chosen is not a setting of this export, and the option
+        menus read shorter and truer without it. A hidden row keeps its value
+        (it still saves and restores); every one gated here is a mode the run
+        resolves as off or ignores when its trigger says so.
         """
         sb, ui = self.sb, self.ui
+        glb = {"glb", "fbx_glb"}
         # Texture File Type is the container dial for every texture the export
         # ships, so it is NOT gated on Optimize Textures: a GLB deliverable is
         # re-encoded to it whether or not the scene pass runs. The pass's size
         # ceiling needs no rule at all any more — it rides the Optimize
         # Textures combo itself ("Optimize + Max …"), so a ceiling with
-        # nothing to apply it is unrepresentable rather than greyed out.
+        # nothing to apply it is unrepresentable rather than hidden.
         # Texture Output only matters once a texture-processing task runs —
         # Optimize Textures, or the conversion a Texture Template arms.
-        sb.enable_when(
+        sb.show_when(
             ui,
             "texture_write_back",
             ["texture_optimize", "cmb005"],
             lambda optimize, template: bool(optimize) or bool(template),
         )
-        # Exclude HDR: the visible-geometry scope never contains a skydome
-        # (surface shapes only); All / Selected can.
-        sb.enable_when(
+        # Exclude HDR has no rule, where mayatk hides it under the Visible
+        # scope: Maya's visible-geometry scope never holds its aiSkyDomeLight,
+        # but Blender's exclusion also strips a visible mesh dome (a sphere
+        # whose materials sample an Environment Texture), which that scope can
+        # hold -- and a hidden row still applies its value.
+
+        # A USD deliverable: the FBX preset, the takes and the bake range set
+        # FBX flags only (the engine reports them inert), and the verifier
+        # has no FBX/GLB to open.
+        sb.show_when(
+            ui, "cmb000,animation_clips,bake_range", "cmb004", lambda fmt: fmt != "usd"
+        )
+        # The GLB-only dials: nothing to apply them to without a GLB. KTX2 RDO
+        # further needs the KTX2 container (ETC1S/UASTC are its encodes), and
+        # the key tolerance is the GLB half of Optimize Keys.
+        sb.show_when(ui, "secondary_max_size", "cmb004", glb)
+        sb.show_when(
             ui,
-            "exclude_hdr",
-            "export_visible_objects",
-            lambda scope: scope != "visible",
+            "uastc_rdo",
+            ["cmb004", "texture_file_type"],
+            lambda fmt, container: (
+                fmt in glb and str(container or "").startswith("ktx2")
+            ),
+        )
+        sb.show_when(
+            ui,
+            "glb_key_tolerance",
+            ["cmb004", "optimize_level"],
+            lambda fmt, level: fmt in glb and bool(level),
         )
 
     def confirm(self, question: str) -> bool:
@@ -302,8 +330,49 @@ class SceneExporterSlots(SceneExporter):
         )
         widget.option_box.add_option(self._recent_dirs_option)
 
+    def output_name_preview(self) -> str:
+        """Live tooltip for the Output Filename field.
+
+        Teaches the vocabulary (every token, its meaning, its value right now)
+        and previews the file the next export would write -- resolved through
+        the very call the export makes, so the two cannot disagree.
+        """
+        resolved = self.resolve_export_path(
+            self.ui.txt001.text(),
+            self._resolve_export_dir(self.ui.txt000.text()),
+            output_format=self.ui.cmb004.currentData() or "fbx",
+            name_regex=self.ui.txt002.text(),
+            report=False,
+        )
+        # The counter has no value until a name uses it: say so in its row
+        # rather than flag a supported token as unknown.
+        n = resolved["n"]
+        context = dict(
+            resolved["context"], **{self.VERSION_TOKEN: "next free" if n is None else n}
+        )
+        first, *rest = resolved["paths"]
+        final = first + "".join(" + " + os.path.splitext(p)[1] for p in rest)
+        return self.sb.tooltip.placeholder_preview(
+            resolved["expanded"],
+            context,
+            title="Output Filename",
+            body=f"Name of the exported file &mdash; empty is "
+            f"<b>{self.NAME_WILDCARD}</b>, the .blend's own name.",
+            descriptions=self.NAME_TOKENS,
+            wildcards={self.NAME_WILDCARD: "name"},
+            final=final,
+            final_label="writes →",
+            notes=[
+                "Anything else is literal — <b>WIP_*_export</b> wraps the "
+                "default name, <b>asset</b> replaces it.",
+                "<b>*_v{n:03d}</b> versions every export and "
+                "<b>*_{date}_{time}</b> stamps it; the extension follows Format.",
+            ],
+        )
+
     def txt001_init(self, widget) -> None:
         """Init Output Name"""
+        widget.tooltip.bind(self.output_name_preview)
         widget.option_box.menu.setTitle("Output Name:")
         widget.option_box.menu.add_defaults_button = False
         widget.option_box.clear_option = True
@@ -319,15 +388,11 @@ class SceneExporterSlots(SceneExporter):
             setObjectName="b012",
         )
         widget.option_box.menu.add(
-            "QCheckBox",
-            setToolTip="Add a timestamp suffix to the output filename.",
-            setText="Timestamp",
-            setObjectName="chk004",
-        )
-        widget.option_box.menu.add(
             "QLineEdit",
             setToolTip=(
-                "Regex pattern for formatting the output name.\n\n"
+                "Regex applied to the .blend's name, wherever the Output Filename "
+                "uses it (*, {name}, {scene}); text typed around it stays "
+                "literal.\n\n"
                 "Format:  PATTERN->REPLACEMENT\n"
                 "Examples:\n"
                 "  _bar.*->       Remove '_bar' and everything after\n"
@@ -364,7 +429,6 @@ class SceneExporterSlots(SceneExporter):
                 "cmb004",
                 "set_linear_unit",
                 "set_workspace",
-                "version",
             ),
         ),
         (
@@ -680,7 +744,6 @@ class SceneExporterSlots(SceneExporter):
                 export_visible=config["export_visible"],
                 output_name=self.ui.txt001.text(),
                 name_regex=self.ui.txt002.text(),
-                timestamp=self.ui.chk004.isChecked(),
                 create_log_file=self.ui.b011.isChecked(),
                 log_level=self.ui.cmb003.currentData(),
                 tasks=export_tasks,

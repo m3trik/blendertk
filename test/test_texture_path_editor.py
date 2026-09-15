@@ -427,11 +427,11 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     lm_cube = bpy.context.active_object
     lm_cube.name = "lm_cube"
-    lm_mat = btk.create_mat("standard", name="OFFICE_ENV")
+    lm_mat = btk.create_mat("standard", name="ROOM_ENV")
     btk.assign_mat(lm_cube, lm_mat)
     lm_dir = os.path.join(tmp, "lightmaps")
     os.makedirs(lm_dir, exist_ok=True)
-    lm_map = os.path.join(lm_dir, "OFFICE_ENV_LightMap.exr")
+    lm_map = os.path.join(lm_dir, "ROOM_ENV_LightMap.exr")
     open(lm_map, "wb").close()
     LightmapBaker().commit_lightmap({lm_cube.name: lm_map})
 
@@ -444,10 +444,10 @@ try:
     check("the panel lists the committed lightmap as a dependency", dep is not None, f"{deps}")
     row_path = slot._lightmap_row_path(dep) if dep else ""
     check("a lightmap row shows the marker's recorded folder + map",
-          row_path.endswith("/OFFICE_ENV_LightMap.exr"), row_path)
+          row_path.endswith("/ROOM_ENV_LightMap.exr"), row_path)
     mat_label, node_label = slot._lightmap_row_labels(dep) if dep else ("", "")
     check("a lightmap row is labelled by the material and the map stem, not the objects",
-          mat_label == "OFFICE_ENV" and node_label == "OFFICE_ENV_LightMap",
+          mat_label == "ROOM_ENV" and node_label == "ROOM_ENV_LightMap",
           f"{mat_label!r} / {node_label!r}")
 
     slot._lightmap_rows = {row_path: dep}
@@ -468,7 +468,7 @@ try:
     missing_dep = slot._lightmap_baker().lightmap_dependencies(search_dirs=[], walk=False)[0]
     fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[missing_dep])}
     check("a missing lightmap switches the search folder on and is named in its hint",
-          fields["source_dir"]["enabled"] and "OFFICE_ENV_LightMap.exr" in fields["source_dir"]["hint"],
+          fields["source_dir"]["enabled"] and "ROOM_ENV_LightMap.exr" in fields["source_dir"]["hint"],
           f"{fields['source_dir']}")
     slot._find_copy_lightmaps = [missing_dep]
     check("the accept button counts the lightmaps",

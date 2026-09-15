@@ -1,27 +1,25 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Render Opacity — Blender per-object opacity for engine-ready transparency (mirror of mayatk's
-``mat_utils.render_opacity.RenderOpacity``: ``btk.RenderOpacity`` ↔ ``mtk.RenderOpacity``).
+"""Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
+mayatk's ``mat_utils.render_opacity.RenderEffects``: ``btk.RenderEffects`` ↔ ``mtk.RenderEffects``;
+``RenderOpacity`` is the previous name, kept one release).
 
-Adds a keyable ``opacity`` custom property (0-1) to objects — the export artifact Unity reads — and
-drives the object's material **Principled BSDF Alpha** from it for live viewport feedback. The
-``key_fade`` helper animates a fade **and mirrors it onto the object's render visibility** so the FBX
-carries both channels (the Unity importer reconstructs per-object opacity from the *visibility*
-m_Enabled curve, because Unity collapses same-named animated custom-property curves onto the root
-with empty paths — see ``memory/reference_unitytk_opacity_from_visibility.md``). ``prepare_for_export``
-is the safety net that dual-keys hand-authored opacity before export.
+Adds a keyable custom property per channel to objects — ``opacity`` (0-1) and ``highlight`` with its
+colour ramp — the channels the deliverables carry. ``key_fade`` animates a fade and, for opacity,
+**mirrors it onto the object's render visibility** (stepped, hidden when opacity ≤ 0), as mayatk
+mirrors it onto ``visibility``. The exports read the authored channels, not that mirror: for an FBX
+write ``prepare_for_export`` stages one transient curve proxy per keyed channel (a child
+``<object>__<channel>`` whose ``scale.x`` carries the curve; ``finish_export`` removes them), which
+Unity's ``RenderEffectsImporter`` rebinds -- it reconstructs a fade from the visibility mirror only
+for a file exported before that transport existed -- and the GLB derives presence from the authored
+channels (``ptk.MeshConvert.apply_glb_visibility``). ``prepare_for_export`` writes no visibility mirror.
 
 **Divergences from Maya (documented, not reductions):**
-  - **No StingrayPBS / attribute-vs-material split.** Maya's "material" mode loads a transparency
-    graph; in Blender the material wiring simply *is* the Alpha driver, so both Maya modes collapse
-    onto one path here (``mode`` is accepted for API parity; "material"/"attribute" behave the same).
-  - **No transform/shape split & no ``visibility`` attr.** The m_Enabled analogue is the object's
-    ``hide_render`` (render visibility), keyed stepped (hidden when opacity ≤ 0).
-  - **Shared material datablocks.** A driver on a shared material would read a single object, so
-    ``create`` makes each object's material **single-user** before driving its Alpha — the Blender
-    equivalent of Maya's per-object opacity proxy.
-  - The FBX visibility-channel mapping is finalized with the SceneExporter / ``fbx_utils`` port; this
-    engine produces the dual-keyed Blender data (opacity prop curve + ``hide_render`` curve).
+  - **No attribute-vs-material split.** Maya's "material" mode also binds the material for viewport
+    lookdev; the material drivers that did that here were retired (2026-09-05), so ``"material"`` is
+    the attribute mode with a warning for one release.
+  - **No transform/shape split & no ``visibility`` attr.** The visibility analogue is the object's
+    ``hide_render`` (render visibility), keyed stepped.
 
 ``import bpy`` is deferred into the call bodies so the module resolves headless / under the .venv.
 """
@@ -38,12 +36,21 @@ class RenderEffects(ptk.LoggingMixin):
     #: colour, both custom properties on the object. Mirror of mayatk's
     #: ``channels.HIGHLIGHT`` row; the GLB half lives in pythontk's table.
     HIGHLIGHT_ATTR = "highlight"
-    HIGHLIGHT_COLOR_ATTR = "highlightColor"
+    #: The two ends of the highlight's colour ramp: the property read at
+    #: intensity 1 and the one read at 0. Mirror of mayatk's
+    #: ``HIGHLIGHT.color_stops``; the published keys the GLB carrier expects
+    #: are pythontk's, and :data:`HIGHLIGHT_TRACK_STOPS` states them so the two
+    #: spellings of one concept sit side by side rather than in two files.
+    HIGHLIGHT_COLOR_STOPS = ptk.ColorStops("highlightColor", "highlightColorDim")
+    HIGHLIGHT_TRACK_STOPS = ptk.ColorStops("highlight_color", "highlight_color_dim")
+    #: Deprecated read-through of the BRIGHT end, kept for one release.
+    HIGHLIGHT_COLOR_ATTR = HIGHLIGHT_COLOR_STOPS.hi
     CHANNELS = ("opacity", "highlight")
     #: The fcurve data paths of every render-effect property (the channels
-    #: and the highlight colour) -- the mirror of mayatk's ``ChannelSpec.attrs``,
-    #: what the shot system reads as content beside the transform channels.
-    PROP_PATHS = tuple(f'["{n}"]' for n in CHANNELS + (HIGHLIGHT_COLOR_ATTR,))
+    #: and both ends of the highlight colour) -- the mirror of mayatk's
+    #: ``ChannelSpec.attrs``, what the shot system reads as content beside the
+    #: transform channels.
+    PROP_PATHS = tuple(f'["{n}"]' for n in CHANNELS + HIGHLIGHT_COLOR_STOPS.keys)
     #: Custom property stamping a transient curve-proxy Empty
     #: (``ptk.MeshConvert.CURVE_PROXY_MARKER``): the GLB conversion strips
     #: nodes carrying it and the Unity importer rebinds and deletes them.
@@ -179,8 +186,19 @@ class RenderEffects(ptk.LoggingMixin):
         )
 
     @classmethod
-    def _ensure_highlight_props(cls, obj, color=(0.2, 0.5, 1.0)):
-        """Seed ``highlight`` (0-1, keyable) and ``highlightColor`` if absent."""
+    def _ensure_highlight_props(
+        cls, obj, color=(0.0, 0.088656, 0.723055), dim_color=(0.0, 0.0, 0.0)
+    ):
+        """Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
+
+        The bright end is LINEAR light: the linear value OF #0054DD, which
+        is what the 8-bit colour editor hands back for it, matching mayatk's
+        ``highlight`` attribute preset and the panel's seed.
+
+        The dim end seeds BLACK on purpose: the published ramp rides between
+        the two ends, so a black low end collapses it to the one-colour shape
+        this channel had before the end existed.
+        """
         if cls.HIGHLIGHT_ATTR not in obj:
             obj[cls.HIGHLIGHT_ATTR] = 0.0
         try:
@@ -189,12 +207,12 @@ class RenderEffects(ptk.LoggingMixin):
             )
         except (AttributeError, TypeError, KeyError):
             pass
-        if cls.HIGHLIGHT_COLOR_ATTR not in obj:
-            obj[cls.HIGHLIGHT_COLOR_ATTR] = [float(c) for c in color[:3]]
+        for prop, value in zip(cls.HIGHLIGHT_COLOR_STOPS.keys, (color, dim_color)):
+            if prop in obj:
+                continue
+            obj[prop] = [float(c) for c in value[:3]]
             try:
-                obj.id_properties_ui(cls.HIGHLIGHT_COLOR_ATTR).update(
-                    subtype="COLOR", min=0.0, max=1.0
-                )
+                obj.id_properties_ui(prop).update(subtype="COLOR", min=0.0, max=1.0)
             except (AttributeError, TypeError, KeyError):
                 pass
 
@@ -235,6 +253,7 @@ class RenderEffects(ptk.LoggingMixin):
         lead_in=None,
         lead_out=None,
         color=None,
+        dim_color=None,
         auto_create=True,
         channel="highlight",
         preview=None,
@@ -266,27 +285,24 @@ class RenderEffects(ptk.LoggingMixin):
         Returns the keyed objects' names.
         """
         objects = cls._resolve(objects)
-        start, end = cls._frames(whole_frames, start, end)
-        if not objects or period <= 0 or end <= start:
+        # Planned once, host-free (``ptk.RampKeys.pulse``) -- the plan mayatk's
+        # writer keys and the WebXR preview publishes without keying.
+        plan = ptk.RampKeys.pulse(
+            start,
+            end,
+            period,
+            bright_fraction=bright_fraction,
+            ramp_fraction=ramp_fraction,
+            lead_in=lead_in,
+            lead_out=lead_out,
+            whole_frames=whole_frames,
+        )
+        if not objects or not plan:
             return []
         cls._ensure_channel(
             objects, cls.HIGHLIGHT_ATTR, auto_create, preview, delete_visibility_keys
         )
-        ramp = max(0.0, min(0.5, ramp_fraction)) * period
-        bright = max(0.0, min(1.0, bright_fraction)) * period
-        bright_hold = max(0.0, bright - ramp)
-        dim_hold = max(0.0, (period - bright) - ramp)
-        cycle = [
-            (0.0, 1.0),
-            (bright_hold, 1.0),
-            (bright_hold + ramp, 0.0),
-            (bright_hold + ramp + dim_hold, 0.0),
-        ]
-        gap_min = cls.WHOLE_FRAME_GAP_MIN if whole_frames else cls.PULSE_GAP_MIN
-        head, tail = cls._pulse_gaps(start, end, ramp, lead_in, lead_out, gap_min)
-        train_start, train_end = cls._frames(
-            whole_frames, float(start) + head, float(end) - tail
-        )
+        start, end = plan[0][0], plan[-1][0]
         path = f'["{cls.HIGHLIGHT_ATTR}"]'
         keyed = []
         for obj in objects:
@@ -304,40 +320,69 @@ class RenderEffects(ptk.LoggingMixin):
                 ]
                 for i in reversed(hits):
                     fc.keyframe_points.remove(fc.keyframe_points[i])
-            cls._set_key(obj, path, start, 0.0, "LINEAR")  # backward hold is dim
-            t0 = train_start
-            last = None
-            while t0 < train_end:
-                for offset, value in cycle:
-                    # The cycle advances unrounded; only the key itself snaps,
-                    # so a whole-frame train keeps the asked-for cadence
-                    # instead of accumulating the rounding error.
-                    (t,) = cls._frames(whole_frames, t0 + offset)
-                    if t > train_end:
-                        break
-                    cls._set_key(obj, path, t, value, "LINEAR")
-                    last = value
-                t0 += period
-            # The train's last value at the cut, so the trail-out falls over the
-            # gap it was given rather than over the rest of the cycle it cut.
-            if last is not None:
-                cls._set_key(obj, path, train_end, last, "LINEAR")
-            cls._set_key(obj, path, end, 0.0, "LINEAR")  # ...forward hold likewise
-            if color is not None:
-                obj[cls.HIGHLIGHT_COLOR_ATTR] = [float(c) for c in color[:3]]
+            for frame, value in plan:
+                cls._set_key(obj, path, frame, value, "LINEAR")
+            for stop, value in (("hi", color), ("lo", dim_color)):
+                if value is None:
+                    continue
+                obj[cls._color_attr(channel, stop)] = [float(c) for c in value[:3]]
             keyed.append(obj.name)
         return keyed
+
+    @classmethod
+    def preview_channels(
+        cls, objects, channel="highlight", keys=(), colors=None, fps=None
+    ) -> dict:
+        """The WebXR-push overlay that previews one effect on *objects* at *keys*.
+
+        Mirror of mayatk's ``RenderEffects.preview_channels``: nothing is
+        created, keyed or coloured. The objects' names go into
+        ``ptk.MeshConvert.effect_preview_channels``, and the result goes to
+        ``WebXrPreview.push(data_export=...)``, which builds the GLB as if these
+        keys had been authored -- with whatever the objects already carry left
+        out, so the page shows this effect alone.
+
+        Parameters:
+            objects: Objects or their names.
+            channel: ``"opacity"`` or ``"highlight"``.
+            keys: ``[(frame, value), ...]`` -- a ``ptk.RampKeys`` plan.
+            colors: ``(bright, dim)`` for the highlight; ``None`` in either
+                place leaves that end to the reader's default.
+            fps: The rate *keys* are quoted in; the scene's when ``None``.
+
+        Raises:
+            KeyError: For a channel that is not a render-effect channel.
+            ValueError: No object resolved, or fewer than two keys.
+        """
+        if channel not in cls.CHANNELS:
+            raise KeyError(
+                f"Unknown render-effect channel {channel!r}. "
+                f"Known: {', '.join(cls.CHANNELS)}."
+            )
+        return ptk.MeshConvert.effect_preview_channels(
+            [obj.name for obj in cls._resolve(list(objects or []))],
+            channel,
+            keys,
+            colors=colors,
+            fps=fps or cls._scene_fps() or 30.0,
+        )
 
     # ------------------------------------------------------------------ colour
 
     @classmethod
-    def _color_attr(cls, channel) -> str:
-        """The colour property *channel* owns.
+    def _color_attr(cls, channel, stop: str = "hi") -> str:
+        """The property holding one end of *channel*'s colour ramp.
+
+        Parameters:
+            channel: The channel name; ``"highlight"``.
+            stop: ``"hi"`` (the colour at intensity 1) or ``"lo"`` (at 0).
 
         Raises:
             KeyError: For a channel that is not a render-effect channel.
-            ValueError: For one that owns no colour.
+            ValueError: For one that owns no colour, or an unknown *stop*.
         """
+        if stop not in ("hi", "lo"):
+            raise ValueError(f"Unknown colour stop {stop!r}; expected 'hi' or 'lo'.")
         if channel not in cls.CHANNELS:
             raise KeyError(
                 f"Unknown render-effect channel {channel!r}. "
@@ -345,7 +390,11 @@ class RenderEffects(ptk.LoggingMixin):
             )
         if channel != cls.HIGHLIGHT_ATTR:
             raise ValueError(f"Channel {channel!r} has no colour attribute.")
-        return cls.HIGHLIGHT_COLOR_ATTR
+        return (
+            cls.HIGHLIGHT_COLOR_STOPS.hi
+            if stop == "hi"
+            else cls.HIGHLIGHT_COLOR_STOPS.lo
+        )
 
     @classmethod
     def objects_with_channel(cls, channel="highlight") -> list:
@@ -367,7 +416,9 @@ class RenderEffects(ptk.LoggingMixin):
         return [o for o in bpy.data.objects if channel in o]
 
     @classmethod
-    def channel_colors(cls, objects=None, channel="highlight") -> dict:
+    def channel_colors(
+        cls, objects=None, channel="highlight", stop: str = "hi"
+    ) -> dict:
         """What each object's channel colour is authored as right now.
 
         The read half of :meth:`set_channel_color` -- what a revision starts
@@ -377,11 +428,13 @@ class RenderEffects(ptk.LoggingMixin):
             objects: Objects to read. ``None`` reads every object carrying the
                 channel.
             channel: The channel name; ``"highlight"``.
+            stop: Which end of the ramp to read -- ``"hi"`` (the default) or
+                ``"lo"``.
 
         Returns:
             ``{object name: (r, g, b)}``, skipping objects without the colour.
         """
-        attr = cls._color_attr(channel)
+        attr = cls._color_attr(channel, stop)
         pool = (
             cls.objects_with_channel(channel)
             if objects is None
@@ -394,7 +447,41 @@ class RenderEffects(ptk.LoggingMixin):
         return colors
 
     @classmethod
-    def set_channel_color(cls, objects=None, color=None, channel="highlight") -> list:
+    def channel_color_stops(cls, objects=None, channel="highlight") -> dict:
+        """Both ends of each object's colour ramp, high first.
+
+        Mirror of mayatk's ``RenderEffects.channel_color_stops``. What an
+        editor showing the two ends side by side seeds from: reading the pair
+        in ONE pass is what lets it tell a mixed selection from an agreeing one
+        without walking the scene twice. An end the object does not carry reads
+        ``None``.
+
+        Returns:
+            ``{object name: ((r, g, b) | None, ...)}``, skipping objects
+            carrying neither end.
+        """
+        props = cls.HIGHLIGHT_COLOR_STOPS.keys if channel == cls.HIGHLIGHT_ATTR else ()
+        if not props:
+            return {}
+        pool = (
+            cls.objects_with_channel(channel)
+            if objects is None
+            else cls._resolve(objects)
+        )
+        out = {}
+        for obj in pool:
+            stops = tuple(
+                tuple(float(c) for c in list(obj[p])[:3]) if p in obj else None
+                for p in props
+            )
+            if any(c is not None for c in stops):
+                out[obj.name] = stops
+        return out
+
+    @classmethod
+    def set_channel_color(
+        cls, objects=None, color=None, channel="highlight", stop: str = "hi"
+    ) -> list:
         """Restate an already-authored channel colour, leaving its keys alone.
 
         The revision path for a look signed off after the pulses were keyed.
@@ -408,6 +495,8 @@ class RenderEffects(ptk.LoggingMixin):
                 selected -- the scene-wide revision this exists for.
             color: ``(r, g, b)``, linear 0-1. Required.
             channel: The channel name; ``"highlight"``.
+            stop: Which end of the ramp to write -- ``"hi"`` (the default) or
+                ``"lo"``.
 
         Returns:
             The names of the objects written.
@@ -416,7 +505,7 @@ class RenderEffects(ptk.LoggingMixin):
             ValueError: When *color* is missing or is not three components, or
                 the channel owns no colour.
         """
-        attr = cls._color_attr(channel)
+        attr = cls._color_attr(channel, stop)
         if color is None:
             raise ValueError("A colour is required.")
         rgb = [float(c) for c in tuple(color)[:3]]
@@ -569,7 +658,7 @@ class RenderEffects(ptk.LoggingMixin):
             for obj in cls._resolve(objects):
                 cls._remove_legacy_drivers(obj, cls.HIGHLIGHT_ATTR)
                 cls._remove_fc(obj, cls._fcurve(obj, f'["{cls.HIGHLIGHT_ATTR}"]'))
-                for attr in (cls.HIGHLIGHT_ATTR, cls.HIGHLIGHT_COLOR_ATTR):
+                for attr in (cls.HIGHLIGHT_ATTR,) + cls.HIGHLIGHT_COLOR_STOPS.keys:
                     if attr in obj:
                         del obj[attr]
         if cls.ATTR_NAME not in channels:
@@ -583,48 +672,10 @@ class RenderEffects(ptk.LoggingMixin):
                 del obj[cls.ATTR_NAME]
 
     # ------------------------------------------------------------------ keying
-    #: The narrowest a pulse bracket may be: a gap of zero still needs its dim
-    #: key strictly BEFORE the train's first bright one, or the two collide on
-    #: one frame -- and Blender MERGES an inserted key into an existing one
-    #: within 0.01 frames, so the floor has to clear that threshold, not sit
-    #: on it. Mirror of mayatk's ``PULSE_GAP_MIN`` (and of ``_STEP_JUMP``).
-    PULSE_GAP_MIN = 0.05
-
-    #: The same floor for a whole-frame pulse (the default): a snapped bracket
-    #: has to be a whole frame wide, or it rounds onto the train key it exists
-    #: to stay clear of. Mirror of mayatk's twin.
-    WHOLE_FRAME_GAP_MIN = 1.0
-
-    @staticmethod
-    def _frames(whole, *times):
-        """*times* as floats, snapped to whole frames when *whole*.
-
-        Half-up (``ptk.MathUtils.round_value``) rather than :func:`round`,
-        whose banker's rounding would send two equal half-frames in one cycle
-        to different frames. Mirror of mayatk's twin.
-        """
-        return tuple(
-            float(ptk.MathUtils.round_value(t, mode="half_up")) if whole else float(t)
-            for t in times
-        )
-
-    @classmethod
-    def _pulse_gaps(cls, start, end, ramp, lead_in, lead_out, gap_min=None):
-        """``(head, tail)`` frames for a pulse's dim brackets, fitted to the window.
-
-        ``None`` takes the cycle's own *ramp*. The pair is held to half the
-        window so there is always as much pulse as bracket, and each is floored
-        at *gap_min* (:attr:`PULSE_GAP_MIN`). Mirror of mayatk's twin.
-        """
-        gap_min = cls.PULSE_GAP_MIN if gap_min is None else gap_min
-        head = ramp if lead_in is None else max(0.0, float(lead_in))
-        tail = ramp if lead_out is None else max(0.0, float(lead_out))
-        budget = (float(end) - float(start)) / 2.0
-        total = head + tail
-        if total > budget and total > 0:
-            scale = budget / total
-            head, tail = head * scale, tail * scale
-        return max(head, gap_min), max(tail, gap_min)
+    #: The pulse brackets' floors, owned by the planner (``ptk.RampKeys``).
+    #: Mirror of mayatk's names for them.
+    PULSE_GAP_MIN = ptk.RampKeys.PULSE_GAP_MIN
+    WHOLE_FRAME_GAP_MIN = ptk.RampKeys.WHOLE_FRAME_GAP_MIN
 
     @staticmethod
     def _set_key(obj, data_path, frame, value, interp, index=-1):
@@ -709,7 +760,7 @@ class RenderEffects(ptk.LoggingMixin):
         if not objects:
             cls.logger.warning("No objects selected.")
             return []
-        start, end = cls._frames(whole_frames, start, end)
+        start, end = ptk.RampKeys.frames(whole_frames, start, end)
         cls._ensure_channel(
             objects, channel, auto_create, preview, delete_visibility_keys
         )
@@ -724,18 +775,18 @@ class RenderEffects(ptk.LoggingMixin):
                 if direction == "auto"
                 else direction == "in"
             )
-            start_val, end_val = (0.0, 1.0) if fade_in else (1.0, 0.0)
-
-            cls._set_key(obj, path, start, start_val, tangent)
-            cls._set_key(obj, path, end, end_val, tangent)
+            # Already snapped above, where ``auto`` read its reference frame.
+            plan = ptk.RampKeys.fade(
+                start, end, "in" if fade_in else "out", whole_frames=False
+            )
+            for frame, value in plan:
+                cls._set_key(obj, path, frame, value, tangent)
             if channel == cls.ATTR_NAME:
                 # Visibility mirror: hidden (hide_render=1) when opacity ≤ 0, else visible; stepped.
-                cls._set_key(
-                    obj, cls.VIS_PATH, start, 0.0 if start_val > 0 else 1.0, "CONSTANT"
-                )
-                cls._set_key(
-                    obj, cls.VIS_PATH, end, 0.0 if end_val > 0 else 1.0, "CONSTANT"
-                )
+                for frame, value in plan:
+                    cls._set_key(
+                        obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
+                    )
             keyed.append((obj.name, "in" if fade_in else "out"))
         return keyed
 
@@ -770,35 +821,20 @@ class RenderEffects(ptk.LoggingMixin):
 
     @classmethod
     def prepare_for_export(cls, objects=None) -> list:
-        """Dual-key safety net before FBX export: for every object with an animated ``opacity`` but
-        missing / fewer visibility keys, mirror opacity → ``hide_render``. Returns the synced names.
+        """Stage the curve-proxy transport for an FBX write; write nothing else.
 
-        Scans the whole scene when *objects* is ``None``.
+        Mirror of mayatk's: one transient child per keyed channel carries the
+        per-object curve (:meth:`stage_export_proxies`), and :meth:`finish_export`
+        removes them after the write. No ``hide_render`` mirror is written for an
+        opacity keyed by hand -- the GLB derives presence from the authored
+        channels itself (``ptk.MeshConvert.apply_glb_visibility``).
+
+        *objects* is ignored and the return is always empty, both kept for API
+        compatibility for one release (it named the objects whose visibility was
+        re-synced).
         """
-        import bpy
-
-        if objects is None:
-            objects = [o for o in bpy.data.objects if cls.ATTR_NAME in o]
-        else:
-            objects = cls._resolve(objects)
-
-        synced, needs = [], []
-        for obj in objects:
-            opa = cls._fcurve(obj, f'["{cls.ATTR_NAME}"]')
-            if opa is None or not opa.keyframe_points:
-                continue
-            vis = cls._fcurve(obj, cls.VIS_PATH)
-            if vis is None or len(vis.keyframe_points) < len(opa.keyframe_points):
-                needs.append(obj)
-                synced.append(obj.name)
-        if needs:
-            cls.sync_visibility_from_opacity(needs)
-            cls.logger.info(
-                "prepare_for_export: synced visibility on %d object(s): %s",
-                len(synced),
-                ", ".join(synced),
-            )
-        return synced
+        cls.stage_export_proxies()
+        return []
 
     # ------------------------------------------------------------------ in-band export metadata
     #: ``data_export`` channel read by ``ptk.MeshConvert.apply_glb_visibility``
@@ -841,11 +877,19 @@ class RenderEffects(ptk.LoggingMixin):
                 if fc is None or not fc.keyframe_points:
                     continue
                 track[attr] = cls._linear_ramp(fc)
-                if attr == cls.HIGHLIGHT_ATTR and cls.HIGHLIGHT_COLOR_ATTR in obj:
+                if attr != cls.HIGHLIGHT_ATTR:
+                    continue
+                # One published key per end the object actually carries. An
+                # object stating no dim end states nothing for it, so the
+                # reader falls back to THAT end's default (black) rather than
+                # to the bright colour.
+                for prop, key in zip(
+                    cls.HIGHLIGHT_COLOR_STOPS.keys, cls.HIGHLIGHT_TRACK_STOPS.keys
+                ):
+                    if prop not in obj:
+                        continue
                     try:
-                        track["highlight_color"] = [
-                            float(c) for c in list(obj[cls.HIGHLIGHT_COLOR_ATTR])[:3]
-                        ]
+                        track[key] = [float(c) for c in list(obj[prop])[:3]]
                     except (TypeError, ValueError):
                         pass
             if len(track) > 1:
@@ -973,9 +1017,12 @@ class RenderEffects(ptk.LoggingMixin):
         """Every authored key time in the file, in frames.
 
         The scene-reaching half of ``ptk.MeshConvert.clip_spans``, which owns
-        the rest (mirror of mayatk's ``_scene_key_frames``). Every animated
-        channel counts, because the converter sizes a take from all of them
-        while emitting a channel for only some.
+        the rest (mayatk answers the same through ``key_spans``, per window
+        off its curves, because a Maya bake is millions of keys). Every
+        animated channel counts, because the converter sizes a take from all
+        of them while emitting a channel for only some -- and only the
+        objects' own fcurves are channels, so an action assigned to nothing
+        does not count.
         """
         from blendertk.anim_utils._anim_utils import AnimUtils
 

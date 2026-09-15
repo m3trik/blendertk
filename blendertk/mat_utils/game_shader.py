@@ -247,6 +247,10 @@ class GameShader(ptk.LoggingMixin, _GameShaderInternal):
             prepared_data = list(textures)
 
         if isinstance(prepared_data, dict):  # Batch mode
+            # The factory keeps a set per UDIM tile (it converts each tile on its
+            # own); a material is ONE material however many tiles it spans, and
+            # its image nodes tile from a real tile (create_pbr_material).
+            prepared_data = ptk.MapFactory.collapse_tile_sets(prepared_data)
             total = len(prepared_data)
             self.logger.info(f"Batch processing {total} texture sets...")
             results, created = [], []

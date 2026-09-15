@@ -797,7 +797,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         Material column: the material(s) the lightmapped objects wear -- an atlas by
         material is named after its material, and a per-object map still belongs to one.
         Texture column: the map's stem, what an Image datablock for it would be called
-        (``OFFICE_ENV_LightMap``), since none exists. The objects themselves are the
+        (``ROOM_ENV_LightMap``), since none exists. The objects themselves are the
         tooltip's: a row reading ``BASEBOARD_A (+45)`` identified nothing. Mirror of mayatk's.
         """
         import bpy

@@ -183,6 +183,86 @@ try:
         f"type={getattr(src, 'type', None)}",
     )
 
+    # --- a UDIM set is ONE material whose images tile, not a material per tile ---
+    # Blender tiles from a real tile file with its source set to TILED (measured,
+    # 5.1: the path becomes <UDIM> and every sibling tile is found); a literal
+    # <UDIM> path loads as a one-tile image.
+    tile_files = [
+        write_png(f"rock_Base_Color.{number}.png", lambda x, y: (0.6, 0.3, 0.3, 1.0))
+        for number in (1001, 1002)
+    ] + [
+        write_png(f"rock_Roughness.{number}.png", lambda x, y: (0.5, 0.5, 0.5, 1.0))
+        for number in (1001, 1002)
+    ]
+    built = GameShader().create_network(tile_files)
+    made = [m for m in (built if isinstance(built, list) else [built]) if m]
+    check(
+        "udim: one material for the whole tile set",
+        len(made) == 1 and made[0].name.startswith("rock"),
+        f"{[m.name for m in made]}",
+    )
+    tiled_images = [
+        n.image
+        for m in made
+        for n in m.node_tree.nodes
+        if n.type == "TEX_IMAGE" and n.image
+    ]
+    check(
+        "udim: every image node tiles from its tile set",
+        bool(tiled_images)
+        and all(
+            i.source == "TILED" and sorted(t.number for t in i.tiles) == [1001, 1002]
+            for i in tiled_images
+        ),
+        f"{[(i.name, i.source, [t.number for t in i.tiles]) for i in tiled_images]}",
+    )
+
+    # --- a NAMED build of a tile set: one asset, yet every tile converted -------
+    # `BaseColor` sources, so the factory writes renamed `Base_Color` tiles: the
+    # tiles an image can find are the ones it converted. It converted 1001 alone
+    # for a named (one-asset) call before pythontk's prepare_maps split by tile.
+    named_files = [
+        write_png(f"slab_BaseColor.{number}.png", lambda x, y: (0.4, 0.4, 0.6, 1.0))
+        for number in (1001, 1002)
+    ]
+    named = GameShader().create_network(named_files, name="slab_named")
+    named_mat = (
+        named if hasattr(named, "node_tree") else bpy.data.materials.get("slab_named")
+    )
+    named_images = [
+        n.image
+        for n in (named_mat.node_tree.nodes if named_mat else [])
+        if n.type == "TEX_IMAGE" and n.image
+    ]
+    check(
+        "udim named: its image tiles from every converted tile",
+        bool(named_images)
+        and all(
+            "Base_Color" in i.filepath
+            and i.source == "TILED"
+            and sorted(t.number for t in i.tiles) == [1001, 1002]
+            for i in named_images
+        ),
+        f"{[(i.filepath, i.source, [t.number for t in i.tiles]) for i in named_images]}",
+    )
+
+    # A LONE tile-numbered file is one image, not a set: tiling it would move it
+    # off 0-1 UV space onto the tile its number names.
+    lone = MatUtils.create_pbr_material(
+        [write_png("lone_Base_Color.1024.png", lambda x, y: (0.3, 0.6, 0.3, 1.0))],
+        name="gs_lone_tile",
+    )
+    lone_images = [
+        n.image
+        for n in (lone.node_tree.nodes if lone else [])
+        if n.type == "TEX_IMAGE" and n.image
+    ]
+    check(
+        "a lone tile-numbered map stays one image",
+        bool(lone_images) and all(i.source == "FILE" for i in lone_images),
+        f"{[(i.name, i.source) for i in lone_images]}",
+    )
+
 except Exception as e:
     traceback.print_exc()
     check("game shader masked build raised", False, repr(e))

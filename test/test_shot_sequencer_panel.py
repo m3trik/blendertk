@@ -209,6 +209,49 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         ):
             self.assertTrue(callable(getattr(self.ui.slots, name, None)), name)
 
+    def test_key_edit_rows_mirror_mayatk(self):
+        """The Edit submenu's rows, Simplify included, and their handlers."""
+        from qtpy import QtWidgets
+
+        ctl = self.ui.slots.controller
+        self.assertEqual(
+            [label for label, _m in ctl._KEY_EDITS],
+            [
+                "Simplify",
+                "Remove Intermediate Keys",
+                "Snap Fractional Keys",
+                "Invert Keys",
+                "Align Keys",
+            ],
+        )
+        for _label, method in ctl._KEY_EDITS:
+            self.assertTrue(callable(getattr(ctl, method, None)), method)
+
+        menu = QtWidgets.QMenu()
+        try:
+            targets = [("cube", "translateX", [0.0, 10.0], 1)]
+            ctl._add_key_edit_actions(menu, targets, " (2)")
+            edit = next(a.menu() for a in menu.actions() if a.text() == "Edit")
+            self.assertEqual(
+                [a.text() for a in edit.actions()],
+                [label for label, _m in ctl._KEY_EDITS],
+            )
+        finally:
+            menu.deleteLater()
+
+    def test_sub_row_label_selection_is_wired(self):
+        """The header's per-channel pick reaches a handler (mayatk mirror)."""
+        ctl = self.ui.slots.controller
+        self.assertTrue(callable(getattr(ctl, "on_sub_track_selected", None)))
+        self.assertTrue(callable(getattr(ctl, "_select_channels", None)))
+        self.assertIn(
+            ("sub_track_selected", "on_sub_track_selected"),
+            list(self.ui.slots._WIRING),
+        )
+        widget = ctl._get_sequencer_widget()
+        if widget is not None:
+            self.assertTrue(hasattr(widget, "sub_track_selected"))
+
     def test_move_to_shot_takes_stepped_and_read_only_clips(self):
         """Mirror of mayatk's TestMoveToShotTakesEveryVisibleClip."""
 

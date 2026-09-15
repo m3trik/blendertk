@@ -430,7 +430,7 @@ try:
     # CROSSED ANCHOR (mirror of mayatk's test_crossed_anchor_is_reassigned_to_its_own_end).
     # Handing the far end's anchor to bone_index=0 named the anchor bone for -- and hooked it
     # to -- the WRONG end: correct at rest, tears off both ends once the anchor moves. Found in
-    # Maya (VDATS_DA 2026-08-25) on 2 of 7 tubes; only the b004 slot un-crossed the selection,
+    # Maya (PROPS_DA 2026-08-25) on 2 of 7 tubes; only the b004 slot un-crossed the selection,
     # so any direct caller of the primitive could build it. The primitive now owns the check.
     reset()
     t5 = tube("Crossed", depth=8.0)
@@ -751,38 +751,26 @@ try:
     # 2026-09-01.
     reset()
     t = tube("UndoHose", depth=8.0)
-    before = len(bpy.ops.ed.undo_history() or [])
-    steps_work = True
-    try:
-        bpy.ops.ed.undo_push(message="probe")
-        steps_work = len(bpy.ops.ed.undo_history() or []) > before
-    except Exception:
-        steps_work = False
-
-    if not steps_work:
-        # --background keeps no undo stack; the structural half still holds.
-        check(
-            "undo: build carries a checkpoint decorator (stack unavailable headless)",
-            hasattr(TubeRig.build, "__wrapped__"),
-        )
-    else:
-        base = len(bpy.ops.ed.undo_history() or [])
-        TubeRig(t, rig_name="undohose").build(
-            "spline", num_joints=12, num_controls=3, radius=0.6
-        )
-        after = len(bpy.ops.ed.undo_history() or [])
-        check(
-            "undo: one build pushes exactly one step",
-            after - base == 1,
-            f"{after - base} step(s)",
-        )
-        bpy.ops.ed.undo()
-        leftover = [
-            o.name
-            for o in bpy.data.objects
-            if o.name.startswith("undohose") or "undohose" in o.name
-        ]
-        check("undo: one press removes the whole rig", not leftover, str(leftover[:4]))
+    # Background Blender builds its undo stack at the first push, so push a
+    # baseline. ``ed.undo_history`` is a menu operator that returns a status
+    # set, never the stack: the step count this used to compare always read
+    # equal, so the undo below never ran headless (measured 2026-09-15).
+    bpy.ops.ed.undo_push(message="baseline")
+    check(
+        "undo: build carries a checkpoint decorator",
+        hasattr(TubeRig.build, "__wrapped__"),
+    )
+    TubeRig(t, rig_name="undohose").build(
+        "spline", num_joints=12, num_controls=3, radius=0.6
+    )
+    built = [o.name for o in bpy.data.objects if "undohose" in o.name]
+    bpy.ops.ed.undo()
+    leftover = [o.name for o in bpy.data.objects if "undohose" in o.name]
+    check(
+        "undo: one press removes the whole rig and keeps the tube",
+        built and not leftover and bpy.data.objects.get("UndoHose") is not None,
+        f"built {len(built)}, leftover {leftover[:4]}",
+    )
 
     check(
         "undo: b000 is NOT decorated (build already pushes; a second is a 2nd step)",
@@ -809,7 +797,7 @@ except Exception:
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
+ok = all(line.startswith("OK") for line in lines) and lines
 print(
-    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for line in lines if line.startswith('OK'))}/{len(lines)})"
 )

@@ -126,6 +126,8 @@ class BlenderScenePersistence:
     #: Scene custom-property channel carrying the serialized store (rides the
     #: ``.blend``; a plain ID custom prop never serializes into an FBX export).
     ATTR_NAME = "shot_store"
+    #: The record as this backend last wrote or read it (:meth:`record_changed`).
+    _last_raw: Optional[str] = None
 
     def __init__(self, attr_name: Optional[str] = None, store_cls=None):
         """
@@ -272,13 +274,16 @@ class BlenderScenePersistence:
         scene = self._scene()
         if scene is None:
             return
-        scene[self._attr_name] = json.dumps(data)
+        raw = json.dumps(data)
+        scene[self._attr_name] = raw
+        self._last_raw = raw
 
     def load(self) -> Optional[Dict[str, Any]]:
         scene = self._scene()
         if scene is None:
             return None
         raw = scene.get(self._attr_name)
+        self._last_raw = raw
         if not raw:
             return None
         try:
@@ -286,6 +291,17 @@ class BlenderScenePersistence:
         except (ValueError, TypeError):
             _log.warning("shot_store custom property is not valid JSON", exc_info=True)
             return None
+
+    def record_changed(self) -> bool:
+        """Whether the channel differs from what this backend last wrote or read.
+
+        Blender's undo restores the scene's custom properties with the step,
+        so an undo or redo of a key-stash operation moves the record under a
+        store that is already loaded; ``KeyStash.active`` asks this to re-read
+        it (mirror of mayatk's ``MayaScenePersistence.record_changed``).
+        """
+        scene = self._scene()
+        return scene is not None and scene.get(self._attr_name) != self._last_raw
 
 
 # ---------------------------------------------------------------------------

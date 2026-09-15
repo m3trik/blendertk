@@ -176,6 +176,42 @@ class TestKeyStashPanelLoads(unittest.TestCase):
         self.assertFalse(self.ui.chk001.isChecked())
         self.assertIn("Select a stored clip", self.ui.footer.statusText())
 
+    def test_an_undo_repaints_the_list_from_the_record_it_moved(self):
+        """Mirror of mayatk's: undo_post reaches the panel's subscription, which
+        re-asks for the store; the store re-reads a record the undo moved and
+        its change event repaints the list. No bpy here, so a backend double
+        stands in for the scene channel.
+        Added: 2026-09-15
+        """
+        from blendertk.anim_utils.key_stash._key_stash import KeyStash
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        class _MovedRecord:
+            def __init__(self, data):
+                self.data, self.moved = data, True
+
+            def save(self, data):
+                self.data = data
+
+            def load(self):
+                self.moved = False
+                return self.data
+
+            def record_changed(self):
+                return self.moved
+
+        self.assertIs(self.ui.slots.store, KeyStash.active())  # binds the listener
+        seed = KeyStash()
+        seed.add_clip(["Cube"], [{"times": [10.0, 20.0]}])
+        KeyStash.set_persistence(_MovedRecord(seed.to_dict()))
+        try:
+            ScriptJobManager.instance()._dispatch("Undo")
+            self.assertEqual(self.ui.tree000.topLevelItemCount(), 1)
+        finally:
+            KeyStash.set_persistence(None)
+            KeyStash.invalidate()
+        self.assertEqual(self.ui.tree000.topLevelItemCount(), 0)
+
 
 if __name__ == "__main__":
     runner = unittest.TextTestRunner(verbosity=2)

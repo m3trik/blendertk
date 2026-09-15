@@ -1722,7 +1722,7 @@ try:
     except Exception as exc:
         check("standoff: reports the furthest point, not the nearest", False, repr(exc))
 
-    # A fixture inside a room shell -- the OFFICE_ENV case. Its bounding box is
+    # A fixture inside a room shell -- the ROOM_ENV case. Its bounding box is
     # wholly inside the target's, so a bounds-derived estimate reads zero.
     reset()
     bpy.ops.mesh.primitive_cube_add(size=100, location=(0, 0, 0))

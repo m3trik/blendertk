@@ -777,6 +777,72 @@ class MayaSceneImport(ptk.LoggingMixin):
 
         return LightUtils.lights_from_records(records)
 
+    @staticmethod
+    def apply_world(
+        manifest_path: str, hdri: str = "", strength: float = 1.0
+    ) -> Dict[str, str]:
+        """Light the world: an explicit *hdri*, else the scene's sky dome, else ambient.
+
+        The bake's world, beside :meth:`_rebuild_lights` for the same reason: the
+        manifest's ``world`` record is this module's schema. The explicit HDRI wins
+        because it is the artist's override of what the scene says -- the reverse
+        would make it a control that silently does nothing whenever a dome is
+        present. *strength* scales an explicit HDRI or the ambient; a dome brings
+        its own, the level Arnold renders it at.
+
+        The record states where the image's centre FACES (``center``, in the
+        sender's axes per ``axis_up``) rather than a renderer's rotation, so each
+        side converts with the convention it owns. Blender's equirect centre faces
+        +X and a positive world Z rotation turns it clockwise seen from above
+        (measured in Cycles against a u-ramp), so the rotation is the negated
+        azimuth of that direction.
+
+        Returns:
+            ``{"description", "hdri", "sky_dome"}`` -- what
+            :meth:`blendertk.LightUtils.set_world_environment` applied, the explicit
+            HDRI's file name, and the dome that lit the world (with its image when
+            it had one); ``""`` for a source that did not apply.
+        """
+        import json
+        import math
+
+        from blendertk.light_utils._light_utils import LightUtils
+
+        if hdri:
+            return {
+                "description": LightUtils.set_world_environment(
+                    hdri=hdri, strength=strength
+                ),
+                "hdri": os.path.basename(hdri),
+                "sky_dome": "",
+            }
+        world = None
+        if os.path.isfile(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                world = (json.load(fh) or {}).get("world")
+        if not world:
+            return {
+                "description": LightUtils.set_world_environment(strength=strength),
+                "hdri": "",
+                "sky_dome": "",
+            }
+        x, y, z = world.get("center") or (1.0, 0.0, 0.0)
+        if str(world.get("axis_up", "Z")).upper() == "Y":
+            y = -z  # Y-up (x, y, z) -> Z-up (x, -z, y)
+        image = world.get("hdri") or None
+        description = LightUtils.set_world_environment(
+            hdri=image,
+            strength=float(world.get("strength", 1.0)),
+            color=world.get("color"),
+            rotation=-math.degrees(math.atan2(y, x)),
+        )
+        name = world.get("name") or "sky dome"
+        return {
+            "description": description,
+            "hdri": "",
+            "sky_dome": f"{name} ({os.path.basename(image)})" if image else name,
+        }
+
     def _apply_instance_manifest(self, manifest_path: str, imported: List[Any]) -> int:
         """Rebuild Blender-native linked duplicates from Maya's instance sets.
 

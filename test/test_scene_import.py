@@ -2040,6 +2040,117 @@ try:
         "_apply_scene_manifest" in _bake_txt and "_own_usd_animation" in _bake_txt,
     )
 
+    # ---- apply_world (needs bpy): explicit HDRI > the scene's sky dome > ambient --
+    if _HAVE_BPY:
+        import json as _json_world
+        import shutil as _shutil_world
+
+        from blendertk.light_utils._light_utils import LightUtils as _LightUtils
+
+        _world_dir = tempfile.mkdtemp(prefix="btk_world_")
+
+        def _png(name):
+            image = bpy.data.images.new(name, 8, 4)
+            path = os.path.join(_world_dir, f"{name}.png")
+            image.filepath_raw = path
+            image.file_format = "PNG"
+            image.save()
+            return path
+
+        def _world_manifest(world):
+            path = os.path.join(_world_dir, "scene.fbx.manifest.json")
+            data = {"lights": []}
+            if world:
+                data["world"] = world
+            with open(path, "w", encoding="utf-8") as fh:
+                _json_world.dump(data, fh)
+            return path
+
+        def _dome(**fields):
+            return {"name": "skydome", "axis_up": "Y", **fields}
+
+        _sky, _override = _png("sky"), _png("override")
+        _out = MayaSceneImport.apply_world(
+            _world_manifest(_dome(hdri=_sky, strength=4.0, center=[1.0, 0.0, 0.0])),
+            hdri=None,
+            strength=0.35,
+        )
+        _state = _LightUtils.get_world_hdri() or {}
+        check(
+            "a sky dome lights the world when no HDRI is set, at its own strength",
+            os.path.normcase(_state.get("filepath", "")) == os.path.normcase(_sky)
+            and abs(_state.get("strength", 0.0) - 4.0) < 1e-5,
+            f"{_state}",
+        )
+        check(
+            "a dome whose image centre faces +X needs no turn",
+            abs(_state.get("rotation", 99.0)) < 1e-4,
+            f"{_state.get('rotation')}",
+        )
+        check(
+            "the summary names the dome and its image, and no explicit HDRI",
+            _out.get("sky_dome") == "skydome (sky.png)" and _out.get("hdri") == "",
+            f"{_out}",
+        )
+        # An unturned Maya dome: a latlong centre faces local +Z, which the FBX
+        # import's Y-up -> Z-up turn puts at Blender -Y, while Blender's own equirect
+        # centre faces +X and a positive Z rotation turns it clockwise seen from
+        # above -- both measured (kick and Cycles against a u-ramp).
+        MayaSceneImport.apply_world(
+            _world_manifest(_dome(hdri=_sky, strength=1.0, center=[0.0, 0.0, 1.0]))
+        )
+        _rot = (_LightUtils.get_world_hdri() or {}).get("rotation")
+        check(
+            "an unturned Maya dome is a 90 degree world rotation",
+            _rot is not None and abs(_rot - 90.0) < 1e-4,
+            f"{_rot}",
+        )
+        _out = MayaSceneImport.apply_world(
+            _world_manifest(_dome(hdri=_sky, strength=4.0, center=[1.0, 0.0, 0.0])),
+            hdri=_override,
+            strength=0.5,
+        )
+        _state = _LightUtils.get_world_hdri() or {}
+        check(
+            "an explicit HDRI wins over the scene's dome",
+            os.path.normcase(_state.get("filepath", "")) == os.path.normcase(_override)
+            and abs(_state.get("strength", 0.0) - 0.5) < 1e-5
+            and _out.get("hdri") == "override.png"
+            and _out.get("sky_dome") == "",
+            f"{_state} {_out}",
+        )
+        _out = MayaSceneImport.apply_world(
+            _world_manifest(_dome(name="flatdome", color=[0.2, 0.3, 0.4], strength=2.0))
+        )
+        _bg = next(
+            (
+                n
+                for n in bpy.context.scene.world.node_tree.nodes
+                if n.type == "BACKGROUND"
+            ),
+            None,
+        )
+        check(
+            "an untextured dome lights the world as its colour",
+            _bg is not None
+            and all(
+                abs(a - b) < 1e-5
+                for a, b in zip(_bg.inputs["Color"].default_value[:3], (0.2, 0.3, 0.4))
+            )
+            and abs(_bg.inputs["Strength"].default_value - 2.0) < 1e-5
+            and _out.get("sky_dome") == "flatdome",
+            f"{_out}",
+        )
+        _out = MayaSceneImport.apply_world(_world_manifest(None), strength=0.35)
+        check(
+            "no dome and no HDRI keeps the flat ambient",
+            "flat ambient" in _out.get("description", "")
+            and _out.get("sky_dome") == ""
+            and _out.get("hdri") == "",
+            f"{_out}",
+        )
+        _shutil_world.rmtree(_world_dir, ignore_errors=True)
+
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

@@ -269,6 +269,48 @@ try:
     ok = ch.select_connections([driven], lx)
     check("select_connections selects driver target", ok and tgt.select_get(), f"ok={ok}")
 
+    # --- Explicit key set / remove (the panel's press / Alt+press) ---------
+    reset()
+    A = cube("A")
+    lx = next(d for d in ch.collect_channels([A], "keyable") if d["name"] == "location_x")
+    bpy.context.scene.frame_set(3)
+    ch.set_key_at_current_time([A], lx)
+    res = ch.set_key_at_current_time([A], lx)
+    fc = ch._find_fcurve(A, lx)
+    check("set_key twice -> still keyed (never toggles off)",
+          res == "set" and fc is not None and ch._has_key_at_current_frame(fc), str(res))
+    res = ch.set_key_at_current_time([A], lx, keyed=False)
+    check("set_key keyed=False -> key removed",
+          res == "removed" and ch.classify_connection(A, lx) == "none",
+          ch.classify_connection(A, lx))
+    res = ch.set_key_at_current_time([A], lx, keyed=False)
+    check("remove where no key sits -> harmless", res == "removed", str(res))
+
+    # --- The panel's Slots module imports without Qt -----------------------
+    # Headless Blender ships no Qt binding, so a Qt-only uitk import belongs in
+    # the method that uses it (blendertk/CLAUDE.md). uitk is put on the path and
+    # qtpy blocked, so the check fails only on a module-top Qt import.
+    import importlib
+    _slots_mod = "blendertk.node_utils.attributes.channels.channels_slots"
+    _saved_path = list(sys.path)
+    _saved_qtpy = sys.modules.get("qtpy", "absent")
+    sys.path.insert(0, os.path.join(MONO, "uitk"))
+    sys.modules["qtpy"] = None  # ``import qtpy`` now raises ImportError
+    sys.modules.pop(_slots_mod, None)
+    try:
+        importlib.import_module(_slots_mod)
+        slots_err = ""
+    except ImportError as e:
+        slots_err = repr(e)
+    finally:
+        sys.path[:] = _saved_path
+        if _saved_qtpy == "absent":
+            sys.modules.pop("qtpy", None)
+        else:
+            sys.modules["qtpy"] = _saved_qtpy
+        sys.modules.pop(_slots_mod, None)
+    check("channels_slots imports without Qt", not slots_err, slots_err)
+
 except Exception as e:
     traceback.print_exc()
     check("test raised", False, repr(e))

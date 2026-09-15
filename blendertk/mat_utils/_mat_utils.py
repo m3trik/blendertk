@@ -326,34 +326,45 @@ class _MatUtilsInternal:
         except Exception:
             return os.path.normpath(fp)
 
+    #: Tiled-image filename tokens -> the glob that finds their tiles on disk. A
+    #: ``u#_v#`` set is stored as ``<UVTILE>``: Blender rewrites the path when a tile
+    #: of one is loaded TILED (measured, 5.1).
+    _TILE_TOKENS = (("<UDIM>", "[0-9]" * 4), ("<UVTILE>", "u*_v*"))
+
     @staticmethod
     def _udim_first_tile_path(img):
-        """Existence-probe path for a TILED (UDIM) image: the stored path with the
-        ``<UDIM>`` token collapsed to the image's first declared tile number (1001
-        fallback) — the same first-tile probe mayatk's ``resolve_path`` applies.
+        """Existence-probe path for a TILED image: the stored path with its
+        ``<UDIM>`` / ``<UVTILE>`` token collapsed to the image's first declared
+        tile (1001 fallback; ``<UVTILE>`` spells tile 1001 ``u1_v1`` and 1002
+        ``u2_v1``) — the same first-tile probe mayatk's ``resolve_path`` applies.
         Non-tiled paths pass through unchanged; '' when the image has no path."""
         ap = _MatUtilsInternal._abspath(img)
-        if not ap or "<UDIM>" not in ap:
+        if not ap:
             return ap
         tiles = getattr(img, "tiles", None)
         number = tiles[0].number if tiles and len(tiles) else 1001
-        return ap.replace("<UDIM>", str(number))
+        if "<UDIM>" in ap:
+            return ap.replace("<UDIM>", str(number))
+        if "<UVTILE>" in ap:
+            offset = number - 1001
+            return ap.replace("<UVTILE>", f"u{offset % 10 + 1}_v{offset // 10 + 1}")
+        return ap
 
     @staticmethod
     def _udim_tile_paths(img):
-        """Existing on-disk tile files of a TILED (UDIM) image — the ``<UDIM>`` token
-        globbed as a 4-digit tile number (library-aware via :meth:`_abspath`). A
-        non-tiled path returns itself when it exists. Empty list when nothing is on
-        disk."""
+        """Existing on-disk tile files of a TILED image — its ``<UDIM>`` /
+        ``<UVTILE>`` token globbed (:attr:`_TILE_TOKENS`; library-aware via
+        :meth:`_abspath`). A non-tiled path returns itself when it exists. Empty
+        list when nothing is on disk."""
         import glob
 
         ap = _MatUtilsInternal._abspath(img)
         if not ap:
             return []
-        if "<UDIM>" not in ap:
-            return [ap] if os.path.isfile(ap) else []
-        pattern = glob.escape(ap).replace(glob.escape("<UDIM>"), "[0-9][0-9][0-9][0-9]")
-        return sorted(glob.glob(pattern))
+        for token, pattern in _MatUtilsInternal._TILE_TOKENS:
+            if token in ap:
+                return sorted(glob.glob(glob.escape(ap).replace(token, pattern)))
+        return [ap] if os.path.isfile(ap) else []
 
     @staticmethod
     def _image_meta(img):
@@ -2397,7 +2408,10 @@ class MatUtils(_MatUtilsInternal):
             return None
 
         if not name:
-            sets = ptk.MapFactory.group_textures_by_set(list(by_type.values()))
+            # The material's name, not a tile's: ``rock``, never ``rock.1001``.
+            sets = ptk.MapFactory.collapse_tile_sets(
+                ptk.MapFactory.group_textures_by_set(list(by_type.values()))
+            )
             name = (
                 next(iter(sets), None)
                 or os.path.splitext(os.path.basename(next(iter(by_type.values()))))[0]
@@ -2421,6 +2435,12 @@ class MatUtils(_MatUtilsInternal):
         def _img(path, non_color):
             node = nt.nodes.new("ShaderNodeTexImage")
             node.image = bpy.data.images.load(path, check_existing=True)
+            if len(ptk.MapFactory.get_tile_paths(path)) > 1:
+                # One tile of a set: TILED makes Blender read the path as its
+                # <UDIM>/<UVTILE> pattern and find every sibling (measured, 5.1).
+                # A LONE tile-numbered file stays one image: tiling would move it
+                # off 0-1 UV space onto the tile its number names.
+                node.image.source = "TILED"
             node.image.colorspace_settings.name = "Non-Color" if non_color else "sRGB"
             node.location = (-900, state["y"])
             state["y"] -= 300

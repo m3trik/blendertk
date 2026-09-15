@@ -36,9 +36,9 @@ range.
 ``tie_all_keyframes``/``snap_keys_to_frame``/``set_bake_animation_range`` (+ revert) task methods
 and its ``check_untied_keyframes``/``check_floating_point_keys`` check methods directly against a
 constraint-driven object and a hand-built fractional-key rig, then drives the full
-``TaskFactory.run_tasks`` dispatch to prove ``_execute_tasks_and_checks``'s
-``self._optimize_keys_level = tasks_only.get("optimize_keys", False)`` line actually
-reaches ``smart_bake()`` *before* it runs (``TASK_ORDER`` puts ``smart_bake`` first) — captured
+``TaskFactory.run_tasks`` dispatch to prove ``TaskManager.run_tasks``'s
+``self.run = self.run.with_tasks(tasks)`` line (the Optimize Keys level rides
+``ptk.ExportRun``) actually reaches ``smart_bake()`` *before* it runs (``TASK_ORDER`` puts ``smart_bake`` first) — captured
 via a plain ``logging.Handler`` on ``TaskManager.logger`` rather than mocking, since the forwarded
 flag only ever surfaces as an informational log line (``TaskManager`` has no ``optimize_keys``
 constructor knob to assert against directly, and ``SmartBake`` itself never consumes the flag).
@@ -1342,8 +1342,8 @@ def _run_task_manager_wiring_checks():
     ``anim_utils.smart_bake``/``_anim_utils`` (``smart_bake``, ``optimize_keys``,
     ``tie_all_keyframes``, ``snap_keys_to_frame``, ``set_bake_animation_range`` +
     ``revert_bake_animation_range``, ``check_untied_keyframes``, ``check_floating_point_keys``)
-    behave as documented, and that ``TaskFactory._execute_tasks_and_checks``'s
-    ``_optimize_keys_level`` forwarding actually reaches ``smart_bake()`` before it runs.
+    behave as documented, and that ``TaskManager.run_tasks``'s
+    ``run.optimize_keys_level`` forwarding actually reaches ``smart_bake()`` before it runs.
     Returns ``"OK ..."``/``"FAIL ..."`` lines, same convention as
     :func:`_run_data_internal_export_exclusion_checks`.
     """
@@ -1498,6 +1498,7 @@ def _run_task_manager_wiring_checks():
             "smart_bake records a session id",
             getattr(tm2, "_bake_session_id", None) is not None,
         )
+        session2 = tm2._bake_session_id
         check("_has_keyframes True after bake", tm2._has_keyframes is True)
 
         before = len(AnimUtils.get_fcurves([target]))
@@ -1554,8 +1555,16 @@ def _run_task_manager_wiring_checks():
             not tm2._deferred_restores,
         )
 
-        restore_result = SmartBake.restore(tm2._bake_session_id)
-        check("SmartBake.restore cleans up the session", restore_result.success is True)
+        # The session's restore is STAGED by smart_bake (2026-09-13) and ran with
+        # the deferred restores above: the constraint is live again, the marker
+        # is cleared, and a second restore of the same session has nothing left.
+        check(
+            "SmartBake.restore cleans up the session",
+            con.mute is False
+            and tm2._bake_session_id is None
+            and SmartBake.restore(session2).success is False,
+            f"mute={con.mute} marker={tm2._bake_session_id!r}",
+        )
 
         # ---- NLA-only / data-level animation awareness (2026-08-01 fix) -------------------
         # AnimUtils._actions reads only o.animation_data.action, so an action pushed to
@@ -1721,7 +1730,7 @@ def _run_task_manager_wiring_checks():
         )
         check(
             "_optimize_keys_level set before smart_bake runs",
-            tm3._optimize_keys_level is True,
+            tm3.run.optimize_keys_level is True,
         )
         check(
             "smart_bake's log reflects the forwarded flag",
@@ -1747,7 +1756,7 @@ def _run_task_manager_wiring_checks():
         tm4.run_tasks({"smart_bake": True})
         check(
             "_optimize_keys_level False when task absent from the dispatch dict",
-            tm4._optimize_keys_level is False,
+            tm4.run.optimize_keys_level is False,
         )
         check(
             "smart_bake's log omits the forwarded-flag line when disabled",

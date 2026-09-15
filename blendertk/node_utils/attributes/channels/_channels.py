@@ -550,24 +550,37 @@ class Channels:
         Decides set-vs-remove from the primary object so a batch stays consistent. Returns
         ``"set"`` / ``"removed"`` / ``None``.
         """
+        if not objects:
+            return None
+        primary_fc = cls._find_fcurve(objects[0], descriptor)
+        removing = bool(primary_fc and cls._has_key_at_current_frame(primary_fc))
+        return cls.set_key_at_current_time(objects, descriptor, keyed=not removing)
+
+    @classmethod
+    def set_key_at_current_time(cls, objects, descriptor, keyed=True):
+        """Set (``keyed=True``) or remove (``keyed=False``) the key on *descriptor* at the current
+        frame across *objects*.
+
+        Explicit rather than a toggle, so repeating it is harmless: inserting over an existing key
+        re-keys the current value, and removing where no key sits does nothing. Returns ``"set"`` /
+        ``"removed"`` / ``None``.
+        """
         import bpy
 
         if not objects:
             return None
         frame = bpy.context.scene.frame_current
-        primary_fc = cls._find_fcurve(objects[0], descriptor)
-        removing = bool(primary_fc and cls._has_key_at_current_frame(primary_fc))
-
         dp, idx = descriptor["data_path"], descriptor["index"]
+        index = -1 if idx is None else idx
         for obj in objects:
             try:
-                if removing:
-                    obj.keyframe_delete(data_path=dp, index=-1 if idx is None else idx, frame=frame)
+                if keyed:
+                    obj.keyframe_insert(data_path=dp, index=index, frame=frame)
                 else:
-                    obj.keyframe_insert(data_path=dp, index=-1 if idx is None else idx, frame=frame)
+                    obj.keyframe_delete(data_path=dp, index=index, frame=frame)
             except (RuntimeError, TypeError):
                 pass
-        return "removed" if removing else "set"
+        return "set" if keyed else "removed"
 
     @classmethod
     def break_connections(cls, objects, descriptor):

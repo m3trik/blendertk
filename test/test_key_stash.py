@@ -351,9 +351,7 @@ try:
         )
 
     tx, ty = fc_of(cube, 0), fc_of(cube, 1)
-    clip = KeyStash.active().stash(
-        targets=[(cube, [tx], 10, 30), (cube, [ty], 0, 20)]
-    )
+    clip = KeyStash.active().stash(targets=[(cube, [tx], 10, 30), (cube, [ty], 0, 20)])
     check(
         "targets merge into ONE clip, not one per channel",
         clip is not None and len(clip.curves) == 2 and clip.key_count == 5,
@@ -377,6 +375,76 @@ try:
         "a merged scope list does not cross channel with span",
         frames(fc_of(cube, 0)) == [1, 30, 40] and frames(fc_of(cube, 1)) == [1],
         f"x={frames(fc_of(cube, 0))} y={frames(fc_of(cube, 1))}",
+    )
+    reset_store()
+
+    # ---- undo / redo move the record with the scene ----
+    # Background Blender builds its undo stack at the first push, so each round
+    # starts with a baseline step (a GUI session has its file-load step). Each
+    # operation's record must ride its own step, and the loaded store must
+    # re-read a record an undo or redo moved (measured 2026-09-15: an undone
+    # Retrieve restored the clip in the scene record while the store stayed
+    # empty; a redone Preview brought its tracks back under a record that said
+    # no preview ran).
+    def undo_round(op):
+        reset()
+        cube = keyed_cube()
+        bpy.ops.ed.undo_push(message="baseline")
+        clip = KeyStash.active().stash(objects=[cube], time_range=(10, 30))
+        if op == "end_preview":
+            KeyStash.active().preview(clip.clip_id)
+            KeyStash.active().end_preview()
+        else:
+            getattr(KeyStash.active(), op)(clip.clip_id)
+        return clip.clip_id
+
+    def stash_state():
+        store = KeyStash.active()
+        ad = bpy.data.objects["Cube"].animation_data
+        tracks = len(ad.nla_tracks) if ad is not None else 0
+        return [c.clip_id for c in store.clips], store.is_previewing(), tracks
+
+    for op in ("retrieve", "drop"):
+        clip_id = undo_round(op)
+        bpy.ops.ed.undo()
+        check(
+            f"undoing a {op} brings the clip back into the loaded store",
+            stash_state()[0] == [clip_id],
+            f"{stash_state()}",
+        )
+        bpy.ops.ed.redo()
+        check(
+            f"redoing the {op} forgets the clip again",
+            stash_state()[0] == [],
+            f"{stash_state()}",
+        )
+
+    clip_id = undo_round("preview")
+    bpy.ops.ed.undo()
+    check(
+        "undoing a preview ends it in the record and on the scene together",
+        stash_state()[1:] == (False, 0),
+        f"{stash_state()}",
+    )
+    bpy.ops.ed.redo()
+    check(
+        "redoing a preview restores its tracks and the record that says it runs",
+        KeyStash.active().is_previewing(clip_id) and stash_state()[2] > 0,
+        f"{stash_state()}",
+    )
+
+    clip_id = undo_round("end_preview")
+    bpy.ops.ed.undo()
+    check(
+        "undoing an end-preview brings the preview back, tracks and record",
+        KeyStash.active().is_previewing(clip_id) and stash_state()[2] > 0,
+        f"{stash_state()}",
+    )
+    bpy.ops.ed.redo()
+    check(
+        "redoing the end-preview ends it again",
+        stash_state()[1:] == (False, 0),
+        f"{stash_state()}",
     )
     reset_store()
 
