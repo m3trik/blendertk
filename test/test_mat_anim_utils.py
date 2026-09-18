@@ -1798,6 +1798,94 @@ try:
         f"{stats}",
     )
 
+    # ---- flat-key pass: the bulk walk removes what the per-key walk removes ----
+    # Unscoped, the pass reads a curve once and rebuilds it once, because a
+    # remove() per key shifts the rest of the curve (quadratic on a per-frame
+    # bake). It must stay the SAME walk: from the end, each key judged against its
+    # predecessor and the next key still standing. A drift run -- every step inside
+    # the tolerance, the run as a whole not -- is where a walk against the ORIGINAL
+    # neighbours would diverge (it would also drop the 0.6 key).
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    fl = bpy.context.active_object
+    drift = [0.0, 0.0, 0.6, 1.2, 1.8, 5.0, 5.0, 5.0, 9.0]
+    for index in (0, 1):
+        for i, v in enumerate(drift):
+            fl.location[index] = v
+            fl.keyframe_insert("location", index=index, frame=i * 10)
+    bulk_fc, scoped_fc = _fc(fl, 0), _fc(fl, 1)
+    for fc in (bulk_fc, scoped_fc):
+        # Per-key data the rebuild has to carry over for the survivors.
+        fc.keyframe_points[4].interpolation = "BACK"
+        fc.keyframe_points[4].easing = "EASE_OUT"
+        fc.keyframe_points[5].handle_left_type = "VECTOR"
+        fc.keyframe_points[5].handle_right_type = "VECTOR"
+        fc.update()
+    btk.optimize_keys(
+        [fl], value_tolerance=0.7, remove_static_curves=False, remove_flat_keys=True
+    )
+    btk.get_redundant_flat_keys(
+        [scoped_fc], remove=True, value_tolerance=0.7, time_range=(-1e9, 1e9)
+    )
+
+    def _key_state(fc):
+        return [
+            (
+                round(k.co.x, 6),
+                round(k.co.y, 6),
+                k.interpolation,
+                k.easing,
+                k.handle_left_type,
+                k.handle_right_type,
+                tuple(round(c, 6) for c in k.handle_left),
+                tuple(round(c, 6) for c in k.handle_right),
+            )
+            for k in fc.keyframe_points
+        ]
+
+    check(
+        "flat-key bulk walk keeps exactly the keys the per-key walk keeps (drift run)",
+        [s[0] for s in _key_state(bulk_fc)] == [0.0, 20.0, 40.0, 50.0, 70.0, 80.0]
+        and _key_state(bulk_fc) == _key_state(scoped_fc),
+        f"bulk={_key_state(bulk_fc)} scoped={_key_state(scoped_fc)}",
+    )
+
+    # ---- extremes with an absolute bound (optimize_keys max_error) -------------
+    # A converted scene's curves mix magnitudes: 1% of a large curve's amplitude is
+    # visible, 1% of a tiny one keeps needless keys. An absolute max_error bounds
+    # every curve alike, and the reported deviation must be what Blender plays --
+    # the reduction measures it from its own Hermite fit, not per-sample evaluate().
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    ab = bpy.context.active_object
+    wave = {}
+    for f in range(0, 241):
+        big = 25.0 * math.sin(f * (2 * math.pi / 60.0))
+        small = 0.02 * math.sin(f * (2 * math.pi / 45.0)) + 0.01 * math.sin(f * 0.37)
+        ab.location.x, ab.location.z = big, small
+        ab.keyframe_insert("location", index=0, frame=f)
+        ab.keyframe_insert("location", index=2, frame=f)
+        wave[f] = (big, small)
+    ab_stats = {}
+    btk.optimize_keys(ab, value_tolerance=-1, max_error=1e-3, stats=ab_stats)
+    ab_big, ab_small = _fc(ab, 0), _fc(ab, 2)
+    ab_worst = max(
+        max(abs(ab_big.evaluate(f) - big), abs(ab_small.evaluate(f) - small))
+        for f, (big, small) in wave.items()
+    )
+    check(
+        "optimize_keys max_error bounds every curve absolutely, whatever its amplitude",
+        ab_worst <= 1e-3 + 1e-9
+        and len(ab_big.keyframe_points) < 241
+        and len(ab_small.keyframe_points) < 241,
+        f"worst={ab_worst} keys={len(ab_big.keyframe_points)}/{len(ab_small.keyframe_points)}",
+    )
+    check(
+        "reduce_max_error is the deviation Blender evaluates",
+        abs(ab_stats.get("reduce_max_error", -1.0) - ab_worst) < 1e-6,
+        f"reported={ab_stats.get('reduce_max_error')} evaluated={ab_worst}",
+    )
+
     # ---- tie_keyframes ------------------------------------------------------
     reset()
     sc = bpy.context.scene

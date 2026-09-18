@@ -86,9 +86,7 @@ def _engine():
 
         return BlenderSceneImport(log_level="WARNING")
     except Exception as error:
-        print(
-            "mayatk unavailable ({}); using the plain FBX import path.".format(error)
-        )
+        print("mayatk unavailable ({}); using the plain FBX import path.".format(error))
         return None
 
 
@@ -118,8 +116,11 @@ def import_payload(cmds, mel, engine):
 
 def restore_usd_locators(cmds, engine, new_nodes):
     """Give point-marker Empties their locator shape back (USD carrier) -- the
-    engine honors the manifest; the fallback keeps the children heuristic. Kept
-    in step by hand with ``mayatk.BlenderSceneImport._restore_usd_locators``."""
+    engine honors the manifest; the fallback keeps the children heuristic.
+    Dependency-free copy of ``mayatk.BlenderSceneImport._restore_usd_locators``;
+    its fallback loop is held token-identical across the three templates that
+    carry it by ``mayatk/test/test_scene_import.py::TestUsdPullRouteContracts::
+    test_locator_fallback_loops_are_one_copy_across_the_three_templates``."""
     if engine is not None:
         try:
             engine._restore_usd_locators(new_nodes, FBX_PATH + ".manifest.json")
@@ -132,7 +133,9 @@ def restore_usd_locators(cmds, engine, new_nodes):
     for transform in cmds.ls(new_nodes, exactType="transform", long=True) or []:
         if cmds.listRelatives(transform, shapes=True, fullPath=True):
             continue
-        if cmds.listRelatives(transform, children=True, type="transform", fullPath=True):
+        if cmds.listRelatives(
+            transform, children=True, type="transform", fullPath=True
+        ):
             continue
         short = transform.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
         cmds.createNode("locator", name=short + "Shape", parent=transform)
@@ -192,7 +195,9 @@ def restore_empty_groups(cmds, engine, new_nodes):
             continue
         if len(cmds.listRelatives(transform, shapes=True, fullPath=True) or []) != 1:
             continue
-        if cmds.listRelatives(transform, children=True, type="transform", fullPath=True):
+        if cmds.listRelatives(
+            transform, children=True, type="transform", fullPath=True
+        ):
             cmds.delete(shape)
 
 
@@ -214,6 +219,21 @@ def rebuild_materials(engine, new_nodes):
         traceback.print_exc()
 
 
+def rebuild_shots(engine, new_nodes):
+    """Rebuild the sent scene's shots from the sidecar's ``shots`` section through
+    mayatk's applier (mirror of ``rebuild_materials``), so the saved scene carries
+    them 1:1. Best-effort by contract.
+    """
+    manifest = FBX_PATH + ".manifest.json"
+    if engine is None or not os.path.isfile(manifest):
+        return
+    try:
+        engine._apply_shots_manifest(manifest, new_nodes, carrier=CARRIER)
+    except Exception:
+        print("Shot rebuild failed; the saved scene carries no shots:")
+        traceback.print_exc()
+
+
 def main():
     import maya.standalone
 
@@ -229,6 +249,7 @@ def main():
     else:
         restore_empty_groups(cmds, engine, new_nodes)
     rebuild_materials(engine, new_nodes)
+    rebuild_shots(engine, new_nodes)
 
     # The extension the caller asked for decides the writer: .mb only when explicitly
     # requested, since a .ma is diffable, greppable, and survives a version bump.

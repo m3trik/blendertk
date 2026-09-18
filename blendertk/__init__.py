@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -377,6 +377,8 @@ DEFAULT_INCLUDE = {
     # base (mirror of mayatk's ``rig_utils.RigUtils``); each rig engine is exposed too, while the
     # ``<Rig>Slots`` panels are discovered by ``BlenderUiHandler`` (not registered), as mayatk's are.
     "rig_utils._rig_utils": "*",
+    "rig_utils.rig_graph_build": "RigGraphBuilder",
+    "rig_utils.rig_graph_extract": "RigGraphExtractor",
     "rig_utils.controls": [
         "Controls",
         "ControlNodes",

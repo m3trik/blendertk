@@ -36,7 +36,8 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from collections.abc import Mapping
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import pythontk as ptk
 from pythontk.core_utils import script_template as _templates
@@ -63,6 +64,26 @@ _BAKE_ENGINE = Path(__file__).resolve()
 # (USD's own instancing cannot express Blender linked duplicates — see the
 # templates' docstrings).
 _TEMPLATES = {"fbx": _IMPORT_TEMPLATE, "usd": _IMPORT_TEMPLATE_USD}
+
+#: ``smart_bake`` (True / False / "auto") spelled as a ``rig_mode`` -- the alias
+#: every conversion entry point keeps for one release (schema 15.1).
+_SMART_BAKE_TO_RIG_MODE = {True: "bake", False: "raw", "auto": "auto"}
+#: What the FBX template's whole-scene smart bake does per mode. ``rig`` bakes
+#: ONLY what the plan says (a scoped pass inside ``_transfer_rig``), so the
+#: whole-scene pass is off.
+_RIG_MODE_TO_SMART_BAKE = {"auto": "auto", "bake": True, "raw": False, "rig": False}
+
+
+def _smart_bake_alias(func):
+    """``smart_bake=`` -> ``rig_mode=`` for one release."""
+    return ptk.Deprecation.parameter(
+        "smart_bake",
+        new="rig_mode",
+        transform=lambda v: _SMART_BAKE_TO_RIG_MODE.get(v, "auto"),
+        remove_in="0.7.0",
+        reason="rig_mode covers both carriers and adds 'rig'.",
+    )(func)
+
 
 # Maya scene formats cmds.file(open=...) accepts; FBX would be imported directly.
 SUPPORTED_EXTENSIONS = (".ma", ".mb")
@@ -98,6 +119,35 @@ MAYA_GROUP_EMPTY_DISPLAY_SIZE = 0.0001
 # so there is no conversion (and no Maya install/license) involved at all.
 USD_EXTENSIONS = ptk.USD_EXTENSIONS
 
+# The FBX importer options every Maya payload imports with (see
+# ``MayaSceneImport.import_payload``): custom properties carry Maya's extra attributes,
+# every joint arrives as a bone INCLUDING a chain's tip, and bone orientation is derived
+# for Blender's bone model. The .blend bake always imported with these; the in-process
+# import now does too, so an imported scene and a linked or opened bake of the same
+# source cannot disagree.
+#
+# ``ignore_leaf_bones`` is OFF deliberately (2026-09-17). The option exists because
+# many FBX writers append a synthetic ``<parent>_end`` bone per chain, which is noise
+# -- but MAYA'S EXPORTER APPENDS NONE, so the leaf it would drop is a real tip joint.
+# Dropping it cost: 7 of 217 rig records on the production module failed to resolve
+# (`LookupError` on each chain's last joint) and demoted to the bake, where the USD
+# route resolved all 217, and any skin weighted to a tip silently lost that influence.
+# The tip's bone LENGTH is not the importer's extrapolation either:
+# `_apply_bone_lengths` re-derives every length from the recorded joint hierarchy,
+# and a joint with no children of its own takes its parent's length.
+FBX_IMPORT_OPTIONS = {
+    "use_custom_props": True,
+    "ignore_leaf_bones": False,
+    "automatic_bone_orientation": True,
+}
+
+# How a foreign-scene conversion reduces its baked keys unless told otherwise: an
+# ``AnimUtils.OPTIMIZE_LEVELS`` key. Both carriers sample the evaluated scene, so every
+# animated channel arrives with a key per frame; ``"extremes"`` keeps each smooth curve's
+# shape-defining keys with refit handles (within ``MayaSceneImport.KEY_REDUCTION_MAX_ERROR``),
+# which is what makes a converted scene editable again.
+REDUCE_KEYS_DEFAULT = "extremes"
+
 # Maya driver node types whose animation the plain FBX round trip would lose or
 # mangle — the scene-scan mirror of the conversion template's Maya-side
 # ``_detect_complex_anim`` probe (which can't be imported here: it lives in the
@@ -107,11 +157,25 @@ USD_EXTENSIONS = ptk.USD_EXTENSIONS
 # stored as plain strings in the binary IFF blocks).
 _DRIVER_NODE_TYPES = frozenset(
     {
-        "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
-        "aimConstraint", "poleVectorConstraint", "geometryConstraint",
-        "normalConstraint", "tangentConstraint",
-        "expression", "ikHandle", "motionPath",
-        "animCurveUL", "animCurveUA", "animCurveUU",  # set-driven keys
+        "parentConstraint",
+        "pointConstraint",
+        "orientConstraint",
+        "scaleConstraint",
+        "aimConstraint",
+        "poleVectorConstraint",
+        "geometryConstraint",
+        "normalConstraint",
+        "tangentConstraint",
+        "expression",
+        "ikHandle",
+        "motionPath",
+        "animCurveUL",
+        "animCurveUA",
+        "animCurveUU",
+        # The offsetParentMatrix idiom -- the LARGEST driver population on the
+        # production module (196 multMatrix); a matrix-only rig must prompt too.
+        "multMatrix",
+        "blendMatrix",  # set-driven keys
     }
 )
 
@@ -123,11 +187,12 @@ _MB_DRIVER_TOKENS = tuple(t.encode("ascii") for t in sorted(_DRIVER_NODE_TYPES))
 )
 
 
-def _smart_bake_syspath(mayatk_path: Optional[str] = None) -> List[str]:
+def _mayatk_syspath(mayatk_path: Optional[str] = None) -> List[str]:
     """Package-parent dirs to add to the conversion mayapy's ``PYTHONPATH`` so the
-    template's optional smart-bake pre-pass can ``import mayatk`` (which itself needs
-    ``pythontk``). Returns ``[]`` when mayatk can't be located -- the template then
-    degrades to the plain FBX bake.
+    templates' optional mayatk pre-passes -- the skin flatten on both routes, the
+    FBX route's smart bake -- can ``import mayatk`` (which itself needs
+    ``pythontk``). Returns ``[]`` when mayatk can't be located -- each pre-pass then
+    degrades with a printed line (a bare pipeline mayapy has only Maya's modules).
 
     Resolution order: an explicit *mayatk_path*; an importable ``mayatk`` (installed
     or already on ``sys.path``); else the monorepo sibling of ``pythontk``
@@ -160,9 +225,7 @@ def _smart_bake_syspath(mayatk_path: Optional[str] = None) -> List[str]:
         if spec and spec.origin:
             candidates.append(os.path.dirname(os.path.dirname(spec.origin)))
     if pythontk_file:  # monorepo fallback: _scripts/{pythontk,mayatk} are siblings
-        scripts_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(pythontk_file))
-        )
+        scripts_root = os.path.dirname(os.path.dirname(os.path.dirname(pythontk_file)))
         candidates.append(os.path.join(scripts_root, "mayatk"))
 
     for parent in candidates:
@@ -171,11 +234,20 @@ def _smart_bake_syspath(mayatk_path: Optional[str] = None) -> List[str]:
             return [d for d in dict.fromkeys(dirs) if d and os.path.isdir(d)]
     return []  # mayatk unresolvable -> no injection, plain bake in the child
 
+
 class MayaSceneImport(ptk.LoggingMixin):
     """Engine: convert a Maya scene to FBX via headless Maya, then import it.
 
     Scriptable and synchronous; async affordances belong to the calling UI layer.
     """
+
+    #: The largest deviation an ``"extremes"`` key reduction may leave on any curve, in
+    #: the curve's own units (metres, radians, scale factor). Absolute, not the level's
+    #: default of 1% of each curve's amplitude: measured on a production conversion
+    #: (3504 animated curves, 25.9 M baked keys), 1% kept 93.8 k keys and left one
+    #: translation curve 0.125 off, while 1e-4 kept 106.7 k keys with every curve within
+    #: 1e-4 -- visually lossless, and still about 240x fewer keys than the bake.
+    KEY_REDUCTION_MAX_ERROR: float = 1e-4
 
     def __init__(
         self,
@@ -190,7 +262,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         # Host binary for the FBX -> .blend bake (see the blender_path property).
         self._blender_path = blender_path
         # Optional explicit mayatk location for the smart-bake pre-pass (else it is
-        # auto-resolved; see _smart_bake_syspath).
+        # auto-resolved; see _mayatk_syspath).
         self._mayatk_path = mayatk_path
 
     # ------------------------------------------------------------------ discovery
@@ -232,6 +304,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 f"via must be one of {sorted(_TEMPLATES)}, got {via!r}"
             ) from None
 
+    @_smart_bake_alias
     def render_script(
         self,
         src_path: str,
@@ -240,17 +313,33 @@ class MayaSceneImport(ptk.LoggingMixin):
         via: str = "fbx",
         embed_textures: bool = False,
         include_animation: bool = True,
-        smart_bake: Union[bool, str] = "auto",
+        rig_mode: str = "auto",
     ) -> str:
         """Render the Maya-side conversion script (exposed for tests/preview).
 
-        *smart_bake* (FBX route only): ``"auto"`` bakes driven animation to keys
-        via mayatk's ``SmartBake`` only when a cheap probe detects it; ``True``
-        always attempts it; ``False`` reproduces the pre-smart-bake plain bake.
+        *rig_mode* (:data:`pythontk.RIG_MODES`): how the rig logic travels, on
+        BOTH routes. ``rig`` sends this consumer's capability manifest into the
+        template as ``RIG_CAPABILITY`` so the Maya side plans against what
+        Blender can build and bakes only the rest (schema 15.2); ``bake`` /
+        ``auto`` / ``raw`` drive the FBX template's smart bake as before.
+        ``smart_bake=`` is the deprecated alias.
         """
+        if rig_mode not in ptk.RIG_MODES:
+            raise ValueError(
+                f"rig_mode must be one of {ptk.RIG_MODES}, not {rig_mode!r}"
+            )
+        capability = ""
+        if rig_mode == "rig":
+            import json
+
+            from blendertk.rig_utils.rig_graph_build import RigGraphBuilder
+
+            capability = json.dumps(RigGraphBuilder.capability(), sort_keys=True)
         context = {
             "SRC_PATH": str(src_path).replace("\\", "/"),
             "INCLUDE_ANIMATION": repr(bool(include_animation)),
+            "RIG_MODE": repr(rig_mode),
+            "RIG_CAPABILITY": repr(capability),
         }
         if via == "usd":
             context["OUT_USD"] = str(out_path).replace("\\", "/")
@@ -259,15 +348,10 @@ class MayaSceneImport(ptk.LoggingMixin):
                     "embed_textures has no USD-route equivalent (textures are "
                     "referenced on disk); ignored."
                 )
-            if smart_bake not in (False, "auto"):
-                self.logger.info(
-                    "smart_bake applies to the FBX route only (the USD route bakes "
-                    "animation natively); ignored."
-                )
         else:
             context["OUT_FBX"] = str(out_path).replace("\\", "/")
             context["EMBED_TEXTURES"] = repr(bool(embed_textures))
-            context["SMART_BAKE"] = repr(smart_bake)
+            context["SMART_BAKE"] = repr(_RIG_MODE_TO_SMART_BAKE[rig_mode])
         return _templates.ScriptTemplate.render_template(self._template(via), context)
 
     def convert(
@@ -276,10 +360,19 @@ class MayaSceneImport(ptk.LoggingMixin):
         out_path: str,
         *,
         via: str = "fbx",
-        timeout: float = 600,
+        timeout: Optional[float] = None,
+        on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None,
         **script_opts: Any,
     ) -> "ptk.ScriptRunResult":
-        """Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking)."""
+        """Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).
+
+        *on_output* streams the child's output while it runs
+        (:meth:`pythontk.ScriptRunner.run_script_to_artifact`): the conversion templates
+        print :class:`pythontk.ProgressRelay` markers into it, and returning ``False``
+        stops the run. *timeout* is unset by default: a production scene converts for
+        minutes, and a fixed budget killed one that was still working -- a caller with a
+        UI stops the run through *on_output* instead.
+        """
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if not os.path.isfile(src):
             raise FileNotFoundError(f"Maya scene not found: {src}")
@@ -296,29 +389,35 @@ class MayaSceneImport(ptk.LoggingMixin):
         # (a studio config outside Blender's tree passes through untouched).
         env = dict(MayaBridge._launch_env() or os.environ)
         env.update(_FAST_MAYA_ENV)
-        # Smart-bake pre-pass needs mayatk (+ pythontk) importable in the child
-        # mayapy — inject their package parents on PYTHONPATH. "auto"/True enable it;
-        # False (or the USD route) skips injection entirely. Missing mayatk -> [] ->
-        # the template's guarded import degrades to the plain FBX bake.
-        smart_bake = script_opts.get("smart_bake", "auto")
-        if via == "fbx" and smart_bake is not False:
-            extra = _smart_bake_syspath(self._mayatk_path)
-            if extra:
-                existing = env.get("PYTHONPATH", "")
-                env["PYTHONPATH"] = os.pathsep.join(
-                    extra + ([existing] if existing else [])
-                )
-            elif smart_bake is True:
-                self.logger.warning(
-                    "smart_bake=True but mayatk could not be located; the conversion "
-                    "will fall back to the plain FBX bake."
-                )
+        # The templates' optional mayatk pre-passes (the skin flatten on both routes,
+        # the FBX route's smart bake) need mayatk (+ pythontk) importable in the child
+        # mayapy -- inject their package parents on PYTHONPATH. Missing mayatk -> []
+        # -> each guarded import degrades with a printed line.
+        extra = _mayatk_syspath(self._mayatk_path)
+        if extra:
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = os.pathsep.join(
+                extra + ([existing] if existing else [])
+            )
+        elif via == "fbx" and script_opts.get("smart_bake", "auto") is True:
+            self.logger.warning(
+                "smart_bake=True but mayatk could not be located; the conversion "
+                "will fall back to the plain FBX bake."
+            )
         result = self._run_script(
             mayapy,
-            self.render_script(src, out_path, via=via, **script_opts),
+            self.render_script(
+                src,
+                out_path,
+                via=via,
+                **{
+                    k: v for k, v in script_opts.items() if k not in self._KEY_ONLY_OPTS
+                },
+            ),
             artifact=out_path,
             timeout=timeout,
             env=env,
+            on_output=on_output,
         )
         self.logger.info(
             f"Converted to {via.upper()} in {result.duration:.1f}s "
@@ -328,9 +427,16 @@ class MayaSceneImport(ptk.LoggingMixin):
 
     # Seam for tests (stub the mayapy run without patching pythontk internals).
     @staticmethod
-    def _run_script(app_exe, script_text, *, artifact, timeout, env=None):
+    def _run_script(
+        app_exe, script_text, *, artifact, timeout, env=None, on_output=None
+    ):
         return ptk.ScriptRunner.run_script_to_artifact(
-            app_exe, script_text, artifact=artifact, timeout=timeout, env=env
+            app_exe,
+            script_text,
+            artifact=artifact,
+            timeout=timeout,
+            env=env,
+            on_output=on_output,
         )
 
     @classmethod
@@ -350,25 +456,30 @@ class MayaSceneImport(ptk.LoggingMixin):
         *,
         via: str,
         use_cache: bool,
-        timeout: float,
+        timeout: Optional[float],
         script_opts: Dict[str, Any],
+        on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None,
     ) -> "ptk.CachedArtifact.Result":
         """The cached FBX/USD conversion of *src*, produced on a miss.
 
         Shared by :meth:`import_scene` and :meth:`bake_scene`: both need the SAME
         intermediate, so a scene that was already imported bakes without a second Maya
-        launch (and without a second license checkout).
+        launch (and without a second license checkout). *on_output* only ever sees a
+        miss -- a hit runs nothing.
         """
         ext = ".usd" if via == "usd" else ".fbx"
         self._template(via)  # validate the route before any work
         return ptk.CachedArtifact("maya_to_btk", extension=ext).get(
             self._cache_key(src, script_opts, via),
-            lambda out: self.convert(src, out, via=via, timeout=timeout, **script_opts),
-            sidecars=(".manifest.json",),
+            lambda out: self.convert(
+                src, out, via=via, timeout=timeout, on_output=on_output, **script_opts
+            ),
+            sidecars=(ptk.HandoffManifest.SUFFIX,),
             use_cache=use_cache and os.path.isfile(src),
         )
 
     # ------------------------------------------------------------------ import
+    @_smart_bake_alias
     def import_scene(
         self,
         src_path: str,
@@ -376,13 +487,20 @@ class MayaSceneImport(ptk.LoggingMixin):
         via: str = "fbx",
         cleanup: bool = True,
         use_cache: bool = True,
-        timeout: float = 600,
+        timeout: Optional[float] = None,
         fbx_options: Optional[Dict[str, Any]] = None,
-        smart_bake: Union[bool, str] = "auto",
+        rig_mode: str = "auto",
         scene_settings: Union[bool, str] = "auto",
+        reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT,
+        shots: bool = True,
+        progress: Optional[Callable[..., Optional[bool]]] = None,
         **script_opts: Any,
     ) -> List[Any]:
         """Import the Maya scene at *src_path*; return the objects created.
+
+        Two stages: a fresh ``mayapy`` converts the scene to an FBX or USD intermediate
+        (cached), then :meth:`import_payload` brings it into this scene and applies its
+        manifest -- the same consumer the ``.blend`` bake and mayatk's send run.
 
         Parameters:
             src_path: A ``.ma`` / ``.mb`` file — or a USD file
@@ -420,20 +538,19 @@ class MayaSceneImport(ptk.LoggingMixin):
                 Texture edits flow through even on a hit: the payload
                 references textures on disk (``embed_textures`` defaults off),
                 so Blender always loads the current files.
-            timeout: Max seconds for the Maya-side conversion.
-            fbx_options: Forwarded to ``bpy.ops.import_scene.fbx``
-                (``via="fbx"`` only; the USD route imports with the native
-                defaults).
-            smart_bake: Pre-bake driven animation to keys via mayatk's
-                ``SmartBake`` before the FBX export, so channels FBX's plain
-                bake loses -- inherited visibility, set-driven keys, constraints,
-                IK, motion paths, driven blend shapes -- survive the round trip.
-                ``"auto"`` (default) does it only when a cheap probe detects such
-                animation; ``True`` always attempts it; ``False`` reproduces the
-                pre-smart-bake plain bake. FBX route only (inert for USD, which
-                bakes animation natively); needs mayatk importable (auto-located,
-                or ``mayatk_path`` on the constructor) and degrades to the plain
-                bake without it.
+            timeout: Max seconds for the Maya-side conversion; unset by default
+                (see :meth:`convert`).
+            fbx_options: ``bpy.ops.import_scene.fbx`` kwargs over
+                :data:`FBX_IMPORT_OPTIONS` (``via="fbx"`` only).
+            rig_mode: How the rig logic driving the scene travels, on either
+                route (:data:`pythontk.RIG_MODES`). ``"auto"`` (default) bakes
+                driven animation to keys via mayatk's ``SmartBake`` only when a
+                cheap probe detects it; ``"bake"`` always; ``"raw"`` never;
+                ``"rig"`` extracts a RigGraph, plans it against THIS importer's
+                capability, bakes only what the plan cannot build and ships the
+                graph in the manifest's ``rig`` section for :meth:`import_payload`
+                to build (schema 15). Needs mayatk importable; degrades to the
+                plain bake without it. ``smart_bake=`` is the deprecated alias.
             scene_settings: Adopt the source scene's time setup — fps, playback
                 + animation ranges, current frame (the manifest's ``scene``
                 section, else what the intermediate itself carries; see
@@ -442,11 +559,18 @@ class MayaSceneImport(ptk.LoggingMixin):
                 takes the source's clock; a populated scene keeps its own —
                 retiming someone's existing animation is never implicit);
                 ``True`` always, ``False`` never.
+            reduce_keys: How the imported (baked, per-frame) animation is reduced
+                -- see :meth:`import_payload`. ``"extremes"`` by default; a falsy
+                value keeps every key.
+            progress: ``progress(current, total, message) -> bool`` -- the shape
+                uitk's ``progress_adapter`` gives a footer bar. Fed by
+                :class:`pythontk.ProgressRelay` over both stages; returning
+                ``False`` stops the conversion (the child is killed) or the import
+                between steps, with :class:`pythontk.OperationCancelled`.
             **script_opts: Maya-side knobs (``embed_textures`` /
                 ``include_animation``; ``embed_textures`` is FBX-route only).
         """
         from blendertk.env_utils._env_utils import EnvUtils
-        from blendertk.env_utils.fbx_utils import FbxUtils
 
         # Decided BEFORE the import: "no content" must describe the scene the
         # user had, not the one the import just filled.
@@ -454,45 +578,45 @@ class MayaSceneImport(ptk.LoggingMixin):
             scene_settings == "auto" and not EnvUtils.scene_has_content()
         )
 
-        # smart_bake shapes only the FBX template; keep it out of the USD route's
-        # cache key so identical USD conversions can't fragment on an inert option.
-        if via == "fbx":
-            # Surface the option into the cache key + the Maya-side render context.
-            script_opts["smart_bake"] = smart_bake
-        elif smart_bake not in (False, "auto"):
-            self.logger.info(
-                "smart_bake applies to the FBX route only (the USD route bakes "
-                "animation natively); ignored."
-            )
+        self._rig_mode_opts(script_opts, rig_mode)
 
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if os.path.splitext(src)[1].lower() in USD_EXTENSIONS:
             # USD fast path: native import, no headless-Maya round-trip at all.
-            from blendertk.env_utils.usd import UsdUtils
-
             if not os.path.isfile(src):
                 raise FileNotFoundError(f"USD file not found: {src}")
             self.logger.info(
                 f"USD source — importing natively (no Maya conversion): {src}"
             )
-            imported = UsdUtils.import_scene(src)
-            self._own_usd_animation(src, imported)
-            if adopt_scene:
-                self._apply_scene_manifest(None, src)
+            relay = ptk.ProgressRelay(progress, stages=1)
+            imported = self.import_payload(
+                src,
+                scene_settings=adopt_scene,
+                reduce_keys=reduce_keys,
+                shots=shots,
+                progress=self._stage_progress(relay, 0, "Blender"),
+            )
             self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
             return imported
 
+        relay = ptk.ProgressRelay(progress, stages=2)
         got = self._cached_conversion(
-            src, via=via, use_cache=use_cache, timeout=timeout, script_opts=script_opts
+            src,
+            via=via,
+            use_cache=use_cache,
+            timeout=timeout,
+            script_opts=script_opts,
+            on_output=relay.reader(0, "Maya"),
         )
         out_path, tmp = got.path, got.scratch
+        relay.report(
+            0,
+            1,
+            1,
+            "Maya: " + ("reused the cached conversion" if got.hit else "converted"),
+        )
 
-        # Both routes sidecar what their intermediate cannot carry. FBX: the
-        # textures (packed metallic/roughness/ao on translated materials) plus
-        # baked visibility. USD: materials arrive natively, but instance
-        # RELATIONSHIPS do not survive a flattened export -- they are replayed
-        # below as Blender-native shared mesh data.
-        manifest_path = out_path + ".manifest.json"
+        manifest_path = ptk.HandoffManifest.path_for(out_path)
         if via == "usd" and not os.path.isfile(manifest_path):
             # The v2 conversion ALWAYS writes the sidecar (empty groups included)
             # and withholds the USD when it can't -- a missing manifest means a
@@ -504,94 +628,441 @@ class MayaSceneImport(ptk.LoggingMixin):
                 "the conversion cache or re-pull via FBX."
             )
         try:
-            if via == "usd":
-                from blendertk.env_utils.usd import UsdUtils
-
-                # Every prim, the invisible ones landing hidden (a Maya-hidden
-                # bake-source set vanished from a production pull when the
-                # importer's visible-only default skipped it), Maya's primary
-                # UV set render-active.
-                imported = UsdUtils.import_scene(out_path)
-            else:
-                imported = FbxUtils.import_fbx(out_path, **(fbx_options or {}))
+            imported = self.import_payload(
+                out_path,
+                fbx_options=fbx_options,
+                scene_settings=adopt_scene,
+                reduce_keys=reduce_keys,
+                shots=shots,
+                progress=self._stage_progress(relay, 1, "Blender"),
+            )
         except Exception:
             if tmp is not None and os.path.isfile(out_path):
                 self.logger.warning(
                     f"Keeping intermediate {via.upper()} for debugging: {out_path}"
                 )
             raise
-        if via == "usd":
-            # Rebuild Blender-native linked duplicates from Maya's instance
-            # sets. GUARANTEED-OR-FAIL: a partially-shared scene renders
-            # correctly and only betrays itself when an artist edits one
-            # duplicate and its siblings don't follow -- so a failed replay
-            # rolls the whole import back and raises.
-            try:
-                self._apply_instance_manifest(manifest_path, imported)
-            except Exception:
-                self._rollback_import(imported)
-                if tmp is not None and os.path.isfile(out_path):
-                    self.logger.warning(
-                        f"Keeping intermediate USD for debugging: {out_path}"
-                    )
-                raise
-            # Cosmetic, after the structural work: drop the Empty Blender
-            # materializes for the exporter's materials Scope prim ("mtl").
-            imported = self._strip_materials_scope(imported, out_path)
-            self._own_usd_animation(out_path, imported)
-            # Materials: the native UsdPreviewSurface networks are the baseline;
-            # the manifest is the FBX route's proven rebuild on top (mayaUsd's
-            # exporter writes no normal off a bump2d chain and no packed /
-            # AO maps -- probed), after the shading-group-named materials are
-            # renamed to their shader. Non-fatal, like the FBX branch.
-            self._apply_usd_materials(manifest_path, imported)
-        elif os.path.isfile(manifest_path):
-            # Node-type tags first (cheap, structural): a ``maya_node_type``
-            # custom property on each Empty that was a Maya group/locator, so
-            # a later send BACK restores the correct node type. Non-fatal.
-            try:
-                self._tag_maya_node_types(manifest_path, imported)
-            except Exception as e:  # noqa: BLE001
-                self.logger.warning(f"Node-type tagging failed ({e}); skipped.")
-            # Structurally non-fatal: a bad sidecar must never abort an
-            # import whose FBX already landed (materials just stay phong).
-            try:
-                self._apply_texture_manifest(manifest_path, imported)
-            except Exception as e:  # noqa: BLE001
-                self.logger.warning(
-                    f"Texture-manifest rebuild failed ({e}); keeping FBX materials."
-                )
-            # Smart-bake visibility (the manifest's ``visibility`` section — FBX
-            # carries the curve, Blender's importer drops it) — replayed as
-            # hide_render/hide_viewport keys, shifted by the same anim_offset the
-            # FBX importer applied to the transforms (default 1.0). Non-fatal.
-            try:
-                self._apply_visibility_manifest(
-                    manifest_path,
-                    imported,
-                    frame_offset=float((fbx_options or {}).get("anim_offset", 1.0)),
-                )
-            except Exception as e:  # noqa: BLE001
-                self.logger.warning(f"Visibility replay failed ({e}); skipped.")
-        if adopt_scene:
-            # Same frame shift as the visibility replay: FBX-imported curves land
-            # anim_offset frames late, so the ranges must follow them; USD time
-            # codes map 1:1 onto frames.
-            self._apply_scene_manifest(
-                manifest_path,
-                out_path,
-                frame_offset=(
-                    float((fbx_options or {}).get("anim_offset", 1.0))
-                    if via == "fbx"
-                    else 0.0
-                ),
-            )
         if cleanup and tmp is not None:
             tmp.cleanup()
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
         return imported
 
-    def _own_usd_animation(self, usd_path: str, imported: List[Any]) -> int:
+    def import_payload(
+        self,
+        payload_path: str,
+        *,
+        fbx_options: Optional[Dict[str, Any]] = None,
+        usd_options: Optional[Dict[str, Any]] = None,
+        scene_settings: bool = False,
+        reduce_keys: Union[bool, str, None] = False,
+        shots: bool = True,
+        progress: Optional[Callable[[int, int, str], Optional[bool]]] = None,
+    ) -> List[Any]:
+        """Import a Maya hand-off payload into the open scene and apply its manifest.
+
+        The ONE Blender-side consumer of a Maya payload -- an FBX or USD intermediate
+        and the ``.manifest.json`` beside it, whichever side produced them.
+        :meth:`import_scene` runs it in this scene, the ``.blend`` bake template in a
+        child Blender, and mayatk's receiving templates in the Blender they launch, so a
+        manifest section replays the same way through every door. Before it existed
+        those call sites each sequenced the appliers themselves, and they had drifted:
+        the bake adopted the scene clock and the send never did, the send rebuilt
+        lights and the pull never did.
+
+        A section applies when the manifest carries it -- the producer decides what
+        travels:
+
+        * ``transforms`` -- Maya group / locator identity on the Empties
+          (:meth:`_tag_maya_node_types`).
+        * ``materials`` -- textures rebuilt natively (:meth:`_apply_texture_manifest`;
+          on USD, after the shading-group rename, :meth:`_apply_usd_materials`).
+        * ``instances`` (a v2 USD sidecar) -- shared mesh data rebuilt,
+          GUARANTEED-OR-FAIL: a failed replay removes the whole import and raises
+          (:meth:`_apply_instance_manifest`).
+        * ``visibility`` (FBX) -- baked show / hide as ``hide_*`` keys, shifted by the
+          importer's ``anim_offset`` (:meth:`_apply_visibility_manifest`).
+        * ``lights`` -- real lights on the empties the carrier placed
+          (:meth:`_rebuild_lights`).
+        * ``skins`` (FBX) -- each skinned mesh's skinning method, so a
+          dual-quaternion skin gets its Armature modifier's Preserve Volume
+          (:meth:`_apply_skinning_methods`; a USD payload authors the method itself).
+        * ``bones`` -- the joint hierarchy the Maya-side skin pre-pass flattened
+          away, so the bones are drawn at the chain's scale rather than the whole
+          skeleton's (:meth:`_apply_bone_lengths`).
+        * ``scene`` -- the source's clock, when *scene_settings* asks
+          (:meth:`_apply_scene_manifest`, which falls back to the file's own).
+        * ``shots`` -- the source's shot store, rebuilt 1:1 onto this scene's
+          when *shots* allows (:meth:`_apply_shots_manifest`; last, because its
+          memberships and ledger claims name what every other step may replace,
+          reduce or re-key).
+
+        A USD payload's Transform Cache constraints are always baked into keys
+        (:meth:`_own_usd_animation`): the payload is scratch, and a scene streaming
+        from it loses its motion when the cache is swept. A prim declaring
+        ``!resetXformStack!`` -- Maya's spelling for an ``offsetParentMatrix``-driven
+        node, whose placement is authored independently of the DAG parent it sits
+        under -- is freed from its ancestors BEFORE that bake
+        (:meth:`_honor_reset_xform_stack`), because Blender's importer ignores the
+        token and an animated parent otherwise drags the object out of position (and
+        the bake would then key the displacement); a skeleton-bound mesh is left to
+        its armature. Fidelity steps log and move on when they fail; the import
+        itself and the instance replay raise.
+
+        Parameters:
+            payload_path: The ``.fbx`` / ``.usd*`` intermediate.
+            fbx_options: ``bpy.ops.import_scene.fbx`` kwargs over
+                :data:`FBX_IMPORT_OPTIONS`.
+            usd_options: Kwargs over ``UsdUtils.INTERCHANGE_IMPORT_OPTIONS``.
+            scene_settings: Adopt the source scene's clock.
+            reduce_keys: Reduce the imported animation afterwards -- an
+                ``AnimUtils.OPTIMIZE_LEVELS`` key (``True`` = the default level, falsy
+                = keep every key). A conversion's animation arrives with a key per
+                frame on every animated channel; ``"extremes"`` keeps each smooth
+                curve's shape within :attr:`KEY_REDUCTION_MAX_ERROR` and drops the rest.
+                Scoped to the imported objects. An unknown level raises before
+                anything is imported.
+            shots: Rebuild the source scene's shots from the manifest's ``shots``
+                section (on by default; the producer decides whether one travels).
+            progress: ``progress(done, total, text) -> bool``, called before each step
+                and once at the end; ``False`` stops the import between steps with
+                :class:`pythontk.OperationCancelled` (what was imported stays).
+
+        Returns:
+            The objects the import created (a stripped materials-scope Empty excluded,
+            a rebuilt light included).
+
+        Raises:
+            FileNotFoundError: *payload_path* does not exist.
+            RuntimeError: A USD instance replay failed (the import was rolled back).
+            pythontk.OperationCancelled: *progress* returned ``False``.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(payload_path))))
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f"Payload not found: {src}")
+        # Resolved first: an unknown level is a configuration error, and it must fail
+        # before the import rather than after it.
+        reduction = AnimUtils.resolve_optimize_level(reduce_keys)
+        is_usd = os.path.splitext(src)[1].lower() in USD_EXTENSIONS
+        manifest = ptk.HandoffManifest.read(src)
+        manifest_path = manifest.path
+        if manifest.unreadable:
+            # Not fatal -- the payload's geometry landed -- but every section the
+            # producer meant to send is about to be skipped, so say so once.
+            self.logger.warning(
+                f"Unreadable manifest {manifest_path}; its sections are skipped."
+            )
+        fbx_opts = dict(FBX_IMPORT_OPTIONS, **(fbx_options or {}))
+        # FBX-imported curves land anim_offset frames late, so the replayed visibility
+        # keys and the adopted ranges follow them; USD time codes map 1:1 onto frames.
+        frame_offset = 0.0 if is_usd else float(fbx_opts.get("anim_offset", 1.0))
+        imported: List[Any] = []
+
+        def import_file():
+            nonlocal imported
+            if is_usd:
+                from blendertk.env_utils.usd import UsdUtils
+
+                # Every prim, the invisible ones landing hidden, Maya's primary UV
+                # set render-active.
+                imported = UsdUtils.import_scene(src, **(usd_options or {}))
+            else:
+                from blendertk.env_utils.fbx_utils import FbxUtils
+
+                imported = FbxUtils.import_fbx(src, **fbx_opts)
+
+        def replay_instances():
+            # A partially shared scene renders correctly and only betrays itself when
+            # an artist edits one duplicate and its siblings don't follow, so a failed
+            # replay takes the whole import back out.
+            try:
+                self._apply_instance_manifest(manifest_path, imported)
+            except Exception:
+                self._rollback_import(imported)
+                raise
+
+        def strip_scope():
+            nonlocal imported
+            imported = self._strip_materials_scope(imported, src)
+
+        def strip_machinery():
+            nonlocal imported
+            imported = self._strip_rig_machinery(manifest, imported)
+
+        def reduce():
+            stats: Dict[str, Any] = {}
+            kwargs = dict(reduction)
+            if kwargs.get("value_tolerance", 0.0) < 0:
+                kwargs["max_error"] = self.KEY_REDUCTION_MAX_ERROR
+            AnimUtils.optimize_keys(imported, stats=stats, **kwargs)
+            worst = stats.get("reduce_max_error")
+            self.logger.info(
+                f"Reduced baked keys: {stats.get('keys_before', 0)} -> "
+                f"{stats.get('keys_after', 0)} on {stats.get('curves_after', 0)} curve(s)"
+                + (f", largest deviation {worst:.2g}" if worst else "")
+                + "."
+            )
+
+        def rebuild_lights():
+            nonlocal imported
+            built = self._best_effort(
+                "Light rebuild", lambda: self._rebuild_lights(manifest_path)
+            )
+            if not built:
+                return
+            import bpy
+
+            # A light record's placed empty is replaced by a light object, so the list
+            # is re-read: dead references out, the new lights in.
+            live = []
+            for obj in imported:
+                try:
+                    obj.name
+                except ReferenceError:
+                    continue
+                live.append(obj)
+            present = {obj.name for obj in live}
+            live += [
+                bpy.data.objects[name]
+                for name in built.values()
+                if name in bpy.data.objects and name not in present
+            ]
+            imported = live
+
+        def size_skeletons():
+            """Bone lengths, then placement -- each survives the other's failure."""
+            self._best_effort(
+                "Bone sizing", lambda: self._apply_bone_lengths(manifest, imported)
+            )
+            self._best_effort(
+                "Skeleton root placement", lambda: self._place_skeleton_roots(imported)
+            )
+
+        # The replay, declared once. Each step names the section it rebuilds, the
+        # gate that admits it and what its failure costs; the plan runs the
+        # survivors in this order under one progress/cancel protocol. Adding a
+        # section to the hand-off is a line here rather than another branch in a
+        # hand-sequenced chain -- see ``pythontk.ManifestPlan``.
+        plan = manifest.plan(
+            on_error=self._section_failed, cancel_prefix="Import stopped before"
+        )
+        plan.add(None, "Importing the " + ("USD" if is_usd else "FBX"), import_file)
+        # NOT best-effort: a partially shared scene renders correctly and only
+        # betrays itself when an artist edits one duplicate and its siblings do
+        # not follow, so a failed replay takes the whole import back out.
+        plan.add(
+            None,
+            "Rebuilding instances",
+            replay_instances,
+            when=is_usd and manifest.INSTANCES in manifest,
+        )
+        plan.add(None, "Removing the materials scope", strip_scope, when=is_usd)
+        plan.add(
+            None,
+            "Freeing parent-independent prims",
+            lambda: self._honor_reset_xform_stack(src, imported),
+            when=is_usd,
+        )
+        # A reduction that follows removes what the clean would, in one pass.
+        plan.add(
+            None,
+            "Keying the USD animation",
+            lambda: self._own_usd_animation(src, imported, clean=not reduction),
+            when=is_usd,
+        )
+        plan.add(
+            None,
+            "Rebuilding materials",
+            lambda: self._apply_usd_materials(manifest_path, imported),
+            when=is_usd and bool(manifest),
+        )
+        plan.add(
+            manifest.TRANSFORMS,
+            "Tagging groups and locators",
+            lambda: self._tag_maya_node_types(manifest_path, imported),
+            when=not is_usd,
+            best_effort=True,
+        )
+        plan.add(
+            manifest.MATERIALS,
+            "Rebuilding materials",
+            lambda: self._apply_texture_manifest(manifest_path, imported),
+            when=not is_usd,
+            best_effort=True,
+        )
+        plan.add(
+            manifest.VISIBILITY,
+            "Replaying visibility",
+            lambda: self._apply_visibility_manifest(
+                manifest_path, imported, frame_offset=frame_offset
+            ),
+            when=not is_usd,
+            best_effort=True,
+        )
+        # Neither carrier stores a bone length, and the flatten that makes a skin
+        # exportable is what breaks the length both importers infer.
+        plan.add(manifest.BONES, "Sizing the skeletons", size_skeletons)
+        # Both carriers bind a skin and deform it linearly whatever the file says:
+        # a USD payload authors the method itself, an FBX one needs the section.
+        plan.add(
+            None,
+            "Matching skinning methods",
+            lambda: self._apply_skinning_methods(src, manifest, imported),
+            when=is_usd or manifest.carries(manifest.SKINS),
+            best_effort=True,
+        )
+        # After the skins: an IK builder targets bones the skin steps just sized.
+        plan.add(
+            manifest.RIG,
+            "Building the rig",
+            lambda: self._apply_rig_section(
+                manifest, imported, is_usd, frame_offset=frame_offset
+            ),
+            best_effort=True,
+        )
+        # After the rig build (a BUILT record's nodes are not in the section) and
+        # before the key reduction, which then has ~1100 fewer objects to walk.
+        plan.add(
+            manifest.MACHINERY,
+            "Removing the baked rig",
+            strip_machinery,
+            best_effort=True,
+        )
+        plan.add(
+            None,
+            "Adopting the scene clock",
+            lambda: self._apply_scene_manifest(
+                manifest_path, src, frame_offset=frame_offset
+            ),
+            when=bool(scene_settings),
+        )
+        plan.add(None, "Reducing baked keys", reduce, when=bool(reduction))
+        # The light rebuild replaces objects the steps above still hold.
+        plan.add(manifest.LIGHTS, "Rebuilding lights", rebuild_lights)
+        # Last of all: memberships and claims name the objects and curves every
+        # step above may have replaced, reduced or re-keyed.
+        plan.add(
+            manifest.SHOTS,
+            "Rebuilding shots",
+            lambda: self._apply_shots_manifest(
+                manifest, imported, frame_offset=frame_offset
+            ),
+            when=bool(shots),
+            best_effort=True,
+        )
+        plan.run(progress=progress, done_label="Imported")
+        return imported
+
+    @staticmethod
+    def _stage_progress(
+        relay: "ptk.ProgressRelay", stage: int, label: str
+    ) -> Callable[[int, int, str], bool]:
+        """An :meth:`import_payload` *progress* reporting into *stage* of *relay*."""
+        return lambda done, total, text: relay.report(
+            stage, done, total, f"{label}: {text}"
+        )
+
+    def _rig_mode_opts(self, script_opts: Dict[str, Any], rig_mode: str) -> None:
+        """Surface *rig_mode* into the cache key and the render context on BOTH
+        routes. Under ``rig`` the consumer's capability joins the conversion
+        identity too: the Maya side planned against it, so a builder that gains
+        an op must not replay a payload planned without it."""
+        if rig_mode not in ptk.RIG_MODES:
+            raise ValueError(
+                f"rig_mode must be one of {ptk.RIG_MODES}, not {rig_mode!r}"
+            )
+        script_opts["rig_mode"] = rig_mode
+        if rig_mode == "rig":
+            from pythontk import RigTransfer
+
+            from blendertk.rig_utils.rig_graph_build import RigGraphBuilder
+
+            script_opts["rig_capability"] = RigTransfer.capability_key(
+                RigGraphBuilder.capability()
+            )
+
+    def _apply_rig_section(
+        self,
+        manifest: Mapping[str, Any],
+        imported: List[Any],
+        is_usd: bool,
+        frame_offset: float = 0.0,
+    ) -> Optional[Dict[str, Any]]:
+        """Build and verify the manifest's ``rig`` section (schema 15.3).
+
+        The ORDER of operations, what counts as verified, which records survive
+        and what the log says are one shared implementation
+        (``pythontk.RigTransfer``); this side contributes only its builder, so
+        the two importers cannot drift on what "transferred" means. Mirror of mayatk's.
+        """
+        from pythontk import RigTransfer
+
+        from blendertk.rig_utils.rig_graph_build import RigGraphBuilder
+
+        return RigTransfer.apply(
+            manifest.get(self.RIG_SECTION),
+            RigGraphBuilder(),
+            imported,
+            is_usd=is_usd,
+            frame_offset=frame_offset,
+            # What a graph that omits its own units was sampled in: Maya's
+            # convention, because Maya is the producer on this leg.
+            source_unit="cm",
+            source_up_axis="y",
+            logger=self.logger,
+        )
+
+    def _section_failed(self, what: str, error: BaseException) -> None:
+        """Report a fidelity step's failure -- logged, never fatal.
+
+        The ``on_error`` handed to :class:`~pythontk.ManifestPlan`, and the one
+        place the wording lives, so a step reports the same way whether the plan
+        ran it or :meth:`_best_effort` did.
+        """
+        self.logger.warning(f"{what} failed ({error}); skipped.")
+
+    def _best_effort(self, what: str, step: Callable[[], Any]) -> Any:
+        """Run a fidelity step whose failure must never cost the import (logged)."""
+        try:
+            return step()
+        except Exception as e:  # noqa: BLE001 -- fidelity, never the import
+            self._section_failed(what, e)
+            return None
+
+    def _honor_reset_xform_stack(self, usd_path: str, imported: List[Any]) -> int:
+        """Stop prims that declare ``!resetXformStack!`` from being moved by their
+        ancestors (:meth:`UsdUtils.honor_reset_xform_stack`, which leaves a
+        skeleton-bound mesh to its armature); returns the count.
+
+        Maya writes that token for ``offsetParentMatrix``-driven nodes -- a matrix
+        constraint rig -- and Blender's importer ignores it, so an animated ancestor
+        displaces them. Measured on a production pull: 7 wire looms 1.0-1.4 m out of
+        place, matching Maya to 0.001 m once re-rooted. Runs BEFORE
+        :meth:`_own_usd_animation`, whose bake samples world space.
+
+        Best-effort like the other USD repairs: a failure logs and keeps the import.
+        """
+        from blendertk.env_utils.usd import UsdUtils
+
+        try:
+            rerooted = UsdUtils.honor_reset_xform_stack(usd_path, imported)
+        except Exception as error:  # noqa: BLE001
+            self.logger.warning(
+                f"Reset-xform-stack repair failed ({error}); parent-independent "
+                "prims keep the transforms their ancestors impose on them."
+            )
+            return 0
+        if rerooted:
+            self.logger.info(
+                f"Freed {rerooted} parent-independent prim(s) so their ancestors "
+                "no longer move them (!resetXformStack!)."
+            )
+        return rerooted
+
+    def _own_usd_animation(
+        self, usd_path: str, imported: List[Any], clean: bool = True
+    ) -> int:
         """Bake the USD importer's Transform Cache constraints into keyframes so the
         imported animation is owned data, not a by-path stream from *usd_path*.
 
@@ -601,8 +1072,18 @@ class MayaSceneImport(ptk.LoggingMixin):
         an uncached run and the detached store sweeps by age — so the opened or
         linked scene lost its motion as soon as that file went. The bake range is
         the stage's authored time-code range (exactly the frames the conversion
-        sampled), else the scene range. Best-effort: a failed bake keeps the
-        constraint (and logs), never the import.
+        sampled), else the scene range. *clean* is
+        :meth:`UsdUtils.bake_transform_caches`'s. Best-effort: a failed bake keeps
+        the constraint (and logs), never the import.
+
+        Deforming objects are reported, not fixed: one whose points are time-sampled
+        (a deformer the exporter cannot write as a skin or blend shape -- a wire,
+        lattice or nonlinear deformer, a skinned CURVE) arrives with a Mesh Sequence
+        Cache modifier streaming its points from the same file, and no key can own
+        that. A mesh skin arrives as an armature instead: the Maya-side conversion
+        hands the exporter one root joint per skin (``SkinUtils.flatten_influences``)
+        -- before it did, mayaUSDExport silently baked 14 production wire looms,
+        each skinned to a chain plus an anchor joint under a second root, to points.
         """
         from blendertk.env_utils.usd import UsdUtils
 
@@ -613,7 +1094,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 if "anim_start" in stage and "anim_end" in stage
                 else None
             )
-            baked = UsdUtils.bake_transform_caches(imported, frame_range)
+            baked = UsdUtils.bake_transform_caches(imported, frame_range, clean=clean)
         except Exception as e:  # noqa: BLE001
             self.logger.warning(
                 f"Transform-cache bake failed ({e}); animation still streams from {usd_path}."
@@ -623,11 +1104,324 @@ class MayaSceneImport(ptk.LoggingMixin):
             self.logger.info(
                 f"Baked USD transform caches to keys on {baked} object(s)."
             )
+        streaming = [
+            obj.name
+            for obj in imported
+            if any(
+                getattr(mod, "type", "") == "MESH_SEQUENCE_CACHE"
+                for mod in getattr(obj, "modifiers", ())
+            )
+        ]
+        if streaming:
+            self.logger.warning(
+                f"{len(streaming)} deforming object(s) still stream their points from "
+                f"{usd_path} (e.g. {streaming[0]}) and lose that motion when it is "
+                "swept: a deformer neither exporter writes as a skin (a skinned "
+                "curve, a wire or lattice deformer)."
+            )
         return baked
 
     # Manifest section carrying the source scene's time setup (see the Maya-side
     # templates' ``scene_settings`` and ``EnvUtils.SCENE_SETTINGS_KEYS``).
-    SCENE_SECTION = "scene"
+    SCENE_SECTION = ptk.HandoffManifest.SCENE
+    # Manifest section carrying each skinned mesh's skinning method (the FBX
+    # template's ``skinning_methods``; a USD payload authors it per prim).
+    #: Script options that belong to the conversion's cache IDENTITY only and must
+    #: not reach the template: the capability hash names what the payload was
+    #: planned against, and the template gets the capability itself from
+    #: ``rig_mode``. Found by the production run: ``convert`` forwards every
+    #: script option into ``render_script``, which refused the unknown keyword.
+    _KEY_ONLY_OPTS = ("rig_capability",)
+    SKINS_SECTION = ptk.HandoffManifest.SKINS
+    #: The rig-transfer section (``graph`` / ``plan`` / ``coverage`` /
+    #: ``verify_samples``), written by the Maya side under ``rig_mode="rig"``.
+    RIG_SECTION = ptk.HandoffManifest.RIG
+    # Manifest section carrying the joint hierarchy the Maya-side skin pre-pass
+    # flattened away (the templates' ``_export_ready_skins``).
+    BONES_SECTION = ptk.HandoffManifest.BONES
+    # Manifest section carrying the source scene's shot store (the
+    # ``pythontk.ShotTransfer`` codec; written by mayatk's bridge send and by the
+    # pull conversion's ``shots_section``).
+    SHOTS_SECTION = ptk.HandoffManifest.SHOTS
+    # Manifest section naming the rig apparatus a bake left inert (the Maya-side
+    # templates' ``_classify_rig_machinery``).
+    MACHINERY_SECTION = ptk.HandoffManifest.MACHINERY
+
+    def _apply_shots_manifest(
+        self,
+        manifest: Mapping[str, Any],
+        imported: List[Any],
+        frame_offset: float = 0.0,
+    ) -> int:
+        """Rebuild the source scene's shots from the manifest's ``shots`` section
+        onto this scene's store; returns the shots the store holds afterwards
+        (``0`` when the manifest carries none).
+
+        Neither carrier has a place for a shot, a marker, a locked gap or the
+        samples the sequencer planted on shot bounds, so the store crosses as
+        data (``BlenderShotStore.apply_transfer`` over ``pythontk.ShotTransfer``).
+        Names resolve against the IMPORTED objects only -- exact, or modulo
+        Blender's ``.001`` clash suffix, the convention every by-name section
+        here uses -- so a pre-existing object of the same name is never claimed.
+        Ledger claims land on the imported fcurves, and only where a key still
+        sits (the reducer may have taken it). Every time is shifted by
+        *frame_offset*, as the visibility replay's are. A scene that already
+        has shots keeps them and gains these after them. Mirror of mayatk's
+        ``BlenderSceneImport._apply_shots_manifest``.
+        """
+        section = (
+            manifest.get(self.SHOTS_SECTION) if isinstance(manifest, Mapping) else None
+        )
+        if not section:
+            return 0
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        by_name: Dict[str, Any] = {}
+        by_short: Dict[str, List[str]] = {}
+        for obj in imported:
+            try:
+                name = obj.name
+            except ReferenceError:
+                continue  # replaced by a later step (a light's placeholder empty)
+            by_name[name] = obj
+            by_short.setdefault(name.rsplit(".", 1)[0], []).append(name)
+
+        def resolve(want: str) -> Optional[str]:
+            if want in by_name:
+                return want
+            hits = by_short.get(want) or []
+            return hits[0] if len(hits) == 1 else None
+
+        def converted(name: str) -> bool:
+            # Both importers apply the Y-up -> Z-up crossing to root objects
+            # only; a child keeps its parent-space channels (measured on both
+            # routes -- see ``ShotTransfer.UP_AXIS_SWAP``).
+            obj = by_name.get(name)
+            return obj is not None and getattr(obj, "parent", None) is None
+
+        store = BlenderShotStore.apply_transfer(
+            section, resolve=resolve, frame_offset=frame_offset, converted=converted
+        )
+        count = len(store.shots) if store is not None else 0
+        self.logger.info(f"Rebuilt the source scene's shots: {count} in the store.")
+        return count
+
+    def _apply_skinning_methods(
+        self, payload_path: str, manifest: Mapping[str, Any], imported: List[Any]
+    ) -> int:
+        """Give each imported skinned mesh the skinning method its Maya skinCluster
+        used: a dual-quaternion skin gets its Armature modifier's Preserve Volume
+        (Blender's own dual-quaternion skinning), a classic one stays linear.
+        Returns the number of modifiers switched.
+
+        Both importers bind a skin and deform it linearly regardless of what the
+        file says. A USD payload authors the method per prim
+        (:meth:`UsdUtils.skinning_methods`, keyed by prim path -- exact even under
+        duplicate leaf names); FBX has no readable form, so the Maya-side template
+        records it in the manifest's ``skins`` section by mesh name (the FBX
+        sections' convention), tolerant of Blender's rename-on-collision suffix
+        like the other name-keyed sections. Measured on the production wire looms:
+        Maya's viewport (dual quaternion) differs from a linear skin of the same
+        rig by up to 4.9 cm at peak bend.
+        """
+        if os.path.splitext(payload_path)[1].lower() in USD_EXTENSIONS:
+            from blendertk.env_utils.usd import UsdUtils
+
+            methods = UsdUtils.skinning_methods(payload_path)
+            key = UsdUtils.prim_path
+        else:
+            methods = manifest.get(self.SKINS_SECTION) or {}
+            key = lambda obj: obj.name  # noqa: E731
+        if not methods:
+            return 0
+        switched = 0
+        for obj in imported:
+            armature_mods = [
+                mod
+                for mod in getattr(obj, "modifiers", ())
+                if getattr(mod, "type", "") == "ARMATURE"
+            ]
+            if not armature_mods:
+                continue
+            name = key(obj)
+            method = methods.get(name) or methods.get(name.rsplit(".", 1)[0])
+            if method is None:
+                continue
+            dual = method == "dualQuaternion"
+            for mod in armature_mods:
+                if mod.use_deform_preserve_volume != dual:
+                    mod.use_deform_preserve_volume = dual
+                    switched += 1
+        if switched:
+            self.logger.info(
+                f"Matched the skinning method on {switched} armature modifier(s)."
+            )
+        return switched
+
+    def _apply_bone_lengths(
+        self, manifest: Mapping[str, Any], imported: List[Any]
+    ) -> int:
+        """Size each imported armature's bones from the manifest's ``bones`` section
+        -- the joint hierarchy the Maya-side skin pre-pass flattened away. Returns
+        the number of bones resized.
+
+        Neither carrier stores a bone length, so both importers infer one: a bone
+        gets the mean distance to its CHILDREN, and a childless one falls back to
+        its parent's. That inference is what the flatten breaks. Every influence
+        of a skin has to share one root joint for the skin to survive the trip,
+        and a flat one keeps the joint transforms exact where a chain's would
+        shear (measured on a production loom: 16.2 cm of drift by the end of a
+        24-joint chain) -- but it leaves every influence a childless sibling, so
+        the root is drawn at the skeleton's SPREAD and every other bone at a
+        fraction of it. Measured on the same looms: 2.49 m and 0.62 m bones on
+        joints sitting 0.89 cm apart, a skeleton the size of the room.
+
+        So the lengths are re-derived here from the recorded hierarchy, applying
+        the importers' own rule to it: the mean distance to a joint's original
+        children, else its original parent's length, else (the synthetic root, an
+        anchor joint that had no neighbours) the mean of the rest. Only the tail
+        moves -- :meth:`RigUtils.set_bone_lengths` is deformation-invariant, so
+        this cannot disturb what the exactness bought. Bones match by name,
+        tolerant of Blender's rename-on-collision suffix like the other
+        name-keyed sections (and of the namespace colon both carriers rewrite).
+        """
+        section: Dict[str, str] = manifest.get(self.BONES_SECTION) or {}
+        if not section:
+            return 0
+        from blendertk.rig_utils._rig_utils import RigUtils
+
+        # A referenced rig's joints are namespaced and both carriers rewrite the
+        # colon (``ns:jnt`` -> ``ns_jnt``); a bone name can never hold one, so
+        # normalising the recorded side is lossless.
+        parents = {
+            child.replace(":", "_"): parent.replace(":", "_")
+            for child, parent in section.items()
+        }
+        children: Dict[str, List[str]] = {}
+        for child, parent in parents.items():
+            children.setdefault(parent, []).append(child)
+
+        resized = 0
+        for arm in [o for o in imported if getattr(o, "type", "") == "ARMATURE"]:
+            by_name: Dict[str, Any] = {}
+            for bone in arm.data.bones:
+                by_name.setdefault(bone.name.rsplit(".", 1)[0], bone)
+            lengths: Dict[str, float] = {}
+            for short, bone in by_name.items():
+                kids = [by_name[c] for c in children.get(short, ()) if c in by_name]
+                if not kids:
+                    continue
+                mean = sum(
+                    (kid.head_local - bone.head_local).length for kid in kids
+                ) / len(kids)
+                # A coincident child measures nothing; leave the bone to the
+                # fallback rather than collapsing it (Blender deletes a
+                # zero-length bone on leaving edit mode).
+                if mean > 0.0:
+                    lengths[bone.name] = mean
+            # A joint with no children of its own takes its parent's bone length,
+            # which is the rule the importer would have applied to the chain.
+            for short, bone in by_name.items():
+                if bone.name in lengths:
+                    continue
+                parent = by_name.get(parents.get(short, ""))
+                if parent is not None and parent.name in lengths:
+                    lengths[bone.name] = lengths[parent.name]
+            sized = list(lengths.values())
+            if sized:
+                fallback = sum(sized) / len(sized)
+                for bone in arm.data.bones:
+                    lengths.setdefault(bone.name, fallback)
+            resized += RigUtils.set_bone_lengths(arm, lengths)
+        if resized:
+            self.logger.info(
+                f"Sized {resized} bone(s) from the recorded joint hierarchy."
+            )
+        return resized
+
+    @staticmethod
+    def _armature_users(objects: Sequence[Any]) -> Dict[str, List[Any]]:
+        """``{armature name: [objects it deforms]}`` over *objects*.
+
+        Two steps ask this of every object in a production pull -- which meshes a
+        skeleton anchors (root placement) and whether an armature is load-bearing
+        at all (the machinery strip) -- so the walk lives in one place. The caller
+        narrows what it passes; this filters nothing.
+        """
+        users: Dict[str, List[Any]] = {}
+        for obj in objects:
+            for mod in getattr(obj, "modifiers", None) or ():
+                if getattr(mod, "type", "") != "ARMATURE":
+                    continue
+                name = getattr(getattr(mod, "object", None), "name", None)
+                if name:
+                    users.setdefault(name, []).append(obj)
+        return users
+
+    def _place_skeleton_roots(self, imported: List[Any]) -> int:
+        """Move each flattened skeleton's synthetic ROOT bone to the centre of the
+        bones it anchors. Returns how many were moved.
+
+        The Maya-side flatten parents every influence under one new root joint, which
+        is what makes the skin exportable at all. That joint influences NOTHING, and
+        mayaUsd derives a skeleton's ``bindTransforms`` from the skinCluster's
+        ``bindPreMatrix`` -- so a joint with no bind goes out as IDENTITY and its bone
+        arrives at the WORLD ORIGIN, reading as a stray joint metres from its own skin
+        (2.5 m on a production module).
+
+        It is fixed HERE, not by giving the joint a bind Maya-side, and the difference
+        is measured: adding it to each skinCluster as a zero-weight influence is exactly
+        deformation-neutral in Maya (0.000000 cm across 7 production looms) but makes
+        mayaUsd write a skeleton whose joint list no longer matches the mesh's -- the
+        zero-weight joint is pruned from the mesh's ``skel:joints`` but kept in the
+        skeleton's -- and the pulled scene missed Maya by 380 mm. A bone nothing is
+        weighted to has no effect on any deform, so placing it on THIS side cannot
+        change the result; that is the whole reason to do it here. The weight check
+        below is what keeps that guarantee honest.
+        """
+        from mathutils import Vector
+        from blendertk.rig_utils._rig_utils import RigUtils
+
+        # Armature name -> the MESHES it deforms, gathered ONCE: a production pull
+        # carries ~50 armatures and thousands of objects, and this is the only
+        # question asked of each of them.
+        deformed = self._armature_users(
+            [o for o in imported if getattr(o, "type", "") == "MESH"]
+        )
+
+        moved = 0
+        for arm in [o for o in imported if getattr(o, "type", "") == "ARMATURE"]:
+            skins = deformed.get(arm.name) or []
+            if not skins:
+                continue  # deforms nothing: not a skin's skeleton
+            bones = list(arm.data.bones)
+            # By NAME throughout: bpy hands out a FRESH RNA wrapper on every access,
+            # so `bone.parent is root` is False even for the real parent -- the guard
+            # below silently passes if you compare by identity.
+            roots = [b for b in bones if b.parent is None]
+            if len(roots) != 1 or len(bones) < 2:
+                continue
+            root = roots[0]
+            others = [b for b in bones if b.name != root.name]
+            # The flatten's signature: ONE root, every other bone a DIRECT child of
+            # it. An authored chain (a rig's proxy joints arrive as a 27-bone
+            # armature) is single-rooted and unweighted too, and must keep the shape
+            # its author gave it.
+            if any(b.parent.name != root.name for b in others):
+                continue
+            # Only ever move a bone NOTHING deforms from. A vertex group carrying the
+            # name is enough to disqualify it -- weights may be zero today and not
+            # tomorrow, and this edit must never be able to move a skin.
+            if any(root.name in o.vertex_groups for o in skins):
+                continue
+            centre = sum((b.head_local for b in others), Vector()) / len(others)
+            moved += RigUtils.set_bone_heads(arm, {root.name: centre})
+        if moved:
+            self.logger.info(
+                f"Placed {moved} skeleton root bone(s) with the skin they anchor."
+            )
+        return moved
+
     _SCENE_FRAME_KEYS = (
         "frame_start",
         "frame_end",
@@ -879,15 +1673,24 @@ class MayaSceneImport(ptk.LoggingMixin):
 
         with open(manifest_path, encoding="utf-8") as fh:
             data = json.load(fh) or {}
-        if not isinstance(data, dict) or data.get("version") != 2 or data.get(
-            "format"
-        ) != "paths":
+        # A sidecar that is not a JSON object carries no section at all;
+        # normalising here lets the gate and the reads below share one shape.
+        data = data if isinstance(data, dict) else {}
+        # The SPELLING is the whole gate. `version` names the schema and says
+        # nothing about how a group's members are written; a Maya producer spells
+        # them as DAG paths, a Blender one as names, and replaying one as the
+        # other silently matches nothing -- which is a flat scene that betrays
+        # itself only when an artist edits one "instance".
+        spelling = data.get(ptk.HandoffManifest.FORMAT_KEY)
+        if spelling != ptk.HandoffManifest.FORMAT_PATHS:
             raise RuntimeError(
-                "Unsupported instance sidecar (expected a v2 'paths' manifest, "
-                f"got version={data.get('version') if isinstance(data, dict) else data!r}). "
-                "Stale conversion cache? Clear it or re-pull via FBX."
+                f"Instance sidecar spells its members {spelling!r}; this "
+                f"replay reads {ptk.HandoffManifest.FORMAT_PATHS!r}. A sidecar "
+                "spelled any other way was written for the other direction "
+                "of the hand-off and cannot be replayed here; re-pull this "
+                "scene."
             )
-        groups = data.get("instances") or []
+        groups = data.get(ptk.HandoffManifest.INSTANCES) or []
         if not groups:
             return 0
 
@@ -914,8 +1717,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         problems = sorted({p for p in wanted if p not in by_path})
         if problems:
             raise RuntimeError(
-                "Instance sidecar paths not found in the import: "
-                + ", ".join(problems)
+                "Instance sidecar paths not found in the import: " + ", ".join(problems)
             )
 
         relinked = 0
@@ -929,9 +1731,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             master, rest = objs[0], objs[1:]
             # Snapshot each follower's materials BEFORE its data is swapped --
             # material_slots is derived from the mesh, so the swap rewrites it.
-            per_object = [
-                [s.material for s in o.material_slots] for o in rest
-            ]
+            per_object = [[s.material for s in o.material_slots] for o in rest]
             master_mats = [s.material for s in master.material_slots]
             for obj, mats in zip(rest, per_object):
                 if obj.data is master.data:
@@ -995,9 +1795,128 @@ class MayaSceneImport(ptk.LoggingMixin):
             except (ReferenceError, RuntimeError):
                 continue
 
-    def _strip_materials_scope(
-        self, imported: List[Any], usd_path: str
+    #: Object types the machinery strip refuses to remove whatever the manifest
+    #: says. The producer already proved nothing content sits under a node it
+    #: named; this is the net under that proof, so a short-name collision costs
+    #: an un-stripped Empty instead of a mesh.
+    MACHINERY_NEVER = (
+        "MESH",
+        "CAMERA",
+        "LIGHT",
+        "SURFACE",
+        "META",
+        "VOLUME",
+        "FONT",
+        "LATTICE",
+        "SPEAKER",
+        "POINTCLOUD",
+        "GPENCIL",
+        "GREASEPENCIL",
+    )
+
+    def _strip_rig_machinery(
+        self, manifest: Mapping[str, Any], imported: List[Any]
     ) -> List[Any]:
+        """Drop the rig apparatus the bake left inert (manifest ``machinery``).
+
+        A carrier ships every DAG node as an object, so a rig that could not
+        travel arrives twice over: its motion, as keys on whatever renders, and
+        the whole apparatus that used to produce it -- constraint nodes, IK
+        handles, control curves, up-vector locators, the groups holding only
+        those, and joints nothing is skinned to. Here it drives nothing; it just
+        selects, draws and fills the outliner. On the production module that is
+        ~1100 objects of the 2643 delivered, and it arrives identically in BAKE
+        mode, because baking never removed it.
+
+        The producer NAMES it -- deleting at the source would delete the motion
+        the export was about to record -- and this drops it once the payload is
+        in. What is Blender's here is only the facts: which objects arrived, what
+        hangs under each, and which are load-bearing (anything renderable, an
+        armature something is skinned to, and anything a rebuilt rig drives,
+        POSE BONES included -- a rig builds onto a bone while the section names,
+        and this deletes, the armature OBJECT around it). Which of them may go is
+        ``ptk.RigMachinery.select``, the same rule that named them.
+
+        A Maya name longer than Blender's 63-character object-name limit arrives
+        truncated and matches nothing, so that apparatus stays -- the old
+        behaviour, not a loss (0 of 924 on the production module; the longest
+        is 57).
+
+        Returns:
+            list: *imported* without the removed objects.
+        """
+        import bpy
+
+        section = manifest.get(self.MACHINERY_SECTION) if manifest else None
+        if not isinstance(section, Mapping) or not section:
+            return imported
+        # Load-bearing, whatever the section calls it.
+        protected = set(self._armature_users(bpy.data.objects))
+        for obj in bpy.data.objects:
+            if obj.type in self.MACHINERY_NEVER:
+                protected.add(obj.name)
+            pose = getattr(obj, "pose", None)
+            holders = [obj] + list(getattr(pose, "bones", ()) or ())
+            for holder in holders:
+                for con in getattr(holder, "constraints", ()) or ():
+                    protected.add(obj.name)
+                    target = getattr(con, "target", None)
+                    if target is not None:
+                        protected.add(target.name)
+        subtrees = {}
+        for obj in imported:
+            try:
+                subtrees[obj.name] = [obj.name] + [
+                    child.name
+                    for child in (getattr(obj, "children_recursive", ()) or ())
+                ]
+            except ReferenceError:
+                continue
+        doomed, refused = ptk.RigMachinery.select(
+            section,
+            subtrees,
+            protected=protected,
+            # A MAYA producer wrote these paths; the return leg's consumer, whose
+            # producer is Blender, passes "/". Guessing matches nothing at all.
+            separator="|",
+        )
+        if not doomed:
+            return imported
+        removed, failed = 0, 0
+        # Order does not matter: removing a parent orphans children that are
+        # themselves on the list, and an orphan's transform is read by nobody.
+        for name in sorted(doomed):
+            obj = bpy.data.objects.get(name)
+            if obj is None:
+                continue
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+                removed += 1
+            except (ReferenceError, RuntimeError):
+                failed += 1
+        self.logger.info(
+            f"Removed {removed} object(s) of the baked rig's apparatus "
+            f"(by kind: {ptk.RigMachinery.tally(doomed)}); their motion is "
+            "already keyed on what renders."
+        )
+        if refused:
+            self.logger.warning(
+                f"Kept {len(refused)} object(s) the manifest called rig "
+                "apparatus: something renderable, skinned or rig-driven sits "
+                f"under them ({', '.join(refused[:4])})."
+            )
+        if failed:
+            self.logger.warning(f"{failed} rig-apparatus object(s) refused removal.")
+        live = []
+        for obj in imported:
+            try:
+                if obj.name not in doomed:
+                    live.append(obj)
+            except ReferenceError:
+                continue
+        return live
+
+    def _strip_materials_scope(self, imported: List[Any], usd_path: str) -> List[Any]:
         """Drop the Empty Blender materializes for a pure-materials Scope prim
         (mayaUSDExport's ``mtl``) and return the surviving imported objects.
 
@@ -1062,9 +1981,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         return kept
 
-    def _plan_with_slot_fallback(
-        self, files: List[str], slots: Any, name: str
-    ) -> Any:
+    def _plan_with_slot_fallback(self, files: List[str], slots: Any, name: str) -> Any:
         """Wiring plan for *files*, rescuing unclassifiable ones via *slots*.
 
         Filename classification stays authoritative: only a filename reveals how a
@@ -1144,9 +2061,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             for slot in getattr(obj, "material_slots", []):
                 if slot.material is not None:
                     materials[slot.material.name] = slot.material
-        wants = {
-            name: mapping.get(re.sub(r"\.\d+$", "", name)) for name in materials
-        }
+        wants = {name: mapping.get(re.sub(r"\.\d+$", "", name)) for name in materials}
         # shader name -> the material that owns it now; one already bearing its
         # name owns it whatever its slot order, so its twins fold onto it.
         owners: Dict[str, Any] = {
@@ -1204,7 +2119,9 @@ class MayaSceneImport(ptk.LoggingMixin):
         try:
             self._rename_usd_materials(manifest_path, imported)
         except Exception as e:  # noqa: BLE001
-            self.logger.warning(f"Material rename from the sidecar failed ({e}); skipped.")
+            self.logger.warning(
+                f"Material rename from the sidecar failed ({e}); skipped."
+            )
         try:
             with open(manifest_path, "r", encoding="utf-8") as fh:
                 has_materials = bool((json.load(fh) or {}).get("materials"))
@@ -1419,26 +2336,12 @@ class MayaSceneImport(ptk.LoggingMixin):
     @staticmethod
     def _step_visibility_fcurves(obj: Any) -> None:
         """Force CONSTANT interpolation on *obj*'s ``hide_*`` fcurves — visibility is
-        boolean, so the default Bezier would ramp the toggle. Handles the Blender
-        4.4+/5.x slotted-action layout (layer → strip → channelbag) and the legacy
-        ``action.fcurves``."""
-        ad = getattr(obj, "animation_data", None)
-        action = getattr(ad, "action", None) if ad else None
-        if action is None:
-            return
-        fcurves: List[Any] = []
-        for layer in getattr(action, "layers", []) or []:
-            for strip in getattr(layer, "strips", []) or []:
-                for cbag in getattr(strip, "channelbags", []) or []:
-                    fcurves.extend(cbag.fcurves)
-        try:
-            fcurves.extend(action.fcurves)
-        except (AttributeError, TypeError):
-            pass
-        for fc in fcurves:
-            if fc.data_path in ("hide_render", "hide_viewport"):
-                for kp in fc.keyframe_points:
-                    kp.interpolation = "CONSTANT"
+        boolean, so the default Bezier would ramp the toggle. One implementation with
+        the USD route's replay (:meth:`UsdUtils.apply_visibility`), which needs the
+        same step for the same reason."""
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        AnimUtils.step_visibility_keys(obj)
 
     def _claim_material_name(self, material: Any, desired: str) -> None:
         """Rename *material* to *desired* once that name is free.
@@ -1529,10 +2432,18 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         return blender_exe
 
-    def render_bake_script(self, src_path: str, out_path: str) -> str:
+    def render_bake_script(
+        self,
+        src_path: str,
+        out_path: str,
+        reduce_keys: Union[bool, str, None] = None,
+    ) -> str:
         """Render the Blender-side intermediate->.blend bake script (exposed for
         tests/preview). *src_path* may be a USD or FBX intermediate -- the template
-        dispatches on extension."""
+        dispatches on extension. *reduce_keys* is resolved to its level's name here, so
+        an unknown level fails in this process rather than minutes into the child."""
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
         return _templates.ScriptTemplate.render_template(
             _BAKE_TEMPLATE,
             {
@@ -1542,22 +2453,35 @@ class MayaSceneImport(ptk.LoggingMixin):
                 # are valid there -- this is what makes the shared manifest replay
                 # (blendertk in the child) reliable rather than best-effort.
                 "EXTRA_SYS_PATH": repr(list(sys.path)),
+                "REDUCE_KEYS": repr(AnimUtils.normalize_optimize_level(reduce_keys)),
             },
         )
 
-    def bake(self, src_path: str, out_path: str, *, timeout: float = 600) -> Any:
+    def bake(
+        self,
+        src_path: str,
+        out_path: str,
+        *,
+        timeout: Optional[float] = None,
+        reduce_keys: Union[bool, str, None] = None,
+        on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None,
+    ) -> Any:
         """Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*
-        in a fresh headless Blender."""
+        in a fresh headless Blender (*reduce_keys* / *on_output* as :meth:`bake_scene`
+        and :meth:`convert`)."""
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         if not os.path.isfile(src):
             raise FileNotFoundError(f"Bake source not found: {src}")
         blender_exe = self.require_blender()
-        self.logger.info(f"Baking {os.path.basename(src)} to .blend via {blender_exe} ...")
+        self.logger.info(
+            f"Baking {os.path.basename(src)} to .blend via {blender_exe} ..."
+        )
         result = self._run_bake_script(
             blender_exe,
-            self.render_bake_script(src, out_path),
+            self.render_bake_script(src, out_path, reduce_keys=reduce_keys),
             artifact=out_path,
             timeout=timeout,
+            on_output=on_output,
         )
         self.logger.info(
             f"Baked to .blend in {result.duration:.1f}s "
@@ -1567,7 +2491,9 @@ class MayaSceneImport(ptk.LoggingMixin):
 
     # Seam for tests (stub the Blender run without patching pythontk internals).
     @staticmethod
-    def _run_bake_script(app_exe, script_text, *, artifact, timeout, env=None):
+    def _run_bake_script(
+        app_exe, script_text, *, artifact, timeout, env=None, on_output=None
+    ):
         return ptk.ScriptRunner.run_script_to_artifact(
             app_exe,
             script_text,
@@ -1575,16 +2501,20 @@ class MayaSceneImport(ptk.LoggingMixin):
             launch_args=lambda script_path: [*_BAKE_LAUNCH_ARGS, script_path],
             timeout=timeout,
             env=env,
+            on_output=on_output,
         )
 
+    @_smart_bake_alias
     def bake_scene(
         self,
         src_path: str,
         *,
         via: str = "fbx",
         use_cache: bool = True,
-        timeout: float = 600,
-        smart_bake: Union[bool, str] = "auto",
+        timeout: Optional[float] = None,
+        rig_mode: str = "auto",
+        reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT,
+        progress: Optional[Callable[..., Optional[bool]]] = None,
         **script_opts: Any,
     ) -> str:
         """Bake *src_path* to a cached ``.blend`` and return its path — the link path.
@@ -1593,11 +2523,13 @@ class MayaSceneImport(ptk.LoggingMixin):
         native stand-in: ``.ma``/``.mb`` are converted to an FBX (default) or USD
         intermediate in a headless Maya (the cached intermediate :meth:`import_scene`
         already uses), then that intermediate is baked into a ``.blend`` in a headless
-        Blender. An ``.fbx`` source skips straight to the bake — no Maya, no license.
+        Blender through :meth:`import_payload`. An ``.fbx`` source skips straight to the
+        bake — no Maya, no license.
 
         Both stages are cached independently, and the bake's key includes the
-        intermediate's identity **and the bake template's and this engine module's**
-        (the template calls back into the engine), so a template or engine fix
+        intermediate's identity, the bake template's and this engine module's (the
+        template calls back into the engine), and the key reduction -- its level, its
+        bound, and the animation module that runs it -- so a fix to any of them
         invalidates stale bakes (a retry after an upgrade must not replay the old bug).
 
         Parameters:
@@ -1608,12 +2540,18 @@ class MayaSceneImport(ptk.LoggingMixin):
                 instances rebuilt guaranteed-or-fail from the conversion's
                 required sidecar; see :meth:`import_scene`).
             use_cache: Reuse a prior conversion + bake of the identical source.
-            timeout: Max seconds for EACH headless stage.
+            timeout: Max seconds for EACH headless stage; unset by default (see
+                :meth:`convert`).
             smart_bake: Pre-bake driven animation to keys via mayatk's
                 ``SmartBake`` before the FBX export (see :meth:`import_scene`).
                 ``"auto"`` (default) acts only when a cheap probe detects it;
                 FBX route only — inert for ``via="usd"`` (which samples animation
                 natively) and for an ``.fbx`` source (no Maya stage to bake in).
+            reduce_keys: How the bake's per-frame keys are reduced before the save
+                (:meth:`import_payload`); ``"extremes"`` by default, falsy keeps them.
+            progress: ``progress(current, total, message) -> bool`` over both stages
+                (see :meth:`import_scene`); ``False`` kills the running child and
+                raises :class:`pythontk.OperationCancelled`.
             **script_opts: Maya-side conversion knobs (``embed_textures`` /
                 ``include_animation``); inert for an ``.fbx`` source.
 
@@ -1621,6 +2559,8 @@ class MayaSceneImport(ptk.LoggingMixin):
             str: Path to the cached ``.blend`` — pass it to
             :func:`blendertk.link_blend_file`.
         """
+        from blendertk.anim_utils import _anim_utils
+
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
         ext = os.path.splitext(src)[1].lower()
         if ext not in BAKE_SOURCE_EXTENSIONS:
@@ -1629,43 +2569,64 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         if not os.path.isfile(src):
             raise FileNotFoundError(f"Scene not found: {src}")
+        # Resolved here: an unknown level must fail before minutes of Maya, not after.
+        level = _anim_utils.AnimUtils.normalize_optimize_level(reduce_keys)
+        stages = 1 if ext == ".fbx" else 2
+        relay = ptk.ProgressRelay(progress, stages=stages)
 
         if ext == ".fbx":
             inter_path, conversion = src, None
         else:
-            if via == "fbx":  # FBX-only option — keep out of the USD cache key
-                script_opts["smart_bake"] = smart_bake
-            elif smart_bake not in (False, "auto"):
-                self.logger.info(
-                    "smart_bake applies to the FBX route only (the USD route bakes "
-                    "animation natively); ignored."
-                )
+            self._rig_mode_opts(script_opts, rig_mode)
             conversion = self._cached_conversion(
                 src,
                 via=via,
                 use_cache=use_cache,
                 timeout=timeout,
                 script_opts=script_opts,
+                on_output=relay.reader(0, "Maya"),
             )
             inter_path = conversion.path
-            if via == "usd" and not os.path.isfile(inter_path + ".manifest.json"):
+            relay.report(
+                0,
+                1,
+                1,
+                "Maya: "
+                + ("reused the cached conversion" if conversion.hit else "converted"),
+            )
+            sidecar = ptk.HandoffManifest.path_for(inter_path)
+            if via == "usd" and not os.path.isfile(sidecar):
                 # The v2 conversion always writes the sidecar; without it the
                 # bake could silently cache a flattened .blend (see the bake
                 # template's apply_instances).
                 raise RuntimeError(
-                    f"USD conversion sidecar missing: {inter_path}.manifest.json. "
+                    f"USD conversion sidecar missing: {sidecar}. "
                     "Refusing to bake (a flat bake could silently lose "
                     "instancing); clear the conversion cache or bake via FBX."
                 )
 
-        # Keyed on the template AND this engine module: the template calls back into
-        # the engine for the tagging / manifest replays, so an engine fix (group
-        # Empties shrunk, a material rebuild repaired) must invalidate stale bakes
-        # too, or a linked scene keeps showing the old bug after the upgrade.
+        bake_stage = stages - 1
+        key_files = [inter_path, _BAKE_TEMPLATE, _BAKE_ENGINE]
+        if level:
+            key_files.append(_anim_utils.__file__)
         got = ptk.CachedArtifact("maya_bake_btk", extension=".blend").get(
-            ptk.CachedArtifact.key(files=[inter_path, _BAKE_TEMPLATE, _BAKE_ENGINE]),
-            lambda out: self.bake(inter_path, out, timeout=timeout),
+            ptk.CachedArtifact.key(
+                ("reduce_keys", level, self.KEY_REDUCTION_MAX_ERROR), files=key_files
+            ),
+            lambda out: self.bake(
+                inter_path,
+                out,
+                timeout=timeout,
+                reduce_keys=level,
+                on_output=relay.reader(bake_stage, "Blender"),
+            ),
             use_cache=use_cache,
+        )
+        relay.report(
+            bake_stage,
+            1,
+            1,
+            "Blender: " + ("reused the cached bake" if got.hit else "baked"),
         )
         # The intermediate scratch is consumed once the bake has read it; the .blend
         # scratch is NOT cleaned up -- the caller links that file, so it must outlive

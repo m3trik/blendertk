@@ -6,6 +6,7 @@ Pure decision logic — the only scene read is the triangle count, computed
 as the polygon fan count (``sum(len(p.vertices) - 2)``), the same metric
 blendertk's ``get_similar_mesh`` uses.
 """
+
 from __future__ import annotations
 
 from enum import Enum

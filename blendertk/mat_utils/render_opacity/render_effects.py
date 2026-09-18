@@ -112,6 +112,160 @@ class RenderEffects(ptk.LoggingMixin):
             except (RuntimeError, ReferenceError, ValueError):
                 pass
 
+    # ------------------------------------------------------------ hand-off transfer
+    # Mirror of mayatk's ``channel_records`` / ``apply_channel_records``: neither
+    # carrier animates a custom property, so the shot store's transfer carries
+    # these records (``ptk.ShotTransfer``'s ``channels`` payload). Labels are
+    # mayatk's attribute spelling -- a vector property's components as leaves
+    # (``highlightColorR``) -- so one vocabulary serves both directions.
+
+    #: Blender interpolation -> the transfer's; anything else is ``"smooth"``.
+    _INTERP_FROM_BLENDER = {"CONSTANT": "step", "LINEAR": "linear"}
+    _BLENDER_FROM_INTERP = {"step": "CONSTANT", "linear": "LINEAR", "smooth": "BEZIER"}
+
+    @classmethod
+    def _axes_for(cls, obj, prop: str) -> str:
+        """The leaf letters a vector property's components travel under."""
+        if prop in cls.HIGHLIGHT_COLOR_STOPS.keys:
+            return "RGB"
+        try:
+            subtype = obj.id_properties_ui(prop).as_dict().get("subtype")
+        except (AttributeError, TypeError, KeyError):
+            subtype = None
+        return "RGB" if subtype in ("COLOR", "COLOR_GAMMA") else "XYZ"
+
+    @classmethod
+    def _fc_keys(cls, fc) -> list:
+        """``[[frame, value, interpolation], ...]`` for *fc* (``[]`` for none)."""
+        if fc is None:
+            return []
+        return [
+            [
+                float(k.co[0]),
+                float(k.co[1]),
+                cls._INTERP_FROM_BLENDER.get(getattr(k, "interpolation", ""), "smooth"),
+            ]
+            for k in fc.keyframe_points
+        ]
+
+    @classmethod
+    def channel_records(cls, objects=None) -> dict:
+        """``{object name: {label: {"value", "keys"}}}`` -- every render-effect
+        property *objects* carry (keyed or not) and every other keyed numeric
+        custom property, a key being ``[frame, value, interpolation]``.
+
+        Parameters:
+            objects: The objects to read (``None`` = every object).
+        """
+        import bpy
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        declared = tuple(cls.CHANNELS) + tuple(cls.HIGHLIGHT_COLOR_STOPS.keys)
+        objs = cls._resolve(objects) if objects is not None else list(bpy.data.objects)
+        out: dict = {}
+        for obj in objs:
+            if obj.get(cls.PROXY_MARKER):
+                continue
+            fcurves: dict = {}
+            if getattr(obj, "animation_data", None):
+                for fc in BlenderShotStore.iter_action_fcurves(obj):
+                    path = fc.data_path
+                    if path.startswith('["') and path.endswith('"]'):
+                        fcurves.setdefault(path[2:-2], {})[fc.array_index] = fc
+            records: dict = {}
+            for prop in dict.fromkeys(list(declared) + list(fcurves)):
+                if prop not in obj.keys() or prop == cls.PROXY_MARKER:
+                    continue
+                value = obj[prop]
+                curves = fcurves.get(prop, {})
+                if not curves and prop not in declared:
+                    continue
+                if isinstance(value, (int, float)):
+                    fc = curves.get(0, curves.get(-1))
+                    records[prop] = {"value": float(value), "keys": cls._fc_keys(fc)}
+                    continue
+                try:
+                    components = [float(c) for c in value]
+                except (TypeError, ValueError):
+                    continue  # a string or a nested property: not a channel
+                axes = cls._axes_for(obj, prop)
+                for index, component in enumerate(components[: len(axes)]):
+                    records[f"{prop}{axes[index]}"] = {
+                        "value": component,
+                        "keys": cls._fc_keys(curves.get(index)),
+                    }
+            if records:
+                out[obj.name] = records
+        return out
+
+    @classmethod
+    def _channel_slot(cls, obj, label: str) -> tuple:
+        """``(property, array index)`` a transfer *label* lands on for *obj*."""
+        if label in cls.CHANNELS:
+            return label, -1
+        stem, suffix = label[:-1], label[-1:]
+        if stem in cls.HIGHLIGHT_COLOR_STOPS.keys and suffix in "RGB":
+            return stem, "RGB".index(suffix)
+        if stem in obj.keys() and not isinstance(obj[stem], (int, float, str)):
+            axes = cls._axes_for(obj, stem)
+            if suffix in axes:
+                return stem, axes.index(suffix)
+        return label, -1
+
+    @staticmethod
+    def _set_prop(obj, prop: str, index: int, value: float) -> None:
+        """Set a custom property, or one component of a vector one."""
+        if index < 0:
+            obj[prop] = value
+            return
+        current = obj.get(prop)
+        try:
+            components = [float(c) for c in current]
+        except TypeError:
+            components = []
+        components += [0.0] * (index + 1 - len(components))
+        components[index] = float(value)
+        obj[prop] = components
+
+    @classmethod
+    def apply_channel_records(cls, obj_name, records: dict) -> int:
+        """Land :meth:`channel_records` records on the object; returns the
+        properties written (mirror of mayatk's).
+
+        A declared channel is seeded through its own ensurer (limits and the
+        colour ramp are the channel's); any other label lands as a float, or
+        as one component of an existing vector property. Frames must already
+        be on the scene's clock.
+        """
+        import bpy
+
+        obj = bpy.data.objects.get(obj_name) if isinstance(obj_name, str) else obj_name
+        if obj is None:
+            return 0
+        written = 0
+        for label, rec in (records or {}).items():
+            prop, index = cls._channel_slot(obj, label)
+            if prop in cls.CHANNELS or prop in cls.HIGHLIGHT_COLOR_STOPS.keys:
+                channel = cls.ATTR_NAME if prop == cls.ATTR_NAME else cls.HIGHLIGHT_ATTR
+                cls._ensure_channel([obj], channel, True, None, False)
+            elif prop not in obj.keys():
+                obj[prop] = 0.0 if index < 0 else [0.0, 0.0, 0.0]
+            value = rec.get("value")
+            if value is not None:
+                cls._set_prop(obj, prop, index, float(value))
+            data_path = f'["{prop}"]'
+            for key in rec.get("keys") or []:
+                try:
+                    frame, val = float(key[0]), float(key[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                interp = cls._BLENDER_FROM_INTERP.get(
+                    key[2] if len(key) > 2 else "smooth", "BEZIER"
+                )
+                cls._set_key(obj, data_path, frame, val, interp, index=index)
+            written += 1
+        return written
+
     @classmethod
     def objects_with_visibility_keys(cls, objects) -> list:
         """The subset of *objects* that already have keyframes on render visibility."""
@@ -680,8 +834,8 @@ class RenderEffects(ptk.LoggingMixin):
     @staticmethod
     def _set_key(obj, data_path, frame, value, interp, index=-1):
         """Set *value* then insert a keyframe at *frame* with the given interpolation."""
-        if data_path.startswith("["):  # custom prop
-            obj[data_path[2:-2]] = value
+        if data_path.startswith("["):  # custom prop, or one component of a vector one
+            RenderEffects._set_prop(obj, data_path[2:-2], index, value)
         else:
             setattr(
                 obj, data_path, value if data_path != "hide_render" else bool(value)

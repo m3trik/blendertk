@@ -2511,6 +2511,37 @@ def _run_sequencer_checks():
         f"left={tuple(kp_mid.handle_left)} type={kp_mid.handle_left_type}",
     )
 
+    # -- a drag that carried the selection, and the Alt break ---------------
+    tan_ctl.on_keys_tangent_dragged(
+        [(1, [(0.0, 2.0, 1.0), (20.0, 3.0, -1.0)])], "out", False
+    )
+    kps = {round(kp.co[0]): kp for kp in fc_tan.keyframe_points}
+    first = (round(kps[0].handle_right[0], 3), round(kps[0].handle_right[1], 3))
+    last = (round(kps[20].handle_right[0], 3), round(kps[20].handle_right[1], 3))
+    check(
+        "handle drag: every key the gesture carried took its OWN vector",
+        first == (2.0, 1.0) and last == (23.0, -1.0),
+        f"first={first} last={last}",
+    )
+    kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
+    kp_mid.handle_left_type = kp_mid.handle_right_type = "ALIGNED"
+    fc_tan.update()
+    left_before = (round(kp_mid.handle_left[0], 3), round(kp_mid.handle_left[1], 3))
+    tan_ctl.on_keys_tangent_dragged([(1, [(10.0, 4.0, 2.0)])], "out", True)
+    kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
+    left_after = (round(kp_mid.handle_left[0], 3), round(kp_mid.handle_left[1], 3))
+    right = (round(kp_mid.handle_right[0], 3), round(kp_mid.handle_right[1], 3))
+    check(
+        "handle drag: a broken drag frees BOTH sides and leaves the partner put",
+        kp_mid.handle_left_type == "FREE"
+        and kp_mid.handle_right_type == "FREE"
+        and left_after == left_before
+        and right == (14.0, 7.0)
+        and any("handle broken" in f for f in tan_footers),
+        f"left {left_before}->{left_after} right={right} "
+        f"types={kp_mid.handle_left_type}/{kp_mid.handle_right_type}",
+    )
+
     # -- a boundary sample follows its bound, or is cleaned up --------------
     st, sq, obs = fresh({"bndA": {1: 0, 50: 10}})
     sa = sq.define_shot("A", 1, 50, objects=["bndA"])

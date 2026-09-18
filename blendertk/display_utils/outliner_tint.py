@@ -62,9 +62,12 @@ class _MemGuard:
     _PAGE_GUARD = 0x100
 
     def __init__(self):
-        self._ranges: List[Tuple[int, int]] = []  # sorted (start, end) of known-readable
+        self._ranges: List[
+            Tuple[int, int]
+        ] = []  # sorted (start, end) of known-readable
         self._ok = sys.platform == "win32"
         if self._ok:
+
             class _MBI(ctypes.Structure):
                 _fields_ = [
                     ("BaseAddress", ctypes.c_void_p),
@@ -96,7 +99,9 @@ class _MemGuard:
             if start <= addr and end <= stop:
                 return True
         mbi = self._mbi_type()
-        if not self._query(ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi)):
+        if not self._query(
+            ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi)
+        ):
             return False
         if mbi.State != self._MEM_COMMIT or (mbi.Protect & self._PAGE_GUARD):
             return False
@@ -195,7 +200,9 @@ class _OutlinerTintInternal(ptk.LoggingMixin):
         if not hits:
             cls._state = f"walk resolved no known datablocks ({len(rows)} elements)"
             return False
-        cls.logger.debug(f"outliner layout verified: {hits}/{len(rows)} elements resolved")
+        cls.logger.debug(
+            f"outliner layout verified: {hits}/{len(rows)} elements resolved"
+        )
         cls._state = "ok"
         return True
 
@@ -209,7 +216,9 @@ class _OutlinerTintInternal(ptk.LoggingMixin):
         return out
 
     @classmethod
-    def _walk_chain(cls, elem: int, out: list, budget: list, seen: set, depth: int) -> None:
+    def _walk_chain(
+        cls, elem: int, out: list, budget: list, seen: set, depth: int
+    ) -> None:
         if depth > cls._walk_max_depth:
             return  # never let a deep (or corrupt) chain reach Python's recursion limit
         L = cls._LAYOUT
@@ -250,7 +259,9 @@ class _Row:
     @property
     def object_name(self) -> Optional[str]:
         """The object this row draws, or None when the row is not an Object."""
-        return self.id_name[2:] if self.id_name and self.id_name.startswith("OB") else None
+        return (
+            self.id_name[2:] if self.id_name and self.id_name.startswith("OB") else None
+        )
 
 
 class OutlinerTint(_OutlinerTintInternal):
@@ -406,7 +417,9 @@ class OutlinerTint(_OutlinerTintInternal):
         from gpu_extras.batch import batch_for_shader
 
         colors: Dict[str, Color] = {
-            o.name: tuple(o[COLOR_PROP])[:3] for o in bpy.data.objects if COLOR_PROP in o
+            o.name: tuple(o[COLOR_PROP])[:3]
+            for o in bpy.data.objects
+            if COLOR_PROP in o
         }
         if not colors:
             return  # nothing tinted — never touch the outliner

@@ -445,6 +445,217 @@ def _run_shots_adapter_checks():
         f"dirty={flush_store._dirty} pending={flush_store._flush_pending}",
     )
 
+    # ---- hand-off transfer: export_transfer / apply_transfer ----------------
+    #     (mirror of mayatk's; the codec is pythontk's ShotTransfer)
+    BlenderShotStore.clear_active()
+    if ATTR_NAME in scene.keys():
+        del scene[ATTR_NAME]
+    scene.render.fps = 24
+    xfer_store = BlenderShotStore.active()
+    add_keyed_cube("XferCube", [1, 10, 20], 0.0)
+    add_keyed_cube("XferMate", [1, 20], 5.0)
+    xfer_shot = xfer_store.define_shot("Xfer", 1, 20, objects=["XferCube", "XferMate"])
+    xfer_key = "XferCube|location|0"
+    xfer_store.edit_ledger.record_key(xfer_key, 20.0, xfer_shot.shot_id, "end")
+    xfer_store.edit_ledger.record_key(xfer_key, 15.0, xfer_shot.shot_id, "end")
+    xfer_store.set_object_hidden("XferMate", True)
+    section = BlenderShotStore.export_transfer()
+    check(
+        "export_transfer: the section carries the shot as Blender spells it",
+        sorted(section["store"]["shots"][0]["objects"]) == ["XferCube", "XferMate"]
+        and section["store"]["hidden_objects"] == ["XferMate"],
+        str(section["store"]["shots"]),
+    )
+    check(
+        "export_transfer: claims are keyed by object + mayatk channel label",
+        section["ledger"]["keys"]
+        == {
+            "XferCube": {
+                "translateX": [
+                    [15.0, xfer_shot.shot_id, "end"],
+                    [20.0, xfer_shot.shot_id, "end"],
+                ]
+            }
+        },
+        str(section["ledger"]),
+    )
+    scoped = BlenderShotStore.export_transfer(objects=["XferMate"])
+    check(
+        "export_transfer: the objects scope keeps the shot, drops the rest",
+        scoped["store"]["shots"][0]["objects"] == ["XferMate"]
+        and scoped["ledger"] == {"steps": {}, "keys": {}},
+        str(scoped),
+    )
+    check(
+        "_curve_ref: a ledger key becomes object + mayatk label",
+        BlenderShotStore._curve_ref("XferCube|location|0") == ("XferCube", "translateX")
+        and BlenderShotStore._curve_ref("X|rotation_euler|1") == ("X", "rotateY"),
+        str(BlenderShotStore._curve_ref("XferCube|location|0")),
+    )
+    check(
+        "_curve_ref: a scalar channel carries no axis, visibility is aliased",
+        BlenderShotStore._curve_ref("X|hide_render|0") == ("X", "visibility")
+        and BlenderShotStore._curve_ref('X|["audio_trigger"]|0')
+        == ("X", "audio_trigger"),
+        str(BlenderShotStore._curve_ref("X|hide_render|0")),
+    )
+    check(
+        "_curve_key: object + label back to the fcurve's ledger key, exact only",
+        BlenderShotStore._curve_key("XferCube", "translateX") == xfer_key
+        and BlenderShotStore._curve_key("XferCube", "rotateY") is None
+        and BlenderShotStore._curve_key("Nobody", "translateX") is None,
+        str(BlenderShotStore._curve_key("XferCube", "translateX")),
+    )
+    # Apply into a clean scene, as a Maya section would land after the import.
+    BlenderShotStore.clear_active()
+    del scene[ATTR_NAME]
+    landed = BlenderShotStore.apply_transfer(section)
+    check(
+        "apply_transfer: the shot lands 1:1 on the live objects",
+        [(s.name, s.start, s.end, sorted(s.objects)) for s in landed.shots]
+        == [("Xfer", 1.0, 20.0, ["XferCube", "XferMate"])]
+        and landed.hidden_objects == {"XferMate"},
+        str([(s.name, s.start, s.end, s.objects) for s in landed.shots]),
+    )
+    check(
+        "apply_transfer: a claim lands only where the fcurve has a key",
+        landed.edit_ledger.key_times(xfer_key) == [20.0],
+        str(landed.edit_ledger.to_dict()),
+    )
+    check(
+        "apply_transfer: the record persists on the scene",
+        "Xfer" in (scene.get(ATTR_NAME) or ""),
+    )
+    shifted = BlenderShotStore.apply_transfer(section, frame_offset=1.0)
+    check(
+        "apply_transfer: a second apply merges after the existing shot, times shifted",
+        [(s.shot_id, s.start, s.end) for s in shifted.sorted_shots()]
+        == [
+            (landed.shots[0].shot_id, 1.0, 20.0),
+            (landed.shots[0].shot_id + 1, 2.0, 21.0),
+        ],
+        str([(s.shot_id, s.start, s.end) for s in shifted.sorted_shots()]),
+    )
+    replaced = BlenderShotStore.apply_transfer(section, replace=True)
+    check(
+        "apply_transfer: replace discards the scene's own shots",
+        len(replaced.shots) == 1,
+    )
+    # A root the importer put through the Y-up / Z-up crossing: a Maya translateZ
+    # claim names its location[1] (Y) channel; unconverted it would find nothing.
+    bpy.ops.mesh.primitive_cube_add()
+    xfer_root = bpy.context.active_object
+    xfer_root.name = "XferRoot"
+    for f in (1, 20):
+        xfer_root.location.y = float(f)
+        xfer_root.keyframe_insert(data_path="location", index=1, frame=f)
+    swapped_section = {
+        "version": 1,
+        "store": {
+            **section["store"],
+            "shots": [{**section["store"]["shots"][0], "objects": ["XferRoot"]}],
+        },
+        "ledger": {
+            "steps": {},
+            "keys": {"XferRoot": {"translateZ": [[20.0, 0, "end"]]}},
+        },
+    }
+    plain = BlenderShotStore.apply_transfer(swapped_section, replace=True)
+    swapped = BlenderShotStore.apply_transfer(
+        swapped_section, replace=True, converted=lambda name: name == "XferRoot"
+    )
+    check(
+        "apply_transfer: a converted root's translateZ claim lands on location[1]",
+        plain.edit_ledger.key_times("XferRoot|location|1") == []
+        and swapped.edit_ledger.key_times("XferRoot|location|1") == [20.0],
+        str((plain.edit_ledger.to_dict(), swapped.edit_ledger.to_dict())),
+    )
+
+    # ---- channels + audio through the transfer -----------------------------
+    #     (render-effect properties, an ad-hoc keyed property, a sound strip)
+    import wave
+
+    from blendertk.audio_utils._audio_utils import AudioUtils
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+    xfer_wav = os.path.join(tempfile.gettempdir(), "btk_xfer_footstep.wav")
+    with wave.open(xfer_wav, "wb") as fh:  # one second of silence
+        fh.setnchannels(1)
+        fh.setsampwidth(2)
+        fh.setframerate(44100)
+        fh.writeframes(b"\x00\x00" * 44100)
+    fx = add_keyed_cube("FxCube", [1, 20], 0.0)
+    RenderEffects.key_fade([fx], start=1, end=20, direction="in")
+    RenderEffects._ensure_highlight_props(fx, color=(1.0, 0.0, 0.0))
+    RenderEffects._set_key(fx, '["highlight"]', 1, 0.0, "CONSTANT")
+    RenderEffects._set_key(fx, '["highlight"]', 10, 1.0, "BEZIER")
+    fx["wobble"] = 0.0
+    RenderEffects._set_key(fx, '["wobble"]', 5, 2.0, "LINEAR")
+    AudioUtils.remove_all_clips()
+    AudioUtils.add_clip(xfer_wav, frame_start=10, name="footstep")
+    AudioUtils.trim_clip("footstep", offset_end=4)
+    clip_end = AudioUtils.get_clip("footstep")["frame_end"]
+    BlenderShotStore.clear_active()
+    if ATTR_NAME in scene.keys():
+        del scene[ATTR_NAME]
+    fx_store = BlenderShotStore.active()
+    fx_store.define_shot("Fx", 1, 20, objects=["FxCube"])
+    section = BlenderShotStore.export_transfer()
+    rec = section["channels"]["FxCube"]
+    check(
+        "channel_records: the fade, the pulse and its colour, the ad-hoc property",
+        rec["opacity"]["keys"] == [[1.0, 0.0, "linear"], [20.0, 1.0, "linear"]]
+        and rec["highlight"]["keys"] == [[1.0, 0.0, "step"], [10.0, 1.0, "smooth"]]
+        and rec["highlightColorR"]["value"] == 1.0
+        and rec["wobble"]["keys"] == [[5.0, 2.0, "linear"]]
+        and "hide_render" not in rec,
+        str(rec),
+    )
+    check(
+        "audio records: the strip's placed span, head trim carried",
+        section["audio"]
+        == [
+            {
+                "name": "footstep",
+                "file": xfer_wav.replace("\\", "/"),
+                "start": 10.0,
+                "end": float(clip_end),
+                "offset": 0.0,
+            }
+        ],
+        str(section["audio"]),
+    )
+    # Land on a fresh object and an empty sequencer, twice: a re-apply doubles nothing.
+    bpy.data.objects.remove(fx, do_unlink=True)
+    AudioUtils.remove_all_clips()
+    landed_fx = add_keyed_cube("FxCube", [1, 20], 0.0)
+    for _ in range(2):
+        BlenderShotStore.apply_transfer(section, replace=True)
+    opacity_fc = RenderEffects._fcurve(landed_fx, '["opacity"]')
+    highlight_fc = RenderEffects._fcurve(landed_fx, '["highlight"]')
+    wobble_fc = RenderEffects._fcurve(landed_fx, '["wobble"]')
+    check(
+        "apply_channel_records: keys, interpolation, colour and the ad-hoc property land",
+        [k.co[0] for k in opacity_fc.keyframe_points] == [1.0, 20.0]
+        and [k.interpolation for k in opacity_fc.keyframe_points]
+        == ["LINEAR", "LINEAR"]
+        and [(k.co[0], k.interpolation) for k in highlight_fc.keyframe_points]
+        == [(1.0, "CONSTANT"), (10.0, "BEZIER")]
+        and abs(landed_fx["highlightColor"][0] - 1.0) < 1e-6
+        and [k.co[0] for k in wobble_fc.keyframe_points] == [5.0],
+        str(RenderEffects.channel_records([landed_fx])),
+    )
+    landed_clip = AudioUtils.get_clip("footstep") or {}
+    check(
+        "audio lands once, on its placed span",
+        len(AudioUtils.list_clips()) == 1
+        and landed_clip.get("frame_start") == 10
+        and landed_clip.get("frame_end") == clip_end,
+        str(AudioUtils.list_clips()),
+    )
+    AudioUtils.remove_all_clips()
+    os.remove(xfer_wav)
+
     # cleanup class state so a later suite in the same process starts clean
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None

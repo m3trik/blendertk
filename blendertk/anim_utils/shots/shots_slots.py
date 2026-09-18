@@ -233,6 +233,49 @@ class ShotsController(ptk.LoggingMixin):
         label.setStyleSheet("background: transparent; border: none;")
         footer.setText(text)
 
+    def _boundary_edit(self, store, label: str, fn, *args, **kwargs) -> bool:
+        """Run a boundary-mutating edit, reporting a refusal instead of raising.
+
+        Boundary edits record a restore point on the store's shared ledger --
+        scene keys ride the native undo queue, shot bounds do not, and the
+        sequencer panel's undo restores from this ledger.
+
+        :class:`ShotBoundaryConflict` means the operation declined BEFORE
+        writing anything: the shots would have had to share a sample whose two
+        poses disagree, which one frame cannot hold. Since nothing changed, the
+        restore point is discarded rather than left for an undo to "restore"
+        the state it is already in.
+
+        Behaviour mirrors mayatk's ``_boundary_edit``. The bracket differs
+        because this store has no ``scene_edit`` -- that is Maya's *named* undo
+        chunk, and Blender exposes no equivalent naming; ``CoreUtils.undo_chunk``
+        is the local mirror (a no-op headless).
+
+        Parameters:
+            store: The active shot store.
+            label: Short name for the edit; the undo bracket's group name.
+            fn: The engine call to run.
+            *args: Positional arguments for *fn*.
+            **kwargs: Keyword arguments for *fn*.
+
+        Returns:
+            True when the edit ran, False when it was refused.
+        """
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+        store.push_boundary_snapshot()
+        try:
+            with CoreUtils.undo_chunk(label):
+                fn(*args, **kwargs)
+        except ShotBoundaryConflict as exc:
+            # Declined before writing anything, so the restore point goes too
+            # (mirrors mayatk): a refusal is an answer, not a crash.
+            store.discard_boundary_snapshot()
+            self.logger.warning(str(exc))
+            self._set_footer(str(exc))
+            return False
+        return True
+
     def _sync_footer(self, store=None) -> None:
         """Update footer with aggregate shot statistics."""
         if store is None:
@@ -597,6 +640,7 @@ class ShotsController(ptk.LoggingMixin):
         store = self._active_store()
         if store is None:
             return
+        previous_gap = store.gap
         store.gap = float(value)
         store.mark_dirty()
 
@@ -605,17 +649,19 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        # Boundary edits record a restore point on the store's shared
-        # ledger — scene keys ride the native undo queue, shot bounds do
-        # not, and the sequencer panel's undo restores from this ledger.
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
-            seq.apply_gap(
-                store.gap,
-                scope=scope,
-                shot_id=store.active_shot_id,
-                respect_locks=respect_locks,
-            )
+        if not self._boundary_edit(
+            store,
+            "gap",
+            seq.apply_gap,
+            store.gap,
+            scope=scope,
+            shot_id=store.active_shot_id,
+            respect_locks=respect_locks,
+        ):
+            # Put the setting back so the panel keeps showing what the
+            # scene actually is.
+            store.gap = previous_gap
+            return
         store.notify_settings_changed()
 
     # ---- shot editor actions ---------------------------------------------
@@ -659,9 +705,10 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
-            seq.move_shot(shot.shot_id, value)
+        if not self._boundary_edit(
+            store, "shotstart", seq.move_shot, shot.shot_id, value
+        ):
+            return
         store.mark_dirty()
 
     def on_shot_end_changed(self, value: float) -> None:
@@ -682,11 +729,13 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
+
+        def _run():
             old_end = shot.end
             store.update_shot(shot.shot_id, end=value)
             seq.ripple_downstream(shot.shot_id, old_end, delta)
+
+        self._boundary_edit(store, "shotend", _run)
 
     def on_shot_desc_changed(self, text: str) -> None:
         self._push_shot_field(description=text)
@@ -885,11 +934,16 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()  # undoable via the ledger's re-create
-        with CoreUtils.undo_chunk():
-            result = seq.delete_shot(
+        captured = {}
+
+        def _run():  # undoable via the ledger's re-create
+            captured["result"] = seq.delete_shot(
                 shot.shot_id, delete_contents=drop_keys, close_gap=close_gap
             )
+
+        if not self._boundary_edit(store, "delshot", _run):
+            return
+        result = captured["result"]
         store.set_active_shot(None)
         cut = result.get("curves_cut", 0)
         closed = result.get("closed", 0.0)
@@ -921,11 +975,13 @@ class ShotsController(ptk.LoggingMixin):
         # One BatchComplete instead of N ShotRemoved events — each event
         # triggers a full rebuild in every listening UI (settings panel,
         # manifest, sequencer).
-        store.push_boundary_snapshot()  # delete-all is undoable via the ledger
-        with store.batch_update():
-            for shot in list(store.shots):
-                store.remove_shot(shot.shot_id)
-            store.set_active_shot(None)
+        def _run():  # delete-all is undoable via the ledger
+            with store.batch_update():
+                for shot in list(store.shots):
+                    store.remove_shot(shot.shot_id)
+                store.set_active_shot(None)
+
+        self._boundary_edit(store, "delallshots", _run)
 
     def on_move_shot(self) -> None:
         """Move the active shot to the position specified by spn_move_to."""
@@ -944,9 +1000,14 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
-            seq.move_shot_to_position(store.active_shot_id, target_pos)
+        if not self._boundary_edit(
+            store,
+            "reorder",
+            seq.move_shot_to_position,
+            store.active_shot_id,
+            target_pos,
+        ):
+            return
 
         # notify_settings_changed → _sync_from_store already rebuilds the
         # combobox; a direct _populate call here doubled the rebuild.
@@ -981,9 +1042,13 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
-            deltas = [seq.trim_shot_to_content(store.active_shot_id, edge=edge)]
+        deltas = []
+
+        def _run():
+            deltas.append(seq.trim_shot_to_content(store.active_shot_id, edge=edge))
+
+        if not self._boundary_edit(store, "trim", _run):
+            return
         self._report_deltas("Trimmed", deltas, store)
 
     def on_trim_all_shots(self, edge: str = "both") -> None:
@@ -997,14 +1062,20 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
+        deltas = []
+
+        def _run():
             # List, not a generator: any() would short-circuit and skip
             # trimming the remaining shots after the first hit.
-            deltas = [
-                seq.trim_shot_to_content(shot.shot_id, edge=edge)
-                for shot in list(store.shots)
-            ]
+            deltas.extend(
+                [
+                    seq.trim_shot_to_content(shot.shot_id, edge=edge)
+                    for shot in list(store.shots)
+                ]
+            )
+
+        if not self._boundary_edit(store, "trimall", _run):
+            return
         self._report_deltas("Trimmed", deltas, store)
 
     def on_shift_all_shots(self, start: float) -> None:
@@ -1030,13 +1101,10 @@ class ShotsController(ptk.LoggingMixin):
         if abs(delta) < 1e-6:
             self._set_footer(f"All shots already start at {first.start:.0f}")
             return
-        store.push_boundary_snapshot()
-        try:
-            with CoreUtils.undo_chunk():
-                seq.move_shot(first.shot_id, float(start))
-        except Exception:
-            store.discard_boundary_snapshot()
-            raise
+        if not self._boundary_edit(
+            store, "shiftall", seq.move_shot, first.shot_id, float(start)
+        ):
+            return
         store.notify_settings_changed()
         self._set_footer(f"Shifted all shots by {delta:+.0f}f")
 
@@ -1058,9 +1126,13 @@ class ShotsController(ptk.LoggingMixin):
         )
 
         seq = ShotSequencer(store=store)
-        store.push_boundary_snapshot()
-        with CoreUtils.undo_chunk():
-            deltas = [seq.add_shot_space(store.active_shot_id, frames, edge=edge)]
+        deltas = []
+
+        def _run():
+            deltas.append(seq.add_shot_space(store.active_shot_id, frames, edge=edge))
+
+        if not self._boundary_edit(store, "addspace", _run):
+            return
         self._report_deltas(f"Added {edge} space", deltas, store)
 
 

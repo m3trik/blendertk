@@ -110,6 +110,44 @@ class BlenderTestRunner:
             suites = [s for s in suites if s.stem in wanted or s.name in patterns]
         return suites
 
+    @staticmethod
+    def _isolate_temp() -> Optional[str]:
+        """Route this run's temp into one throwaway root; returns it.
+
+        Nothing here fails -- that is the problem this fixes. A suite whose
+        cleanup globs a real-temp pattern deletes whatever else matches, and one
+        did: ``test_scene_import``'s orchestration check globbed
+        ``maya_to_btk_cache_*`` in the real temp dir and removed the user's
+        cached production USD conversion, which costs a multi-minute headless
+        Maya run to earn back. Cached conversions are exactly what lives there.
+
+        Activated in the RUNNER rather than in each suite's bootstrap, which is
+        both smaller and safer than it sounds: :meth:`TestSandbox.temp` sets
+        ``TMPDIR``/``TEMP``/``TMP`` precisely so a child process inherits the
+        same root, and every suite here IS a child (a fresh headless Blender, or
+        the ``.venv`` interpreter). The root is released at THIS process's exit,
+        so a bridge artifact handed to a detached app still outlives the call
+        that made it -- the case ``test_bridges`` asserts -- where per-suite
+        activation would have torn it down with the suite.
+
+        Best-effort by design: an unimportable pythontk is already a failing
+        run, and it must fail on its own suites rather than here.
+        """
+        try:
+            from pythontk.core_utils.test_sandbox import TestSandbox
+
+            root = TestSandbox.temp()
+        except Exception as error:  # noqa: BLE001
+            print(f"[WARN] temp isolation unavailable ({error}); suites use real TEMP.")
+            return None
+        # Announced explicitly so a suite can ASSERT it inherited the redirect
+        # rather than assume it. The failure this guards is silent in both
+        # directions: a child that did not inherit writes to the real temp and
+        # nothing complains, which is exactly how the cached conversion went.
+        os.environ["BLENDERTK_TEST_TEMP_ROOT"] = root
+        print(f"Temp:    {root}")
+        return root
+
     def run_suite(
         self, suite: Path, python: Optional[str] = None
     ) -> Tuple[bool, int, int, bool]:
@@ -227,6 +265,7 @@ class BlenderTestRunner:
 
     def run(self, patterns: Optional[List[str]] = None) -> dict:
         """Run the selected suites and return aggregate counts."""
+        self._isolate_temp()
         suites = self.discover(patterns)
         if not suites:
             print("No suites matched.")

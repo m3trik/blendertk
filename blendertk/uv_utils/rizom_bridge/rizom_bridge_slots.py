@@ -21,6 +21,7 @@ Two flows, matching mayatk:
 
 Discovered by ``BlenderUiHandler`` (``marking_menu.show("rizom_bridge")``).
 """
+
 from pathlib import Path
 
 from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
@@ -100,16 +101,20 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
     # open_templates_folder / refresh_templates / clear_log).
     HEADER_MENU_ITEMS = (
         (
-            "Open UV Editor", "btn_open_uv_editor",
-            "Open Blender's UV Editor for inspecting the result.", "open_uv_editor",
+            "Open UV Editor",
+            "btn_open_uv_editor",
+            "Open Blender's UV Editor for inspecting the result.",
+            "open_uv_editor",
         ),
         (
-            "Open Scripts Folder", "btn_open_scripts",
+            "Open Scripts Folder",
+            "btn_open_scripts",
             "Reveal the bundled Lua preset folder in Explorer.",
             "open_templates_folder",
         ),
         (
-            "Refresh Scripts", "btn_refresh_scripts",
+            "Refresh Scripts",
+            "btn_refresh_scripts",
             "Re-scan the scripts folder and rebuild the script combo.",
             "refresh_templates",
         ),
@@ -126,27 +131,33 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
             "Click <b>Process Selected</b>.",
         ],
         "sections": [
-            ("Presets", [
-                "<b>pack / unwrap_hard / unwrap_organic / unwrap_hybrid / optimize</b> -- "
-                "round-trip: Blender exports <code>__RZTMP</code> copies, RizomUV runs the script "
-                "headlessly, and the UVs are transferred back onto the originals. (unwrap_hybrid "
-                "needs RizomUV 2022+.)",
-                "<b>send</b> -- one-way: exports the selection directly (no rename), optionally "
-                "collects textures from the materials, then launches RizomUV detached. Save "
-                "manually inside RizomUV when done.",
-                "<b>pack_into_existing</b> -- packs the selection's shells into the empty space "
-                "of the layout shared by every mesh using the selection's material(s); the "
-                "existing shells don't move. Requires RizomUV 2022.2+ (hidden from the dropdown "
-                "on older installs).",
-            ]),
-            ("Header menu", [
-                "<b>Open UV Editor</b> -- open a new window with Blender's UV Editor to inspect "
-                "the result.",
-                "<b>Open Scripts Folder</b> -- reveal the bundled Lua preset folder in Explorer.",
-                "<b>Refresh Scripts</b> -- re-scan the scripts folder and rebuild the script "
-                "combo.",
-                "<b>Clear Log</b> -- clear the log panel below.",
-            ]),
+            (
+                "Presets",
+                [
+                    "<b>pack / unwrap_hard / unwrap_organic / unwrap_hybrid / optimize</b> -- "
+                    "round-trip: Blender exports <code>__RZTMP</code> copies, RizomUV runs the script "
+                    "headlessly, and the UVs are transferred back onto the originals. (unwrap_hybrid "
+                    "needs RizomUV 2022+.)",
+                    "<b>send</b> -- one-way: exports the selection directly (no rename), optionally "
+                    "collects textures from the materials, then launches RizomUV detached. Save "
+                    "manually inside RizomUV when done.",
+                    "<b>pack_into_existing</b> -- packs the selection's shells into the empty space "
+                    "of the layout shared by every mesh using the selection's material(s); the "
+                    "existing shells don't move. Requires RizomUV 2022.2+ (hidden from the dropdown "
+                    "on older installs).",
+                ],
+            ),
+            (
+                "Header menu",
+                [
+                    "<b>Open UV Editor</b> -- open a new window with Blender's UV Editor to inspect "
+                    "the result.",
+                    "<b>Open Scripts Folder</b> -- reveal the bundled Lua preset folder in Explorer.",
+                    "<b>Refresh Scripts</b> -- re-scan the scripts folder and rebuild the script "
+                    "combo.",
+                    "<b>Clear Log</b> -- clear the log panel below.",
+                ],
+            ),
         ],
         "notes": [
             "RizomUV (Rizom Lab) must be installed -- auto-discovered under "
@@ -250,11 +261,16 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
                         f"{len(all_objs) - len(new_objs)} other mesh(es) sharing their material(s)."
                     )
                     self.bridge.process_with_rizomuv(
-                        all_objs, preset=preset, params=params, select_objects=new_objs,
+                        all_objs,
+                        preset=preset,
+                        params=params,
+                        select_objects=new_objs,
                     )
                 else:
                     self.bridge.process_with_rizomuv(
-                        selection, preset=preset, params=params,
+                        selection,
+                        preset=preset,
+                        params=params,
                     )
         except Exception:
             import traceback

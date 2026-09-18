@@ -24,6 +24,7 @@ and tears the whole GUI Blender down at launch. Blender runs a ``--python`` scri
 so the subprocess call is unaffected. ``import bpy`` is likewise deferred into the body (the
 package-wide "no ``bpy`` at import time" rule).
 """
+
 import sys
 
 
@@ -31,7 +32,7 @@ def main() -> int:
     """Stage the FBX named on the command line; return the process exit code."""
     import bpy
 
-    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(argv) < 2:
         print("STAGE_FBX_ERROR: expected <fbx> <out.blend>")
         return 2

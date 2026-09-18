@@ -119,7 +119,9 @@ class ImageToPlane(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ internals
     @classmethod
-    def _create_single(cls, image_path, mat_type, suffix, prefix, plane_height, roughness=0.0):
+    def _create_single(
+        cls, image_path, mat_type, suffix, prefix, plane_height, roughness=0.0
+    ):
         import bpy
 
         stem = os.path.splitext(os.path.basename(image_path))[0]
@@ -128,7 +130,9 @@ class ImageToPlane(ptk.LoggingMixin):
         aspect = (w / h) if h else 1.0
         plane = cls._make_plane(stem, plane_height * aspect, plane_height)
         mat = cls._make_material(
-            f"{prefix}{stem}{suffix}", image, has_alpha=image.channels == 4,
+            f"{prefix}{stem}{suffix}",
+            image,
+            has_alpha=image.channels == 4,
             roughness=roughness,
         )
         plane.data.materials.append(mat)

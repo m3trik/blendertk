@@ -14,6 +14,7 @@ The actual launch+wait+capture is delegated to :meth:`pythontk.AppLauncher.run` 
 subprocess); only Blender-executable *discovery* is Blender-specific. No ``bpy`` import — this is
 the launcher, run from outside Blender (e.g. the workspace ``.venv`` or a parent process).
 """
+
 import glob
 import os
 import platform
@@ -61,7 +62,9 @@ class BlenderConnection:
                 os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
             }
             for root in filter(None, roots):
-                candidates += glob.glob(os.path.join(root, "Blender Foundation", "Blender *", "blender.exe"))
+                candidates += glob.glob(
+                    os.path.join(root, "Blender Foundation", "Blender *", "blender.exe")
+                )
         elif system == "darwin":
             candidates += glob.glob("/Applications/Blender*.app/Contents/MacOS/Blender")
         else:  # linux / other unix
@@ -111,7 +114,11 @@ class BlenderConnection:
         if script_args:
             args += ["--"] + [str(a) for a in script_args]
         return ptk.AppLauncher.run(
-            self.blender_exe, args=args, timeout=timeout, output_file=output_file, env=env
+            self.blender_exe,
+            args=args,
+            timeout=timeout,
+            output_file=output_file,
+            env=env,
         )
 
     def run_code(self, code: str, **kwargs):
@@ -130,7 +137,9 @@ class BlenderConnection:
             except OSError:
                 pass
 
-    def run_result(self, script_path: Optional[str] = None, *, code: Optional[str] = None, **kwargs):
+    def run_result(
+        self, script_path: Optional[str] = None, *, code: Optional[str] = None, **kwargs
+    ):
         """Run a script / code string that prints a ``===RESULT: PASS===`` sentinel and report
         pass/fail — the programmatic form of ``Run-Tests.ps1``.
 

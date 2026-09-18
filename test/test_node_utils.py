@@ -1,18 +1,27 @@
 """blendertk.node_utils headless test — instancing via shared object data (no viewport).
 Run: blender --background --factory-startup --python blendertk/test/test_node_utils.py
 """
-import sys, os, math, traceback
+
+import sys
+import os
+import math
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)            # blendertk/
-MONO = os.path.dirname(REPO)           # _scripts/
+REPO = os.path.dirname(HERE)  # blendertk/
+MONO = os.path.dirname(REPO)  # _scripts/
 for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 lines = []
+
+
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
+
 
 try:
     import bpy
@@ -22,19 +31,27 @@ try:
         bpy.ops.object.select_all(action="DESELECT")
         for o in list(bpy.data.objects):
             bpy.data.objects.remove(o, do_unlink=True)
+
     def cube(name, loc):
         bpy.ops.mesh.primitive_cube_add(location=loc)
-        o = bpy.context.active_object; o.name = name
+        o = bpy.context.active_object
+        o.name = name
         return o
 
     # replace_with_instances: A(source) + B,C targets -> B,C share A's data
     reset()
     A, B, C = cube("A", (0, 0, 0)), cube("B", (3, 0, 0)), cube("C", (6, 0, 0))
     out = btk.replace_with_instances([A, B, C])
-    check("replace_with_instances -> 2 targets instanced", len(out) == 2, f"n={len(out)}")
+    check(
+        "replace_with_instances -> 2 targets instanced", len(out) == 2, f"n={len(out)}"
+    )
     check("replace_with_instances -> B shares A data", B.data is A.data)
     check("replace_with_instances -> C shares A data", C.data is A.data)
-    check("replace_with_instances -> data.users == 3", A.data.users == 3, f"users={A.data.users}")
+    check(
+        "replace_with_instances -> data.users == 3",
+        A.data.users == 3,
+        f"users={A.data.users}",
+    )
 
     # guard: <2 objects -> no-op, returns []
     check("replace_with_instances <2 -> []", btk.replace_with_instances([A]) == [])
@@ -45,10 +62,18 @@ try:
     # add a lone cube D -> not instanced, not returned
     D = cube("D", (9, 0, 0))
     inst = btk.get_instances(objects=None)
-    check("get_instances ignores single-user D", D not in inst and len(inst) == 3, f"n={len(inst)}")
+    check(
+        "get_instances ignores single-user D",
+        D not in inst and len(inst) == 3,
+        f"n={len(inst)}",
+    )
     # get_instances(subset) -> instances sharing data with B (= A,B,C)
     inst_b = btk.get_instances([B])
-    check("get_instances([B]) -> the A/B/C group", len(inst_b) == 3 and D not in inst_b, f"n={len(inst_b)}")
+    check(
+        "get_instances([B]) -> the A/B/C group",
+        len(inst_b) == 3 and D not in inst_b,
+        f"n={len(inst_b)}",
+    )
 
     # uninstance B -> B gets its own copy, users drop to 2
     changed = btk.uninstance([B])
@@ -85,19 +110,29 @@ try:
     before = {o.name: world_verts(o) for o in g}
     with btk.NodeUtils._preserved_instances(g) as ctx:
         check("preserved_instances -> yields one master", len(ctx.objects) == 1)
-        check("preserved_instances -> master fork is unique",
-          sum(1 for o in bpy.data.objects if o.data is ctx.objects[0].data) == 1)
+        check(
+            "preserved_instances -> master fork is unique",
+            sum(1 for o in bpy.data.objects if o.data is ctx.objects[0].data) == 1,
+        )
         btk.freeze_transforms(ctx.objects, location=True, rotation=True, scale=True)
     bpy.context.view_layer.update()
-    check("preserved_instances -> group re-shared (3 users)",
-          sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3)
-    check("preserved_instances -> world geometry preserved",
-          all(verts_close(before[o.name], world_verts(o)) for o in g))
-    check("preserved_instances -> master frozen to identity",
-          all(abs(v) < 1e-4 for v in g[0].location)
-          and all(abs(v - 1.0) < 1e-4 for v in g[0].scale))
-    check("preserved_instances -> map routes siblings to master",
-          ctx.map[g[1]] is g[0] and ctx.map[g[2]] is g[0])
+    check(
+        "preserved_instances -> group re-shared (3 users)",
+        sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3,
+    )
+    check(
+        "preserved_instances -> world geometry preserved",
+        all(verts_close(before[o.name], world_verts(o)) for o in g),
+    )
+    check(
+        "preserved_instances -> master frozen to identity",
+        all(abs(v) < 1e-4 for v in g[0].location)
+        and all(abs(v - 1.0) < 1e-4 for v in g[0].scale),
+    )
+    check(
+        "preserved_instances -> map routes siblings to master",
+        ctx.map[g[1]] is g[0] and ctx.map[g[2]] is g[0],
+    )
 
     # exception mid-block: restore still runs (data re-shared, geometry intact)
     reset()
@@ -109,10 +144,14 @@ try:
     except RuntimeError:
         pass
     bpy.context.view_layer.update()
-    check("preserved_instances exception -> group re-shared",
-          sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3)
-    check("preserved_instances exception -> world geometry preserved",
-          all(verts_close(before[o.name], world_verts(o)) for o in g))
+    check(
+        "preserved_instances exception -> group re-shared",
+        sum(1 for o in bpy.data.objects if o.data is g[0].data) == 3,
+    )
+    check(
+        "preserved_instances exception -> world geometry preserved",
+        all(verts_close(before[o.name], world_verts(o)) for o in g),
+    )
 
     # driven sibling -> whole group skipped, scene untouched
     reset()
@@ -121,9 +160,13 @@ try:
     con.target = g[0]
     with btk.NodeUtils._preserved_instances(g) as ctx:
         check("preserved_instances driven sibling -> no operables", ctx.objects == [])
-        check("preserved_instances driven sibling -> skip reported", len(ctx.skipped) == 2)
-    check("preserved_instances driven sibling -> data still shared",
-          g[0].data is g[1].data)
+        check(
+            "preserved_instances driven sibling -> skip reported", len(ctx.skipped) == 2
+        )
+    check(
+        "preserved_instances driven sibling -> data still shared",
+        g[0].data is g[1].data,
+    )
 
     # center_pivot flag honored (source origin moves to bbox center) — smoke that it doesn't raise
     reset()
@@ -133,17 +176,24 @@ try:
     bpy.context.view_layer.update()
     B = cube("B", (0, 0, 0))
     btk.replace_with_instances([A, B], center_pivot=True)
-    check("replace_with_instances center_pivot -> A origin re-centered to 7",
-          abs(A.location.x - 7.0) < 1e-3, f"x={A.location.x:.3f}")
+    check(
+        "replace_with_instances center_pivot -> A origin re-centered to 7",
+        abs(A.location.x - 7.0) < 1e-3,
+        f"x={A.location.x:.3f}",
+    )
     check("replace_with_instances center_pivot -> B shares A data", B.data is A.data)
 
     # regression: freeze_transforms pre-cleans only the SOURCE -> the target keeps its world
     # position (a naive whole-list freeze would zero the target's location, relocating it).
     reset()
-    A = cube("A", (0, 0, 0)); B = cube("B", (4, 0, 0))
+    A = cube("A", (0, 0, 0))
+    B = cube("B", (4, 0, 0))
     btk.replace_with_instances([A, B], freeze_transforms=True)
-    check("freeze flag leaves target B in place (world x=4)",
-          abs(B.matrix_world.translation.x - 4.0) < 1e-3, f"x={B.matrix_world.translation.x:.3f}")
+    check(
+        "freeze flag leaves target B in place (world x=4)",
+        abs(B.matrix_world.translation.x - 4.0) < 1e-3,
+        f"x={B.matrix_world.translation.x:.3f}",
+    )
     check("freeze flag -> B still shares A data", B.data is A.data)
 
     # retain_bbox_scale: target's size lives in its GEOMETRY (scale channels stay 1), so
@@ -154,14 +204,17 @@ try:
         return (mx - mn).x
 
     reset()
-    A = cube("A", (0, 0, 0))                       # 2 units (default cube)
+    A = cube("A", (0, 0, 0))  # 2 units (default cube)
     B = cube("B", (10, 0, 0))
-    for v in B.data.vertices:                      # 6 units, scale channels still 1
+    for v in B.data.vertices:  # 6 units, scale channels still 1
         v.co *= 3.0
     bpy.context.view_layer.update()
-    btk.replace_with_instances([A, B])             # off (default): B takes A's size
-    check("retain_bbox_scale off -> B shrinks to source size",
-          abs(world_size_x(B) - world_size_x(A)) < 1e-3, f"x={world_size_x(B):.3f}")
+    btk.replace_with_instances([A, B])  # off (default): B takes A's size
+    check(
+        "retain_bbox_scale off -> B shrinks to source size",
+        abs(world_size_x(B) - world_size_x(A)) < 1e-3,
+        f"x={world_size_x(B):.3f}",
+    )
 
     reset()
     A = cube("A", (0, 0, 0))
@@ -171,73 +224,112 @@ try:
     bpy.context.view_layer.update()
     want = world_size_x(B)
     btk.replace_with_instances([A, B], retain_bbox_scale=True)
-    check("retain_bbox_scale -> B keeps its own world bbox size",
-          abs(world_size_x(B) - want) < 1e-3, f"x={world_size_x(B):.3f} want={want:.3f}")
+    check(
+        "retain_bbox_scale -> B keeps its own world bbox size",
+        abs(world_size_x(B) - want) < 1e-3,
+        f"x={world_size_x(B):.3f} want={want:.3f}",
+    )
     check("retain_bbox_scale -> B still shares A data", B.data is A.data)
-    check("retain_bbox_scale -> uniform scale factor",
-          abs(B.scale.x - B.scale.y) < 1e-6 and abs(B.scale.x - B.scale.z) < 1e-6,
-          f"scale={tuple(round(v, 4) for v in B.scale)}")
+    check(
+        "retain_bbox_scale -> uniform scale factor",
+        abs(B.scale.x - B.scale.y) < 1e-6 and abs(B.scale.x - B.scale.z) < 1e-6,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
 
     # retain_bbox_per_axis: fits each axis independently, measured in the LOCAL frame -> a
     # ROTATED target still lands on its own proportions (a world-axis ratio would not).
     reset()
-    A = cube("A", (0, 0, 0))                       # 2 x 2 x 2
+    A = cube("A", (0, 0, 0))  # 2 x 2 x 2
     B = cube("B", (10, 0, 0))
-    for v in B.data.vertices:                      # 2 x 4 x 8, baked into the mesh
+    for v in B.data.vertices:  # 2 x 4 x 8, baked into the mesh
         v.co.y *= 2.0
         v.co.z *= 4.0
     B.rotation_euler = (0.0, math.radians(45.0), 0.0)
     bpy.context.view_layer.update()
-    want_world = [round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])]
-    btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=True)
+    want_world = [
+        round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])
+    ]
+    btk.replace_with_instances(
+        [A, B], retain_bbox_scale=True, retain_bbox_per_axis=True
+    )
     bpy.context.view_layer.update()
-    got_world = [round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])]
-    check("retain_bbox_per_axis -> rotated target keeps its world bbox",
-          all(abs(g - w) < 1e-3 for g, w in zip(got_world, want_world)),
-          f"got={got_world} want={want_world}")
-    check("retain_bbox_per_axis -> non-uniform local scale 1:2:4",
-          abs(B.scale.y / B.scale.x - 2.0) < 1e-3 and abs(B.scale.z / B.scale.x - 4.0) < 1e-3,
-          f"scale={tuple(round(v, 4) for v in B.scale)}")
+    got_world = [
+        round(v, 4) for v in (btk.get_world_bbox(B)[1] - btk.get_world_bbox(B)[0])
+    ]
+    check(
+        "retain_bbox_per_axis -> rotated target keeps its world bbox",
+        all(abs(g - w) < 1e-3 for g, w in zip(got_world, want_world)),
+        f"got={got_world} want={want_world}",
+    )
+    check(
+        "retain_bbox_per_axis -> non-uniform local scale 1:2:4",
+        abs(B.scale.y / B.scale.x - 2.0) < 1e-3
+        and abs(B.scale.z / B.scale.x - 4.0) < 1e-3,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
 
     # a mirrored target (negative scale) stays mirrored: bbox extents are unsigned, so the
     # ratio is always positive and the sign of each channel survives the fit untouched.
     for per_axis in (False, True):
         reset()
-        A = cube("A", (0, 0, 0))                   # 2 units
+        A = cube("A", (0, 0, 0))  # 2 units
         B = cube("B", (10, 0, 0))
         for v in B.data.vertices:
-            v.co *= 3.0                            # 6 units
-        B.scale.x = -1.0                           # mirrored
+            v.co *= 3.0  # 6 units
+        B.scale.x = -1.0  # mirrored
         bpy.context.view_layer.update()
-        btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=per_axis)
-        check(f"retain_bbox_scale(per_axis={per_axis}) -> mirror preserved",
-              B.scale.x < 0 and B.scale.y > 0 and B.scale.z > 0,
-              f"scale={tuple(round(v, 4) for v in B.scale)}")
-        check(f"retain_bbox_scale(per_axis={per_axis}) -> mirrored target keeps its size",
-              abs(world_size_x(B) - 6.0) < 1e-3, f"x={world_size_x(B):.3f}")
-        check(f"retain_bbox_scale(per_axis={per_axis}) -> source not mirrored", A.scale.x > 0)
+        btk.replace_with_instances(
+            [A, B], retain_bbox_scale=True, retain_bbox_per_axis=per_axis
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> mirror preserved",
+            B.scale.x < 0 and B.scale.y > 0 and B.scale.z > 0,
+            f"scale={tuple(round(v, 4) for v in B.scale)}",
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> mirrored target keeps its size",
+            abs(world_size_x(B) - 6.0) < 1e-3,
+            f"x={world_size_x(B):.3f}",
+        )
+        check(
+            f"retain_bbox_scale(per_axis={per_axis}) -> source not mirrored",
+            A.scale.x > 0,
+        )
 
     # a degenerate axis (flat target vs. solid source) has no reproducible ratio -> left alone
     reset()
     A = cube("A", (0, 0, 0))
-    bpy.ops.mesh.primitive_plane_add(location=(10, 0, 0))   # 2 x 2 x 0
-    B = bpy.context.active_object; B.name = "B"
+    bpy.ops.mesh.primitive_plane_add(location=(10, 0, 0))  # 2 x 2 x 0
+    B = bpy.context.active_object
+    B.name = "B"
     for v in B.data.vertices:
-        v.co *= 3.0                                          # 6 x 6 x 0
+        v.co *= 3.0  # 6 x 6 x 0
     bpy.context.view_layer.update()
-    btk.replace_with_instances([A, B], retain_bbox_scale=True, retain_bbox_per_axis=True)
-    check("retain_bbox_per_axis -> flat axis keeps scale 1 (no collapse)",
-          abs(B.scale.x - 3.0) < 1e-3 and abs(B.scale.y - 3.0) < 1e-3 and abs(B.scale.z - 1.0) < 1e-3,
-          f"scale={tuple(round(v, 4) for v in B.scale)}")
+    btk.replace_with_instances(
+        [A, B], retain_bbox_scale=True, retain_bbox_per_axis=True
+    )
+    check(
+        "retain_bbox_per_axis -> flat axis keeps scale 1 (no collapse)",
+        abs(B.scale.x - 3.0) < 1e-3
+        and abs(B.scale.y - 3.0) < 1e-3
+        and abs(B.scale.z - 1.0) < 1e-3,
+        f"scale={tuple(round(v, 4) for v in B.scale)}",
+    )
 
     # regression: fake-user mesh with a single object is NOT reported as an instance
     reset()
     A = cube("A", (0, 0, 0))
-    A.data.use_fake_user = True   # data.users == 2, but only ONE object references it
-    check("get_instances ignores fake-user single object",
-          A not in btk.get_instances(objects=None), f"data.users={A.data.users}")
-    check("uninstance fake-user single object -> no copy",
-          btk.uninstance([A]) == [] and A.data.use_fake_user, f"data.users={A.data.users}")
+    A.data.use_fake_user = True  # data.users == 2, but only ONE object references it
+    check(
+        "get_instances ignores fake-user single object",
+        A not in btk.get_instances(objects=None),
+        f"data.users={A.data.users}",
+    )
+    check(
+        "uninstance fake-user single object -> no copy",
+        btk.uninstance([A]) == [] and A.data.use_fake_user,
+        f"data.users={A.data.users}",
+    )
 
     # --- hierarchy helpers: get_parent / get_children / get_shape / reparent ---
     reset()
@@ -246,93 +338,154 @@ try:
     c2 = cube("Child2", (0, 5, 0))
     w1 = tuple(round(v, 3) for v in c1.matrix_world.translation)
     out = btk.reparent([c1, c2], p)
-    check("reparent sets parent + keeps world transform",
-          out == [c1, c2] and c1.parent is p
-          and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1, f"{w1}")
+    check(
+        "reparent sets parent + keeps world transform",
+        out == [c1, c2]
+        and c1.parent is p
+        and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
+        f"{w1}",
+    )
     check("get_parent immediate", btk.get_parent(c1) is p)
     check("get_children", set(btk.get_children(p)) == {c1, c2})
     g = cube("Grand", (5, 5, 0))
     btk.reparent(g, c1)
-    check("get_children recursive", set(btk.get_children(p, recursive=True)) == {c1, c2, g})
+    check(
+        "get_children recursive",
+        set(btk.get_children(p, recursive=True)) == {c1, c2, g},
+    )
     check("get_parent all -> ancestor chain", btk.get_parent(g, all=True) == [c1, p])
     check("get_shape returns object data", btk.get_shape(c1) is c1.data)
-    btk.reparent(c1, None)   # unparent, keep transform
-    check("reparent to None unparents",
-          c1.parent is None and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1)
+    btk.reparent(c1, None)  # unparent, keep transform
+    check(
+        "reparent to None unparents",
+        c1.parent is None
+        and tuple(round(v, 3) for v in c1.matrix_world.translation) == w1,
+    )
     check("reparent skips self-parent", btk.reparent([p], p) == [])
 
     # --- DataNodes.dump / format_dump: read every channel a scene carries ---
     import json as _json
     from blendertk.node_utils.data_nodes import DataNodes
+
     reset()
     empty = DataNodes.dump()
-    check("dump empty -> empty groups",
-          empty == {DataNodes.INTERNAL: {}, DataNodes.EXPORT: {}}, f"{empty}")
+    check(
+        "dump empty -> empty groups",
+        empty == {DataNodes.INTERNAL: {}, DataNodes.EXPORT: {}},
+        f"{empty}",
+    )
     check("format_dump empty -> ''", DataNodes.format_dump() == "")
     DataNodes.set_internal_string("app_state", '{"open": true}')
     DataNodes.set_export_string("wire", "abc")
-    data = DataNodes.dump()   # decode=True default
-    check("dump groups internal channel + decodes JSON",
-          data[DataNodes.INTERNAL] == {"app_state": {"open": True}}, f"{data[DataNodes.INTERNAL]}")
-    check("dump groups export channel (plain string)",
-          data[DataNodes.EXPORT] == {"wire": "abc"}, f"{data[DataNodes.EXPORT]}")
-    check("dump decode=False keeps raw JSON string",
-          DataNodes.dump(decode=False)[DataNodes.INTERNAL]["app_state"] == '{"open": true}')
+    data = DataNodes.dump()  # decode=True default
+    check(
+        "dump groups internal channel + decodes JSON",
+        data[DataNodes.INTERNAL] == {"app_state": {"open": True}},
+        f"{data[DataNodes.INTERNAL]}",
+    )
+    check(
+        "dump groups export channel (plain string)",
+        data[DataNodes.EXPORT] == {"wire": "abc"},
+        f"{data[DataNodes.EXPORT]}",
+    )
+    check(
+        "dump decode=False keeps raw JSON string",
+        DataNodes.dump(decode=False)[DataNodes.INTERNAL]["app_state"]
+        == '{"open": true}',
+    )
     DataNodes.set_internal_string("dead", "y")
-    DataNodes.set_internal_string("dead", "")   # clear (key stays, value empty)
-    check("dump skips cleared channel", "dead" not in DataNodes.dump()[DataNodes.INTERNAL])
+    DataNodes.set_internal_string("dead", "")  # clear (key stays, value empty)
+    check(
+        "dump skips cleared channel", "dead" not in DataNodes.dump()[DataNodes.INTERNAL]
+    )
     # non-string custom props (the audio tool's per-track flags) are real stored data — kept.
     DataNodes.get_internal_node()["audio_clip_voice"] = 1
-    check("dump includes non-string channel",
-          DataNodes.dump()[DataNodes.INTERNAL].get("audio_clip_voice") == 1)
+    check(
+        "dump includes non-string channel",
+        DataNodes.dump()[DataNodes.INTERNAL].get("audio_clip_voice") == 1,
+    )
     parsed = _json.loads(DataNodes.format_dump())
-    check("format_dump -> valid JSON round-trip (mixed types)",
-          parsed[DataNodes.EXPORT]["wire"] == "abc"
-          and parsed[DataNodes.INTERNAL]["app_state"] == {"open": True}
-          and parsed[DataNodes.INTERNAL]["audio_clip_voice"] == 1)
+    check(
+        "format_dump -> valid JSON round-trip (mixed types)",
+        parsed[DataNodes.EXPORT]["wire"] == "abc"
+        and parsed[DataNodes.INTERNAL]["app_state"] == {"open": True}
+        and parsed[DataNodes.INTERNAL]["audio_clip_voice"] == 1,
+    )
     # --- set_*_string clear/create return contract (mayatk parity) ---
     reset()
-    check("clear with no carrier -> None (never creates)",
-          DataNodes.set_export_string("probe", "") is None
-          and DataNodes.get_export_node(create=False) is None)
+    check(
+        "clear with no carrier -> None (never creates)",
+        DataNodes.set_export_string("probe", "") is None
+        and DataNodes.get_export_node(create=False) is None,
+    )
     DataNodes.set_export_string("wire", "abc")
-    check("clear a key the carrier doesn't hold -> None (nothing to clear)",
-          DataNodes.set_export_string("probe", "") is None)
-    check("clear an existing key -> carrier name; value reads back as None",
-          DataNodes.set_export_string("wire", "") == DataNodes.EXPORT
-          and DataNodes.get_export_string("wire") is None)
+    check(
+        "clear a key the carrier doesn't hold -> None (nothing to clear)",
+        DataNodes.set_export_string("probe", "") is None,
+    )
+    check(
+        "clear an existing key -> carrier name; value reads back as None",
+        DataNodes.set_export_string("wire", "") == DataNodes.EXPORT
+        and DataNodes.get_export_string("wire") is None,
+    )
 
     # --- set_export_json: the one-call producer publish/clear idiom (mayatk parity) ---
     reset()
     DataNodes.set_export_json("probe", {"version": 1, "items": [1, 2]})
-    check("set_export_json publishes serialized payload",
-          _json.loads(DataNodes.get_export_string("probe")) == {"version": 1, "items": [1, 2]})
+    check(
+        "set_export_json publishes serialized payload",
+        _json.loads(DataNodes.get_export_string("probe"))
+        == {"version": 1, "items": [1, 2]},
+    )
     DataNodes.set_export_json("probe", None)
-    check("set_export_json falsy -> clears channel",
-          DataNodes.get_export_string("probe") is None)
+    check(
+        "set_export_json falsy -> clears channel",
+        DataNodes.get_export_string("probe") is None,
+    )
     reset()
-    check("set_export_json falsy -> never creates carrier",
-          DataNodes.set_export_json("probe", {}) is None
-          and DataNodes.get_export_node(create=False) is None)
-    check("channel name constants (mtk parity)",
-          DataNodes.FBX_TAKES == "fbx_takes" and DataNodes.SHOT_METADATA == "shot_metadata")
+    check(
+        "set_export_json falsy -> never creates carrier",
+        DataNodes.set_export_json("probe", {}) is None
+        and DataNodes.get_export_node(create=False) is None,
+    )
+    check(
+        "channel name constants (mtk parity)",
+        DataNodes.FBX_TAKES == "fbx_takes"
+        and DataNodes.SHOT_METADATA == "shot_metadata",
+    )
 
     # --- unlinked-carrier heal: a write must never target an object the exporter can't see ---
     reset()
     DataNodes.set_export_string("wire", "abc")
     carrier = DataNodes.get_export_node(create=False)
-    bpy.context.scene.collection.objects.unlink(carrier)   # orphan it (still in bpy.data)
+    bpy.context.scene.collection.objects.unlink(
+        carrier
+    )  # orphan it (still in bpy.data)
     check("unlinked carrier setup", carrier.name not in bpy.context.scene.objects)
     DataNodes.set_export_string("wire2", "def")
-    check("write relinks an unlinked carrier into the scene",
-          carrier.name in bpy.context.scene.objects
-          and DataNodes.get_export_string("wire2") == "def")
+    check(
+        "write relinks an unlinked carrier into the scene",
+        carrier.name in bpy.context.scene.objects
+        and DataNodes.get_export_string("wire2") == "def",
+    )
+
+    # _transforms_driven read the flat ``action.fcurves``, which Blender 5.x
+    # removed (slotted actions) -- so it raised AttributeError on any KEYED
+    # object, the exact case it exists to detect.
+    reset()
+    keyed = cube("keyed", (0, 0, 0))
+    check(
+        "an unkeyed, unconstrained cube is not driven",
+        not btk.NodeUtils._transforms_driven(keyed),
+    )
+    keyed.keyframe_insert("location", frame=1)
+    check("a keyed transform IS driven", btk.NodeUtils._transforms_driven(keyed))
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())
 
-ok = all(l.startswith("OK") for l in lines)
+ok = all(ln.startswith("OK") for ln in lines)
 print("\n===NODE-UTILS===")
 print("\n".join(lines))
 print(f"===RESULT: {'PASS' if ok else 'FAIL'}===")

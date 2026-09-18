@@ -68,7 +68,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from pythontk import ShotStore
+from pythontk import ShotStore, ShotTransfer
 
 from blendertk.anim_utils.shots._detection import Detection
 from blendertk.anim_utils._anim_utils import AnimUtils
@@ -589,6 +589,227 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         return DataNodes.set_export_json(
             DataNodes.SHOT_METADATA, view["shot_metadata"] if has_shots else None
         )
+
+    # ---- hand-off transfer (the manifest's ``shots`` section) ---------------
+    #
+    # Mirror of mayatk's ``ShotStore.export_transfer`` / ``apply_transfer``: the
+    # Maya bridge's ``.manifest.json`` carries the store, ``pythontk.ShotTransfer``
+    # is the codec, and this class only says how Blender names a curve
+    # (``object|data_path|index``) and finds a key.
+
+    #: Channels whose sequencer label differs from the Maya attribute they
+    #: stand in for (``hide_render`` is what a Maya visibility replay keys).
+    _TRANSFER_LABEL_ALIASES: Dict[str, str] = {"hide_render": "visibility"}
+
+    @classmethod
+    def _curve_ref(cls, key: str) -> Optional[Tuple[str, str]]:
+        """``(object name, channel label)`` for a ledger key, or ``None``."""
+        from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+            SegmentCollector,
+        )
+
+        try:
+            obj_name, data_path, index = str(key).rsplit("|", 2)
+            index = int(index)
+        except (ValueError, AttributeError):
+            return None
+        label = SegmentCollector.label_for(data_path, index)
+        return obj_name, cls._TRANSFER_LABEL_ALIASES.get(label, label)
+
+    @classmethod
+    def _curve_key(cls, obj_name: str, label: str) -> Optional[str]:
+        """The ledger key of the fcurve labelled *label* on *obj_name*, or ``None``.
+
+        Exact matches only: the sequencer's label (``translateX`` for
+        ``location[0]``, ``opacity`` for the custom property) or a transfer
+        alias of it -- never a substring, which could claim a sibling channel.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return None
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            _ShotSequencerInternal,
+        )
+        from blendertk.anim_utils.shots.shot_sequencer.segment_collector import (
+            SegmentCollector,
+        )
+
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            return None
+        wanted = {label} | {
+            path
+            for path, alias in cls._TRANSFER_LABEL_ALIASES.items()
+            if alias == label
+        }
+        for fc in cls.iter_action_fcurves(obj):
+            if SegmentCollector.attr_label(fc) in wanted:
+                return _ShotSequencerInternal._fc_key(obj_name, fc)
+        return None
+
+    @staticmethod
+    def _key_exists(key: str, time: float) -> bool:
+        """Whether the fcurve behind ledger *key* holds a key at *time*."""
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            _ShotSequencerInternal,
+        )
+
+        fc = _ShotSequencerInternal._fcurve_for_key(key)
+        return (
+            fc is not None
+            and _ShotSequencerInternal._key_index_at(fc, time) is not None
+        )
+
+    @staticmethod
+    def _resolve_transfer_name(name: str) -> Optional[str]:
+        """The scene object spelled *name* (a consumer scoped to an import passes
+        its own resolver, which also tolerates the ``.001`` clash suffix)."""
+        try:
+            import bpy
+        except ImportError:
+            return None
+        return name if bpy.data.objects.get(name) is not None else None
+
+    @classmethod
+    def export_transfer(cls, spell=None, objects=None) -> Optional[Dict[str, Any]]:
+        """The active store as a hand-off ``shots`` section (``None`` when empty).
+
+        Parameters:
+            spell: How the carrier spells a Blender name -- as is for FBX (the
+                default; the Maya side respells through its importer's
+                ``FBXASC`` encoding), the sanitized prim for USD.
+            objects: The exported objects (names or Objects); scopes
+                memberships and ledger claims to what ships (``None`` = all).
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return None
+        names = None
+        if objects is not None:
+            names = [
+                o if isinstance(o, str) else getattr(o, "name", "") for o in objects
+            ]
+        return ShotTransfer.encode(
+            cls.active().to_dict(),
+            spell=spell or str,
+            curve_ref=cls._curve_ref,
+            objects=names,
+            channels=RenderEffects.channel_records(names),
+            audio=cls._audio_records(),
+        )
+
+    @staticmethod
+    def _audio_records() -> List[Dict[str, Any]]:
+        """The scene's sound strips as the transfer's ``audio`` payload (mirror
+        of mayatk's; ``offset`` is the head trim only Blender can express)."""
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        return [
+            {
+                "name": clip["name"],
+                "file": clip.get("filepath") or "",
+                "start": float(clip["frame_start"]),
+                "end": float(clip["frame_end"]),
+                "offset": float(clip.get("trim_start") or 0),
+            }
+            for clip in AudioUtils.list_clips()
+        ]
+
+    @classmethod
+    def _write_audio(cls, clips: List[Dict[str, Any]]) -> int:
+        """Land transfer ``audio`` clips as sound strips (``AudioUtils.add_clip``
+        + ``trim_clip`` for the placed span); a strip already named is left
+        alone, so a re-apply and the scene's own clips are never doubled."""
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        existing = {clip["name"] for clip in AudioUtils.list_clips()}
+        added = 0
+        seen: Dict[str, int] = {}
+        for clip in clips or []:
+            name = str(clip.get("name") or "")
+            path = str(clip.get("file") or "")
+            if not path:
+                continue
+            # A Maya track plays several events under ONE name; each is a strip
+            # here, so the repeats take a numbered name (stable, so a re-apply
+            # finds them again).
+            seen[name] = seen.get(name, 0) + 1
+            if seen[name] > 1:
+                name = f"{name}_{seen[name]}"
+            if name in existing:
+                continue
+            start = float(clip.get("start") or 0.0)
+            offset = max(0.0, float(clip.get("offset") or 0.0))
+            try:
+                strip = AudioUtils.add_clip(
+                    path, frame_start=start - offset, name=name or None
+                )
+            except (FileNotFoundError, ValueError, RuntimeError) as e:
+                _log.warning("audio: clip %r not added (%s)", name, e)
+                continue
+            end = clip.get("end")
+            tail = None
+            if end is not None:
+                info = AudioUtils.get_clip(strip) or {}
+                tail = max(0.0, float(info.get("frame_end") or 0.0) - float(end))
+            AudioUtils.trim_clip(strip, offset_start=offset or None, offset_end=tail)
+            added += 1
+        return added
+
+    @classmethod
+    def apply_transfer(
+        cls,
+        section: Dict[str, Any],
+        *,
+        resolve=None,
+        frame_offset: float = 0.0,
+        replace: bool = False,
+        converted=None,
+    ) -> Optional["BlenderShotStore"]:
+        """Rebuild the scene's shots from a hand-off ``shots`` section (mirror of
+        mayatk's; see :meth:`pythontk.ShotTransfer.merge` for the fold rule).
+
+        Parameters:
+            section: The manifest's ``shots`` section.
+            resolve: Carrier spelling -> imported object name; default: the
+                object of exactly that name.
+            frame_offset: The importer's frame shift (FBX: its ``anim_offset``).
+            replace: Discard the scene's own shots instead of merging.
+            converted: ``converted(name) -> bool``: the importer put that object
+                through the Y-up / Z-up crossing, so its claims' Y and Z
+                channels are exchanged (``ShotTransfer.swap_up_axis``); the
+                consumers pass "has no parent". Default: none was.
+
+        Returns:
+            The active store after the apply, or ``None`` outside Blender.
+        """
+        try:
+            import bpy  # noqa: F401
+        except ImportError:
+            return None
+        if not section:
+            return None
+        store = cls.active()
+        decoded = ShotTransfer.decode(
+            section,
+            resolve=resolve or cls._resolve_transfer_name,
+            curve_key=cls._curve_key,
+            key_exists=cls._key_exists,
+            scene_fps=store._scene_fps(),
+            frame_offset=frame_offset,
+            converted=converted,
+            write_channels=RenderEffects.apply_channel_records,
+            write_audio=cls._write_audio,
+        )
+        merged = decoded if replace else ShotTransfer.merge(store.to_dict(), decoded)
+        if cls._persistence is None:
+            cls.set_active(cls.from_dict(merged))
+        else:
+            cls._persistence.save(merged)
+            cls.invalidate()
+        return cls.active()
 
     # ---- scene acquisition (5.1 slotted-action API) -----------------------
 

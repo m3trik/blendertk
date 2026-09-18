@@ -116,7 +116,9 @@ class Matrices:
         from mathutils import Matrix, Quaternion, Vector
 
         return Matrix.LocRotScale(
-            Vector(translate), Quaternion() if rotation is None else rotation, Vector(scale)
+            Vector(translate),
+            Quaternion() if rotation is None else rotation,
+            Vector(scale),
         )
 
     @staticmethod

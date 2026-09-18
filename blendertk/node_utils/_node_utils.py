@@ -66,8 +66,11 @@ class _NodeUtilsInternal(object):
         if anim:
             if any(d.data_path in paths for d in (anim.drivers or [])):
                 return True
+            # Slot-aware: Blender 5.x dropped the flat ``action.fcurves``.
+            from blendertk.anim_utils._anim_utils import AnimUtils
+
             if anim.action and any(
-                f.data_path in paths for f in anim.action.fcurves
+                f.data_path in paths for f in AnimUtils.get_fcurves(obj)
             ):
                 return True
         return any(not c.mute for c in getattr(obj, "constraints", []))
@@ -290,9 +293,7 @@ class NodeUtils(_NodeUtilsInternal):
                 if id(m) in targets_set:
                     ctx.skipped[m] = reason
                     if not quiet:
-                        print(
-                            f"preserved_instances: skipping '{m.name}' — {reason}"
-                        )
+                        print(f"preserved_instances: skipping '{m.name}' — {reason}")
 
         assigned = set()
         groups = []

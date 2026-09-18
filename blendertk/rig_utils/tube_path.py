@@ -16,6 +16,7 @@ work around its low-level API; the shared slice + the explicit-edge override cov
 (see ``tentacle/docs/PARITY_PORTING_PLAN.md``). ``import bpy`` / ``bmesh`` are deferred into the call
 bodies so importing this module never needs a running Blender.
 """
+
 import pythontk as ptk
 
 
@@ -91,7 +92,9 @@ class TubePath:
         for e in edges:
             if hasattr(e, "verts"):  # bmesh BMEdge — verts carry .co directly
                 cos = [v.co for v in e.verts]
-            elif hasattr(e, "vertices"):  # mesh MeshEdge — indices into mesh.data.vertices
+            elif hasattr(
+                e, "vertices"
+            ):  # mesh MeshEdge — indices into mesh.data.vertices
                 cos = [data_verts[i].co for i in e.vertices]
             else:  # integer edge index
                 cos = [data_verts[i].co for i in mesh.data.edges[int(e)].vertices]

@@ -1547,9 +1547,14 @@ class ShotSequencerController(
         chk_snap_keys = getattr(self.ui, "chk_snap_to_keys", None)
         if chk_snap_keys is not None:
             widget.snap_to_keys = bool(chk_snap_keys.isChecked())
-        chk_overlay = getattr(self.ui, "chk_shortcut_overlay", None)
-        if chk_overlay is not None:
-            widget.shortcut_overlay_visible = bool(chk_overlay.isChecked())
+        cmb_overlay = getattr(self.ui, "cmb_shortcut_overlay", None)
+        if cmb_overlay is not None:
+            # Only a value the widget knows: this runs on EVERY rebuild, and
+            # a menu that has not been built yet answers with whatever its
+            # placeholder feels like -- which must not take the sync down.
+            mode = cmb_overlay.itemData(cmb_overlay.currentIndex())
+            if mode in widget.SHORTCUT_OVERLAY_MODES:
+                widget.shortcut_overlay_mode = mode
         spn_gap = getattr(self.ui, "spn_gap", None)
         if spn_gap is not None:
             stored_gap = self.sequencer.store.gap if self.sequencer else 0
@@ -2856,7 +2861,7 @@ class ShotSequencerController(
     def _set_key_tangents(self, targets: list, tangent: str, sides=("in", "out")):
         """Set the handle type on the selected keys (one or both sides)."""
 
-        def apply(kp):
+        def apply(_obj, _attr, _time, kp):
             if "in" in sides:
                 kp.handle_left_type = tangent
             if "out" in sides:
@@ -2868,7 +2873,7 @@ class ShotSequencerController(
     def _set_key_interpolation(self, targets: list, mode: str) -> None:
         """Set the interpolation mode of the selected keys."""
 
-        def apply(kp):
+        def apply(_obj, _attr, _time, kp):
             kp.interpolation = mode
 
         self._edit_key_tangents(targets, apply, mode.lower())
@@ -2878,7 +2883,9 @@ class ShotSequencerController(
         self._set_key_tangents(targets, "ALIGNED" if lock else "FREE")
 
     @staticmethod
-    def place_dragged_handle(kp, side: str, dt: float, dv: float) -> None:
+    def place_dragged_handle(
+        kp, side: str, dt: float, dv: float, broken: bool = False
+    ) -> None:
         """Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
 
         The preview's control points ARE the handles (``handle_left`` /
@@ -2889,6 +2896,12 @@ class ShotSequencerController(
         in which case the dragged side goes FREE too.  On an aligned key
         the opposite handle is re-aimed along the new line, keeping its
         length, which is what aligned means.
+
+        *broken* (the Alt drag) is Maya's ``keyTangent -lock false``: it is
+        the KEY that breaks, not one side of it, so BOTH handles go FREE and
+        the partner is left exactly where it sits.  An aligned partner would
+        otherwise swing itself back in line with the handle being dragged --
+        the very thing the gesture is asking not to happen.
         """
         import math
 
@@ -2899,7 +2912,10 @@ class ShotSequencerController(
             else ("handle_left", "handle_right")
         )
         d_type, o_type = dragged + "_type", other + "_type"
-        if getattr(kp, d_type) in ("AUTO", "AUTO_CLAMPED", "VECTOR"):
+        if broken:
+            setattr(kp, d_type, "FREE")
+            setattr(kp, o_type, "FREE")
+        elif getattr(kp, d_type) in ("AUTO", "AUTO_CLAMPED", "VECTOR"):
             new = "FREE" if getattr(kp, o_type) == "FREE" else "ALIGNED"
             setattr(kp, d_type, new)
             if new == "ALIGNED":
@@ -2914,25 +2930,67 @@ class ShotSequencerController(
                     kp, other, (co_t - dt / norm * length, co_v - dv / norm * length)
                 )
 
-    def on_key_tangent_dragged(
-        self, clip_id: int, time: float, side: str, dt: float, dv: float
-    ) -> None:
-        """Write the handle a dragged tangent grab point asks for (see
-        :meth:`place_dragged_handle`); one undo step, selection kept."""
+    def on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None:
+        """Write the handles a dragged tangent grab point asks for (see
+        :meth:`place_dragged_handle`); one undo step, selection kept.
+
+        *groups* is the whole gesture -- ``[(clip_id, [(time, dt, dv), ...]),
+        ...]`` -- since a tangent drag carries the key SELECTION unless the
+        user held Ctrl, and every key it carried brings its own vector.
+        """
         widget = self._get_sequencer_widget()
         if widget is None:
             return
-        targets = self._key_targets(widget, [{"clip_id": clip_id, "times": [time]}])
+        # Keyed by row, not by time alone: two clips can be the same frame on
+        # different objects, and each carries its own vector.
+        vectors = {}
+        for clip_id, entries in groups:
+            clip = widget.get_clip(clip_id)
+            if clip is None:
+                continue
+            row = (clip.data.get("obj"), clip.data.get("attr_name"))
+            for time, dt, dv in entries:
+                vectors[row + (round(float(time), 6),)] = (dt, dv)
+        targets = self._key_targets(
+            widget,
+            [
+                {"clip_id": clip_id, "times": [t for t, _dt, _dv in entries]}
+                for clip_id, entries in groups
+            ],
+        )
         if not targets:
             return
-        self._edit_key_tangents(
-            targets,
-            lambda kp: self.place_dragged_handle(kp, side, dt, dv),
-            f"{side} handle dragged",
-        )
+
+        def apply(obj, attr, time, kp):
+            # Keyed on the time that ASKED for this point, not on the point's
+            # own ``co`` -- the handler matches a key within a window, and a
+            # float read back off the curve need not compare equal to the one
+            # the drag reported.
+            vector = vectors.get((obj, attr, round(float(time), 6)))
+            if vector is not None:
+                self.place_dragged_handle(kp, side, *vector, broken=broken)
+
+        what = f"{side} handle {'broken' if broken else 'dragged'}"
+        self._edit_key_tangents(targets, apply, what)
+
+    def on_key_tangent_dragged(
+        self, clip_id: int, time: float, side: str, dt: float, dv: float
+    ) -> None:
+        """DEPRECATED, one release: the single-key form of
+        :meth:`on_keys_tangent_dragged`, which every tangent drag now reports
+        through.  Kept for a host still wired to ``key_tangent_dragged``.
+        """
+        self.on_keys_tangent_dragged([(clip_id, [(time, dt, dv)])], side, False)
 
     def _edit_key_tangents(self, targets: list, apply, what: str) -> None:
-        """Run *apply* on every selected keyframe point, one undo step.
+        """Run ``apply(obj, attr, time, kp)`` on every selected keyframe
+        point, one undo step.
+
+        The row and the requested time ride along with the point: a handle
+        drag that carried a selection writes a different vector per key, the
+        same frame can be a key on two different objects, and the point is
+        matched within a window -- so only the caller's own time identifies
+        which edit this point is.
 
         The rebuild that follows retires every key dot, so the selection is
         put back by object/attribute/time afterwards -- the user is looking
@@ -2955,7 +3013,7 @@ class ShotSequencerController(
                         for t in times:
                             i0, i1 = AnimUtils.window_indices(kt, t - 1e-3, t + 1e-3)
                             for i in range(i0, i1):
-                                apply(fc.keyframe_points[i])
+                                apply(obj, attr, t, fc.keyframe_points[i])
                                 touched = True
                                 n += 1
                         if touched:
@@ -3574,7 +3632,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         ("keys_deleted", "on_keys_deleted"),
         ("key_selection_changed", "on_key_selection_changed"),
         ("key_menu_requested", "on_key_menu"),
-        ("key_tangent_dragged", "on_key_tangent_dragged"),
+        ("keys_tangent_dragged", "on_keys_tangent_dragged"),
     ]
 
     def __init__(self, switchboard, log_level="WARNING"):
@@ -3816,11 +3874,15 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             self.logger.debug("shot nav option-box setup failed", exc_info=True)
         self.controller._cmb_mode_widget = getattr(self.ui, "cmb_mode", None)
 
-    def _on_shortcut_overlay_toggled(self, checked: bool) -> None:
-        """Show or hide the corner legend of gestures and keys."""
+    def _on_shortcut_overlay_changed(self, index: int) -> None:
+        """Off / On / On Modifier for the corner legend of gestures and keys."""
+        cmb = getattr(self.ui, "cmb_shortcut_overlay", None)
         widget = self.controller._get_sequencer_widget()
-        if widget is not None:
-            widget.shortcut_overlay_visible = bool(checked)
+        if cmb is None or widget is None:
+            return
+        mode = cmb.itemData(index)
+        if mode in widget.SHORTCUT_OVERLAY_MODES:
+            widget.shortcut_overlay_mode = mode
 
     def _on_snap_to_keys_toggled(self, checked: bool) -> None:
         """Turn the opt-in pull onto existing key frames on or off.
@@ -3995,13 +4057,17 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         chk_extend.toggled.connect(self.controller._set_extend_to_keys)
         chk_extend.toggled.connect(spn_reach.setEnabled)
         spn_reach.valueChanged.connect(self.controller._set_extend_reach)
-        chk_overlay = widget.menu.add(
-            "QCheckBox",
-            setText="Shortcut Overlay",
-            setObjectName="chk_shortcut_overlay",
-            setToolTip="Keep a legend of the drag grammar and keys in the timeline's corner;\nthe group under the pointer is lit.",
+        cmb_overlay = widget.menu.add(
+            WidgetComboBox,
+            setObjectName="cmb_shortcut_overlay",
+            setToolTip="Keep a legend of the drag grammar and keys in the timeline's corner;\nthe group under the pointer is lit.\n\nOn Modifier shows it only while Ctrl, Shift or Alt is held.",
         )
-        chk_overlay.toggled.connect(self._on_shortcut_overlay_toggled)
+        cmb_overlay.addItem("Shortcut Overlay: Off", "off")
+        cmb_overlay.addItem("Shortcut Overlay: On", "on")
+        cmb_overlay.addItem("Shortcut Overlay: On Modifier", "modifier")
+        cmb_overlay.setCurrentIndex(0)
+        cmb_overlay.currentIndexChanged.connect(self._on_shortcut_overlay_changed)
+
         cmb_pb = widget.menu.add(
             WidgetComboBox,
             setObjectName="cmb_playback_range",
@@ -4110,7 +4176,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                             "<b>Shift+drag</b> — Move across shot boundaries without changing them.",
                             "<b>Ctrl</b> while dragging — Snap to whole frames.",
                             "A drag that lands on a frame already carrying keys is marked with a guide; <i>Snap to Keys</i> in the header menu also pulls the drag onto it.",
-                            "<b>Right-click</b> — Lock/Unlock, Move to Shot (Next / Previous Shot lead the list), Store Keys (one entry per gesture, however many channels it covered), Retrieve Stored Keys (▸ Restore Keys… opens the Key Stash panel). On a key: handle types, interpolation, Break/Unify Tangents, Store Keys, the key edits under Edit, Move to Shot (keys); drag a selected key's handles to shape its tangents. All edits undoable (Ctrl+Z).",
+                            "<b>Right-click</b> — Lock/Unlock, Move to Shot (Next / Previous Shot lead the list), Store Keys (one entry per gesture, however many channels it covered), Retrieve Stored Keys (▸ Restore Keys… opens the Key Stash panel). On a key: handle types, interpolation, Break/Unify Tangents, Store Keys, the key edits under Edit, Move to Shot (keys); drag a selected key's handles to shape its tangents — the drag carries every selected key, <b>Ctrl</b> reshapes only the one grabbed, <b>Shift</b> gives them all that exact tangent, <b>Alt</b> breaks it. All edits undoable (Ctrl+Z).",
                         ],
                     ),
                     (

@@ -1,0 +1,148 @@
+{
+ "ops": {
+  "channel/curve": {
+   "fidelity": "approximate",
+   "params": {
+    "interp": [
+     "linear",
+     "bezier"
+    ],
+    "points": true
+   },
+   "plugs": []
+  },
+  "channel/linear": {
+   "fidelity": "approximate",
+   "params": {
+    "offset": true,
+    "scale": true
+   },
+   "plugs": []
+  },
+  "points/skin": {
+   "channels": [],
+   "fidelity": "approximate",
+   "params": {
+    "geometry": [
+     "mesh"
+    ]
+   },
+   "plugs": [],
+   "roles": [
+    "influence"
+   ]
+  },
+  "transform/aim": {
+   "channels": [
+    "rotate"
+   ],
+   "fidelity": "approximate",
+   "params": {
+    "aim_axis": true,
+    "up_axis": true,
+    "up_ref.axis": true,
+    "up_ref.kind": [
+     "axis",
+     "object",
+     "object_axis"
+    ],
+    "up_ref.role": true,
+    "up_ref.vector": true
+   },
+   "plugs": [],
+   "roles": [
+    "target",
+    "up"
+   ]
+  },
+  "transform/blend": {
+   "channels": [
+    "translate",
+    "rotate",
+    "scale"
+   ],
+   "fidelity": "approximate",
+   "params": {
+    "compose": [
+     "matrix",
+     "independent"
+    ],
+    "maintain_offset": true,
+    "skip": true
+   },
+   "plugs": [],
+   "roles": [
+    "space"
+   ]
+  },
+  "transform/ik": {
+   "channels": [
+    "rotate"
+   ],
+   "fidelity": "approximate",
+   "params": {
+    "solver": [
+     "rotate_plane",
+     "single_chain",
+     "two_bone"
+    ],
+    "twist": true
+   },
+   "plugs": [],
+   "roles": [
+    "goal",
+    "pole"
+   ]
+  },
+  "transform/path": {
+   "channels": [
+    "translate",
+    "rotate"
+   ],
+   "fidelity": "approximate",
+   "params": {
+    "bank": true,
+    "follow": true,
+    "front_axis": true,
+    "u": true,
+    "up_axis": true,
+    "up_ref.kind": [
+     "object"
+    ],
+    "up_ref.role": true
+   },
+   "plugs": [],
+   "roles": [
+    "curve",
+    "up"
+   ]
+  },
+  "transform/spline_ik": {
+   "channels": [
+    "rotate"
+   ],
+   "fidelity": "approximate",
+   "params": {
+    "twist.distribution": [
+     "linear"
+    ],
+    "twist.end": true,
+    "twist.start": true
+   },
+   "plugs": [],
+   "roles": [
+    "curve",
+    "up_start",
+    "up_end"
+   ]
+  }
+ },
+ "schema_version": 1,
+ "shapes": [
+  "transform",
+  "channel",
+  "points"
+ ],
+ "target": "blender",
+ "target_version": "5.1.2"
+}

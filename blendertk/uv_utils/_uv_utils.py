@@ -281,7 +281,11 @@ class _UvUtilsInternal(object):
         """The island's loop UVs as ``(u, v)`` tuples in face/loop order — the correspondence
         two duplicated islands share (islands come out of :func:`_uv_islands` in face-index
         order, and a duplicate keeps its face and loop order)."""
-        return [(loop[uv_layer].uv.x, loop[uv_layer].uv.y) for f in island for loop in f.loops]
+        return [
+            (loop[uv_layer].uv.x, loop[uv_layer].uv.y)
+            for f in island
+            for loop in f.loops
+        ]
 
     @staticmethod
     def _fit_island_onto(island, uv_layer, ref_points, tolerance):
@@ -387,7 +391,6 @@ class _UvUtilsInternal(object):
                 if dist > best:
                     best, a, b = dist, cands[i], cands[j]
         return a, b
-
 
     @staticmethod
     def _mesh_similarity(a, b):
@@ -1399,7 +1402,9 @@ class UvUtils(_UvUtilsInternal):
                     for loop in f.loops:
                         uv = loop[uvl].uv
                         coords.append(
-                            (uv.x, uv.y, bool(loop[uvl].pin_uv)) if pins else (uv.x, uv.y)
+                            (uv.x, uv.y, bool(loop[uvl].pin_uv))
+                            if pins
+                            else (uv.x, uv.y)
                         )
 
             _UvUtilsInternal._uv_read(o, _read)
@@ -1435,7 +1440,9 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_edit(o, _write)
 
     @staticmethod
-    def get_similar_uv_shells(objects, tolerance=1.0, include_reference=False, select=False):
+    def get_similar_uv_shells(
+        objects, tolerance=1.0, include_reference=False, select=False
+    ):
         """The UV islands of *objects* (EDIT mode) that share the topology and shape of the
         selected island(s) — the same :func:`_islands_similar` oracle :func:`stack_uv_shells`
         stacks by, so what this finds is exactly what Stack (Similar) will stack. Mirror of
@@ -1463,7 +1470,9 @@ class UvUtils(_UvUtilsInternal):
                 refs = [isl for isl in islands if any(f.select for f in isl)]
                 if not refs:
                     return
-                ref_sigs = [_UvUtilsInternal._island_signature(isl, uvl) for isl in refs]
+                ref_sigs = [
+                    _UvUtilsInternal._island_signature(isl, uvl) for isl in refs
+                ]
                 ref_ids = {id(isl) for isl in refs}
                 hits = []
                 for isl in islands:

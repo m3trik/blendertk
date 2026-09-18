@@ -25,6 +25,7 @@ Everything is Windows-only and degrades to a safe no-op / ``None`` elsewhere (Bl
 Linux/mac would need its own native path). ``import bpy`` is **not** needed here — callers
 pass the bpy ``region`` object; only its ``.x/.y/.width/.height`` ints are read.
 """
+
 import os
 import sys
 import ctypes
@@ -119,7 +120,9 @@ class BlenderWindow:
         from ctypes import wintypes
 
         pt = wintypes.POINT(0, 0)
-        if not cls._user32().ClientToScreen(ctypes.c_void_p(int(hwnd)), ctypes.byref(pt)):
+        if not cls._user32().ClientToScreen(
+            ctypes.c_void_p(int(hwnd)), ctypes.byref(pt)
+        ):
             return None
         return (pt.x, pt.y)
 
@@ -131,7 +134,9 @@ class BlenderWindow:
         from ctypes import wintypes
 
         rect = wintypes.RECT()
-        if not cls._user32().GetClientRect(ctypes.c_void_p(int(hwnd)), ctypes.byref(rect)):
+        if not cls._user32().GetClientRect(
+            ctypes.c_void_p(int(hwnd)), ctypes.byref(rect)
+        ):
             return None
         return (rect.right, rect.bottom)
 
@@ -174,15 +179,25 @@ class BlenderWindow:
             user32.GetWindowLongPtrW.restype = ctypes.c_void_p
             user32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
             user32.SetWindowLongPtrW.restype = ctypes.c_void_p
-            user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
-            style = int(user32.GetWindowLongPtrW(ctypes.c_void_p(int(hwnd)), cls._GWL_STYLE) or 0)
+            user32.SetWindowLongPtrW.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
+            style = int(
+                user32.GetWindowLongPtrW(ctypes.c_void_p(int(hwnd)), cls._GWL_STYLE)
+                or 0
+            )
             if not style & cls._WS_CLIPCHILDREN:
                 user32.SetWindowLongPtrW(
                     ctypes.c_void_p(int(hwnd)),
                     cls._GWL_STYLE,
                     ctypes.c_void_p(style | cls._WS_CLIPCHILDREN),
                 )
-            style = int(user32.GetWindowLongPtrW(ctypes.c_void_p(int(hwnd)), cls._GWL_STYLE) or 0)
+            style = int(
+                user32.GetWindowLongPtrW(ctypes.c_void_p(int(hwnd)), cls._GWL_STYLE)
+                or 0
+            )
             return bool(style & cls._WS_CLIPCHILDREN)
         except Exception:
             return False
@@ -199,7 +214,10 @@ class BlenderWindow:
                 cls._user32().SetWindowPos(
                     ctypes.c_void_p(int(hwnd)),
                     None,
-                    int(rect[0]), int(rect[1]), int(rect[2]), int(rect[3]),
+                    int(rect[0]),
+                    int(rect[1]),
+                    int(rect[2]),
+                    int(rect[3]),
                     cls._SWP_NOACTIVATE | cls._SWP_NOZORDER,
                 )
             )
@@ -246,9 +264,7 @@ class BlenderWindow:
                 return True
             # A composite widget's parts (QTextEdit's viewport/scrollbars) are their own
             # child windows, so an exact match alone would read as "left the widget".
-            return bool(
-                user32.IsChild(ctypes.c_void_p(int(hwnd)), ctypes.c_void_p(at))
-            )
+            return bool(user32.IsChild(ctypes.c_void_p(int(hwnd)), ctypes.c_void_p(at)))
         except Exception:
             return False
 
@@ -300,11 +316,17 @@ class BlenderWindow:
                 return None
             # Force native restypes so the 64-bit handle isn't truncated to c_int.
             user32.SetWindowLongPtrW.restype = ctypes.c_void_p
-            user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+            user32.SetWindowLongPtrW.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
             user32.GetWindowLongPtrW.restype = ctypes.c_void_p
             user32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
             hwnd = ctypes.c_void_p(int(widget.winId()))  # forces native-window creation
-            user32.SetWindowLongPtrW(hwnd, cls._GWLP_HWNDPARENT, ctypes.c_void_p(int(owner_hwnd)))
+            user32.SetWindowLongPtrW(
+                hwnd, cls._GWLP_HWNDPARENT, ctypes.c_void_p(int(owner_hwnd))
+            )
             return user32.GetWindowLongPtrW(hwnd, cls._GWLP_HWNDPARENT)
         except Exception:
             return None

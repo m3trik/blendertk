@@ -104,7 +104,7 @@ try:
     # mayatk's suite + live probe; here we pin the template's wiring.
     check(
         "import template: parent Empties -> plain groups (locator strip)",
-        "restore_empty_groups" in import_txt and "exactType=\"locator\"" in import_txt,
+        "restore_empty_groups" in import_txt and 'exactType="locator"' in import_txt,
     )
     check(
         "import template: manifest rebuild through mayatk's paired applier",
@@ -158,8 +158,7 @@ try:
     )
     check(
         "save template: same paired-engine repairs as the interactive import",
-        "_apply_texture_manifest" in save_txt
-        and "restore_empty_groups" in save_txt,
+        "_apply_texture_manifest" in save_txt and "restore_empty_groups" in save_txt,
     )
     check(
         "save template: bare-mayapy fallback re-selects the take (see import twin)",
@@ -220,7 +219,9 @@ try:
     sa_orig_run = _handoff.ScriptRunDeliverer.run
     sa_orig_export = btk.FbxUtils.export_selection_fbx
     _handoff.ScriptRunDeliverer.run = staticmethod(sa_fake_run)
-    btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: filepath
+    btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: (
+        filepath
+    )
     try:
         reset()
         bpy.ops.mesh.primitive_cube_add()
@@ -271,7 +272,8 @@ try:
         sa_bare = sa_bridge.save_as(os.path.join(sa_dir, "bare"))
         check(
             "a bare path gets .ma; .mb is honoured when asked for",
-            sa_bare and sa_bare["output"].endswith(".ma")
+            sa_bare
+            and sa_bare["output"].endswith(".ma")
             and MayaBridge.resolve_save_path("x/y.mb").endswith(".mb"),
         )
 
@@ -366,7 +368,9 @@ try:
     # structural loss that reverted a USD default on 2026-08-02).
     usd_captured = {}
 
-    def fake_usd_export(filepath=None, objects=None, selection_only=True, frame_range=None, **opts):
+    def fake_usd_export(
+        filepath=None, objects=None, selection_only=True, frame_range=None, **opts
+    ):
         usd_captured["names"] = [o.name for o in (objects or [])]
         usd_captured["opts"] = dict(opts)
         usd_captured["frame_range"] = frame_range
@@ -376,16 +380,22 @@ try:
     orig_usd_export = btk.UsdUtils.export
     btk.UsdUtils.export = staticmethod(fake_usd_export)
     try:
-        from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS as _MB_DEFAULTS
+        from blendertk.env_utils.maya_bridge._maya_bridge import (
+            DEFAULTS as _MB_DEFAULTS,
+        )
 
         bridge = MayaBridge(maya_path="C:/fake/maya.exe")
-        check("carrier: the bridge offers fbx then usd", bridge.carriers == ("fbx", "usd"))
+        check(
+            "carrier: the bridge offers fbx then usd", bridge.carriers == ("fbx", "usd")
+        )
         check("carrier: FBX is the default", _MB_DEFAULTS["CARRIER"] == "fbx")
         check(
             "carrier: the Maya-side templates route a USD payload to the USD importer",
             all(
-                "USD Import" in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
-                and "__PAYLOAD_PATH__" in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                "USD Import"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "__PAYLOAD_PATH__"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
                 for t in ("import.py", "_save_scene.py")
             ),
         )
@@ -398,7 +408,8 @@ try:
             all(
                 f'USD_IMPORT_OPTIONS = "{_USD_IMPORT_OPTIONS}"'
                 in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
-                and "options=USD_IMPORT_OPTIONS," in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
+                and "options=USD_IMPORT_OPTIONS,"
+                in open(os.path.join(_TEMPLATE_DIR, t), encoding="utf-8").read()
                 for t in ("import.py", "_save_scene.py")
             ),
         )
@@ -415,18 +426,24 @@ try:
         btk.FbxUtils.export_selection_fbx = fake_export
         try:
             bridge._export_payload([cube], tmp_usd, {"INCLUDE_MATERIALS": True})
-            check("usd: a .usd payload path selects the USD writer",
-                  usd_captured.get("names") == [cube.name] and not captured)
+            check(
+                "usd: a .usd payload path selects the USD writer",
+                usd_captured.get("names") == [cube.name] and not captured,
+            )
             usd_captured.clear()
             bridge._export_payload([cube], tmp_fbx, {"INCLUDE_MATERIALS": True})
-            check("usd: a .fbx payload path still selects the FBX writer",
-                  captured.get("names") == [cube.name] and not usd_captured)
+            check(
+                "usd: a .fbx payload path still selects the FBX writer",
+                captured.get("names") == [cube.name] and not usd_captured,
+            )
         finally:
             btk.FbxUtils.export_selection_fbx = orig_export
 
         # the live-verified interchange option set, params mapped natively
         usd_captured.clear()
-        bridge._export_usd([cube], tmp_usd, {"INCLUDE_MATERIALS": True, "TRIANGULATE": True})
+        bridge._export_usd(
+            [cube], tmp_usd, {"INCLUDE_MATERIALS": True, "TRIANGULATE": True}
+        )
         o = usd_captured["opts"]
         check(
             "usd: interchange options (preview surface, KEEP textures, flat, one prim per object)",
@@ -441,17 +458,22 @@ try:
             and o.get("export_animation") is False,
             str(o),
         )
-        check("usd: selection-only, static send samples no frames",
-              usd_captured["selection_only"] is True and usd_captured["frame_range"] is None)
+        check(
+            "usd: selection-only, static send samples no frames",
+            usd_captured["selection_only"] is True
+            and usd_captured["frame_range"] is None,
+        )
 
         # materials off is a native flag -- no strip copies, the scene is untouched
         usd_captured.clear()
         before_objects = set(bpy.data.objects)
         bridge._export_usd([cube], tmp_usd, {"INCLUDE_MATERIALS": False})
-        check("usd: materials off exports the ORIGINAL with export_materials=False",
-              usd_captured["names"] == [cube.name]
-              and usd_captured["opts"].get("export_materials") is False
-              and set(bpy.data.objects) == before_objects)
+        check(
+            "usd: materials off exports the ORIGINAL with export_materials=False",
+            usd_captured["names"] == [cube.name]
+            and usd_captured["opts"].get("export_materials") is False
+            and set(bpy.data.objects) == before_objects,
+        )
 
         # animation: only the frames that carry motion, clamped to the scene
         scene = bpy.context.scene
@@ -461,42 +483,58 @@ try:
         cube.keyframe_insert("location", frame=40)
         usd_captured.clear()
         bridge._export_usd([cube], tmp_usd, {"INCLUDE_ANIMATION": True})
-        check("usd: an animated send samples the keys' own span",
-              usd_captured["opts"].get("export_animation") is True
-              and tuple(usd_captured["frame_range"] or ()) == (10, 40),
-              str(usd_captured["frame_range"]))
-        check("usd: sampling_frame_range is None for a static object",
-              btk.UsdUtils.sampling_frame_range([]) is None)
+        check(
+            "usd: an animated send samples the keys' own span",
+            usd_captured["opts"].get("export_animation") is True
+            and tuple(usd_captured["frame_range"] or ()) == (10, 40),
+            str(usd_captured["frame_range"]),
+        )
+        check(
+            "usd: sampling_frame_range is None for a static object",
+            btk.UsdUtils.sampling_frame_range([]) is None,
+        )
         cube.animation_data_clear()
 
         # linked duplicates: refused by default, flattened-with-warning on opt-in
         twin = cube.copy()  # shares cube.data -> a linked duplicate
         bpy.context.scene.collection.objects.link(twin)
-        check("usd: linked duplicates are found within the export set",
-              bridge._linked_duplicates([cube, twin]) == {cube.data.name: [cube.name, twin.name]}
-              and bridge._linked_duplicates([cube]) == {})
+        check(
+            "usd: linked duplicates are found within the export set",
+            bridge._linked_duplicates([cube, twin])
+            == {cube.data.name: [cube.name, twin.name]}
+            and bridge._linked_duplicates([cube]) == {},
+        )
         usd_captured.clear()
         refused = None
         try:
             bridge._export_usd([cube, twin], tmp_usd, {})
         except RuntimeError as error:
             refused = str(error)
-        check("usd: a linked-duplicate send is REFUSED, naming FBX as the route",
-              refused is not None and "FBX" in refused and cube.data.name in refused
-              and not usd_captured, str(refused))
+        check(
+            "usd: a linked-duplicate send is REFUSED, naming FBX as the route",
+            refused is not None
+            and "FBX" in refused
+            and cube.data.name in refused
+            and not usd_captured,
+            str(refused),
+        )
         bridge.usd_flattens_instances = True
         try:
             usd_captured.clear()
             bridge._export_usd([cube, twin], tmp_usd, {})
-            check("usd: a texturing bridge may flatten instead (opt-in flag)",
-                  sorted(usd_captured.get("names", [])) == sorted([cube.name, twin.name]))
+            check(
+                "usd: a texturing bridge may flatten instead (opt-in flag)",
+                sorted(usd_captured.get("names", [])) == sorted([cube.name, twin.name]),
+            )
         finally:
             bridge.usd_flattens_instances = False
 
-        check("usd: sanitize_prim_name mirrors the exporter's rewrite",
-              btk.UsdUtils.sanitize_prim_name("Chair.001") == "Chair_001"
-              and btk.UsdUtils.sanitize_prim_name("1digit") == "_1digit"
-              and btk.UsdUtils.sanitize_prim_name("") == "_")
+        check(
+            "usd: sanitize_prim_name mirrors the exporter's rewrite",
+            btk.UsdUtils.sanitize_prim_name("Chair.001") == "Chair_001"
+            and btk.UsdUtils.sanitize_prim_name("1digit") == "_1digit"
+            and btk.UsdUtils.sanitize_prim_name("") == "_",
+        )
     finally:
         btk.UsdUtils.export = orig_usd_export
 
@@ -570,6 +608,47 @@ try:
         f"{manifest['scene_materials']}",
     )
     os.remove(manifest_path)
+
+    # ---- shots sidecar (the send half of the shot transfer) -------------------
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+    BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_mb_prefs_")
+    BlenderShotStore.clear_active()
+    bpy.context.scene.pop("shot_store", None)
+    for f in (1, 24):
+        cube_a.location.x = float(f)
+        cube_a.keyframe_insert(data_path="location", index=0, frame=f)
+    _shot_store = BlenderShotStore.active()
+    _shot = _shot_store.define_shot("Intro", 1, 24, objects=[cube_a.name, "stayed"])
+    _shot_store.edit_ledger.record_key(
+        f"{cube_a.name}|location|0", 24.0, _shot.shot_id, "end"
+    )
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+        [cube_a, cube_b], manifest_fbx
+    )
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    _shots = manifest.get("shots") or {}
+    check(
+        "manifest: the shots section rides along, scoped to the sent objects",
+        _shots.get("store", {}).get("shots", [{}])[0].get("objects") == [cube_a.name]
+        and _shots.get("ledger", {}).get("keys")
+        == {cube_a.name: {"translateX": [[24.0, _shot.shot_id, "end"]]}},
+        str(_shots),
+    )
+    os.remove(manifest_path)
+    MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+        [cube_a, cube_b], manifest_fbx, include_shots=False
+    )
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    check(
+        "manifest: include_shots=False leaves the section out", "shots" not in manifest
+    )
+    os.remove(manifest_path)
+    BlenderShotStore.clear_active()
+    BlenderShotStore._prefs_dir_override = None
+    bpy.context.scene.pop("shot_store", None)
     os.remove(tex_path)
 
     # ---- launch env: Blender-private OCIO stripped, foreign inherited --------
@@ -589,7 +668,10 @@ try:
             MayaBridge._launch_env() is None,
         )
         del os.environ["OCIO"]
-        check("launch env: no OCIO -> inherit unchanged (None)", MayaBridge._launch_env() is None)
+        check(
+            "launch env: no OCIO -> inherit unchanged (None)",
+            MayaBridge._launch_env() is None,
+        )
     finally:
         os.environ.pop("OCIO", None)
         if prior is not None:
@@ -614,10 +696,14 @@ try:
         Built from integer byte values rather than escapes: a \\x literal here is
         one bad edit away from becoming real bytes and corrupting the file.
         """
+
         def chunk(tag, payload):
             body = tag + payload
-            return (_struct.pack(">I", len(payload)) + body
-                    + _struct.pack(">I", _zlib.crc32(body)))
+            return (
+                _struct.pack(">I", len(payload))
+                + body
+                + _struct.pack(">I", _zlib.crc32(body))
+            )
 
         signature = bytes([137, 80, 78, 71, 13, 10, 26, 10])
         header = _struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
@@ -647,8 +733,11 @@ try:
     m, nt, bsdf = _mat("slotDirect")
     nt.links.new(_img(nt, "prod_number").outputs["Color"], bsdf.inputs["Base Color"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: direct link resolves baseColor",
-          list(slots) == ["baseColor"], str(slots))
+    check(
+        "slot trace: direct link resolves baseColor",
+        list(slots) == ["baseColor"],
+        str(slots),
+    )
 
     # 2. through a Normal Map node -> normal (NOT bump)
     m, nt, bsdf = _mat("slotNormal")
@@ -656,8 +745,11 @@ try:
     nt.links.new(_img(nt, "nrm").outputs["Color"], nmap.inputs["Color"])
     nt.links.new(nmap.outputs["Normal"], bsdf.inputs["Normal"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: Normal Map chain resolves normal",
-          list(slots) == ["normal"], str(slots))
+    check(
+        "slot trace: Normal Map chain resolves normal",
+        list(slots) == ["normal"],
+        str(slots),
+    )
 
     # 3. through a Bump node -> bump, distinguishable from a normal map
     m, nt, bsdf = _mat("slotBump")
@@ -665,8 +757,11 @@ try:
     nt.links.new(_img(nt, "hgt").outputs["Color"], bump.inputs["Height"])
     nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: Bump chain resolves bump, not normal",
-          list(slots) == ["bump"], str(slots))
+    check(
+        "slot trace: Bump chain resolves bump, not normal",
+        list(slots) == ["bump"],
+        str(slots),
+    )
 
     # 4. one image reaching SEVERAL channels (packed) records nothing
     m, nt, bsdf = _mat("slotPacked")
@@ -676,22 +771,29 @@ try:
     nt.links.new(sep.outputs[0], bsdf.inputs["Metallic"])
     nt.links.new(sep.outputs[1], bsdf.inputs["Roughness"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: a packed map records NO channel (filename owns it)",
-          slots == {}, str(slots))
+    check(
+        "slot trace: a packed map records NO channel (filename owns it)",
+        slots == {},
+        str(slots),
+    )
 
     # 5. a raw image straight into the Principled Normal input is ambiguous
     m, nt, bsdf = _mat("slotRawNormal")
     nt.links.new(_img(nt, "raw").outputs["Color"], bsdf.inputs["Normal"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: raw image into Normal is ambiguous -> no channel",
-          slots == {}, str(slots))
+    check(
+        "slot trace: raw image into Normal is ambiguous -> no channel",
+        slots == {},
+        str(slots),
+    )
 
     # 6. an unconnected image records nothing
     m, nt, bsdf = _mat("slotOrphan")
     _img(nt, "orphan")
     slots = MayaBridge._material_slots(m)
-    check("slot trace: an unconnected image records no channel",
-          slots == {}, str(slots))
+    check(
+        "slot trace: an unconnected image records no channel", slots == {}, str(slots)
+    )
 
     # 7. SEVERAL images reaching ONE channel is just as unresolvable as one image
     #    reaching several. An AO multiply feeds the AO map and the color map into
@@ -705,8 +807,11 @@ try:
     nt.links.new(_img(nt, "occl").outputs["Color"], mix.inputs[7])
     nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
     slots = MayaBridge._material_slots(m)
-    check("slot trace: two images into one channel record NOTHING",
-          slots == {}, str(slots))
+    check(
+        "slot trace: two images into one channel record NOTHING",
+        slots == {},
+        str(slots),
+    )
 
     # 7b. The canonical cutout material: ONE image whose Color feeds Base Color
     #     and whose Alpha feeds Alpha. Read node-wide that is two channels --
@@ -736,7 +841,8 @@ try:
     slots = MayaBridge._material_slots(m)
     check(
         "slot trace: a packed map's Color socket still records NOTHING",
-        slots == {}, str(slots),
+        slots == {},
+        str(slots),
     )
 
     # 8. every derived channel must be resolvable by the SHARED registry
@@ -747,11 +853,14 @@ try:
     nt.links.new(_img(nt, "r").outputs["Color"], bsdf.inputs["Roughness"])
     nt.links.new(_img(nt, "a").outputs["Color"], bsdf.inputs["Alpha"])
     derived = MayaBridge._material_slots(m)
-    check("slot trace: derived channels are all in the shared vocabulary",
-          derived and all(
-              ptk.MapRegistry.resolve_type_from_channel(c) is not None
-              for c in derived),
-          str({c: ptk.MapRegistry.resolve_type_from_channel(c) for c in derived}))
+    check(
+        "slot trace: derived channels are all in the shared vocabulary",
+        derived
+        and all(
+            ptk.MapRegistry.resolve_type_from_channel(c) is not None for c in derived
+        ),
+        str({c: ptk.MapRegistry.resolve_type_from_channel(c) for c in derived}),
+    )
 
     shutil.rmtree(_slot_dir, ignore_errors=True)  # artifacts are teardown's job
 

@@ -6,6 +6,7 @@ Drives :class:`pythontk.UvUnwrap` (Ministry of Flat / Boundary First
 Flattening) from Blender. Reached through :meth:`blendertk.UvUtils.auto_unwrap`;
 nothing here is called directly. Mirror of mayatk's module of the same name.
 """
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -145,7 +146,9 @@ class _AutoUnwrapInternal:
 
         result = AutoUnwrapResult(engine=engine)
         prior_active = bpy.context.view_layer.objects.active
-        prior_mode = getattr(prior_active, "mode", "OBJECT") if prior_active else "OBJECT"
+        prior_mode = (
+            getattr(prior_active, "mode", "OBJECT") if prior_active else "OBJECT"
+        )
         prior_selection = [o for o in bpy.context.view_layer.objects if o.select_get()]
         try:
             with CoreUtils.undo_chunk(f"Auto Unwrap ({engine})"):
@@ -153,8 +156,15 @@ class _AutoUnwrapInternal:
                 with ptk.TempArtifacts("uv_unwrap", policy="scoped") as tmp:
                     for mesh in meshes:
                         cls._unwrap_one(
-                            uv_utils, mesh, engine, params, map_size, layout,
-                            orient, tmp, result,
+                            uv_utils,
+                            mesh,
+                            engine,
+                            params,
+                            map_size,
+                            layout,
+                            orient,
+                            tmp,
+                            result,
                         )
         finally:
             cls._restore_context(prior_active, prior_mode, prior_selection)
