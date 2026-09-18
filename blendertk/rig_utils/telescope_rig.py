@@ -285,7 +285,9 @@ class TelescopeRig(ptk.LoggingMixin):
             aim_axis
         )
 
-        base = RigUtils.resolve_object(base_locator) if base_locator is not None else None
+        base = (
+            RigUtils.resolve_object(base_locator) if base_locator is not None else None
+        )
         end = RigUtils.resolve_object(end_locator) if end_locator is not None else None
         if base_locator is not None and base is None:
             self.logger.error("A valid base handle must be provided.")
@@ -400,7 +402,9 @@ class TelescopeRig(ptk.LoggingMixin):
         except Exception:
             # A validated build can still die on exotic scene state — never leave a half-wired
             # rig behind.
-            self.logger.error("Build failed — rolling back partially created rig nodes.")
+            self.logger.error(
+                "Build failed — rolling back partially created rig nodes."
+            )
             self._delete_bundle_nodes(bundle, restore=True)
             raise
 
@@ -541,7 +545,9 @@ class TelescopeRig(ptk.LoggingMixin):
                     scale=lock_scale,
                 )
 
-        RigUtils.refresh_drivers(segs)  # post-build recompile (script-built driver gotcha)
+        RigUtils.refresh_drivers(
+            segs
+        )  # post-build recompile (script-built driver gotcha)
 
     # ------------------------------- scene persistence (recover a bundle later)
     def _stamp(self, bundle):

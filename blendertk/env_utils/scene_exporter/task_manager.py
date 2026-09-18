@@ -20,6 +20,7 @@ import pythontk as ptk
 from pythontk import TaskFactory
 
 # From this package:
+from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import HierarchyBaseline
 from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 from blendertk.env_utils.scene_exporter._task_animation import _AnimationTasksMixin
 from blendertk.env_utils.scene_exporter._task_checks import _TaskChecksMixin
@@ -174,6 +175,34 @@ class TaskManager(
         if not export_path or not objects:
             return
         try:
+            paths = SceneDataSidecar.build_full_path_set(objects)
+
+            # Adopt any on-disk baselines before rolling forward, so history
+            # survives the upgrade (mirror of mayatk; no-ops once the .blend
+            # carries a record of its own). There is no hierarchy CHECK here to
+            # do it, so the writer is the only place it can happen.
+            HierarchyBaseline.migrate_from_sidecar(os.path.dirname(export_path))
+
+            # The BASELINE first, and unconditionally: it goes to the .blend,
+            # not the sidecar, so it must not be skipped by the sidecar's own
+            # "nothing to write" shortcut below (mirror of mayatk). blendertk
+            # has no hierarchy CHECK yet (a declared PARITY_GAPS entry), so
+            # nothing reads this yet -- but the record has to exist and roll
+            # forward from the day the writer does, or the check lands with no
+            # history behind it.
+            import bpy
+
+            if not HierarchyBaseline.write(paths):
+                self.logger.warning(
+                    "Could not record the hierarchy baseline on the .blend — the "
+                    "diff baseline for the next export was NOT updated."
+                )
+            elif not bpy.data.filepath:
+                self.logger.warning(
+                    "Hierarchy baseline recorded, but the .blend is unsaved — save "
+                    "it to keep the baseline for the next session."
+                )
+
             sk = self._sidecar_kwargs()
             SceneDataSidecar.migrate_legacy(export_path, **sk)
             manifest_path = SceneDataSidecar.manifest_path_for(export_path, **sk)
@@ -194,16 +223,13 @@ class TaskManager(
             if not data and not os.path.exists(manifest_path):
                 return
 
-            paths = SceneDataSidecar.build_full_path_set(objects)
             if (
                 SceneDataSidecar.write_manifest(export_path, paths, data=data, **sk)
                 is None
             ):
-                # A silently-stale baseline corrupts the next run's hierarchy
-                # diff -- visible at the default WARNING level, not DEBUG.
                 self.logger.warning(
-                    "Could not write the scene-data sidecar — the hierarchy-diff "
-                    "baseline for the next export was NOT updated."
+                    "Could not write the scene-data sidecar — the metadata shipped "
+                    "alongside this deliverable was NOT updated."
                 )
         except Exception:
             self.logger.debug("scene-data sidecar write skipped.", exc_info=True)

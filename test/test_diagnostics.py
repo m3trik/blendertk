@@ -269,6 +269,31 @@ try:
         "un-freeze cannot reverse an unstamped axis fix",
     )
 
+    # ---- slotted actions: the flat action.fcurves is GONE on Blender 5.x ----
+    # Both helpers below reached for it, so EVERY animated object raised
+    # AttributeError -- in the check that decides whether a freeze would be
+    # silently overwritten. The existing break_connections cases above cover the
+    # DRIVER branch only, which is why this survived.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    keyed = bpy.context.active_object
+    keyed.location = (1.0, 2.0, 3.0)
+    keyed.keyframe_insert("location", frame=1)
+    keyed.keyframe_insert("scale", frame=1)
+
+    driving = TransformDiagnostics._driving_connections(keyed)
+    check(
+        "keyed transform channels report as driving",
+        sorted(driving) == ["anim:location", "anim:scale"],
+        f"got {sorted(driving)}",
+    )
+    TransformDiagnostics._break_driving_connections(keyed)
+    check(
+        "breaking the connection actually REMOVES the curves",
+        btk.AnimUtils.get_fcurves(keyed) == [],
+        "a no-op removal leaves the bake inaccurate, which is what it was for",
+    )
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

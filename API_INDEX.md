@@ -7,7 +7,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/_anim_utils.py` — Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 - `class AnimUtils(_AnimUtilsInternal)`
-  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
+  - methods: normalize_optimize_level, resolve_optimize_level, key_arrays, key_times, key_interpolations, window_indices, shift_keys_in_window, remap_keys_in_window, step_last_key_in_window, evaluable_override, get_fcurves, get_animated_extent, has_nla_or_data_animation, scene_has_animation, set_current_frame, shift_keys, move_keys_to_frame, adjust_key_spacing, align_selected_keyframes, set_visibility_keys, add_intermediate_keys, remove_intermediate_keys, select_keys, invert_keys, snap_keys, set_interpolation, set_stepped, step_visibility_keys, delete_keys, fit_playback_range, copy_keys, paste_keys, transfer_keyframes, reduce_to_extremes, get_redundant_flat_keys, simplify_curve, optimize_keys, repair_corrupted_curves, tie_keyframes, bake_keys, bake_blend_shapes, get_animation_info, format_animation_info_csv, format_animation_info_html, configure_render_output, get_selected_key_times, get_timeline_selection, create_preview_layer, remove_preview_layer, interpolation_value
 
 ### `anim_utils/blendshape_animator/_blendshape_animator.py` — Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 - `class BlendshapeAnimator(ptk.LoggingMixin)`
@@ -66,7 +66,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
-  - methods: active, has_animation, detect_regions, assess, publish_export_view, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: active, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -116,7 +116,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `anim_utils/shots/shot_sequencer/segment_collector.py` — Segment collection and attribute extraction for the shot sequencer (Blender).
 - constants: KEY_PROXIMITY_EPS
 - `class SegmentCollector`
-  - methods: attr_label, abbreviate_attrs, collect_segments, active_object_set, extract_attributes, build_curve_preview
+  - methods: label_for, attr_label, abbreviate_attrs, collect_segments, active_object_set, extract_attributes, build_curve_preview
 
 ### `anim_utils/shots/shot_sequencer/shot_nav.py` — Shot navigation and combobox synchronization (Blender).
 - `class ShotNavMixin`
@@ -124,7 +124,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py` — Switchboard slots for the Shot Sequencer UI (Blender).
 - `class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`
-  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, move_shot_to_position, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_sub_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_key_menu, place_dragged_handle, on_key_tangent_dragged, on_gap_menu, on_key_selection_changed
+  - methods: sequencer, remove_callbacks, on_zone_context_menu, delete_shot, move_shot_to_position, merge_shot_with, split_shot_at, active_shot_id, on_undo, on_redo, refresh, hide_track, show_track, delete_track, on_selection_changed, on_track_selected, on_sub_track_selected, on_clip_locked, on_track_menu, on_header_menu, on_clip_renamed, on_playhead_moved, on_clip_menu, on_key_menu, place_dragged_handle, on_keys_tangent_dragged, on_key_tangent_dragged, on_gap_menu, on_key_selection_changed
 - `class ShotEditDialog`
   - methods: show
 - `class ShotSequencerSlots(ptk.LoggingMixin)`
@@ -365,6 +365,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class ObjectSwapper(ptk.LoggingMixin)`
   - methods: pull_objects_from_reference
 
+### `env_utils/hierarchy_sync/hierarchy_baseline.py` — The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
+- `class HierarchyBaseline`
+  - methods: read, is_unreadable, compare, write, migrate_from_sidecar
+
 ### `env_utils/hierarchy_sync/hierarchy_sync_slots.py` — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 - `class HierarchySyncController(ptk.LoggingMixin)`
   - methods: workspace, reference_path, analyze_hierarchies, repair_hierarchies, pull_objects, select_objects, populate_reference_tree, refresh_trees, is_path_ignored, clear_ignored_paths, log_diff_results, get_recent_reference_scenes, save_recent_reference_scene
@@ -373,7 +377,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/hierarchy_sync/scene_data_sidecar.py` — Scene-data sidecar manifest management — mirror of mayatk's
 - `class SceneDataSidecar`
-  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, migrate_legacy, rename, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, read_data, count_descendants, format_diff_report, clean_stale_diff, build_full_path_set, compare
+  - methods: base_stem, manifest_path_for, diff_report_path_for, find_legacy_manifest, ensure_base_name, migrate_legacy, build_clean_path_set, expand_to_descendants, get_top_level, detect_reparenting, write_manifest, read_manifest, read_data, count_descendants, format_diff_report, clean_stale_diff, build_full_path_set, compare
 
 ### `env_utils/hierarchy_sync/tree_renderer.py` — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 - `class HierarchyTreeRenderer(ptk.LoggingMixin)`
@@ -389,9 +393,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: maya_path, headless_app_path, mayapy_from_maya_exe, params_defaults, render_context, list_templates, template_modes, list_template_modes
 
 ### `env_utils/maya_bridge/_scene_import.py` — Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
-- constants: SUPPORTED_EXTENSIONS, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, MAYA_GROUP_EMPTY_DISPLAY_SIZE, USD_EXTENSIONS
+- constants: SUPPORTED_EXTENSIONS, BAKE_SOURCE_EXTENSIONS, BAKE_SOURCE_SUFFIX, MAYA_GROUP_EMPTY_DISPLAY_SIZE, USD_EXTENSIONS, FBX_IMPORT_OPTIONS, REDUCE_KEYS_DEFAULT
 - `class MayaSceneImport(ptk.LoggingMixin)`
-  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
+  - methods: maya_path, mayapy_path, require_mayapy, render_script, convert, import_scene, import_payload, apply_world, blender_path, require_blender, render_bake_script, bake, bake_scene, bake_source, mayapy_from_maya_exe, scene_has_complex_animation, find_scenes
 
 ### `env_utils/maya_bridge/maya_bridge_slots.py` — Slots for the Maya bridge panel.
 - `class MayaBridgeSlots(BlenderBridgeSlotsBase)`
@@ -403,32 +407,30 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: referenced_keys, defaults, render_context
 
 ### `env_utils/maya_bridge/templates/_bake_scene.py` — Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blend`` so a
-- `import_source(bpy)`
-- `apply_manifest(engine, imported)`
-- `tag_node_types(engine, imported)`
-- `apply_instances(engine, imported)`
-- `apply_visibility(engine, imported)`
-- `apply_scene(engine, is_usd)`
 - `main()`
-- constants: SRC_FILE, OUT_BLEND, EXTRA_SYS_PATH, USD_EXTENSIONS
+- constants: SRC_FILE, OUT_BLEND, EXTRA_SYS_PATH, REDUCE_KEYS
 
 ### `env_utils/maya_bridge/templates/_import_scene.py` — Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 - `fbx_safe_materials(cmds)`
+- `skinning_methods(cmds)`
 - `scene_node_types(cmds)`
 - `scene_settings(cmds)`
-- `write_manifest(entries, visibility, node_types, scene, path)`
+- `write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, shots=None, rig=None, machinery=None)`
+- `scene_lights(cmds)`
 - `main()`
-- constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, MODERN_SHADER_TYPES, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
+- `shots_section(cmds, spell)`
+- constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, RIG_MODE, RIG_CAPABILITY, MODERN_SHADER_TYPES, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
 
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - `usd_safe_materials(cmds)`
-- `export_usd(cmds)`
+- `export_usd(cmds, frame_range=None)`
 - `collect_materials(cmds)`
 - `collect_instance_groups(cmds)`
 - `scene_settings(cmds)`
-- `write_manifest(cmds, materials=None, shading_groups=None)`
+- `write_manifest(cmds, materials=None, shading_groups=None, bones=None, shots=None, rig=None, machinery=None)`
 - `main()`
-- constants: SRC_PATH, OUT_USD, INCLUDE_ANIMATION, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS, STINGRAY_DATA_SLOTS
+- `shots_section(cmds, spell)`
+- constants: SRC_PATH, OUT_USD, INCLUDE_ANIMATION, RIG_MODE, RIG_CAPABILITY, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS, STINGRAY_DATA_SLOTS
 
 ### `env_utils/maya_bridge/templates/_save_scene.py` — Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 - `import_usd(cmds)`
@@ -437,6 +439,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `import_fbx(cmds, mel, engine)`
 - `restore_empty_groups(cmds, engine, new_nodes)`
 - `rebuild_materials(engine, new_nodes)`
+- `rebuild_shots(engine, new_nodes)`
 - `main()`
 - constants: BRIDGE_MODES, FBX_PATH, USD_EXTENSIONS, CARRIER, OUT_FILE, EXTRA_SYS_PATH, SHADER_TYPE, USD_IMPORT_OPTIONS
 
@@ -447,6 +450,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `restore_usd_locators(new_nodes)`
 - `restore_empty_groups(new_nodes)`
 - `rebuild_materials(new_nodes)`
+- `rebuild_shots(new_nodes)`
 - `main()`
 - constants: BRIDGE_MODES, FBX_PATH, USD_EXTENSIONS, CARRIER, EXTRA_SYS_PATH, CLEAR_SCENE, FRAME_VIEW, SHADER_TYPE, USD_IMPORT_OPTIONS
 
@@ -494,7 +498,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - constants: USD_EXTENSIONS
 - `class UsdUtils(_UsdUtilsInternal)`
-  - methods: is_usd_file, export, sampling_frame_range, fold_single_mesh_xforms, sanitize_prim_name, hidden_objects, export_prim_path, prim_path, mark_invisible, apply_visibility, activate_uv_map, import_scene, import_usd, bake_transform_caches, scene_settings, export_selection_usd
+  - methods: is_usd_file, export, sampling_frame_range, fold_single_mesh_xforms, sanitize_prim_name, hidden_objects, export_prim_path, prim_path, pin_primvar_indices, mark_skinning_methods, mark_invisible, apply_visibility, activate_uv_map, import_scene, import_usd, bake_transform_caches, honor_reset_xform_stack, skinning_methods, scene_settings, export_selection_usd
 
 ### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
 - `class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`
@@ -642,7 +646,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(ptk.LoggingMixin)`
-  - methods: objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
+  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - `class RenderEffectsSlots(ptk.LoggingMixin)`
@@ -751,7 +755,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/data_nodes.py` — Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes`
-  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_export_string, get_export_string, set_export_json, dump, format_dump
+  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_internal_json, get_internal_json, set_export_string, get_export_string, set_export_json, dump, format_dump
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -771,12 +775,20 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `rig_utils/_rig_utils.py` — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - `class RigUtils`
-  - methods: resolve_object, create_locator, create_group, parent_keep_transform, create_armature, add_bone_chain, add_bone, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
+  - methods: resolve_object, create_locator, create_group, parent_keep_transform, create_armature, add_bone_chain, add_bone, set_bone_heads, set_bone_lengths, get_bone_chain_from_root, invert_bone_chain, add_bone_constraint, add_spline_ik, bind_armature, apply_falloff_weights, copy_location, copy_rotation, damped_track, track_to, child_of, refresh_drivers, add_distance_driver, add_transform_driver, add_prop_var, add_transform_var, ensure_custom_prop, remove_driver, lock_channels
 
 ### `rig_utils/controls.py` — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - `class ControlNodes`
 - `class Controls(_ControlsInternal)`
   - methods: register_preset, shapes, create
+
+### `rig_utils/rig_graph_build.py` — Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
+- `class RigGraphBuilder(_RigGraphBuilderInternal, ptk.HelpMixin)`
+  - methods: capability, scope, linear_unit, up_axis, sample_world, commit, remove, build, evaluable
+
+### `rig_utils/rig_graph_extract.py` — Read a Blender rig into a RigGraph -- the Blender side of phase 2.
+- `class RigGraphExtractor(_RigGraphExtractorInternal, ptk.HelpMixin)`
+  - methods: extract
 
 ### `rig_utils/shadow_preview.py` — A live viewport preview of a horizon rig: the artist drags the light and
 - `class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin)`

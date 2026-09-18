@@ -204,8 +204,10 @@ try:
                 f"{_cls} {_stem}.py echoes __CARRIER__ (surfaces the Format combo)",
                 bool(_re.search(r"__CARRIER__", _txt)),
             )
-    for _name, _opts in (("substance", _sub_mod._DEFAULT_USD_OPTIONS),
-                         ("marmoset", _mar_mod._DEFAULT_USD_OPTIONS)):
+    for _name, _opts in (
+        ("substance", _sub_mod._DEFAULT_USD_OPTIONS),
+        ("marmoset", _mar_mod._DEFAULT_USD_OPTIONS),
+    ):
         bpy.ops.object.select_all(action="DESELECT")
         cube.select_set(True)
         _u = os.path.join(tmp, f"{_name}_payload.usd")
@@ -383,6 +385,94 @@ try:
         resolved is None or isinstance(resolved, str),
         f"{resolved}",
     )
+
+    # ---- mayatk's Blender-side templates vendor a blendertk reader ----------
+    # The mirror of the guard blendertk's own templates get from mayatk's suite.
+    # mayatk's conversion templates run in whatever Blender IT finds, which may have
+    # no blendertk, so they carry a dependency-free COPY of the scene-clock reader --
+    # allowed only while a test proves it still matches its source (CODE_STANDARD 6:
+    # a drift-GUARDED copy is the one sanctioned duplicate). Executed from its AST,
+    # never imported: an unrendered template is not importable at all.
+    import ast as _ast
+
+    import bpy as _bpy
+
+    from blendertk.env_utils._env_utils import EnvUtils as _EnvUtils
+
+    _scene = _bpy.context.scene
+    _scene.render.fps, _scene.render.fps_base = 30, 1.0
+    _scene.frame_start, _scene.frame_end = 1, 90
+    _scene.use_preview_range = True  # Blender's inner range == Maya's playback range
+    _scene.frame_preview_start, _scene.frame_preview_end = 10, 40
+    _scene.frame_current = 12
+    _want_clock = _EnvUtils.scene_settings()
+    check(
+        "scene clock reader itself reads the preview range as the playback range",
+        _want_clock["fps"] == 30.0
+        and (_want_clock["frame_start"], _want_clock["frame_end"]) == (10, 40)
+        and (_want_clock["anim_start"], _want_clock["anim_end"]) == (1, 90),
+        str(_want_clock),
+    )
+    _mtk_templates = os.path.join(
+        MONO, "mayatk", "mayatk", "env_utils", "blender_bridge", "templates"
+    )
+    for _name in ("_import_scene.py", "_import_scene_usd.py"):
+        _path = os.path.join(_mtk_templates, _name)
+        if not os.path.isfile(_path):
+            # NOT a pass for the comparison: name what actually happened, so an
+            # absent sibling can never read as "the copies match".
+            check(
+                f"mayatk/{_name}: sibling checkout absent, clock-copy guard NOT run",
+                True,
+                _path,
+            )
+            continue
+        with open(_path, encoding="utf-8") as _fh:
+            _module = _ast.parse(_fh.read())
+        _fn = next(
+            (
+                n
+                for n in _module.body
+                if isinstance(n, _ast.FunctionDef) and n.name == "scene_settings"
+            ),
+            None,
+        )
+        if _fn is None:
+            check(
+                f"mayatk/{_name}: scene_settings copy matches EnvUtils",
+                False,
+                "template lost scene_settings()",
+            )
+            continue
+        # Imports + literal constants only: a rendering placeholder is not a literal.
+        _prelude = []
+        for _node in _module.body:
+            if isinstance(_node, (_ast.Import, _ast.ImportFrom)):
+                _prelude.append(_node)
+            elif isinstance(_node, _ast.Assign):
+                try:
+                    _ast.literal_eval(_node.value)
+                except (ValueError, TypeError, SyntaxError):
+                    continue
+                _prelude.append(_node)
+        _ns = {}
+        exec(
+            compile(_ast.Module(body=_prelude + [_fn], type_ignores=[]), _path, "exec"),
+            _ns,
+        )
+        _got_clock = _ns["scene_settings"](_bpy)
+        check(
+            f"mayatk/{_name}: scene_settings copy matches EnvUtils (no hand-keeping)",
+            _got_clock == _want_clock,
+            f"{_got_clock} != {_want_clock}",
+        )
+
+    # The guard set the clock to non-default values to prove the readers agree on
+    # them; put it back, so a check appended after this one cannot silently inherit
+    # 30 fps and an enabled preview range. The file's `reset()` clears objects and
+    # materials, never the scene clock.
+    _scene.use_preview_range = False
+    _scene.render.fps = 24
 
     import shutil
 

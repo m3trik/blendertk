@@ -873,9 +873,7 @@ class SelectionOrder:
         callers stay functional, just order-blind (documented degradation, mirroring how
         Maya behaves with ``trackSelectionOrder`` off)."""
 
-        pool = list(
-            objects if objects is not None else CoreUtils.selected_objects()
-        )
+        pool = list(objects if objects is not None else CoreUtils.selected_objects())
         if not cls._enabled:
             return pool
         rank = {n: i for i, n in enumerate(cls._order)}

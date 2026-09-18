@@ -247,9 +247,7 @@ class ColorId:
             if obj is None:
                 continue
             memberships = list(obj.users_collection)
-            if memberships and all(
-                cls._ID_COLLECTION_PROP in c for c in memberships
-            ):
+            if memberships and all(cls._ID_COLLECTION_PROP in c for c in memberships):
                 bpy.context.scene.collection.objects.link(obj)
             for col in memberships:
                 if cls._ID_COLLECTION_PROP in col:
@@ -262,11 +260,7 @@ class ColorId:
         import bpy
 
         for col in list(bpy.data.collections):
-            if (
-                cls._ID_COLLECTION_PROP in col
-                and not col.objects
-                and not col.children
-            ):
+            if cls._ID_COLLECTION_PROP in col and not col.objects and not col.children:
                 bpy.data.collections.remove(col)
 
     @classmethod
@@ -344,7 +338,9 @@ class ColorId:
 
         if color_type in ("OBJECT", "VERTEX"):
             drawable_in = ("SOLID",)
-        elif wireframe:  # wireframe-only pass — Wireframe mode draws object-colored wires too
+        elif (
+            wireframe
+        ):  # wireframe-only pass — Wireframe mode draws object-colored wires too
             drawable_in = ("SOLID", "WIREFRAME")
         else:  # MATERIAL only — every shading mode already shows it
             drawable_in = None
@@ -726,7 +722,9 @@ class ColorIdSlots(ptk.LoggingMixin):
         with CoreUtils.undo_chunk("Color ID: Reset"):
             ColorId.reset_colors(
                 objects,
-                reset_object=ch["wireframe"],  # the wireframe channel's datum is obj.color
+                reset_object=ch[
+                    "wireframe"
+                ],  # the wireframe channel's datum is obj.color
                 reset_material=ch["material"],
                 reset_vertex=ch["vertex"],
                 reset_outliner=ch["outliner"],
@@ -747,7 +745,9 @@ class ColorIdSlots(ptk.LoggingMixin):
             ColorId.apply_color(
                 objects,
                 color=color,
-                apply_to_object=ch["wireframe"],  # the wireframe channel's datum is obj.color
+                apply_to_object=ch[
+                    "wireframe"
+                ],  # the wireframe channel's datum is obj.color
                 apply_to_material=ch["material"],
                 apply_to_vertex=ch["vertex"],
                 apply_to_outliner=ch["outliner"],

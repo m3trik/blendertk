@@ -443,12 +443,11 @@ class ChannelsSlots:
                             "Each row is one channel on the active selection.",
                             "Edit values directly in the Value column, or MMB-drag / mouse-wheel "
                             "over it to scrub numeric channels.",
-                            "Click the lock icon to lock a transform channel; <b>Alt</b>+click "
-                            "to unlock it.",
-                            "Click the key icon to key the current frame; <b>Alt</b>+click to "
-                            "remove that key; <b>Ctrl</b>+click to break the animation/driver.",
-                            "Drag down either icon column to lock / key (or, with <b>Alt</b>, "
-                            "unlock / remove) every row the drag crosses.",
+                            "Click a lock / key icon to toggle that row.",
+                            "Drag down a column to lock / key every row it crosses; "
+                            "<b>Alt</b>+drag to unlock / remove those keys.",
+                            "<b>Ctrl</b>+click or <b>Ctrl</b>+drag the key column to break "
+                            "the animation / driver.",
                             "A muted F-curve / driver shows the key icon in olive.",
                         ],
                     ),
@@ -963,13 +962,15 @@ class ChannelsSlots:
                 "locked": {
                     "icon": "lock",
                     "color": clr["locked"],
-                    "tooltip": "Locked — Alt+click to unlock (drag to cover several rows).",
+                    "tooltip": "Locked — click to unlock.\n"
+                    "Drag: lock a range · Alt+drag: unlock a range.",
                     "action": self._on_icon_cell_clicked,
                 },
                 "unlocked": {
                     "icon": "unlock",
                     "color": clr["off"],
-                    "tooltip": "Unlocked — click to lock (drag to cover several rows).",
+                    "tooltip": "Unlocked — click to lock.\n"
+                    "Drag: lock a range · Alt+drag: unlock a range.",
                     "action": self._on_icon_cell_clicked,
                 },
             },
@@ -978,21 +979,24 @@ class ChannelsSlots:
             "none": {
                 "icon": "disconnect",
                 "color": clr["off"],
-                "tooltip": "Not animated — click to key at the current frame (drag to cover several rows).",
+                "tooltip": "Not animated — click to key the current frame.\n"
+                "Drag: key a range · Alt+drag: remove those keys.",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe": {
                 "icon": "connect",
                 "color": clr["keyframe"],
-                "tooltip": "Animated — click to key at the current frame (drag to cover several rows)."
-                "\nCtrl+click: break animation.",
+                "tooltip": "Animated — click to key the current frame.\n"
+                "Drag: key a range · Alt+drag: remove those keys.\n"
+                "Ctrl+click / Ctrl+drag: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "keyframe_active": {
                 "icon": "connect",
                 "color": clr["keyframe_active"],
-                "tooltip": "Key on current frame — Alt+click to remove it (a click re-keys the value)."
-                "\nCtrl+click: break animation.",
+                "tooltip": "Key on current frame — click to remove it.\n"
+                "Drag: key a range · Alt+drag: remove those keys.\n"
+                "Ctrl+click / Ctrl+drag: break animation.",
                 "action": self._on_icon_cell_clicked,
             },
             "driven_key": {
@@ -1305,8 +1309,8 @@ class ChannelsSlots:
         return None
 
     def _on_icon_cell_clicked(self, row, col):
-        """Press on a Lock / Key icon cell: apply it, then refresh the table."""
-        if self._apply_icon_cell(row, col):
+        """Click a Lock / Key icon cell: toggle that row, then refresh the table."""
+        if self._apply_icon_cell(row, col, toggle=True):
             self._refresh_table(self.ui.tbl000)
 
     def _on_icon_cells_dragged(self, rows, col):
@@ -1315,12 +1319,13 @@ class ChannelsSlots:
         if any(changed):
             self._refresh_table(self.ui.tbl000)
 
-    def _apply_icon_cell(self, row, col):
-        """Lock / key a channel on a press, unlock / remove its key on Alt+press; Ctrl+press on
-        the key column breaks the animation / driver. Returns ``True`` if it acted.
+    def _apply_icon_cell(self, row, col, toggle=False):
+        """Apply a click, or one row of a drag, on the Lock / Key columns. ``True`` if it acted.
 
-        Neither column toggles, so a press or a drag leaves every row the same whatever state
-        each started in.
+        A bare click toggles the row it hit (*toggle*). A drag sets instead, so a range ends
+        uniform whatever each row started as: dragging locks / keys every row it crosses, ``Alt``
+        unlocks / removes those keys, and ``Ctrl`` on the Key column breaks the animation / driver
+        (click or drag alike).
         """
         descriptor = self._descriptor_at(row)
         objects = self.controller.get_selected_nodes()
@@ -1335,15 +1340,26 @@ class ChannelsSlots:
         Qt = self.sb.QtCore.Qt
         modifiers = self.sb.QtWidgets.QApplication.keyboardModifiers()
         clear = bool(modifiers & Qt.AltModifier)
+        state = self.ui.tbl000.actions.get(row, col)
 
         if col == self.COL_LOCK:
-            self.controller.set_lock(objects, [descriptor], not clear)
+            if clear:
+                lock = False
+            elif toggle:
+                lock = state != "locked"
+            else:
+                lock = True
+            self.controller.set_lock(objects, [descriptor], lock)
         elif modifiers & Qt.ControlModifier:
             self.controller.break_connections(objects, descriptor)
         else:
-            self.controller.set_key_at_current_time(
-                objects, descriptor, keyed=not clear
-            )
+            if clear:
+                keyed = False
+            elif toggle:
+                keyed = state != "keyframe_active"
+            else:
+                keyed = True
+            self.controller.set_key_at_current_time(objects, descriptor, keyed=keyed)
         return True
 
     def _handle_cell_edit(self, row, col):

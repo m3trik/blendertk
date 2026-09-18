@@ -10,6 +10,7 @@ to a mesh. Tool-specific behaviour (image-contour tracing, tube bevel/RDP) lives
 
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
+
 import pythontk as ptk
 
 
@@ -46,8 +47,16 @@ class NurbsUtils(ptk.LoggingMixin):
         return spline
 
     @classmethod
-    def create_curve(cls, points, name="curve", cyclic=False, kind="POLY",
-                     dimensions="3D", link=True, collection=None):
+    def create_curve(
+        cls,
+        points,
+        name="curve",
+        cyclic=False,
+        kind="POLY",
+        dimensions="3D",
+        link=True,
+        collection=None,
+    ):
         """Build a curve object from a point list — mirror of mayatk's ``cmds.curve`` usage.
 
         Parameters:
@@ -96,8 +105,14 @@ class NurbsUtils(ptk.LoggingMixin):
         return dup
 
     @staticmethod
-    def create_plane(width=1.0, height=1.0, location=(0.0, 0.0, 0.0), name="plane",
-                     link=True, collection=None):
+    def create_plane(
+        width=1.0,
+        height=1.0,
+        location=(0.0, 0.0, 0.0),
+        name="plane",
+        link=True,
+        collection=None,
+    ):
         """Build a simple rectangular mesh plane centered at ``location`` — Blender analogue of
         Maya's ``nurbsPlane`` (used e.g. as a projection/backing surface under traced curves).
 
@@ -126,7 +141,9 @@ class NurbsUtils(ptk.LoggingMixin):
         return obj
 
     @staticmethod
-    def curve_to_mesh(curve_obj, name=None, link=True, keep_curve=False, collection=None):
+    def curve_to_mesh(
+        curve_obj, name=None, link=True, keep_curve=False, collection=None
+    ):
         """Bake a curve object's **evaluated** geometry (its bevel sweep / 2D fill) to a new mesh
         object — Blender's analogue of Maya's ``nurbsToPoly``.
 
@@ -216,9 +233,7 @@ class NurbsUtils(ptk.LoggingMixin):
                 ]
             else:
                 targets = [start + direction * ti for ti in t]
-            cls._write_pts(
-                sp, [p.lerp(q, straightness) for p, q in zip(pts, targets)]
-            )
+            cls._write_pts(sp, [p.lerp(q, straightness) for p, q in zip(pts, targets)])
         return objects
 
     @classmethod
@@ -301,9 +316,7 @@ class NurbsUtils(ptk.LoggingMixin):
             start, end = pts[0], pts[-1]
             t = cls._arc_params(pts)
             chord = [start + (end - start) * ti for ti in t]
-            cls._write_pts(
-                sp, [c + (p - c) * factor for p, c in zip(pts, chord)]
-            )
+            cls._write_pts(sp, [c + (p - c) * factor for p, c in zip(pts, chord)])
         return objects
 
     @classmethod

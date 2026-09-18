@@ -38,26 +38,43 @@ _PATH_LABELS = {
 }
 _AXES = ("X", "Y", "Z")
 _QUAT_AXES = ("W", "X", "Y", "Z")  # Blender stores quaternions W-first
+# Channels that carry an axis: the transform properties (bare, on a pose bone,
+# or their ``delta_*`` twins) plus axis-angle rotation. Anything else is a
+# scalar -- ``hide_render``, a custom property -- and keys at array_index 0
+# without there being an "X" to name.
+_VECTOR_PATHS = tuple(_PATH_LABELS) + ("rotation_axis_angle",)
 
 
 class SegmentCollector:
     """SegmentCollector — module namespace."""
 
     @staticmethod
-    def attr_label(fcurve) -> str:
-        """``location[0]`` → ``translateX`` (mayatk-style channel label).
+    def label_for(data_path: str, array_index: int = -1) -> str:
+        """``("location", 0)`` → ``translateX`` (mayatk-style channel label).
 
-        ``rotation_quaternion`` indexes W-first (``[0]`` is W, not X), so it maps
-        through :data:`_QUAT_AXES` — the shared X-first table mislabeled every
-        quaternion channel by one axis.
+        The one label table, for a channel named by path rather than by a live
+        fcurve (a ledger key names its channel that way); :meth:`attr_label` is
+        this over an fcurve.  ``rotation_quaternion`` indexes W-first (``[0]``
+        is W, not X), so it maps through :data:`_QUAT_AXES` — the shared X-first
+        table mislabeled every quaternion channel by one axis.
         """
-        path = fcurve.data_path
-        base = _PATH_LABELS.get(path, path)
-        idx = getattr(fcurve, "array_index", -1)
-        axes = _QUAT_AXES if path.endswith("rotation_quaternion") else _AXES
-        if 0 <= idx < len(axes):
-            return f"{base}{axes[idx]}"
+        base = _PATH_LABELS.get(data_path, data_path)
+        # A custom property is labelled by its name, as Maya spells the same
+        # attribute (``["opacity"]`` -> ``opacity``).
+        if base.startswith('["') and base.endswith('"]'):
+            base = base[2:-2]
+        vector = data_path.endswith(_VECTOR_PATHS)
+        axes = _QUAT_AXES if data_path.endswith("rotation_quaternion") else _AXES
+        if vector and 0 <= array_index < len(axes):
+            return f"{base}{axes[array_index]}"
         return base
+
+    @staticmethod
+    def attr_label(fcurve) -> str:
+        """``location[0]`` → ``translateX`` (mayatk-style channel label)."""
+        return SegmentCollector.label_for(
+            fcurve.data_path, getattr(fcurve, "array_index", -1)
+        )
 
     @staticmethod
     def abbreviate_attrs(attrs) -> str:
@@ -262,6 +279,12 @@ class SegmentCollector:
             "keys": vis_keys,
             "segments": vis_segs,
             "broken": broken,
+            # A Blender handle IS a position, so its length always means
+            # something -- unlike Maya's unweighted tangents, which store an
+            # angle and pin the control point a third of the span out.  The
+            # widget reads this to swing an aligned key's other side exactly
+            # where ``place_dragged_handle`` will leave it.
+            "weighted": True,
             "val_min": min(all_vals),
             "val_max": max(all_vals),
         }

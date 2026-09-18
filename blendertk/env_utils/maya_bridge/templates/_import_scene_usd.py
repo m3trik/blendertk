@@ -18,12 +18,19 @@ has no exporter for it -- which is swapped for an equivalent ``standardSurface``
 so even its packed metallic map gets a real USD slot (the FBX route can only
 carry that via the manifest rebuild).
 
+Skin pre-pass (optional): a skinCluster whose influences span more than one
+root joint gets NO skin from mayaUsd's exporter (its points are baked instead) --
+see ``_export_ready_skins``, which hands mayatk's ``SkinUtils.flatten_influences``
+the frames this export samples; guarded, like the FBX route's smart bake.
+
 Underscore-prefixed: hidden from the bridge panel's template list (this is not a
 user-pickable send recipe; it belongs to the pull engine).
 """
 
-# Dependency-free Maya Python: no mayatk/blendertk imports (the target machine's
-# mayapy only has Maya's own modules).
+# Dependency-free Maya Python by default: the core conversion imports only Maya's
+# own modules. The OPTIONAL skin pre-pass imports mayatk, but behind a guard
+# (missing -> the export proceeds as authored), so this template still runs on a
+# bare mayapy.
 import math
 import os
 import re
@@ -33,6 +40,11 @@ import traceback
 SRC_PATH = r"__SRC_PATH__"
 OUT_USD = r"__OUT_USD__"
 INCLUDE_ANIMATION = __INCLUDE_ANIMATION__
+# "rig" carries the rig logic as a RigGraph planned against the CONSUMER's
+# capability (sent in as RIG_CAPABILITY, a JSON string); only what the plan
+# cannot build is baked -- the USD route samples the rest natively. Schema 15.
+RIG_MODE = __RIG_MODE__
+RIG_CAPABILITY = __RIG_CAPABILITY__
 
 # ShaderFX game shaders: the mayaUsd registry has no exporter for them (they
 # would arrive as displayColor-only). Translated to standardSurface below.
@@ -40,8 +52,12 @@ STINGRAY_SHADER_TYPES = ("StingrayPBS", "ShaderfxShader")
 # The StingrayPBS texture slots worth carrying (the env/IBL cubes and BRDF lut
 # are renderer plumbing, not material textures).
 STINGRAY_TEX_SLOTS = (
-    "TEX_color_map", "TEX_normal_map", "TEX_metallic_map",
-    "TEX_roughness_map", "TEX_ao_map", "TEX_emissive_map",
+    "TEX_color_map",
+    "TEX_normal_map",
+    "TEX_metallic_map",
+    "TEX_roughness_map",
+    "TEX_ao_map",
+    "TEX_emissive_map",
 )
 # Stingray slot -> the logical channel vocabulary the manifest speaks (the same
 # names mtk's MatManifest emits, resolved Blender-side through
@@ -60,7 +76,12 @@ STINGRAY_SLOT_CHANNELS = {
 # Stingray slots that hold DATA, not color: their file nodes get a raw color
 # space for the export so the UsdUVTexture says so (Blender reads it as
 # Non-Color; a normal map tagged sRGB shades wrong).
-STINGRAY_DATA_SLOTS = ("TEX_normal_map", "TEX_metallic_map", "TEX_roughness_map", "TEX_ao_map")
+STINGRAY_DATA_SLOTS = (
+    "TEX_normal_map",
+    "TEX_metallic_map",
+    "TEX_roughness_map",
+    "TEX_ao_map",
+)
 
 
 def _ns_safe(name):
@@ -117,12 +138,14 @@ def _open_scene(cmds, path):
     production scenes on a vanilla mayapy; the FBX template's rule). A failed
     open -- nothing loaded -- still raises."""
     try:
-        cmds.file(path, open=True, force=True, ignoreVersion=True,
-                  loadReferenceDepth="all")
+        cmds.file(
+            path, open=True, force=True, ignoreVersion=True, loadReferenceDepth="all"
+        )
     except RuntimeError as error:
         opened = cmds.file(query=True, sceneName=True) or ""
         if os.path.normcase(os.path.abspath(opened)) != os.path.normcase(
-                os.path.abspath(path)):
+            os.path.abspath(path)
+        ):
             raise
         print("scene opened with load errors (tolerated): {}".format(error))
 
@@ -135,6 +158,7 @@ def _translate_stingray_to_ss(cmds, mat, ss):
     / ``outAlpha``). ``use_*_map`` toggles are honored. AO has no
     standardSurface slot and is dropped with a note.
     """
+
     def use(flag):
         return bool(_get_first(cmds, mat, (flag,), 0))
 
@@ -182,8 +206,11 @@ def _translate_stingray_to_ss(cmds, mat, ss):
     # Gated on intensity like the FBX route: a wired map with intensity 0
     # emits nothing in Maya and must not glow in Blender.
     emis_src = _plug_source(cmds, f"{mat}.TEX_emissive_map")
-    if (emis_src and use("use_emissive_map")
-            and _get_first(cmds, mat, ("emissive_intensity",), 1.0) > 0.0):
+    if (
+        emis_src
+        and use("use_emissive_map")
+        and _get_first(cmds, mat, ("emissive_intensity",), 1.0) > 0.0
+    ):
         cmds.connectAttr(emis_src, f"{ss}.emissionColor", force=True)
         cmds.setAttr(f"{ss}.emission", 1.0)
 
@@ -258,9 +285,17 @@ def usd_safe_materials(cmds):
 # Drivers that move things WITHOUT keys of their own: their motion cannot be
 # inferred from key times, so they force the full playback range.
 _UNKEYED_DRIVERS = (
-    "parentConstraint", "pointConstraint", "orientConstraint", "scaleConstraint",
-    "aimConstraint", "poleVectorConstraint", "geometryConstraint",
-    "normalConstraint", "tangentConstraint", "expression", "ikHandle",
+    "parentConstraint",
+    "pointConstraint",
+    "orientConstraint",
+    "scaleConstraint",
+    "aimConstraint",
+    "poleVectorConstraint",
+    "geometryConstraint",
+    "normalConstraint",
+    "tangentConstraint",
+    "expression",
+    "ikHandle",
     "motionPath",
 )
 
@@ -295,9 +330,9 @@ def _animation_frame_range(cmds):
     if cmds.ls(type=_UNKEYED_DRIVERS):
         return playback
 
-    curves = cmds.ls(
-        type=("animCurveTA", "animCurveTL", "animCurveTU", "animCurveTT")
-    ) or []
+    curves = (
+        cmds.ls(type=("animCurveTA", "animCurveTL", "animCurveTU", "animCurveTT")) or []
+    )
     if not curves:
         return None
     # ONE query for every curve -- per-curve calls cost a round trip each, and a
@@ -315,7 +350,7 @@ def _animation_frame_range(cmds):
     return (start, end)
 
 
-def export_usd(cmds):
+def export_usd(cmds, frame_range=None):
     """Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
 
     ``cmds`` rejects the whole call on one unknown flag (TypeError), so a flag
@@ -324,6 +359,10 @@ def export_usd(cmds):
     load-bearing: the exporter defaults to catmullClark, which Blender would
     then subdivide-smooth meshes Maya displayed as plain polys.
     """
+    # These flags ARE ``UsdUtils.INTERCHANGE_EXPORT_OPTIONS`` -- the shared hand-off
+    # set mayatk adopted FROM this route, reason by measured reason. Drift-guarded
+    # against it by
+    # ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     kwargs = {
         "file": OUT_USD,
         "shadingMode": "useRegistry",
@@ -370,9 +409,6 @@ def export_usd(cmds):
         # name is what the Blender side activates (the FBX route's spelling).
         "preserveUVSetNames": True,
     }
-    # Sample only the frames that carry motion -- see _animation_frame_range for
-    # the measured cost of getting this wrong.
-    frame_range = _animation_frame_range(cmds) if INCLUDE_ANIMATION else None
     if frame_range:
         kwargs["frameRange"] = frame_range
         print("USD export: sampling frames {}-{}".format(*frame_range))
@@ -548,6 +584,68 @@ def collect_materials(cmds):
     return entries, shading_groups
 
 
+def _export_ready_skins(cmds, frames, root_parent):
+    """One shear-free skeleton per mesh skin, before the export reads the scene.
+
+    mayaUsd's exporter writes NO skin for a skinCluster whose influences do not share
+    one root joint -- silently: the deformed points get baked per frame instead
+    and Blender streams them from the payload (measured: 14 production wire
+    looms, each skinned to a joint chain plus an anchor joint under a second
+    root). Blender's FBX importer fails the same skin differently (two armatures,
+    the mesh parented to the wrong one), so both routes run this. mayatk's
+    ``SkinUtils.flatten_influences`` reparents every influence flat under one
+    new root with world-fitted keys at *frames* -- the joint locals are then
+    TRS-exact too, where a stretched chain shears -- and un-pins the skinned
+    meshes for an armature-relative importer. *root_parent* is where that root
+    goes, and the two importers need different answers: ``"ancestor"`` (USD)
+    keeps the skeleton on the mesh's own parent chain, ``"world"`` (FBX) puts
+    it in a new top-level group, because Blender's FBX importer places a
+    skinned mesh from its armature node's LOCAL bind matrix -- right only for a
+    top-level armature node (nested: seven production looms 2.4-3.7 m out).
+    Guarded like the FBX route's smart bake: without mayatk on ``PYTHONPATH``
+    the export proceeds as authored and says so.
+
+    Returns the manifest's ``bones`` section -- ``{joint: the joint that was its
+    parent}``, short names, only where both ends are flattened influences. The
+    flatten is what removes that hierarchy and nothing in the payload records it,
+    yet both importers size a bone from the distance to its children: a skeleton
+    of siblings arrives drawn at the ROOT's spread (measured: 2.49 m bones on a
+    loom whose joints sit 0.89 cm apart). Blender re-derives the lengths from
+    this; the joint transforms stay flat, which is what keeps them exact.
+    """
+    try:
+        from mayatk.rig_utils.skinning import SkinUtils
+    except Exception as error:
+        print(
+            "skins: mayatk unavailable ({}); a skin spanning several joint roots "
+            "exports as baked points.".format(error)
+        )
+        return {}
+    try:
+        roots = SkinUtils.flatten_influences(
+            frames=frames, root_parent=root_parent, orient_bones=True
+        )
+    except Exception:
+        print("skins: flatten failed; skins export as authored.")
+        traceback.print_exc()
+        return {}
+    bones = {}
+    for root, influences in roots.items():
+        # Short names: the parents were read BEFORE the flatten, so their long
+        # paths are stale -- and a bone is named for the joint either way.
+        shorts = set(path.rsplit("|", 1)[-1] for path in influences)
+        for path, parent in influences.items():
+            parent = parent.rsplit("|", 1)[-1]
+            if parent in shorts:
+                bones[path.rsplit("|", 1)[-1]] = parent
+        print(
+            "skins: {} <- {} influence(s)".format(
+                root.rsplit("|", 1)[-1], len(influences)
+            )
+        )
+    return bones
+
+
 def collect_instance_groups(cmds):
     """Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
 
@@ -574,6 +672,7 @@ def collect_instance_groups(cmds):
     unpredictably by the exporter, so a collision touching a recorded member
     fails the export loudly rather than shipping a sidecar that cannot match.
     """
+
     def prim_path(dag_path):
         return "/" + "/".join(
             _sanitize_prim_name(seg) for seg in dag_path.split("|") if seg
@@ -603,9 +702,7 @@ def collect_instance_groups(cmds):
             "exporter renames them apart unpredictably, so the instance sets "
             "could not be matched on the Blender side. Rename to distinct "
             "prim-safe names or pull via FBX: "
-            + "; ".join(
-                "{} <- {}".format(k, v) for k, v in sorted(colliding.items())
-            )
+            + "; ".join("{} <- {}".format(k, v) for k, v in sorted(colliding.items()))
         )
     return groups
 
@@ -618,7 +715,9 @@ def scene_settings(cmds):
     table), the playback range the timeline plays (``frame_start``/``frame_end``
     = Maya's min/max), the full animation range (``anim_start``/``anim_end`` =
     ast/aet) and ``frame_current``. Dependency-free copy of
-    ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader).
+    ``mtk.EnvUtils.scene_settings`` (the send direction's in-process reader),
+    drift-guarded by
+    ``mayatk/test/test_blender_bridge.py::TestPullTemplateCopiesMatchTheirSource``.
     """
     import maya.api.OpenMaya as om
 
@@ -635,11 +734,253 @@ def scene_settings(cmds):
     }
 
 
-def write_manifest(cmds, materials=None, shading_groups=None):
+def _transfer_rig(cmds, frames):
+    """Rig mode (schema 15.2): extract the RigGraph, plan it against the
+    CONSUMER's capability (``RIG_CAPABILITY``, sent into this template), smart-
+    bake ONLY what the plan says, and sample the built records' targets so the
+    consumer can verify what it builds. Returns the manifest's ``rig`` section,
+    or ``{}`` when mayatk is unavailable -- printed, never silent. Kept
+    dependency-free and IDENTICAL between the FBX and USD templates (guarded)."""
+    import json
+
+    if not RIG_CAPABILITY:
+        print("rig: no consumer capability was sent; nothing to plan against.")
+        return {}
+    try:
+        from mayatk.rig_utils.rig_graph_extract import RigGraphExtractor
+        from pythontk import RigCapability, RigGraph, RigPlanner
+    except Exception as error:
+        print("rig: mayatk unavailable ({}); rig logic is not carried.".format(error))
+        return {}
+    try:
+        data = RigGraphExtractor().extract()
+        graph = RigGraph.from_dict(data)
+        plan = RigPlanner.plan(
+            graph, RigCapability.from_dict(json.loads(RIG_CAPABILITY))
+        )
+    except Exception:
+        print("rig: extraction or planning failed; rig logic is not carried.")
+        traceback.print_exc()
+        return {}
+    coverage = graph.coverage()
+    print(
+        "rig: {} record(s); {} to build, {} node(s) to bake, {} unaccounted driver(s).".format(
+            len(data["records"]),
+            len(plan.build),
+            len(plan.bake),
+            coverage["unaccounted"],
+        )
+    )
+    path_of = {n["id"]: n.get("path") for n in data["nodes"]}
+    bake_paths = [
+        path_of[i] for i in plan.bake if path_of.get(i) and cmds.objExists(path_of[i])
+    ]
+    if bake_paths and INCLUDE_ANIMATION:
+        try:
+            from mayatk.anim_utils.smart_bake._smart_bake import SmartBake
+
+            result = SmartBake(
+                objects=bake_paths,
+                use_override_layer=True,
+                bake_blend_shapes=True,
+                bake_inherited_visibility=False,
+                optimize_keys=False,
+                restorable=False,
+            ).execute()
+            print(
+                "rig: baked {} object(s) the plan could not build.".format(
+                    result.baked_count
+                )
+            )
+        except Exception:
+            print("rig: scoped bake failed; unbuilt records arrive static.")
+            traceback.print_exc()
+    verify_frames = sorted(
+        {
+            f
+            for rid in plan.build
+            for f in (plan.verify.get(rid, {}).get("frames") or [])
+        }
+    )
+    if not verify_frames:
+        verify_frames = (
+            [frames[0], frames[-1]] if frames else [cmds.currentTime(query=True)]
+        )
+    targets = sorted({i for rid in plan.build for i in graph.record(rid).target_ids()})
+    samples = {}
+    now = cmds.currentTime(query=True)
+    try:
+        for frame in verify_frames:
+            cmds.currentTime(frame)
+            for node_id in targets:
+                path = path_of.get(node_id)
+                if path and cmds.objExists(path):
+                    samples.setdefault(node_id, {})[str(frame)] = cmds.xform(
+                        path, query=True, worldSpace=True, translation=True
+                    )
+    finally:
+        cmds.currentTime(now)
+    return {
+        "graph": data,
+        "plan": plan.to_dict(),
+        "coverage": coverage,
+        "verify_samples": samples,
+    }
+
+
+def _classify_rig_machinery(cmds, rig=None):
+    """Answer what each Maya node IS; ``ptk.RigMachinery`` names the apparatus.
+
+    A carrier ships every DAG node as an object, so a rig that could not travel
+    arrives TWICE over: its motion, as keys on whatever renders, AND the whole
+    apparatus that used to produce that motion -- constraint nodes, IK handles
+    and effectors, control curves, up-vector locators, the groups that hold only
+    those, and joints nothing content is skinned to. In the target that apparatus
+    selects, draws and drives nothing. On the production module it is 924 of 2727
+    transforms, landing as ~1100 inert objects around 1505 meshes, which is
+    exactly what "the rig is poorly reconstructed" looks like from the outside --
+    and it lands identically in BAKE mode, because baking never removed it.
+
+    Named here rather than DELETED here, deliberately. The FBX route bakes before
+    it writes, but the USD route has no bake at all (mayaUsd samples the live
+    scene per frame), so deleting a constraint on this side would delete the
+    motion it was about to sample. What this names, the consumer drops once the
+    payload is in: that costs one carrier's worth of nodes and can never cost a
+    frame of animation.
+
+    Only the FACTS are Maya's, and they are all this decides: what each node is
+    (one of ``RigMachinery.KINDS``, else ``CONTENT`` -- the shape test is a
+    DENYLIST, so an unknown shape type counts as content and survives), which
+    nodes are load-bearing (every influence of a skinCluster that deforms
+    content -- one deforming only the rig's own IK curve protects nothing -- and,
+    under ``rig`` mode, every node a BUILT record names, since the consumer
+    resolves those ids in the delivered scene), and which nodes ARE the rig (the
+    graph's own nodes, plus every constraint and IK node). The rule that turns
+    those into an answer -- protection propagating up, the sweep down, ambiguity
+    resolved in favour of keeping -- is one shared implementation, so both
+    directions of a hand-off can hold the same opinion.
+
+    Parameters:
+        cmds: ``maya.cmds``.
+        rig: The manifest's ``rig`` section when rig mode built one (schema
+            15.3); its graph is reused. Without it the graph is extracted here
+            (0.3 s of the census's 1.9 s on the production module), so bake mode
+            names the same set.
+
+    Returns:
+        dict: ``{maya dag path: kind}``. Empty when nothing qualifies, and empty
+        on ANY failure: this is a cleanup, never a reason to lose a conversion.
+    """
+    machinery_shapes = ("nurbsCurve", "bezierCurve", "locator")
+    try:
+        from pythontk import RigMachinery
+    except Exception as error:
+        print(
+            "rig: pythontk unavailable ({}); the rig's apparatus travels with "
+            "it.".format(error)
+        )
+        return {}
+    try:
+        transforms = cmds.ls(type="transform", long=True) or []
+        if not transforms:
+            return {}
+        nodes = {}
+        for node in transforms:
+            node_type = cmds.nodeType(node)
+            shapes = [
+                cmds.nodeType(s)
+                for s in (
+                    cmds.listRelatives(
+                        node, shapes=True, fullPath=True, noIntermediate=True
+                    )
+                    or []
+                )
+            ]
+            if any(s not in machinery_shapes for s in shapes):
+                kind = RigMachinery.CONTENT
+            elif node_type.endswith("Constraint"):
+                kind = "constraint"
+            elif node_type in ("ikHandle", "ikEffector"):
+                kind = "ik"
+            elif node_type == "joint":
+                kind = "joint"  # nothing content is skinned to it
+            elif shapes:
+                kind = "locator" if set(shapes) == {"locator"} else "control"
+            else:
+                kind = "group"
+            nodes[node] = kind
+
+        protected = []
+        for skin in cmds.ls(type="skinCluster") or []:
+            geometry = cmds.skinCluster(skin, query=True, geometry=True) or []
+            if not any(cmds.nodeType(g) not in machinery_shapes for g in geometry):
+                continue  # deforms only the rig's own curve: its joints are rig too
+            for influence in cmds.skinCluster(skin, query=True, influence=True) or []:
+                protected.extend(cmds.ls(influence, long=True) or [])
+
+        graph = (rig or {}).get("graph")
+        if graph is None:
+            try:
+                from mayatk.rig_utils.rig_graph_extract import RigGraphExtractor
+
+                graph = RigGraphExtractor().extract()
+            except Exception as error:
+                print(
+                    "rig: no graph to name the apparatus from ({}); only "
+                    "constraint and IK nodes are named.".format(error)
+                )
+                graph = {}
+        path_of = {n.get("id"): n.get("path") for n in graph.get("nodes") or []}
+        build = set(((rig or {}).get("plan") or {}).get("build") or [])
+        for record in graph.get("records") or []:
+            if record.get("id") not in build:
+                continue
+            ids = [(record.get("target") or {}).get("id")]
+            ids += [s.get("id") for s in record.get("sources") or []]
+            for node_id in ids:
+                path = path_of.get(node_id)
+                protected.extend((cmds.ls(path, long=True) or []) if path else ())
+
+        seeds = set()
+        for path in path_of.values():
+            seeds.update((cmds.ls(path, long=True) or []) if path else ())
+        for node_type in ("constraint", "ikHandle", "ikEffector"):
+            seeds.update(cmds.ls(type=node_type, long=True) or [])
+
+        kinds = RigMachinery.classify(nodes, seeds=seeds, protected=protected)
+        # Every DAG node, not just transforms: a USD payload lands each SHAPE as
+        # its own object too, so a shape's name is in the consumer's namespace.
+        kinds, dropped = RigMachinery.unambiguous(
+            kinds, cmds.ls(dag=True, long=True) or []
+        )
+        if dropped:
+            print(
+                "rig: {} apparatus node(s) share a short name with a node that "
+                "must survive; kept.".format(len(dropped))
+            )
+        return kinds
+    except Exception:
+        print("rig: machinery census failed; the rig's apparatus travels with it.")
+        traceback.print_exc()
+        return {}
+
+
+def write_manifest(
+    cmds,
+    materials=None,
+    shading_groups=None,
+    bones=None,
+    shots=None,
+    rig=None,
+    machinery=None,
+):
     """Sidecar beside the USD carrying what USD itself cannot: instance groups,
-    and the scene's time setup (``scene`` -- the stage carries the fps and only
+    the scene's time setup (``scene`` -- the stage carries the fps and only
     the SAMPLED range, which is narrowed to what moves; see
-    ``_animation_frame_range``).
+    ``_animation_frame_range``), and the joint hierarchy the skin pre-pass
+    flattened away (``bones`` -- see ``_export_ready_skins``), and the rig
+    apparatus the bake left inert (``machinery`` -- see
+    ``_classify_rig_machinery``).
 
     ALWAYS written for the USD route (empty groups included), so the Blender
     side can tell "no instances" from "sidecar lost" -- it REQUIRES the file.
@@ -650,62 +991,156 @@ def write_manifest(cmds, materials=None, shading_groups=None):
     import json
 
     groups = collect_instance_groups(cmds)
+    data = {
+        "version": 2,
+        "format": "paths",
+        "instances": groups,
+        "materials": materials or [],
+        "shading_groups": shading_groups or {},
+        "scene": scene_settings(cmds),
+        "bones": bones or {},
+        **({"rig": rig} if rig else {}),
+        **({"machinery": machinery} if machinery else {}),
+    }
+    if shots:  # absent = nothing to say; the consumer gates on presence
+        data["shots"] = shots
     with open(OUT_USD + ".manifest.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "version": 2,
-                "format": "paths",
-                "instances": groups,
-                "materials": materials or [],
-                "shading_groups": shading_groups or {},
-                "scene": scene_settings(cmds),
-            },
-            fh,
-        )
+        json.dump(data, fh)
     print(
         "instance manifest: {} group(s) covering {} transforms".format(
             len(groups), sum(len(g) for g in groups)
         )
     )
+    if machinery:
+        print(
+            "rig: {} baked-rig node(s) named for the consumer to drop.".format(
+                len(machinery)
+            )
+        )
+
+
+def _progress(done, total, text):
+    """A ``pythontk.ProgressRelay`` marker line, flushed so the parent's footer sees it
+    while the conversion runs. Spelled out: the marker protocol needs no import."""
+    print("::progress:: {}/{} {}".format(done, total, text), flush=True)
 
 
 def main():
     import maya.standalone
 
+    _progress(0, 5, "Starting Maya")
     maya.standalone.initialize(name="python")
     import maya.cmds as cmds
 
     workspace = _resolve_workspace(cmds, SRC_PATH)
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
+    _progress(0, 5, "Opening the scene")
     _open_scene(cmds, SRC_PATH)
+    # Read off the ORIGINAL scene, before the skin pass rewrites its curves: the
+    # section describes what the artist authored. Names spelled as the exporter
+    # writes the prims.
+    shots = shots_section(cmds, lambda name: _sanitize_prim_name(name.split("|")[-1]))
     # Read off the ORIGINAL networks: the usd-safe pass rewires them.
+    _progress(1, 5, "Translating materials")
     materials, shading_groups = collect_materials(cmds)
     usd_safe_materials(cmds)
+    # Sample only the frames that carry motion -- see _animation_frame_range for
+    # the measured cost of getting this wrong. Decided BEFORE the skin pass keys
+    # every influence at each of them.
+    frame_range = _animation_frame_range(cmds) if INCLUDE_ANIMATION else None
+    _progress(2, 5, "Preparing skins")
+    bones = _export_ready_skins(
+        cmds,
+        range(int(frame_range[0]), int(frame_range[1]) + 1)
+        if frame_range
+        else [cmds.currentTime(query=True)],
+        "ancestor",
+    )
+    rig = {}
+    if RIG_MODE == "rig":
+        _progress(2, 5, "Transferring the rig")
+        rig = _transfer_rig(
+            cmds,
+            list(range(int(frame_range[0]), int(frame_range[1]) + 1))
+            if frame_range
+            else [cmds.currentTime(query=True)],
+        )
+    # Named now, dropped by the consumer once the payload is in: deleting it
+    # HERE would delete the motion mayaUsd is about to sample (this route has no
+    # bake of its own). `raw` asks for the scene untouched, apparatus included.
+    machinery = {} if RIG_MODE == "raw" else _classify_rig_machinery(cmds, rig)
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")
-    export_usd(cmds)
+    _progress(3, 5, "Writing the USD")
+    export_usd(cmds, frame_range)
+    _progress(4, 5, "Writing the manifest")
     # AFTER the export: the sidecar describes the scene the USD was written
     # from, and a failed export must not leave a stale manifest behind. A
     # failed MANIFEST must not leave the USD behind either -- success is
     # judged by the artifact, and a USD without its sidecar would import
     # silently flattened.
     try:
-        write_manifest(cmds, materials, shading_groups)
+        write_manifest(
+            cmds,
+            materials,
+            shading_groups,
+            bones,
+            shots=shots,
+            rig=rig,
+            machinery=machinery,
+        )
     except Exception:
         try:
             os.remove(OUT_USD)
         except OSError:
             pass
         raise
+    _progress(5, 5, "Converted")
+
+
+def shots_section(cmds, spell):
+    """The scene's shots as the manifest's ``shots`` section, or ``None``.
+
+    Neither carrier has a place for a shot, a marker, a locked gap or the samples
+    the sequencer planted on shot bounds, so the store crosses as data and
+    ``MayaSceneImport`` rebuilds it 1:1. mayatk's store encodes it
+    (``ShotStore.export_transfer`` over ``pythontk.ShotTransfer``), names spelled
+    by *spell* as the carrier will write them. Guarded like the other mayatk
+    pre-passes: without mayatk on ``PYTHONPATH`` the shots are not carried, and a
+    printed line says so.
+    """
+    try:
+        from mayatk.anim_utils.shots._shots import ShotStore
+    except Exception as error:  # noqa: BLE001 -- degrade, never fail the conversion
+        print("shots: mayatk unavailable ({}); not carried.".format(error))
+        return None
+    try:
+        return ShotStore.export_transfer(spell=spell)
+    except Exception:  # noqa: BLE001
+        print("shots: could not read the scene's shots; not carried:")
+        traceback.print_exc()
+        return None
+
+
+def _exit(code):
+    """Leave without teardown. ``os._exit`` is not enough on Windows: it still runs
+    every DLL's detach, where Maya's static destructors fault and its crash handler
+    saves the open scene into the temp dir -- a 366 MB ``[Recovered]`` copy per
+    production conversion (measured). ``pythontk.ProcessExit`` skips detach; without
+    pythontk on the path this degrades to ``os._exit``."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        from pythontk.core_utils.process_exit import ProcessExit
+    except Exception:  # noqa: BLE001 -- the exit must never raise
+        os._exit(code)
+    ProcessExit.hard_exit(code)
 
 
 try:
     main()
 except Exception:
     traceback.print_exc()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(1)
+    _exit(1)
 # Success is judged by the artifact; skip standalone teardown (known access violations).
-sys.stdout.flush()
-os._exit(0)
+_exit(0)

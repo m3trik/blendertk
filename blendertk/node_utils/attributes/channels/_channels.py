@@ -16,6 +16,7 @@ the ``kind`` (``"transform"`` / ``"custom"``), the display ``type`` and an ``is_
 ``import bpy`` is deferred into the call bodies (no import side effects) so the module — and the
 package surface — resolves under headless ``--background`` without a running Blender.
 """
+
 import math
 
 
@@ -40,9 +41,15 @@ class Channels:
 
     # Canonical channel-box ordering: Location → Rotation → Scale, then custom props alphabetically.
     _CHANNEL_BOX_ORDER = [
-        "location_x", "location_y", "location_z",
-        "rotation_x", "rotation_y", "rotation_z",
-        "scale_x", "scale_y", "scale_z",
+        "location_x",
+        "location_y",
+        "location_z",
+        "rotation_x",
+        "rotation_y",
+        "rotation_z",
+        "scale_x",
+        "scale_y",
+        "scale_z",
     ]
 
     # (friendly name, data_path, array index, is_angle) for the nine transform channels.
@@ -112,7 +119,9 @@ class Channels:
                 except (ReferenceError, AttributeError):
                     continue
         else:
-            objs = [o for o in (getattr(bpy.context, "selected_objects", None) or []) if o]
+            objs = [
+                o for o in (getattr(bpy.context, "selected_objects", None) or []) if o
+            ]
         if self._single_object_mode and len(objs) > 1:
             active = getattr(bpy.context, "active_object", None)
             return [active] if active in objs else [objs[-1]]
@@ -208,9 +217,7 @@ class Channels:
         if invert:
             all_names = set()
             for o in objects:
-                all_names |= set(
-                    d["name"] for d in cls._channels_for_object(o, "all")
-                )
+                all_names |= set(d["name"] for d in cls._channels_for_object(o, "all"))
             common_names = all_names - common_names
 
         # Resolve names → descriptors against the primary object (falls back to a transform
@@ -233,7 +240,11 @@ class Channels:
         if filter_key == "locked":
             return [d for d in transform if cls.is_locked(obj, d)]
         if filter_key == "animated":
-            return [d for d in (transform + custom) if cls.classify_connection(obj, d) != "none"]
+            return [
+                d
+                for d in (transform + custom)
+                if cls.classify_connection(obj, d) != "none"
+            ]
         return transform + custom
 
     @classmethod
@@ -285,7 +296,11 @@ class Channels:
             return str(val)
         if isinstance(val, float):
             return cls._fmt_float(val)
-        if isinstance(val, (list, tuple)) or hasattr(val, "__len__") and not isinstance(val, str):
+        if (
+            isinstance(val, (list, tuple))
+            or hasattr(val, "__len__")
+            and not isinstance(val, str)
+        ):
             inner = ", ".join(
                 cls._fmt_float(v) if isinstance(v, float) else str(v) for v in val
             )
@@ -442,7 +457,9 @@ class Channels:
         if fc is not None:
             if getattr(fc, "mute", False):
                 return "muted"
-            return "keyframe_active" if cls._has_key_at_current_frame(fc) else "keyframe"
+            return (
+                "keyframe_active" if cls._has_key_at_current_frame(fc) else "keyframe"
+            )
         if descriptor["kind"] == "transform" and getattr(obj, "constraints", None):
             return "constraint"
         return "none"
@@ -485,7 +502,9 @@ class Channels:
                         val = "*"
                         break
             rows.append([d["name"], "", "", cls.format_value(val), d["type"]])
-            states.append((cls.is_locked(primary, d), cls.classify_connection(primary, d)))
+            states.append(
+                (cls.is_locked(primary, d), cls.classify_connection(primary, d))
+            )
 
         if not rows:
             rows = [["", "", "", "", "No channels"]]
@@ -608,31 +627,24 @@ class Channels:
 
     @staticmethod
     def _remove_fcurve(obj, fcurve):
-        """Remove *fcurve* from whichever container owns it (legacy action or 4.4+ channelbag).
+        """Remove *fcurve* from whichever container owns it. ``True`` on success.
 
-        Returns ``True`` on success.
+        Delegates to the package's one slot-aware remover rather than repeating that
+        traversal. This copy used to try the flat ``action.fcurves`` first and catch
+        (RuntimeError, TypeError, ReferenceError); Blender 5.x REMOVED that attribute,
+        so the access raises AttributeError -- not in that tuple -- and the slotted
+        branch beneath it was unreachable. :meth:`break_connections` propagated
+        instead of removing anything (measured on 5.1.2: 3 curves before and after).
         """
-        act = getattr(getattr(obj, "animation_data", None), "action", None)
-        if act is None:
+        from blendertk.anim_utils._anim_utils import _AnimUtilsInternal
+
+        anim = getattr(obj, "animation_data", None)
+        action = getattr(anim, "action", None)
+        if action is None:
             return False
-        # Legacy action.
-        try:
-            act.fcurves.remove(fcurve)
-            return True
-        except (RuntimeError, TypeError, ReferenceError):
-            pass
-        # Slotted action (4.4+): the curve lives in a layer/strip channelbag.
-        for layer in getattr(act, "layers", []) or []:
-            for strip in getattr(layer, "strips", []) or []:
-                slot = getattr(obj.animation_data, "action_slot", None)
-                try:
-                    cb = strip.channelbag(slot) if slot is not None else None
-                    if cb is not None:
-                        cb.fcurves.remove(fcurve)
-                        return True
-                except (RuntimeError, TypeError, ReferenceError):
-                    continue
-        return False
+        return _AnimUtilsInternal._remove_fcurve(
+            action, getattr(anim, "action_slot", None), fcurve
+        )
 
     @classmethod
     def set_mute(cls, objects, descriptors, mute=True):
@@ -792,7 +804,11 @@ class Channels:
                 cast = int if attr_type == "int" else float
                 try:
                     ui = obj.id_properties_ui(name)
-                    kw = {"default": list(obj[name]) if attr_type == "vector" else obj[name]}
+                    kw = {
+                        "default": list(obj[name])
+                        if attr_type == "vector"
+                        else obj[name]
+                    }
                     if attr_type == "vector":
                         kw["subtype"] = "XYZ"
                     if min_val is not None:
@@ -913,7 +929,11 @@ class Channels:
         """Return the set of {location, rotation, scale} groups *descriptors* touch."""
         if not descriptors:
             return set()
-        mapping = {"location": "location", "rotation_euler": "rotation", "scale": "scale"}
+        mapping = {
+            "location": "location",
+            "rotation_euler": "rotation",
+            "scale": "scale",
+        }
         return {
             mapping[d["data_path"]]
             for d in descriptors

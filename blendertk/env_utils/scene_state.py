@@ -23,6 +23,7 @@ the shared system).
 ``bpy`` is never imported at module scope, so the package surface still
 resolves without a running Blender.
 """
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

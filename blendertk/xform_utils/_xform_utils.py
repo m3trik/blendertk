@@ -405,11 +405,7 @@ class XformUtils(_XformUtilsInternal):
         ``mtk.XformUtils.has_stored_transforms``). Bakes are stamped by :func:`freeze_transforms`;
         the Channels panel uses this to gate its Unfreeze action."""
         keys = _XformUtilsInternal._bake_keys(prefix)
-        return {
-            o: any(k in o for k in keys)
-            for o in ptk.make_iterable(objects)
-            if o
-        }
+        return {o: any(k in o for k in keys) for o in ptk.make_iterable(objects) if o}
 
     @staticmethod
     def store_transforms(
@@ -854,7 +850,9 @@ class XformUtils(_XformUtilsInternal):
         return aimed
 
     @staticmethod
-    def restore_original_axes(objects=None, prefix=_DEFAULT_BAKE_PREFIX, name="Authored"):
+    def restore_original_axes(
+        objects=None, prefix=_DEFAULT_BAKE_PREFIX, name="Authored"
+    ):
         """Point the transform gizmo at an object's PRE-FREEZE axes, without un-freezing —
         mirror of ``mtk.XformUtils.restore_original_axes``.
 
@@ -876,7 +874,9 @@ class XformUtils(_XformUtilsInternal):
         if not objects:
             objects = list(CoreUtils.selected_objects())
         stamped = [
-            o for o in objects if XformUtils.get_stored_transforms(o, prefix) is not None
+            o
+            for o in objects
+            if XformUtils.get_stored_transforms(o, prefix) is not None
         ]
         if not stamped:
             return None

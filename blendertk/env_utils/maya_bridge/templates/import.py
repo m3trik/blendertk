@@ -35,7 +35,10 @@ Post-import repairs (both best-effort -- a repair must never cost the user the i
 BRIDGE_MODES = ("send_to",)
 
 # Export settings applied Blender-side before launch (read by MayaBridge; echoed here so the panel
-# exposes them): scope=__SCOPE__ carrier=__CARRIER__ materials=__INCLUDE_MATERIALS__ embed_textures=__EMBED_TEXTURES__ apply_unit_scale=__APPLY_UNIT_SCALE__ include_animation=__INCLUDE_ANIMATION__ triangulate=__TRIANGULATE__
+# exposes them): scope=__SCOPE__ carrier=__CARRIER__ materials=__INCLUDE_MATERIALS__ embed_textures=__EMBED_TEXTURES__ apply_unit_scale=__APPLY_UNIT_SCALE__ include_animation=__INCLUDE_ANIMATION__ triangulate=__TRIANGULATE__ shots=__INCLUDE_SHOTS__
+#
+# ``shots`` changes what rides beside the FBX: on, the scene's shots travel in the
+# manifest and mayatk rebuilds them 1:1 in its Shot Sequencer.
 import os
 import sys
 import traceback
@@ -142,13 +145,19 @@ def restore_usd_locators(new_nodes):
         BlenderSceneImport._restore_usd_locators(new_nodes, FBX_PATH + ".manifest.json")
         return
     except Exception as error:
-        print("Locator repair via mayatk unavailable ({}); using the heuristic.".format(error))
+        print(
+            "Locator repair via mayatk unavailable ({}); using the heuristic.".format(
+                error
+            )
+        )
     # exactType: a joint IS a transform, and a shapeless leaf joint is a
     # skeleton tip, not a point marker.
     for transform in cmds.ls(new_nodes, exactType="transform", long=True) or []:
         if cmds.listRelatives(transform, shapes=True, fullPath=True):
             continue
-        if cmds.listRelatives(transform, children=True, type="transform", fullPath=True):
+        if cmds.listRelatives(
+            transform, children=True, type="transform", fullPath=True
+        ):
             continue
         short = transform.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
         cmds.createNode("locator", name=short + "Shape", parent=transform)
@@ -230,7 +239,7 @@ def restore_empty_groups(new_nodes):
                 (
                     k
                     for want, k in rules.items()
-                    if short.startswith(want) and short[len(want):].isdigit()
+                    if short.startswith(want) and short[len(want) :].isdigit()
                 ),
                 None,
             )
@@ -271,6 +280,29 @@ def rebuild_materials(new_nodes):
         traceback.print_exc()
 
 
+def rebuild_shots(new_nodes):
+    """Rebuild the sent scene's shots from the sidecar's ``shots`` section through
+    mayatk's applier (mirror of ``rebuild_materials``): 1:1 in Maya's Shot
+    Sequencer, memberships scoped to what arrived. Best-effort by contract.
+    """
+    manifest = FBX_PATH + ".manifest.json"
+    if not os.path.isfile(manifest):
+        return
+    _extend_sys_path()
+    try:
+        from mayatk.env_utils.blender_bridge._scene_import import BlenderSceneImport
+    except Exception as error:
+        print("mayatk unavailable ({}); the sent shots are not rebuilt.".format(error))
+        return
+    try:
+        BlenderSceneImport(log_level="WARNING")._apply_shots_manifest(
+            manifest, new_nodes, carrier=CARRIER
+        )
+    except Exception:
+        print("Shot rebuild failed; the scene keeps its own shots:")
+        traceback.print_exc()
+
+
 def main():
     if CLEAR_SCENE:
         cmds.file(new=True, force=True)
@@ -284,15 +316,12 @@ def main():
     else:
         restore_empty_groups(new_nodes)
     rebuild_materials(new_nodes)
+    rebuild_shots(new_nodes)
 
     if not FRAME_VIEW:
         return
 
-    tops = [
-        n
-        for n in (cmds.ls(new_nodes, assemblies=True) or [])
-        if cmds.objExists(n)
-    ]
+    tops = [n for n in (cmds.ls(new_nodes, assemblies=True) or []) if cmds.objExists(n)]
     if tops:
         cmds.select(tops, replace=True)
     try:

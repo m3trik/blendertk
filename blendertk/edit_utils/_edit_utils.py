@@ -93,7 +93,9 @@ class _EditUtilsInternal(object):
             _EditUtilsInternal._bmesh_edit(o, fn)
 
     @staticmethod
-    def _cut_offsets(amount, span, distribution="linear", weight_bias=0.5, weight_curve=2.0):
+    def _cut_offsets(
+        amount, span, distribution="linear", weight_bias=0.5, weight_curve=2.0
+    ):
         """Signed axis offsets (from the pivot) for ``amount`` cuts across ``span`` — mirror of
         ``mtk``'s ``_cut_offsets``. Each cut lands at ``(f - 0.5) * span`` where ``f`` is a
         :class:`pythontk.ProgressionCurves` curve evaluated on a symmetric ``t`` in ``[0, 1]``:
@@ -204,7 +206,9 @@ class _EditUtilsInternal(object):
                         lambda bm: bmesh.ops.triangulate(
                             bm,
                             faces=[
-                                f for f in bm.faces if all(is_sel[v.index] for v in f.verts)
+                                f
+                                for f in bm.faces
+                                if all(is_sel[v.index] for v in f.verts)
                             ],
                         ),
                     )
@@ -233,17 +237,23 @@ class _EditUtilsInternal(object):
             if apply:
                 vg_name = vgroup.name if vgroup is not None else None
                 _EditUtilsInternal._apply_modifier(o, mod.name)
-                if vg_name is not None:  # (re-fetch: the apply invalidates the RNA handle)
+                if (
+                    vg_name is not None
+                ):  # (re-fetch: the apply invalidates the RNA handle)
                     o.vertex_groups.remove(o.vertex_groups[vg_name])
             done.append(o)
         if apply:  # ``_apply_modifier`` narrows the selection to its last target; re-select what
-            for o in done:  # we touched so the mode restore re-enters multi-object Edit Mode.
+            for o in (
+                done
+            ):  # we touched so the mode restore re-enters multi-object Edit Mode.
                 o.select_set(True)
         return done
 
     @staticmethod
     @CoreUtils._object_mode
-    def _dissolve_coplanar_meshes(meshes, scoped, angle_tolerance, delimit, preserve_borders, apply):
+    def _dissolve_coplanar_meshes(
+        meshes, scoped, angle_tolerance, delimit, preserve_borders, apply
+    ):
         """Worker for :meth:`EditUtils.dissolve_coplanar` — ``scoped`` are the meshes that were in
         Edit Mode at call time; those dissolve only among their selected verts/edges (bmesh
         ``dissolve_limit``, the same solver the PLANAR Decimate modifier runs, which itself has no
@@ -746,7 +756,9 @@ class EditUtils(_EditUtilsInternal):
         reduces. Returns the processed objects.
         """
         meshes = _EditUtilsInternal._meshes(objects)
-        scoped = [o for o in meshes if o.mode == "EDIT"]  # read BEFORE the worker leaves Edit Mode
+        scoped = [
+            o for o in meshes if o.mode == "EDIT"
+        ]  # read BEFORE the worker leaves Edit Mode
         return _EditUtilsInternal._decimate_meshes(
             meshes, scoped, percentage, preserve_quads, symmetry, apply
         )
@@ -770,7 +782,9 @@ class EditUtils(_EditUtilsInternal):
         Object Mode the whole mesh. Returns the processed objects.
         """
         meshes = _EditUtilsInternal._meshes(objects)
-        scoped = [o for o in meshes if o.mode == "EDIT"]  # read BEFORE the worker leaves Edit Mode
+        scoped = [
+            o for o in meshes if o.mode == "EDIT"
+        ]  # read BEFORE the worker leaves Edit Mode
         return _EditUtilsInternal._dissolve_coplanar_meshes(
             meshes, scoped, angle_tolerance, delimit, preserve_borders, apply
         )
@@ -1934,7 +1948,11 @@ class EditUtils(_EditUtilsInternal):
     @staticmethod
     @CoreUtils._object_mode
     def separate_objects(
-        objects=None, *, by_material=False, rename=False, center_pivots=True,
+        objects=None,
+        *,
+        by_material=False,
+        rename=False,
+        center_pivots=True,
         uninstance=True,
     ):
         """Separate mesh(es) into loose parts, or one object per material (``by_material``) — Blender

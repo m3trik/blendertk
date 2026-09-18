@@ -15,10 +15,12 @@ mayatk panel. Run under the workspace ``.venv``::
 The functional engine behaviour (move / ripple / gap / reorder / trim, which need a
 real scene) is covered by ``test_shot_sequencer.py`` under the Blender harness.
 """
+
 import os
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_API", "pyside6")
@@ -50,6 +52,223 @@ if QtWidgets is not None:
 
 
 @unittest.skipIf(QtWidgets is None, "Qt not available (Blender headless Python)")
+class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
+    """A refused boundary edit is an answer, not a crash.
+
+    ``_reconcile_boundaries`` raises :class:`ShotBoundaryConflict` BEFORE
+    writing anything when two shots would have to share a sample whose two
+    poses disagree.  Twenty-two public sequencer methods can reach it --
+    ``apply_gap``, ``move_shot``, ``move_shot_to_position``,
+    ``ripple_downstream``, ``respace``, ``trim_shot_to_content`` among them --
+    so every boundary-mutating slot is exposed.
+
+    Until 2026-09-16 this panel called ``store.push_boundary_snapshot()`` raw
+    at ten sites and caught nothing.  A refusal therefore escaped to Qt's
+    handler AND left the restore point pushed, so the panel's undo offered to
+    "restore" a state the scene was already in.  mayatk centralises the refusal
+    in ``_boundary_edit``; blendertk already had the idiom next door in
+    ``shot_sequencer_slots`` ("a refusal is an answer, not a crash") and simply
+    did not use it here.
+    """
+
+    def _controller(self):
+        from blendertk.anim_utils.shots.shots_slots import ShotsController
+
+        return ShotsController.__new__(ShotsController)
+
+    def _store(self):
+        class _Store:
+            def __init__(self):
+                self.pushed = 0
+                self.discarded = 0
+
+            def push_boundary_snapshot(self, *a, **k):
+                self.pushed += 1
+
+            def discard_boundary_snapshot(self, *a, **k):
+                self.discarded += 1
+
+        return _Store()
+
+    def _bind(self, ctl):
+        """Give the bare controller the two collaborators the guard uses."""
+        import logging
+
+        ctl.logger = logging.getLogger("test_boundary_edit")
+        ctl._footer_messages = []
+        ctl._set_footer = ctl._footer_messages.append
+        return ctl
+
+    def test_a_refusal_does_not_propagate(self):
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+        ctl = self._bind(self._controller())
+        store = self._store()
+
+        def _refuse():
+            raise ShotBoundaryConflict([])
+
+        ok = ctl._boundary_edit(store, "reorder", _refuse)
+        self.assertFalse(ok, "a refused edit must report False, not raise")
+
+    def test_a_refusal_discards_the_restore_point(self):
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+        ctl = self._bind(self._controller())
+        store = self._store()
+
+        def _refuse():
+            raise ShotBoundaryConflict([])
+
+        ctl._boundary_edit(store, "reorder", _refuse)
+        self.assertEqual(store.pushed, 1)
+        self.assertEqual(
+            store.discarded,
+            1,
+            "nothing changed, so the restore point must not be left behind",
+        )
+
+    def test_a_refusal_is_reported_to_the_user(self):
+        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+        ctl = self._bind(self._controller())
+
+        def _refuse():
+            raise ShotBoundaryConflict([])
+
+        ctl._boundary_edit(self._store(), "reorder", _refuse)
+        self.assertTrue(ctl._footer_messages, "a refusal must reach the footer")
+
+    def test_a_successful_edit_runs_and_keeps_its_restore_point(self):
+        ctl = self._bind(self._controller())
+        store = self._store()
+        calls = []
+
+        ok = ctl._boundary_edit(store, "gap", calls.append, "ran")
+        self.assertTrue(ok)
+        self.assertEqual(calls, ["ran"], "args must reach the callable")
+        self.assertEqual(store.pushed, 1)
+        self.assertEqual(store.discarded, 0)
+
+    def test_an_unrelated_error_still_propagates(self):
+        """The guard catches a REFUSAL, not every failure."""
+        ctl = self._bind(self._controller())
+
+        def _boom():
+            raise ValueError("unrelated")
+
+        with self.assertRaises(ValueError):
+            ctl._boundary_edit(self._store(), "gap", _boom)
+
+
+class TestNoRawSnapshotPushes(unittest.TestCase):
+    """Every boundary edit in this panel routes through the guard.
+
+    A source check, because the behavioural cases above can only cover the
+    helper itself -- what actually regressed here was ten CALL SITES each
+    doing the bookkeeping by hand.  Ten hand-written copies of one shape is
+    the pattern CODE_STANDARD.md §6 names: derive the guard from the shape,
+    never from a hand-listed subset of the sites.
+    """
+
+    def _source(self):
+        import blendertk.anim_utils.shots.shots_slots as mod
+
+        return Path(mod.__file__).read_text(encoding="utf-8")
+
+    def _refusing_engine_calls(self):
+        """Public sequencer methods whose call graph reaches the refusal.
+
+        DERIVED from the engine, not listed: the set grew to 22 methods without
+        anyone maintaining a list, and a stale list is a guard that quietly
+        stops covering the newest way to be refused.
+        """
+        import ast
+
+        import blendertk.anim_utils.shots.shot_sequencer._shot_sequencer as eng
+
+        tree = ast.parse(Path(eng.__file__).read_text(encoding="utf-8"))
+        graph = {}
+        for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            for fn in cls.body:
+                if isinstance(fn, ast.FunctionDef):
+                    graph[fn.name] = {
+                        c.func.attr
+                        for c in ast.walk(fn)
+                        if isinstance(c, ast.Call)
+                        and isinstance(c.func, ast.Attribute)
+                        and isinstance(c.func.value, ast.Name)
+                        and c.func.value.id == "self"
+                    }
+        reach, changed = {"_reconcile_boundaries"}, True
+        while changed:
+            changed = False
+            for name, calls in graph.items():
+                if name not in reach and (calls & reach):
+                    reach.add(name)
+                    changed = True
+        return {n for n in reach if not n.startswith("_")}
+
+    def test_every_slot_calling_a_refusing_method_uses_the_guard(self):
+        """The general form: mirrors mayatk's test_shots_boundary_guard.
+
+        The snapshot check below catches a slot that does the bookkeeping by
+        hand. This catches the other shape -- a slot that calls a refusing
+        engine method and brackets it some other way, or not at all.
+        """
+        import ast
+
+        refusing = self._refusing_engine_calls()
+        self.assertTrue(refusing, "engine call graph resolved empty")
+        tree = ast.parse(self._source())
+        offenders = []
+        for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            for fn in cls.body:
+                if not isinstance(fn, ast.FunctionDef) or fn.name == "_boundary_edit":
+                    continue
+                calls = {
+                    c.func.attr
+                    for c in ast.walk(fn)
+                    if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                }
+                hit = calls & refusing
+                if hit and "_boundary_edit" not in calls:
+                    offenders.append(
+                        "%s (line %d) calls %s"
+                        % (fn.name, fn.lineno, ", ".join(sorted(hit)))
+                    )
+        self.assertEqual(
+            [],
+            offenders,
+            "these slots can be refused but do not route through "
+            "_boundary_edit: %s" % offenders,
+        )
+
+    def test_push_boundary_snapshot_appears_only_inside_the_guard(self):
+        import ast
+
+        src = self._source()
+        tree = ast.parse(src)
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef) or node.name == "_boundary_edit":
+                continue
+            for call in ast.walk(node):
+                if (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "push_boundary_snapshot"
+                ):
+                    offenders.append("%s (line %d)" % (node.name, call.lineno))
+        self.assertEqual(
+            [],
+            offenders,
+            "these slots push a restore point by hand instead of going through "
+            "_boundary_edit, so a ShotBoundaryConflict escapes and strands it: %s"
+            % offenders,
+        )
+
+
 class TestShotsPanelLoads(unittest.TestCase):
     """The Shots panel loads through the real discovery + compile path."""
 

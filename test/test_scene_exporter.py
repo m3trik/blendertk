@@ -505,6 +505,56 @@ try:
         is None,
     )
 
+    # --- hierarchy baseline: on the .blend, not the deliverable's name --------
+    # Mirror of mayatk. blendertk has no hierarchy CHECK yet (a declared
+    # PARITY_GAPS entry), so this covers the WRITER: the record has to exist and
+    # roll forward from the day the writer does, or the check lands with no
+    # history behind it.
+    from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import HierarchyBaseline
+
+    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "")
+    _hb_dir = os.path.join(out_dir, "baseline")
+    os.makedirs(_hb_dir, exist_ok=True)
+    _hb_tm = exp5.task_manager
+    _hb_tm.objects = [lone]
+    _hb_tm.run = _hb_tm.run.replace(export_path=os.path.join(_hb_dir, "asset.fbx"))
+    _hb_tm.write_scene_data_sidecar()
+    _hb_first = HierarchyBaseline.read()
+    check("baseline recorded on the .blend", bool(_hb_first))
+
+    # The SAME scene exported under a different name keeps the same record --
+    # the bug this replaced keyed it by the output stem, so a rename silently
+    # started over and the next export passed no matter what had changed.
+    _hb_tm.run = _hb_tm.run.replace(
+        export_path=os.path.join(_hb_dir, "WIP_prod_thing_v007.fbx")
+    )
+    _hb_tm.write_scene_data_sidecar()
+    check(
+        "an output rename does not reset the baseline",
+        HierarchyBaseline.read() == _hb_first,
+        f"{sorted(HierarchyBaseline.read())} != {sorted(_hb_first)}",
+    )
+
+    # A second scope accumulates rather than replacing the first.
+    _hb_other = bpy.data.objects.new("OtherAsset", None)
+    bpy.context.scene.collection.objects.link(_hb_other)
+    _hb_tm.objects = [_hb_other]
+    _hb_tm.run = _hb_tm.run.replace(export_path=os.path.join(_hb_dir, "other.fbx"))
+    _hb_tm.write_scene_data_sidecar()
+    _hb_both = HierarchyBaseline.read()
+    check(
+        "a second export scope accumulates, it does not replace",
+        _hb_first <= _hb_both and len(_hb_both) > len(_hb_first),
+        f"first={sorted(_hb_first)} both={sorted(_hb_both)}",
+    )
+
+    # An unreadable channel is "no baseline", not a crash -- and is reported as
+    # LOST rather than silently replaced.
+    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "{not json")
+    check("an unreadable baseline reads empty", HierarchyBaseline.read() == set())
+    check("an unreadable baseline is flagged", HierarchyBaseline.is_unreadable())
+    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "")
+
     # After a GLB the sidecar records the lightmap manifest the GLB ships (mirror of
     # mayatk's): the GLB pass corrects that copy to the encoded map and the scalar
     # restoring the bake range, while the scene's still names the pre-encode .exr
@@ -2068,7 +2118,6 @@ try:
                 for n in (
                     "txt000",
                     "txt001",
-                    "txt002",
                     "txt003",
                     "b009",
                     "b011",
@@ -3998,7 +4047,6 @@ try:
     _slots.ui = _NS(
         txt000=_NS(text=lambda: _ndir),
         txt001=_NS(text=lambda: "WIP_*_{nope}"),
-        txt002=_NS(text=lambda: ""),
         cmb004=_NS(currentData=lambda: "fbx"),
     )
 

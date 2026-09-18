@@ -35,7 +35,9 @@ class CameraVisibility:
 
     EXCLUSIVE_PROP = "camvis_exclusive"
     HIDDEN_PROP = "camvis_hidden"
-    _STASH_PROP = "_camvis_stash"  # scene id-prop: {obj_name: (hide_viewport, hide_render)}
+    _STASH_PROP = (
+        "_camvis_stash"  # scene id-prop: {obj_name: (hide_viewport, hide_render)}
+    )
     _MSGBUS_OWNER = object()
 
     # ------------------------------------------------------------------ set management

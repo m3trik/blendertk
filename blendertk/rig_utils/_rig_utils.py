@@ -14,6 +14,7 @@ concepts diverge" rule these are mapped to their Blender idioms — Maya **joint
 ``import bpy`` is deferred into the call bodies, so importing this module / resolving the package
 surface never needs a running Blender (matches the no-import-side-effects rule).
 """
+
 from contextlib import contextmanager
 
 
@@ -33,7 +34,11 @@ class RigUtils:
     # ----------------------------------------------------------------- handles / grouping
     @staticmethod
     def create_locator(
-        name="locator", location=(0, 0, 0), display_type="PLAIN_AXES", size=1.0, collection=None
+        name="locator",
+        location=(0, 0, 0),
+        display_type="PLAIN_AXES",
+        size=1.0,
+        collection=None,
     ):
         """Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle)."""
         import bpy
@@ -79,19 +84,29 @@ class RigUtils:
         valid view layer under ``--factory-startup``)."""
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         view_layer = bpy.context.view_layer
         prev_active = view_layer.objects.active
         # Operators need to start from OBJECT mode; settle whatever was active first.
-        if prev_active is not None and getattr(prev_active, "mode", "OBJECT") != "OBJECT":
+        if (
+            prev_active is not None
+            and getattr(prev_active, "mode", "OBJECT") != "OBJECT"
+        ):
             bpy.ops.object.mode_set(mode="OBJECT")
-        view_layer.objects.active = obj
-        obj.select_set(True)
-        bpy.ops.object.mode_set(mode=mode)
-        try:
-            yield
-        finally:
-            bpy.ops.object.mode_set(mode="OBJECT")
-            view_layer.objects.active = prev_active
+        # ``mode_set`` refuses a hidden object outright ("Cannot edit hidden object"),
+        # and hiding is not an opinion a rig edit should have: a Maya pull imports a
+        # skeleton whose visibility is ANIMATED, so at the import frame its armature
+        # is routinely hidden and every edit-mode primitive here would fail on it.
+        with CoreUtils.visible_override(obj):
+            view_layer.objects.active = obj
+            obj.select_set(True)
+            bpy.ops.object.mode_set(mode=mode)
+            try:
+                yield
+            finally:
+                bpy.ops.object.mode_set(mode="OBJECT")
+                view_layer.objects.active = prev_active
 
     @staticmethod
     def create_armature(name="armature", location=(0, 0, 0), collection=None):
@@ -135,7 +150,9 @@ class RigUtils:
         return names
 
     @staticmethod
-    def add_bone(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True):
+    def add_bone(
+        armature, name, head, tail, parent=None, connect=False, radius=None, deform=True
+    ):
         """Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone
         analogue of :meth:`add_bone_chain`, for anchor/helper bones grafted onto an already-built
         rig. *parent* is an existing bone name to parent under (``connect`` snaps this bone's head to
@@ -158,6 +175,112 @@ class RigUtils:
             b.use_deform = deform
             created = b.name
         return created
+
+    @staticmethod
+    def _detach_connected_children(bone):
+        """Unglue every child of *bone* whose head is locked to its TAIL, so an edit
+        to this bone cannot move another one. Returns how many were detached.
+
+        `use_connect` is Blender's "my head IS my parent's tail", so any edit that
+        moves the tail drags the child -- a REST change. At rest that is invisible,
+        because the pose follows the rest; under a BAKED pose (what every pull
+        writes) it moves the skin. A carrier's bind is authored data and a bone's
+        drawn length is a guess, so when the two disagree it is the glue that gives.
+        """
+        detached = 0
+        for child in bone.children:
+            if child.use_connect:
+                child.use_connect = False
+                detached += 1
+        return detached
+
+    @staticmethod
+    def set_bone_heads(armature, heads):
+        """Move bones by NAME — ``{bone: (x, y, z)}``, the new HEAD in armature space.
+        Returns the number moved; a name with no bone, and a bone already within
+        float32 reach of that point, are skipped.
+
+        The WHOLE bone translates — head and tail together — so its direction, length
+        and roll are unchanged. Connected neighbours are unglued first, this bone's
+        own ``use_connect`` included (a head glued to a parent's tail cannot move at
+        all), so nothing else shifts with it. That still makes this the opposite of
+        :meth:`set_bone_lengths`: a head is part of the rest matrix every deform
+        reads, so moving a bone ANYTHING is weighted to shifts the skin under a baked
+        pose. Only move a bone nothing deforms from — a carrier's synthetic anchor —
+        and the caller owns that check.
+        """
+        from mathutils import Vector
+
+        moved = 0
+        with RigUtils._active_mode(armature, "EDIT"):
+            ebones = armature.data.edit_bones
+            for name, head in dict(heads).items():
+                bone = ebones.get(name)
+                if bone is None:
+                    continue
+                target = Vector(head)
+                delta = target - bone.head
+                # Same float32 reasoning as set_bone_lengths: a head is an ABSOLUTE
+                # coordinate, so a no-op write still re-quantizes it.
+                if delta.length <= 1e-6 * (1.0 + target.length):
+                    continue
+                RigUtils._detach_connected_children(bone)
+                bone.use_connect = False
+                tail = Vector(bone.tail)
+                bone.head = target
+                bone.tail = tail + delta
+                moved += 1
+        return moved
+
+    @staticmethod
+    def set_bone_lengths(armature, lengths):
+        """Resize bones by NAME — ``{bone: length}``, in the armature's own units.
+        Returns the number resized; a name with no bone, a length that is not
+        positive, and a bone already at that length are all skipped.
+
+        Only the tail moves, and only along the bone's existing axis: the head,
+        direction and roll stay, so the rest matrix every deform reads is
+        untouched and the pose is not disturbed. A child bone CONNECTED to this
+        one is disconnected first -- its head is glued to this tail and would
+        otherwise be dragged, which is a rest change and moves a baked pose's
+        skin (0.35 m on a 0.6 m resize, measured). Verified on a scaled, rotated,
+        rolled, flat-parented chain: the deformed vertices moved 0.0, parent
+        bones included (a child's rest offset is stored from its parent's TAIL,
+        and Blender recomputes it from the edit bones).
+
+        The one residual is float32: a tail is stored as an absolute coordinate,
+        so writing one re-quantizes it, and the further the bone sits from its
+        armature's origin the coarser that step is. Measured on production wire
+        looms 250 units out, sizing a whole skeleton moves vertices 0.4-22 µm --
+        an order below the pull's own 0-300 µm. A no-op write costs the same, so a
+        bone already within float32 reach of the requested length is left alone,
+        which also makes repeated calls converge instead of drifting.
+
+        Bone length is a carrier's guess, not authored data: FBX and USD store no
+        length, so both importers infer one from the distance to a bone's
+        children and fall back to the parent's when there are none. That guess is
+        wrong for any skeleton whose hierarchy was flattened for export — see
+        ``MayaSceneImport``'s ``bones`` manifest section, which replays the
+        lengths the flatten removed.
+        """
+        resized = 0
+        with RigUtils._active_mode(armature, "EDIT"):
+            ebones = armature.data.edit_bones
+            for name, length in dict(lengths).items():
+                bone = ebones.get(name)
+                if bone is None or not length or float(length) <= 0.0:
+                    continue
+                # What a write could even land on: float32 resolution scales with
+                # the coordinate magnitude, and a tail is stored ABSOLUTE, so a
+                # difference under this would only re-quantize it. Too tight a
+                # tolerance is worse than none -- it rewrites on every call and
+                # drifts (measured on a rig 250 units out, converging over passes).
+                if abs(bone.length - float(length)) <= 1e-6 * (1.0 + bone.head.length):
+                    continue
+                RigUtils._detach_connected_children(bone)
+                bone.length = float(length)
+                resized += 1
+        return resized
 
     @staticmethod
     def get_bone_chain_from_root(armature, bone_name=None, reverse=False):
@@ -196,8 +319,12 @@ class RigUtils:
         mw_inv = mw.inverted()
         data_bones = armature.data.bones
         heads_tails = [
-            (mw @ data_bones[n].head_local, mw @ data_bones[n].tail_local,
-             data_bones[n].head_radius, data_bones[n].tail_radius)
+            (
+                mw @ data_bones[n].head_local,
+                mw @ data_bones[n].tail_local,
+                data_bones[n].head_radius,
+                data_bones[n].tail_radius,
+            )
             for n in bone_names
         ]
         # Old chain end's tail becomes the new chain's first head; walk the rest in reverse.
@@ -227,7 +354,9 @@ class RigUtils:
         return new_names
 
     @staticmethod
-    def add_bone_constraint(armature, bone_name, ctype, target=None, subtarget=None, **props):
+    def add_bone_constraint(
+        armature, bone_name, ctype, target=None, subtarget=None, **props
+    ):
         """Add a **pose-bone** constraint (``ctype`` e.g. ``COPY_LOCATION`` / ``STRETCH_TO`` /
         ``DAMPED_TRACK`` / ``SPLINE_IK`` / ``COPY_TRANSFORMS``) to *bone_name*, optionally targeting
         *target* (object) + *subtarget* (a bone name on it). Extra props pass through via ``setattr``.
@@ -243,13 +372,20 @@ class RigUtils:
         return c
 
     @staticmethod
-    def add_spline_ik(armature, bone_name, curve, chain_count, name="Spline IK", **props):
+    def add_spline_ik(
+        armature, bone_name, curve, chain_count, name="Spline IK", **props
+    ):
         """Add a **Spline IK** bone constraint to pose bone *bone_name* so *chain_count* bones up the
         chain fit to *curve* — the faithful analogue of Maya's ``ikSplineSolver`` IK handle. Extra
         constraint props (``y_scale_mode``, ``xz_scale_mode``, ``use_curve_radius`` …) pass through."""
         return RigUtils.add_bone_constraint(
-            armature, bone_name, "SPLINE_IK", target=curve,
-            name=name, chain_count=int(chain_count), **props,
+            armature,
+            bone_name,
+            "SPLINE_IK",
+            target=curve,
+            name=name,
+            chain_count=int(chain_count),
+            **props,
         )
 
     @staticmethod
@@ -272,7 +408,9 @@ class RigUtils:
         return mod
 
     @staticmethod
-    def apply_falloff_weights(mesh, group_name, center, radius, profile="linear", add_group=True):
+    def apply_falloff_weights(
+        mesh, group_name, center, radius, profile="linear", add_group=True
+    ):
         """Distance-falloff vertex weights — the Blender (vertex-group) analogue of mayatk's
         ``SkinUtils.apply_falloff`` (skinCluster ``skinPercent``). Every *mesh* vertex within
         *radius* world units of *center* gets ``group_name`` weight ``w = 1 - d/radius``
@@ -315,7 +453,9 @@ class RigUtils:
             t = d / r
             w = 1.0 - t * t * (3.0 - 2.0 * t) if smooth else 1.0 - t
             # snapshot the vertex's other INFLUENCES before mutating (add() invalidates v.groups)
-            others = [(g.group, g.weight) for g in v.groups if g.group in influence_indices]
+            others = [
+                (g.group, g.weight) for g in v.groups if g.group in influence_indices
+            ]
             scale = 1.0 - w
             for gi, gw in others:
                 groups[gi].add([v.index], gw * scale, "REPLACE")
@@ -338,17 +478,23 @@ class RigUtils:
 
         Extra constraint props pass through (``use_offset=True`` adds the owner's pre-constraint
         location, i.e. Maya's ``maintainOffset``; ``name=`` labels it for teardown)."""
-        return RigUtils._constraint(obj, "COPY_LOCATION", target, influence=influence, **props)
+        return RigUtils._constraint(
+            obj, "COPY_LOCATION", target, influence=influence, **props
+        )
 
     @staticmethod
     def copy_rotation(obj, target, influence=1.0, **props):
         """Maya orientConstraint → COPY_ROTATION."""
-        return RigUtils._constraint(obj, "COPY_ROTATION", target, influence=influence, **props)
+        return RigUtils._constraint(
+            obj, "COPY_ROTATION", target, influence=influence, **props
+        )
 
     @staticmethod
     def damped_track(obj, target, track_axis="TRACK_Y", **props):
         """Single-axis aim (Maya aimConstraint, no up-vector) → DAMPED_TRACK."""
-        return RigUtils._constraint(obj, "DAMPED_TRACK", target, track_axis=track_axis, **props)
+        return RigUtils._constraint(
+            obj, "DAMPED_TRACK", target, track_axis=track_axis, **props
+        )
 
     @staticmethod
     def track_to(obj, target, track_axis="TRACK_Y", up_axis="UP_Z", **props):
@@ -371,7 +517,11 @@ class RigUtils:
     # ----------------------------------------------------------------- drivers
     @staticmethod
     def _driver_add(obj, data_path, index):
-        return obj.driver_add(data_path, index) if index is not None else obj.driver_add(data_path)
+        return (
+            obj.driver_add(data_path, index)
+            if index is not None
+            else obj.driver_add(data_path)
+        )
 
     @staticmethod
     def refresh_drivers(objects):
@@ -387,11 +537,13 @@ class RigUtils:
         bpy.context.view_layer.update()  # settle new drivers + relations first
         for obj in objects:
             ad = getattr(obj, "animation_data", None)
-            for d in (ad.drivers if ad else ()):
+            for d in ad.drivers if ad else ():
                 d.driver.expression = d.driver.expression  # re-assign -> recompile
 
     @staticmethod
-    def add_distance_driver(obj, data_path, index, a, b, expression="dist", var_name="dist"):
+    def add_distance_driver(
+        obj, data_path, index, a, b, expression="dist", var_name="dist"
+    ):
         """Drive ``obj.<data_path>[index]`` from the live distance between objects ``a`` and ``b``
         (a ``LOC_DIFF`` variable named ``var_name``). Replaces a Maya ``distanceBetween`` + driven
         key. ``expression`` is evaluated with that variable in scope (default just the distance).
@@ -411,8 +563,14 @@ class RigUtils:
 
     @staticmethod
     def add_transform_driver(
-        obj, data_path, index, target, transform_type,
-        space="WORLD_SPACE", expression=None, var_name="var",
+        obj,
+        data_path,
+        index,
+        target,
+        transform_type,
+        space="WORLD_SPACE",
+        expression=None,
+        var_name="var",
     ):
         """Drive ``obj.<data_path>[index]`` from a single transform channel of ``target`` (a
         ``TRANSFORMS`` variable). E.g. an auto-rolling wheel: rotation ← its own travel.
@@ -454,9 +612,7 @@ class RigUtils:
         return var
 
     @staticmethod
-    def add_transform_var(
-        fcurve, name, target, transform_type, space="WORLD_SPACE"
-    ):
+    def add_transform_var(fcurve, name, target, transform_type, space="WORLD_SPACE"):
         """Append a ``TRANSFORMS`` variable (a single transform channel of *target*) to an existing
         driver fcurve — the multi-input companion to :meth:`add_prop_var` for rigs whose driver
         expression reads several world-space channels (e.g. the shadow rig reading a light's +

@@ -50,6 +50,7 @@ DEFAULTS: Dict[str, Any] = {
     "SCOPE": "selected",
     "CARRIER": "fbx",
     "INCLUDE_MATERIALS": True,
+    "INCLUDE_SHOTS": True,
     # GameShader's own vocabulary (standard_surface / open_pbr / stingray) -- the
     # Maya side passes it straight to that engine rather than translating.
     # Stingray by default: it is the game-engine target these hand-offs feed, it
@@ -263,6 +264,9 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 export_set,
                 payload.primary,
                 include_materials=bool(request.params.get("INCLUDE_MATERIALS", True)),
+                include_shots=bool(
+                    request.params.get("INCLUDE_SHOTS", DEFAULTS["INCLUDE_SHOTS"])
+                ),
             )
         except Exception:  # noqa: BLE001
             self.logger.warning(
@@ -273,7 +277,11 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         return payload
 
     def _write_manifest(
-        self, objects, fbx_path: str, include_materials: bool = True
+        self,
+        objects,
+        fbx_path: str,
+        include_materials: bool = True,
+        include_shots: bool = True,
     ) -> None:
         """Write ``<fbx>.manifest.json`` for *objects* (no-op when there is nothing to say).
 
@@ -291,6 +299,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         import bpy
 
         empties = self._manifest_empties(objects)
+        shots = self._manifest_shots(objects) if include_shots else None
         entries: List[Dict[str, Any]] = []
         by_material: Dict[str, Dict[str, Any]] = {}
         scene_materials: List[str] = []
@@ -328,23 +337,42 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 # image paths never resolved (packed-only / broken links) must
                 # surface as a NAMED warning Maya-side, never as gray geometry.
                 entries.append(entry)
-        if not entries and not empties:
+        if not entries and not empties and not shots:
             return
+        data: Dict[str, Any] = {
+            "version": 2,
+            "materials": entries,
+            "scene_materials": scene_materials,
+            "empties": empties,
+        }
+        if shots:
+            data["shots"] = shots
         with open(fbx_path + ".manifest.json", "w", encoding="utf-8") as fh:
-            json.dump(
-                {
-                    "version": 1,
-                    "materials": entries,
-                    "scene_materials": scene_materials,
-                    "empties": empties,
-                },
-                fh,
-                indent=1,
-            )
+            json.dump(data, fh, indent=1)
         self.logger.info(
             f"Manifest: {len(entries)} textured material(s), "
-            f"{len(empties)} Empty(ies) sidecarred."
+            f"{len(empties)} Empty(ies)"
+            + (f", {len(shots['store']['shots'])} shot(s)" if shots else "")
+            + " sidecarred."
         )
+
+    @staticmethod
+    def _manifest_shots(objects) -> Optional[Dict[str, Any]]:
+        """The scene's shots as the sidecar's ``shots`` section, memberships and
+        ledger claims scoped to *objects*; ``None`` when the scene has none.
+
+        Neither carrier has a place for a shot, a marker, a locked gap or the
+        samples the sequencer planted on shot bounds, so the store rides the
+        manifest (``BlenderShotStore.export_transfer``, the
+        ``pythontk.ShotTransfer`` codec) and mayatk's ``BlenderSceneImport``
+        rebuilds it 1:1 -- the exact mirror of what ``mtk.BlenderBridge`` sends
+        the other way. Names are recorded as Blender spells them; the Maya side
+        respells through its importer (``FBXASC`` off an FBX, the sanitized prim
+        off a USD), as it does for every other section.
+        """
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        return BlenderShotStore.export_transfer(objects=objects)
 
     @staticmethod
     def _manifest_empties(objects) -> List[Dict[str, str]]:
@@ -550,9 +578,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         path = os.path.abspath(path)
         for token, pattern in _MatUtilsInternal._TILE_TOKENS:
             if token in path:
-                tiles = sorted(
-                    _glob.glob(_glob.escape(path).replace(token, pattern))
-                )
+                tiles = sorted(_glob.glob(_glob.escape(path).replace(token, pattern)))
                 return tiles[0] if tiles else None
         return path if os.path.isfile(path) else None
 
@@ -608,7 +634,9 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     #: ``__OUT_FILE__``. ``_SPEC`` stays first so the fallback is still ``send_to``.
     #: (The staticmethods below need this without an instance, hence not
     #: ``HandoffBridge.modes``.)
-    template_modes_allowed: Tuple[str, ...] = tuple(_SPEC.modes) + tuple(_RUN_SPEC.modes)
+    template_modes_allowed: Tuple[str, ...] = tuple(_SPEC.modes) + tuple(
+        _RUN_SPEC.modes
+    )
 
     @classmethod
     def template_modes(cls, template_path: Path) -> Tuple[str, ...]:

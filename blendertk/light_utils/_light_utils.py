@@ -109,8 +109,7 @@ class _LightUtilsInternal(object):
         # it (where reading raises) -- so on 5.x+ this is never evaluated and
         # behaviour is byte-identical to the plain `nt is None` guard.
         if create and (
-            nt is None
-            or (bpy.app.version < (5, 0) and not world.use_nodes)
+            nt is None or (bpy.app.version < (5, 0) and not world.use_nodes)
         ):
             world.use_nodes = True
             nt = world.node_tree
@@ -491,7 +490,9 @@ class LightUtils(_LightUtilsInternal):
             else:
                 normal = Vector(direction).normalized()
                 thickness = maximum[plate.axis] - minimum[plate.axis]
-                location = centers[obj.name] + normal * (thickness * 0.5 + float(offset))
+                location = centers[obj.name] + normal * (
+                    thickness * 0.5 + float(offset)
+                )
 
             data = bpy.data.lights.new(f"{prefix}{obj.name}", type="AREA")
             data.energy = float(power)
@@ -614,7 +615,8 @@ class LightUtils(_LightUtilsInternal):
              "spot_size": <radians>, "spot_blend": <0-1>,        # SPOT
              "shape": "RECTANGLE"|"SQUARE"|"DISK",
              "local_size": [x, y],                               # AREA, LOCAL units
-             "cast_shadow": <bool>}   # omit to keep Blender's own default (on)
+             "cast_shadow": <bool>,   # omit to keep Blender's own default (on)
+             "hidden": <bool>}        # authored but switched off at the source
 
         ``local_size`` is scaled by the empty's own world scale, so the emitter ends
         up the size the source made it whatever the import did to the scene.
@@ -765,6 +767,20 @@ class LightUtils(_LightUtilsInternal):
                 child.parent = lamp
                 child.matrix_parent_inverse = inverse
                 child.matrix_world = world
+            # A light the source authored but switched off arrives switched off,
+            # rather than not arriving: a sender transferring a SCENE is handing
+            # over authored content, and an artist who hid a light to clear the
+            # viewport did not ask for it to be deleted. A sender whose purpose
+            # is lighting something (a bake) filters before it sends, so this
+            # only ever fires on a transfer.
+            #
+            # LAST, after every transform is written. A hidden object is not
+            # evaluated by the depsgraph, and both the lamp's own placement and
+            # the children's `matrix_world` restores read evaluated state -- so
+            # hiding first risks writing a placement against a stale matrix.
+            if record.get("hidden"):
+                lamp.hide_viewport = True
+                lamp.hide_render = True
             built[name] = lamp.name
         return built
 

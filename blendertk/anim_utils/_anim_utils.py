@@ -10,6 +10,8 @@ effects).
 
 import html as _html
 
+from contextlib import contextmanager
+
 import pythontk as ptk
 
 # ``StaggerKeys`` is imported for its ``_group_units`` overlap-grouping helper (reused by
@@ -276,11 +278,16 @@ class _AnimUtilsInternal(object):
 
     @staticmethod
     def _remove_fcurve(action, slot, fc):
-        """Remove ``fc`` from ``action`` (slot-aware — legacy flat list or per-slot channelbag)."""
+        """Remove ``fc`` from ``action`` (slot-aware — legacy flat list or per-slot channelbag).
+
+        Returns ``True`` when the curve was found and removed, ``False`` when it was
+        not there: a caller reporting "did anything change" has to tell those apart,
+        and a bare ``return`` cannot.
+        """
         legacy = getattr(action, "fcurves", None)
         if legacy is not None:
             legacy.remove(fc)
-            return
+            return True
         for layer in action.layers:
             for strip in layer.strips:
                 bags = (
@@ -291,7 +298,8 @@ class _AnimUtilsInternal(object):
                 for cb in bags:
                     if cb is not None and fc in list(cb.fcurves):
                         cb.fcurves.remove(fc)
-                        return
+                        return True
+        return False
 
     @staticmethod
     def _resolve_prop_container(obj, data_path):
@@ -345,18 +353,97 @@ class _AnimUtilsInternal(object):
             obj, fc.data_path, fc.array_index, value
         )
 
+    #: Per-key RNA properties a rebuild carries over: floats with their element width,
+    #: then the enum / bool ones, which ``foreach_get`` fills as ints.
+    _KEY_FLOAT_PROPS = (
+        ("co", 2),
+        ("handle_left", 2),
+        ("handle_right", 2),
+        ("back", 1),
+        ("amplitude", 1),
+        ("period", 1),
+    )
+    _KEY_INT_PROPS = (
+        "interpolation",
+        "handle_left_type",
+        "handle_right_type",
+        "easing",
+        "type",
+        "select_control_point",
+        "select_left_handle",
+        "select_right_handle",
+    )
+
+    @staticmethod
+    def _keep_keys(fc, keep):
+        """Rebuild *fc* with only the keyframe points whose *keep* flag is true.
+
+        Every per-key property (position, both handles and their types, interpolation,
+        easing, key type, the dynamic easings' back/amplitude/period, selection) is read
+        in bulk and written back for the survivors, so a kept key is unchanged -- only
+        its neighbours are gone. One ``clear`` + ``add`` instead of a ``remove`` per
+        dropped key, each of which shifts the rest of the curve. Returns the kept count.
+        """
+        pts = fc.keyframe_points
+        n = len(pts)
+        index = [i for i, flag in enumerate(keep) if flag]
+        data = []
+        for name, width in _AnimUtilsInternal._KEY_FLOAT_PROPS:
+            buf = [0.0] * (n * width)
+            pts.foreach_get(name, buf)
+            data.append(
+                (name, [buf[i * width + j] for i in index for j in range(width)])
+            )
+        for name in _AnimUtilsInternal._KEY_INT_PROPS:
+            buf = [0] * n
+            pts.foreach_get(name, buf)
+            data.append((name, [buf[i] for i in index]))
+        pts.clear()
+        pts.add(len(index))
+        for name, values in data:
+            pts.foreach_set(name, values)
+        fc.update()
+        return len(index)
+
     @staticmethod
     def _remove_flat_keys(fc, tolerance, candidate=None):
         """Remove interior keys that sit on a flat segment (value equal to both neighbours within
         ``tolerance``); keeps the boundary keys. Returns the number removed.
 
         ``candidate(key)`` narrows WHICH interior keys may go; a key it refuses
-        stays and becomes a boundary for the rest (:func:`AnimUtils.get_redundant_flat_keys`)."""
+        stays and becomes a boundary for the rest (:func:`AnimUtils.get_redundant_flat_keys`).
+
+        Unscoped, the walk runs over one bulk read and the survivors are written back
+        in one rebuild (:meth:`_keep_keys`): deleting keys one at a time shifts the rest
+        of the curve on every call, which on a per-frame bake is quadratic in its
+        length. It is the same walk -- from the end, each key judged against its
+        predecessor and the next key still standing -- so both paths remove the same
+        keys."""
         pts = fc.keyframe_points
+        if candidate is None:
+            n = len(pts)
+            if n < 3:
+                return 0
+            values = AnimUtils.key_arrays(fc)[1]
+            keep = [True] * n
+            next_v = values[-1]
+            for i in range(n - 2, 0, -1):
+                cur_v = values[i]
+                if (
+                    abs(cur_v - values[i - 1]) <= tolerance
+                    and abs(next_v - cur_v) <= tolerance
+                ):
+                    keep[i] = False
+                else:
+                    next_v = cur_v
+            removed = n - sum(keep)
+            if removed:
+                _AnimUtilsInternal._keep_keys(fc, keep)
+            return removed
         removed = 0
         i = len(pts) - 2
         while i >= 1:
-            if candidate is not None and not candidate(pts[i]):
+            if not candidate(pts[i]):
                 i -= 1
                 continue
             prev_v, cur_v, next_v = pts[i - 1].co.y, pts[i].co.y, pts[i + 1].co.y
@@ -378,15 +465,25 @@ class _AnimUtilsInternal(object):
         facing one level); elsewhere the handles are ``ALIGNED``.  Returns
         ``(keys_removed, max_error)`` or ``None`` when the curve has stepped keys (no
         tween to refit) or nothing to drop."""
+        import bpy
+        import numpy as np
+
         pts = fc.keyframe_points
-        if len(pts) < 3 or any(k.interpolation == "CONSTANT" for k in pts):
+        n = len(pts)
+        constant = (
+            bpy.types.Keyframe.bl_rna.properties["interpolation"]
+            .enum_items["CONSTANT"]
+            .value
+        )
+        if n < 3 or constant in AnimUtils.key_interpolations(fc):
             return None
-        times = [k.co.x for k in pts]
-        values = [k.co.y for k in pts]
+        # Bulk reads: per-key RNA access dominated this pass on a production bake
+        # (25.9 M keys in 64 s, the reduction math itself about a fifth of it).
+        times, values = AnimUtils.key_arrays(fc)
         keep, in_slopes, out_slopes = ptk.MathUtils.reduce_samples(
             times, values, value_tolerance=tolerance, max_error=max_error
         )
-        if len(keep) == len(pts):
+        if len(keep) == n:
             return None
         kept = [(times[i], values[i]) for i in keep]
         pts.clear()
@@ -405,8 +502,14 @@ class _AnimUtilsInternal(object):
             key.handle_left = (x - dt_l / 3.0, y - m_in * dt_l / 3.0)
             key.handle_right = (x + dt_r / 3.0, y + m_out * dt_r / 3.0)
         fc.update()
-        max_error = max(abs(fc.evaluate(t) - v) for t, v in zip(times, values))
-        return len(times) - len(kept), max_error
+        # The written curve IS this Hermite fit -- each segment's handles sit at its
+        # thirds carrying the fitted slopes -- so its deviation from the samples comes
+        # from one numpy evaluation rather than an fc.evaluate per sample.
+        fitted = ptk.MathUtils.evaluate_hermite(
+            times, values, keep, in_slopes, out_slopes
+        )
+        error = float(np.max(np.abs(fitted - np.asarray(values, dtype=float))))
+        return len(times) - len(kept), error
 
     @staticmethod
     def _simplify_fcurve(fc, tolerance, candidate=None):
@@ -673,6 +776,50 @@ class AnimUtils(_AnimUtilsInternal):
             return False
         kp.interpolation = "CONSTANT"
         return True
+
+    @staticmethod
+    @contextmanager
+    def evaluable_override(objects):
+        """Yield with *objects* evaluated by the depsgraph at ANY frame: revealed
+        (``CoreUtils.visible_override``) and their animated ``hide_viewport`` /
+        ``hide_render`` keys muted, then the view layer updated once.
+
+        Blender does not evaluate a hidden object, so its ``matrix_world``
+        freezes at the last frame it was seen -- and a static reveal alone is
+        undone by the next ``frame_set``, because the hide keys write the flag
+        back. Measured on a production pull: every rig record "diverged" by
+        exactly its own travel, on three runs, whatever the constraint was,
+        because the rig internals are hidden with keyed visibility. Wrap any
+        per-frame sampling of objects that may be hidden in this.
+
+        Parameters:
+            objects: Object refs (or a single object).
+
+        Example:
+            >>> with AnimUtils.evaluable_override([driven, space]):
+            ...     scene.frame_set(10)
+            ...     point = driven.matrix_world.translation
+        """
+        import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        objects = [o for o in ptk.make_iterable(objects) if o is not None]
+        muted = []
+        for fc in AnimUtils.get_fcurves(objects):
+            if fc.data_path in ("hide_viewport", "hide_render") and not fc.mute:
+                fc.mute = True
+                muted.append(fc)
+        try:
+            with CoreUtils.visible_override(objects):
+                bpy.context.view_layer.update()
+                yield
+        finally:
+            for fc in muted:
+                try:
+                    fc.mute = False
+                except ReferenceError:
+                    continue
 
     @staticmethod
     def get_fcurves(objects):
@@ -1387,6 +1534,28 @@ class AnimUtils(_AnimUtilsInternal):
         AnimUtils.set_interpolation(objects, "CONSTANT" if stepped else "BEZIER")
 
     @staticmethod
+    def step_visibility_keys(objects):
+        """Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``
+        fcurves of *objects*, leaving every other curve alone. Returns the number of
+        fcurves stepped.
+
+        Visibility is boolean and Blender's default is Bezier, which RAMPS the
+        toggle: a show/hide replayed with interpolated keys leaves the object part
+        drawn for the frames between them. The narrow counterpart of
+        :meth:`set_interpolation`, which steps every curve an object owns — a carrier
+        replays visibility onto objects whose transforms are keyed in the same
+        action."""
+        stepped = 0
+        for fc in _AnimUtilsInternal._fcurves(objects):
+            if not _AnimUtilsInternal._is_visibility_fcurve(fc):
+                continue
+            for key in fc.keyframe_points:
+                key.interpolation = "CONSTANT"
+            fc.update()
+            stepped += 1
+        return stepped
+
+    @staticmethod
     def delete_keys(objects, time=None):
         """Remove animation from the given objects — mirror of ``mtk.delete_keys``.
 
@@ -1815,6 +1984,7 @@ class AnimUtils(_AnimUtilsInternal):
         remove_flat_keys=True,
         simplify_keys=False,
         stats=None,
+        max_error=None,
     ):
         """Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
 
@@ -1829,22 +1999,23 @@ class AnimUtils(_AnimUtilsInternal):
         A negative ``value_tolerance`` (``-1``) selects **extremes** mode: after the static pass every
         smooth curve is reduced to its extrema with refit handles (:meth:`reduce_to_extremes`); stepped
         curves still get the flat-key pass, ``simplify_keys`` is ignored and the static/flat
-        tolerance falls back to the default.
+        tolerance falls back to the default. ``max_error`` bounds that refit's deviation in the
+        curve's own units (None = 1% of each curve's amplitude, see :meth:`reduce_to_extremes`);
+        inert outside extremes mode.
 
         ``objects`` defaults to every scene object. Pass a dict as ``stats`` to receive
         ``curves_before/after`` and ``keys_before/after`` counts (also returned), plus the
         :meth:`reduce_to_extremes` stats in extremes mode.
         """
-        import bpy
-
         extremes = value_tolerance < 0
         if extremes:
             value_tolerance = 0.001  # the sentinel carries no magnitude
-        pool = (
-            ptk.make_iterable(objects)
-            if objects is not None
-            else list(bpy.data.objects)
-        )
+        if objects is None:
+            import bpy
+
+            pool = list(bpy.data.objects)
+        else:
+            pool = ptk.make_iterable(objects)
         s = {"curves_before": 0, "curves_after": 0, "keys_before": 0, "keys_after": 0}
         if extremes:
             s.update({"reduced": 0, "reduce_keys_removed": 0, "reduce_max_error": 0.0})
@@ -1855,7 +2026,7 @@ class AnimUtils(_AnimUtilsInternal):
                     s["curves_before"] += 1
                     s["keys_before"] += len(pts)
                     if remove_static_curves and len(pts):
-                        vals = [k.co.y for k in pts]
+                        vals = AnimUtils.key_arrays(fc)[1]
                         if max(vals) - min(
                             vals
                         ) <= value_tolerance and _AnimUtilsInternal._set_fcurve_value(
@@ -1865,7 +2036,7 @@ class AnimUtils(_AnimUtilsInternal):
                             continue
                     reduced = (
                         _AnimUtilsInternal._reduce_fcurve_to_extremes(
-                            fc, value_tolerance
+                            fc, value_tolerance, max_error
                         )
                         if extremes
                         else None

@@ -26,6 +26,7 @@ what happened and undo it themselves. ``supports_rollback`` is therefore
 See the backlog entry for the ``ed.undo_history``-based implementation, which
 needs live verification in a GUI Blender before it can be trusted.
 """
+
 from __future__ import annotations
 
 from typing import Any, Optional

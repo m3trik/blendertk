@@ -39,6 +39,7 @@ deferred into the call bodies (headless Blender ships no Qt; the workspace .venv
 table degrades gracefully — file list without live linked-status — when bpy is absent).
 """
 
+import contextlib
 import os
 
 import pythontk as ptk
@@ -154,11 +155,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             scene_rule = ptk.Workspace.load(workspace).rules.get("scene")
         except Exception:
             scene_rule = None
-        return (
-            scene_rule
-            if scene_rule and not os.path.isabs(scene_rule)
-            else "scenes"
-        )
+        return scene_rule if scene_rule and not os.path.isabs(scene_rule) else "scenes"
 
     def _folder_structure_preview(self) -> str:
         """Live tooltip for ``txt_subfolder_structure`` — resolve the placeholders
@@ -383,6 +380,19 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             ),
         )
 
+        # Rig: how a foreign scene's rig logic travels (pythontk RIG_MODES via the
+        # shared uitk spec) -- the prompt-free default; the per-scene prompt still
+        # asks when a .ma declares driven animation. Persists by INDEX like the route.
+        from uitk.bridge import Parameters
+
+        spec = Parameters.rig_mode_spec()
+        widget.menu.add(
+            "QComboBox",
+            addItems=[label for label, _value in spec.choices],
+            setCurrentIndex=0,  # auto
+            setObjectName="cmb_rig_mode",
+            setToolTip=spec.tooltip,
+        )
         # Include Types — a single horizontal row of per-extension toggles (mirror across both
         # panels). Replaces the old single "Include Maya Scenes" toggle: .blend lists + links
         # natively; .ma/.mb list as import-only rows converted through the maya_bridge.
@@ -1264,7 +1274,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 )
                 if os.path.normcase(p) not in seen
             ]
-        raw_count = len(files)  # pre-filter, for the "hidden by filter" empty-state message
+        raw_count = len(
+            files
+        )  # pre-filter, for the "hidden by filter" empty-state message
         files = self._apply_file_filters(files, workspace, opt)
         # Live reference state needs bpy; degrade gracefully under the .venv (no live status).
         # One list_libraries() pass — `linked` is derived from it so the two can't disagree.
@@ -1290,7 +1302,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         try:
             placeholder = None
             filter_active = (
-                opt["filter_suffix"] or opt["filter_structure"] or bool(opt["filter_text"])
+                opt["filter_suffix"]
+                or opt["filter_structure"]
+                or bool(opt["filter_text"])
             )
             if not workspace:
                 placeholder = "Set a root directory / workspace above…"
@@ -1583,7 +1597,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     @classmethod
     def _is_foreign(cls, path):
         """True if *path* is a foreign (cross-DCC) scene for this panel — an import-only row."""
-        return bool(path) and os.path.splitext(path)[1].lower() in cls.FOREIGN_EXTENSIONS
+        return (
+            bool(path) and os.path.splitext(path)[1].lower() in cls.FOREIGN_EXTENSIONS
+        )
 
     def _apply_notes_column_visibility(self):
         """Show/hide the Notes column (index 2) per the header toggle — hidden by default, like Maya.
@@ -1717,48 +1733,88 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return "usd"
         return "fbx"
 
+    def _rig_mode(self):
+        """The header's Rig combo as a ``rig_mode``; ``"auto"`` without a menu --
+        the engine's own default, so a headless caller and an early refresh agree
+        with it. Resolved by INDEX against :data:`pythontk.RIG_MODES`: combos
+        persist by index and the vocabulary is append-only, so no label table
+        (uitk's) is needed here and the engine path stays importable headless."""
+        menu = getattr(getattr(self.ui, "header", None), "menu", None)
+        combo = getattr(menu, "cmb_rig_mode", None) if menu else None
+        if combo is None:
+            return "auto"
+        index = combo.currentIndex()
+        return ptk.RIG_MODES[index] if 0 <= index < len(ptk.RIG_MODES) else "auto"
+
     def _resolve_conversion(self, path):
-        """Route + smart-bake decision for converting *path*.
+        """Route + rig-mode decision for converting *path*.
 
         Returns the kwargs to hand ``import_scene`` / ``bake_scene`` (``via`` +
-        ``smart_bake``), or ``None`` if the user cancelled. The Bake-vs-Raw prompt
-        exists to patch FBX's driven-animation hole — the USD route samples driven
-        animation and visibility natively, so it never asks.
+        ``rig_mode``), or ``None`` if the user cancelled. The prompt exists for
+        scenes whose driven animation a raw import would lose, and it applies to
+        BOTH routes: the rig can be carried or baked whichever carrier travels.
         """
-        via = self._foreign_route()
-        if via != "fbx":
-            return {"via": via}  # smart_bake is FBX-only; the engine ignores it anyway
-        smart_bake = self._resolve_smart_bake(path)
-        if smart_bake is None:
+        rig_mode = self._resolve_rig_mode(path)
+        if rig_mode is None:
             return None
-        return {"via": "fbx", "smart_bake": smart_bake}
+        return {"via": self._foreign_route(), "rig_mode": rig_mode}
 
-    def _resolve_smart_bake(self, path):
-        """Decide how to convert a foreign scene: when it has *driven* animation a raw
-        import would lose, prompt Bake vs Import Raw — the conversion-time counterpart
-        of the unsaved-changes confirmation. Returns the ``smart_bake`` value to hand
-        the bridge — ``True`` (bake) / ``False`` (import raw) / ``"auto"`` (no driven
-        animation detected, or a non-scannable source — nothing to ask) — or ``None``
-        if the user cancelled.
+    def _resolve_rig_mode(self, path):
+        """Decide how a foreign scene's rig logic travels (schema 15.1). When the
+        scene declares *driven* animation a raw import would lose, prompt
+        Transfer rig / Bake / Raw -- the conversion-time counterpart of the
+        unsaved-changes confirmation. Returns the ``rig_mode`` to hand the
+        engine -- ``"rig"`` / ``"bake"`` / ``"raw"`` / ``"auto"`` (no driven
+        animation detected, or a non-scannable source: nothing to ask) -- or
+        ``None`` if the user cancelled.
 
-        Only ``.ma`` is text-scannable; ``.mb`` / ``.fbx`` fall through to ``"auto"``
-        (the bridge's own Maya-side detection still bakes a ``.mb`` if warranted; an
-        ``.fbx`` is already baked and has no Maya drivers)."""
+        ``message_box`` takes standard Qt button names only, so the three
+        outcomes ride Yes (transfer) / No (bake) / Ignore (raw) with the text
+        saying which is which. Only ``.ma`` is text-scannable; ``.mb`` / ``.fbx``
+        fall through to ``"auto"``."""
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         if not MayaSceneImport.scene_has_complex_animation(path):
-            return "auto"
+            return self._rig_mode()
         choice = self.sb.message_box(
             f"<hl>{os.path.basename(path)}</hl> has driven animation "
-            "(constraints, set-driven keys, inherited visibility) that a raw import "
-            "would lose.<br><br><b>Bake</b> it into keyframes? "
-            "(<b>No</b> imports the raw contents.)",
+            "(constraints, IK, set-driven keys, matrix rigs) that a raw import "
+            "would lose.<br><br><b>Yes</b> = Transfer the rig as editable "
+            "relationships where Blender can build them, baking the rest.<br>"
+            "<b>No</b> = Bake everything to keyframes.<br>"
+            "<b>Ignore</b> = Import raw (driven animation is lost).",
             "Yes",
             "No",
+            "Ignore",
             "Cancel",
         )
-        # "Cancel" (and a closed dialog) -> None; Yes -> bake, No -> raw.
-        return {"Yes": True, "No": False}.get(choice)
+        return {"Yes": "rig", "No": "bake", "Ignore": "raw"}.get(choice)
+
+    @contextlib.contextmanager
+    def _conversion_progress(self, text):
+        """Footer progress for one foreign-scene conversion; yields the engine's
+        ``progress(current, total, message)`` callback.
+
+        A conversion blocks for as long as the scene takes -- minutes for a production
+        assembly, where a headless Maya converts and then a headless Blender bakes. The
+        engine streams both children's progress markers into this callback
+        (``pythontk.ProgressRelay``); every tick pumps the UI, so the panel repaints
+        instead of freezing, and an Esc-hold on the bar stops the running child
+        (``pythontk.OperationCancelled``). The busy cursor is the switchboard's owned
+        scope, not a raw override pair: these run from row-icon clicks too, outside
+        slot dispatch.
+        """
+        with self.sb.busy_cursor():
+            with self.sb.progress(
+                ui=self.ui, total=100, text=text, busy=True
+            ) as update:
+                yield self.sb.progress_adapter(update)
+
+    def _footer_status(self, text, level="warning"):
+        """Leave *text* in the footer's status label (no-op without a footer)."""
+        footer = getattr(self.ui, "footer", None)
+        if footer is not None:
+            footer.setText(text, level=level)
 
     def _open_foreign_as_new(self, path):
         """Bake a foreign (Maya / FBX) scene to a .blend and open it as a new, unsaved file.
@@ -1771,34 +1827,34 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         and saves it wherever they like, and the cache the link icon reuses is never touched.
         The session workspace is pinned to the SOURCE scene's project (not the scratch's temp
         folder), so the opened scene resolves textures / scene dir / Save Scene exactly as the
-        Maya coworker's does. The bake costs a mayapy start + license on the first run for a
-        .ma/.mb, hence the wait cursor.
+        Maya coworker's does. A first bake of a .ma/.mb runs a headless Maya and then a
+        headless Blender for as long as the scene takes, so both report into the footer
+        (:meth:`_conversion_progress`) and an Esc-hold stops them.
         """
         if not self._has_bpy():
             self.sb.message_box("Opening a foreign scene needs a running Blender.")
             return
-        # Resolve route + bake-vs-raw (may prompt on the FBX route) before the wait
-        # cursor, so the modal shows a normal cursor.
+        # Resolve route + bake-vs-raw (may prompt on the FBX route) before the progress
+        # starts, so the modal shows a normal cursor.
         conv = self._resolve_conversion(path)
         if conv is None:
             return  # user cancelled
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        app = self.sb.QtWidgets.QApplication
-        app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
+        name = os.path.basename(path)
         try:
-            baked = MayaSceneImport().bake_scene(path, **conv)
+            with self._conversion_progress(f"Opening {name}") as progress:
+                baked = MayaSceneImport().bake_scene(path, progress=progress, **conv)
+        except ptk.OperationCancelled:
+            self._footer_status(f"Stopped opening {name}.")
+            return
         except FileNotFoundError as e:
             self.sb.message_box(f"Can't open — Maya not found:<br>{e}")
             return
         except Exception as e:  # noqa: BLE001 — surface the bake error to the user
             self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-            self.sb.message_box(
-                f"Open failed for <hl>{os.path.basename(path)}</hl>:<br>{e}"
-            )
+            self.sb.message_box(f"Open failed for <hl>{name}</hl>:<br>{e}")
             return
-        finally:
-            app.restoreOverrideCursor()
 
         # Deterministic scratch twin so a second Open click resolves this row as 'current'
         # and closes it (see _is_current / _foreign_scratch_path); the cached bake itself
@@ -1938,9 +1994,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         the make-local counterpart for a not-yet-linked foreign row. A ``.ma``/``.mb`` goes
         through ``btk.MayaSceneImport.import_scene`` — a
         fresh mayapy converts it to FBX, which is imported and cleaned up (the same bridge
-        the Scene menu's 'Import Maya Scene' uses); that takes tens of seconds (mayapy start
-        + license), so a wait cursor covers it and a missing Maya install surfaces as a clear
-        message rather than a raw traceback. An ``.fbx`` is imported directly — no Maya.
+        the Scene menu's 'Import Maya Scene' uses); a conversion reports into the footer
+        (:meth:`_conversion_progress`, Esc-hold stops it) and a missing Maya install surfaces
+        as a clear message rather than a raw traceback. An ``.fbx`` is imported directly —
+        no Maya.
         """
         paths = [p for p in (paths or []) if p and self._is_foreign(p)]
         if not paths:
@@ -1951,13 +2008,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         from blendertk.env_utils.fbx_utils import FbxUtils
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        def _import(path, conv):
+        def _import(path, conv, progress):
             if os.path.splitext(path)[1].lower() == ".fbx":
                 return FbxUtils.import_fbx(path)
-            return MayaSceneImport().import_scene(path, **conv)
+            return MayaSceneImport().import_scene(path, progress=progress, **conv)
 
-        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE
-        # the wait cursor. An .fbx needs no conversion; a cancelled scene is dropped.
+        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE any
+        # progress starts. An .fbx needs no conversion; a cancelled scene is dropped.
         plan = []
         for path in paths:
             if os.path.splitext(path)[1].lower() == ".fbx":
@@ -1969,27 +2026,23 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if not plan:
             return
 
-        app = self.sb.QtWidgets.QApplication
-        app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
-        total, failed = 0, 0
-        try:
-            for path, conv in plan:
-                try:
-                    total += len(_import(path, conv))
-                except FileNotFoundError as e:
-                    self.sb.message_box(f"Can't import — Maya not found:<br>{e}")
-                    return
-                except Exception as e:  # noqa: BLE001 — surface the conversion error to the user
-                    failed += 1
-                    self.logger.warning(f"Foreign scene import failed for {path}: {e}")
-                    self.sb.message_box(
-                        f"Import failed for <hl>{os.path.basename(path)}</hl>:<br>{e}"
-                    )
-        finally:
-            app.restoreOverrideCursor()
-        self.logger.info(
-            f"Imported {total} object(s) from {len(plan) - failed} foreign scene(s)."
-        )
+        total, done = 0, 0
+        for path, conv in plan:
+            name = os.path.basename(path)
+            try:
+                with self._conversion_progress(f"Importing {name}") as progress:
+                    total += len(_import(path, conv, progress))
+                done += 1
+            except ptk.OperationCancelled:
+                self._footer_status(f"Stopped importing {name}.")
+                break
+            except FileNotFoundError as e:
+                self.sb.message_box(f"Can't import — Maya not found:<br>{e}")
+                return
+            except Exception as e:  # noqa: BLE001 — surface the conversion error to the user
+                self.logger.warning(f"Foreign scene import failed for {path}: {e}")
+                self.sb.message_box(f"Import failed for <hl>{name}</hl>:<br>{e}")
+        self.logger.info(f"Imported {total} object(s) from {done} foreign scene(s).")
         self._refresh()
 
     def _reference_foreign_paths(self, paths):
@@ -1998,8 +2051,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         Blender can only link a ``.blend``, so a foreign row is referenced through a bake
         (headless Maya → USD/FBX intermediate → headless Blender → cached .blend) rather
         than directly.
-        Both stages are cached, so re-linking the same unchanged scene is instant; the
-        first run costs a mayapy start + license, hence the wait cursor.
+        Both stages are cached, so re-linking the same unchanged scene is instant; a first
+        run reports into the footer (:meth:`_conversion_progress`, Esc-hold stops it).
         """
         paths = [p for p in (paths or []) if p and self._is_foreign(p)]
         if not paths:
@@ -2009,8 +2062,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return False
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
-        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE
-        # the wait cursor; a cancelled scene is dropped from the batch.
+        # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE any
+        # progress starts; a cancelled scene is dropped from the batch.
         plan = []
         for path in paths:
             conv = self._resolve_conversion(path)
@@ -2019,26 +2072,25 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if not plan:
             return False
 
-        app = self.sb.QtWidgets.QApplication
-        app.setOverrideCursor(self.sb.QtCore.Qt.WaitCursor)
         linked = 0
-        try:
-            for path, conv in plan:
-                try:
-                    linked += btk.link_blend_file(
-                        MayaSceneImport().bake_scene(path, **conv), link=True
+        for path, conv in plan:
+            name = os.path.basename(path)
+            try:
+                with self._conversion_progress(f"Referencing {name}") as progress:
+                    baked = MayaSceneImport().bake_scene(
+                        path, progress=progress, **conv
                     )
-                except FileNotFoundError as e:
-                    self.sb.message_box(f"Can't reference — Maya not found:<br>{e}")
-                    return False
-                except Exception as e:  # noqa: BLE001 — surface the bake error to the user
-                    self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-                    self.sb.message_box(
-                        f"Reference failed for <hl>{os.path.basename(path)}</hl>:<br>{e}"
-                    )
-                    return False
-        finally:
-            app.restoreOverrideCursor()
+                linked += btk.link_blend_file(baked, link=True)
+            except ptk.OperationCancelled:
+                self._footer_status(f"Stopped referencing {name}.")
+                break
+            except FileNotFoundError as e:
+                self.sb.message_box(f"Can't reference — Maya not found:<br>{e}")
+                return False
+            except Exception as e:  # noqa: BLE001 — surface the bake error to the user
+                self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
+                self.sb.message_box(f"Reference failed for <hl>{name}</hl>:<br>{e}")
+                return False
         return bool(linked)
 
     # ------------------------------------------------------------------ reference ops

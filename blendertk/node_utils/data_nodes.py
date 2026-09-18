@@ -126,6 +126,40 @@ class DataNodes:
         return DataNodes.get_export_node(create=True)
 
     @staticmethod
+    def set_internal_json(key, payload):
+        """Publish *payload* as a JSON channel on ``data_internal``.
+
+        The internal twin of :meth:`set_export_json` (mirror of mayatk): a
+        falsy *payload* clears the channel rather than creating the carrier to
+        hold an empty record.  Scene-private state that persists with the
+        .blend but never rides into an export -- the hierarchy baseline, for
+        one.  ``default=str`` mirrors :meth:`format_dump`.
+        """
+        import json
+
+        return DataNodes.set_internal_string(
+            key, json.dumps(payload, default=str) if payload else ""
+        )
+
+    @staticmethod
+    def get_internal_json(key, default=None):
+        """Parse an internal JSON channel, or return *default* (mirror of mayatk).
+
+        Tolerant of the channel being absent and of its contents not being
+        JSON: a half-written channel degrades to "no record" rather than
+        raising into the caller.
+        """
+        import json
+
+        raw = DataNodes.get_internal_string(key)
+        if not raw:
+            return default
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return default
+
+    @staticmethod
     def set_export_string(key, value):
         """Set custom property *key* on the carrier to *value* (string) — see ``_set_string``
         for the clear/create semantics; mirror of ``mtk.DataNodes.set_export_string``."""
@@ -146,9 +180,7 @@ class DataNodes:
         ``None`` when a clear had nothing to do."""
         import json
 
-        return DataNodes.set_export_string(
-            key, json.dumps(payload) if payload else ""
-        )
+        return DataNodes.set_export_string(key, json.dumps(payload) if payload else "")
 
     # -- inspection (mirror of mtk.DataNodes.dump / format_dump) --------------------------
 

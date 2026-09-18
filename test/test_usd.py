@@ -309,7 +309,8 @@ try:
     check(
         "export_prim_path spells the exporter's prim (dots sanitized, parent chain)",
         UsdUtils.export_prim_path(monitor_hidden) == "/ic_grp/ic_hidden_001"
-        and UsdUtils.export_prim_path(monitor_hidden, "/root") == "/root/ic_grp/ic_hidden_001",
+        and UsdUtils.export_prim_path(monitor_hidden, "/root")
+        == "/root/ic_grp/ic_hidden_001",
         UsdUtils.export_prim_path(monitor_hidden),
     )
     check(
@@ -445,6 +446,89 @@ try:
         str({n: o.hide_viewport for n, o in by_name.items()}),
     )
 
+    # apply_visibility: an ANIMATED prim is keyed, inheritance included. Blender's
+    # USD importer reads visibility for nothing (probed 5.1: no hidden state, no
+    # fcurves), and Blender does not hide a child with its parent -- so a group
+    # whose visibility switches needs every descendant keyed. A production pull
+    # lost 8 such prims' subtrees (1113 objects) to this, a RenderOpacity fade
+    # among them: that fade IS a gap between two opposite visibility keys.
+    reset()
+    anim_vis = os.path.join(tmp, "anim_vis.usda")
+    from pxr import Usd, UsdGeom
+
+    st = Usd.Stage.CreateInMemory()
+    grp_vis = UsdGeom.Xform.Define(st, "/av_grp").CreateVisibilityAttr()
+    for time, token in ((1, "inherited"), (10, "invisible"), (20, "inherited")):
+        grp_vis.Set(token, time)
+    UsdGeom.Cube.Define(st, "/av_grp/av_child")
+    steady = UsdGeom.Cube.Define(st, "/av_steady").CreateVisibilityAttr()
+    for time in (1, 30):  # sampled, but never changing
+        steady.Set("inherited", time)
+    st.GetRootLayer().Export(anim_vis)
+
+    created = UsdUtils.import_scene(anim_vis)
+    by_name = {o.name: o for o in created}
+
+    def vis_keys(obj):
+        ad = getattr(obj, "animation_data", None)
+        out = []
+        for layer in getattr(getattr(ad, "action", None), "layers", []) or []:
+            for strip in layer.strips:
+                for cbag in strip.channelbags:
+                    for fc in cbag.fcurves:
+                        if fc.data_path == "hide_viewport":
+                            out += [
+                                (
+                                    round(k.co[0], 1),
+                                    bool(round(k.co[1])),
+                                    k.interpolation,
+                                )
+                                for k in fc.keyframe_points
+                            ]
+        return sorted(out)
+
+    want = [
+        (1.0, False, "CONSTANT"),
+        (10.0, True, "CONSTANT"),
+        (20.0, False, "CONSTANT"),
+    ]
+    check(
+        "apply_visibility: animated visibility arrives as CONSTANT hide keys",
+        vis_keys(by_name.get("av_grp")) == want,
+        str(vis_keys(by_name.get("av_grp"))),
+    )
+    check(
+        "apply_visibility: a child inherits the group's switch as its OWN keys",
+        vis_keys(by_name.get("av_child")) == want,
+        str(vis_keys(by_name.get("av_child"))),
+    )
+    check(
+        "apply_visibility: samples that never change the value key nothing",
+        vis_keys(by_name.get("av_steady")) == [],
+        str(vis_keys(by_name.get("av_steady"))),
+    )
+    scene = bpy.context.scene
+    scene.frame_set(12)
+    hidden_mid = {n for n, o in by_name.items() if o.hide_viewport}
+    scene.frame_set(25)
+    hidden_late = {n for n, o in by_name.items() if o.hide_viewport}
+    check(
+        "apply_visibility: the keys actually switch the objects at those frames",
+        hidden_mid == {"av_grp", "av_child"} and hidden_late == set(),
+        f"frame 12 {sorted(hidden_mid)}, frame 25 {sorted(hidden_late)}",
+    )
+    # The stage must outlive the prim: a temporary one is collected and the prim
+    # goes invalid, which reads as "no samples" rather than as an error.
+    reopened = Usd.Stage.Open(anim_vis)
+    times = UsdUtils._visibility_sample_times(
+        reopened.GetPrimAtPath("/av_grp/av_child")
+    )
+    check(
+        "_visibility_sample_times: an ancestor's samples are the child's too",
+        times == [1.0, 10.0, 20.0],
+        str(times),
+    )
+
     # ---- animated export keeps its meshes (Blender 5.1 exporter bug + fold) ---
     # merge_parent_xform + export_animation DROPS an animated object's Mesh prim
     # (probed on 5.1.2). The engine exports unmerged and folds each Xform+Mesh
@@ -456,7 +540,9 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     mover = bpy.context.active_object
     mover.name = "mover"
-    mover.data.name = "mover"  # datablock named like the object (a USD round trip does this)
+    mover.data.name = (
+        "mover"  # datablock named like the object (a USD round trip does this)
+    )
     mover.parent = grp
     mover.keyframe_insert("location", frame=1)
     mover.location.x += 5
@@ -501,6 +587,136 @@ try:
         )
     except ImportError:
         pass
+
+    # ---- a SKINNED, ANIMATED mesh: UV indices and the skinning method -------
+    # Both were measured lost on a production module returning from Blender.
+    # The animation is load-bearing: it is export_animation that makes Blender
+    # split the UV primvar across time (values at the default, indices as a lone
+    # sample), which mayaUsd then refuses -- the mesh lands with the right UV
+    # COUNT and zero assigned faces. The RAW operator is the unfixed path, so
+    # this is red and green in one run.
+    reset()
+    bpy.ops.object.armature_add(enter_editmode=True)
+    arm = bpy.context.object
+    edit_bones = arm.data.edit_bones
+    second = edit_bones.new("Bone2")
+    second.head, second.tail, second.parent = (0, 0, 1), (0, 0, 2), edit_bones[0]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.mesh.primitive_cube_add()
+    skinned = bpy.context.object
+    for bone_name in ("Bone", "Bone2"):
+        skinned.vertex_groups.new(name=bone_name).add(
+            range(len(skinned.data.vertices)), 0.5, "REPLACE"
+        )
+    skin_mod = skinned.modifiers.new("Armature", "ARMATURE")
+    skin_mod.object = arm
+    skin_mod.use_deform_preserve_volume = True  # Blender's dual-quaternion skinning
+    arm.keyframe_insert("rotation_euler", frame=1)
+    arm.rotation_euler = (0.5, 0.0, 0.0)
+    arm.keyframe_insert("rotation_euler", frame=10)
+    bpy.context.scene.frame_end = 10
+
+    skin_opts = dict(
+        export_animation=True,
+        merge_parent_xform=True,
+        root_prim_path="",
+        selected_objects_only=False,
+    )
+
+    def skin_facts(path):
+        """(corner count, default index count, authored skinning method) per skin."""
+        from pxr import Usd, UsdGeom, UsdSkel
+
+        stage = Usd.Stage.Open(path)
+        out = []
+        for prim in stage.Traverse():
+            if not (prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdSkel.BindingAPI)):
+                continue
+            corners = sum(UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get() or [])
+            primvar = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
+            indices = primvar.GetIndices() if primvar else None
+            attr = UsdSkel.BindingAPI(prim).GetSkinningMethodAttr()
+            out.append(
+                (
+                    corners,
+                    len(indices) if indices else None,
+                    str(attr.Get()) if attr and attr.HasAuthoredValue() else None,
+                )
+            )
+        return out
+
+    bpy.ops.object.select_all(action="SELECT")
+    raw_path = os.path.join(tmp, "skin_raw.usd")
+    bpy.ops.wm.usd_export(filepath=raw_path, **skin_opts)
+    raw_facts = skin_facts(raw_path)
+    check(
+        "the fixture reproduces BOTH defects on the raw exporter",
+        bool(raw_facts)
+        and all(n != corners or m is not None for corners, n, m in raw_facts),
+        f"raw={raw_facts} -- a green here means the fixture stopped testing anything",
+    )
+
+    fixed_path = os.path.join(tmp, "skin_fixed.usd")
+    UsdUtils.export(filepath=fixed_path, selection_only=False, **skin_opts)
+    fixed_facts = skin_facts(fixed_path)
+    check(
+        "export pins the UV indices to the DEFAULT time",
+        bool(fixed_facts) and all(n == corners for corners, n, _ in fixed_facts),
+        f"fixed={fixed_facts}",
+    )
+    check(
+        "export stamps Preserve Volume as dualQuaternion",
+        bool(fixed_facts) and all(m == "dualQuaternion" for _, _, m in fixed_facts),
+        f"fixed={fixed_facts}",
+    )
+    check(
+        "skinning_methods reads back what export stamped",
+        set(UsdUtils.skinning_methods(fixed_path).values()) == {"dualQuaternion"},
+        str(UsdUtils.skinning_methods(fixed_path)),
+    )
+    skin_mod.use_deform_preserve_volume = False
+    linear_path = os.path.join(tmp, "skin_linear.usd")
+    UsdUtils.export(filepath=linear_path, selection_only=False, **skin_opts)
+    check(
+        "a linear skin is stamped classicLinear, not left to a default",
+        set(UsdUtils.skinning_methods(linear_path).values()) == {"classicLinear"},
+        str(UsdUtils.skinning_methods(linear_path)),
+    )
+    check(
+        "pinning is idempotent -- a repaired layer reports nothing left to do",
+        UsdUtils.pin_primvar_indices(fixed_path) == 0,
+    )
+
+    # A primvar whose indices GENUINELY vary must be left alone: pinning one
+    # sample would publish that frame's mapping as the answer for every other
+    # frame -- a quieter wrong than the bug being fixed.
+    from pxr import Sdf, Usd, UsdGeom, Vt
+
+    vary_path = os.path.join(tmp, "vary.usda")
+    vary_stage = Usd.Stage.CreateNew(vary_path)
+    vary_pv = UsdGeom.PrimvarsAPI(
+        UsdGeom.Mesh.Define(vary_stage, "/animated").GetPrim()
+    ).CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray, "faceVarying")
+    vary_pv.Set([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])
+    vary_pv.SetIndices(Vt.IntArray([0, 1, 2]), 0.0)
+    vary_pv.SetIndices(Vt.IntArray([2, 1, 0]), 10.0)
+    vary_stage.GetRootLayer().Save()
+    pinned_vary = UsdUtils.pin_primvar_indices(vary_path)
+    # Hold the stage: a temporary one is collected and its prims go invalid
+    # ("Accessed schema on invalid prim").
+    vary_reopened = Usd.Stage.Open(vary_path)
+    reopened = UsdGeom.PrimvarsAPI(vary_reopened.GetPrimAtPath("/animated")).GetPrimvar(
+        "st"
+    )
+    check(
+        "a genuinely time-varying primvar is NOT pinned to one frame",
+        pinned_vary == 0 and reopened.GetIndicesAttr().Get() is None,
+        f"pinned={pinned_vary}, default={reopened.GetIndicesAttr().Get()}",
+    )
+    check(
+        "...and its samples survive untouched",
+        reopened.GetIndicesAttr().GetNumTimeSamples() == 2,
+    )
 
     import shutil
 

@@ -78,6 +78,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/handoff_export.py`](#env_utils--handoff_export) — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - [`env_utils/hierarchy_sync/_fbx_stage_worker.py`](#env_utils--hierarchy_sync--_fbx_stage_worker) — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 - [`env_utils/hierarchy_sync/_hierarchy_sync.py`](#env_utils--hierarchy_sync--_hierarchy_sync) — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
+- [`env_utils/hierarchy_sync/hierarchy_baseline.py`](#env_utils--hierarchy_sync--hierarchy_baseline) — The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
 - [`env_utils/hierarchy_sync/hierarchy_sync_slots.py`](#env_utils--hierarchy_sync--hierarchy_sync_slots) — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 - [`env_utils/hierarchy_sync/scene_data_sidecar.py`](#env_utils--hierarchy_sync--scene_data_sidecar) — Scene-data sidecar manifest management — mirror of mayatk's
 - [`env_utils/hierarchy_sync/tree_renderer.py`](#env_utils--hierarchy_sync--tree_renderer) — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
@@ -162,6 +163,8 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`nurbs_utils/image_tracer.py`](#nurbs_utils--image_tracer) — Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 - [`rig_utils/_rig_utils.py`](#rig_utils--_rig_utils) — Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 - [`rig_utils/controls.py`](#rig_utils--controls) — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
+- [`rig_utils/rig_graph_build.py`](#rig_utils--rig_graph_build) — Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
+- [`rig_utils/rig_graph_extract.py`](#rig_utils--rig_graph_extract) — Read a Blender rig into a RigGraph -- the Blender side of phase 2.
 - [`rig_utils/shadow_preview.py`](#rig_utils--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
 - [`rig_utils/shadow_rig.py`](#rig_utils--shadow_rig) — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
@@ -202,7 +205,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 
 Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror of mayatk's
 
-- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L473)** — Namespace mirror (helpers also exposed module-level).
+- **[`class AnimUtils(_AnimUtilsInternal)`](blendertk/blendertk/anim_utils/_anim_utils.py#L576)** — Namespace mirror (helpers also exposed module-level).
   - `AnimUtils.normalize_optimize_level(cls, level)` *(class)* — The canonical :attr:`OPTIMIZE_LEVELS` key *level* names, or None for OFF.
   - `AnimUtils.resolve_optimize_level(cls, level)` *(class)* — Resolve an optimization level into :meth:`optimize_keys` kwargs.
   - `AnimUtils.key_arrays(fc)` *(static)* — ``(times, values)`` of *fc*'s keyframe points as plain float lists (time order).
@@ -212,6 +215,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.shift_keys_in_window(fc, lo, hi, delta: float, inclusive_hi: bool = True) -> int` *(static)* — Translate *fc*'s keys (and both handles) inside ``[lo, hi]`` by *delta*.
   - `AnimUtils.remap_keys_in_window(fc, lo, hi, old_start, old_end, new_start, new_end) -> int` *(static)* — Linearly remap *fc*'s keys (and handles) in ``[lo, hi]`` from one span to another.
   - `AnimUtils.step_last_key_in_window(fc, lo, hi) -> bool` *(static)* — Set the LAST key of *fc* inside ``[lo, hi]`` to ``CONSTANT`` interpolation.
+  - `AnimUtils.evaluable_override(objects)` *(static)* — Yield with *objects* evaluated by the depsgraph at ANY frame: revealed
   - `AnimUtils.get_fcurves(objects)` *(static)* — All fcurves across the given objects' actions (slot-aware;
   - `AnimUtils.get_animated_extent(objects)` *(static)* — ``(start, end)`` of EVERYTHING that animates *objects* over time, or ``None``.
   - `AnimUtils.has_nla_or_data_animation(objects)` *(static)* — True when *objects* carry animation :meth:`get_fcurves` cannot see:
@@ -229,6 +233,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.snap_keys(objects=None, selected_only=False, time_range=None, method='nearest')` *(static)* — Snap keys to whole frames (or "clean" numbers) — mirror of ``mtk.snap_keys_to_frames``.
   - `AnimUtils.set_interpolation(objects, interpolation='CONSTANT', handle=None)` *(static)* — Set fcurve key ``interpolation`` (``CONSTANT`` / ``LINEAR`` / ``BEZIER`` / ``SINE`` …) on
   - `AnimUtils.set_stepped(objects, stepped=True)` *(static)* — Set stepped (CONSTANT) or smooth (BEZIER) interpolation on every key.
+  - `AnimUtils.step_visibility_keys(objects)` *(static)* — Force CONSTANT interpolation on the ``hide_viewport`` / ``hide_render``
   - `AnimUtils.delete_keys(objects, time=None)` *(static)* — Remove animation from the given objects — mirror of ``mtk.delete_keys``.
   - `AnimUtils.fit_playback_range(objects=None)` *(static)* — Set the scene frame range to the keyed extent of ``objects`` (or every scene object).
   - `AnimUtils.copy_keys(source, mode='action')` *(static)* — Return a copy-buffer for :func:`paste_keys` — mirror of ``mtk.AnimUtils.copy_keys`` (same
@@ -237,7 +242,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
   - `AnimUtils.reduce_to_extremes(objects=None, value_tolerance=0.001, stats=None, max_error=None)` *(static)* — Reduce baked fcurves to their shape-defining keys and refit the handles —
   - `AnimUtils.get_redundant_flat_keys(objects, value_tolerance=1e-05, remove=False, time_range=None, selected_only=False)` *(static)* — Interior keys of a flat run — mirror of ``mtk.AnimUtils.get_redundant_flat_keys``.
   - `AnimUtils.simplify_curve(objects, value_tolerance=0.001, time_range=None, selected_only=False)` *(static)* — Drop the keys that do not contribute to a curve's shape — mirror of
-  - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
+  - `AnimUtils.optimize_keys(objects=None, value_tolerance=0.001, remove_static_curves=True, remove_flat_keys=True, simplify_keys=False, stats=None, max_error=None)` *(static)* — Remove redundant animation data — mirror of ``mtk.AnimUtils.optimize_keys``.
   - `AnimUtils.repair_corrupted_curves(objects=None, *, delete_unfixable=True, fix_infinite=True, fix_invalid_times=True, time_threshold=100000.0, value_threshold=1000000.0)` *(static)* — Detect and repair corrupted animation fcurves — mirror of
   - `AnimUtils.tie_keyframes(objects=None, untie=False, frame_range=None, absolute=False)` *(static)* — Add (tie) or remove (untie) bookend keys at the playback-range boundaries — mirror of
   - `AnimUtils.bake_keys(objects=None, frame_range=None, step=1, only_selected=False, visual_keying=True, clear_constraints=False, clear_parents=False, use_current_action=True, bake_types=None)` *(static)* — Bake animation to plain keyframes — the Blender analogue of Maya's Smart Bake (wraps the
@@ -438,6 +443,8 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
   - `BlenderShotStore.detect_regions(self) -> List[Dict[str, Any]]` — Detect shot candidates using the store's detection settings.
   - `BlenderShotStore.assess(self) -> Dict[int, str]` — Flag shots whose stored objects no longer exist in the file.
   - `BlenderShotStore.publish_export_view(self, strategy: Optional[str] = None) -> Optional[str]` — Project the export view onto the shared ``data_export`` carrier.
+  - `BlenderShotStore.export_transfer(cls, spell=None, objects=None) -> Optional[Dict[str, Any]]` *(class)* — The active store as a hand-off ``shots`` section (``None`` when empty).
+  - `BlenderShotStore.apply_transfer(cls, section: Dict[str, Any], *, resolve=None, frame_offset: float = 0.0, replace: bool = False, converted=None) -> Optional['BlenderShotStore']` *(class)* — Rebuild the scene's shots from a hand-off ``shots`` section (mirror of
   - `BlenderShotStore.iter_action_fcurves(obj)` *(static)* — Yield every fcurve driving *obj*, across Blender 5.1's slotted actions.
   - `BlenderShotStore.collect_transform_segments(scene=None, gap_threshold: float = 5.0, objects: Optional[List[str]] = None, ignore=None, motion_rate: float = 0.001) -> List[Dict[str, Any]]` *(static)* — Gather per-object **motion** segments for auto shot detection.
   - `BlenderShotStore.collect_selected_key_entries(scene=None) -> List[Tuple[float, float, str]]` *(static)* — Gather ``(time, value, object)`` triples from currently selected keyframes.
@@ -627,7 +634,8 @@ Marker persistence for the shot sequencer controller (Blender).
 Segment collection and attribute extraction for the shot sequencer (Blender).
 
 - [`KEY_PROXIMITY_EPS`](blendertk/blendertk/anim_utils/shots/shot_sequencer/segment_collector.py#L22) — constant
-- **[`class SegmentCollector`](blendertk/blendertk/anim_utils/shots/shot_sequencer/segment_collector.py#L43)** — SegmentCollector — module namespace.
+- **[`class SegmentCollector`](blendertk/blendertk/anim_utils/shots/shot_sequencer/segment_collector.py#L48)** — SegmentCollector — module namespace.
+  - `SegmentCollector.label_for(data_path: str, array_index: int = -1) -> str` *(static)* — ``("location", 0)`` → ``translateX`` (mayatk-style channel label).
   - `SegmentCollector.attr_label(fcurve) -> str` *(static)* — ``location[0]`` → ``translateX`` (mayatk-style channel label).
   - `SegmentCollector.abbreviate_attrs(attrs) -> str` *(static)* — Compact, sorted summary of channel labels (``translateX`` -> ``tx``).
   - `SegmentCollector.collect_segments(sequencer, shot, visible_shots, segment_cache, shifted_out_keys, logger)` *(static)* — Collect per-object animation segments for visible shots.
@@ -674,13 +682,14 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_playhead_moved(self, frame: float) -> None` — Widget playhead drag → set the scene frame (scrub audio via Blender).
   - `ShotSequencerController.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
   - `ShotSequencerController.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
-  - `ShotSequencerController.place_dragged_handle(kp, side: str, dt: float, dv: float) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
-  - `ShotSequencerController.on_key_tangent_dragged(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None` — Write the handle a dragged tangent grab point asks for (see
+  - `ShotSequencerController.place_dragged_handle(kp, side: str, dt: float, dv: float, broken: bool = False) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
+  - `ShotSequencerController.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
+  - `ShotSequencerController.on_key_tangent_dragged(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None` — DEPRECATED, one release: the single-key form of
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3479)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3537)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot')` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3535)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3593)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -714,7 +723,7 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.on_trim_all_shots(self, edge: str = 'both') -> None` — Trim empty space from every shot, at *edge*.
   - `ShotsController.on_shift_all_shots(self, start: float) -> None` — Shift every shot so the first one starts on *start*.
   - `ShotsController.on_add_space(self, edge: str = 'leading') -> None` — Pad the active shot with ``spn_space`` frames of room at *edge*.
-- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1067)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1139)** — Switchboard slot class — routes UI events to the controller.
   - `ShotsSlots.header_init(self, widget)` — Configure header help text.
   - `ShotsSlots.spn_detection(self, value)` — Detection threshold changed.
   - `ShotsSlots.cmb_detection_mode(self, index)` — Detection mode combobox changed.
@@ -984,9 +993,9 @@ Geometry analysis and matching logic for AutoInstancer (bpy adapter).
 
 Instancing strategy logic for AutoInstancer (mirror of mayatk's).
 
-- **[`class StrategyType(Enum)`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L16)**
-- **[`class StrategyConfig`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L24)**
-- **[`class InstancingStrategy`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L31)** — Determines the best instancing strategy for a group of objects.
+- **[`class StrategyType(Enum)`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L17)**
+- **[`class StrategyConfig`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L25)**
+- **[`class InstancingStrategy`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L32)** — Determines the best instancing strategy for a group of objects.
   - `InstancingStrategy.evaluate(self, group_size: int, mesh_node: Optional[object] = None, triangle_count: Optional[int] = None) -> StrategyType` — Evaluate the strategy for a given group.
 
 <a id="core_utils--diagnostics--mesh_diag"></a>
@@ -1002,7 +1011,7 @@ Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostic
 
 Transform diagnostics — the Blender counterpart of mayatk's
 
-- **[`class TransformDiagnostics(_TransformDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/transform_diag.py#L110)** — Transform/shear diagnostics (mirror of mayatk's ``TransformDiagnostics``).
+- **[`class TransformDiagnostics(_TransformDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/transform_diag.py#L122)** — Transform/shear diagnostics (mirror of mayatk's ``TransformDiagnostics``).
   - `TransformDiagnostics.get_non_orthogonal(objects=None, tolerance=1e-05, detailed=False)` *(static)* — Return the objects whose evaluated (world) axes are not perpendicular — the
   - `TransformDiagnostics.fix_non_orthogonal_axes(objects=None, dry_run=False, tolerance=1e-05, break_connections=False)` *(static)* — Bake out non-orthogonal (sheared) world axes — shear breaks FBX export (mirror of
 
@@ -1076,7 +1085,7 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
   - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False, check_outliner: bool = False, check_set: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
   - `ColorId.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
   - `ColorId.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
-- **[`class ColorIdSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L532)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
+- **[`class ColorIdSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L528)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
   - `ColorIdSlots.header_init(self, widget)` — Configure header help text and preset combobox.
   - `ColorIdSlots.selected_objects(self) -> List` *(property)* — Return the currently selected objects, or an empty list if none are selected.
   - `ColorIdSlots.selected_button(self)` *(property)* — Return the currently checked swatch button in the palette group.
@@ -1104,7 +1113,7 @@ Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui`
 Per-object **outliner text colour** for Blender — the true analogue of Maya's
 
 - [`COLOR_PROP`](blendertk/blendertk/display_utils/outliner_tint.py#L46) — constant
-- **[`class OutlinerTint(_OutlinerTintInternal)`](blendertk/blendertk/display_utils/outliner_tint.py#L256)** — Per-object outliner text colour (Maya ``outlinerColor`` analogue).
+- **[`class OutlinerTint(_OutlinerTintInternal)`](blendertk/blendertk/display_utils/outliner_tint.py#L267)** — Per-object outliner text colour (Maya ``outlinerColor`` analogue).
   - `OutlinerTint.set_color(objects: Sequence, color: Color) -> int` *(static)* — Stamp ``color`` as each object's outliner colour;
   - `OutlinerTint.get_color(obj) -> Optional[Color]` *(static)* — The object's stored outliner colour, or None.
   - `OutlinerTint.clear(objects: Sequence) -> int` *(static)* — Remove the outliner colour from each object;
@@ -1130,7 +1139,7 @@ Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 
 Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 
-- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L692)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
+- **[`class EditUtils(_EditUtilsInternal)`](blendertk/blendertk/edit_utils/_edit_utils.py#L702)** — Namespace mirror of mayatk's ``EditUtils`` (helpers also exposed module-level).
   - `EditUtils.hook_bind_inverse(target, obj)` *(static)* — The ``matrix_inverse`` a Hook modifier needs so its geometry does **not jump** at bind time.
   - `EditUtils.hook_curve_point(curve, point_index, target, name=None, falloff_type='NONE')` *(static)* — Hook control point *point_index* of *curve* to *target* so moving the target moves that point
   - `EditUtils.decimate(objects, percentage=50.0, preserve_quads=True, symmetry=False, apply=True)` *(static)* — Reduce mesh density via a Decimate (COLLAPSE) modifier — mirror of ``mtk.EditUtils.decimate``.
@@ -1506,8 +1515,8 @@ blendertk environment / scene-library utilities — the engine behind the Refere
 
 Launch a FRESH headless Blender to run a script / code string and capture its output — the
 
-- [`RESULT_PASS`](blendertk/blendertk/env_utils/blender_connection.py#L26) — constant
-- **[`class BlenderConnection`](blendertk/blendertk/env_utils/blender_connection.py#L29)** — Run scripts in fresh headless Blender instances (mirror of ``MayaConnection``'s role).
+- [`RESULT_PASS`](blendertk/blendertk/env_utils/blender_connection.py#L27) — constant
+- **[`class BlenderConnection`](blendertk/blendertk/env_utils/blender_connection.py#L30)** — Run scripts in fresh headless Blender instances (mirror of ``MayaConnection``'s role).
   - `BlenderConnection.find_blender(cls) -> Optional[str]` *(class)* — Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` → common install
   - `BlenderConnection.run_script(self, script_path: str, script_args=None, *, blend_file: Optional[str] = None, extra_args=None, timeout: Optional[float] = 600, output_file: Optional[str] = None, env: Optional[dict] = None)` — Run *script_path* in a fresh headless Blender;
   - `BlenderConnection.run_code(self, code: str, **kwargs)` — Run a Python *code* string in a fresh headless Blender (via a temp script).
@@ -1545,7 +1554,7 @@ Blender-side selection + export hooks shared by the hand-off bridge engines.
 
 Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 
-- [`main() -> int`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L30) — Stage the FBX named on the command line;
+- [`main() -> int`](blendertk/blendertk/env_utils/hierarchy_sync/_fbx_stage_worker.py#L31) — Stage the FBX named on the command line;
 
 <a id="env_utils--hierarchy_sync--_hierarchy_sync"></a>
 ### `env_utils/hierarchy_sync/_hierarchy_sync.py`
@@ -1567,6 +1576,18 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
   - `HierarchySync.should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool` *(static)* — Filter by Blender object type — mirror of mayatk's shape-type filter.
 - **[`class ObjectSwapper(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L1083)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
   - `ObjectSwapper.pull_objects_from_reference(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool` — Append the reference objects at *target_paths* into the current scene.
+
+<a id="env_utils--hierarchy_sync--hierarchy_baseline"></a>
+### `env_utils/hierarchy_sync/hierarchy_baseline.py`
+
+The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
+
+- **[`class HierarchyBaseline`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_baseline.py#L35)** — Read, compare and roll forward the file's hierarchy baseline.
+  - `HierarchyBaseline.read(cls) -> Set[str]` *(class)* — Every path the file has recorded, across all scopes.
+  - `HierarchyBaseline.is_unreadable(cls) -> bool` *(class)* — The channel holds something, but no baseline could be read from it.
+  - `HierarchyBaseline.compare(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> Tuple[bool, List[str], List[str], bool]` *(class)* — Diff *current_paths* against the baseline, scoped to what is exporting.
+  - `HierarchyBaseline.write(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> bool` *(class)* — Roll the exported scope forward, leaving every other scope intact.
+  - `HierarchyBaseline.migrate_from_sidecar(cls, export_dir: str) -> int` *(class)* — Adopt any on-disk baselines in *export_dir* into the file, once.
 
 <a id="env_utils--hierarchy_sync--hierarchy_sync_slots"></a>
 ### `env_utils/hierarchy_sync/hierarchy_sync_slots.py`
@@ -1626,7 +1647,6 @@ Scene-data sidecar manifest management — mirror of mayatk's
   - `SceneDataSidecar.find_legacy_manifest(cls, export_path: str) -> Optional[str]` *(class)* — Return the path of a legacy per-version sidecar to migrate from.
   - `SceneDataSidecar.ensure_base_name(cls, export_path: str) -> Optional[str]` *(class)* — Migrate a legacy per-version manifest to the base-stem name.
   - `SceneDataSidecar.migrate_legacy(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]` *(class)* — Idempotently bring on-disk sidecars up to the current naming.
-  - `SceneDataSidecar.rename(cls, old_export_path: str, new_export_path: str) -> list` *(class)* — Rename sidecar files to match a renamed export file.
   - `SceneDataSidecar.build_clean_path_set(paths) -> set` *(static)* — Dedup a set of hierarchy path strings.
   - `SceneDataSidecar.expand_to_descendants(objects) -> list` *(static)* — Return hierarchy paths for *objects* plus all their descendants.
   - `SceneDataSidecar.get_top_level(paths) -> list` *(static)* — Return only paths whose ancestor is *not* also in the set.
@@ -1681,7 +1701,7 @@ Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 
 - [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L49) — constant
-- **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L143)** — Export the Blender selection and run a chosen Maya import template.
+- **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L144)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
   - `MayaBridge.headless_app_path(self) -> Optional[str]` *(property)* — The ``mayapy`` interpreter for the blocking ``save_as`` run.
   - `MayaBridge.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
@@ -1696,24 +1716,27 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 
-- [`SUPPORTED_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L68) — constant
-- [`BAKE_SOURCE_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L73) — constant
-- [`BAKE_SOURCE_SUFFIX`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L79) — constant
-- [`MAYA_GROUP_EMPTY_DISPLAY_SIZE`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L95) — constant
-- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L99) — constant
-- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L174)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+- [`SUPPORTED_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L89) — constant
+- [`BAKE_SOURCE_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L94) — constant
+- [`BAKE_SOURCE_SUFFIX`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L100) — constant
+- [`MAYA_GROUP_EMPTY_DISPLAY_SIZE`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L116) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L120) — constant
+- [`FBX_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L138) — constant
+- [`REDUCE_KEYS_DEFAULT`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L149) — constant
+- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L238)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
   - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
-  - `MayaSceneImport.render_script(self, src_path: str, out_path: str, *, via: str = 'fbx', embed_textures: bool = False, include_animation: bool = True, smart_bake: Union[bool, str] = 'auto') -> str` — Render the Maya-side conversion script (exposed for tests/preview).
-  - `MayaSceneImport.convert(self, src_path: str, out_path: str, *, via: str = 'fbx', timeout: float = 600, **script_opts: Any) -> 'ptk.ScriptRunResult'` — Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).
-  - `MayaSceneImport.import_scene(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: float = 600, fbx_options: Optional[Dict[str, Any]] = None, smart_bake: Union[bool, str] = 'auto', scene_settings: Union[bool, str] = 'auto', **script_opts: Any) -> List[Any]` — Import the Maya scene at *src_path*;
+  - `MayaSceneImport.render_script(self, src_path: str, out_path: str, *, via: str = 'fbx', embed_textures: bool = False, include_animation: bool = True, rig_mode: str = 'auto') -> str` — Render the Maya-side conversion script (exposed for tests/preview).
+  - `MayaSceneImport.convert(self, src_path: str, out_path: str, *, via: str = 'fbx', timeout: Optional[float] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None, **script_opts: Any) -> 'ptk.ScriptRunResult'` — Convert *src_path* to *out_path* in a fresh ``mayapy`` (blocking).
+  - `MayaSceneImport.import_scene(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: Optional[float] = None, fbx_options: Optional[Dict[str, Any]] = None, rig_mode: str = 'auto', scene_settings: Union[bool, str] = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, shots: bool = True, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> List[Any]` — Import the Maya scene at *src_path*;
+  - `MayaSceneImport.import_payload(self, payload_path: str, *, fbx_options: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, scene_settings: bool = False, reduce_keys: Union[bool, str, None] = False, shots: bool = True, progress: Optional[Callable[[int, int, str], Optional[bool]]] = None) -> List[Any]` — Import a Maya hand-off payload into the open scene and apply its manifest.
   - `MayaSceneImport.apply_world(manifest_path: str, hdri: str = '', strength: float = 1.0) -> Dict[str, str]` *(static)* — Light the world: an explicit *hdri*, else the scene's sky dome, else ambient.
   - `MayaSceneImport.blender_path(self) -> Optional[str]` *(property)* — The Blender executable used for the bake — this host's own binary.
   - `MayaSceneImport.require_blender(self) -> str` — Return :attr:`blender_path` or raise an error naming what's missing.
-  - `MayaSceneImport.render_bake_script(self, src_path: str, out_path: str) -> str` — Render the Blender-side intermediate->.blend bake script (exposed for
-  - `MayaSceneImport.bake(self, src_path: str, out_path: str, *, timeout: float = 600) -> Any` — Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*
-  - `MayaSceneImport.bake_scene(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: float = 600, smart_bake: Union[bool, str] = 'auto', **script_opts: Any) -> str` — Bake *src_path* to a cached ``.blend`` and return its path — the link path.
+  - `MayaSceneImport.render_bake_script(self, src_path: str, out_path: str, reduce_keys: Union[bool, str, None] = None) -> str` — Render the Blender-side intermediate->.blend bake script (exposed for
+  - `MayaSceneImport.bake(self, src_path: str, out_path: str, *, timeout: Optional[float] = None, reduce_keys: Union[bool, str, None] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None) -> Any` — Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*
+  - `MayaSceneImport.bake_scene(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: Optional[float] = None, rig_mode: str = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> str` — Bake *src_path* to a cached ``.blend`` and return its path — the link path.
   - `MayaSceneImport.bake_source(baked_path: str) -> Optional[str]` *(static)* — The foreign scene *baked_path* was baked from, or None if it is not a bake.
   - `MayaSceneImport.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
   - `MayaSceneImport.scene_has_complex_animation(src_path: str) -> bool` *(static)* — Cheap pre-conversion probe: does the scene declare *driven* animation the
@@ -1737,7 +1760,7 @@ Slots for the Maya bridge panel.
 Registry of user-tunable Maya-bridge parameters exposed to the panel.
 
 - [`PARAMS`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L38) — constant
-- **[`class Parameters`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L114)** — Parameters — module namespace.
+- **[`class Parameters`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L131)** — Parameters — module namespace.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
   - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
@@ -1747,70 +1770,73 @@ Registry of user-tunable Maya-bridge parameters exposed to the panel.
 
 Import a converted intermediate (USD or FBX) headlessly and save it as a ``.blend`` so a
 
-- [`import_source(bpy)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L81) — Import *SRC_FILE*, dispatched on its extension (USD native / FBX classic).
-- [`apply_manifest(engine, imported)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L133) — Replay the conversion's texture sidecar through the shared rebuild engine.
-- [`tag_node_types(engine, imported)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L150) — Stamp ``maya_node_type`` custom props from the manifest's ``transforms``
-- [`apply_instances(engine, imported)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L165) — Rebuild Blender-native linked duplicates from Maya's instance sets.
-- [`apply_visibility(engine, imported)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L196) — Replay the manifest's smart-bake ``visibility`` section through the shared
-- [`apply_scene(engine, is_usd)`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L215) — Adopt the source scene's time setup (fps / playback + animation ranges /
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L235)
-- [`SRC_FILE`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L46) — constant
-- [`OUT_BLEND`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L47) — constant
-- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L48) — constant
-- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L50) — constant
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L54)
+- [`SRC_FILE`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L39) — constant
+- [`OUT_BLEND`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L40) — constant
+- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L41) — constant
+- [`REDUCE_KEYS`](blendertk/blendertk/env_utils/maya_bridge/templates/_bake_scene.py#L44) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene"></a>
 ### `env_utils/maya_bridge/templates/_import_scene.py`
 
 Open a Maya scene headlessly (mayapy) and export it as FBX for a Blender import.
 
-- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L341) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
-- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L427) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
-- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L458) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(entries, visibility, node_types, scene, path)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L483) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L775)
-- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L44) — constant
-- [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L45) — constant
-- [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L46) — constant
-- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L47) — constant
-- [`SMART_BAKE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
-- [`MODERN_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L61) — constant
-- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L64) — constant
-- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L67) — constant
-- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L77) — constant
+- [`fbx_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L380) — Swap every FBX-hostile shader for an equivalent phong on its shading group.
+- [`skinning_methods(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L533) — ``{mesh transform name: skinning method}`` for the manifest's ``skins``
+- [`scene_node_types(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L554) — ``{leaf name: "locator" | "group"}`` -- the node-type sidecar section.
+- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L598) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
+- [`write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, shots=None, rig=None, machinery=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L625) — The ONE conversion sidecar, consumed by MayaSceneImport: ``materials`` =
+- [`scene_lights(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L687) — The manifest's ``lights`` section: every light in the scene, as data.
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1229)
+- [`shots_section(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L1337) — The scene's shots as the manifest's ``shots`` section, or ``None``.
+- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L48) — constant
+- [`OUT_FBX`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L49) — constant
+- [`EMBED_TEXTURES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L50) — constant
+- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L51) — constant
+- [`SMART_BAKE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L54) — constant
+- [`RIG_MODE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L58) — constant
+- [`RIG_CAPABILITY`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L59) — constant
+- [`MODERN_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L76) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L79) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L82) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene.py#L96) — constant
 
 <a id="env_utils--maya_bridge--templates--_import_scene_usd"></a>
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py`
 
 Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 
-- [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L218) — Make every material export as well as mayaUsd's registry can write it.
-- [`export_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L318) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
-- [`collect_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L493) — The texture manifest the FBX route ships, for the USD route -- read off
-- [`collect_instance_groups(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L551) — Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
-- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L613) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(cmds, materials=None, shading_groups=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L638) — Sidecar beside the USD carrying what USD itself cannot: instance groups,
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L672)
-- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L33) — constant
-- [`OUT_USD`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L34) — constant
-- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L35) — constant
-- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L39) — constant
-- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L42) — constant
-- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L52) — constant
-- [`STINGRAY_DATA_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L63) — constant
+- [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L245) — Make every material export as well as mayaUsd's registry can write it.
+- [`export_usd(cmds, frame_range=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L353) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
+- [`collect_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L529) — The texture manifest the FBX route ships, for the USD route -- read off
+- [`collect_instance_groups(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L649) — Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
+- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L710) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
+- [`write_manifest(cmds, materials=None, shading_groups=None, bones=None, shots=None, rig=None, machinery=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L968) — Sidecar beside the USD carrying what USD itself cannot: instance groups,
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1028)
+- [`shots_section(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1101) — The scene's shots as the manifest's ``shots`` section, or ``None``.
+- [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L40) — constant
+- [`OUT_USD`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L41) — constant
+- [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L42) — constant
+- [`RIG_MODE`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L46) — constant
+- [`RIG_CAPABILITY`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L47) — constant
+- [`STINGRAY_SHADER_TYPES`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L51) — constant
+- [`STINGRAY_TEX_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L54) — constant
+- [`STINGRAY_SLOT_CHANNELS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L68) — constant
+- [`STINGRAY_DATA_SLOTS`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L79) — constant
 
 <a id="env_utils--maya_bridge--templates--_save_scene"></a>
 ### `env_utils/maya_bridge/templates/_save_scene.py`
 
 Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 
-- [`import_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L95) — Import a USD payload through mayaUsd's file translator;
-- [`import_payload(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L112) — Run the importer the payload's extension names (FBX or USD).
-- [`restore_usd_locators(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L119) — Give point-marker Empties their locator shape back (USD carrier) -- the
-- [`import_fbx(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L141) — Import the payload deterministically;
-- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L173) — Restore imported Empties as the correct Maya node types (see module docstring).
-- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L199) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L217)
+- [`import_usd(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L93) — Import a USD payload through mayaUsd's file translator;
+- [`import_payload(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L110) — Run the importer the payload's extension names (FBX or USD).
+- [`restore_usd_locators(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L117) — Give point-marker Empties their locator shape back (USD carrier) -- the
+- [`import_fbx(cmds, mel, engine)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L144) — Import the payload deterministically;
+- [`restore_empty_groups(cmds, engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L176) — Restore imported Empties as the correct Maya node types (see module docstring).
+- [`rebuild_materials(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L204) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`rebuild_shots(engine, new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L222) — Rebuild the sent scene's shots from the sidecar's ``shots`` section through
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L237)
 - [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L39) — constant
 - [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L50) — constant
 - [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/_save_scene.py#L51) — constant
@@ -1825,22 +1851,23 @@ Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
 
 Import the bridged payload (FBX or USD) into Maya, with optional clean-slate and
 
-- [`import_fbx()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L69) — Import the payload deterministically;
-- [`import_usd()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L99) — Import a USD payload through mayaUsd's file translator;
-- [`import_payload()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L120) — Run the importer the payload's extension names (FBX or USD).
-- [`restore_usd_locators(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L129) — Give the Empties that mark a point their locator shape back (USD carrier).
-- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L207) — Restore imported Empties as the CORRECT Maya node types (see module docstring).
-- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L252) — Replay the sidecar manifest through mayatk's applier (see module docstring).
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L274)
+- [`import_fbx()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L72) — Import the payload deterministically;
+- [`import_usd()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L102) — Import a USD payload through mayaUsd's file translator;
+- [`import_payload()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L123) — Run the importer the payload's extension names (FBX or USD).
+- [`restore_usd_locators(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L132) — Give the Empties that mark a point their locator shape back (USD carrier).
+- [`restore_empty_groups(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L216) — Restore imported Empties as the CORRECT Maya node types (see module docstring).
+- [`rebuild_materials(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L261) — Replay the sidecar manifest through mayatk's applier (see module docstring).
+- [`rebuild_shots(new_nodes)`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L283) — Rebuild the sent scene's shots from the sidecar's ``shots`` section through
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L306)
 - [`BRIDGE_MODES`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L35) — constant
-- [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L48) — constant
-- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L49) — constant
-- [`CARRIER`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L50) — constant
-- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L53) — constant
-- [`CLEAR_SCENE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L54) — constant
-- [`FRAME_VIEW`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L55) — constant
-- [`SHADER_TYPE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L58) — constant
-- [`USD_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L66) — constant
+- [`FBX_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L51) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L52) — constant
+- [`CARRIER`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L53) — constant
+- [`EXTRA_SYS_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L56) — constant
+- [`CLEAR_SCENE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L57) — constant
+- [`FRAME_VIEW`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L58) — constant
+- [`SHADER_TYPE`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L61) — constant
+- [`USD_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/templates/import.py#L69) — constant
 
 <a id="env_utils--pm_doctor"></a>
 ### `env_utils/pm_doctor.py`
@@ -1855,7 +1882,7 @@ Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
 
 Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 
-- **[`class ReferenceManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/reference_manager.py#L69)** — Switchboard slot wiring for the Reference Manager panel.
+- **[`class ReferenceManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/reference_manager.py#L70)** — Switchboard slot wiring for the Reference Manager panel.
   - `ReferenceManagerSlots.header_init(self, widget)` — Header refresh button, Naming presets, Filter/Display toggles, bulk Operations, help text.
   - `ReferenceManagerSlots.txt000_init(self, widget)` — Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya).
   - `ReferenceManagerSlots.cmb000_init(self, widget)` — Workspace combo — project folders under the root (replaces Maya's workspace combo).
@@ -1879,7 +1906,7 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
-- **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L117)**
+- **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L116)**
   - `SceneExporter.confirm(self, question: str) -> bool` — Yes/no consent for an export-time side effect (a tool download).
   - `SceneExporter.confirm_check_override(self) -> bool` — Ask, at the failure point, whether to export despite failed checks.
   - `SceneExporter.run_config_from_values(self, values: Dict[str, Any], override_checks: bool = False, ignore_groups_case_sensitive: bool = False) -> Dict[str, Any]` — Widget values -> the inputs :meth:`perform_export` takes.
@@ -1887,7 +1914,7 @@ Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
   - `SceneExporter.name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]` — Live value for every token in :attr:`NAME_TOKENS` but the counter.
   - `SceneExporter.resolve_export_path(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', name_regex: Optional[str] = None, report: bool = True, version_format: str = '', timestamp: bool = False) -> Dict[str, Any]` — Resolve the Output Filename field into the file(s) an export writes.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx', output_format: Optional[str] = None) -> str` — The full export path, from the fields :meth:`perform_export` stamps.
-  - `SceneExporter.format_export_name(self, name: str, name_regex: Optional[str] = None) -> str` — Format the export name using a regex pattern and replacement (e.g.
+  - `SceneExporter.format_export_name(self, name: str, name_regex: Optional[str] = None) -> str` — *name* reshaped by the retired free-standing RegEx field.
   - `SceneExporter.generate_log_file_path(self, export_path: str) -> str` — Generate the log file path based on the export path.
   - `SceneExporter.setup_file_logging(self, log_file_path: str)` — Setup file logging to log actions during export.
   - `SceneExporter.close_file_handlers(self)` — Close and remove file handlers after logging is complete.
@@ -1934,7 +1961,7 @@ Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSl
 
 The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
 
-- **[`class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L33)** — The export pipeline's tasks and checks, run in the shared order.
+- **[`class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`](blendertk/blendertk/env_utils/scene_exporter/task_manager.py#L34)** — The export pipeline's tasks and checks, run in the shared order.
   - `TaskManager.run_tasks(self, tasks: Dict[str, Any]) -> bool` — Run *tasks*, first adopting the two modes derived from them.
   - `TaskManager.objects(self)` *(property)*
   - `TaskManager.write_scene_data_sidecar(self, glb_path: Optional[str] = None) -> None` — Write the sidecar JSON recording what shipped in the export.
@@ -1984,7 +2011,7 @@ The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
 
 Read named sections of live-scene state for transport.
 
-- **[`class SceneState`](blendertk/blendertk/env_utils/scene_state.py#L31)** — Section-registry reader of scene state the FBX cannot express.
+- **[`class SceneState`](blendertk/blendertk/env_utils/scene_state.py#L32)** — Section-registry reader of scene state the FBX cannot express.
   - `SceneState.source() -> Dict[str, str]` *(static)* — This host's identity for the envelope's ``source`` key.
   - `SceneState.read(cls, objects: List[Any], include_textures: bool = True, sections: Optional[List[str]] = None) -> Dict[str, Any]` *(class)* — Scene state the FBX cannot express, one key per requested section.
 
@@ -2030,7 +2057,7 @@ User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk'
 
 Slots for the Unity bridge panel -- mirror of mayatk's
 
-- **[`class UnityBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L43)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class UnityBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L44)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `UnityBridgeSlots.params_module(self)` *(property)*
   - `UnityBridgeSlots.template_dir(self) -> Path` *(property)*
   - `UnityBridgeSlots.make_bridge(self)` — Build the engine, or ``None`` when the optional unitytk is absent.
@@ -2044,7 +2071,7 @@ Slots for the Unity bridge panel -- mirror of mayatk's
 USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 
 - [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/usd.py#L41) — constant
-- **[`class UsdUtils(_UsdUtilsInternal)`](blendertk/blendertk/env_utils/usd.py#L129)** — USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``).
+- **[`class UsdUtils(_UsdUtilsInternal)`](blendertk/blendertk/env_utils/usd.py#L148)** — USD import / export over ``bpy.ops`` (mirror of mayatk's ``UsdUtils``).
   - `UsdUtils.is_usd_file(filepath) -> bool` *(static)* — True when *filepath* is a USD layer/package (delegates to pythontk).
   - `UsdUtils.export(filepath=None, objects=None, selection_only=True, frame_range=None, include_hidden=True, **usd_opts)` *(static)* — Export to a USD file — the counterpart of mayatk's ``UsdUtils.export``.
   - `UsdUtils.sampling_frame_range(objects: Optional[List[Any]] = None) -> Optional[Tuple[float, float]]` *(static)* — The frames a USD export is worth sampling, or ``None`` for a static one.
@@ -2053,12 +2080,16 @@ USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.
   - `UsdUtils.hidden_objects(objects: Optional[List[Any]] = None) -> List[Any]` *(static)* — The viewport-hidden objects among *objects* (default: every object in
   - `UsdUtils.export_prim_path(obj, root_prim_path: str = '') -> str` *(static)* — The prim path Blender's exporter writes for *obj* (one prim per
   - `UsdUtils.prim_path(obj) -> str` *(static)* — The prim path an IMPORTED *obj* came from: its parent chain with the
+  - `UsdUtils.pin_primvar_indices(filepath: str) -> int` *(static)* — Give every indexed primvar a DEFAULT index array, copied from its lone
+  - `UsdUtils.mark_skinning_methods(filepath: str, objects: Optional[List[Any]] = None, root_prim_path: str = '') -> int` *(static)* — Stamp each skinned mesh's SKINNING METHOD into the layer, read from its
   - `UsdUtils.mark_invisible(filepath: str, objects: List[Any], root_prim_path: str = '') -> int` *(static)* — Stamp ``visibility = invisible`` on the prims *objects* exported to
-  - `UsdUtils.apply_visibility(filepath: str, objects: List[Any]) -> int` *(static)* — Hide (``hide_viewport`` + ``hide_render``) every object in *objects*
+  - `UsdUtils.apply_visibility(filepath: str, objects: List[Any]) -> int` *(static)* — Reproduce the layer's visibility on *objects* -- ``hide_viewport`` +
   - `UsdUtils.activate_uv_map(objects: List[Any], name: str = 'map1') -> int` *(static)* — Make the UV map *name* the active and render UV map on every mesh in
   - `UsdUtils.import_scene(filepath: str, **usd_opts) -> List[Any]` *(static)* — Import a hand-off USD layer the way the bridges do: EVERY prim
   - `UsdUtils.import_usd(filepath, **usd_opts)` *(static)* — Import a USD file (wrapper over ``bpy.ops.wm.usd_import``).
-  - `UsdUtils.bake_transform_caches(objects: Optional[List[Any]] = None, frame_range: Optional[Tuple[float, float]] = None) -> int` *(static)* — Bake every ``TRANSFORM_CACHE`` constraint on *objects* (default: all) into
+  - `UsdUtils.bake_transform_caches(objects: Optional[List[Any]] = None, frame_range: Optional[Tuple[float, float]] = None, clean: bool = True) -> int` *(static)* — Bake every ``TRANSFORM_CACHE`` constraint on *objects* (default: all) into
+  - `UsdUtils.honor_reset_xform_stack(usd_path: str, objects: Optional[List[Any]] = None) -> int` *(static)* — Stop imported objects whose prim declares ``!resetXformStack!`` from
+  - `UsdUtils.skinning_methods(usd_path: str) -> Dict[str, str]` *(static)* — ``{prim path: skinning method}`` for every prim of the stage that authors
   - `UsdUtils.scene_settings(filepath: str) -> Dict[str, Any]` *(static)* — The time setup a USD stage itself carries, as a (partial) ``scene`` record
   - `UsdUtils.export_selection_usd(filepath=None, objects=None, **usd_opts)` *(static)* — Export the selection (or *objects*) to a USD file for an external-app hand-off.
 
@@ -2091,7 +2122,7 @@ blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Windo
 
 Light utilities — the world-environment (HDRI) helpers behind the HDR Manager panel
 
-- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L132)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
+- **[`class LightUtils(_LightUtilsInternal)`](blendertk/blendertk/light_utils/_light_utils.py#L131)** — Namespace mirror of mayatk's ``light_utils`` (helpers also exposed module-level).
   - `LightUtils.set_world_hdri(filepath=None, strength=None, rotation=0.0, visible=True, intensity=None, exposure=None)` *(static)* — Set (or update) the world environment from an HDR image.
   - `LightUtils.get_world_hdri()` *(static)* — The current world-HDRI state as a dict (``filepath``/``strength``/``intensity``/
   - `LightUtils.set_world_ray_visibility(diffuse=None, glossy=None)` *(static)* — Toggle whether the world environment contributes to **diffuse** / **glossy** lighting — the
@@ -2614,6 +2645,8 @@ Material Updater tool panel — Switchboard slot wiring for the co-located ``mat
 Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 
 - **[`class RenderEffects(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L30)** — Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
+  - `RenderEffects.channel_records(cls, objects=None) -> dict` *(class)* — ``{object name: {label: {"value", "keys"}}}`` -- every render-effect
+  - `RenderEffects.apply_channel_records(cls, obj_name, records: dict) -> int` *(class)* — Land :meth:`channel_records` records on the object;
   - `RenderEffects.objects_with_visibility_keys(cls, objects) -> list` *(class)* — The subset of *objects* that already have keyframes on render visibility.
   - `RenderEffects.create(cls, objects=None, mode: str = 'attribute', delete_visibility_keys: bool = False, channel: str = 'opacity')` *(class)* — Add the channel's prop to *objects* (or remove it).
   - `RenderEffects.key_pulse(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', preview=None, delete_visibility_keys=False, whole_frames=True)` *(class)* — Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
@@ -2933,7 +2966,7 @@ Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 
 Node / datablock utilities — instancing via shared object data.
 
-- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L87)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
+- **[`class NodeUtils(_NodeUtilsInternal)`](blendertk/blendertk/node_utils/_node_utils.py#L90)** — Namespace mirror of mayatk's ``NodeUtils`` (instance helpers also exposed module-level).
   - `NodeUtils.get_instances(objects=None)` *(static)* — Return objects that share their data with another object (Maya-style instances).
   - `NodeUtils.replace_with_instances(objects, freeze_transforms=False, center_pivot=False, delete_history=False, retain_bbox_scale=False, retain_bbox_per_axis=False)` *(static)* — Make ``objects[1:]`` instances of ``objects[0]`` by sharing its data — Blender's linked
   - `NodeUtils.uninstance(objects, freeze=False)` *(static)* — Break the instance link — make each object's data single-user (mirror of ``mtk.uninstance``).
@@ -2947,7 +2980,7 @@ Node / datablock utilities — instancing via shared object data.
 
 Channels — Blender attribute query / mutation logic.
 
-- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L22)** — Blender attribute query / mutation logic.
+- **[`class Channels`](blendertk/blendertk/node_utils/attributes/channels/_channels.py#L23)** — Blender attribute query / mutation logic.
   - `Channels.is_pinned(self)` *(property)*
   - `Channels.single_object_mode(self)` *(property)*
   - `Channels.pin_targets(self, objects)` — Pin the manager to a fixed object list;
@@ -3004,6 +3037,8 @@ Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_node
   - `DataNodes.get_internal_string(key)` *(static)* — The internal carrier's *key* custom property, or ``None`` — see ``_get_string``;
   - `DataNodes.get_export_node(create=True)` *(static)* — The ``data_export`` Empty (created + linked to the scene when *create*).
   - `DataNodes.ensure_export()` *(static)* — Get or create the ``data_export`` Empty.
+  - `DataNodes.set_internal_json(key, payload)` *(static)* — Publish *payload* as a JSON channel on ``data_internal``.
+  - `DataNodes.get_internal_json(key, default=None)` *(static)* — Parse an internal JSON channel, or return *default* (mirror of mayatk).
   - `DataNodes.set_export_string(key, value)` *(static)* — Set custom property *key* on the carrier to *value* (string) — see ``_set_string``
   - `DataNodes.get_export_string(key)` *(static)* — The carrier's *key* custom property, or ``None`` — see ``_get_string``;
   - `DataNodes.set_export_json(key, payload)` *(static)* — Publish *payload* as a JSON export channel — the one-call form of the producer
@@ -3015,7 +3050,7 @@ Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_node
 
 Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 
-- **[`class NurbsUtils(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L16)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
+- **[`class NurbsUtils(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L17)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
   - `NurbsUtils.add_spline(curve, points, cyclic=False, kind='POLY')` *(static)* — Append a spline of ``points`` (each an ``(x, y, z)``) to an existing curve.
   - `NurbsUtils.create_curve(cls, points, name='curve', cyclic=False, kind='POLY', dimensions='3D', link=True, collection=None)` *(class)* — Build a curve object from a point list — mirror of mayatk's ``cmds.curve`` usage.
   - `NurbsUtils.duplicate_curve(curve_obj, name=None, link=True)` *(static)* — A curve-data duplicate of ``curve_obj``, linked into the same collection(s) — the
@@ -3065,7 +3100,7 @@ Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 
 Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUtils``.
 
-- **[`class RigUtils`](blendertk/blendertk/rig_utils/_rig_utils.py#L20)** — Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs.
+- **[`class RigUtils`](blendertk/blendertk/rig_utils/_rig_utils.py#L21)** — Constraint / driver / handle / grouping / armature helpers shared by the procedural rigs.
   - `RigUtils.resolve_object(obj)` *(static)* — An object or its name → the ``bpy`` object (``None`` if missing).
   - `RigUtils.create_locator(name='locator', location=(0, 0, 0), display_type='PLAIN_AXES', size=1.0, collection=None)` *(static)* — Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle).
   - `RigUtils.create_group(name='rig_grp', location=(0, 0, 0), children=None)` *(static)* — Create an Empty used as a transform group, parenting ``children`` under it (keeping
@@ -3073,6 +3108,8 @@ Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUti
   - `RigUtils.create_armature(name='armature', location=(0, 0, 0), collection=None)` *(static)* — Create an empty Armature object (Maya's joint-chain container).
   - `RigUtils.add_bone_chain(armature, points, prefix='bone', connect=True, radius=None)` *(static)* — Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``
   - `RigUtils.add_bone(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)` *(static)* — Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone
+  - `RigUtils.set_bone_heads(armature, heads)` *(static)* — Move bones by NAME — ``{bone: (x, y, z)}``, the new HEAD in armature space.
+  - `RigUtils.set_bone_lengths(armature, lengths)` *(static)* — Resize bones by NAME — ``{bone: length}``, in the armature's own units.
   - `RigUtils.get_bone_chain_from_root(armature, bone_name=None, reverse=False)` *(static)* — Walk a single-path bone chain from a root bone — mirror of mayatk's
   - `RigUtils.invert_bone_chain(armature, bone_names)` *(static)* — Rebuild *bone_names* (head->tail order) with reversed hierarchy — mirror of mayatk's
   - `RigUtils.add_bone_constraint(armature, bone_name, ctype, target=None, subtarget=None, **props)` *(static)* — Add a **pose-bone** constraint (``ctype`` e.g.
@@ -3103,6 +3140,30 @@ Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Cont
   - `Controls.register_preset(cls, name, builder)` *(class)* — Register a custom shape *builder* (``() -> List[(points, cyclic)]``, pure geometry in the
   - `Controls.shapes(cls) -> List[str]` *(class)* — Sorted names of the registered shapes (for a UI combo / validation).
   - `Controls.create(cls, shape='circle', name='ctrl', size=1.0, axis='y', color=None, location=(0, 0, 0), group=False, collection=None, return_nodes=False)` *(class)* — Build a control curve object in *shape*, scaled by *size*, oriented by *axis*, optionally
+
+<a id="rig_utils--rig_graph_build"></a>
+### `rig_utils/rig_graph_build.py`
+
+Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
+
+- **[`class RigGraphBuilder(_RigGraphBuilderInternal, ptk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_build.py#L557)** — Plan a RigGraph against Blender and build what the plan allows.
+  - `RigGraphBuilder.capability(cls) -> Dict[str, Any]` *(class)* — What this target can build, as data the planner reads (section 9.2).
+  - `RigGraphBuilder.scope(self)` — Yield with every touched object evaluable AND the scene's frame
+  - `RigGraphBuilder.linear_unit() -> str` *(static)* — Blender's scene unit is always metres for our purposes.
+  - `RigGraphBuilder.up_axis() -> str` *(static)* — Blender is Z-up.
+  - `RigGraphBuilder.sample_world(self, node_id: str, frame: int) -> Optional[Tuple[float, float, float]]` — The world position of what *node_id* names at *frame* -- an object's
+  - `RigGraphBuilder.commit(self, record_id: str) -> int` — A verified record owns its channels: delete the payload's muted keys
+  - `RigGraphBuilder.remove(self, record_id: str) -> int` — Take back everything :meth:`build` created for *record_id* -- the
+  - `RigGraphBuilder.build(self, graph: Dict[str, Any], imported: Sequence[Any], is_usd: bool = False) -> Dict[str, Any]` — Plan *graph* against :meth:`capability` and build what it allows.
+  - `RigGraphBuilder.evaluable(self)` — Yield with every object a built record touches evaluable at any
+
+<a id="rig_utils--rig_graph_extract"></a>
+### `rig_utils/rig_graph_extract.py`
+
+Read a Blender rig into a RigGraph -- the Blender side of phase 2.
+
+- **[`class RigGraphExtractor(_RigGraphExtractorInternal, ptk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_extract.py#L484)** — Extract a Blender scene's rig logic into a RigGraph document (plain dict).
+  - `RigGraphExtractor.extract(self, objects: Optional[Sequence[Any]] = None) -> Dict[str, Any]` — Read the scene's constraints and drivers into a RigGraph envelope.
 
 <a id="rig_utils--shadow_preview"></a>
 ### `rig_utils/shadow_preview.py`
@@ -3215,7 +3276,7 @@ Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescop
   - `TelescopeRig.scene_bundles(cls)` *(class)* — Every telescope-rig bundle stamped into the current .blend.
   - `TelescopeRig.find_bundles(cls, objects)` *(class)* — Bundles whose handles or segments intersect *objects*.
   - `TelescopeRig.teardown(self, bundle=None)` — Remove a telescope rig built by this class.
-- **[`class TelescopeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L671)** — Switchboard slot wiring for the Telescope Rig panel.
+- **[`class TelescopeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L677)** — Switchboard slot wiring for the Telescope Rig panel.
   - `TelescopeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TelescopeRigSlots.build_rig(self)`
   - `TelescopeRigSlots.remove_rig(self)`
@@ -3225,7 +3286,7 @@ Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescop
 
 Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.TubePath``.
 
-- **[`class TubePath`](blendertk/blendertk/rig_utils/tube_path.py#L22)** — Extract centerline paths from tube meshes (static helpers;
+- **[`class TubePath`](blendertk/blendertk/rig_utils/tube_path.py#L23)** — Extract centerline paths from tube meshes (static helpers;
   - `TubePath.get_centerline(mesh, num_joints=10, precision=None, edges=None)` *(static)* — Unified centerline dispatcher — mirror of mayatk's ``TubePath.get_centerline``.
   - `TubePath.get_selected_edges(mesh)` *(static)* — The mesh's selected EDIT-mode edges — mirror of mayatk's optional
   - `TubePath.get_centerline_using_edges(mesh, edges)` *(static)* — Centerline from an explicit edge selection — mirror of mayatk's
@@ -3354,7 +3415,7 @@ Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-butto
 
 Native-window (win32/GHOST) helpers for hosting Qt widgets around a Blender window.
 
-- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L33)** — Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.
+- **[`class BlenderWindow`](blendertk/blendertk/ui_utils/blender_window.py#L34)** — Static win32 helpers for GHOST-window enumeration, geometry, embedding, ownership.
   - `BlenderWindow.process_ghost_hwnds(cls)` *(class)* — List of visible GHOST-window HWNDs owned by THIS process (``[]`` off-Windows).
   - `BlenderWindow.window_hwnd(cls, bpy_window)` *(class)* — The GHOST hwnd of a SPECIFIC already-open ``bpy.types.Window``, or None.
   - `BlenderWindow.is_window(cls, hwnd) -> bool` *(class)*
@@ -3397,7 +3458,7 @@ Calculator tool panel — Switchboard slot wiring for the co-located ``calculato
 
 Blender's answers to uitk's cancellation contract (mayatk parity twin).
 
-- **[`class BlenderCancelProvider(CancelProvider)`](blendertk/blendertk/ui_utils/cancel_provider.py#L49)** — Blender host strategy for :class:`uitk.CancelManager`.
+- **[`class BlenderCancelProvider(CancelProvider)`](blendertk/blendertk/ui_utils/cancel_provider.py#L50)** — Blender host strategy for :class:`uitk.CancelManager`.
   - `BlenderCancelProvider.begin(self, scope, label: str = '', rollback: bool = False) -> Any` — Start Blender's progress readout for the operation.
   - `BlenderCancelProvider.tick(self, value: Optional[int] = None, total: Optional[int] = None, text: Optional[str] = None) -> None` — Mirror progress into Blender's cursor progress readout.
   - `BlenderCancelProvider.end(self, token: Any, cancelled: bool = False, rollback: bool = False) -> None` — End the progress readout.
@@ -3479,7 +3540,7 @@ Persist Blender's per-session UI visibility state across sessions (``btk.UiState
 
 External auto-unwrap round-trip: OBJ out, engine, OBJ back, UVs transferred.
 
-- **[`class AutoUnwrapResult`](blendertk/blendertk/uv_utils/_auto_unwrap.py#L18)** — Per-object outcome of an :meth:`auto_unwrap` run.
+- **[`class AutoUnwrapResult`](blendertk/blendertk/uv_utils/_auto_unwrap.py#L19)** — Per-object outcome of an :meth:`auto_unwrap` run.
 
 <a id="uv_utils--_uv_utils"></a>
 ### `uv_utils/_uv_utils.py`
@@ -3488,7 +3549,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 
 - [`DEFAULT_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L22) — constant
 - [`LIGHTMAP_UV_SET`](blendertk/blendertk/uv_utils/_uv_utils.py#L41) — constant
-- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L414)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
+- **[`class UvUtils(_UvUtilsInternal)`](blendertk/blendertk/uv_utils/_uv_utils.py#L417)** — Namespace mirror of mayatk's ``UvUtils`` (helpers also exposed module-level).
   - `UvUtils.calculate_uv_padding(map_size: int, normalize: bool = False, factor: int = 256)` *(static)* — The texture gutter for a given map size — Blender-side name for the ecosystem rule.
   - `UvUtils.move_uvs(objects, du=0.0, dv=0.0)` *(static)* — Translate the UVs of the given mesh object(s) by ``(du, dv)`` — "move to UV space"
   - `UvUtils.get_uv_bounds(objects)` *(static)* — The UV-space bounding box of *objects*, as one box over the whole input —
@@ -3544,8 +3605,8 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
 - [`PARAMS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L47) — constant
 - [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L470) — constant
-- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L656) — constant
-- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L666) — constant
+- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L658) — constant
+- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L668) — constant
 - **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L479)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
@@ -3560,7 +3621,7 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
 Slots for the RizomUV bridge panel.
 
-- **[`class RizomBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L73)** — Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class RizomBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/uv_utils/rizom_bridge/rizom_bridge_slots.py#L74)** — Slots wired to ``rizom_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `RizomBridgeSlots.params_module(self)` *(property)*
   - `RizomBridgeSlots.template_dir(self) -> Path` *(property)*
   - `RizomBridgeSlots.make_bridge(self) -> RizomUVBridge`

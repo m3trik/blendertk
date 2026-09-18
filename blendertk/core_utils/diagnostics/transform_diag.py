@@ -36,9 +36,7 @@ class _TransformDiagnosticsInternal(object):
     @staticmethod
     def _has_shear(matrix_3x3, tolerance=1e-5):
         """True if the 3×3's column axes are not mutually orthogonal (shear)."""
-        return (
-            _TransformDiagnosticsInternal._matrix_skew(matrix_3x3) > tolerance
-        )
+        return _TransformDiagnosticsInternal._matrix_skew(matrix_3x3) > tolerance
 
     @staticmethod
     def _resolve(objects):
@@ -80,7 +78,13 @@ class _TransformDiagnosticsInternal(object):
                 if drv.data_path in paths:
                     found[f"driver:{drv.data_path}"] = None
             if anim.action:
-                for fcurve in anim.action.fcurves:
+                # Slot-aware: Blender 5.x DROPPED the flat ``action.fcurves``
+                # (slotted actions), so reaching for it raised AttributeError on
+                # every animated object -- this helper decides whether a freeze
+                # would be overwritten, so it crashed exactly where it mattered.
+                from blendertk.anim_utils._anim_utils import AnimUtils
+
+                for fcurve in AnimUtils.get_fcurves(obj):
                     if fcurve.data_path in paths:
                         found[f"anim:{fcurve.data_path}"] = None
         for con in obj.constraints:
@@ -98,9 +102,17 @@ class _TransformDiagnosticsInternal(object):
             if kind == "driver":
                 obj.driver_remove(name)
             elif kind == "anim":
-                action = obj.animation_data.action
-                for fcurve in [f for f in action.fcurves if f.data_path == name]:
-                    action.fcurves.remove(fcurve)
+                from blendertk.anim_utils._anim_utils import (
+                    AnimUtils,
+                    _AnimUtilsInternal,
+                )
+
+                anim = obj.animation_data
+                slot = getattr(anim, "action_slot", None)
+                for fcurve in [
+                    f for f in AnimUtils.get_fcurves(obj) if f.data_path == name
+                ]:
+                    _AnimUtilsInternal._remove_fcurve(anim.action, slot, fcurve)
             elif kind == "constraint":
                 constraint = obj.constraints.get(name)
                 if constraint is not None:
