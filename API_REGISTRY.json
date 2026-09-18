@@ -10144,7 +10144,7 @@
               "kind": "property",
               "signature": "(self) -> Optional[str]",
               "summary": "The Blender executable used for the bake — this host's own binary.",
-              "line": 2402,
+              "line": 2403,
               "deprecated": false
             },
             {
@@ -10153,7 +10153,7 @@
               "kind": "method",
               "signature": "(self) -> str",
               "summary": "Return :attr:`blender_path` or raise an error naming what's missing.",
-              "line": 2424,
+              "line": 2425,
               "deprecated": false
             },
             {
@@ -10162,7 +10162,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, reduce_keys: Union[bool, str, None] = None) -> str",
               "summary": "Render the Blender-side intermediate->.blend bake script (exposed for",
-              "line": 2434,
+              "line": 2435,
               "deprecated": false
             },
             {
@@ -10171,7 +10171,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, out_path: str, *, timeout: Optional[float] = None, reduce_keys: Union[bool, str, None] = None, on_output: Optional[Callable[[Optional[str]], Optional[bool]]] = None) -> Any",
               "summary": "Bake the USD/FBX intermediate *src_path* into the .blend at *out_path*",
-              "line": 2459,
+              "line": 2460,
               "deprecated": false
             },
             {
@@ -10180,7 +10180,7 @@
               "kind": "method",
               "signature": "(self, src_path: str, *, via: str = 'fbx', use_cache: bool = True, timeout: Optional[float] = None, rig_mode: str = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> str",
               "summary": "Bake *src_path* to a cached ``.blend`` and return its path — the link path.",
-              "line": 2507,
+              "line": 2508,
               "deprecated": false
             },
             {
@@ -10189,7 +10189,7 @@
               "kind": "staticmethod",
               "signature": "(baked_path: str) -> Optional[str]",
               "summary": "The foreign scene *baked_path* was baked from, or None if it is not a bake.",
-              "line": 2653,
+              "line": 2654,
               "deprecated": false
             },
             {
@@ -10198,7 +10198,7 @@
               "kind": "staticmethod",
               "signature": "(maya_exe: str) -> Optional[str]",
               "summary": "Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.",
-              "line": 2668,
+              "line": 2669,
               "deprecated": false
             },
             {
@@ -10207,7 +10207,7 @@
               "kind": "staticmethod",
               "signature": "(src_path: str) -> bool",
               "summary": "Cheap pre-conversion probe: does the scene declare *driven* animation the",
-              "line": 2679,
+              "line": 2680,
               "deprecated": false
             },
             {
@@ -10216,7 +10216,7 @@
               "kind": "staticmethod",
               "signature": "(root_dir: str, recursive: bool = False, extensions: Optional[Sequence[str]] = None) -> List[str]",
               "summary": "Every importable Maya scene (``.ma`` / ``.mb``) under *root_dir* — sorted abs paths.",
-              "line": 2740,
+              "line": 2741,
               "deprecated": false
             }
           ]
@@ -12890,7 +12890,7 @@
               "kind": "staticmethod",
               "signature": "(multiplier, lights=None)",
               "summary": "Multiply the energy of light objects, returning ``{name: new_energy}``.",
-              "line": 783,
+              "line": 788,
               "deprecated": false
             },
             {
@@ -12899,7 +12899,7 @@
               "kind": "staticmethod",
               "signature": "(multiplier, objects=None)",
               "summary": "Set Emission Strength on every material whose Emission Color is textured.",
-              "line": 829,
+              "line": 834,
               "deprecated": false
             }
           ]
