@@ -7,8 +7,8 @@ compile nor draw here. What runs is everything AROUND it: the assembled
 fragment source (the shared body behind Blender's texel hook), the frame math
 that turns the contact empty's matrix into the world-space frame the shader
 takes, the headless refusal, the plane-side contract (visibility borrowed and
-handed back, the export record unchanged), and the ``"shadow"`` export
-preparer standing in for the producer. The compiled shader and the drawn
+handed back, the export record unchanged), and the ``"shadow_preview"``
+export stager paired with the ``SHADOWS`` producer. The compiled shader and the drawn
 pixels are ``shadow_preview_gui_check.py``'s, which needs a windowed Blender.
 
 Run (fresh instance, never an existing session)::
@@ -20,6 +20,7 @@ import math
 import os
 import sys
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -140,8 +141,10 @@ class TestLifecycleHeadless(unittest.TestCase):
         self._paths = [self.rig.texture_path, self.rig.horizon_path]
 
     def tearDown(self):
-        FbxUtils.unregister_export_preparer("shadow")
+        FbxUtils.unregister_export_stager("shadow_preview")
+        FbxUtils.disable_export_producer(ptk.SceneRecords.SHADOWS)
         ShadowPreview._planes.clear()
+        ShadowPreview._detached_for_export = []
         for path in self._paths:
             try:
                 if path and os.path.exists(path):
@@ -172,7 +175,7 @@ class TestLifecycleHeadless(unittest.TestCase):
         self.assertIsNotNone(image)
         self.assertEqual(image.name, f"{self.rig._base}_horizon")
         self.assertEqual(len(params), 32, "eight vec4s")
-        record = ShadowRig.export_record(self.plane)
+        record = ShadowRig.plane_record(self.plane)
         hz = record["horizon"]
         self.assertEqual(params[7], float(hz["size"]))
         self.assertEqual(params[11], float(hz["spans"]))
@@ -187,36 +190,51 @@ class TestLifecycleHeadless(unittest.TestCase):
     def test_the_record_is_the_same_with_the_plane_borrowed(self):
         """Simulated attach (no draw loop): the plane hidden and the prop
         stamped, exactly what ``attach`` does past the refusal."""
-        before = ShadowRig.export_record(self.plane)
+        before = ShadowRig.plane_record(self.plane)
         self.plane[ShadowPreview.HIDDEN_PROP] = False
         self.plane.hide_set(True)
         ShadowPreview._planes.append(self.plane.name)
-        self.assertEqual(ShadowRig.export_record(self.plane), before)
+        self.assertEqual(ShadowRig.plane_record(self.plane), before)
         self.assertEqual(
             [o.name for o in ShadowPreview.attached_planes()], [self.plane.name]
         )
         self.assertTrue(ShadowPreview.detach(self.plane))
         self.assertFalse(self.plane.hide_get(), "visibility handed back")
         self.assertNotIn(ShadowPreview.HIDDEN_PROP, self.plane)
-        self.assertEqual(ShadowRig.export_record(self.plane), before)
+        self.assertEqual(ShadowRig.plane_record(self.plane), before)
         self.assertFalse(ShadowPreview.detach(self.plane), "nothing left to detach")
 
-    def test_the_export_preparer_stands_the_preview_down_and_republishes(self):
+    def test_the_export_bracket_stands_the_preview_down_and_republishes(self):
+        """The pair ``_register_export_preparer`` installs: the
+        ``"shadow_preview"`` stager detaches before any producer runs, and
+        the ``SHADOWS`` producer then records the planes with their
+        visibility handed back -- inside one export bracket, which puts the
+        preview back once the write is done (once, however often it staged)."""
         import json
 
         from blendertk.node_utils.data_nodes import DataNodes
 
-        self.plane[ShadowPreview.HIDDEN_PROP] = False
-        self.plane.hide_set(True)
-        ShadowPreview._planes.append(self.plane.name)
+        self._simulate_attach()
         ShadowPreview._register_export_preparer()
-        self.assertIn("shadow", FbxUtils._export_preparers)
-        FbxUtils.run_export_preparers(only=["shadow"])
-        self.assertFalse(self.plane.hide_get(), "visible again before the export")
-        self.assertEqual(ShadowPreview.attached_planes(), [])
-        node = DataNodes.get_export_node(create=False)
-        self.assertIsNotNone(node)
-        payload = json.loads(node[ShadowRig.SHADOW_METADATA])
+        self.assertIn("shadow_preview", FbxUtils._session_stagers)
+        self.assertIn(ptk.SceneRecords.SHADOWS.key, FbxUtils._session_producers)
+        # Headless, a real attach is refused (no draw loop): record the ask.
+        with mock.patch.object(ShadowPreview, "attach") as attach:
+            FbxUtils.stage(())
+            with FbxUtils.export_prepared(
+                FbxUtils.export_context(), only=[ptk.SceneRecords.SHADOWS]
+            ) as snapshot:
+                self.assertFalse(
+                    self.plane.hide_get(), "visible again before the export"
+                )
+                self.assertEqual(ShadowPreview.attached_planes(), [])
+                self.assertIn(ptk.SceneRecords.SHADOWS.key, snapshot.records)
+                node = DataNodes.get_export_node(create=False)
+                self.assertIsNotNone(node)
+                payload = json.loads(node[ShadowRig.SHADOW_METADATA])
+                attach.assert_not_called()
+        attach.assert_called_once_with(self.plane)
+        self.assertEqual(ShadowPreview._detached_for_export, [])
         (record,) = [p for p in payload["planes"] if p["name"] == self.plane.name]
         self.assertTrue(record["texture"])
         self.assertEqual(record["type"], "horizon")

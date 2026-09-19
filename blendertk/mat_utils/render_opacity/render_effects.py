@@ -24,6 +24,8 @@ channels (``ptk.MeshConvert.apply_glb_visibility``). ``prepare_for_export`` writ
 ``import bpy`` is deferred into the call bodies so the module resolves headless / under the .venv.
 """
 
+from typing import Optional
+
 import pythontk as ptk
 
 
@@ -992,9 +994,11 @@ class RenderEffects(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ in-band export metadata
     #: ``data_export`` channel read by ``ptk.MeshConvert.apply_glb_visibility``
-    #: (mirror of mayatk's ``RenderOpacity.DATA_CHANNEL``).
-    DATA_CHANNEL = ptk.MeshConvert.VISIBILITY_TRACKS_KEY
-    SCHEMA_VERSION = ptk.MeshConvert.VISIBILITY_TRACKS_VERSION
+    #: -- the key of the ``ptk.SceneRecords.VISIBILITY`` record (mirror of
+    #: mayatk's ``RenderEffects.DATA_CHANNEL``).
+    DATA_CHANNEL = ptk.SceneRecords.VISIBILITY.key
+    #: Schema this producer writes (stamped by the declaration).
+    SCHEMA_VERSION = ptk.SceneRecords.VISIBILITY.version
 
     @classmethod
     def visibility_tracks(cls) -> list:
@@ -1090,60 +1094,103 @@ class RenderEffects(ptk.LoggingMixin):
         return out
 
     @classmethod
-    def refresh_export_metadata(cls):
-        """Republish the ``visibility_tracks`` channel (``FbxUtils._KNOWN_PRODUCERS``).
+    def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
+        """The ``visibility_tracks`` record for this file, or ``None`` when it
+        has no keyed visibility -- the ``ptk.SceneRecords.VISIBILITY`` producer
+        (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the
+        curves and the shot record and never writes.
 
-        Mirror of mayatk's. glTF animates translation, rotation, scale and morph
-        weights and nothing else, so keyed visibility does not survive the
-        conversion from either DCC; ``MeshConvert.apply_glb_visibility`` rebuilds
-        it from this channel as stepped scale. The authored *fade* rides along
-        on the same channel and ``MeshConvert.apply_glb_fades`` writes it as
+        glTF animates translation, rotation, scale and morph weights and
+        nothing else, so keyed visibility does not survive the conversion from
+        either DCC; ``MeshConvert.apply_glb_visibility`` rebuilds it from this
+        channel as stepped scale.  The authored *fade* rides along on the same
+        channel and ``MeshConvert.apply_glb_fades`` writes it as
         ``KHR_animation_pointer`` alpha, which is why :meth:`_linear_ramp`
         matters: that consumer reads the ramp linearly.
-        """
-        import json
 
+        Also publishes ``clip_span`` -- per take, the first and last authored
+        frame inside its window (the take's own zero: the converter rebases a
+        clip onto its first authored key).  The whole-timeline entry is the
+        exporter's ``ctx.clip_span`` when the pipeline measured one (the first
+        and last frame the stack CARRIES), else the bake range as a seed.
+
+        Parameters:
+            ctx: The export's decisions (``clip_span``) and the records
+                produced before this one -- the shot record's ``fps`` and its
+                clips' ranges (the takes); the stored records are read when
+                this assembly did not produce them (an authoring-time
+                republish).
+
+        Returns:
+            The record, or ``None`` when there is no keyed visibility (the
+            publisher then clears the channel).
+        """
+        from blendertk.env_utils.fbx_utils import FbxUtils
         from blendertk.node_utils.data_nodes import DataNodes
 
         # Bail BEFORE the span walk: that reads every fcurve in the file, and a
         # scene with no keyed visibility has nothing to spend it on.
         tracks = cls.visibility_tracks()
         if not tracks:
-            DataNodes.set_export_string(cls.DATA_CHANNEL, "")
             return None
 
-        metadata = cls._carrier_json("shot_metadata")
-        from blendertk.env_utils.fbx_utils import FbxUtils
-
+        # The shot record the shots producer has just built (it runs first:
+        # the record declares ``after=("shot_metadata",)``), else the stored
+        # one -- it keeps the frame rate defined in ONE place for the export.
+        metadata = ctx.record(ptk.SceneRecords.SHOTS, DataNodes)
+        if not isinstance(metadata, dict):
+            metadata = {}
         # The scene's own rate when the shots producer published none (a
         # shot-less scene, or a hand-off that refreshes only this producer):
         # without a rate the GLB appliers cannot place the frames in time and
         # drop every track and ramp -- measured 2026-09-05 on the WebXR preview
         # ("carry no frame rate ... not applied"; mayatk has done this since
         # 2026-09-02).
-        fps = (metadata or {}).get("fps") or cls._scene_fps()
-        text = json.dumps(
-            ptk.MeshConvert.build_visibility_tracks(
-                tracks,
-                fps=fps,
-                clip_spans=ptk.MeshConvert.clip_spans(
-                    cls._scene_key_frames(),
-                    cls._carrier_json("fbx_takes") or [],
-                    # The stack ships the range the write BAKES, and the
-                    # converter rebases it onto its first key; the scene's
-                    # own earliest key is not that range. Mirror of mayatk,
-                    # which reads the same answer off its exporter state.
-                    stack_range=FbxUtils.bake_range(),
-                ),
-            )
+        fps = metadata.get("fps") or cls._scene_fps()
+        takes = ptk.SceneRecords.declared_takes(lambda key: ctx.record(key, DataNodes))
+        # The stack's origin: measured by the pipeline (``ctx.clip_span``)
+        # once it has seen the final curves; until then the range the write
+        # BAKES is a seed, since the converter rebases every stack onto its
+        # first key and the scene's own earliest key is not that range.
+        # Mirror of mayatk, which reads the same answer off its exporter state.
+        # Widened by THIS assembly's takes: the carrier still holds the last
+        # export's until the snapshot commits.
+        stack_range = ctx.clip_span or FbxUtils.bake_range(takes)
+        payload = ptk.MeshConvert.build_visibility_tracks(
+            tracks,
+            fps=fps,
+            clip_spans=ptk.MeshConvert.clip_spans(
+                cls._scene_key_frames(), takes, stack_range=stack_range
+            ),
         )
-        DataNodes.set_export_string(cls.DATA_CHANNEL, text)
+        if payload is None:
+            return None
+        return ptk.SceneRecords.VISIBILITY.make(payload)
+
+    @classmethod
+    def refresh_export_metadata(cls) -> Optional[str]:
+        """Republish the ``visibility_tracks`` channel on the ``data_export`` carrier.
+
+        The authoring-time publish of :meth:`export_record`, committed through
+        ``FbxUtils.publish_authored`` (an export pipeline runs the producer
+        itself: ``FbxUtils.PRODUCERS``).  Clears the channel when the file has
+        no keyed visibility, leaving no empty carrier behind.
+
+        Returns:
+            The published JSON string, or ``None`` when cleared.
+        """
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        record = cls.export_record(ptk.ExportContext(mode=ptk.ExportContext.AUTHORING))
+        FbxUtils.publish_authored({ptk.SceneRecords.VISIBILITY: record})
+        if record is None:
+            return None
         cls.logger.info(
             "Visibility: published %d keyed-visibility track(s) for the GLB "
             "route (glTF drops the FBX's own visibility curves).",
-            len(tracks),
+            len(record.payload.get("tracks") or []),
         )
-        return text
+        return record.text
 
     @staticmethod
     def _scene_fps() -> float:
@@ -1152,19 +1199,6 @@ class RenderEffects(ptk.LoggingMixin):
 
         render = bpy.context.scene.render
         return float(render.fps) / float(render.fps_base or 1.0)
-
-    @staticmethod
-    def _carrier_json(attr):
-        """One ``data_export`` channel, decoded, or ``None``."""
-        import json
-
-        from blendertk.node_utils.data_nodes import DataNodes
-
-        try:
-            raw = DataNodes.get_export_string(attr)
-            return json.loads(raw) if raw else None
-        except Exception:
-            return None
 
     @staticmethod
     def _scene_key_frames() -> list:

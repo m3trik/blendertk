@@ -687,6 +687,69 @@ try:
         UsdUtils.pin_primvar_indices(fixed_path) == 0,
     )
 
+    # ---- container Skeletons are marked for mayaUsd ------------------------
+    # Blender writes an armature's DATA as a Skeleton nested under the object's
+    # Xform, and mayaUsd imports every Skeleton prim as a joint of its own unless
+    # it is marked generated -- the extra joint a bone id then resolved to, 2.4-
+    # 2.6 m from the real one (backlog 2026-09-17). The same raw-vs-fixed pair
+    # as above; only a pure CONTAINER may be marked (mayaUsd drops the joints of
+    # a marked skeleton that carries a transform of its own).
+    def skeleton_facts(path):
+        """{skeleton path: (Maya:generated, carries its own transform)}."""
+        from pxr import Usd, UsdGeom, UsdSkel
+
+        stage = Usd.Stage.Open(path)
+        return {
+            str(p.GetPath()): (
+                p.GetCustomDataByKey("Maya:generated"),
+                bool(UsdGeom.Xformable(p).GetOrderedXformOps()),
+            )
+            for p in stage.Traverse()
+            if p.IsA(UsdSkel.Skeleton)
+        }
+
+    # The raw operator with the options export() really runs for an animated
+    # armature: UNMERGED (see fold_single_mesh_xforms). Merged, the raw exporter
+    # folds the object into its Skeleton instead -- a prim with a transform.
+    bpy.ops.object.select_all(action="SELECT")
+    raw_skeleton_path = os.path.join(tmp, "skeleton_raw.usda")
+    bpy.ops.wm.usd_export(
+        filepath=raw_skeleton_path, **dict(skin_opts, merge_parent_xform=False)
+    )
+    raw_skeletons = skeleton_facts(raw_skeleton_path)
+    check(
+        "the raw exporter writes the armature's data as an UNMARKED container",
+        bool(raw_skeletons)
+        and all(g is None and not own for g, own in raw_skeletons.values()),
+        f"raw={raw_skeletons} -- a green here means the fixture stopped testing anything",
+    )
+    fixed_skeletons = skeleton_facts(fixed_path)
+    check(
+        "export marks the container Skeleton generated",
+        bool(fixed_skeletons) and all(g is True for g, _ in fixed_skeletons.values()),
+        f"fixed={fixed_skeletons}",
+    )
+    check(
+        "marking is idempotent -- a marked layer reports nothing left to do",
+        UsdUtils.mark_container_skeletons(fixed_path) == 0,
+    )
+
+    # A merged export folds a leaf armature's object into its Skeleton, so the
+    # prim carries the object's transform: marking it would lose the joints.
+    reset()
+    bpy.ops.object.armature_add(enter_editmode=False, location=(1.0, 2.0, 3.0))
+    leaf_path = os.path.join(tmp, "leaf_armature.usda")
+    UsdUtils.export(
+        filepath=leaf_path, objects=[bpy.context.object], merge_parent_xform=True
+    )
+    leaf_skeletons = skeleton_facts(leaf_path)
+    check(
+        "a merged leaf armature's Skeleton carries its transform and stays unmarked",
+        bool(leaf_skeletons)
+        and all(own and g is None for g, own in leaf_skeletons.values()),
+        f"leaf={leaf_skeletons}",
+    )
+
     # A primvar whose indices GENUINELY vary must be left alone: pinning one
     # sample would publish that frame's mapping as the answer for every other
     # frame -- a quieter wrong than the bug being fixed.

@@ -485,6 +485,40 @@ def _run_sequencer_checks():
         f"{new.start}",
     )
 
+    # REGRESSION (2026-09-18): insert_shot rippled every downstream shot, keys
+    # and all, BEFORE define_shot refused the name, and split_shot trimmed the
+    # head first -- a refused name left the scene edited. Validated up front.
+    build_scene()
+    store = fresh_store()
+    store.gap = 10
+    seq = ShotSequencer(store)
+
+    def bounds():
+        return [(s.name, s.start, s.end) for s in seq.sorted_shots()]
+
+    before, c_keys = bounds(), key_times("C")
+    b_id = store.shot_by_name("B").shot_id
+    err = ""
+    try:
+        seq.insert_shot("B", duration=20, after_shot_id=b_id)
+    except ValueError as e:
+        err = str(e)
+    check(
+        "insert_shot: a refused name raises before anything moves",
+        bool(err) and bounds() == before and key_times("C") == c_keys,
+        f"err={err!r} {bounds()} keys={key_times('C')[:3]}..",
+    )
+    err = ""
+    try:
+        seq.split_shot(store.shot_by_name("A").shot_id, 5, name="bad name")
+    except ValueError as e:
+        err = str(e)
+    check(
+        "split_shot: a refused tail name raises before the head is trimmed",
+        bool(err) and bounds() == before,
+        f"err={err!r} {bounds()}",
+    )
+
     # ---- trim edge= : one-ended trims ------------------------------------
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete()

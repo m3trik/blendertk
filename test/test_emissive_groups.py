@@ -32,6 +32,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
 
+    import pythontk as ptk
     from blendertk.mat_utils.emissive_groups import EmissiveGroups
     from blendertk.node_utils.data_nodes import DataNodes
 
@@ -50,7 +51,9 @@ try:
     )
     EmissiveGroups.add_group("top", {"eg_cube": [1, 3]})
     groups = EmissiveGroups.list_groups()
-    check("slots 0,1", (groups["front"]["slot"], groups["top"]["slot"]) == (0, 1), groups)
+    check(
+        "slots 0,1", (groups["front"]["slot"], groups["top"]["slot"]) == (0, 1), groups
+    )
     check("face counts", (groups["front"]["faces"], groups["top"]["faces"]) == (1, 2))
 
     EmissiveGroups.add_group("front", {"eg_cube": [2]})  # extend
@@ -65,13 +68,16 @@ try:
     # --- registry hygiene + slot stability -------------------------------
     check(
         "registry on data_internal",
-        DataNodes.get_internal_string("emissive_groups") is not None,
+        ptk.SceneRecords.EMISSIVE_REGISTRY.is_present(DataNodes),
     )
     EmissiveGroups.remove_group("front")
     EmissiveGroups.add_group("new", {"eg_cube": [4]})
     slots = EmissiveGroups.list_groups()
-    check("removed slot retired (shell=2 retired, front=0 retired -> new=3)",
-          slots["new"]["slot"] == 3, slots)
+    check(
+        "removed slot retired (shell=2 retired, front=0 retired -> new=3)",
+        slots["new"]["slot"] == 3,
+        slots,
+    )
     reclaimed = EmissiveGroups.compact_slots()
     check("compact reclaims", sorted(reclaimed) == [0, 2], reclaimed)
 
@@ -102,8 +108,12 @@ try:
     # AST, not text: docstrings legitimately NAME these members while
     # explaining why they aren't used.
     tree = ast.parse(open(eg_mod.__file__, encoding="utf-8").read())
-    screen_ctx = ("bpy.context.selected_objects", "bpy.context.scene",
-                  "bpy.context.active_object", "bpy.context.view_layer")
+    screen_ctx = (
+        "bpy.context.selected_objects",
+        "bpy.context.scene",
+        "bpy.context.active_object",
+        "bpy.context.view_layer",
+    )
     offenders = sorted(
         {
             c
@@ -129,7 +139,7 @@ try:
     )
     EmissiveGroups.refresh_export_metadata()  # explicit publish
     EmissiveGroups.add_group("hygiene", {"eg_cube": [5]})
-    published = DataNodes.get_export_string("emissive_groups")
+    published = ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes)
     check(
         "published manifest kept current by authoring",
         published is not None and "hygiene" in published,
@@ -150,7 +160,7 @@ try:
         "keyable prop on carrier",
         carrier is not None and "emissiveGroup_top" in carrier,
     )
-    payload = json.loads(DataNodes.get_export_string("emissive_groups"))
+    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
     by_name = {g["name"]: g for g in payload["groups"]}
     check("manifest records attr", by_name["top"].get("attr") == "emissiveGroup_top")
     check("non-keyable group has no attr", "attr" not in by_name["new"], by_name)
@@ -179,7 +189,9 @@ try:
         abs(carrier["emissiveGroup_new"] - 0.75) < 1e-6,
     )
     EmissiveGroups.set_default("top", 0.5)  # keyed: animation owns the value
-    check("keyed prop keeps its fcurve", EmissiveGroups._weight_fcurve("top") is not None)
+    check(
+        "keyed prop keeps its fcurve", EmissiveGroups._weight_fcurve("top") is not None
+    )
 
     removed = EmissiveGroups.remove_keyable_weights()
     check("remove strips props", sorted(removed) == ["new", "top"], removed)
@@ -191,7 +203,7 @@ try:
         "groups intact after strip",
         sorted(EmissiveGroups.list_groups()) == ["new", "top"],
     )
-    payload = json.loads(DataNodes.get_export_string("emissive_groups"))
+    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
     check(
         "manifest attr records cleared",
         all("attr" not in g for g in payload["groups"]),
@@ -230,7 +242,7 @@ try:
             all(all(abs(v) < 0.02 for v in c[:3]) and abs(c[3]) < 0.02 for c in cols5),
         )
 
-    payload = DataNodes.get_export_string("emissive_groups")
+    payload = ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes)
     check("manifest published to data_export", payload is not None)
     if payload:
         data = json.loads(payload)
@@ -258,7 +270,7 @@ try:
     check("mask written", os.path.isfile(mask_path))
     check("mask manifest encoding", manifest["encoding"] == "channels", manifest)
     check("mask manifest sidecar", os.path.isfile(os.path.join(tmp, "eg_EMask.json")))
-    payload = json.loads(DataNodes.get_export_string("emissive_groups"))
+    payload = ptk.SceneRecords.EMISSIVE_GROUPS.load(DataNodes)
     check("export carrier switched to channels", payload["encoding"] == "channels")
 
     # --- teardown hygiene -------------------------------------------------
@@ -267,11 +279,11 @@ try:
     EmissiveGroups.compact_slots()
     check(
         "registry cleared when empty",
-        DataNodes.get_internal_string("emissive_groups") is None,
+        ptk.SceneRecords.EMISSIVE_REGISTRY.read_text(DataNodes) is None,
     )
     check(
         "export carrier cleared when empty",
-        DataNodes.get_export_string("emissive_groups") is None,
+        ptk.SceneRecords.EMISSIVE_GROUPS.read_text(DataNodes) is None,
     )
 
     # --- keyed-weight curve transport (export proxies) ---------------------
@@ -292,7 +304,10 @@ try:
     proxies = EmissiveGroups.create_export_curve_proxies()
     check("one proxy per keyed group", len(proxies) == 1, [o.name for o in proxies])
     proxy = proxies[0] if proxies else None
-    check("proxy named the manifest attr", proxy is not None and proxy.name == "emissiveGroup_glow")
+    check(
+        "proxy named the manifest attr",
+        proxy is not None and proxy.name == "emissiveGroup_glow",
+    )
     check(
         "proxy marked + parented under the carrier",
         proxy is not None

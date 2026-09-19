@@ -35,8 +35,10 @@ from blendertk.node_utils.data_nodes import DataNodes
 class HierarchyBaseline:
     """Read, compare and roll forward the file's hierarchy baseline."""
 
-    #: Channel on ``data_internal`` holding the record.
-    ATTR_NAME = "hierarchy_baseline"
+    #: Channel on ``data_internal`` holding the record: the key of
+    #: ``ptk.SceneRecords.HIERARCHY_BASELINE``, which every read and write
+    #: goes through.
+    ATTR_NAME = ptk.SceneRecords.HIERARCHY_BASELINE.key
 
     @classmethod
     def read(cls) -> Set[str]:
@@ -48,7 +50,7 @@ class HierarchyBaseline:
         """
         try:
             return ptk.HierarchyBaseline.decode(
-                DataNodes.get_internal_json(cls.ATTR_NAME)
+                ptk.SceneRecords.HIERARCHY_BASELINE.load(DataNodes)
             )
         except Exception:  # a check must never break the file it inspects
             return set()
@@ -64,7 +66,7 @@ class HierarchyBaseline:
         unreadable manifest.
         """
         try:
-            raw = DataNodes.get_internal_string(cls.ATTR_NAME)
+            raw = ptk.SceneRecords.HIERARCHY_BASELINE.read_text(DataNodes)
         except Exception:
             return False
         # is_record, not read(): a valid record that happens to hold no paths
@@ -101,8 +103,8 @@ class HierarchyBaseline:
                 # channel that says "baseline, no paths" -- indistinguishable
                 # from a real one to every reader, and pointless to keep.
                 return True
-            DataNodes.set_internal_json(
-                cls.ATTR_NAME, ptk.HierarchyBaseline.encode(merged)
+            ptk.SceneRecords.HIERARCHY_BASELINE.save(
+                DataNodes, ptk.HierarchyBaseline.encode(merged)
             )
             return True
         except Exception:
@@ -154,7 +156,7 @@ class HierarchyBaseline:
                 paths.update(p for p in found if isinstance(p, str))
                 adopted += 1
         if paths:
-            DataNodes.set_internal_json(
-                cls.ATTR_NAME, ptk.HierarchyBaseline.encode(paths)
+            ptk.SceneRecords.HIERARCHY_BASELINE.save(
+                DataNodes, ptk.HierarchyBaseline.encode(paths)
             )
         return adopted

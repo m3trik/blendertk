@@ -1075,26 +1075,17 @@ def main():
     export_usd(cmds, frame_range)
     _progress(4, 5, "Writing the manifest")
     # AFTER the export: the sidecar describes the scene the USD was written
-    # from, and a failed export must not leave a stale manifest behind. A
-    # failed MANIFEST must not leave the USD behind either -- success is
-    # judged by the artifact, and a USD without its sidecar would import
-    # silently flattened.
-    try:
-        write_manifest(
-            cmds,
-            materials,
-            shading_groups,
-            bones,
-            shots=shots,
-            rig=rig,
-            machinery=machinery,
-        )
-    except Exception:
-        try:
-            os.remove(OUT_USD)
-        except OSError:
-            pass
-        raise
+    # from. A failure in either withholds both (`_withhold`): a USD without its
+    # sidecar would import silently flattened.
+    write_manifest(
+        cmds,
+        materials,
+        shading_groups,
+        bones,
+        shots=shots,
+        rig=rig,
+        machinery=machinery,
+    )
     _progress(5, 5, "Converted")
 
 
@@ -1137,10 +1128,28 @@ def _exit(code):
     ProcessExit.hard_exit(code)
 
 
+def _withhold(artifact):
+    """Remove *artifact* and its sidecar after a failed run: whatever it left
+    behind must never pass as the conversion.
+
+    Success is judged by the artifact, and an exporter can fail AFTER opening its
+    file -- Maya's USD exporter writes a layer before it refuses a scene
+    (measured: a root-level joint), so the partial payload passed, the non-zero exit was
+    tolerated as a teardown crash, and the caller reported a missing sidecar in
+    place of the exporter's own message. A payload whose sidecar failed is as
+    wrong: it imports without what the sidecar rebuilds."""
+    for path in (artifact, artifact + ".manifest.json"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 try:
     main()
 except Exception:
     traceback.print_exc()
+    _withhold(OUT_USD)
     _exit(1)
 # Success is judged by the artifact; skip standalone teardown (known access violations).
 _exit(0)

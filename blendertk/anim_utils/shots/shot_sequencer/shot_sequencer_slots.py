@@ -1050,13 +1050,10 @@ class ShotSequencerController(
         if anchor is None:
             return
         sorted_s = seq.sorted_shots()
-        existing_names = {sh.name for sh in sorted_s}
         idx = next(
             (i for i, sh in enumerate(sorted_s) if sh.shot_id == anchor_shot_id), 0
         )
-        n = len(sorted_s) + 1
-        while f"Shot {n}" in existing_names:
-            n += 1
+        name = store.unique_name("Shot", first=len(sorted_s) + 1)
 
         from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
@@ -1065,7 +1062,7 @@ class ShotSequencerController(
         try:
             with CoreUtils.undo_chunk():
                 shot = seq.insert_shot(
-                    name=f"Shot {n}",
+                    name=name,
                     duration=duration,
                     at_position=(idx + 1) if before else (idx + 2),
                 )
@@ -1093,12 +1090,7 @@ class ShotSequencerController(
             return
         store = self.sequencer.store
         gap = store.gap or 0
-        existing = self.sequencer.sorted_shots()
-        existing_names = {s.name for s in existing}
-        idx = len(existing) + 1
-        while f"Shot {idx}" in existing_names:
-            idx += 1
-        name = f"Shot {idx}"
+        name = store.unique_name("Shot", first=len(self.sequencer.sorted_shots()) + 1)
         from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
         duration = Behaviors.compute_duration([], fallback=100.0)
@@ -3548,8 +3540,15 @@ class ShotEditDialog:
         end: float = 100.0,
         description: str = "",
         title: str = "Shot",
+        validate=None,
     ):
-        """Show a modal dialog and return the result tuple or ``None``."""
+        """Show a modal dialog and return the result tuple or ``None``.
+
+        *validate* is ``(name) -> reason or None`` (a store's
+        :meth:`~pythontk.ShotStore.name_error`): while it has a reason the
+        dialog shows it and will not accept, so a name the export would
+        respell never reaches the store.  The name comes back as typed.
+        """
         from qtpy import QtWidgets
 
         dlg = QtWidgets.QDialog(parent)
@@ -3560,7 +3559,15 @@ class ShotEditDialog:
 
         name_edit = QtWidgets.QLineEdit(name)
         name_edit.setPlaceholderText("Shot name")
+        name_edit.setToolTip(
+            f"Exported as the clip name: {ptk.ShotStore.NAME_RULE}, "
+            "unique ignoring case."
+        )
         layout.addRow("Name:", name_edit)
+        name_error = QtWidgets.QLabel()
+        name_error.setWordWrap(True)
+        name_error.setStyleSheet(f"color: {ptk.SHOT_PALETTE['error'][0]};")
+        layout.addRow(name_error)
         start_spin = QtWidgets.QDoubleSpinBox()
         start_spin.setDecimals(1)
         start_spin.setRange(-1e6, 1e6)
@@ -3580,10 +3587,20 @@ class ShotEditDialog:
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         layout.addRow(buttons)
+        ok_button = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+
+        def _check_name(text):
+            error = validate(text) if validate is not None else None
+            name_error.setText(error or "")
+            name_error.setVisible(bool(error))
+            ok_button.setEnabled(not error)
+
+        name_edit.textChanged.connect(_check_name)
+        _check_name(name_edit.text())
         if dlg.exec_() != QtWidgets.QDialog.Accepted:
             return None
         return (
-            name_edit.text().strip() or "Shot",
+            name_edit.text(),
             start_spin.value(),
             end_spin.value(),
             desc_edit.text().strip(),
@@ -3950,19 +3967,20 @@ class ShotSequencerSlots(ptk.LoggingMixin):
         seq = self.controller.sequencer
         if seq is None:
             return
-        store = seq.store
-        cand = seq.detect_next_shot(
-            gap_threshold=(store.detection_threshold if store else 5.0)
-        )
+        store = seq.store  # never None: a sequencer builds one when not given
+        cand = seq.detect_next_shot(gap_threshold=store.detection_threshold)
         if cand is None:
             self.controller._set_footer("No additional animation clusters found.")
             return
         result = ShotEditDialog.show(
             parent=self.ui,
-            name=cand["name"],
+            # Detection numbers its clusters from 1; the scene may hold those,
+            # and then the next free Shot_<n> is proposed, not Shot_1_2.
+            name=store.default_name(cand["name"]),
             start=cand["start"],
             end=cand["end"],
             title="Generated Shot",
+            validate=store.name_error,
         )
         if result is None:
             return

@@ -5,7 +5,6 @@ restore, key optimization / snap / tie, the bake range, the data_export
 carrier with its staged curve proxies, and the declared takes.
 """
 
-import json
 import math
 from typing import Union
 
@@ -159,7 +158,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
         stamp a metadata node as a side effect of computing a number -- on scenes
         where the user deliberately switched that off. ``declared_range`` rounds
         through the same ``resolve_clip_specs`` the export view uses, so this range
-        and the published ``fbx_takes`` cannot disagree about a fractional boundary.
+        and the published clip ranges cannot disagree about a fractional boundary.
         """
         from blendertk.anim_utils.shots._shots import BlenderShotStore
 
@@ -194,33 +193,14 @@ class _AnimationTasksMixin(_TaskDataMixin):
         scene = self._scene()
         return scene.frame_start, scene.frame_end
 
+    @ptk.Deprecation.symbol(
+        "TaskManager.export_data_node (the Animation Clips mode is an input of "
+        "the publish, declared on the shot record by the producer)",
+        remove_in="0.9.0",
+    )
     def publish_clip_mode(self) -> None:
-        """Declare the run's Animation Clips mode on the ``shot_metadata`` envelope.
-
-        ``fbx_takes`` lists the scene's shots in every mode, so a Full Sequence
-        Only file carries one stack beside takes naming every shot -- which the
-        deliverable gates read as missing takes unless the mode is on the record
-        (``ExportVerifier`` reads ``MeshConvert.SHOT_CLIP_MODE_KEY``; measured:
-        ``fbx_takes`` failed a correct full-mode export "declared but absent").
-        Declared, never inferred: one stack alone is also what a split that
-        silently failed leaves.
-
-        Mirror of mayatk's. Called from the write, after every task: Blender has no
-        export bracket re-running the preparers, so the tasks' refresh is the
-        last publish before it. A scene with no shots publishes no envelope, and nothing is
-        declared.
-        """
-        from blendertk.node_utils.data_nodes import DataNodes
-
-        raw = DataNodes.get_export_string(DataNodes.SHOT_METADATA)
-        try:
-            meta = json.loads(raw) if raw else None
-        except ValueError:
-            return
-        if not isinstance(meta, dict):
-            return
-        meta[ptk.MeshConvert.SHOT_CLIP_MODE_KEY] = self._clip_mode
-        DataNodes.set_export_json(DataNodes.SHOT_METADATA, meta)
+        """Republish the shot record with this run's Animation Clips mode."""
+        self._publish_scene_records(only=[ptk.SceneRecords.SHOTS])
 
     def set_bake_animation_range(self, mode="auto"):
         """Set the scene's playback range for the export, from the selected source.
@@ -290,30 +270,27 @@ class _AnimationTasksMixin(_TaskDataMixin):
         return None
 
     def export_data_node(self):
-        """Include the shared ``data_export`` carrier in the export (default on).
+        """Publish the scene records and ship the carrier (default on).
 
-        ``data_export`` is the single Empty every metadata producer stamps
-        (Lightmap Baker → ``lightmap_metadata``; Shots / Audio when ported).
-        The mesh-only export object sets would otherwise omit it and the
-        metadata silently wouldn't ship.  Appends the carrier to the export
-        set so its custom properties ride into the FBX as user properties
-        (``use_custom_props`` + Empty-inclusive ``object_types`` — both on by
-        default in ``_DEFAULT_FBX_OPTIONS``).
-
-        Mirror of mayatk's ``export_data_node``: refreshes every known
-        producer's channel from live scene state first (Blender has no
-        before-export event, so this task is the only refresh dispatch point —
-        producers also publish at authoring time, but scene edits since then
-        would otherwise ship a stale manifest), then folds the carrier in.
+        The ONE publish of an export (mirror of mayatk's ``export_data_node``):
+        every producer in ``FbxUtils.PRODUCERS`` runs here, in dependency
+        order, with the run's decisions as INPUT -- the Animation Clips mode
+        from the run -- and the ``data_export`` Empty is committed once.
+        Blender has no before-export event, so this task is the only refresh
+        point (producers also publish at authoring time, which is what a
+        non-exporter write ships).  Then the carrier joins the export set so
+        its custom properties ride into the FBX as user properties
+        (``use_custom_props`` + Empty-inclusive ``object_types``, both on by
+        default in ``_DEFAULT_FBX_OPTIONS``); the mesh-only object sets would
+        otherwise omit it.
         """
-        self._refresh_scene_data_node()
-        self._data_node_refreshed = True
+        self._scene_snapshot = self._publish_scene_records()
         self._include_data_export_node()
 
         # Keyed-weight curve proxies: Blender's FBX exporter can't ship
         # custom-property animation, so EmissiveGroups stages one transient
         # Empty per keyed group whose scale.x carries the weight curve (the
-        # Blender half of mayatk's _KNOWN_PRODUCERS export hook). They must
+        # Blender half of mayatk's emissive export transport). They must
         # exist THROUGH the FBX write and vanish after, which the task-revert
         # engine can't express (reverts run before the write) — hence the
         # deferred restore.
@@ -418,22 +395,47 @@ class _AnimationTasksMixin(_TaskDataMixin):
             self.objects = list(self.objects or []) + [carrier]
             self.logger.info("data_export carrier added to the export set.")
 
-    def _refresh_scene_data_node(self):
-        """Refresh ``data_export`` channels from the live metadata producers.
+    def ensure_scene_records_published(self):
+        """Publish once if no task did (mirror of mayatk's): the write's
+        fallback for a run with the carrier tasks off."""
+        if self._scene_snapshot is None:
+            self._scene_snapshot = self._publish_scene_records()
 
-        Delegates to :meth:`FbxUtils.run_export_preparers` — the single
-        producer registry, so a new metadata system ships without touching the
-        exporter.  Each producer no-ops (or clears its channel) when it has
-        nothing to write and is isolated so an absent or erroring subsystem
-        never blocks the export.  Mirror of mayatk's
-        ``_refresh_scene_data_node``.
+    def _publish_scene_records(self, only=None):
+        """``FbxUtils.publish`` with THIS run's context (mirror of mayatk's).
+
+        The clip span stays unmeasured here: what a Blender stack's origin
+        should be with no takes armed is an open contract question (the
+        producer seeds it from the bake range, as before).  Never raises -- a
+        record that cannot be produced is logged and left as stored.
+
+        Outside the write's bracket the publish PREPARES the session stagers
+        (the shadow preview stands down so no producer reads it), and a run
+        that stops before its write -- a declined check, an empty export set,
+        a cancel -- never reaches the bracket that finishes them; so their
+        finish is staged here too, as a deferred restore.  A completed run
+        finishes them twice, which a stager's ``finish`` tolerates (it undoes
+        what its ``prepare`` recorded, and the first pass consumed that).
         """
-        try:
-            from blendertk.env_utils.fbx_utils import FbxUtils
+        from blendertk.env_utils.fbx_utils import FbxUtils
 
-            FbxUtils.run_export_preparers()
-        except Exception:
-            self.logger.debug("data_export refresh skipped.", exc_info=True)
+        try:
+            ctx = FbxUtils.export_context(
+                clip_mode=self._animation_clips_mode(self.run.animation_clips_mode)
+            )
+            if not FbxUtils._export_depth:
+                staged = dict(FbxUtils._session_stagers)
+                self.stage_deferred_restore(
+                    "export_stagers",
+                    lambda: FbxUtils._run_stagers("finish", staged),
+                )
+            return FbxUtils.publish(ctx, only=only)
+        except Exception:  # noqa: BLE001 - the write goes on; say what ships
+            self.logger.warning(
+                "Scene records not published; the carrier ships as last stored.",
+                exc_info=True,
+            )
+            return None
 
     def _set_frame_range(self, start, end) -> None:
         """Set the scene's frame range for the export, staging its restore.
@@ -520,8 +522,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
         Producer-agnostic mirror of mayatk's task: refreshes every producer's
         ``data_export`` channel (skipped when ``export_data_node`` already did
         so this run — the two tasks are default-on neighbors, and one refresh
-        per export is enough), then arms ``FbxUtils`` with whatever
-        ``fbx_takes`` the scene declares, folding the carrier into the export
+        per export is enough), then arms ``FbxUtils`` with whatever takes
+        the scene declares, folding the carrier into the export
         selection with them (a scene declaring none is a true no-op);
         the write realizes them by splitting its baked scene-range AnimStack
         (see ``fbx_utils``' module docstring for the divergence from Maya's
@@ -553,8 +555,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
         # ever realized, and it still has to know which clips to keep.
         self._clip_mode = mode
 
-        if not self._data_node_refreshed:
-            self._refresh_scene_data_node()
+        # The carrier task is off: publish here, once, so the takes armed
+        # below are the ones the carrier declares.
+        self.ensure_scene_records_published()
 
         if mode == "full":
             # No split: the FBX ships its scene-range take, and the converter
@@ -599,51 +602,23 @@ class _AnimationTasksMixin(_TaskDataMixin):
             )
             self.logger.info(
                 f"Animation takes: {count} clip(s) armed from the declared "
-                "fbx_takes; shot metadata embedded on data_export."
+                "takes; shot metadata embedded on data_export."
             )
         else:
             self.logger.debug("No takes declared. Skipping animation takes.")
 
     def _log_data_node_summary(self):
-        """Log what metadata actually shipped on ``data_export``.
-
-        Makes a silently-empty export distinguishable from a populated one —
-        mirror of mayatk's channel-agnostic summary: every string custom
-        property on the carrier is summarized by entry count (JSON array /
-        dict-of-list / whitespace-token wire string), so new producers show up
-        with no exporter edits.  Pure logging convenience — fully best-effort
-        so it can never abort the export it describes.
-        """
+        """Log what this run published on ``data_export`` -- the snapshot's
+        own summary (mirror of mayatk's), so a silently-empty export is
+        distinguishable from a populated one.  Best-effort: never aborts the
+        export it describes."""
+        snapshot = self._scene_snapshot
+        if snapshot is None:
+            return
         try:
-            import json
-
-            from blendertk.node_utils.data_nodes import DataNodes
-
-            carrier = DataNodes.get_export_node(create=False)
-            if carrier is None:
-                return
-
-            def entry_count(raw: str) -> int:
-                try:
-                    data = json.loads(raw)
-                except ValueError:
-                    return len(raw.split())  # wire strings, e.g. "frame:label …"
-                if isinstance(data, list):
-                    return len(data)
-                if isinstance(data, dict):
-                    for value in data.values():
-                        if isinstance(value, list):
-                            return len(value)
-                return 1
-
-            parts = []
-            for key in carrier.keys():
-                raw = carrier.get(key)
-                if isinstance(raw, str) and raw:
-                    n = entry_count(raw)
-                    parts.append(f"{key} ({n} entr{'y' if n == 1 else 'ies'})")
-            if parts:
-                self.logger.info("Embedded on data_export: " + ", ".join(parts) + ".")
+            summary = snapshot.summary()
+            if summary:
+                self.logger.info(f"Embedded on data_export: {summary}.")
         except Exception:  # a summary must never break the export it describes
             self.logger.debug("data_export summary skipped.", exc_info=True)
 

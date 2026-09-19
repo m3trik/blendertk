@@ -662,6 +662,40 @@ class SceneExporterSlots(SceneExporter):
         """
         return bool(self._case_toggle and self._case_toggle.is_on)
 
+    def export_data_node_init(self, widget) -> None:
+        """Init Export Scene Data Node — a Settings row (``cmb008``) (mirror of
+        mayatk's ``export_data_node_init``).
+
+        Its option box carries a viewer button: what the checkbox would ship,
+        without exporting to find out.
+        """
+        if widget.is_initialized:
+            return
+        widget.option_box.add_action(
+            callback=self._show_data_node,
+            icon="shell",
+            tooltip="Show what this ships: the scene's data_export node contents.",
+        )
+
+    def _show_data_node(self):
+        """Open the ``data_export`` carrier in the shared data viewer
+        (``sb.data_view_dialog``, the one tentacle's Scene Metadata uses), JSON
+        decoded (:meth:`DataNodes.dump_export_nodes`; mirror of mayatk's).
+
+        The node as it stands: the export refreshes it from the live scene
+        before writing, so a producer that has not run yet is not shown.
+        """
+        from blendertk.env_utils._env_utils import EnvUtils
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return self.sb.data_view_dialog(
+            DataNodes.dump_export_nodes(),
+            title="Scene Data Node",
+            save_path=EnvUtils.scene_artifact_path(f"_{DataNodes.EXPORT}.json"),
+            empty_message=f"<hl>No {DataNodes.EXPORT} channels</hl> -- "
+            "the export has no scene metadata to ship.",
+        )
+
     def cmb004_init(self, widget) -> None:
         """Init Output Format — FBX (default), GLB, FBX + GLB, or USD.
 
@@ -734,6 +768,9 @@ class SceneExporterSlots(SceneExporter):
             import blendertk as btk
             from blendertk.node_utils.data_nodes import DataNodes
 
+            # The private records live on the scene, but a file saved before
+            # 2026-09-18 keeps them on a ``data_internal`` Empty until its
+            # first private write folds them in; a selection must not ship it.
             if export_mode == "selected":
                 return [
                     o for o in btk.selected_objects() if o.name != DataNodes.INTERNAL

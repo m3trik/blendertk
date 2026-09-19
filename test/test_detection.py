@@ -82,7 +82,9 @@ def _run_detection_checks():
         r0, r1, r2 = sorted(regions, key=lambda r: r["start"])
         check(
             "candidate dicts carry name/start/end/objects",
-            set(r0) == {"name", "start", "end", "objects"} and r0["name"] == "Shot 1",
+            # Shot_<n>, not "Shot <n>": a shot's name is its clip name, and
+            # pythontk's ShotStore refuses a space in one (NAME_PATTERN).
+            set(r0) == {"name", "start", "end", "objects"} and r0["name"] == "Shot_1",
             f"{r0}",
         )
         check(

@@ -457,6 +457,47 @@ class TestShotsPanelLoads(unittest.TestCase):
         data = [cmb.itemData(i) for i in range(cmb.count())]
         self.assertEqual(data, ["all", "start", "end", "start_end"])
 
+    def test_a_name_the_export_would_respell_is_refused_where_it_is_typed(self):
+        """The name IS the exported clip name.  Typed into the field, one the
+        export would respell is never stored: the field says why, and Enter
+        gives the shot its own name back.  A legal one is stored as typed.
+
+        Typed with ``keyClicks`` and handed to the field's slot directly, as
+        the switchboard's debounce would: nothing here spins the event loop,
+        so no idle-time work (a timer, a deferred refresh) can land mid-test.
+        """
+        from qtpy import QtCore, QtTest
+        from blendertk import BlenderShotStore
+
+        txt = self.ui.txt_shot_name
+        store = BlenderShotStore.active()
+        store.shots = []
+        shot = store.define_shot("Intro", 0, 10)
+        store.set_active_shot(shot.shot_id)
+
+        def type_name(text):
+            txt.selectAll()
+            QtTest.QTest.keyClicks(txt, text)
+            self.ui.slots.txt_shot_name()
+
+        try:
+            self.ui.slots.controller._sync_shot_editor(store)
+            self.assertEqual(txt.text(), "Intro")
+            type_name("Intro 2")
+            self.assertEqual(shot.name, "Intro")
+            self.assertEqual(txt.property("actionState"), "invalid")
+            self.assertIn("a space", txt.toolTip())
+            QtTest.QTest.keyClick(txt, QtCore.Qt.Key_Return)
+            self.assertEqual(txt.text(), "Intro")
+            self.assertNotEqual(txt.property("actionState"), "invalid")
+            type_name("Intro__2")
+            self.assertEqual(shot.name, "Intro__2")
+            self.assertNotEqual(txt.property("actionState"), "invalid")
+        finally:
+            # Leave the store as the other cases expect it: empty, no active shot.
+            store.set_active_shot(None)
+            store.shots = []
+
 
 if __name__ == "__main__":
     runner = unittest.TextTestRunner(verbosity=2)

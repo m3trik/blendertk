@@ -264,10 +264,12 @@ def _run_data_internal_export_exclusion_checks():
         reset()
         mesh_a = cube("MeshA")
         mesh_b = cube("MeshB")
-        internal_obj = DataNodes.ensure_internal()
+        # The private carrier is a scene ID property group since 2026-09-18:
+        # no object-set mode can sweep it in because it is not an object.
+        internal = DataNodes.ensure_internal()
         check(
-            "data_internal carrier created",
-            internal_obj is not None and internal_obj.name == DataNodes.INTERNAL,
+            "data_internal carrier is a scene property, not an object",
+            internal is not None and bpy.data.objects.get(DataNodes.INTERNAL) is None,
         )
         # A fresh headless link doesn't retroactively refresh view_layer.objects — reading it
         # immediately after linking yields stale None entries (confirmed live); get_visible_
@@ -305,7 +307,6 @@ def _run_data_internal_export_exclusion_checks():
         bpy.ops.object.select_all(action="DESELECT")
         mesh_a.select_set(True)
         mesh_b.select_set(True)
-        internal_obj.select_set(False)
         selected_names = {o.name for o in btk.selected_objects()}
         check(
             "Selected Objects Only excludes data_internal when not selected",
@@ -1176,6 +1177,101 @@ def _run_preserve_outside_and_optimize_checks():
         traceback.print_exc()
         check("preserve_outside_keys/optimize_keys harness raised", False, repr(e))
 
+    return lines
+
+
+def _run_skip_reason_checks():
+    """Every analysed key ends in ``baked`` or ``skipped``, and every skipped one says why
+    (``BakeResult.skip_reasons``, mirror of mayatk's). mayatk's twin once lost a keyed AND
+    constrained object from BOTH lists: Maya routes that object through a ``pairBlend`` and
+    its driver walk read the object's own curve as the driver (backlog 2026-09-15). Blender
+    has no pairBlend -- an unmuted constraint is a source whatever its influence, so the same
+    object bakes here; pinned so the twins cannot drift apart on it.
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
+
+    try:
+        import bpy
+
+        from blendertk.anim_utils.smart_bake._smart_bake import (
+            BakeAnalysis,
+            BakeResult,
+            SmartBake,
+        )
+
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        scene = bpy.context.scene
+        scene.frame_start, scene.frame_end = 1, 10
+
+        target = bpy.data.objects.new("SkipTarget", None)
+        scene.collection.objects.link(target)
+        for frame, x in ((1, 0.0), (10, 5.0)):
+            target.location.x = x
+            target.keyframe_insert("location", index=0, frame=frame)
+        cube = bpy.data.objects.new("SkipKeyedAndConstrained", None)
+        scene.collection.objects.link(cube)
+        for frame, y in ((1, 3.0), (10, -3.0)):
+            cube.location.y = y
+            cube.keyframe_insert("location", index=1, frame=frame)
+        con = cube.constraints.new("COPY_LOCATION")
+        con.target = target
+
+        result = SmartBake(objects=[cube]).bake()
+        check(
+            "a keyed AND constrained object bakes (no pairBlend walk to misread)",
+            cube.name in result.baked,
+            f"baked={sorted(result.baked)} skipped={result.skipped}",
+        )
+
+        plain = BakeAnalysis(object="SkipPlain")
+        unbaked = SmartBake(objects=[]).bake(analysis={"SkipPlain": plain})
+        check(
+            "an analysed key with nothing to bake is skipped WITH a reason",
+            unbaked.skipped == ["SkipPlain"]
+            and bool(unbaked.skip_reasons.get("SkipPlain")),
+            f"skipped={unbaked.skipped} reasons={unbaked.skip_reasons}",
+        )
+        check(
+            "every skipped key has a reason, and nothing else does",
+            set(result.skip_reasons) == set(result.skipped)
+            and set(unbaked.skip_reasons) == set(unbaked.skipped),
+            f"{result.skip_reasons} / {unbaked.skip_reasons}",
+        )
+
+        probe = BakeResult()
+        probe.skip("a", "first")
+        probe.skip("a", "second")
+        probe.skip("a", "first")
+        check(
+            "skip() joins distinct reasons once each",
+            probe.skip_reasons == {"a": "first; second"} and probe.skipped == ["a"] * 3,
+            repr(probe.skip_reasons),
+        )
+        # `declined` is what the bake REFUSED: a key with nothing to bake is
+        # skipped, not declined, and a report counting it inflated every run.
+        probe.skip("b", "nothing to bake: no live source")
+        probe.skip("c", "nothing to bake: no live source")
+        probe.skip("c", "its bake keyed nothing")
+        check(
+            "declined: refusals only, each with only its refusal reasons",
+            probe.declined == {"a": "first; second", "c": "its bake keyed nothing"}
+            and unbaked.declined == {},
+            f"{probe.declined} / {unbaked.declined}",
+        )
+        if cube.name in result.baked and result.session_id:
+            SmartBake.restore(result.session_id)
+        for obj in (cube, target):  # leave the scene as the next checks expect it
+            bpy.data.objects.remove(obj, do_unlink=True)
+    except Exception as exc:  # noqa: BLE001 -- reported as a FAIL line
+        import traceback
+
+        check("skip-reason checks ran", False, f"{exc!r}\n{traceback.format_exc()}")
     return lines
 
 
@@ -2372,6 +2468,7 @@ if __name__ == "__main__":
         result_lines += _run_exporter_bake_restore_checks()
         result_lines += _run_blend_shape_driver_restore_checks()
         result_lines += _run_session_fidelity_checks()
+        result_lines += _run_skip_reason_checks()
         # Saves a REAL .blend under temp_tests/ — run last so its bpy.data.filepath side
         # effect (persists for the rest of this process) can't affect any earlier check.
         result_lines += _run_backup_mode_checks()

@@ -14,8 +14,8 @@ run with ``bake_anim_use_all_actions`` off (``handoff_export`` /
 or an export.  Verified live (Blender 5.1): evaluation identical to a plain
 delete, one action in the FBX round-trip, none named after the stash.
 
-**Record.** The clip manifest (:class:`pythontk.KeyStash`) rides the scene
-custom property ``scene["key_stash"]`` through :class:`BlenderScenePersistence`,
+**Record.** The clip manifest (:class:`pythontk.KeyStash`) rides the
+``key_stash`` record on the private carrier through :class:`BlenderScenePersistence`,
 beside the shot store's ``shot_store``.  Copy-before-cut: the manifest and the
 stash action exist before a single live key is removed.  Objects are tracked
 by NAME — Blender has no node UUID — so a renamed object orphans its record;
@@ -31,6 +31,7 @@ import logging
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import pythontk as ptk
 from pythontk.core_utils.engines.key_stash.key_stash_model import (
     KeyStash as _KeyStashCore,
     StashChanged,
@@ -223,7 +224,8 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
     record, and :meth:`active` re-reads a record an undo or redo moved.
     """
 
-    ATTR_NAME = "key_stash"
+    #: The private record carrying the clip manifest (the declaration's key).
+    ATTR_NAME = ptk.SceneRecords.KEY_STASH.key
     _flush_pending: bool = False
 
     # ---- singleton / hooks ---------------------------------------------

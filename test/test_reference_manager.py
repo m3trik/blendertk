@@ -838,23 +838,16 @@ try:
         _s2._resolve_conversion(complex_ma) == {"via": "usd", "rig_mode": "bake"},
     )
 
-    # --- the header's Rig combo is the prompt-free default (a .blend cannot be probed) ---
-    _s3, _ = make_slots("Yes")
-    check("_rig_mode: 'auto' without a header menu", _s3._rig_mode() == "auto")
-    _combo = type("C", (), {"currentIndex": lambda self: 2})()  # RIG_MODES[2] == "rig"
-    _s3.ui = type(
-        "U",
-        (),
-        {
-            "header": type(
-                "H", (), {"menu": type("M", (), {"cmb_rig_mode": _combo})()}
-            )()
-        },
-    )()
-    check("_rig_mode: reads the Rig combo's choice", _s3._rig_mode() == "rig")
+    # --- no separate Rig setting: the prompt IS the decision, asked only when relevant ---
+    _s3, _sb3 = make_slots("Yes")
     check(
-        "_resolve_rig_mode: a static scene takes the combo's default, not a hard-coded 'auto'",
-        _s3._resolve_rig_mode(static_ma) == "rig",
+        "_resolve_rig_mode: a static scene asks nothing",
+        _s3._resolve_rig_mode(static_ma) == "auto" and not _sb3.messages,
+        _sb3.messages,
+    )
+    check(
+        "no header Rig combo left to consult",
+        not hasattr(_s3, "_rig_mode"),
     )
 
     # --- foreign conversions report into the footer and stop on Esc ---------------------------

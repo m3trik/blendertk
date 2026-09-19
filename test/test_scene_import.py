@@ -2649,9 +2649,82 @@ try:
         and '"version": 2' in usd_txt
         and '"format": "paths"' in usd_txt,
     )
+    # A failed conversion must leave NO artifact: success is judged by it. Only a
+    # failed sidecar used to withhold the payload (USD route only). An exporter
+    # failing after it opened its file -- mayaUSDExport writes a layer before it
+    # refuses a root-level joint -- left a partial payload that passed as the
+    # conversion, and the pull reported a missing sidecar instead of the reason.
+    import ast as _ast_wh
+    import shutil as _shutil_wh
+
+    for _out, _tpl in (
+        ("OUT_FBX", _IMPORT_TEMPLATE),
+        ("OUT_USD", _IMPORT_TEMPLATE_USD),
+    ):
+        _tree = _ast_wh.parse(_tpl.read_text(encoding="utf-8"))
+        _runs = [
+            n
+            for n in _tree.body
+            if isinstance(n, _ast_wh.Try)
+            and any(_ast_wh.unparse(s) == "main()" for s in n.body)
+        ]
+        _calls = (
+            [_ast_wh.unparse(s) for s in _runs[0].handlers[0].body]
+            if len(_runs) == 1
+            else []
+        )
+        check(
+            f"{_tpl.name}: the run's one failure exit withholds the payload first",
+            f"_withhold({_out})" in _calls
+            and "_exit(1)" in _calls
+            and _calls.index(f"_withhold({_out})") < _calls.index("_exit(1)"),
+            repr(_calls),
+        )
+        _fn = next(
+            (
+                n
+                for n in _tree.body
+                if isinstance(n, _ast_wh.FunctionDef) and n.name == "_withhold"
+            ),
+            None,
+        )
+        _left = "no _withhold"
+        if _fn is not None:
+            _ns = {"os": os}
+            exec(  # noqa: S102 -- the template is repo-owned source
+                compile(_ast_wh.Module(body=[_fn], type_ignores=[]), str(_tpl), "exec"),
+                _ns,
+            )
+            _tmp = tempfile.mkdtemp(prefix="btk_withhold_")
+            try:
+                _payload = os.path.join(_tmp, "payload.usd")
+                for _p in (_payload, _payload + ".manifest.json"):
+                    with open(_p, "w", encoding="utf-8") as _fh:
+                        _fh.write("partial")
+                _ns["_withhold"](_payload)
+                _ns["_withhold"](_payload)  # nothing left to remove: never raises
+                _left = os.listdir(_tmp)
+            finally:
+                _shutil_wh.rmtree(_tmp, ignore_errors=True)
+        check(
+            f"{_tpl.name}: _withhold removes the payload and its sidecar",
+            _left == [],
+            repr(_left),
+        )
+    _withholds = [
+        next(
+            (
+                _ast_wh.dump(n)
+                for n in _ast_wh.parse(_t.read_text(encoding="utf-8")).body
+                if isinstance(n, _ast_wh.FunctionDef) and n.name == "_withhold"
+            ),
+            None,
+        )
+        for _t in (_IMPORT_TEMPLATE, _IMPORT_TEMPLATE_USD)
+    ]
     check(
-        "USD template: failed sidecar write withholds the artifact",
-        "os.remove(OUT_USD)" in usd_txt,
+        "template: the two _withhold copies are AST-identical (drift guard)",
+        _withholds[0] is not None and _withholds[0] == _withholds[1],
     )
     check(
         "USD template: sanitize-collisions fail the export loudly",

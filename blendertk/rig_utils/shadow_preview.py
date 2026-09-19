@@ -32,8 +32,8 @@ plausible, mirrored shadow.
 
 **Nothing of it is exported.** The overlay touches no material, no image and
 no custom prop the record reads, so the export record is the same with it on
-or off; only the plane's viewport visibility is borrowed, and the ``"shadow"``
-export preparer hands it back before an FBX is written.
+or off; only the plane's viewport visibility is borrowed, and the
+``"shadow_preview"`` export stager hands it back before an FBX is written.
 
 **Never headless.** ``--background`` has no GPU backend
 (``SystemError: GPU functions for drawing are not available``), so the
@@ -300,19 +300,62 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
     # ----------------------------------------------------------------- export
     @classmethod
     def prepare_for_export(cls) -> None:
-        """The ``"shadow"`` export preparer: every plane visible again before
-        an exporter that honours visibility walks the file, then the metadata
-        republished by the producer this replaces."""
+        """Stand every preview down, then republish the shadow record: every
+        plane visible again before an exporter that honours visibility walks
+        the file, and the metadata republished after it.
+
+        A convenience for a hand-driven write.  What an export actually runs
+        is the pair :meth:`_register_export_preparer` installs: the
+        ``"shadow_preview"`` stager (every preview detached before any
+        producer, re-attached after the write) plus the
+        ``ptk.SceneRecords.SHADOWS`` producer (``ShadowRig.export_record``), so
+        the record is always produced with the previews detached.
+        """
         from blendertk.rig_utils.shadow_rig import ShadowRig
 
         cls.detach_all()
         ShadowRig.refresh_export_metadata()
 
+    #: Names of the planes an export detached; :meth:`_reattach_after_export`
+    #: re-attaches them once the write is done.
+    _detached_for_export: List[str] = []
+
+    @classmethod
+    def _detach_for_export(cls) -> None:
+        """The ``"shadow_preview"`` stager's prepare: detach every preview so
+        each plane is visible to the exporter, remembering the planes.
+        Idempotent: a second stage finds none attached."""
+        names = [plane.name for plane in cls.detach_all()]
+        cls._detached_for_export = list(dict.fromkeys(cls._detached_for_export + names))
+
+    @classmethod
+    def _reattach_after_export(cls) -> None:
+        """The stager's finish: re-attach what :meth:`_detach_for_export` took off.
+
+        The preview is display state and the export has landed: a plane that
+        is gone is skipped, and one that cannot take it back (a session that
+        cannot draw) only warns.
+        """
+        import bpy
+
+        names, cls._detached_for_export = cls._detached_for_export, []
+        planes = [p for p in map(bpy.data.objects.get, names) if p is not None]
+        _, failed = cls.toggle(planes, True)
+        for failure in failed:
+            cls.logger.warning(f"Preview not restored after the export: {failure}")
+
     @classmethod
     def _register_export_preparer(cls) -> None:
+        """Wire the export: stand the previews down for the write (and back up
+        after it), produce the record fresh."""
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        FbxUtils.register_export_preparer("shadow", cls.prepare_for_export)
+        FbxUtils.register_export_stager(
+            "shadow_preview",
+            prepare=cls._detach_for_export,
+            finish=cls._reattach_after_export,
+        )
+        FbxUtils.enable_export_producer(ptk.SceneRecords.SHADOWS)
 
     # ---------------------------------------------------------------- overlay
     @classmethod

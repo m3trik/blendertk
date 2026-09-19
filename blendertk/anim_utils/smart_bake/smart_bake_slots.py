@@ -241,8 +241,10 @@ class SmartBakeSlots(ptk.LoggingMixin):
         details = [
             f"{key}: {', '.join(sources)}" for key, sources in result.baked.items()
         ]
-        if result.skipped:
-            details.append(f"Skipped {len(result.skipped)} item(s).")
+        # Refusals only: ``skipped`` also counts every item with nothing to bake.
+        details.extend(
+            f"Declined {key}: {reason}" for key, reason in result.declined.items()
+        )
         if result.muted_constraints:
             details.append(f"Muted {len(result.muted_constraints)} constraint(s).")
         if result.muted_drivers:

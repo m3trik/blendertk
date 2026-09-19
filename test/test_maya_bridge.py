@@ -375,6 +375,7 @@ try:
         usd_captured["opts"] = dict(opts)
         usd_captured["frame_range"] = frame_range
         usd_captured["selection_only"] = selection_only
+        usd_captured["bracket_depth"] = btk.FbxUtils._export_depth
         return filepath
 
     orig_usd_export = btk.UsdUtils.export
@@ -534,6 +535,29 @@ try:
             btk.UsdUtils.sanitize_prim_name("Chair.001") == "Chair_001"
             and btk.UsdUtils.sanitize_prim_name("1digit") == "_1digit"
             and btk.UsdUtils.sanitize_prim_name("") == "_",
+        )
+
+        # REGRESSION (2026-09-18): the USD send ran no export bracket, so a
+        # session stager (the shadow preview stands down for a write) was
+        # never prepared for it -- or, when the carrier's publish prepared
+        # it, never finished. Same bracket as the FBX send.
+        _usd_stages = []
+        btk.FbxUtils.register_export_stager(
+            "probe_stager",
+            prepare=lambda: _usd_stages.append("prepare"),
+            finish=lambda: _usd_stages.append("finish"),
+        )
+        try:
+            usd_captured.clear()
+            bridge._export_usd([cube], tmp_usd, {})
+        finally:
+            btk.FbxUtils.unregister_export_stager("probe_stager")
+        check(
+            "usd: the write runs inside the export bracket, stagers finished after",
+            usd_captured.get("bracket_depth") == 1
+            and _usd_stages == ["prepare", "finish"]
+            and btk.FbxUtils._export_depth == 0,
+            f"depth={usd_captured.get('bracket_depth')} stages={_usd_stages}",
         )
     finally:
         btk.UsdUtils.export = orig_usd_export

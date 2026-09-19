@@ -37,11 +37,12 @@ Divergence from mayatk (by design, not a gap to fill in later):
       rebuilds them on restore by clearing the resampled fcurve and re-inserting the originals.
 """
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+import pythontk as ptk
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +224,7 @@ class _BakeSessionStoreInternal(object):
 class BakeSessionStore(_BakeSessionStoreInternal):
     """LIFO stack of bake-session manifests on the ``data_internal`` Empty."""
 
-    ATTR = "smart_bake_sessions"
+    ATTR = ptk.SceneRecords.SMART_BAKE_SESSIONS.key
     SCHEMA_VERSION = 1
 
     @classmethod
@@ -231,12 +232,11 @@ class BakeSessionStore(_BakeSessionStoreInternal):
         """Return all persisted sessions (oldest first)."""
         from blendertk.node_utils.data_nodes import DataNodes
 
-        raw = DataNodes.get_internal_string(cls.ATTR)
-        if not raw:
+        spec = ptk.SceneRecords.SMART_BAKE_SESSIONS
+        if not spec.is_present(DataNodes):
             return []
-        try:
-            sessions = json.loads(raw)
-        except (ValueError, TypeError):
+        sessions = spec.load(DataNodes)
+        if sessions is None:
             logger.warning("SmartBake: session manifest is corrupt; ignoring.")
             return []
         return sessions if isinstance(sessions, list) else []
@@ -245,7 +245,7 @@ class BakeSessionStore(_BakeSessionStoreInternal):
     def save(cls, sessions: List[dict]) -> None:
         from blendertk.node_utils.data_nodes import DataNodes
 
-        DataNodes.set_internal_string(cls.ATTR, json.dumps(sessions))
+        ptk.SceneRecords.SMART_BAKE_SESSIONS.save(DataNodes, sessions)
 
     @classmethod
     def push(cls, session: dict) -> None:

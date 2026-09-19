@@ -1195,11 +1195,17 @@ def _run_smart_bake(cmds, whole_scene=True):
             optimize_keys=False,
             restorable=False,
         ).execute()
+        # What the bake REFUSED, not every object it looked at: `skipped` also
+        # counts the ones that had nothing to bake. A mayatk older than
+        # `declined` reports none rather than failing the bake it just made.
+        declined = getattr(result, "declined", None) or {}
         print(
-            "smart_bake: baked {} object(s) over {} (skipped {}).".format(
-                result.baked_count, result.time_range, len(result.skipped)
+            "smart_bake: baked {} object(s) over {} (declined {}).".format(
+                result.baked_count, result.time_range, len(declined)
             )
         )
+        for name, reason in sorted(declined.items()):
+            print("  declined {}: {}".format(name, reason))
     except _SkipWholeScene:
         print("smart_bake: whole-scene bake skipped; the rig plan scoped its own.")
     except Exception:
@@ -1373,10 +1379,28 @@ def _exit(code):
     ProcessExit.hard_exit(code)
 
 
+def _withhold(artifact):
+    """Remove *artifact* and its sidecar after a failed run: whatever it left
+    behind must never pass as the conversion.
+
+    Success is judged by the artifact, and an exporter can fail AFTER opening its
+    file -- Maya's USD exporter writes a layer before it refuses a scene
+    (measured: a root-level joint), so the partial payload passed, the non-zero exit was
+    tolerated as a teardown crash, and the caller reported a missing sidecar in
+    place of the exporter's own message. A payload whose sidecar failed is as
+    wrong: it imports without what the sidecar rebuilds."""
+    for path in (artifact, artifact + ".manifest.json"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 try:
     main()
 except Exception:
     traceback.print_exc()
+    _withhold(OUT_FBX)
     _exit(1)
 # Success is judged by the artifact; skip standalone teardown (known access violations).
 _exit(0)

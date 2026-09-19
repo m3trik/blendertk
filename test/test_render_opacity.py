@@ -263,7 +263,7 @@ try:
     # the conversion from either DCC; this channel is what
     # ptk.MeshConvert.apply_glb_visibility rebuilds it from.
     reset()
-    import json as _json
+    import pythontk as ptk
     from blendertk.node_utils.data_nodes import DataNodes
 
     c = cube("Gate")
@@ -309,34 +309,30 @@ try:
         detail=repr(RenderOpacity._linear_ramp(curve)),
     )
 
-    DataNodes.set_export_string(
-        "fbx_takes", _json.dumps([{"name": "Shot_1", "start": 7, "end": 100}])
-    )
-    DataNodes.set_export_string(
-        "shot_metadata", _json.dumps({"version": 1, "fps": 30.0, "shots": []})
+    # The take as a publish declares it: a shot_metadata clip carrying its range.
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {
+            "fps": 30.0,
+            "shots": [{"clip": "Shot_1", "start": 7, "end": 100, "objects": []}],
+        },
     )
     RenderOpacity.refresh_export_metadata()
-    published = _json.loads(
-        DataNodes.get_export_string(RenderOpacity.DATA_CHANNEL) or "{}"
-    )
+    published = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
     check(
         "refresh_export_metadata publishes the channel",
         published.get("version") == RenderOpacity.SCHEMA_VERSION,
     )
-    DataNodes.set_export_string("shot_metadata", "")
+    ptk.SceneRecords.SHOTS.clear(DataNodes)
     RenderOpacity.refresh_export_metadata()
-    republished = _json.loads(
-        DataNodes.get_export_string(RenderOpacity.DATA_CHANNEL) or "{}"
-    )
+    republished = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
     scene_fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
     check(
         "with no shots producer the channel carries the scene's own rate",
         republished.get("fps") == scene_fps,
         detail=repr(republished.get("fps")),
     )
-    DataNodes.set_export_string(
-        "shot_metadata", _json.dumps({"version": 1, "fps": 30.0, "shots": []})
-    )
+    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
     check(
         "the rate is carried from the shots producer",
         published.get("fps") == 30.0,
@@ -361,21 +357,22 @@ try:
 
     _scene = bpy.context.scene
     _scene.frame_start, _scene.frame_end = 0, 100
-    DataNodes.set_export_string("fbx_takes", "")
+    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
     check(
         "with no takes the bake range is the scene range",
         _Fbx.bake_range() == (0.0, 100.0),
         detail=repr(_Fbx.bake_range()),
     )
 
-    DataNodes.set_export_string(
-        "fbx_takes",
-        _json.dumps(
-            [
-                {"name": "a", "start": 33, "end": 60},
-                {"name": "b", "start": 61, "end": 140},
-            ]
-        ),
+    _takes = [("a", 33, 60), ("b", 61, 140)]
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {
+            "fps": 30.0,
+            "shots": [
+                {"clip": n, "start": s, "end": e, "objects": []} for n, s, e in _takes
+            ],
+        },
     )
     # 0 stays (the scene starts before the first take -- the exact case that
     # made a takes-union answer wrong); 140 widens past the scene's end.
@@ -384,6 +381,21 @@ try:
         _Fbx.bake_range() == (0.0, 140.0),
         detail=repr(_Fbx.bake_range()),
     )
+    # An older file: clips without ranges, the take list on the legacy fbx_takes.
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {"fps": 30.0, "shots": [{"clip": n, "objects": []} for n, _s, _e in _takes]},
+    )
+    ptk.SceneRecords.FBX_TAKES.save(
+        DataNodes, [{"name": n, "start": s, "end": e} for n, s, e in _takes]
+    )
+    check(
+        "a legacy fbx_takes still widens the bake range",
+        _Fbx.bake_range() == (0.0, 140.0),
+        detail=repr(_Fbx.bake_range()),
+    )
+    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
+    ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
 
     # What the bake-range seed for clip_span["*"] actually describes, measured
     # 2026-09-10 through FbxUtils.export rather than raw bpy.ops -- the answer
@@ -461,15 +473,48 @@ try:
         bpy.data.objects.remove(_o, do_unlink=True)
     _scene.frame_start, _scene.frame_end = 0, 100
 
-    DataNodes.set_export_string(
-        "fbx_takes", _json.dumps([{"name": "x"}, {"name": "y", "start": 2, "end": 4}])
+    # A legacy take list (the clips carry no ranges here), where a hand-edited
+    # or truncated entry can still turn up.
+    ptk.SceneRecords.FBX_TAKES.save(
+        DataNodes, [{"name": "x"}, {"name": "y", "start": 2, "end": 4}]
     )
     check(
         "a malformed take entry cannot decide the range",
         _Fbx.bake_range() == (0.0, 100.0),
         detail=repr(_Fbx.bake_range()),
     )
-    DataNodes.set_export_string("fbx_takes", "")
+    ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
+
+    # REGRESSION (2026-09-18): the FIRST export after a shot is added cut the
+    # clip origin against the PREVIOUS export's takes -- bake_range read the
+    # STORED shot record, and an assembly commits only after every producer
+    # has run, so the takes the shots producer had just built were invisible
+    # to the visibility producer that runs after it.
+    from blendertk import BlenderShotStore
+
+    ptk.SceneRecords.SHOTS.clear(DataNodes)
+    BlenderShotStore._prefs_dir_override = ptk.TempArtifacts(
+        "btk_render_opacity_prefs"
+    ).dir_path()
+    BlenderShotStore.clear_active()
+    BlenderShotStore.active().define_shot("Late", 90, 140, objects=[c.name])
+    _fresh = _Fbx.publish(
+        _Fbx.export_context(),
+        only=[ptk.SceneRecords.SHOTS, ptk.SceneRecords.VISIBILITY],
+    ).record(ptk.SceneRecords.VISIBILITY, {})
+    check(
+        "the first export after adding a shot cuts the origin against ITS takes",
+        (_fresh.get("clip_span") or {}).get("*") == [0.0, 140.0],
+        detail=repr(_fresh.get("clip_span")),
+    )
+    BlenderShotStore.clear_active()
+    BlenderShotStore._prefs_dir_override = None
+    for _spec in (
+        ptk.SceneRecords.SHOTS,
+        ptk.SceneRecords.FBX_TAKES,
+        ptk.SceneRecords.SHOT_STORE,
+    ):
+        _spec.clear(DataNodes)
 
     reset()
     check(
@@ -955,12 +1000,16 @@ try:
     expected = _ptk.RampKeys.fade_loop(
         15, hold=pslot.PREVIEW_HOLD_SECONDS * RenderEffects._scene_fps()
     )
+    # At the channel's published precision: build_visibility_tracks rounds every
+    # float (0.6 s * 24 fps is 14.399999999999999 raw and ships as 14.4).
+    _digits = _ptk.MeshConvert.VISIBILITY_TRACK_DIGITS
     check(
         "the WebXR preview pushes the selection with the fade as set",
         not pslot.sb.message_box.called
         and push.call_args.kwargs.get("objects") == [p]
         and tracks[0].get("node") == "PreviewPulsed"
-        and tracks[0].get("opacity") == [[f, v] for f, v in expected],
+        and tracks[0].get("opacity")
+        == [[round(f, _digits), round(v, _digits)] for f, v in expected],
         detail=f"{pslot.sb.message_box.call_args} {tracks}",
     )
     check(
