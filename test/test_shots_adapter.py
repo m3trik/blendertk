@@ -14,7 +14,7 @@ correctly feeds the shared pythontk detection/model core:
 - ``collect_transform_segments`` / ``collect_selected_key_entries`` walk the 5.1
   slotted-action fcurve structure;
 - ``detect_regions`` selected-keys mode builds boundaries from selected keys;
-- ``BlenderScenePersistence`` round-trips the store through ``scene["shot_store"]``,
+- ``BlenderScenePersistence`` round-trips the store through the private carrier (``scene["data_internal"]["shot_store"]``),
   and ``BlenderShotStore.active()`` auto-installs the backend + reloads it;
 - ``assess`` flags a shot whose object is missing from the file;
 - the mayatk-parity lifecycle hooks: ``SceneBeforeSave`` (``save_pre``) flushes a
@@ -40,6 +40,8 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import pythontk as ptk  # noqa: E402 -- after the sibling paths above
+
 
 def _run_shots_adapter_checks():
     lines = []
@@ -57,14 +59,21 @@ def _run_shots_adapter_checks():
     from blendertk import BlenderShotStore, BlenderScenePersistence
 
     ATTR_NAME = BlenderScenePersistence.ATTR_NAME
+    from blendertk.node_utils.data_nodes import DataNodes
+
+    def stored():
+        """The shot store record as the scene holds it (the private carrier)."""
+        return DataNodes.read(ptk.Scope.PRIVATE, ATTR_NAME)
+
+    def clear_stored():
+        DataNodes.write(ptk.Scope.PRIVATE, ATTR_NAME, None)
 
     # ---- isolate class state + user-prefs side effects -------------------
     BlenderShotStore._prefs_dir_override = tempfile.mkdtemp(prefix="btk_shots_prefs_")
     BlenderShotStore.clear_active()
 
     scene = bpy.context.scene
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
 
     # clean scene
     bpy.ops.object.select_all(action="SELECT")
@@ -194,8 +203,7 @@ def _run_shots_adapter_checks():
 
     # ---- persistence round-trip + active() auto-install ------------------
     BlenderShotStore.clear_active()
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
     active = BlenderShotStore.active()
     check("active() returns a BlenderShotStore", isinstance(active, BlenderShotStore))
     check(
@@ -205,7 +213,7 @@ def _run_shots_adapter_checks():
     active.define_shot("Intro", 1, 20, objects=["CubeA"])
     check(
         "scene prop written on define (immediate flush)",
-        scene.get(ATTR_NAME) is not None,
+        stored() is not None,
     )
 
     BlenderShotStore.clear_active()
@@ -224,6 +232,27 @@ def _run_shots_adapter_checks():
             f"{sh}",
         )
 
+    # ---- a corrupt record REFUSES to load (mirror of mayatk) ----------------
+    # REGRESSION (2026-09-18): an undecodable shot_store loaded as None -- an
+    # EMPTY store -- whose next save overwrote the recoverable record. Raising
+    # leaves no active store to save, so the text stays as the scene holds it.
+    BlenderShotStore.clear_active()
+    DataNodes.write(ptk.Scope.PRIVATE, ATTR_NAME, '{"shots": [')
+    refused = ""
+    try:
+        BlenderShotStore.active()
+    except ValueError as e:
+        refused = str(e)
+    check(
+        "a corrupt shot_store raises ValueError and is left untouched",
+        ATTR_NAME in refused
+        and BlenderShotStore._active is None
+        and stored() == '{"shots": [',
+        f"refused={refused!r} stored={stored()!r}",
+    )
+    BlenderShotStore.clear_active()
+    clear_stored()
+
     # ---- assess: missing object flagged ----------------------------------
     BlenderShotStore.clear_active()
     a_store = BlenderShotStore()
@@ -241,12 +270,12 @@ def _run_shots_adapter_checks():
         f"{verdict}",
     )
 
-    # ---- publish_export_view: fbx_takes + shot_metadata on the carrier ----
+    # ---- publish_export_view: shot_metadata on the carrier ------------------
     # Mirror of the Maya store's projection (shot_export_unity.md contract):
-    # both channels from one to_export_view pass, cleared by an empty store.
+    # ONE record whose clips carry their own ranges -- those ranges ARE the take
+    # list (ptk.SceneRecords.declared_takes), so no second ``fbx_takes`` list is
+    # written to disagree with it. Cleared by an empty store.
     import json
-
-    from blendertk.node_utils.data_nodes import DataNodes
 
     if DataNodes.get_export_node(create=False) is not None:
         import bpy as _bpy
@@ -265,30 +294,72 @@ def _run_shots_adapter_checks():
         and DataNodes.get_export_node(create=False) is not None,
         f"{carrier_name}",
     )
-    takes_raw = DataNodes.get_export_string(DataNodes.FBX_TAKES)
-    meta_raw = DataNodes.get_export_string(DataNodes.SHOT_METADATA)
-    takes = json.loads(takes_raw) if takes_raw else []
+    meta_raw = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
     meta = json.loads(meta_raw) if meta_raw else {}
+    clips = meta.get("shots") or []
     check(
-        "fbx_takes channel carries one {name,start,end} per shot",
-        [t.get("name") for t in takes] == ["shotA", "shotB"]
-        and takes[0].get("start") == 1
-        and takes[1].get("end") == 30,
-        f"{takes}",
+        "shot_metadata carries one clip per shot, each with its own range",
+        [(s.get("clip"), s.get("start"), s.get("end")) for s in clips]
+        == [("shotA", 1, 10), ("shotB", 20, 30)],
+        f"{meta}",
     )
     check(
-        "shot_metadata clip names join 1:1 with the take names",
-        [s.get("clip") for s in meta.get("shots", [])]
-        == [t.get("name") for t in takes],
-        f"{meta}",
+        "the envelope carries version + fps and no second take list",
+        meta.get("version") == ptk.SceneRecords.SHOTS.version
+        and "fps" in meta
+        and "takes" not in meta,
+        f"{sorted(meta)}",
+    )
+    check(
+        "a clip omits an empty description/section and always lists its objects",
+        len(clips) == 2
+        and all(
+            "description" not in s
+            and "section" not in s
+            and s.get("objects") == ["CubeA"]
+            for s in clips
+        ),
+        f"{clips}",
+    )
+    check(
+        "no fbx_takes channel is written",
+        DataNodes.FBX_TAKES not in DataNodes.get_export_node(create=False).keys(),
+        f"{list(DataNodes.get_export_node(create=False).keys())}",
+    )
+    declared = ptk.SceneRecords.declared_takes(
+        lambda key: ptk.SceneRecords.resolve(key).load(DataNodes)
+    )
+    check(
+        "declared_takes reads the take list off the clips",
+        declared
+        == [
+            {"name": "shotA", "start": 1, "end": 10},
+            {"name": "shotB", "start": 20, "end": 30},
+        ],
+        f"{declared}",
+    )
+    # A file published before the clips carried their ranges still holds the
+    # legacy take list; the next shots publish clears it rather than leave two
+    # lists that could disagree.
+    DataNodes.write(
+        ptk.Scope.DELIVERABLE,
+        DataNodes.FBX_TAKES,
+        json.dumps([{"name": "stale", "start": 1, "end": 5}]),
+    )
+    pub_store.publish_export_view()
+    check(
+        "the next shots publish clears a legacy fbx_takes",
+        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None
+        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
+        is not None,
     )
     for sid in [s.shot_id for s in list(pub_store.shots)]:
         pub_store.remove_shot(sid)
     pub_store.publish_export_view()
     check(
-        "empty store clears both channels (carrier not recreated to hold them)",
-        DataNodes.get_export_string(DataNodes.FBX_TAKES) is None
-        and DataNodes.get_export_string(DataNodes.SHOT_METADATA) is None,
+        "empty store clears the shot record (carrier not recreated to hold it)",
+        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is None
+        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None,
     )
 
     # ---- scene-swap invalidation lifecycle (C1) ---------------------------
@@ -301,8 +372,7 @@ def _run_shots_adapter_checks():
     from blendertk.core_utils.script_job_manager import ScriptJobManager
 
     BlenderShotStore.clear_active()
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
 
     swap_store = BlenderShotStore.active()
     backend = BlenderShotStore._persistence
@@ -340,7 +410,7 @@ def _run_shots_adapter_checks():
         f"n={len(fresh.shots)}",
     )
     fresh.define_shot("NewSceneShot", 1, 5, objects=[])
-    raw = scene.get(ATTR_NAME) or ""
+    raw = stored() or ""
     check(
         "old file's shots never leak into the new scene's property",
         "OldSceneShot" not in raw and "NewSceneShot" in raw,
@@ -361,11 +431,9 @@ def _run_shots_adapter_checks():
     # ---- mayatk-parity lifecycle hooks -------------------------------------
     # (a) SceneBeforeSave -> save_pre: a dirty store is flushed before the file
     #     is written (mirror of MayaScenePersistence._on_before_save).
-    import pythontk as ptk
 
     BlenderShotStore.clear_active()
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
     hook_store = BlenderShotStore.active()
     hook_backend = BlenderShotStore._persistence
     status = ScriptJobManager.instance().status()
@@ -388,8 +456,8 @@ def _run_shots_adapter_checks():
         bpy.ops.wm.save_as_mainfile(filepath=str(save_path), copy=True)
     check(
         "save_pre flushed the dirty store into the scene property",
-        not hook_store._dirty and "FlushedBySavePre" in (scene.get(ATTR_NAME) or ""),
-        f"dirty={hook_store._dirty} raw={(scene.get(ATTR_NAME) or '')[:80]}",
+        not hook_store._dirty and "FlushedBySavePre" in (stored() or ""),
+        f"dirty={hook_store._dirty} raw={(stored() or '')[:80]}",
     )
 
     # (b) _on_time_unit_changed: framerate change rescales shot timings
@@ -432,8 +500,7 @@ def _run_shots_adapter_checks():
     # (d) _schedule_flush: headless (bpy.app.background) flushes immediately —
     #     the timer loop never runs in --background.
     scene = bpy.context.scene
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
     flush_store = BlenderShotStore.active()
     flush_store.define_shot("Immediate", 1, 5, objects=[])
     check(
@@ -441,15 +508,14 @@ def _run_shots_adapter_checks():
         bpy.app.background
         and not flush_store._dirty
         and not flush_store._flush_pending
-        and "Immediate" in (scene.get(ATTR_NAME) or ""),
+        and "Immediate" in (stored() or ""),
         f"dirty={flush_store._dirty} pending={flush_store._flush_pending}",
     )
 
     # ---- hand-off transfer: export_transfer / apply_transfer ----------------
     #     (mirror of mayatk's; the codec is pythontk's ShotTransfer)
     BlenderShotStore.clear_active()
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
     scene.render.fps = 24
     xfer_store = BlenderShotStore.active()
     add_keyed_cube("XferCube", [1, 10, 20], 0.0)
@@ -508,7 +574,7 @@ def _run_shots_adapter_checks():
     )
     # Apply into a clean scene, as a Maya section would land after the import.
     BlenderShotStore.clear_active()
-    del scene[ATTR_NAME]
+    clear_stored()
     landed = BlenderShotStore.apply_transfer(section)
     check(
         "apply_transfer: the shot lands 1:1 on the live objects",
@@ -524,7 +590,7 @@ def _run_shots_adapter_checks():
     )
     check(
         "apply_transfer: the record persists on the scene",
-        "Xfer" in (scene.get(ATTR_NAME) or ""),
+        "Xfer" in (stored() or ""),
     )
     shifted = BlenderShotStore.apply_transfer(section, frame_offset=1.0)
     check(
@@ -596,8 +662,7 @@ def _run_shots_adapter_checks():
     AudioUtils.trim_clip("footstep", offset_end=4)
     clip_end = AudioUtils.get_clip("footstep")["frame_end"]
     BlenderShotStore.clear_active()
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
     fx_store = BlenderShotStore.active()
     fx_store.define_shot("Fx", 1, 20, objects=["FxCube"])
     section = BlenderShotStore.export_transfer()
@@ -659,8 +724,7 @@ def _run_shots_adapter_checks():
     # cleanup class state so a later suite in the same process starts clean
     BlenderShotStore.clear_active()
     BlenderShotStore._prefs_dir_override = None
-    if ATTR_NAME in scene.keys():
-        del scene[ATTR_NAME]
+    clear_stored()
 
     return lines
 

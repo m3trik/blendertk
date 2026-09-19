@@ -150,6 +150,28 @@ try:
         btk.apply_scene_settings({}) == [] and btk.apply_scene_settings({"fps": 0}) == [],
     )
 
+    # ---- scene_artifact_path (mirror of mayatk's) ----------------------------
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _unsaved = btk.EnvUtils.scene_artifact_path("_meta.json")
+    check(
+        "scene_artifact_path: an unsaved file is 'untitled' in the workspace",
+        os.path.basename(_unsaved) == "untitled_meta.json"
+        and os.path.dirname(_unsaved) == btk.EnvUtils.workspace_root(),
+        _unsaved,
+    )
+    _art_dir = tempfile.mkdtemp(prefix="btk_env_artifact_")
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_art_dir, "named.blend"))
+        check(
+            "scene_artifact_path: beside the saved .blend, named for it",
+            os.path.normpath(btk.EnvUtils.scene_artifact_path("_meta.json"))
+            == os.path.normpath(os.path.join(_art_dir, "named_meta.json")),
+            btk.EnvUtils.scene_artifact_path("_meta.json"),
+        )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        shutil.rmtree(_art_dir, ignore_errors=True)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

@@ -42,6 +42,8 @@ for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import pythontk as ptk  # noqa: E402 -- after the sibling paths above
+
 # Isolate PresetStore's user tier in a scratch dir for this run — never touch the real
 # %LOCALAPPDATA%/uitk store (pythontk.core_utils.user_config.user_config_root honors this).
 _PRESETS_ROOT = tempfile.mkdtemp(prefix="btk_scnexp_presets_")
@@ -395,7 +397,7 @@ try:
 
     # Author a REAL lightmap marker and publish through the producer, exactly
     # like a bake commit: export_data_node now refreshes every producer
-    # (FbxUtils.run_export_preparers), so a hand-stamped channel with no scene
+    # (FbxUtils.publish), so a hand-stamped channel with no scene
     # state behind it would be correctly regenerated away as stale.
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 
@@ -403,7 +405,7 @@ try:
         {"map": "CarrierExportCube_Lightmap.exr", "intensity": 1.0}
     )
     LightmapBaker.refresh_export_metadata()
-    payload = DataNodes.get_export_string("lightmap_metadata")
+    payload = DataNodes.read(ptk.Scope.DELIVERABLE, "lightmap_metadata")
     check(
         "authoring-time publish stamps the carrier from the marker",
         isinstance(payload, str) and "CarrierExportCube" in payload,
@@ -496,7 +498,7 @@ try:
     # Carrier present in the scene but NOT in the export set → its channels
     # did not ship, so nothing is recorded (and with nothing else to record,
     # no sidecar at all).
-    DataNodes.set_export_string("test_channel", json.dumps({"v": 1}))
+    DataNodes.write(ptk.Scope.DELIVERABLE, "test_channel", json.dumps({"v": 1}))
     exp5.task_manager.objects = [lone]
     exp5.task_manager.write_scene_data_sidecar()
     check(
@@ -512,7 +514,7 @@ try:
     # history behind it.
     from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import HierarchyBaseline
 
-    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "")
+    DataNodes.write(ptk.Scope.PRIVATE, HierarchyBaseline.ATTR_NAME, "")
     _hb_dir = os.path.join(out_dir, "baseline")
     os.makedirs(_hb_dir, exist_ok=True)
     _hb_tm = exp5.task_manager
@@ -550,10 +552,10 @@ try:
 
     # An unreadable channel is "no baseline", not a crash -- and is reported as
     # LOST rather than silently replaced.
-    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "{not json")
+    DataNodes.write(ptk.Scope.PRIVATE, HierarchyBaseline.ATTR_NAME, "{not json")
     check("an unreadable baseline reads empty", HierarchyBaseline.read() == set())
     check("an unreadable baseline is flagged", HierarchyBaseline.is_unreadable())
-    DataNodes.set_internal_string(HierarchyBaseline.ATTR_NAME, "")
+    DataNodes.write(ptk.Scope.PRIVATE, HierarchyBaseline.ATTR_NAME, "")
 
     # After a GLB the sidecar records the lightmap manifest the GLB ships (mirror of
     # mayatk's): the GLB pass corrects that copy to the encoded map and the scalar
@@ -571,7 +573,7 @@ try:
         "version": 1,
         "objects": [dict(_sg_entry, map="room_Lightmap.png", intensity=0.5)],
     }
-    DataNodes.set_export_string("lightmap_metadata", json.dumps(_sg_scene))
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", json.dumps(_sg_scene))
     _sg_gltf = {
         "asset": {"version": "2.0"},
         "nodes": [
@@ -1470,7 +1472,6 @@ try:
     LightmapBaker.refresh_export_metadata()
 
     # ---- USD output format (mirror of mayatk) --------------------------------
-    import pythontk as ptk
 
     usd_dir = os.path.join(tmp, "usd_format")
     os.makedirs(usd_dir, exist_ok=True)
@@ -1924,7 +1925,6 @@ try:
     # TestGeneralTextureFileType. BACKLOG 2026-08-12 is why the resize half exists at all:
     # the exporter converted to GLB and stopped, shipping authored 4096-square PNGs while
     # the pass that closes the gap was already wired into the WebXR preview.
-    import pythontk as ptk
     from unittest import mock
     from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
         SceneExporterSlots as _Slots,
@@ -2920,7 +2920,7 @@ try:
     cc_cube = bpy.context.active_object
     cc_cube.name = "CarrierCollCube"
     cc_carrier = DataNodes.ensure_export()
-    DataNodes.set_export_string("hidden_coll_probe", json.dumps({"v": 42}))
+    DataNodes.write(ptk.Scope.DELIVERABLE, "hidden_coll_probe", json.dumps({"v": 42}))
     hid_coll = bpy.data.collections.new("CarrierHiddenColl")
     bpy.context.scene.collection.children.link(hid_coll)
     for c in list(cc_carrier.users_collection):
@@ -3269,9 +3269,9 @@ try:
 
     # ---- apply_declared_takes: shots -> named engine clips, end to end -------
     # The Maya-parity pipeline (shot_export_unity.md): the Shots store publishes
-    # fbx_takes + shot_metadata onto the carrier; the takes task refreshes,
-    # folds the carrier in, arms FbxUtils, and the write ships one AnimStack
-    # per shot with the metadata as user properties — with every staged
+    # shot_metadata (each clip carrying its range) onto the carrier; the takes
+    # task refreshes, folds the carrier in, arms FbxUtils, and the write ships
+    # one AnimStack per shot with the metadata as user properties — with every staged
     # mutation (armed takes, widened frame range) undone after the write.
     from blendertk.anim_utils.shots._shots import BlenderShotStore
 
@@ -3340,10 +3340,18 @@ try:
         and [s["clip"] for s in json.loads(meta_raw)["shots"]] == ["open", "close"],
         f"{meta_raw!r}",
     )
+    check(
+        "each shipped clip carries its own range, and no legacy fbx_takes ships",
+        bool(meta_raw)
+        and [(s["clip"], s["start"], s["end"]) for s in json.loads(meta_raw)["shots"]]
+        == [("open", 1, 10), ("close", 20, 30)]
+        and DataNodes.FBX_TAKES not in icarrier2.keys(),
+        f"{meta_raw!r} {sorted(icarrier2.keys()) if icarrier2 else None}",
+    )
 
     # A Full Sequence Only export DECLARES its mode on the shot_metadata envelope
-    # (mirror of mayatk's): fbx_takes still lists every shot, so the deliverable
-    # gate reads the declared mode instead of calling the shots missing.
+    # (mirror of mayatk's): its clips still carry every shot's range, so the
+    # deliverable gate reads the declared mode instead of calling the shots missing.
     # Added: 2026-09-15
     reset_scene()
     for a in list(bpy.data.actions):
@@ -3911,6 +3919,56 @@ try:
         _lresult is True and os.path.isfile(os.path.join(_pdir, "progress_late.fbx")),
         f"result={_lresult}",
     )
+
+    # ---- the export bracket: every stager a publish prepares is finished -----------------
+    # REGRESSION (2026-09-18): the run never opened FbxUtils' bracket, so the session
+    # stagers export_data_node's publish prepared (the shadow preview stands down for
+    # the write) were never finished -- on a completed run or on one stopped before
+    # its write. Pinned with a probe stager: the shadow preview's own pair is
+    # test_shadow_preview's, and headless it cannot draw.
+    _stages = []
+    _bracket_file = os.path.join(_pdir, "bracket_probe.fbx")
+    FbxUtils.register_export_stager(
+        "probe_stager",
+        prepare=lambda: _stages.append(("prepare", os.path.isfile(_bracket_file))),
+        finish=lambda: _stages.append(("finish", os.path.isfile(_bracket_file))),
+    )
+    try:
+        _bresult = SceneExporter().perform_export(
+            export_dir=_pdir,
+            objects=[_pcube],
+            output_name="bracket_probe",
+            tasks={"export_data_node": True},
+        )
+        check(
+            "a completed run finishes its stagers AFTER the file is written",
+            _bresult is True
+            and ("prepare", False) in _stages
+            and bool(_stages)
+            and _stages[-1] == ("finish", True)
+            and FbxUtils._export_depth == 0,
+            f"result={_bresult} stages={_stages} depth={FbxUtils._export_depth}",
+        )
+        _stages.clear()
+        _sresult = SceneExporter().perform_export(
+            export_dir=_pdir,
+            objects=[_pcube],
+            output_name="bracket_stopped",
+            tasks={"export_data_node": True},
+            # Stop at the first tick after the publish staged: before the write.
+            progress_callback=lambda c, t, m: not _stages,
+        )
+        check(
+            "a run stopped before its write still finishes what its publish prepared",
+            _sresult is False
+            and bool(_stages)
+            and _stages[0][0] == "prepare"
+            and _stages[-1][0] == "finish"
+            and FbxUtils._export_depth == 0,
+            f"result={_sresult} stages={_stages} depth={FbxUtils._export_depth}",
+        )
+    finally:
+        FbxUtils.unregister_export_stager("probe_stager")
     reset_scene()
 
     # ---- Output Filename: one wildcard for the default, {tokens} for the rest -------------
@@ -4078,6 +4136,45 @@ try:
         "the tooltip previews the path the export would write",
         os.path.join(_ndir, "WIP_test_scene_{nope}.fbx") in _html,
         _html[-200:],
+    )
+
+    # --- Export Scene Data Node's viewer action (mirror of mayatk's) ---------------
+    import json as _json
+
+    from blendertk.node_utils.data_nodes import DataNodes as _DN
+
+    _actions = []
+    _row = _NS(
+        is_initialized=False,
+        option_box=_NS(add_action=lambda **kw: _actions.append(kw)),
+    )
+    _slots.export_data_node_init(_row)
+    _row.is_initialized = True
+    _slots.export_data_node_init(_row)
+    check(
+        "export_data_node row gets exactly one viewer action",
+        len(_actions) == 1 and _actions[0]["callback"] == _slots._show_data_node,
+        str(_actions),
+    )
+    _shown = []
+    _slots.sb = _NS(data_view_dialog=lambda data, **kw: _shown.append((data, kw)))
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    reset_scene()
+    _slots._show_data_node()
+    check(
+        "an absent carrier hands the viewer nothing and creates nothing",
+        _shown[-1][0] == {} and bpy.data.objects.get(_DN.EXPORT) is None,
+        str(_shown[-1]),
+    )
+    _DN.write(ptk.Scope.DELIVERABLE, "probe_channel", _json.dumps({"a": [1, 2]}))
+    _DN.write(ptk.Scope.PRIVATE, "private_probe", "internal-only")
+    _slots._show_data_node()
+    _data, _kw = _shown[-1]
+    check(
+        "the shared viewer gets data_export's channels, decoded, without data_internal's",
+        _data == {_DN.EXPORT: {"probe_channel": {"a": [1, 2]}}}
+        and _kw["save_path"].endswith("_data_export.json"),
+        str(_shown[-1])[:300],
     )
 
     bpy.ops.wm.read_factory_settings(use_empty=True)

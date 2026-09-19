@@ -2418,16 +2418,6 @@ class ShotSequencer(_ShotSequencerInternal):
             return None
         return ShotPlanner.envelope_for(shots, idx)
 
-    def _unique_shot_name(self, base: str) -> str:
-        """*base*, or the first ``base_2``, ``base_3``... no shot is using."""
-        taken = {s.name for s in self.store.shots}
-        if base not in taken:
-            return base
-        n = 2
-        while f"{base}_{n}" in taken:
-            n += 1
-        return f"{base}_{n}"
-
     def _cut_shot_content(self, shot_id: int) -> int:
         """Delete every key inside *shot_id*'s owned window.
 
@@ -2598,12 +2588,16 @@ class ShotSequencer(_ShotSequencerInternal):
         cut.
 
         Raises:
-            ValueError: If *shot_id* does not exist, or *at_frame* is not
-                strictly inside it.
+            ValueError: If *shot_id* does not exist, *at_frame* is not
+                strictly inside it, or the store refuses *name* -- each before
+                the head is trimmed.
         """
         shot = self.shot_by_id(shot_id)
         if shot is None:
             raise ValueError(f"No shot with id {shot_id}")
+        error = self.store.name_error(name) if name else None
+        if error:
+            raise ValueError(error)
         at = self.store.snap(float(at_frame))
         if not (shot.start + _EPS < at < shot.end - _EPS):
             raise ValueError(
@@ -2612,7 +2606,7 @@ class ShotSequencer(_ShotSequencerInternal):
             )
 
         tail_end = shot.end
-        tail_name = name or self._unique_shot_name(f"{shot.name}_2")
+        tail_name = name or self.store.unique_name(f"{shot.name}_2")
 
         self.store.update_shot(shot_id, end=at)
         # The tail INHERITS the shot's object list and is then narrowed to
@@ -2953,8 +2947,14 @@ class ShotSequencer(_ShotSequencerInternal):
         fade tails and trailing audio are never built over).  The *gap*
         falls between the preceding shot's content and the new shot;
         downstream shots ripple rigidly by ``duration + gap``.  Raises
-        ``ValueError`` for an unknown *after_shot_id*.
+        ``ValueError`` for an unknown *after_shot_id*, or for a *name* the
+        store refuses (``ShotStore.name_error``) -- before anything moves.
         """
+        # Before the ripple: define_shot refuses the same name, but only after
+        # every downstream shot and its keys had already moved.
+        error = self.store.name_error(name)
+        if error:
+            raise ValueError(error)
         gap = self.store.gap if gap is None else gap
         shots = self.sorted_shots()
 

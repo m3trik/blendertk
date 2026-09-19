@@ -320,11 +320,12 @@ class UsdUtils(_UsdUtilsInternal):
                 bpy.ops.wm.usd_export(filepath=filepath, **opts)
                 if fold:
                     UsdUtils.fold_single_mesh_xforms(filepath)
-                # After the fold: it RENAMES prims, and both passes address them
-                # by path. Unconditional -- each is a no-op on a layer without
-                # the defect it repairs.
+                # After the fold: it RENAMES prims, and these passes address
+                # them by path. Unconditional -- each is a no-op on a layer
+                # without the defect it repairs.
                 UsdUtils.pin_primvar_indices(filepath)
                 UsdUtils.mark_skinning_methods(filepath, wanted, root_prim_path)
+                UsdUtils.mark_container_skeletons(filepath)
                 if hidden:
                     stamped = UsdUtils.mark_invisible(filepath, hidden, root_prim_path)
                     if stamped < len(hidden):
@@ -636,6 +637,57 @@ class UsdUtils(_UsdUtilsInternal):
             )
             UsdSkel.BindingAPI.Apply(prim)
             UsdSkel.BindingAPI(prim).CreateSkinningMethodAttr().Set(method)
+            count += 1
+        if count:
+            layer.Save()
+        return count
+
+    @staticmethod
+    def mark_container_skeletons(filepath: str) -> int:
+        """Mark each Skeleton prim that is only a CONTAINER for its bones with
+        mayaUsd's ``customData Maya:generated``, so Maya makes no joint of it.
+        Returns the count; the layer is saved in place (a ``.usdz`` returns 0).
+
+        Blender writes an armature's DATA as a Skeleton prim nested under the
+        object's Xform, and mayaUsd imports every Skeleton prim as a joint of its
+        own unless that prim says it was generated -- which its own exporter
+        stamps on every skeleton it writes, so a Maya scene's round trip comes
+        home clean while a Blender one gains a joint per armature. That joint
+        sits between the armature's transform and its root joint, at the
+        armature's origin, and wherever the data is named like its root bone
+        (always, for a Maya joint pulled to Blender and back) a bone's path
+        names IT: the rig transfer built and verified against it, 2.4-2.6 m from
+        the real joint on a production module. The joint itself was exact.
+
+        Only a pure container is marked. mayaUsd hangs a marked skeleton's joints
+        under its PARENT's node and reads nothing off the prim itself, so one
+        carrying a transform of its own -- a static export merges a leaf
+        armature's object into its Skeleton -- or one at the root arrives with
+        no joints at all (both measured, mayaUsd 0.30). A prim that already says
+        either way is the author's word and is left alone.
+        """
+        import os
+
+        if os.path.splitext(str(filepath))[1].lower() == ".usdz":
+            return 0
+        from pxr import Sdf, Usd, UsdGeom, UsdSkel
+
+        layer = Sdf.Layer.FindOrOpen(str(filepath))
+        if layer is None:
+            raise FileNotFoundError("USD layer not found: " + str(filepath))
+        stage = Usd.Stage.Open(layer)
+        count = 0
+        for prim in stage.Traverse():
+            if not prim.IsA(UsdSkel.Skeleton) or prim.HasCustomDataKey(
+                "Maya:generated"
+            ):
+                continue
+            if prim.GetParent().IsPseudoRoot():
+                continue  # no parent node to hold the joints
+            xformable = UsdGeom.Xformable(prim)
+            if xformable.GetOrderedXformOps() or xformable.GetResetXformStack():
+                continue  # the object's own transform lives here
+            prim.SetCustomDataByKey("Maya:generated", True)
             count += 1
         if count:
             layer.Save()

@@ -742,6 +742,13 @@ class SceneExporter(ptk.LoggingMixin):
         self.task_manager.objects = export_objects
         export_succeeded = False
         glb_tempdir = None
+        # The export bracket (mirror of mayatk's): it stages the scene for the
+        # write and finishes it in the ``finally`` below, AFTER the GLB
+        # conversion and the sidecar have read the scene -- a session stager
+        # such as the shadow preview stands down for the write and comes back
+        # after it.  Opened with no context: the records are published ONCE,
+        # by ``export_data_node`` or just below.
+        FbxUtils.begin_export()
         try:
             if run.glb_only:
                 glb_tempdir = ptk.TempArtifacts("scene_exporter_glb").dir_path()
@@ -751,9 +758,11 @@ class SceneExporter(ptk.LoggingMixin):
             else:
                 fbx_write_path = self.export_path
 
-            # Declared after every task (mirror of mayatk's bracket): the
-            # deliverable gates read the Animation Clips mode from it.
-            self.task_manager.publish_clip_mode()
+            # A run with the carrier tasks off still publishes the scene
+            # records exactly once before the write (mirror of mayatk's
+            # bracket fallback); a run with them on published in the task,
+            # with the Animation Clips mode as the producers' input.
+            self.task_manager.ensure_scene_records_published()
             self._progress_step("Writing USD…" if run.usd else "Writing FBX…")
             # From here the deliverable is finished regardless of a stop
             # request (see _emit_progress).
@@ -849,6 +858,7 @@ class SceneExporter(ptk.LoggingMixin):
             self.logger.error(f"Failed to export objects: {e}")
             raise RuntimeError(f"Failed to export objects: {e}")
         finally:
+            FbxUtils.end_export()
             if glb_tempdir:
                 shutil.rmtree(glb_tempdir, ignore_errors=True)
 

@@ -442,8 +442,8 @@ try:
             del rm._refresh
 
             # Header mirrors mayatk's exact items: Naming uses txt_subfolder_structure +
-            # 'Save To Workspace'; Operations is 'Unlink and Import All' + 'Un-Reference All'
-            # (Maya's exact labels); the Include Types row adds one chk_include_<type> per shared
+            # 'Save To Workspace'; Operations is 'Unlink and Import All' (Maya's exact label;
+            # Un-Reference All is footer-only); the Include Types row adds one chk_include_<type> per shared
             # file type. Recursive + workspace management moved OFF the header onto the Root
             # Directory option box (where Maya keeps chk000). Guards against the header drifting
             # back to the old Blender-only set.
@@ -463,7 +463,6 @@ try:
                     # Operations buttons carry Maya's exact labels/names (renamed from the
                     # old Make Local All / Remove All).
                     "btn_unlink_import_all",
-                    "btn_unreference_all",
                     # Include Types row — one toggle per shared file type, both panels.
                     "chk_include_ma",
                     "chk_include_mb",
@@ -477,6 +476,8 @@ try:
                         "btn_new_workspace",
                         "btn_mark_workspace",
                         "btn_reload_all",
+                        # Redundant with the footer's Un-Reference All.
+                        "btn_unreference_all",
                     }
                     & _hdr_names
                 ),

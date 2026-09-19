@@ -380,19 +380,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             ),
         )
 
-        # Rig: how a foreign scene's rig logic travels (pythontk RIG_MODES via the
-        # shared uitk spec) -- the prompt-free default; the per-scene prompt still
-        # asks when a .ma declares driven animation. Persists by INDEX like the route.
-        from uitk.bridge import Parameters
-
-        spec = Parameters.rig_mode_spec()
-        widget.menu.add(
-            "QComboBox",
-            addItems=[label for label, _value in spec.choices],
-            setCurrentIndex=0,  # auto
-            setObjectName="cmb_rig_mode",
-            setToolTip=spec.tooltip,
-        )
+        # No Rig setting: how a scene's rig logic travels is asked per scene, and
+        # only when it has some (_resolve_rig_mode). Mirror of Maya.
         # Include Types — a single horizontal row of per-extension toggles (mirror across both
         # panels). Replaces the old single "Include Maya Scenes" toggle: .blend lists + links
         # natively; .ma/.mb list as import-only rows converted through the maya_bridge.
@@ -405,9 +394,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             lambda *_: self._on_naming_field_changed()
         )
 
-        # Bulk operations — a 1:1 mirror of Maya's Operations group. Maya's three are
-        # Convert-to-Assembly / Unlink-and-Import-All / Un-Reference-All; Convert-to-Assembly has
-        # no Blender analogue (dropped, ledgered), the other two map to Make Local All / Remove All.
+        # Bulk operations — a 1:1 mirror of Maya's Operations group. Maya's two are
+        # Convert-to-Assembly / Unlink-and-Import-All; Convert-to-Assembly has no Blender analogue
+        # (dropped, ledgered), the other maps to Make Local All. Un-Reference All (Remove All) is
+        # footer-only on both panels.
         # Per-library Reload lives in the row menu; workspace management (New / Mark As Workspace)
         # lives on the Root Directory option box — Maya keeps neither in this header. Save Scene
         # lives in the Naming group above, beside the conventions it consumes (mirror of Maya).
@@ -418,12 +408,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             setObjectName="btn_unlink_import_all",
             setToolTip="Make every linked library's data local (Maya's Unlink and Import All).",
         ).clicked.connect(self.make_local_all)
-        widget.menu.add(
-            "QPushButton",
-            setText="Un-Reference All",
-            setObjectName="btn_unreference_all",
-            setToolTip="Remove every linked library and its data (Un-Reference All).",
-        ).clicked.connect(self.remove_all)
+        # Un-Reference All lives on the footer only (_setup_footer_actions).
 
         widget.set_help_text(
             self.sb.tooltip.fmt(
@@ -457,7 +442,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                             ".blend links natively, a foreign (ma / mb / fbx) row's link icon bakes it "
                             "to a cached .blend and links that — right-click <b>Unlink and Import</b> "
                             "for a local copy instead.",
-                            "<b>Operations</b>: <b>Unlink and Import All</b>, <b>Un-Reference All</b>.",
+                            "<b>Operations</b>: <b>Unlink and Import All</b>; <b>Un-Reference "
+                            "All</b> is on the footer.",
                         ],
                     ),
                     (
@@ -1733,19 +1719,6 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             return "usd"
         return "fbx"
 
-    def _rig_mode(self):
-        """The header's Rig combo as a ``rig_mode``; ``"auto"`` without a menu --
-        the engine's own default, so a headless caller and an early refresh agree
-        with it. Resolved by INDEX against :data:`pythontk.RIG_MODES`: combos
-        persist by index and the vocabulary is append-only, so no label table
-        (uitk's) is needed here and the engine path stays importable headless."""
-        menu = getattr(getattr(self.ui, "header", None), "menu", None)
-        combo = getattr(menu, "cmb_rig_mode", None) if menu else None
-        if combo is None:
-            return "auto"
-        index = combo.currentIndex()
-        return ptk.RIG_MODES[index] if 0 <= index < len(ptk.RIG_MODES) else "auto"
-
     def _resolve_conversion(self, path):
         """Route + rig-mode decision for converting *path*.
 
@@ -1770,12 +1743,12 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
         ``message_box`` takes standard Qt button names only, so the three
         outcomes ride Yes (transfer) / No (bake) / Ignore (raw) with the text
-        saying which is which. Only ``.ma`` is text-scannable; ``.mb`` / ``.fbx``
-        fall through to ``"auto"``."""
+        saying which is which. ``.ma`` is line-scanned, ``.mb`` byte-scanned; an
+        ``.fbx`` is already baked and falls through to ``"auto"``."""
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         if not MayaSceneImport.scene_has_complex_animation(path):
-            return self._rig_mode()
+            return "auto"
         choice = self.sb.message_box(
             f"<hl>{os.path.basename(path)}</hl> has driven animation "
             "(constraints, IK, set-driven keys, matrix rigs) that a raw import "

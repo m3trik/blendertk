@@ -140,7 +140,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BakeAnalysis`
   - methods: requires_bake
 - `class BakeResult`
-  - methods: baked_count, success
+  - methods: skip, declined, baked_count, success
 - `class SmartBake(_SmartBakeInternal)`
   - methods: analyze, get_time_range, bake, execute, list_sessions, restore, session, run
 
@@ -339,7 +339,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - constants: RESULT_PASS
@@ -348,7 +348,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/fbx_utils.py` — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 - `class FbxUtils(_FbxUtilsInternal)`
-  - methods: register_export_preparer, unregister_export_preparer, run_export_preparers, bake_range, reset_takes, apply_takes, stage_curve_proxy, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
+  - methods: producers, export_context, publish, publish_authored, stagers, stage, begin_export, end_export, export_prepared, scratch_export, enable_export_producer, disable_export_producer, register_export_stager, unregister_export_stager, register_export_preparer, unregister_export_preparer, run_export_preparers, bake_range, reset_takes, apply_takes, stage_curve_proxy, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
 
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
@@ -468,11 +468,11 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/scene_exporter_slots.py` — Slots for the Scene Exporter panel -- Blender port of mayatk's ``SceneExporterSlots``.
 - `class SceneExporterSlots(SceneExporter)`
-  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, output_name_preview, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
+  - methods: confirm, workspace, header_init, presets, cmb000_init, txt000_init, output_name_preview, txt001_init, cmb001_init, cmb002_init, cmb007_init, cmb008_init, ignore_groups_init, export_data_node_init, cmb004_init, cmb005_init, b000, b010, b012, b006, b007, b008, save_output_dir, save_output_name
 
 ### `env_utils/scene_exporter/task_manager.py` — The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
 - `class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`
-  - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, publish_clip_mode, set_bake_animation_range, export_data_node, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
+  - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, publish_clip_mode, set_bake_animation_range, export_data_node, ensure_scene_records_published, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -498,7 +498,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `env_utils/usd.py` — USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.usd``
 - constants: USD_EXTENSIONS
 - `class UsdUtils(_UsdUtilsInternal)`
-  - methods: is_usd_file, export, sampling_frame_range, fold_single_mesh_xforms, sanitize_prim_name, hidden_objects, export_prim_path, prim_path, pin_primvar_indices, mark_skinning_methods, mark_invisible, apply_visibility, activate_uv_map, import_scene, import_usd, bake_transform_caches, honor_reset_xform_stack, skinning_methods, scene_settings, export_selection_usd
+  - methods: is_usd_file, export, sampling_frame_range, fold_single_mesh_xforms, sanitize_prim_name, hidden_objects, export_prim_path, prim_path, pin_primvar_indices, mark_skinning_methods, mark_container_skeletons, mark_invisible, apply_visibility, activate_uv_map, import_scene, import_usd, bake_transform_caches, honor_reset_xform_stack, skinning_methods, scene_settings, export_selection_usd
 
 ### `env_utils/webxr_preview.py` — Push the Blender selection to a live browser / WebXR preview.
 - `class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`
@@ -517,7 +517,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `light_utils/lightmap_baker/lightmap_baker.py` — High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, denoise, device, bounces, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, normalize_lightmap_paths, lightmap_dependencies, search_dirs, heal_lightmap_paths, relocate_lightmaps, repath_lightmaps, refresh_export_metadata, revert_lightmap, revert, map_levels, peak_level
+  - methods: resolution, samples, denoise, device, bounces, preset_store, from_preset, bake_separated, commit_lightmap, bake_atlas, atlas_plan, plan_sizes, pack_atlas, normalize_lightmap_paths, lightmap_dependencies, search_dirs, heal_lightmap_paths, relocate_lightmaps, repath_lightmaps, export_record, refresh_export_metadata, revert_lightmap, revert, map_levels, peak_level
 - `class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, cmb_device_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
 
@@ -540,7 +540,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 - `class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`
-  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, refresh_export_metadata
+  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, export_record, refresh_export_metadata
 - `class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, txt000_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
 
@@ -646,7 +646,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/render_opacity/render_effects.py` — Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 - `class RenderEffects(ptk.LoggingMixin)`
-  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, refresh_export_metadata
+  - methods: channel_records, apply_channel_records, objects_with_visibility_keys, create, key_pulse, preview_channels, objects_with_channel, channel_colors, channel_color_stops, set_channel_color, preview, stage_export_proxies, remove_export_proxies, finish_export, remove, key_fade, sync_visibility_from_opacity, ensure_connections, prepare_for_export, visibility_tracks, export_record, refresh_export_metadata
 
 ### `mat_utils/render_opacity/render_effects_slots.py` — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - `class RenderEffectsSlots(ptk.LoggingMixin)`
@@ -753,9 +753,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class ChannelsSlots`
   - methods: apply_launch_config, cmb000_init, cmb000, header_init, show_create_menu, tbl000_init
 
-### `node_utils/data_nodes.py` — Scene-wide export-metadata carrier — mirror of mayatk's ``node_utils.data_nodes``.
-- `class DataNodes`
-  - methods: get_internal_node, ensure_internal, set_internal_string, get_internal_string, get_export_node, ensure_export, set_internal_json, get_internal_json, set_export_string, get_export_string, set_export_json, dump, format_dump
+### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
+- `class DataNodes(ptk.SceneStoreBase)`
+  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, set_internal_string, get_internal_string, set_internal_json, get_internal_json, set_export_string, get_export_string, set_export_json
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -796,7 +796,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `rig_utils/shadow_rig.py` — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
 - `class ShadowRig(ptk.LoggingMixin)`
-  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, source_size, source_softness, set_source_softness, planes_lit_by, current_model, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, from_plane, set_source, rebuild, silhouette_is_stale, auto_recalculate, auto_recalculate_enabled, recalculate_stale, refresh_silhouette, refresh_export_metadata, unit_scale, export_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
+  - methods: has_mesh_geometry, create_contact_locator, ensure_source, get_or_create_shadow_source, source_is_directional, source_size, source_softness, set_source_softness, planes_lit_by, current_model, create_shadow_plane, create_silhouette_texture, create_material, setup_drivers, plane_is_live, plane_is_baked, bake, find_shadow_planes, planes_for_nodes, for_node, for_nodes, bake_planes, unbake_planes, delete, delete_rigs, from_plane, set_source, rebuild, silhouette_is_stale, auto_recalculate, auto_recalculate_enabled, recalculate_stale, refresh_silhouette, export_record, refresh_export_metadata, unit_scale, plane_record, plane_type, horizon_output_path, bake_horizon, plane_is_atlased, pack_atlas, unpack_atlas, create, create_for_sources, create_horizon_for_sources, create_per_object
 - `class ShadowRigSlots(ptk.LoggingMixin)`
   - methods: header_init, cmb_type_init, txt_source_init, b003_init, b002_init, prepare_operation, b001, chk_follow_init, chk_follow, s001_init, s001, chk_horizon_preview_init, chk_horizon_preview, b002, b003, source_from_selection, reproject_sources, apply_source, rebuild_rig, restore_expression, b009, b010, perform_operation
 

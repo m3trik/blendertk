@@ -56,6 +56,7 @@ try:
     import bpy
     from blendertk.rig_utils.shadow_rig import ShadowRig, ShadowRigSlots
     from pythontk import HeightFieldMap, ShadowAtlas, ShadowHorizon, ShadowProjection
+    import pythontk as ptk
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -909,7 +910,7 @@ try:
     bpy.context.view_layer.update()
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32)
     p = rig.shadow_plane
-    raw = DataNodes.get_export_string(ShadowRig.SHADOW_METADATA)
+    raw = ptk.SceneRecords.SHADOWS.read_text(DataNodes)
     payload = _json.loads(raw) if raw else {}
     recs = {r["name"]: r for r in payload.get("planes", [])}
     check(
@@ -999,9 +1000,7 @@ try:
     sun("Sun")
     bpy.context.view_layer.update()
     rig = ShadowRig.create([c], source_name="Sun", texture_res=32)
-    rec = _json.loads(DataNodes.get_export_string(ShadowRig.SHADOW_METADATA))["planes"][
-        0
-    ]
+    rec = ptk.SceneRecords.SHADOWS.load(DataNodes)["planes"][0]
     check(
         "record: a sun is directional and carries source_angle",
         rec["source_type"] == "directional"
@@ -1177,7 +1176,7 @@ try:
     check("delete_textures removes the PNG", not (tex and os.path.exists(tex)))
     check(
         "delete clears the metadata channel",
-        DataNodes.get_export_string(ShadowRig.SHADOW_METADATA) is None,
+        ptk.SceneRecords.SHADOWS.read_text(DataNodes) is None,
     )
 
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32)
@@ -1237,7 +1236,7 @@ try:
 
     # ============================ HORIZON RIG ============================
     def record(name):
-        payload = _json.loads(DataNodes.get_export_string(ShadowRig.SHADOW_METADATA))
+        payload = ptk.SceneRecords.SHADOWS.load(DataNodes)
         return {r["name"]: r for r in payload["planes"]}[name]
 
     reset()
@@ -1778,7 +1777,7 @@ try:
     )
     check(
         "the record carries it",
-        ShadowRig.export_record(plane)["source_size"] == 3.0,
+        ShadowRig.plane_record(plane)["source_size"] == 3.0,
     )
     ShadowRig.set_source_softness(source, 0.0)
     check(
@@ -1802,7 +1801,7 @@ try:
     check(
         "the record carries the angle",
         approx(
-            ShadowRig.export_record(rig2.shadow_plane)["source_angle"],
+            ShadowRig.plane_record(rig2.shadow_plane)["source_angle"],
             round(math.radians(2.0), 6),
             1e-6,
         ),
@@ -1922,7 +1921,7 @@ try:
     check(
         "refresh clears the channel with no shadow planes",
         ShadowRig.refresh_export_metadata() is None
-        and DataNodes.get_export_string(ShadowRig.SHADOW_METADATA) is None,
+        and ptk.SceneRecords.SHADOWS.read_text(DataNodes) is None,
     )
     try:
         ShadowRig.create([])

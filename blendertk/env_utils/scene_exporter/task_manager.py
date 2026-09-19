@@ -145,7 +145,9 @@ class TaskManager(
             carrier = DataNodes.get_export_node(create=False)
             if carrier is None or carrier not in self._live_objects():
                 return {}
-            return DataNodes.dump(decode=True).get(DataNodes.EXPORT) or {}
+            # The deliverable carrier alone: ``dump`` also decodes every
+            # private record, only for this to drop them.
+            return DataNodes.dump_export_nodes().get(carrier.name_full) or {}
         except Exception:
             self.logger.debug("data_export snapshot skipped.", exc_info=True)
             return {}

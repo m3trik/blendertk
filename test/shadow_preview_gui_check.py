@@ -121,7 +121,7 @@ def run():
         horizon_spans=2,
     )
     plane = rig.shadow_plane
-    record_before = ShadowRig.export_record(plane)
+    record_before = ShadowRig.plane_record(plane)
     check("a horizon rig was built", record_before["type"] == "horizon")
     check(
         "no refusal in a windowed Blender",
@@ -141,7 +141,7 @@ def run():
     check("the plane is hidden while the overlay stands in", plane.hide_get())
     check(
         "record unchanged while attached",
-        ShadowRig.export_record(plane) == record_before,
+        ShadowRig.plane_record(plane) == record_before,
     )
 
     # -- the shot: the 3D view itself, straight down, over white -----------
@@ -360,7 +360,7 @@ def run():
     check("visibility handed back", not plane.hide_get())
     check("overlay gone with the last plane", not ShadowPreview.is_enabled())
     check(
-        "record unchanged after detach", ShadowRig.export_record(plane) == record_before
+        "record unchanged after detach", ShadowRig.plane_record(plane) == record_before
     )
 
 

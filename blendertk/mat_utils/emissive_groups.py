@@ -17,9 +17,10 @@ signatures are Blender-idiomatic where the scene models diverge:
 - Vertex-color bake: the ``emissiveGroups`` color attribute
   (``BYTE_COLOR`` / ``CORNER`` domain — per-corner keeps group boundaries
   hard, matching Maya's per-face-vertex write).
-- Registry / manifest: the same ``emissive_groups`` JSON channels on the
-  ``data_internal`` / ``data_export`` carriers (``node_utils.data_nodes``
-  mirror). Blender's FBX exporter ships the export carrier's custom
+- Registry / manifest: the same ``emissive_groups`` records -- the private
+  ``ptk.SceneRecords.EMISSIVE_REGISTRY`` and the deliverable
+  ``EMISSIVE_GROUPS`` -- through the ``node_utils.data_nodes`` store
+  (mirror). Blender's FBX exporter ships the export carrier's custom
   properties as FBX user properties (enable *Custom Properties*), which
   unitytk's ``EmissiveGroupController`` importer reads unchanged.
 - Keyable weights (opt-in): same API as mayatk — one keyable 0-1 custom
@@ -54,7 +55,9 @@ class _EmissiveGroupsInternal:
 
     SET_PREFIX = "emissiveGroup_"
     COLOR_SET = "emissiveGroups"
-    DATA_CHANNEL = "emissive_groups"
+    #: The channel key both records share (``ptk.SceneRecords.EMISSIVE_REGISTRY``
+    #: on the private store, ``EMISSIVE_GROUPS`` on the deliverable carrier).
+    DATA_CHANNEL = ptk.SceneRecords.EMISSIVE_GROUPS.key
     #: Custom-prop marker on export curve proxies — the precise handle the
     #: post-export cleanup (and validate's leftover sweep) matches on.
     PROXY_MARKER = "emissiveGroupCurveProxy"
@@ -67,8 +70,10 @@ class _EmissiveGroupsInternal:
     @classmethod
     def _registry(cls) -> "ptk.RegionGroupRegistry":
         return ptk.RegionGroupRegistry(
-            load=lambda: DataNodes.get_internal_string(cls.DATA_CHANNEL),
-            save=lambda text: DataNodes.set_internal_string(cls.DATA_CHANNEL, text),
+            load=lambda: ptk.SceneRecords.EMISSIVE_REGISTRY.read_text(DataNodes),
+            save=lambda text: ptk.SceneRecords.EMISSIVE_REGISTRY.write_text(
+                DataNodes, text
+            ),
             logger=cls.logger,
         )
 
@@ -81,7 +86,7 @@ class _EmissiveGroupsInternal:
         exported; the export path regenerates it anyway, so creating it
         early is pure scene clutter.
         """
-        if DataNodes.get_export_string(cls.DATA_CHANNEL) is not None:
+        if ptk.SceneRecords.EMISSIVE_GROUPS.is_present(DataNodes):
             cls.refresh_export_metadata()
 
     # ------------------------------------------------------------------
@@ -810,24 +815,40 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
     # ------------------------------------------------------------------
 
     @classmethod
+    def export_record(cls, ctx: "ptk.ExportContext") -> Optional["ptk.Record"]:
+        """The ``emissive_groups`` manifest record, or ``None`` when no group
+        exists -- the ``ptk.SceneRecords.EMISSIVE_GROUPS`` producer
+        (``FbxUtils.PRODUCERS``, mirror of mayatk's), read Unity-side by
+        ``EmissiveGroupController``'s importer.  Pure: it reads the registry
+        and never writes.
+
+        Parameters:
+            ctx: The export's decisions (unused: the manifest is a function of
+                the registry alone).
+        """
+        manifest = cls._registry().manifest(color_set=cls.COLOR_SET)
+        if manifest is None:
+            return None
+        return ptk.SceneRecords.EMISSIVE_GROUPS.make(manifest.to_dict())
+
+    @classmethod
     def refresh_export_metadata(cls) -> Optional[str]:
         """Republish the ``emissive_groups`` channel on the ``data_export``
-        carrier from the registry — mirror of mayatk's
-        ``refresh_export_metadata`` (there wired into
-        ``FbxUtils._KNOWN_PRODUCERS``; here called by the bake/authoring
-        paths and the scene exporter's carrier refresh). Clears the channel
-        when no groups exist.
+        carrier from the registry.
+
+        The authoring-time publish of :meth:`export_record`, committed through
+        ``FbxUtils.publish_authored`` (an export pipeline runs the producer
+        itself: ``FbxUtils.PRODUCERS``; the bake / authoring paths call this).
+        Clears the channel when no groups exist (no empty carrier left behind).
 
         Returns:
             The published JSON string, or None when cleared.
         """
-        manifest = cls._registry().manifest(color_set=cls.COLOR_SET)
-        if manifest is None:
-            DataNodes.set_export_string(cls.DATA_CHANNEL, "")
-            return None
-        payload = manifest.to_json()
-        DataNodes.set_export_string(cls.DATA_CHANNEL, payload)
-        return payload
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        record = cls.export_record(ptk.ExportContext(mode=ptk.ExportContext.AUTHORING))
+        FbxUtils.publish_authored({ptk.SceneRecords.EMISSIVE_GROUPS: record})
+        return record.text if record is not None else None
 
 
 class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin):

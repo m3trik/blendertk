@@ -97,7 +97,13 @@ class BakeResult:
     (or removed, if ``delete_sources=True``) for it."""
 
     skipped: List[str] = field(default_factory=list)
-    """Objects/keys analyzed but not baked (no live source, or the bake attempt failed)."""
+    """Objects/keys analyzed but not baked (no live source, or the bake attempt failed). Every
+    analysed key ends in ``baked`` or here, so nothing the bake was asked about goes
+    unreported."""
+
+    skip_reasons: Dict[str, str] = field(default_factory=dict)
+    """Why each key in ``skipped`` was not baked, ``{key: reason}`` -- mirror of mayatk's;
+    reasons from more than one phase are joined with ``"; "``."""
 
     time_range: Tuple[int, int] = (0, 0)
     """Time range used for baking (start, end)."""
@@ -126,6 +132,35 @@ class BakeResult:
     optimized: List[str] = field(default_factory=list)
     """Objects (or shape-key datablock owners) that had keys optimized via
     ``AnimUtils.optimize_keys()`` (when ``optimize_keys`` names a level)."""
+
+    def skip(self, key: str, reason: str) -> None:
+        """Record *key* as skipped, and why -- the one way into ``skipped`` (mirror of
+        mayatk's)."""
+        self.skipped.append(key)
+        prior = self.skip_reasons.get(key)
+        if not prior:
+            self.skip_reasons[key] = reason
+        elif reason not in prior.split("; "):
+            self.skip_reasons[key] = f"{prior}; {reason}"
+
+    #: The reason prefix of a key skipped because it had nothing to bake -- an
+    #: outcome, not a refusal (mirror of mayatk's reasons).
+    NOTHING_TO_BAKE = "nothing to bake"
+
+    @property
+    def declined(self) -> Dict[str, str]:
+        """``{key: reason}`` for what the bake REFUSED or failed to key --
+        ``skipped`` minus the keys that had nothing to bake, which a report of
+        refusals would only inflate (mirror of mayatk's).  A key skipped in
+        several phases keeps only its refusal reasons."""
+        out: Dict[str, str] = {}
+        for key, reason in self.skip_reasons.items():
+            parts = [
+                p for p in reason.split("; ") if not p.startswith(self.NOTHING_TO_BAKE)
+            ]
+            if parts:
+                out[key] = "; ".join(parts)
+        return out
 
     @property
     def baked_count(self) -> int:
@@ -676,7 +711,8 @@ class SmartBake(_SmartBakeInternal):
         }
 
         if not transform_keys and not blend_shape_keys:
-            result.skipped = list(analysis.keys())
+            for key in analysis:
+                result.skip(key, "nothing to bake: no live source")
             return result
 
         result.backup_path = self._save_backup()
@@ -922,8 +958,14 @@ class SmartBake(_SmartBakeInternal):
         result.muted_constraints = muted_constraints
         result.muted_drivers = muted_drivers
 
-        baked_key_set = set(result.baked.keys())
-        result.skipped = [key for key in analysis if key not in baked_key_set]
+        for key, data in analysis.items():
+            if key not in result.baked:
+                result.skip(
+                    key,
+                    "its bake keyed nothing"
+                    if data.requires_bake
+                    else "nothing to bake: no live source",
+                )
 
         if session is not None and result.baked:
             bake_session.BakeSessionStore.push(session)

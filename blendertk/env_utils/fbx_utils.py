@@ -35,7 +35,8 @@ as the selection-only convenience used by the Substance / Marmoset / RizomUV bri
 
 import os
 import logging
-from typing import Iterable, Optional
+import contextlib
+from typing import Any, Callable, Dict, Iterable, Optional, Set, Tuple
 
 import pythontk as ptk
 
@@ -589,159 +590,367 @@ class _FbxUtilsInternal(object):
 class FbxUtils(_FbxUtilsInternal):
     """FBX import / export over ``bpy.ops`` (mirror of mayatk's ``FbxUtils`` export surface)."""
 
-    # The declarative list of known metadata producers that stamp the shared
-    # ``data_export`` carrier: name → (module, class, no-arg refresh method).
-    # Mirror of mayatk's ``FbxUtils._KNOWN_PRODUCERS``, minus the session-hook
-    # half: bpy has no before-FBX-export event, so the Scene Exporter's
-    # ``export_data_node`` task is the only refresh dispatch point (producers
-    # additionally publish at authoring time, which is what non-exporter paths
-    # ship). Audio joins here when its port lands. Add new producers HERE —
-    # nothing else needs to change. Resolved lazily; an unimportable producer
-    # is skipped (never blocks an export).
+    # ------------------------------------------------------------------
+    # Export metadata: producers, stagers and the bracket (mirror of mayatk)
+    # ------------------------------------------------------------------
     #
-    # ORDER IS A CONTRACT (dict insertion order = run order, same as mayatk's
-    # rank sort): a producer that reads another's channel must come after it.
-    # The mayatk twin runs shots before audio because audio scopes its events
-    # against the freshly published ``fbx_takes`` — the audio port must land
-    # after shots here too.
-    _KNOWN_PRODUCERS = {
-        "shots": (
+    # A PRODUCER computes one scene record from live scene state and RETURNS
+    # it; it never writes.  ``ptk.ExportSnapshot`` orders the producers by
+    # the records' declared dependencies, hands each the ``ptk.ExportContext``
+    # (the exporter's decisions as input, plus every record produced before
+    # it) and commits the carrier ONCE, handoff block included.  A STAGER
+    # mutates the scene for the write and undoes it after; it produces no
+    # record.  Mirror of ``mtk.FbxUtils`` minus the session hook: bpy has no
+    # before-export event, so the Scene Exporter's ``export_data_node`` task
+    # is the one publish of an export, producers also publish at authoring
+    # time (what a non-exporter write ships), and ``enable_export_producer``
+    # records the opt-in for parity.
+
+    #: The records this DCC produces: ``ptk.SceneRecords`` spec -> (module,
+    #: class, classmethod taking the ExportContext).  Add a producer HERE and
+    #: declare its record THERE; an unregistered key fails
+    #: ``SceneRecords.check_producers`` (pinned by test_fbx_utils).  Resolved
+    #: lazily, so an uninstalled subsystem is skipped rather than blocking an
+    #: export.  Order is irrelevant: the snapshot orders by the records'
+    #: ``after``.  Audio joins when its port lands.
+    PRODUCERS: Dict[Any, Tuple[str, str, str]] = {
+        ptk.SceneRecords.SHOTS: (
             "blendertk.anim_utils.shots._shots",
             "BlenderShotStore",
-            "refresh_export_view",
+            "produce_export_records",
         ),
-        # After "shots": it reads back the fbx_takes and fps that shots has
-        # just republished, to place each gate against its own clip's zero.
-        "visibility": (
+        ptk.SceneRecords.VISIBILITY: (
             "blendertk.mat_utils.render_opacity.render_effects",
             "RenderEffects",
-            "refresh_export_metadata",
+            "export_record",
         ),
-        "shadow": (
+        ptk.SceneRecords.SHADOWS: (
             "blendertk.rig_utils.shadow_rig",
             "ShadowRig",
-            "refresh_export_metadata",
+            "export_record",
         ),
-        "emissive_groups": (
+        ptk.SceneRecords.EMISSIVE_GROUPS: (
             "blendertk.mat_utils.emissive_groups",
             "EmissiveGroups",
-            "refresh_export_metadata",
+            "export_record",
         ),
-        "lightmap": (
+        ptk.SceneRecords.LIGHTMAPS: (
             "blendertk.light_utils.lightmap_baker.lightmap_baker",
             "LightmapBaker",
-            "refresh_export_metadata",
+            "export_record",
         ),
     }
 
-    #: Session preparers, name -> no-arg callable (mirror of mayatk's
-    #: ``_export_preparers``, minus the auto-export hook bpy cannot offer). A
-    #: preparer registered under a KNOWN producer's name replaces it for the
-    #: run and must therefore do that producer's refresh itself -- the horizon
-    #: preview's ``"shadow"`` preparer hands the planes back their visibility
-    #: and then republishes the metadata.
-    _export_preparers: dict = {}
+    #: Export stagers: name -> (module, class, prepare, finish).  The Scene
+    #: Exporter stages Blender's curve proxies in its own tasks (deferred
+    #: restores), so the known table is empty here; a stager registered for
+    #: the session runs in every bracket.
+    STAGERS: Dict[str, Tuple[str, str, str, str]] = {}
 
-    @staticmethod
-    def register_export_preparer(name: str, prepare) -> None:
-        """Run *prepare* whenever the export preparers run this session
-        (mirror of mayatk's; there is no before-export event in bpy, so the
-        Scene Exporter's refresh is the dispatch point). Re-registering a
-        name replaces it; :meth:`unregister_export_preparer` removes it."""
-        FbxUtils._export_preparers[name] = prepare
+    #: Record keys opted into a before-export publish.  Kept for parity with
+    #: mayatk's session hook, whose registry this is: bpy offers no such
+    #: event, so the opt-in is recorded and nothing here reads it -- the
+    #: Scene Exporter's publish runs every producer anyway.
+    _session_producers: Set[str] = set()
+    #: Session stagers: name -> (prepare, finish), either may be None.
+    _session_stagers: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
+    #: Depth of open :meth:`export_prepared` brackets (a class attribute: no
+    #: OpenMaya callback survives a reload here, so no process-wide copy).
+    _export_depth: int = 0
+    #: The stager table the open bracket staged, finished when it closes.
+    _bracket_stagers: Optional[
+        Dict[str, Tuple[Optional[Callable], Optional[Callable]]]
+    ] = None
+    _REMOVE_IN = "0.9.0"
 
-    @staticmethod
-    def unregister_export_preparer(name: str) -> None:
-        FbxUtils._export_preparers.pop(name, None)
-
-    @staticmethod
-    def run_export_preparers(only: Optional[Iterable[str]] = None) -> None:
-        """Refresh every known producer's ``data_export`` channel once, right now.
-
-        Each producer is isolated — one failing or unimportable subsystem never
-        blocks the others — and each no-ops (or clears its channel) when it has
-        nothing to write, so scene edits since the last authoring-time publish
-        (a deleted lightmapped mesh, a removed shadow plane) can't ship a stale
-        manifest.  This is the one call an export pipeline needs to make the
-        carrier current — name + behavior mirror of
-        ``mtk.FbxUtils.run_export_preparers``.
-
-        *only* narrows the run to the named producers.  Because a producer with
-        nothing to publish CLEARS its channel, refreshing the whole set is safe
-        only where the producers are the authority on every channel — an export
-        pipeline.  A hand-off that merely SHIPS the carrier must not clear a
-        manifest it cannot regenerate, so it names the channels that are derived
-        from live scene state and leaves the rest as authored.
-        """
+    @classmethod
+    def producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]:
+        """:attr:`PRODUCERS` resolved to callables, unimportable ones skipped;
+        *only* (specs or keys) narrows the table."""
         import importlib
 
-        wanted = None if only is None else set(only)
-        # Known producers in their contract order; a session preparer of the
-        # same name stands in for the producer, others run after (mirror of
-        # mayatk's rank sort).
-        ordered = list(FbxUtils._KNOWN_PRODUCERS) + [
-            n for n in FbxUtils._export_preparers if n not in FbxUtils._KNOWN_PRODUCERS
-        ]
-        for name in ordered:
-            if wanted is not None and name not in wanted:
-                continue
-            session = FbxUtils._export_preparers.get(name)
-            if session is not None:
-                try:
-                    session()
-                except Exception:
-                    logger.warning("Export preparer %r failed.", name, exc_info=True)
-                continue
-            module_path, cls_name, method = FbxUtils._KNOWN_PRODUCERS[name]
-            try:
-                producer = getattr(importlib.import_module(module_path), cls_name)
-                refresh = getattr(producer, method)
-            except Exception:
-                # Producers are speculative — an uninstalled subsystem is fine.
-                logger.debug("Producer %r unavailable; skipped.", name, exc_info=True)
+        wanted = (
+            None if only is None else {ptk.SceneRecords.resolve(k).key for k in only}
+        )
+        table: Dict[Any, Callable] = {}
+        for spec, (module_path, cls_name, method) in cls.PRODUCERS.items():
+            if wanted is not None and spec.key not in wanted:
                 continue
             try:
-                refresh()
-            except Exception:
-                # But a resolvable producer that fails would silently ship
-                # stale channels — surface it.
-                logger.warning("Producer %r refresh failed.", name, exc_info=True)
-        FbxUtils._stamp_export_handoff()
+                owner = getattr(importlib.import_module(module_path), cls_name)
+                table[spec] = getattr(owner, method)
+            except Exception:  # an uninstalled subsystem is fine
+                logger.debug(
+                    "Producer for %r unavailable; skipped.", spec.key, exc_info=True
+                )
+        return table
 
-    @staticmethod
-    def _stamp_export_handoff() -> None:
-        """Publish the standalone-reader contract describing the carrier's channels.
-
-        Mirror of mayatk's method of the same name; the WHY lives there. A
-        FINALIZER rather than a ``_KNOWN_PRODUCERS`` entry because it describes
-        what the producers wrote and must therefore run after all of them. Text
-        and schema come from ``ptk.MeshConvert.build_fbx_handoff``, so the two
-        packages -- which cannot import each other -- cannot drift on what an
-        FBX deliverable claims about itself.
-
-        Never creates the carrier and never stamps an empty one; fully
-        best-effort, so a missing description can never fail an export.
-        """
+    @classmethod
+    def export_context(
+        cls, mode: str = ptk.ExportContext.PIPELINE, **decisions
+    ) -> ptk.ExportContext:
+        """A context for this file: provenance filled in, *decisions*
+        (``clip_mode``, ``clip_span``) as given."""
         try:
             import bpy
 
-            from blendertk.node_utils.data_nodes import DataNodes
+            source = {
+                "application": "blender",
+                "version": bpy.app.version_string,
+                "scene": os.path.basename(bpy.data.filepath or "") or None,
+            }
+        except ImportError:
+            source = {"application": "blender"}
+        return ptk.ExportContext(mode=mode, source=source, **decisions)
 
-            if DataNodes.get_export_node(create=False) is None:
-                return
-            channels = (DataNodes.dump(decode=False) or {}).get("data_export") or {}
-            block = ptk.MeshConvert.build_fbx_handoff(
-                channels,
-                source={
-                    "application": "blender",
-                    "version": bpy.app.version_string,
-                    # Provenance, not identity — see the builder's docstring.
-                    "scene": os.path.basename(bpy.data.filepath or "") or None,
-                },
-            )
-            DataNodes.set_export_json(ptk.MeshConvert.FBX_HANDOFF_CHANNEL, block)
-        except Exception:  # noqa: BLE001 — a missing description never costs the export
-            logger.debug("Export handoff block not stamped.", exc_info=True)
+    @classmethod
+    def publish(
+        cls,
+        ctx: Optional[ptk.ExportContext] = None,
+        only: Optional[Iterable[Any]] = None,
+    ) -> ptk.ExportSnapshot:
+        """Assemble every producer's record and commit the carrier ONCE
+        (mirror of ``mtk.FbxUtils.publish``; the WHY lives there).
+
+        *ctx* carries the exporter's decisions (a pipeline context for this
+        file by default); *only* narrows the run.  A hand-off context
+        refreshes only the DERIVED records.  Each producer is isolated, and a
+        failing one's record is left as stored.  Producers always see the
+        staged scene: outside a bracket the session stagers' (idempotent)
+        ``prepare`` runs first.
+
+        Returns:
+            ptk.ExportSnapshot: What was produced and written.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        ctx = ctx or cls.export_context()
+        if not cls._export_depth:
+            cls._run_stagers("prepare", dict(cls._session_stagers))
+        snapshot = ptk.ExportSnapshot.assemble(cls.producers(only), ctx)
+        snapshot.commit(DataNodes)
+        return snapshot
+
+    @classmethod
+    def publish_authored(cls, records) -> ptk.ExportSnapshot:
+        """Commit records a tool already holds -- its AUTHORING-time publish
+        (mirror of ``mtk.FbxUtils.publish_authored``).
+
+        ``ptk.ExportSnapshot.publish`` under this file's authoring context, so
+        the handoff block the commit restamps keeps its provenance.  Runs no
+        stager: nothing is being written, and a tool republishing its own
+        record must not stand a preview down.
+
+        Parameters:
+            records: Record spec (or key) -> a ``ptk.Record``, a payload, or a
+                falsy value (the record is cleared).
+
+        Returns:
+            ptk.ExportSnapshot: The committed snapshot.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return ptk.ExportSnapshot.publish(
+            DataNodes, records, cls.export_context(mode=ptk.ExportContext.AUTHORING)
+        )
+
+    # -- stagers ---------------------------------------------------------
+
+    @classmethod
+    def stagers(
+        cls, names: Optional[Iterable[str]] = None
+    ) -> Dict[str, Tuple[Optional[Callable], Optional[Callable]]]:
+        """The stager table for a bracket: the known stagers (*names* narrows
+        them; ``None`` = all) resolved to callables, then every session
+        stager -- those always run."""
+        import importlib
+
+        table: Dict[str, Tuple[Optional[Callable], Optional[Callable]]] = {}
+        for name, (module_path, cls_name, prepare, finish) in cls.STAGERS.items():
+            if names is not None and name not in names:
+                continue
+            try:
+                owner = getattr(importlib.import_module(module_path), cls_name)
+            except Exception:
+                logger.debug("Stager %r unavailable; skipped.", name, exc_info=True)
+                continue
+            table[name] = (getattr(owner, prepare, None), getattr(owner, finish, None))
+        table.update(cls._session_stagers)
+        return table
+
+    @classmethod
+    def stage(cls, names: Optional[Iterable[str]] = None):
+        """Run every stager's ``prepare`` now and return the table that ran
+        (mirror of ``mtk.FbxUtils.stage``; ``prepare`` is idempotent)."""
+        table = cls.stagers(names)
+        cls._run_stagers("prepare", table)
+        return table
+
+    @staticmethod
+    def _run_stagers(phase: str, table) -> None:
+        """Run one *phase* (``"prepare"`` / ``"finish"``) of every stager in
+        *table*, each isolated; ``finish`` runs in reverse order (LIFO)."""
+        items = list(table.items())
+        if phase == "finish":
+            items.reverse()
+        for name, (prepare, finish) in items:
+            fn = prepare if phase == "prepare" else finish
+            if fn is None:
+                continue
+            try:
+                fn()
+            except Exception:  # one subsystem's failure must not block others
+                logger.warning(
+                    "Export stager %r failed to %s.", name, phase, exc_info=True
+                )
+
+    # -- the bracket -------------------------------------------------------
+
+    @classmethod
+    def begin_export(
+        cls,
+        ctx: Optional[ptk.ExportContext] = None,
+        only: Optional[Iterable[Any]] = None,
+        stagers: Optional[Iterable[str]] = None,
+    ) -> Optional[ptk.ExportSnapshot]:
+        """Open an export bracket (outermost only): stage the scene, then --
+        when a *ctx* is given -- publish.  Mirror of mayatk's; pair with
+        :meth:`end_export` in a ``finally``, or use :meth:`export_prepared`."""
+        cls._export_depth += 1
+        if cls._export_depth != 1:
+            return None
+        try:
+            cls._bracket_stagers = cls.stage(stagers)
+            return cls.publish(ctx, only) if ctx is not None else None
+        except BaseException:
+            # No ``end_export`` follows a bracket that failed to OPEN: finish
+            # what was staged and leave the depth as it was found.
+            cls._export_depth -= 1
+            table, cls._bracket_stagers = cls._bracket_stagers, None
+            if table is not None:
+                cls._run_stagers("finish", table)
+            raise
+
+    @classmethod
+    def end_export(cls) -> None:
+        """Close an export bracket: run the stagers' finish (outermost only)."""
+        if cls._export_depth <= 0:
+            return
+        cls._export_depth -= 1
+        if cls._export_depth == 0:
+            table, cls._bracket_stagers = cls._bracket_stagers, None
+            cls._run_stagers("finish", table if table is not None else cls.stagers())
+
+    @classmethod
+    @contextlib.contextmanager
+    def export_prepared(
+        cls,
+        ctx: Optional[ptk.ExportContext] = None,
+        only: Optional[Iterable[Any]] = None,
+        stagers: Optional[Iterable[str]] = None,
+    ):
+        """Stage the scene (and publish, given a *ctx*) for an export; finish
+        on exit -- AFTER everything inside the block.  Yields the snapshot
+        :meth:`begin_export` published, or ``None``."""
+        snapshot = cls.begin_export(ctx, only, stagers)
+        try:
+            yield snapshot
+        finally:
+            cls.end_export()
+
+    @classmethod
+    @contextlib.contextmanager
+    def scratch_export(cls):
+        """Bracket for a THROWAWAY FBX write: nothing inside stages or
+        publishes (mirror of mayatk's)."""
+        cls._export_depth += 1
+        try:
+            yield
+        finally:
+            cls._export_depth = max(cls._export_depth - 1, 0)
+
+    # -- opt-ins (parity with mayatk's session hook) ---------------------------
+
+    @classmethod
+    def enable_export_producer(cls, spec) -> None:
+        """Record that *spec*'s producer wants to run before every export.
+        Kept for API parity: Blender has no before-export event to run it
+        from, and every producer already runs in the Scene Exporter's publish."""
+        cls._session_producers.add(ptk.SceneRecords.resolve(spec).key)
+
+    @classmethod
+    def disable_export_producer(cls, spec) -> None:
+        cls._session_producers.discard(ptk.SceneRecords.resolve(spec).key)
+
+    @classmethod
+    def register_export_stager(
+        cls,
+        name: str,
+        prepare: Optional[Callable[[], Any]] = None,
+        finish: Optional[Callable[[], Any]] = None,
+    ) -> None:
+        """Run *prepare* before and *finish* after every bracketed export.
+
+        *prepare* must be idempotent (a publish outside a bracket runs it so
+        the producers see the staged scene, and the bracket that follows runs
+        it again), and *finish* must tolerate a second call (the Scene
+        Exporter also finishes what its publish prepared, for a run that
+        stops before its write).  Registering *name* again replaces the half
+        given and keeps the other."""
+        old_prepare, old_finish = cls._session_stagers.get(name, (None, None))
+        cls._session_stagers[name] = (prepare or old_prepare, finish or old_finish)
+
+    @classmethod
+    def unregister_export_stager(cls, name: str) -> None:
+        cls._session_stagers.pop(name, None)
+
+    # -- retired names (2026-09-18) --------------------------------------------
+
+    @ptk.Deprecation.symbol(
+        "FbxUtils.register_export_stager(name, prepare=...) or "
+        "FbxUtils.enable_export_producer(spec)",
+        remove_in=_REMOVE_IN,
+    )
+    @classmethod
+    def register_export_preparer(cls, name: str, prepare) -> None:
+        cls.register_export_stager(name, prepare=prepare)
+
+    @ptk.Deprecation.symbol("FbxUtils.unregister_export_stager", remove_in=_REMOVE_IN)
+    @classmethod
+    def unregister_export_preparer(cls, name: str) -> None:
+        cls.unregister_export_stager(name)
+
+    #: The preparer names ``run_export_preparers(only=...)`` took before the
+    #: record layer, as the records they refreshed (mirror of mayatk's).
+    _LEGACY_PRODUCER_NAMES: Dict[str, Any] = {
+        "shots": ptk.SceneRecords.SHOTS,
+        "visibility": ptk.SceneRecords.VISIBILITY,
+        "audio": ptk.SceneRecords.AUDIO,
+        "shadow": ptk.SceneRecords.SHADOWS,
+        "lightmap": ptk.SceneRecords.LIGHTMAPS,
+        "emissive_groups": ptk.SceneRecords.EMISSIVE_GROUPS,
+    }
+
+    @ptk.Deprecation.symbol("FbxUtils.publish", remove_in=_REMOVE_IN)
+    @classmethod
+    def run_export_preparers(cls, only: Optional[Iterable[str]] = None) -> None:
+        # A legacy name maps to its record, a stager's name selects that
+        # stager, a record key passes through, and anything else is ignored,
+        # as it always was.  Published inside a bracket, so every stager it
+        # prepares is finished.
+        stagers = records = None
+        if only is not None:
+            names = list(only)
+            known = set(cls.STAGERS) | set(cls._session_stagers)
+            stagers = [n for n in names if n in known]
+            records = [
+                cls._LEGACY_PRODUCER_NAMES.get(n) or ptk.SceneRecords.by_key(n)
+                for n in names
+                if n not in known
+            ]
+            records = [r for r in records if r is not None]
+        with cls.export_prepared(stagers=stagers):
+            cls.publish(only=records)
 
     # ------------------------------------------------------------------
     # Animation takes (generic — any tool can declare takes on a node)
@@ -755,31 +964,38 @@ class FbxUtils(_FbxUtilsInternal):
     _pending_takes = None
 
     @staticmethod
-    def bake_range():
+    def bake_range(takes=None):
         """The ``(start, end)`` frames the next write will actually BAKE.
 
         Same question, and the same name, as mayatk's ``FbxUtils.bake_range``;
         the source differs because the exporters do. Maya keeps a sticky
         bake-complex range on the FBX plugin, so its twin reads that back.
         Blender has no such global -- the range is the SCENE's, which the write
-        bakes over -- so this composes it from the two things that set it, in
-        the order the export applies them:
+        bakes over -- so this composes it from the scene range and the one rule
+        the export applies to it whatever the range source: every declared take
+        WIDENS it (``min``/``max``, never a narrowing), so each take's window
+        lies inside the baked span.  ``apply_declared_takes`` widens the scene
+        and ``set_bake_animation_range`` -- LAST in ``TASK_ORDER`` -- widens its
+        own measurement in turn.
 
-        * ``set_bake_animation_range`` puts the exported objects' evaluated
-          keyframe extent on the scene, and
-        * ``apply_declared_takes`` then WIDENS that to cover every declared
-          take (``min``/``max`` against the scene range, never a narrowing), so
-          each take's window lies inside the baked span.
-
-        The producers publish BETWEEN those two (``TASK_ORDER``: after
-        ``set_bake_animation_range``, inside ``export_data_node``, before
-        ``apply_declared_takes``), which is exactly why the widening has to be
+        The producers publish BEFORE both (``export_data_node`` precedes them
+        in ``TASK_ORDER``), which is exactly why the widening has to be
         reproduced here rather than read off the scene: at publish time the
-        scene does not yet carry it.
+        scene does not yet carry it.  What the range source will then set is
+        not known yet either; the scene range stands in for it (the seed
+        ``_publish_scene_records`` names as an open contract question).
 
         Anyone describing the exported stack's ORIGIN needs this: a glTF
         converter rebases every stack onto its first key, so publishing the
         scene's earliest key instead slides every clip cut from that stack.
+
+        Parameters:
+            takes: The take list to widen by (``{"name","start","end"}``
+                entries or ``(name, start, end)`` tuples); ``None`` reads the
+                one the carrier declares.  A producer passes the takes its OWN
+                assembly resolved (``ptk.SceneRecords.declared_takes`` over
+                ``ctx.record``): the snapshot commits only after every producer
+                has run, so the carrier still holds the PREVIOUS export's takes.
 
         Returns:
             The range, or None outside Blender / with no scene to read.
@@ -793,27 +1009,31 @@ class FbxUtils(_FbxUtilsInternal):
             logger.debug(f"Could not read the scene frame range: {error}")
             return None
 
-        for _name, take_start, take_end in FbxUtils._declared_take_bounds():
+        for _name, take_start, take_end in FbxUtils._declared_take_bounds(takes):
             start, end = min(start, take_start), max(end, take_end)
         return (start, end)
 
     @staticmethod
-    def _declared_take_bounds():
-        """``(name, start, end)`` for each take on the carrier, malformed ones skipped.
-
-        Read from the carrier rather than ``_pending_takes``: the producers run
-        before ``apply_declared_takes`` has armed anything, so the pending list
-        is still empty when :meth:`bake_range` needs the answer.
-        """
-        import json
-
+    def _stored_takes():
+        """The take list the carrier declares (``ptk.SceneRecords.declared_takes``
+        over the stored records), empty when none is."""
         from blendertk.node_utils.data_nodes import DataNodes
 
-        try:
-            raw = DataNodes.get_export_string("fbx_takes")
-            takes = json.loads(raw) if raw else []
-        except Exception:  # noqa: BLE001 -- absent or unparseable channel
-            return
+        return ptk.SceneRecords.declared_takes(
+            lambda key: ptk.SceneRecords.resolve(key).load(DataNodes)
+        )
+
+    @staticmethod
+    def _declared_take_bounds(takes=None):
+        """``(name, start, end)`` for each of *takes* -- by default the ones on
+        the carrier -- malformed ones skipped.
+
+        The carrier rather than ``_pending_takes``: the producers run before
+        ``apply_declared_takes`` has armed anything, so the pending list is
+        still empty when :meth:`bake_range` needs the answer.
+        """
+        if takes is None:
+            takes = FbxUtils._stored_takes()
         for take in takes or ():
             try:
                 if isinstance(take, dict):
@@ -846,8 +1066,9 @@ class FbxUtils(_FbxUtilsInternal):
         the Scene Exporter's ``apply_declared_takes`` task guarantees both.
 
         Parameters:
-            takes: Sequence of ``{"name","start","end"}`` mappings (the
-                ``fbx_takes`` channel shape) or ``(name, start, end)`` tuples.
+            takes: Sequence of ``{"name","start","end"}`` mappings (what
+                ``ptk.SceneRecords.declared_takes`` returns) or
+                ``(name, start, end)`` tuples.
 
         Returns:
             int: Number of takes armed.  Empty input only clears state.
@@ -932,36 +1153,40 @@ class FbxUtils(_FbxUtilsInternal):
 
     @staticmethod
     def apply_takes_from_node(node=None, attr=None) -> int:
-        """Read take defs from a JSON channel on *node* and arm them.
+        """Arm the takes the scene declares for the next write.
 
-        Defaults to the shared ``data_export`` carrier's ``fbx_takes`` channel,
-        so this is shot-agnostic — it realizes whatever takes the scene
-        declares.  Mirror of ``mtk.FbxUtils.apply_takes_from_node`` (*node* is
-        an object name here; Maya passes a node path).
+        Defaults to the shot record on the shared carrier -- each
+        ``shot_metadata`` clip's range, or the legacy ``fbx_takes`` channel of
+        a file published before 0.8.0 -- so this is shot-agnostic (mirror of
+        ``mtk.FbxUtils.apply_takes_from_node``; *node* is an object name here).
+        An explicit *node* / *attr* reads a JSON take list off any object.
 
         Returns:
-            int: Number of takes armed (0 if the channel is absent/empty).
+            int: Number of takes armed (0 if nothing is declared).
         """
         import json
 
         from blendertk.node_utils.data_nodes import DataNodes
 
-        attr = attr or DataNodes.FBX_TAKES
-        if node is None:
-            obj = DataNodes.get_export_node(create=False)
+        if node is None and attr is None:
+            defs = FbxUtils._stored_takes()
         else:
-            import bpy
+            attr = attr or ptk.SceneRecords.FBX_TAKES.key
+            if node is None:
+                obj = DataNodes.get_export_node(create=False)
+            else:
+                import bpy
 
-            obj = bpy.data.objects.get(node) if isinstance(node, str) else node
-        if obj is None:
-            return 0
-        raw = obj.get(attr) or None  # a cleared channel is stored as ""
-        if not raw:
-            return 0
-        try:
-            defs = json.loads(raw)
-        except (ValueError, TypeError):
-            logger.warning(f"Could not parse take defs from {obj.name}.{attr}")
+                obj = bpy.data.objects.get(node) if isinstance(node, str) else node
+            raw = obj.get(attr) if obj is not None else None
+            if not raw:
+                return 0
+            try:
+                defs = json.loads(raw)
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse take defs from {obj.name}.{attr}")
+                return 0
+        if not defs:
             return 0
         return FbxUtils.apply_takes(defs)
 

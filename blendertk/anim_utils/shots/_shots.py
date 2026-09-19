@@ -8,9 +8,9 @@ Mirror of mayatk's ``anim_utils.shots._shots`` at the class/behavior level
 ``pythontk.core_utils.engines.shots`` (the DCC-agnostic engine); this module is
 only the thin Blender **acquisition + persistence** layer:
 
-- :class:`BlenderScenePersistence` stores the serialized store as a JSON string
-  on a scene custom property (``scene["shot_store"]``), so it rides the ``.blend``
-  file and is never exported.
+- :class:`BlenderScenePersistence` stores the serialized store as the
+  ``shot_store`` record on the private carrier (``btk.DataNodes``, a scene ID
+  property group), so it rides the ``.blend`` file and is never exported.
 - :class:`BlenderShotStore` subclasses :class:`pythontk.ShotStore` and overrides
   the scene-reaching hooks (:meth:`_scene_fps`, :meth:`has_animation`,
   :meth:`detect_regions`, :meth:`assess`) — gathering fcurve segments / selected
@@ -32,7 +32,7 @@ Divergence from mayatk (by design):
       not split out — coarser than Maya but correct for boundary detection.
     * **Export-view projection targets the carrier Empty.**
       :meth:`publish_export_view` mirrors the Maya original — the same
-      ``fbx_takes`` / ``shot_metadata`` JSON channels from the same
+      ``shot_metadata`` JSON channel from the same
       :meth:`~pythontk.ShotStore.to_export_view` pass — written as custom
       properties on the ``data_export`` Empty (:class:`blendertk.node_utils.
       data_nodes.DataNodes`) instead of string attrs on a Maya transform.
@@ -58,15 +58,16 @@ Divergence from mayatk (by design):
       coalesced write per burst of mutations, mirror of ``cmds.evalDeferred``).
       In ``--background`` the timer loop never runs, so the flush is immediate.
     * **Export preparer hooks are static.** bpy has no before-FBX-export event;
-      ``FbxUtils._KNOWN_PRODUCERS["shots"]`` already routes every Scene
-      Exporter write through :meth:`~pythontk.ShotStore.refresh_export_view`,
+      ``FbxUtils.PRODUCERS`` already routes every Scene
+      Exporter write through :meth:`~pythontk.ShotStore.produce_export_records`,
       so the base's ``_register_export_preparer`` / ``_unregister_export_preparer``
       no-ops are the Blender twins of Maya's session-hook install/remove.
 """
 
-import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+
+import pythontk as ptk
 
 from pythontk import ShotStore, ShotTransfer
 
@@ -97,13 +98,13 @@ __all__ = ["BlenderShotStore", "BlenderScenePersistence", "Detection"]
 
 
 class BlenderScenePersistence:
-    """Persist the store as a JSON string on a scene custom property.
+    """Persist the store as a JSON string in a private scene record.
 
     Implements the :class:`pythontk.ScenePersistence` protocol
-    (``save(data)`` / ``load() -> dict | None``).  The property lives on the
-    active scene ID block, so it survives save/reopen with the ``.blend`` and —
-    being a plain ID custom prop on a non-exported datablock — never leaks into
-    an FBX/glTF export.
+    (``save(data)`` / ``load() -> dict | None``).  The record lives in the
+    active scene's ``data_internal`` property group (``DataNodes``, private
+    scope), so it survives save/reopen with the ``.blend`` and -- being scene
+    ID data, not an object -- never leaks into an FBX/glTF export.
 
     Mirror of mayatk's ``MayaScenePersistence`` scene jobs, registered via
     :class:`ScriptJobManager`:
@@ -123,16 +124,18 @@ class BlenderScenePersistence:
     from :meth:`_on_scene_changed`.
     """
 
-    #: Scene custom-property channel carrying the serialized store (rides the
-    #: ``.blend``; a plain ID custom prop never serializes into an FBX export).
-    ATTR_NAME = "shot_store"
+    #: The private record carrying the serialized store -- the declaration's
+    #: key, never a second spelling of it.
+    ATTR_NAME = ptk.SceneRecords.SHOT_STORE.key
     #: The record as this backend last wrote or read it (:meth:`record_changed`).
     _last_raw: Optional[str] = None
+    #: :meth:`load`'s decode default: distinguishes "not JSON" from a payload.
+    _UNREADABLE = object()
 
     def __init__(self, attr_name: Optional[str] = None, store_cls=None):
         """
         Parameters:
-            attr_name: Scene custom-property channel (default ``shot_store``).
+            attr_name: The private record's key (default ``shot_store``).
             store_cls: The active-store class this backend serves — invalidated
                 on file load, flushed before save, rescaled on a frame-rate
                 change.  Defaults to :class:`BlenderShotStore`; the key stash
@@ -270,27 +273,50 @@ class BlenderScenePersistence:
             return None
         return bpy.context.scene
 
+    @property
+    def _spec(self) -> ptk.RecordSpec:
+        """The record this backend serves (``shot_store`` / ``key_stash``),
+        which owns the encoding; an unregistered channel name gets a shapeless
+        private declaration so the backend still works for it."""
+        return ptk.SceneRecords.by_key(self._attr_name, ptk.Scope.PRIVATE) or (
+            ptk.RecordSpec(
+                self._attr_name, ptk.Scope.PRIVATE, 1, "store", "", envelope=False
+            )
+        )
+
     def save(self, data: Dict[str, Any]) -> None:
-        scene = self._scene()
-        if scene is None:
+        if self._scene() is None:
             return
-        raw = json.dumps(data)
-        scene[self._attr_name] = raw
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        raw = self._spec.encode(data)
+        DataNodes.write(ptk.Scope.PRIVATE, self._attr_name, raw)
         self._last_raw = raw
 
     def load(self) -> Optional[Dict[str, Any]]:
-        scene = self._scene()
-        if scene is None:
+        """The stored document, or ``None`` when the scene holds none.
+
+        Raises:
+            ValueError: The record is present but not JSON.  It is left as
+                stored: loading ``None`` would activate an EMPTY store whose
+                next save overwrites a record that may still be recoverable
+                (mirror of mayatk's contract).
+        """
+        if self._scene() is None:
             return None
-        raw = scene.get(self._attr_name)
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        raw = DataNodes.read(ptk.Scope.PRIVATE, self._attr_name)
         self._last_raw = raw
         if not raw:
             return None
-        try:
-            return json.loads(raw)
-        except (ValueError, TypeError):
-            _log.warning("shot_store custom property is not valid JSON", exc_info=True)
-            return None
+        data = self._spec.decode(raw, self._UNREADABLE)
+        if data is self._UNREADABLE:
+            raise ValueError(
+                f"The {self._attr_name!r} record is not valid JSON; it was left "
+                "as stored rather than loaded as an empty store."
+            )
+        return data
 
     def record_changed(self) -> bool:
         """Whether the channel differs from what this backend last wrote or read.
@@ -300,8 +326,11 @@ class BlenderScenePersistence:
         store that is already loaded; ``KeyStash.active`` asks this to re-read
         it (mirror of mayatk's ``MayaScenePersistence.record_changed``).
         """
-        scene = self._scene()
-        return scene is not None and scene.get(self._attr_name) != self._last_raw
+        if self._scene() is None:
+            return False
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return DataNodes.read(ptk.Scope.PRIVATE, self._attr_name) != self._last_raw
 
 
 # ---------------------------------------------------------------------------
@@ -561,33 +590,39 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
     # ---- export-view projection (Blender carrier) --------------------------
 
     def publish_export_view(self, strategy: Optional[str] = None) -> Optional[str]:
-        """Project the export view onto the shared ``data_export`` carrier.
+        """Publish this store's shot records onto the shared ``data_export`` Empty.
 
-        Writes the ``fbx_takes`` and ``shot_metadata`` channels as JSON custom
-        properties (mirror of the Maya store's projection — same channels, same
-        single :meth:`to_export_view` resolution pass, so the FBX take name and
-        the metadata ``clip`` join-key cannot drift).  Idempotent; regenerated
-        from the live store so it can't go stale.  An empty store **clears**
-        both channels (never creating the carrier just to hold them) — deleting
-        the last shot must not leave the previous takes riding into the next
-        export.  Returns the carrier name, or ``None`` outside Blender / when
-        a clear had nothing to do.
+        The authoring-time publish (mirror of the Maya store's): the records
+        :meth:`export_records` builds -- ``shot_metadata``, each clip with its
+        range -- committed through ``FbxUtils.publish_authored``, handoff block
+        included (the commit also clears a legacy ``fbx_takes``).  Idempotent;
+        regenerated from the live store so it can't go stale.  An empty store
+        **clears** the record (never creating the carrier just to hold it)
+        — deleting the last shot must not leave the previous takes riding into
+        the next export.  Returns the carrier name, or ``None`` outside Blender
+        / when a clear had nothing to do.  The Scene Exporter does not call
+        this: ``FbxUtils.PRODUCERS`` names :meth:`produce_export_records`.
         """
         try:
             import bpy  # noqa: F401
         except ImportError:
             return None
+        from blendertk.env_utils.fbx_utils import FbxUtils
         from blendertk.node_utils.data_nodes import DataNodes
 
-        view = self.to_export_view(strategy=strategy or self.clip_name_strategy)
-        # shot_metadata is envelope-shaped ({"version": …, "shots": []}) and
-        # therefore truthy even when empty — gate both channels on the store.
-        has_shots = bool(self.shots)
-        DataNodes.set_export_json(
-            DataNodes.FBX_TAKES, view["fbx_takes"] if has_shots else None
+        records = self.export_records(strategy=strategy) or []
+        # The shot record, cleared unless built.  The commit also clears the
+        # legacy take list (``fbx_takes``) an older file still holds: its
+        # successor is published without it.
+        FbxUtils.publish_authored(
+            {ptk.SceneRecords.SHOTS: None, **{r.spec: r for r in records}}
         )
-        return DataNodes.set_export_json(
-            DataNodes.SHOT_METADATA, view["shot_metadata"] if has_shots else None
+        carrier = DataNodes.get_export_node(create=False)
+        if carrier is None:
+            return None
+        # A clear on a carrier that never held the record had nothing to do.
+        return (
+            DataNodes.EXPORT if ptk.SceneRecords.SHOTS.key in carrier.keys() else None
         )
 
     # ---- hand-off transfer (the manifest's ``shots`` section) ---------------

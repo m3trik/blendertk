@@ -34,6 +34,8 @@ KEYS = [(1, 0.0), (10, 5.0), (20, 10.0), (30, 15.0), (40, 20.0)]
 try:
     import bpy
     import blendertk as btk  # noqa: F401
+    import pythontk as ptk
+    from blendertk.node_utils.data_nodes import DataNodes
     from blendertk.anim_utils.key_stash._key_stash import KeyStash
     from blendertk.anim_utils.shots._shots import (
         BlenderScenePersistence,
@@ -203,8 +205,8 @@ try:
     scene = bpy.context.scene
     check(
         "channel is isolated from the shot store",
-        scene.get("key_stash") is not None
-        and scene.get("shot_store") is None
+        DataNodes.read(ptk.Scope.PRIVATE, "key_stash") is not None
+        and DataNodes.read(ptk.Scope.PRIVATE, "shot_store") is None
         and BlenderScenePersistence().store_cls is BlenderShotStore,
     )
     path = os.path.join(TEMP, "key_stash_roundtrip.blend")

@@ -16,6 +16,8 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+import pythontk as ptk  # noqa: E402 -- after the sibling paths above
+
 lines = []
 
 
@@ -194,7 +196,7 @@ try:
         and DataNodes.get_export_node(create=False) is None,
     )
 
-    DataNodes.set_export_string("lightmap_metadata", '{"version": 1}')
+    DataNodes.write(ptk.Scope.DELIVERABLE, "lightmap_metadata", '{"version": 1}')
     bpy.ops.mesh.primitive_cube_add()
     lit = bpy.context.active_object
     lit.name = "LitMesh"
@@ -233,9 +235,11 @@ try:
     # back with one whole-timeline take -- two writers of the same deliverable
     # disagreeing about whether shots survive. Armed takes are sticky, so the
     # reset matters as much as the arm: left armed they would split the next
-    # export nobody asked to split.
-    DataNodes.set_export_string(
-        DataNodes.FBX_TAKES, '[{"name": "Shot_1", "start": 1, "end": 10}]'
+    # export nobody asked to split. The take is declared the way a publish
+    # writes it: a shot_metadata clip carrying its own range.
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes,
+        {"shots": [{"clip": "Shot_1", "start": 1, "end": 10, "objects": []}]},
     )
     for include_animation, expect_armed in ((True, 1), (False, 0)):
         _armed = {}
@@ -266,18 +270,29 @@ try:
             not btk.FbxUtils._pending_takes,
             f"{btk.FbxUtils._pending_takes}",
         )
-    DataNodes.set_export_string(DataNodes.FBX_TAKES, "")
+    ptk.SceneRecords.SHOTS.clear(DataNodes)
 
+    # ---- the producer table: every row a declared record, every row importable ----
+    _specs = ptk.SceneRecords.check_producers(FbxUtils.PRODUCERS)
+    check(
+        "every PRODUCERS row is a declared deliverable record and imports",
+        len(_specs) == len(FbxUtils.PRODUCERS)
+        and set(FbxUtils.producers()) == set(FbxUtils.PRODUCERS),
+        str(sorted(s.key for s in FbxUtils.PRODUCERS)),
+    )
     # ---- data_internal must never ride a hand-off -----------------------------
-    # In Maya the guarantee is structural (network node); here the carrier is a
-    # plain Empty a whole-scene send would sweep in — with use_custom_props forced
-    # on by include_data_export, it would ship SmartBake/emissive state as user
-    # properties. The hierarchy closure (every bridge path) drops it by name.
+    # Structural for a current file: Maya's is a network node, and Blender's
+    # private records live in a scene ID property group, not on an object. A
+    # file saved before 2026-09-18 keeps them on a ``data_internal`` Empty until
+    # its first private write folds them in, so the closure drops that by name.
     reset()
-    DataNodes.set_internal_string("smart_bake_sessions", "[]")
+    DataNodes.write(ptk.Scope.PRIVATE, "smart_bake_sessions", "[]")
     bpy.ops.mesh.primitive_cube_add()
     _mesh = bpy.context.active_object
     _mesh.name = "HandoffMesh"
+    _legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)  # an unfolded file's
+    bpy.context.scene.collection.objects.link(_legacy)
+    _legacy["emissive_groups"] = "{}"
     _closure = BlenderExportMixin()._hierarchy_closure(list(bpy.context.scene.objects))
     _names = {o.name for o in _closure}
     check(
@@ -435,23 +450,47 @@ try:
         f"shotA={za} shotB={zb}",
     )
 
-    # ---- apply_takes_from_node reads the carrier's fbx_takes channel --------
+    # ---- apply_takes_from_node reads the takes the carrier declares ----------
+    # The shot record's clip ranges (what a publish writes), else the legacy
+    # fbx_takes channel an older file carries (ptk.SceneRecords.declared_takes).
     reset()
     check(
         "apply_takes_from_node -> 0 with no carrier in the scene",
         FbxUtils.apply_takes_from_node() == 0,
     )
-    DataNodes.set_export_json(
-        DataNodes.FBX_TAKES,
-        [{"name": "intro", "start": 1, "end": 12}],
-    )
+    _ranged = {"shots": [{"clip": "intro", "start": 1, "end": 12, "objects": []}]}
+    ptk.SceneRecords.SHOTS.save(DataNodes, _ranged)
     n_node = FbxUtils.apply_takes_from_node()
     check(
-        "apply_takes_from_node arms the declared channel",
+        "apply_takes_from_node arms the shot record's clip ranges",
         n_node == 1 and FbxUtils._pending_takes == [("intro", 1, 12)],
         f"{FbxUtils._pending_takes}",
     )
     FbxUtils.reset_takes()
+    # An older file: clips without ranges, the take list on fbx_takes.
+    ptk.SceneRecords.SHOTS.save(
+        DataNodes, {"shots": [{"clip": "intro", "objects": []}]}
+    )
+    ptk.SceneRecords.FBX_TAKES.save(
+        DataNodes, [{"name": "intro", "start": 2, "end": 14}]
+    )
+    n_legacy = FbxUtils.apply_takes_from_node()
+    check(
+        "a legacy fbx_takes still arms when the clips carry no ranges",
+        n_legacy == 1 and FbxUtils._pending_takes == [("intro", 2, 14)],
+        f"{FbxUtils._pending_takes}",
+    )
+    FbxUtils.reset_takes()
+    ptk.SceneRecords.SHOTS.save(DataNodes, _ranged)
+    n_both = FbxUtils.apply_takes_from_node()
+    check(
+        "the clips' ranges win over a legacy fbx_takes beside them",
+        n_both == 1 and FbxUtils._pending_takes == [("intro", 1, 12)],
+        f"{FbxUtils._pending_takes}",
+    )
+    FbxUtils.reset_takes()
+    for _spec in (ptk.SceneRecords.SHOTS, ptk.SceneRecords.FBX_TAKES):
+        _spec.clear(DataNodes)
 
     # ---- armed takes + a write with no baked animation: file left as written -
     reset_anim()
@@ -467,6 +506,61 @@ try:
         "no-anim write with armed takes stays a valid single-mesh FBX (warned, not broken)",
         any(o.type == "MESH" for o in created_static) and not bpy.data.actions,
         f"{[o.name for o in created_static]} actions={[a.name for a in bpy.data.actions]}",
+    )
+
+    # ---- a bracket that fails to OPEN finishes what it staged ---------------
+    from unittest import mock
+
+    ran = []
+    FbxUtils.register_export_stager(
+        "probe",
+        prepare=lambda: ran.append("prepare"),
+        finish=lambda: ran.append("finish"),
+    )
+    raised = False
+    try:
+        with mock.patch.object(FbxUtils, "publish", side_effect=RuntimeError("x")):
+            FbxUtils.begin_export(FbxUtils.export_context(), stagers=())
+    except RuntimeError:
+        raised = True
+    finally:
+        FbxUtils.unregister_export_stager("probe")
+    check(
+        "a bracket whose publish raises finishes its stagers, depth restored",
+        raised and ran == ["prepare", "finish"] and FbxUtils._export_depth == 0,
+        f"raised={raised} ran={ran} depth={FbxUtils._export_depth}",
+    )
+
+    # ---- the retired run_export_preparers: legacy names, inside a bracket ----
+    import warnings
+
+    ran.clear()
+    FbxUtils.register_export_stager(
+        "probe",
+        prepare=lambda: ran.append("prepare"),
+        finish=lambda: ran.append("finish"),
+    )
+    seen = []
+
+    def _fake_publish(ctx=None, only=None):
+        keys = [ptk.SceneRecords.resolve(k).key for k in only]
+        seen.append((FbxUtils._export_depth, keys))
+
+    try:
+        with mock.patch.object(FbxUtils, "publish", side_effect=_fake_publish):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                FbxUtils.run_export_preparers(
+                    only=["lightmap", "shadow", "probe", "nope"]
+                )
+    finally:
+        FbxUtils.unregister_export_stager("probe")
+    check(
+        "run_export_preparers maps legacy names to records and publishes in a bracket",
+        seen == [(1, ["lightmap_metadata", "shadow_metadata"])]
+        and ran == ["prepare", "finish"]
+        and FbxUtils._export_depth == 0,
+        f"seen={seen} ran={ran} depth={FbxUtils._export_depth}",
     )
 
     import shutil

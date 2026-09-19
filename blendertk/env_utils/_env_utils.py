@@ -343,6 +343,24 @@ class EnvUtils(_EnvUtilsInternal):
         return ws.root if ws else ""
 
     @staticmethod
+    def scene_artifact_path(suffix: str) -> str:
+        """A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
+
+        An unsaved file is ``untitled`` in the current workspace
+        (:meth:`workspace_root`). The suggested path a Save dialog opens on.
+        Mirror of mayatk's.
+        """
+        try:
+            import bpy
+
+            blend = bpy.data.filepath or ""
+        except ImportError:  # headless .venv -- no bpy, no open file
+            blend = ""
+        stem = os.path.splitext(os.path.basename(blend))[0] or "untitled"
+        folder = os.path.dirname(blend) or EnvUtils.workspace_root()
+        return os.path.normpath(os.path.join(folder, stem + suffix))
+
+    @staticmethod
     def source_images_dir(path=None):
         """The current workspace's texture folder — its ``sourceImages`` rule → an existing
         ``sourceimages``/``textures`` folder → ``textures`` (the legacy Blender-alone default).
