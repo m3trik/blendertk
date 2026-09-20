@@ -802,9 +802,11 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         frame_offset: float = 0.0,
         replace: bool = False,
         converted=None,
+        ctx: Optional["ptk.TransferContext"] = None,
     ) -> Optional["BlenderShotStore"]:
         """Rebuild the scene's shots from a hand-off ``shots`` section (mirror of
-        mayatk's; see :meth:`pythontk.ShotTransfer.merge` for the fold rule).
+        mayatk's; see :meth:`pythontk.ShotTransfer.merge_record` for the fold
+        rule -- a shot that arrives renamed is noted in *ctx*).
 
         Parameters:
             section: The manifest's ``shots`` section.
@@ -816,6 +818,8 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
                 through the Y-up / Z-up crossing, so its claims' Y and Z
                 channels are exchanged (``ShotTransfer.swap_up_axis``); the
                 consumers pass "has no parent". Default: none was.
+            ctx: The crossing's ``ptk.TransferContext``: gains a note per shot
+                that arrives renamed and the ``shot_id`` renumbering.
 
         Returns:
             The active store after the apply, or ``None`` outside Blender.
@@ -838,13 +842,46 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
             write_channels=RenderEffects.apply_channel_records,
             write_audio=cls._write_audio,
         )
-        merged = decoded if replace else ShotTransfer.merge(store.to_dict(), decoded)
+        merged = (
+            decoded
+            if replace
+            else ShotTransfer.merge_record(store.to_dict(), decoded, ctx)
+        )
         if cls._persistence is None:
             cls.set_active(cls.from_dict(merged))
         else:
             cls._persistence.save(merged)
             cls.invalidate()
         return cls.active()
+
+    # ---- scene-record crossings (``DataNodes.OWNERS``) --------------------
+
+    @classmethod
+    def transfer_out(cls, ctx: "ptk.TransferContext") -> Optional[Dict[str, Any]]:
+        """The ``shot_store`` record's hand-off payload: :meth:`export_transfer`
+        in the carrier's spelling (``ctx.rename``), scoped to what ships.
+        Mirror of mayatk's."""
+        return cls.export_transfer(spell=ctx.rename, objects=ctx.objects)
+
+    @classmethod
+    def transfer_in(cls, payload: Dict[str, Any], ctx: "ptk.TransferContext") -> None:
+        """Land a received ``shots`` section: :meth:`apply_transfer`, names
+        resolved through ``ctx.rename``, with the importer's ``converted`` /
+        ``frame_offset`` adapters.  Mirror of mayatk's."""
+        cls.apply_transfer(
+            payload,
+            resolve=ctx.rename,
+            frame_offset=float(ctx.adapter("frame_offset", 0.0) or 0.0),
+            converted=ctx.adapter("converted"),
+            ctx=ctx,
+        )
+
+    @classmethod
+    def merge_carrier(cls, carriers, other, ctx) -> None:
+        """Another scene's shots merged into the record: reload the active
+        store from it, as a file open does.  Mirror of mayatk's."""
+        if ptk.SceneRecords.SHOT_STORE in other:
+            cls.invalidate()
 
     # ---- scene acquisition (5.1 slotted-action API) -----------------------
 

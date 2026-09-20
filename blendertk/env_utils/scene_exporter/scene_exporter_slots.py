@@ -117,10 +117,13 @@ class SceneExporterSlots(SceneExporter):
         # hold -- and a hidden row still applies its value.
 
         # A USD deliverable: the FBX preset, the takes and the bake range set
-        # FBX flags only (the engine reports them inert), and the verifier
-        # has no FBX/GLB to open.
+        # FBX flags only (the engine reports them inert), and the rig-helper
+        # row sets one too (the deform-only write).
         sb.show_when(
-            ui, "cmb000,animation_clips,bake_range", "cmb004", lambda fmt: fmt != "usd"
+            ui,
+            "cmb000,animation_clips,bake_range,drop_rig_apparatus",
+            "cmb004",
+            lambda fmt: fmt != "usd",
         )
         # The GLB-only dials: nothing to apply them to without a GLB. KTX2 RDO
         # further needs the KTX2 container (ETC1S/UASTC are its encodes), and
@@ -456,6 +459,7 @@ class SceneExporterSlots(SceneExporter):
                 "export_visible_objects",
                 "ignore_groups",
                 "exclude_hdr",
+                "drop_rig_apparatus",
                 "export_data_node",
             ),
         ),

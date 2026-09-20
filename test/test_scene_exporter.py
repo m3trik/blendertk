@@ -1868,6 +1868,84 @@ try:
     for _o in (_hdr_light, _plain_light, _dome, _prop):
         bpy.data.objects.remove(_o, do_unlink=True)
 
+    # ---- Exclude Rig Helpers: only the deforming bones are written --------------
+    # Mirror of mayatk's census-based drop. A Blender rig's apparatus is its
+    # control and mechanism BONES, and the exporter's own deform-only mode leaves
+    # them out -- keeping a non-deform bone that deform bones hang under, so the
+    # hierarchy carrying them survives.
+    from blendertk.rig_utils._rig_utils import RigUtils as _RhRig
+    from blendertk.env_utils.webxr_preview import WebXrPreview as _RhPreview
+    from blendertk.env_utils.handoff_export import BlenderExportMixin as _RhMixin
+
+    _rh_dir = os.path.join(tmp, "rig_helpers")
+    os.makedirs(_rh_dir, exist_ok=True)
+    _rh_arm = _RhRig.create_armature("rh_skel")
+    _rh_hold = _RhRig.add_bone_chain(_rh_arm, [(0, 0, 0), (0, 0, 1)], prefix="rh_hold")
+    _rh_body = _RhRig.add_bone_chain(
+        _rh_arm, [(0, 0, 1), (0, 0, 2), (0, 0, 3)], prefix="rh_body"
+    )
+    _rh_ctrl = _RhRig.add_bone_chain(_rh_arm, [(1, 0, 0), (1, 0, 1)], prefix="rh_ctrl")
+    with _RhRig._active_mode(_rh_arm, "EDIT"):
+        _rh_arm.data.edit_bones[_rh_body[0]].parent = _rh_arm.data.edit_bones[
+            _rh_hold[0]
+        ]
+    for _name in _rh_hold + _rh_ctrl:
+        _rh_arm.data.bones[_name].use_deform = False
+    _rh_mesh = bpy.data.objects.new("rh_mesh", bpy.data.meshes.new("rh_mesh"))
+    _rh_mesh.data.from_pydata([(0, 0, 1), (1, 0, 2), (0, 1, 3)], [], [(0, 1, 2)])
+    bpy.context.scene.collection.objects.link(_rh_mesh)
+    for _name in _rh_body:
+        _rh_mesh.vertex_groups.new(name=_name).add([0, 1, 2], 1.0, "REPLACE")
+    _rh_mesh.modifiers.new("Armature", "ARMATURE").object = _rh_arm
+
+    def _rh_bones(path):
+        return set(ptk.FbxFile.load(path, raw_payloads=False).object_names("Model"))
+
+    _rh_names = {}
+    for _label, _tasks in (
+        ("kept", {}),
+        ("dropped", {"drop_rig_apparatus": True}),
+    ):
+        _rh_result = SceneExporter().perform_export(
+            export_dir=_rh_dir,
+            objects=[_rh_mesh, _rh_arm],
+            output_name=f"rig_helpers_{_label}",
+            tasks=_tasks,
+        )
+        _rh_file = os.path.join(_rh_dir, f"rig_helpers_{_label}.fbx")
+        _rh_names[_label] = _rh_bones(_rh_file) if _rh_result else set()
+    check(
+        "Exclude Rig Helpers: the control bones stay out, the deform chain and "
+        "the non-deform bone holding it ship",
+        set(_rh_ctrl) <= _rh_names["kept"]
+        and not (set(_rh_ctrl) & _rh_names["dropped"])
+        and set(_rh_body + _rh_hold) <= _rh_names["dropped"],
+        f"{sorted(_rh_names['dropped'])}",
+    )
+    check(
+        "Exclude Rig Helpers is a default-on settings mode (a DCC hand-off opts out)",
+        SceneExporter().task_manager.task_definitions["drop_rig_apparatus"][
+            "setChecked"
+        ]
+        is True
+        and "drop_rig_apparatus" in ptk.ExportRun.MODE_KEYS
+        and _RhPreview.drop_rig_apparatus is True
+        and _RhMixin.drop_rig_apparatus is False,
+    )
+    _rh_preview_fbx = os.path.join(_rh_dir, "preview.fbx")
+    _RhPreview()._export_fbx(
+        [_rh_mesh, _rh_arm], _rh_preview_fbx, dict(_RhPreview().params_defaults())
+    )
+    check(
+        "the WebXR preview payload leaves out the bones the row leaves out",
+        os.path.isfile(_rh_preview_fbx)
+        and not (set(_rh_ctrl) & _rh_bones(_rh_preview_fbx))
+        and set(_rh_body) <= _rh_bones(_rh_preview_fbx),
+        f"{sorted(_rh_bones(_rh_preview_fbx)) if os.path.isfile(_rh_preview_fbx) else 'no file'}",
+    )
+    for _o in (_rh_mesh, _rh_arm):
+        bpy.data.objects.remove(_o, do_unlink=True)
+
     # ---- Animation Clips: the takes row is the three-mode combo (mirror of mayatk) ----
     _clips_tm = SceneExporter().task_manager
     _clips_tm.begin_run(ptk.ExportRun())
@@ -1875,9 +1953,9 @@ try:
     check(
         "apply_declared_takes records the Animation Clips choice for create_glb",
         _clips_tm._clip_mode == "full"
-        and _clips_tm._animation_clips_mode(True) == "both"
-        and _clips_tm._animation_clips_mode(None) == "full"
-        and _clips_tm._animation_clips_mode("Shots") == "shots",
+        and ptk.ExportRun.clip_mode(True) == "both"
+        and ptk.ExportRun.clip_mode(None) == "full"
+        and ptk.ExportRun.clip_mode("Shots") == "shots",
     )
     _clips_tm.objects = list(_clips_tm.objects or [])
     check(
@@ -2013,7 +2091,10 @@ try:
     _by = {t: (trig, cond) for t, trig, cond in _calls}
     _rdo = _by.get("uastc_rdo", (None, lambda *a: None))[1]
     _keys = _by.get("glb_key_tolerance", (None, lambda *a: None))[1]
-    _usd = _by.get("cmb000,animation_clips,bake_range", (None, lambda *a: None))[1]
+    _usd = _by.get(
+        "cmb000,animation_clips,bake_range,drop_rig_apparatus",
+        (None, lambda *a: None),
+    )[1]
     check(
         "the dependency rules are show_when and gate the GLB/KTX2/FBX-only rows",
         _by.get("texture_write_back", (None,))[0] == ["texture_optimize", "cmb005"]

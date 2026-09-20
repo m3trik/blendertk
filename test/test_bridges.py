@@ -474,6 +474,144 @@ try:
     _scene.use_preview_range = False
     _scene.render.fps = 24
 
+    # ---- mayatk's pull template: what the FBX exporter drops ships as an Empty -----
+    # Blender's FBX exporter writes no node for a hair-type Curves object -- what its
+    # USD importer makes of every Maya control curve -- so the Maya side lost the
+    # object, its keys and its place in the hierarchy. The template gives it an
+    # Empty of the same name that follows it; run here, where bpy exists.
+    _mtk_fbx_template = os.path.join(_mtk_templates, "_import_scene.py")
+    if not os.path.isfile(_mtk_fbx_template):
+        # Neither OK nor FAIL: a check that cannot run must not count as a
+        # pass (the runner tallies OK/FAIL lines; a SKIP line is neither).
+        lines.append(
+            "SKIP mayatk/_import_scene.py: sibling checkout absent, stand-in "
+            f"NOT run | {_mtk_fbx_template}"
+        )
+    else:
+        import pythontk as _ptk
+
+        with open(_mtk_fbx_template, encoding="utf-8") as _fh:
+            _module = _ast.parse(_fh.read())
+        _wanted = ("stand_in_dropped_objects",)
+        _body = [
+            n
+            for n in _module.body
+            if isinstance(n, (_ast.Import, _ast.ImportFrom))
+            or (isinstance(n, _ast.FunctionDef) and n.name in _wanted)
+            or (
+                isinstance(n, _ast.Assign)
+                and any(
+                    isinstance(t, _ast.Name) and t.id == "FBX_DROPPED_TYPES"
+                    for t in n.targets
+                )
+            )
+        ]
+        _ns = {}
+        exec(
+            compile(
+                _ast.Module(body=_body, type_ignores=[]), _mtk_fbx_template, "exec"
+            ),
+            _ns,
+        )
+        _bpy.ops.wm.read_factory_settings(use_empty=True)
+        _scene = _bpy.context.scene
+        _scene.frame_start, _scene.frame_end = 1, 10
+        _col = _scene.collection
+        _root = _bpy.data.objects.new("si_root", None)
+        _col.objects.link(_root)
+        _hair_data = _bpy.data.hair_curves.new("si_ctrl")
+        _hair_data.add_curves([2])
+        _hair = _bpy.data.objects.new("si_ctrl", _hair_data)
+        _col.objects.link(_hair)
+        _hair.parent = _root
+        _hair["note"] = "authored"
+        for _frame, _y in ((1, 0.0), (10, 3.0)):
+            _hair.location = (0.0, _y, 0.0)
+            _hair.keyframe_insert("location", frame=_frame)
+        _under = _bpy.data.objects.new("si_under", None)
+        _col.objects.link(_under)
+        _under.parent = _hair
+        _under.location = (1.0, 0.0, 0.0)
+        _follower = _bpy.data.objects.new("si_follower", None)
+        _col.objects.link(_follower)
+        _follower.constraints.new("COPY_LOCATION").target = _hair
+
+        def _worlds():
+            out = {}
+            for _frame in (1, 5, 10):
+                _scene.frame_set(_frame)
+                out[_frame] = {
+                    o.name.split("__")[0]: [list(r) for r in o.matrix_world]
+                    for o in _scene.objects
+                }
+            return out
+
+        _before = _worlds()
+        _named = _ns["stand_in_dropped_objects"](_bpy)
+        _stand_in = _bpy.data.objects.get("si_ctrl")
+        _after = _worlds()
+        check(
+            "mayatk pull template: a hair Curves control gets an Empty of its name",
+            _named == ["si_ctrl"]
+            and _stand_in is not None
+            and _stand_in.type == "EMPTY"
+            and _stand_in.parent == _root
+            and _under.parent == _stand_in
+            and _stand_in.get("note") == "authored",
+            f"{_named} {_stand_in and _stand_in.type}",
+        )
+        _moved = [
+            (_frame, _name)
+            for _frame in _before
+            for _name in ("si_ctrl", "si_under", "si_follower")
+            if max(
+                abs(a - b)
+                for ra, rb in zip(_before[_frame][_name], _after[_frame][_name])
+                for a, b in zip(ra, rb)
+            )
+            > 1e-6
+        ]
+        check(
+            "mayatk pull template: the stand-in, its child and a follower keep their "
+            "world motion at every frame",
+            not _moved,
+            str(_moved),
+        )
+        _fbx = os.path.join(tmp, "stand_in.fbx")
+        _bpy.ops.export_scene.fbx(
+            filepath=_fbx,
+            use_custom_props=True,
+            add_leaf_bones=False,
+            bake_anim=True,
+            bake_anim_use_nla_strips=False,
+            bake_anim_use_all_actions=False,
+        )
+        _file = _ptk.FbxFile.load(_fbx, raw_payloads=False)
+        _models = {}
+        _kinds = {}
+        for _rec in _file.iter_objects():
+            _props = _rec["props"]
+            if _props and isinstance(_props[0], int):
+                _kinds[_props[0]] = _rec["name"]
+                if _rec["name"] == "Model":
+                    _models[_props[0]] = _ptk.FbxFile._display_name(_props[1])
+        _parents = {}
+        _animated = set()
+        for _kind, _child, _parent, _prop in _file.connections():
+            if _child in _models and _parent in _models:
+                _parents[_models[_child]] = _models[_parent]
+            if _parent in _models and _kinds.get(_child) == "AnimationCurveNode":
+                _animated.add(_models[_parent])
+        check(
+            "mayatk pull template: the FBX ships the stand-in, parented and keyed, "
+            "and never the source",
+            _parents.get("si_ctrl") == "si_root"
+            and _parents.get("si_under") == "si_ctrl"
+            and "si_ctrl" in _animated
+            and not any("__fbx_stand_in_source" in m for m in _models.values()),
+            f"{sorted(_models.values())} parents={_parents} animated={sorted(_animated)}",
+        )
+
     import shutil
 
     shutil.rmtree(tmp, ignore_errors=True)

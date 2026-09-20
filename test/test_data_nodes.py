@@ -12,7 +12,6 @@ import os
 import pathlib as _pathlib
 import sys
 import traceback
-import warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)  # blendertk/
@@ -366,32 +365,207 @@ try:
         not ptk.SceneRecords.HANDOFF.is_present(DataNodes),
     )
 
-    # --- retired channel methods keep working for one release, and warn --------------
+    # --- the fold reaches EVERY scene: the legacy Empty was file-global ------------
     reset()
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        set_ok = DataNodes.set_internal_string("probe", "one") == DataNodes.INTERNAL
-        get_ok = DataNodes.get_internal_string("probe") == "one"
-        DataNodes.set_export_json("probe", {"version": 1, "items": [1, 2]})
-        json_ok = _json.loads(DataNodes.get_export_string("probe")) == {
-            "version": 1,
-            "items": [1, 2],
-        }
-        DataNodes.set_internal_json("rec", {"a": 1})
-        ijson_ok = DataNodes.get_internal_json("rec") == {"a": 1}
-        none_ok = DataNodes.set_export_json("probe2", {}) is None
+    _other_scene = bpy.data.scenes.new("Other")
+    _legacy = bpy.data.objects.new(DataNodes.INTERNAL, None)
+    bpy.context.scene.collection.objects.link(_legacy)
+    _legacy["emissive_groups"] = _json.dumps(
+        {"schema": 1, "groups": {"g": {"slot": 0}}}
+    )
+    DataNodes.write(PRIVATE, "probe", "1")  # the first private write folds
     check(
-        "retired string/JSON methods alias the store",
-        set_ok and get_ok and json_ok and ijson_ok and none_ok,
+        "fold: the Empty's records reach every local scene, not the current one only",
+        all(
+            (s.get(DataNodes.INTERNAL) or {}).get("emissive_groups")
+            for s in bpy.data.scenes
+        ),
+        str(
+            [
+                (s.name, list((s.get(DataNodes.INTERNAL) or {}).keys()))
+                for s in bpy.data.scenes
+            ]
+        ),
     )
     check(
-        "retired methods warn",
-        any(issubclass(w.category, DeprecationWarning) for w in caught),
+        "fold: the Empty is gone",
+        DataNodes._local_object(DataNodes.INTERNAL) is None,
+    )
+    bpy.data.scenes.remove(_other_scene)
+
+    # --- crossings: a library made local merges its records into this file's --------
+    from blendertk.env_utils._env_utils import EnvUtils
+
+    _store = ptk.TempArtifacts("btk_dn_crossing", policy="scoped")
+    _SR = ptk.SceneRecords
+
+    def _author_library(path, legacy_groups=None):
+        """A library whose objects link by the object fallback (no collection),
+        with an object named like the host's (``geo``) and records of its own."""
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        geo = bpy.data.objects.new("geo", bpy.data.meshes.new("m"))
+        bpy.context.scene.collection.objects.link(geo)
+        _SR.AUDIO_FILE_MAP.save(DataNodes, {"2": "b.wav"})
+        _SR.SHOT_STORE.save(
+            DataNodes,
+            {
+                "shots": [
+                    {
+                        "shot_id": 1,
+                        "name": "Intro",
+                        "start": 0,
+                        "end": 5,
+                        "objects": ["geo"],
+                    }
+                ]
+            },
+        )
+        ptk.ExportSnapshot.publish(
+            DataNodes, {_SR.LIGHTMAPS: {"objects": [{"name": "geo", "map": "l.exr"}]}}
+        )
+        if legacy_groups:
+            empty = bpy.data.objects.new(DataNodes.INTERNAL, None)
+            bpy.context.scene.collection.objects.link(empty)
+            empty["emissive_groups"] = _json.dumps(
+                {"schema": 1, "groups": legacy_groups}
+            )
+        bpy.ops.wm.save_as_mainfile(filepath=path)
+
+    def _host_linking(path):
+        """A host with its own ``geo``, audio clips, emissive group and export
+        carrier, the library linked; returns the library."""
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        geo = bpy.data.objects.new("geo", bpy.data.meshes.new("h"))
+        bpy.context.scene.collection.objects.link(geo)
+        _SR.AUDIO_FILE_MAP.save(DataNodes, {"1": "a.wav"})
+        _SR.EMISSIVE_REGISTRY.save(
+            DataNodes, {"schema": 1, "groups": {"rim": {"slot": 0, "default": 1.0}}}
+        )
+        ptk.ExportSnapshot.publish(
+            DataNodes, {_SR.SHADOWS: {"planes": [{"name": "p"}]}}
+        )
+        EnvUtils.link_blend_file(path)
+        return next(iter(bpy.data.libraries))
+
+    _lib_path = os.path.join(_store.dir_path(), "lib.blend")
+    _author_library(_lib_path, legacy_groups={"glow": {"slot": 0, "default": 0.5}})
+    _lib = _host_linking(_lib_path)
+    _made = EnvUtils.make_library_local(_lib)
+    check("make local: the datablocks came local", _made > 0, str(_made))
+    check(
+        "merge: a mapping record unites (this file's entry kept)",
+        _SR.AUDIO_FILE_MAP.load(DataNodes) == {"1": "a.wav", "2": "b.wav"},
+        str(_SR.AUDIO_FILE_MAP.load(DataNodes)),
+    )
+    _shots = (_SR.SHOT_STORE.load(DataNodes) or {}).get("shots") or [{}]
+    check(
+        "merge: the shot's member respells to where the move put it",
+        _shots[0].get("objects") == ["geo.001"],
+        str(_shots),
+    )
+    _groups = (_SR.EMISSIVE_REGISTRY.load(DataNodes) or {}).get("groups") or {}
+    check(
+        "merge: the library's pre-group Empty never replaces this file's registry",
+        _groups.get("rim", {}).get("slot") == 0
+        and _groups.get("glow", {}).get("slot") == 1,
+        str(_groups),
     )
     check(
-        "retired write is readable through the store",
-        DataNodes.read(PRIVATE, "probe") == "one",
+        "merge: no carrier is left holding records nothing reads",
+        [o.name for o in bpy.data.objects if o.name.startswith("data_")]
+        == [DataNodes.EXPORT],
+        str([o.name for o in bpy.data.objects]),
     )
+    check(
+        "merge: this file's own deliverable stands",
+        _SR.SHADOWS.is_present(DataNodes),
+    )
+
+    _author_library(_lib_path)
+    _lib = _host_linking(_lib_path)
+    _asked = []
+    _made = EnvUtils.make_library_local(
+        _lib, scene_data=lambda summary, name: _asked.append((summary, name)) or None
+    )
+    check(
+        "decide: asked with what arrives; None leaves the library linked",
+        _made == 0
+        and len(bpy.data.libraries) == 1
+        and any("Audio Clips" in line for line in (_asked[0][0] if _asked else [])),
+        str(_asked),
+    )
+    EnvUtils.make_library_local(bpy.data.libraries[0], scene_data="discard")
+    check(
+        "discard: the library's records go with its carriers",
+        _SR.AUDIO_FILE_MAP.load(DataNodes) == {"1": "a.wav"}
+        and _SR.SHOT_STORE.load(DataNodes) is None
+        and not any(o.name.startswith("data_export.") for o in bpy.data.objects),
+        str(_SR.AUDIO_FILE_MAP.load(DataNodes)),
+    )
+
+    # A GUI session writes the shot store on a timer, so a script that adds a
+    # shot and makes a library local in one go still holds it unwritten: the
+    # move stores it first, and the merge keeps it beside the library's.
+    from unittest import mock as _mock
+
+    from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+    _author_library(_lib_path)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    BlenderShotStore.clear_active()
+    with _mock.patch.object(BlenderShotStore, "_schedule_flush", lambda self: None):
+        BlenderShotStore.active().define_shot("HostShot", 10.0, 20.0)
+        EnvUtils.link_blend_file(_lib_path)
+        EnvUtils.make_library_local(next(iter(bpy.data.libraries)))
+    BlenderShotStore.flush_pending()  # the timer write the session held
+    BlenderShotStore.clear_active()
+    _names = sorted(s.name for s in BlenderShotStore.active().shots)
+    check(
+        "merge: a shot the host held unwritten is kept beside the library's",
+        _names == ["HostShot", "Intro"],
+        str(_names),
+    )
+    BlenderShotStore.clear_active()
+
+    # --- crossings: the portable records as a hand-off's sections ---------------------
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    from blendertk.mat_utils.emissive_groups import EmissiveGroups
+
+    bpy.ops.mesh.primitive_cube_add()
+    _cube = bpy.context.active_object
+    EmissiveGroups.add_group("glow", {_cube.name: [1, 3]})
+    _sections = _json.loads(
+        _json.dumps(DataNodes.transfer_sections(objects=[_cube.name]))
+    )
+    _cube_name = _cube.name
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    _cube = bpy.context.active_object
+    _ctx = DataNodes.receive_sections(_sections, resolve={_cube_name: _cube.name}.get)
+    check(
+        "hand-off: an emissive group lands with its membership",
+        EmissiveGroups.list_groups().get("glow", {}).get("faces") == 2,
+        str(_ctx.notes),
+    )
+
+    class _Named:
+        def __init__(self, name):
+            self.name = name
+
+    # After the move: the object "Cube" became Cube.001; of two datablocks named
+    # "Walk", the action was renamed and the object kept its name.
+    _a, _b, _c = _Named("Cube.001"), _Named("Walk.001"), _Named("Walk")
+    _rename = DataNodes.library_renames([(_a, "Cube"), (_b, "Walk"), (_c, "Walk")])
+    check(
+        "renames: a renamed object maps, its ledger key maps through it, an "
+        "ambiguous name maps to nothing",
+        _rename("Cube") == "Cube.001"
+        and _rename("Cube|location|0") == "Cube.001|location|0"
+        and _rename("Walk") is None,
+        str((_rename("Cube"), _rename("Walk"))),
+    )
+    _store.cleanup()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

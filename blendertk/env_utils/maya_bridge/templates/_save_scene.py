@@ -180,7 +180,9 @@ def restore_empty_groups(cmds, engine, new_nodes):
     locators survive as locators even with children). The dependency-free
     fallback keeps the children-based heuristic only -- a machine without
     mayatk has already lost the material rebuild, and the heuristic is the
-    right default for unmarked Empties.
+    right default for unmarked Empties. The fallback loop is held
+    token-identical to ``import.py``'s and executed against the engine by
+    mayatk's suite (``test_blender_bridge``, ``test_scene_import``).
     """
     if engine is not None:
         try:
@@ -219,18 +221,19 @@ def rebuild_materials(engine, new_nodes):
         traceback.print_exc()
 
 
-def rebuild_shots(engine, new_nodes):
-    """Rebuild the sent scene's shots from the sidecar's ``shots`` section through
-    mayatk's applier (mirror of ``rebuild_materials``), so the saved scene carries
-    them 1:1. Best-effort by contract.
+def rebuild_scene_data(engine, new_nodes):
+    """Land the sent scene's records -- its shots, its emissive groups -- from the
+    sidecar's ``shots`` / ``records`` sections through mayatk's applier (mirror of
+    ``rebuild_materials``), so the saved scene carries them 1:1. Best-effort by
+    contract.
     """
     manifest = FBX_PATH + ".manifest.json"
     if engine is None or not os.path.isfile(manifest):
         return
     try:
-        engine._apply_shots_manifest(manifest, new_nodes, carrier=CARRIER)
+        engine._apply_scene_data(manifest, new_nodes, carrier=CARRIER)
     except Exception:
-        print("Shot rebuild failed; the saved scene carries no shots:")
+        print("Scene-data landing failed; the saved scene carries none of it:")
         traceback.print_exc()
 
 
@@ -249,7 +252,7 @@ def main():
     else:
         restore_empty_groups(cmds, engine, new_nodes)
     rebuild_materials(engine, new_nodes)
-    rebuild_shots(engine, new_nodes)
+    rebuild_scene_data(engine, new_nodes)
 
     # The extension the caller asked for decides the writer: .mb only when explicitly
     # requested, since a .ma is diffable, greppable, and survives a version bump.

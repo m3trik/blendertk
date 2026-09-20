@@ -323,6 +323,52 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
             self._notify(StashChanged("reloaded"))
         return gone
 
+    # ---- scene-record crossings (``DataNodes.OWNERS``) -----------------
+
+    @classmethod
+    def merge_carrier(cls, carriers, other, ctx) -> None:
+        """Another file's parked clips merged into the record: reload the
+        active stash from it (their actions came local with the library).
+        Mirror of mayatk's."""
+        if ptk.SceneRecords.KEY_STASH in other:
+            cls.invalidate()
+
+    @classmethod
+    def discard_carrier(cls, carriers, other, ctx) -> None:
+        """Another file's parked clips were dropped: remove their stash
+        actions, which nothing references any more.  Mirror of mayatk's."""
+        import bpy
+
+        stash = other.get(ptk.SceneRecords.KEY_STASH) or {}
+        names = {
+            rec.get("action")
+            for clip in stash.get("clips") or []
+            for rec in clip.get("curves") or []
+        }
+        # Only what the other file BROUGHT: action names are global to a
+        # .blend, and a name the move could not map unambiguously (an object
+        # kept it while the action became `.001`) arrives as spelled -- which
+        # may be this file's own action of that name, in use.  The crossing
+        # says which actions came from the library (``library_actions``);
+        # without that fact, only an action nothing uses may go.
+        origin = ctx.adapter("library_actions")
+        removed = 0
+        for name in filter(None, names):
+            action = bpy.data.actions.get(name)
+            if action is None:
+                continue
+            if origin is not None:
+                if action not in origin:
+                    continue
+            elif action.users:
+                continue
+            bpy.data.actions.remove(action)
+            removed += 1
+        if removed:
+            ctx.note(
+                f"Key Stash: {removed} parked action(s) of the other file removed."
+            )
+
     # ---- operations ----------------------------------------------------
 
     def stash(

@@ -269,40 +269,143 @@ class EnvUtils(_EnvUtilsInternal):
         except (RuntimeError, ReferenceError):
             return False
 
+    #: What a make-local does with a library's scene data (see make_library_local).
+    SCENE_DATA_MODES = ("merge", "discard")
+
     @staticmethod
-    def make_library_local(library):
+    def make_library_local(library, scene_data="merge"):
         """Make every datablock linked from ``library`` **local** (a native, editable copy) and drop the
         now-unused library — the Blender analogue of Maya's *import references* (``importContents``).
 
         ``library`` is a ``bpy.types.Library`` datablock or its name. Returns the number of datablocks
-        made local.
+        made local (``0`` when *scene_data*'s ``decide`` leaves the library linked).
+
+        *scene_data* is what becomes of the library's own scene data -- the records its tools kept
+        (shots, parked keys, emissive groups), which no link brings and which a leftover
+        ``data_export.001`` would otherwise hold where nothing reads it (mirror of mayatk's
+        ``ReferenceManager.import_references``):
+
+        - ``"merge"`` (default): each record merges into this file's by its declared rule
+          (``DataNodes.merge_carriers``), names respelled to where the move put each object;
+          whatever arrives renamed or re-slotted is logged.
+        - ``"discard"``: the records go (``DataNodes.discard_carriers``).
+        - ``decide(summary, name) -> "merge" | "discard" | None``: asked only when a merge would
+          keep something (*summary*: one line per record); ``None`` leaves the library linked.
+
+        The library's actions come local with it: its parked clips name them, and linking only its
+        collections never reaches an action nothing in them uses.
         """
         import bpy
+
+        from blendertk.core_utils._core_utils import CoreUtils
+        from blendertk.node_utils.data_nodes import DataNodes
 
         lib = bpy.data.libraries.get(library) if isinstance(library, str) else library
         if lib is None:
             return 0
+        if not callable(scene_data) and scene_data not in EnvUtils.SCENE_DATA_MODES:
+            raise ValueError(
+                f"Invalid scene_data {scene_data!r}; expected one of "
+                f"{EnvUtils.SCENE_DATA_MODES} or a callable"
+            )
+        source = os.path.basename(lib.filepath)  # the library goes with the move
+        carriers = DataNodes.carriers_in(lib)
+        decision = "merge"
+        if carriers:
+            decision = scene_data
+            if callable(scene_data):
+                plan = DataNodes.merge_plan(carriers)
+                decision = (
+                    "merge" if plan.is_empty else scene_data(plan.summary(), lib.name)
+                )
+                if decision is None:
+                    return 0
+                if decision not in EnvUtils.SCENE_DATA_MODES:
+                    raise ValueError(
+                        f"scene_data decided {decision!r}; expected one of "
+                        f"{EnvUtils.SCENE_DATA_MODES} or None"
+                    )
+            # What this file's stores hold unwritten goes to its records before
+            # anything moves: the settle reads the records (mirror of mayatk's
+            # import_references).
+            DataNodes.flush_owners()
+            path = bpy.path.abspath(lib.filepath)
+            # Every action this make-local brings -- linked below, a copy
+            # `make_local` returns for a clash included -- is new to the file
+            # from here on; the wrappers in `named` may not outlive the move.
+            before_actions = {action.session_uid for action in bpy.data.actions}
+            if os.path.isfile(path):
+                # The actions the parked clips name, and only those: every
+                # other action of the library would come local with it and
+                # stay (a fake-user one for good), asked for by nothing.
+                spec = ptk.SceneRecords.KEY_STASH
+                raw = (
+                    getattr(carriers.get(ptk.Scope.PRIVATE), "values", None) or {}
+                ).get(spec.key)
+                stash = (spec.decode(raw) if isinstance(raw, str) else raw) or {}
+                parked = {
+                    rec.get("action")
+                    for clip in stash.get("clips") or []
+                    for rec in clip.get("curves") or []
+                }
+                # Not `source`: that names the library in every note below.
+                with bpy.data.libraries.load(path, link=True) as (held, wanted):
+                    wanted.actions = [a for a in held.actions if a in parked]
+        named = [
+            (db, db.name)
+            for kind in (bpy.data.objects, bpy.data.actions)
+            for db in kind
+            if db.library == lib
+        ]
         count = 0
-        # `id.make_local()` clears each datablock's `.library` pointer in place; iterate every ID
-        # collection so linked meshes/materials/etc. come local too, not just the objects.
-        for attr in dir(bpy.data):
-            coll = getattr(bpy.data, attr, None)
-            if getattr(coll, "rna_type", None) is None or not hasattr(coll, "__iter__"):
-                continue
-            for db in list(coll):
-                # Compare by `==` not `is`: bpy hands back fresh datablock wrappers, so identity is
-                # unreliable; `==` compares the underlying ID (the documented bpy-wrapper gotcha).
-                if getattr(db, "library", None) == lib:
-                    try:
-                        db.make_local()
-                        count += 1
-                    except (RuntimeError, ReferenceError, AttributeError):
-                        pass
-        if count:  # the library has no linked users left → drop it
+        # `id.make_local()` clears a datablock's `.library` pointer in place -- every ID collection,
+        # so linked meshes/materials/etc. come local too, and pass after pass until one localizes
+        # nothing more: `make_local` is a silent no-op on an ID whose only user is still linked (a
+        # mesh under a linked object), and `dir()` order visits meshes before objects. One pass
+        # left such a mesh linked, and dropping the library then took it AND the made-local object
+        # using it (measured 2026-09-19: every mesh object of the library vanished).
+        while True:
+            localized = 0
+            for db in CoreUtils.all_ids(lib):
+                try:
+                    db.make_local()
+                except (RuntimeError, ReferenceError, AttributeError):
+                    continue
+                if getattr(db, "library", None) is None:
+                    localized += 1
+            if not localized:
+                break
+            count += localized
+        # Dropped only once nothing of it is left linked: removing a library takes every
+        # datablock still linked from it, and whatever uses them.
+        if count and not CoreUtils.all_ids(lib):
             try:
                 bpy.data.libraries.remove(lib, do_unlink=True)
             except (RuntimeError, ReferenceError):
                 pass
+        if carriers:
+            # Before anything writes a private record: under its canonical name the made-local
+            # legacy Empty would fold into this file's records and replace them.
+            DataNodes._drop_legacy_carrier(carriers)
+            settle = (
+                DataNodes.merge_carriers
+                if decision == "merge"
+                else DataNodes.discard_carriers
+            )
+            settle(
+                carriers,
+                rename=DataNodes.library_renames(named),
+                source=source,
+                # What the library brought, for an owner that removes on
+                # discard: a name alone can be this file's own datablock.
+                adapters={
+                    "library_actions": {
+                        action
+                        for action in bpy.data.actions
+                        if action.session_uid not in before_actions
+                    }
+                },
+            )
         return count
 
     @staticmethod

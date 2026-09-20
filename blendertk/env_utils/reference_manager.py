@@ -2121,7 +2121,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             )
             return
         if libs:
-            total = sum(btk.make_library_local(lib) for lib in libs)
+            total = sum(
+                btk.make_library_local(lib, scene_data=self._ask_scene_data)
+                for lib in libs
+            )
             self.logger.info(f"Made {total} datablock(s) local.")
         if foreign:
             self._import_foreign_paths(foreign)  # logs its own summary + refreshes
@@ -2150,9 +2153,30 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             != "Yes"
         ):
             return
-        total = sum(btk.make_library_local(rec["library"]) for rec in recs)
+        total = sum(
+            btk.make_library_local(rec["library"], scene_data=self._ask_scene_data)
+            for rec in recs
+        )
         self.logger.info(f"Made {total} datablock(s) local.")
         self._refresh()
+
+    def _ask_scene_data(self, summary, name):
+        """The make-local question for a library that brings scene data of its
+        own (``make_library_local``'s *scene_data*): merge it, drop it, or leave
+        the library linked.  Asked only when a merge would keep something.
+        Mirror of mayatk's unlink question."""
+        lines = "".join(f"<br>&nbsp;&nbsp;&bull; {line}" for line in summary)
+        answer = self.sb.message_box(
+            f"<hl>{name}</hl> brings scene data of its own:{lines}<br><br>"
+            "<b>Yes</b> merges it into this file's -- nothing is lost, and anything "
+            "renamed or re-slotted on the way is logged.<br>"
+            "<b>No</b> drops it with the library's data nodes.<br>"
+            "<b>Cancel</b> leaves this library linked.",
+            "Yes",
+            "No",
+            "Cancel",
+        )
+        return {"Yes": "merge", "No": "discard"}.get(answer)
 
     def remove_all(self):
         """Remove every linked library and its data (Maya's Un-Reference All)."""

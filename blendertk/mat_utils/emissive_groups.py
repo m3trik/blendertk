@@ -811,6 +811,82 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
         return json.loads(published) if published else manifest.to_dict()
 
     # ------------------------------------------------------------------
+    # Scene-record crossings (``DataNodes.OWNERS``)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def transfer_out(cls, ctx: "ptk.TransferContext") -> Optional[dict]:
+        """The ``emissive_groups`` hand-off payload: the registry, each group's
+        membership as ``{group: {object: [face index, ...]}}`` and each member
+        object's face count -- the far side has no face attribute to read, and
+        a face index names the same face only on a mesh whose face count
+        survived the crossing.  Objects are spelled as the carrier writes them
+        (``ctx.rename``) and scoped to ``ctx.objects``; ``None`` without
+        groups.  Mirror of mayatk's, which reads the same payload."""
+        import bpy
+
+        registry = ptk.SceneRecords.EMISSIVE_REGISTRY.load(DataNodes)
+        if not registry or not registry.get("groups"):
+            return None
+        spell = ctx.rename or str
+        scope = None if ctx.objects is None else set(ctx.objects)
+        members: Dict[str, Dict[str, List[int]]] = {}
+        faces: Dict[str, int] = {}
+        for name in registry["groups"]:
+            by_object: Dict[str, List[int]] = {}
+            for obj_name, indices in cls._member_map(name).items():
+                if scope is not None and obj_name not in scope:
+                    continue
+                spelled = spell(obj_name)
+                by_object[spelled] = sorted(int(i) for i in indices)
+                faces.setdefault(spelled, len(bpy.data.objects[obj_name].data.polygons))
+            if by_object:
+                members[name] = by_object
+        return {"registry": registry, "members": members, "faces": faces}
+
+    @classmethod
+    def transfer_in(cls, payload: dict, ctx: "ptk.TransferContext") -> None:
+        """Land a received ``emissive_groups`` payload (:meth:`transfer_out`'s
+        shape, from either DCC): the registry merges by its rule -- a group
+        whose slot is taken here is re-slotted, noted -- and each group's faces
+        join its membership on the object ``ctx.rename`` resolves.  An object
+        whose face count changed in the crossing keeps no membership (noted):
+        its indices would name other faces.  Mirror of mayatk's."""
+        import bpy
+
+        registry = (payload or {}).get("registry")
+        if registry:
+            ptk.RecordTransfer.merge_record(
+                DataNodes, ptk.SceneRecords.EMISSIVE_REGISTRY, registry, ctx
+            )
+        counts = (payload or {}).get("faces") or {}
+        known = {g["name"] for g in cls._registry().groups()}
+        for name, by_object in ((payload or {}).get("members") or {}).items():
+            if name not in known:
+                continue  # the merge left it out (no free slot), and said so
+            face_map: Dict[str, List[int]] = {}
+            for spelled, indices in by_object.items():
+                target = ctx.rename(spelled) if ctx.rename else spelled
+                obj = bpy.data.objects.get(target) if target else None
+                if obj is None or obj.type != "MESH":
+                    ctx.note(
+                        f"Emissive group {name!r}: {spelled!r} did not arrive; "
+                        "its faces were not added."
+                    )
+                    continue
+                count = len(obj.data.polygons)
+                if counts.get(spelled) not in (None, count):
+                    ctx.note(
+                        f"Emissive group {name!r}: {spelled!r} has {count} faces "
+                        f"here and had {counts[spelled]}; its membership was not "
+                        "restored."
+                    )
+                    continue
+                face_map[obj.name] = [int(i) for i in indices]
+            if face_map:
+                cls.add_group(name, face_map)
+
+    # ------------------------------------------------------------------
     # Export carrier
     # ------------------------------------------------------------------
 

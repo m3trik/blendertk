@@ -193,15 +193,6 @@ class _AnimationTasksMixin(_TaskDataMixin):
         scene = self._scene()
         return scene.frame_start, scene.frame_end
 
-    @ptk.Deprecation.symbol(
-        "TaskManager.export_data_node (the Animation Clips mode is an input of "
-        "the publish, declared on the shot record by the producer)",
-        remove_in="0.9.0",
-    )
-    def publish_clip_mode(self) -> None:
-        """Republish the shot record with this run's Animation Clips mode."""
-        self._publish_scene_records(only=[ptk.SceneRecords.SHOTS])
-
     def set_bake_animation_range(self, mode="auto"):
         """Set the scene's playback range for the export, from the selected source.
 
@@ -421,7 +412,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         try:
             ctx = FbxUtils.export_context(
-                clip_mode=self._animation_clips_mode(self.run.animation_clips_mode)
+                clip_mode=ptk.ExportRun.clip_mode(self.run.animation_clips_mode)
             )
             if not FbxUtils._export_depth:
                 staged = dict(FbxUtils._session_stagers)
@@ -495,27 +486,6 @@ class _AnimationTasksMixin(_TaskDataMixin):
             "staged keyed-weight curves bake in full."
         )
 
-    @classmethod
-    def _animation_clips_mode(cls, mode) -> str:
-        """Resolve a row value to one of ``ANIMATION_CLIP_MODES`` (mirror of
-        mayatk's).
-
-        Accepts the boolean a pre-combo preset stored -- a stored preset is a
-        contract, and a widget-type change must not silently re-point it at a
-        different deliverable. ``True`` kept the whole-timeline stack beside
-        the split takes, so it is ``both``; every FALSY value split nothing and
-        shipped the sequence alone, so it is ``full``.
-        """
-        if not mode or isinstance(mode, bool):
-            return "both" if mode else "full"
-        resolved = str(mode).strip().lower()
-        if resolved not in ptk.MeshConvert.ANIMATION_CLIP_MODES:
-            raise ValueError(
-                f"Unknown animation clips mode {mode!r}; expected one of "
-                f"{', '.join(ptk.MeshConvert.ANIMATION_CLIP_MODES)}."
-            )
-        return resolved
-
     def apply_declared_takes(self, mode: Union[bool, str, None] = "both"):
         """Ship the declared shots, the whole sequence, or both.
 
@@ -549,7 +519,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
-        mode = self._animation_clips_mode(mode)
+        mode = ptk.ExportRun.clip_mode(mode)
         # Read by create_glb, after the FBX is written. Set even on the paths
         # that return early: the GLB is converted whether or not a take was
         # ever realized, and it still has to know which clips to keep.

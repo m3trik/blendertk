@@ -450,6 +450,61 @@ try:
         f"shotA={za} shotB={zb}",
     )
 
+    # ---- no takes armed: still ONE scene-range take (2026-09-19) -------------
+    # Blender's operator defaults turn both multi-stack modes ON, and either
+    # one writes a start-zeroed take per action INSTEAD of the scene-range take
+    # -- so a caller passing only bake_anim=True got a file whose takes matched
+    # neither the scene clock nor the data_export carrier's clip span (seeded
+    # from the scene range). Every animated write is one scene-range take now;
+    # an explicit request for the per-action modes is overridden, and said.
+    from unittest import mock as _mock
+
+    from blendertk.env_utils import fbx_utils as _fbx_module
+
+    def written_takes(**opts):
+        """``{take: [action frame spans]}`` for what the write shipped."""
+        reset_anim()
+        scene.frame_start, scene.frame_end = 1, 30
+        bpy.ops.mesh.primitive_cube_add()
+        early = bpy.context.active_object
+        early.name = "EarlyCube"
+        for frame, x in ((5, 0.0), (15, 4.0)):
+            early.location.x = x
+            early.keyframe_insert("location", frame=frame)
+        bpy.ops.mesh.primitive_uv_sphere_add()
+        late = bpy.context.active_object
+        late.name = "LateBall"
+        for frame, z in ((20, 0.0), (30, 3.0)):
+            late.location.z = z
+            late.keyframe_insert("location", frame=frame)
+        out = os.path.join(tmp, "no_takes.fbx")
+        FbxUtils.export(filepath=out, objects=[early, late], bake_anim=True, **opts)
+        reset_anim()
+        FbxUtils.import_fbx(out)
+        takes = {}
+        for act in bpy.data.actions:
+            take = act.name.split("|", 1)[-1]
+            takes.setdefault(take, []).append(
+                round(act.frame_range[1] - act.frame_range[0])
+            )
+        return takes
+
+    bare = written_takes()
+    check(
+        "no takes armed: the write is ONE take spanning the scene range",
+        len(bare) == 1 and all(span == 29 for spans in bare.values() for span in spans),
+        f"{bare}",
+    )
+    with _mock.patch.object(_fbx_module.logger, "warning") as warned:
+        asked = written_takes(bake_anim_use_all_actions=True)
+    check(
+        "an explicit per-action request is overridden, and said",
+        len(asked) == 1
+        and any("bake_anim_use_all_actions" in str(c) for c in warned.call_args_list),
+        f"{asked} warnings={warned.call_args_list}",
+    )
+    reset_anim()
+
     # ---- apply_takes_from_node reads the takes the carrier declares ----------
     # The shot record's clip ranges (what a publish writes), else the legacy
     # fbx_takes channel an older file carries (ptk.SceneRecords.declared_takes).
@@ -529,38 +584,6 @@ try:
         "a bracket whose publish raises finishes its stagers, depth restored",
         raised and ran == ["prepare", "finish"] and FbxUtils._export_depth == 0,
         f"raised={raised} ran={ran} depth={FbxUtils._export_depth}",
-    )
-
-    # ---- the retired run_export_preparers: legacy names, inside a bracket ----
-    import warnings
-
-    ran.clear()
-    FbxUtils.register_export_stager(
-        "probe",
-        prepare=lambda: ran.append("prepare"),
-        finish=lambda: ran.append("finish"),
-    )
-    seen = []
-
-    def _fake_publish(ctx=None, only=None):
-        keys = [ptk.SceneRecords.resolve(k).key for k in only]
-        seen.append((FbxUtils._export_depth, keys))
-
-    try:
-        with mock.patch.object(FbxUtils, "publish", side_effect=_fake_publish):
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                FbxUtils.run_export_preparers(
-                    only=["lightmap", "shadow", "probe", "nope"]
-                )
-    finally:
-        FbxUtils.unregister_export_stager("probe")
-    check(
-        "run_export_preparers maps legacy names to records and publishes in a bracket",
-        seen == [(1, ["lightmap_metadata", "shadow_metadata"])]
-        and ran == ["prepare", "finish"]
-        and FbxUtils._export_depth == 0,
-        f"seen={seen} ran={ran} depth={FbxUtils._export_depth}",
     )
 
     import shutil

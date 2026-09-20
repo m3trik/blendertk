@@ -351,7 +351,13 @@ try:
         not any(o.get(EmissiveGroups.PROXY_MARKER) for o in bpy.data.objects),
     )
 
-    imported = FbxUtils.import_fbx(fbx_path, use_custom_props=True)
+    # anim_offset=0: Blender's importer shifts every key +1 frame by default,
+    # so the round trip is only an identity without it. Until 2026-09-19 the
+    # write cancelled that shift by accident -- with no takes armed it emitted
+    # one start-ZEROED take per action, and an action starting at frame 1 came
+    # back at 1. An action starting anywhere else did not (the 81-frame clip
+    # miss), which is why every animated write is one scene-range take now.
+    imported = FbxUtils.import_fbx(fbx_path, use_custom_props=True, anim_offset=0.0)
     iproxy = next(
         (o for o in imported if o.name.startswith("emissiveGroup_glow")), None
     )

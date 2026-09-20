@@ -50,7 +50,7 @@ DEFAULTS: Dict[str, Any] = {
     "SCOPE": "selected",
     "CARRIER": "fbx",
     "INCLUDE_MATERIALS": True,
-    "INCLUDE_SHOTS": True,
+    "INCLUDE_SCENE_DATA": True,
     # GameShader's own vocabulary (standard_surface / open_pbr / stingray) -- the
     # Maya side passes it straight to that engine rather than translating.
     # Stingray by default: it is the game-engine target these hand-offs feed, it
@@ -167,6 +167,15 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     # ``save_as`` writes Maya's native scene format; a bare path gets ".ma" (ascii is
     # diffable, greppable, and survives a version bump -- ``.mb`` only on request).
     save_extensions = (".ma", ".mb")
+    # ``INCLUDE_SHOTS`` became ``INCLUDE_SCENE_DATA`` when every portable scene
+    # record -- not the shots alone -- started riding the sidecar.
+    param_aliases = staticmethod(
+        ptk.Deprecation.values(
+            {"INCLUDE_SHOTS": "INCLUDE_SCENE_DATA"},
+            what="MayaBridge parameter",
+            remove_in="0.10.0",
+        )
+    )
 
     def __init__(self, maya_path: Optional[str] = None):
         super().__init__(app_path=maya_path)
@@ -264,8 +273,10 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 export_set,
                 payload.primary,
                 include_materials=bool(request.params.get("INCLUDE_MATERIALS", True)),
-                include_shots=bool(
-                    request.params.get("INCLUDE_SHOTS", DEFAULTS["INCLUDE_SHOTS"])
+                include_scene_data=bool(
+                    request.params.get(
+                        "INCLUDE_SCENE_DATA", DEFAULTS["INCLUDE_SCENE_DATA"]
+                    )
                 ),
             )
         except Exception:  # noqa: BLE001
@@ -281,7 +292,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         objects,
         fbx_path: str,
         include_materials: bool = True,
-        include_shots: bool = True,
+        include_scene_data: bool = True,
     ) -> None:
         """Write ``<fbx>.manifest.json`` for *objects* (no-op when there is nothing to say).
 
@@ -293,13 +304,30 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         ``scene_materials`` naming EVERY material on the set so the Maya side's
         rename-on-clash matching can't claim an untextured sibling, plus
         ``empties`` (see :meth:`_manifest_empties`).
-        """
-        import json
 
+        *include_scene_data* adds the scene's portable records
+        (``DataNodes.transfer_sections``): the shots under ``shots`` and every
+        other one keyed under ``records``, memberships and ledger claims
+        scoped to the export set -- neither carrier has a place for them, and
+        mayatk's ``BlenderSceneImport`` lands them through the same engine.
+        Names are recorded as Blender spells them; the Maya side respells
+        through its importer (``FBXASC`` off an FBX, the sanitized prim off a
+        USD), as it does for every other section.  Written atomically
+        (``ptk.HandoffManifest``): a send that died mid-write must not leave a
+        truncated sidecar the consumer would read as "nothing to say".
+        """
         import bpy
 
+        from blendertk.node_utils.data_nodes import DataNodes
+
         empties = self._manifest_empties(objects)
-        shots = self._manifest_shots(objects) if include_shots else None
+        scene_data = (
+            DataNodes.transfer_sections(
+                objects=[o if isinstance(o, str) else o.name for o in objects]
+            )
+            if include_scene_data
+            else {}
+        )
         entries: List[Dict[str, Any]] = []
         by_material: Dict[str, Dict[str, Any]] = {}
         scene_materials: List[str] = []
@@ -337,42 +365,27 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 # image paths never resolved (packed-only / broken links) must
                 # surface as a NAMED warning Maya-side, never as gray geometry.
                 entries.append(entry)
-        if not entries and not empties and not shots:
+        if not entries and not empties and not scene_data:
             return
-        data: Dict[str, Any] = {
-            "version": 2,
-            "materials": entries,
-            "scene_materials": scene_materials,
-            "empties": empties,
-        }
-        if shots:
-            data["shots"] = shots
-        with open(fbx_path + ".manifest.json", "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=1)
+        manifest_cls = ptk.HandoffManifest
+        manifest_cls.build(
+            **{
+                manifest_cls.VERSION_KEY: manifest_cls.VERSION,
+                manifest_cls.MATERIALS: entries,
+                manifest_cls.SCENE_MATERIALS: scene_materials,
+                manifest_cls.EMPTIES: empties,
+                **scene_data,
+            }
+        ).write(fbx_path)
+        carried = [k for k in scene_data if k != manifest_cls.RECORDS] + sorted(
+            scene_data.get(manifest_cls.RECORDS) or {}
+        )
         self.logger.info(
             f"Manifest: {len(entries)} textured material(s), "
             f"{len(empties)} Empty(ies)"
-            + (f", {len(shots['store']['shots'])} shot(s)" if shots else "")
+            + (f", scene data ({', '.join(carried)})" if carried else "")
             + " sidecarred."
         )
-
-    @staticmethod
-    def _manifest_shots(objects) -> Optional[Dict[str, Any]]:
-        """The scene's shots as the sidecar's ``shots`` section, memberships and
-        ledger claims scoped to *objects*; ``None`` when the scene has none.
-
-        Neither carrier has a place for a shot, a marker, a locked gap or the
-        samples the sequencer planted on shot bounds, so the store rides the
-        manifest (``BlenderShotStore.export_transfer``, the
-        ``pythontk.ShotTransfer`` codec) and mayatk's ``BlenderSceneImport``
-        rebuilds it 1:1 -- the exact mirror of what ``mtk.BlenderBridge`` sends
-        the other way. Names are recorded as Blender spells them; the Maya side
-        respells through its importer (``FBXASC`` off an FBX, the sanitized prim
-        off a USD), as it does for every other section.
-        """
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
-
-        return BlenderShotStore.export_transfer(objects=objects)
 
     @staticmethod
     def _manifest_empties(objects) -> List[Dict[str, str]]:

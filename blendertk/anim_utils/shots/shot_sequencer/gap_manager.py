@@ -89,7 +89,9 @@ class GapManagerMixin:
                         new_start=start if abs(ds) > TIME_SNAP_EPS else None,
                         new_end=end if abs(de) > TIME_SNAP_EPS else None,
                     ):
-                        self.sequencer.reconcile_system_edits()
+                        # Nothing else moves -- the system's own samples
+                        # included (mirror of mayatk).
+                        self.sequencer.reconcile_system_edits(follow=False)
                 else:
                     self.sequencer.resize_shot_bounds(self.active_shot_id, start, end)
         finally:
@@ -260,7 +262,8 @@ class GapManagerMixin:
                     if self._set_shot_edge(
                         target, new_start=new_next_start, scale=shift_held
                     ):
-                        self.sequencer.reconcile_system_edits()
+                        # Ctrl: nothing else moves, samples included.
+                        self.sequencer.reconcile_system_edits(follow=shift_held)
                 elif is_head_cap:
                     self.sequencer.resize_shot_bounds(
                         target.shot_id, new_next_start, target.end
@@ -316,7 +319,8 @@ class GapManagerMixin:
                     if self._set_shot_edge(
                         target, new_end=new_prev_end, scale=shift_held
                     ):
-                        self.sequencer.reconcile_system_edits()
+                        # Ctrl: nothing else moves, samples included.
+                        self.sequencer.reconcile_system_edits(follow=shift_held)
                 elif is_tail_cap:
                     self.sequencer.resize_shot_bounds(
                         target.shot_id, target.start, new_prev_end

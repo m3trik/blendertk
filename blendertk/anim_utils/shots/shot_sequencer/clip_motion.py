@@ -97,7 +97,13 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         attr_name = clip.data.get("attr_name")
         if attr_name:
             if not ClipMotionMixin.scale_attribute_keys(
-                obj_name, attr_name, orig_start, orig_end, new_start, new_end
+                obj_name,
+                attr_name,
+                orig_start,
+                orig_end,
+                new_start,
+                new_end,
+                ledger=self.sequencer.ledger,
             ):
                 return None
             return f"{obj_name}.{attr_name}"
@@ -294,8 +300,12 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if shot is None:
             return
         prior_start, prior_end = shot.start, shot.end
-        expanded_start = min(shot.start, new_start)
-        expanded_end = max(shot.end, new_end)
+        # Outward to whole frames, so the shot ENCLOSES what moved (mirror of
+        # mayatk): rounded to the nearest frame, a key dragged to 50.4 past an
+        # end at 50 left the end at 50 and the key outside it.
+        store = self.sequencer.store
+        expanded_start = min(shot.start, store.snap(new_start, "down"))
+        expanded_end = max(shot.end, store.snap(new_end, "up"))
         start_delta = expanded_start - prior_start
         end_delta = expanded_end - prior_end
         if abs(start_delta) > 1e-6 or abs(end_delta) > 1e-6:
@@ -661,19 +671,36 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         old_end: float,
         new_start: float,
         new_end: float,
+        ledger=None,
     ) -> bool:
         """Scale only the fcurves driving *attr_name* on *obj_name* (sub-row clip resize).
+
+        *ledger* (the store's ``edit_ledger``) has its claims on the retimed
+        keys carried with them, as every retime does
+        (``_ShotSequencerInternal._retime_fcurve``); ``None`` skips that.
 
         Returns ``True`` when a remap was actually issued — a caller that
         snapshotted for undo needs to know a no-op happened so it can
         discard the snapshot instead of leaving a dead restore point.
         """
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            _ShotSequencerInternal,
+        )
+
         curves = ClipMotionMixin.curves_for_attr(obj_name, attr_name)
         if not curves or abs(old_end - old_start) < FLOAT_ZERO_EPS:
             return False
         lo, hi = old_start - _EPS, old_end + _EPS
         for fc in curves:
-            AnimUtils.remap_keys_in_window(
-                fc, lo, hi, old_start, old_end, new_start, new_end
+            _ShotSequencerInternal._retime_fcurve(
+                fc,
+                lo,
+                hi,
+                old_start,
+                old_end,
+                new_start,
+                new_end,
+                ledger=ledger,
+                key=_ShotSequencerInternal._fc_key(obj_name, fc),
             )
         return True

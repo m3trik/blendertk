@@ -18,9 +18,10 @@ Post-import repairs (both best-effort -- a repair must never cost the user the i
   (live production report). An Empty WITH children is a Maya group (locator shape dropped); a
   childless Empty stays a locator (it marks a point); the manifest's ``empties`` section
   overrides the heuristic where the author marked intent (non-default display type, or the
-  ``maya_node_type`` tag a round-tripped scene carries). Dependency-free copy, kept in step
-  by hand with ``mayatk.BlenderSceneImport._restore_empty_groups`` (the pull direction's
-  engine).
+  ``maya_node_type`` tag a round-tripped scene carries). Delegated to the pull direction's
+  engine, ``mayatk.BlenderSceneImport._restore_empty_groups``, with the children heuristic as
+  the dependency-free fallback (the same loop ``_save_scene.py`` carries, guarded by mayatk's
+  suite).
 - **Native material rebuild.** Blender's FBX exporter only carries images wired (almost)
   directly into Principled sockets -- packed ORM/MSAO through SeparateColor, AO multiplies and
   node-group plumbing export as NOTHING, so real production materials arrived gray. MayaBridge
@@ -35,7 +36,7 @@ Post-import repairs (both best-effort -- a repair must never cost the user the i
 BRIDGE_MODES = ("send_to",)
 
 # Export settings applied Blender-side before launch (read by MayaBridge; echoed here so the panel
-# exposes them): scope=__SCOPE__ carrier=__CARRIER__ materials=__INCLUDE_MATERIALS__ embed_textures=__EMBED_TEXTURES__ apply_unit_scale=__APPLY_UNIT_SCALE__ include_animation=__INCLUDE_ANIMATION__ triangulate=__TRIANGULATE__ shots=__INCLUDE_SHOTS__
+# exposes them): scope=__SCOPE__ carrier=__CARRIER__ materials=__INCLUDE_MATERIALS__ embed_textures=__EMBED_TEXTURES__ apply_unit_scale=__APPLY_UNIT_SCALE__ include_animation=__INCLUDE_ANIMATION__ triangulate=__TRIANGULATE__ scene_data=__INCLUDE_SCENE_DATA__
 #
 # ``shots`` changes what rides beside the FBX: on, the scene's shots travel in the
 # manifest and mayatk rebuilds them 1:1 in its Shot Sequencer.
@@ -163,91 +164,38 @@ def restore_usd_locators(new_nodes):
         cmds.createNode("locator", name=short + "Shape", parent=transform)
 
 
-def _fbx_safe_name(name):
-    """*name* as Maya's FBX importer spells it (illegal chars -> ``FBXASC###``)."""
-    out = []
-    for i, ch in enumerate(name):
-        legal = (
-            "a" <= ch <= "z"
-            or "A" <= ch <= "Z"
-            or ch == "_"
-            or (ch.isdigit() and i > 0)
-        )
-        out.append(ch if legal else "FBXASC%03d" % ord(ch))
-    return "".join(out)
-
-
-def _manifest_empty_rules():
-    """``{fbx-spelled name: keep locator (None = heuristic)}`` from ``empties``.
-
-    An explicit ``maya_node_type`` wins outright; a non-``PLAIN_AXES`` display
-    type is a deliberate author marker and stays a locator even with children;
-    ``PLAIN_AXES`` (Blender's default) maps to None -- the children heuristic.
-    EVERY listed Empty gets an entry, unmarked ones included: the exact name
-    pins the lookup, so the rename-on-clash digit-suffix match can never hand
-    a real sibling ("grp2") another Empty's rule ("grp").
-    """
-    import json
-
-    rules = {}
-    manifest = FBX_PATH + ".manifest.json"
-    if not os.path.isfile(manifest):
-        return rules
-    try:
-        with open(manifest, "r") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        return rules
-    empties = data.get("empties") if isinstance(data, dict) else []
-    for entry in empties or []:
-        if not isinstance(entry, dict) or not entry.get("name"):
-            continue
-        name = _fbx_safe_name(entry["name"])
-        node_type = str(entry.get("maya_node_type") or "").lower()
-        if node_type:
-            rules[name] = node_type == "locator"
-        elif str(entry.get("display_type") or "PLAIN_AXES") != "PLAIN_AXES":
-            rules[name] = True
-        else:
-            rules[name] = None
-    return rules
-
-
 def restore_empty_groups(new_nodes):
-    """Restore imported Empties as the CORRECT Maya node types (see module docstring).
+    """Strip the locator shape from imported Empties that are groups (FBX carrier).
 
-    Parent Empties become plain groups (locator shape dropped); childless ones
-    stay locators; the manifest's ``empties`` section overrides the heuristic
-    for Empties the author marked as locators (non-default display type or a
-    round-tripped ``maya_node_type`` tag). Scoped to *new_nodes* so a
-    pre-existing user locator is never touched; skips transforms with any
-    non-locator shape. Kept in step by hand with
-    ``mayatk.BlenderSceneImport._restore_empty_groups``.
+    Maya's FBX importer gives every null a locator shape, so a sent group
+    hierarchy arrived as locators. The engine path --
+    ``mayatk.BlenderSceneImport._restore_empty_groups`` -- honors the manifest's
+    ``empties`` section (an author-marked locator survives even with children);
+    the dependency-free fallback keeps the children heuristic. That loop is held
+    token-identical to ``_save_scene.py``'s and executed against the engine by
+    mayatk's suite.
     """
-    rules = _manifest_empty_rules()
+    _extend_sys_path()
+    try:
+        from mayatk.env_utils.blender_bridge._scene_import import BlenderSceneImport
+
+        BlenderSceneImport._restore_empty_groups(new_nodes, FBX_PATH + ".manifest.json")
+        return
+    except Exception as error:
+        print(
+            "Empty-group repair via mayatk unavailable ({}); using the heuristic.".format(
+                error
+            )
+        )
     for shape in cmds.ls(new_nodes, exactType="locator", long=True) or []:
         transform = (cmds.listRelatives(shape, parent=True, fullPath=True) or [None])[0]
         if not transform:
             continue
-        shapes = cmds.listRelatives(transform, shapes=True, fullPath=True) or []
-        if len(shapes) != 1:
+        if len(cmds.listRelatives(transform, shapes=True, fullPath=True) or []) != 1:
             continue
-        short = transform.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
-        keep = rules.get(short)
-        if keep is None:  # tolerate Maya's rename-on-clash digit suffix
-            keep = next(
-                (
-                    k
-                    for want, k in rules.items()
-                    if short.startswith(want) and short[len(want) :].isdigit()
-                ),
-                None,
-            )
-        if keep is None:
-            keep = not cmds.listRelatives(
-                transform, children=True, type="transform", fullPath=True
-            )
-        if not keep:
+        if cmds.listRelatives(
+            transform, children=True, type="transform", fullPath=True
+        ):
             cmds.delete(shape)
 
 
@@ -280,10 +228,11 @@ def rebuild_materials(new_nodes):
         traceback.print_exc()
 
 
-def rebuild_shots(new_nodes):
-    """Rebuild the sent scene's shots from the sidecar's ``shots`` section through
-    mayatk's applier (mirror of ``rebuild_materials``): 1:1 in Maya's Shot
-    Sequencer, memberships scoped to what arrived. Best-effort by contract.
+def rebuild_scene_data(new_nodes):
+    """Land the sent scene's records -- its shots, its emissive groups -- from the
+    sidecar's ``shots`` / ``records`` sections through mayatk's applier (mirror of
+    ``rebuild_materials``): 1:1 in Maya's Shot Sequencer and Emissive Groups,
+    memberships scoped to what arrived. Best-effort by contract.
     """
     manifest = FBX_PATH + ".manifest.json"
     if not os.path.isfile(manifest):
@@ -292,14 +241,16 @@ def rebuild_shots(new_nodes):
     try:
         from mayatk.env_utils.blender_bridge._scene_import import BlenderSceneImport
     except Exception as error:
-        print("mayatk unavailable ({}); the sent shots are not rebuilt.".format(error))
+        print(
+            "mayatk unavailable ({}); the sent scene data is not landed.".format(error)
+        )
         return
     try:
-        BlenderSceneImport(log_level="WARNING")._apply_shots_manifest(
+        BlenderSceneImport(log_level="WARNING")._apply_scene_data(
             manifest, new_nodes, carrier=CARRIER
         )
     except Exception:
-        print("Shot rebuild failed; the scene keeps its own shots:")
+        print("Scene-data landing failed; the scene keeps its own:")
         traceback.print_exc()
 
 
@@ -316,7 +267,7 @@ def main():
     else:
         restore_empty_groups(new_nodes)
     rebuild_materials(new_nodes)
-    rebuild_shots(new_nodes)
+    rebuild_scene_data(new_nodes)
 
     if not FRAME_VIEW:
         return

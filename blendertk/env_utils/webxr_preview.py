@@ -56,6 +56,11 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
     #: alone, the manifest never reaches the GLB, and the preview renders unlit with no
     #: error to explain why. Mirror of mayatk's ``WebXrPreview``.
     include_data_export = True
+    #: The page plays only the baked motion, so the payload leaves out the rig
+    #: bones the Scene Exporter's Exclude Rig Helpers row leaves out (on by
+    #: default there): the preview shows what the deliverable ships. Mirror of
+    #: mayatk's ``WebXrPreview``.
+    drop_rig_apparatus = True
 
     def _produce(self, objects, request) -> Optional[ptk.Payload]:
         """Export the FBX, then attach the scene sidecar the FBX can't carry.
