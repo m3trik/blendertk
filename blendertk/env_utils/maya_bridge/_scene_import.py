@@ -65,24 +65,10 @@ _BAKE_ENGINE = Path(__file__).resolve()
 # templates' docstrings).
 _TEMPLATES = {"fbx": _IMPORT_TEMPLATE, "usd": _IMPORT_TEMPLATE_USD}
 
-#: ``smart_bake`` (True / False / "auto") spelled as a ``rig_mode`` -- the alias
-#: every conversion entry point keeps for one release (schema 15.1).
-_SMART_BAKE_TO_RIG_MODE = {True: "bake", False: "raw", "auto": "auto"}
 #: What the FBX template's whole-scene smart bake does per mode. ``rig`` bakes
 #: ONLY what the plan says (a scoped pass inside ``_transfer_rig``), so the
 #: whole-scene pass is off.
 _RIG_MODE_TO_SMART_BAKE = {"auto": "auto", "bake": True, "raw": False, "rig": False}
-
-
-def _smart_bake_alias(func):
-    """``smart_bake=`` -> ``rig_mode=`` for one release."""
-    return ptk.Deprecation.parameter(
-        "smart_bake",
-        new="rig_mode",
-        transform=lambda v: _SMART_BAKE_TO_RIG_MODE.get(v, "auto"),
-        remove_in="0.7.0",
-        reason="rig_mode covers both carriers and adds 'rig'.",
-    )(func)
 
 
 # Maya scene formats cmds.file(open=...) accepts; FBX would be imported directly.
@@ -304,7 +290,6 @@ class MayaSceneImport(ptk.LoggingMixin):
                 f"via must be one of {sorted(_TEMPLATES)}, got {via!r}"
             ) from None
 
-    @_smart_bake_alias
     def render_script(
         self,
         src_path: str,
@@ -322,7 +307,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         template as ``RIG_CAPABILITY`` so the Maya side plans against what
         Blender can build and bakes only the rest (schema 15.2); ``bake`` /
         ``auto`` / ``raw`` drive the FBX template's smart bake as before.
-        ``smart_bake=`` is the deprecated alias.
         """
         if rig_mode not in ptk.RIG_MODES:
             raise ValueError(
@@ -399,9 +383,9 @@ class MayaSceneImport(ptk.LoggingMixin):
             env["PYTHONPATH"] = os.pathsep.join(
                 extra + ([existing] if existing else [])
             )
-        elif via == "fbx" and script_opts.get("smart_bake", "auto") is True:
+        elif via == "fbx" and script_opts.get("rig_mode", "auto") == "bake":
             self.logger.warning(
-                "smart_bake=True but mayatk could not be located; the conversion "
+                "rig_mode='bake' but mayatk could not be located; the conversion "
                 "will fall back to the plain FBX bake."
             )
         result = self._run_script(
@@ -479,7 +463,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         )
 
     # ------------------------------------------------------------------ import
-    @_smart_bake_alias
+    @ptk.Deprecation.parameter("shots", new="scene_data", remove_in="0.10.0")
     def import_scene(
         self,
         src_path: str,
@@ -492,7 +476,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         rig_mode: str = "auto",
         scene_settings: Union[bool, str] = "auto",
         reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT,
-        shots: bool = True,
+        scene_data: bool = True,
         progress: Optional[Callable[..., Optional[bool]]] = None,
         **script_opts: Any,
     ) -> List[Any]:
@@ -550,7 +534,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 capability, bakes only what the plan cannot build and ships the
                 graph in the manifest's ``rig`` section for :meth:`import_payload`
                 to build (schema 15). Needs mayatk importable; degrades to the
-                plain bake without it. ``smart_bake=`` is the deprecated alias.
+                plain bake without it.
             scene_settings: Adopt the source scene's time setup — fps, playback
                 + animation ranges, current frame (the manifest's ``scene``
                 section, else what the intermediate itself carries; see
@@ -593,7 +577,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 src,
                 scene_settings=adopt_scene,
                 reduce_keys=reduce_keys,
-                shots=shots,
+                scene_data=scene_data,
                 progress=self._stage_progress(relay, 0, "Blender"),
             )
             self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
@@ -633,7 +617,7 @@ class MayaSceneImport(ptk.LoggingMixin):
                 fbx_options=fbx_options,
                 scene_settings=adopt_scene,
                 reduce_keys=reduce_keys,
-                shots=shots,
+                scene_data=scene_data,
                 progress=self._stage_progress(relay, 1, "Blender"),
             )
         except Exception:
@@ -647,6 +631,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
         return imported
 
+    @ptk.Deprecation.parameter("shots", new="scene_data", remove_in="0.10.0")
     def import_payload(
         self,
         payload_path: str,
@@ -655,7 +640,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         usd_options: Optional[Dict[str, Any]] = None,
         scene_settings: bool = False,
         reduce_keys: Union[bool, str, None] = False,
-        shots: bool = True,
+        scene_data: bool = True,
         progress: Optional[Callable[[int, int, str], Optional[bool]]] = None,
     ) -> List[Any]:
         """Import a Maya hand-off payload into the open scene and apply its manifest.
@@ -691,10 +676,10 @@ class MayaSceneImport(ptk.LoggingMixin):
           skeleton's (:meth:`_apply_bone_lengths`).
         * ``scene`` -- the source's clock, when *scene_settings* asks
           (:meth:`_apply_scene_manifest`, which falls back to the file's own).
-        * ``shots`` -- the source's shot store, rebuilt 1:1 onto this scene's
-          when *shots* allows (:meth:`_apply_shots_manifest`; last, because its
-          memberships and ledger claims name what every other step may replace,
-          reduce or re-key).
+        * ``shots`` / ``records`` -- the source's scene records (its shot store,
+          its emissive groups), landed 1:1 in this scene's when *scene_data*
+          allows (:meth:`_apply_scene_data`; last, because memberships and ledger
+          claims name what every other step may replace, reduce or re-key).
 
         A USD payload's Transform Cache constraints are always baked into keys
         (:meth:`_own_usd_animation`): the payload is scratch, and a scene streaming
@@ -721,8 +706,9 @@ class MayaSceneImport(ptk.LoggingMixin):
                 curve's shape within :attr:`KEY_REDUCTION_MAX_ERROR` and drops the rest.
                 Scoped to the imported objects. An unknown level raises before
                 anything is imported.
-            shots: Rebuild the source scene's shots from the manifest's ``shots``
-                section (on by default; the producer decides whether one travels).
+            scene_data: Land the source scene's records -- its shots, its emissive
+                groups -- from the manifest's ``shots`` / ``records`` sections (on
+                by default; the producer decides what travels). Was ``shots``.
             progress: ``progress(done, total, text) -> bool``, called before each step
                 and once at the end; ``False`` stops the import between steps with
                 :class:`pythontk.OperationCancelled` (what was imported stays).
@@ -941,14 +927,18 @@ class MayaSceneImport(ptk.LoggingMixin):
         # The light rebuild replaces objects the steps above still hold.
         plan.add(manifest.LIGHTS, "Rebuilding lights", rebuild_lights)
         # Last of all: memberships and claims name the objects and curves every
-        # step above may have replaced, reduced or re-keyed.
+        # step above may have replaced, reduced or re-keyed. Gated on either
+        # section the records ride (``pythontk.RecordTransfer``).
         plan.add(
-            manifest.SHOTS,
-            "Rebuilding shots",
-            lambda: self._apply_shots_manifest(
+            None,
+            "Landing the scene data",
+            lambda: self._apply_scene_data(
                 manifest, imported, frame_offset=frame_offset
             ),
-            when=bool(shots),
+            when=bool(scene_data)
+            and (
+                manifest.carries(manifest.SHOTS) or manifest.carries(manifest.RECORDS)
+            ),
             best_effort=True,
         )
         plan.run(progress=progress, done_label="Imported")
@@ -1140,42 +1130,47 @@ class MayaSceneImport(ptk.LoggingMixin):
     # flattened away (the templates' ``_export_ready_skins``).
     BONES_SECTION = ptk.HandoffManifest.BONES
     # Manifest section carrying the source scene's shot store (the
-    # ``pythontk.ShotTransfer`` codec; written by mayatk's bridge send and by the
-    # pull conversion's ``shots_section``).
+    # ``pythontk.ShotTransfer`` codec); every other portable record rides
+    # ``HandoffManifest.RECORDS``. Both are written by mayatk's bridge send and the
+    # pull conversion's ``scene_data_sections`` and landed by
+    # :meth:`_apply_scene_data`.
     SHOTS_SECTION = ptk.HandoffManifest.SHOTS
     # Manifest section naming the rig apparatus a bake left inert (the Maya-side
     # templates' ``_classify_rig_machinery``).
     MACHINERY_SECTION = ptk.HandoffManifest.MACHINERY
 
-    def _apply_shots_manifest(
+    def _apply_scene_data(
         self,
-        manifest: Mapping[str, Any],
+        manifest: Any,
         imported: List[Any],
         frame_offset: float = 0.0,
-    ) -> int:
-        """Rebuild the source scene's shots from the manifest's ``shots`` section
-        onto this scene's store; returns the shots the store holds afterwards
-        (``0`` when the manifest carries none).
+    ) -> "ptk.TransferContext":
+        """Land the source scene's records from the manifest -- the ``shots``
+        section and the generic ``records`` one -- in this scene
+        (``DataNodes.receive_sections`` over ``pythontk.RecordTransfer``);
+        return the crossing's context, whose notes name what arrived renamed,
+        re-slotted or not at all.
 
-        Neither carrier has a place for a shot, a marker, a locked gap or the
-        samples the sequencer planted on shot bounds, so the store crosses as
-        data (``BlenderShotStore.apply_transfer`` over ``pythontk.ShotTransfer``).
-        Names resolve against the IMPORTED objects only -- exact, or modulo
-        Blender's ``.001`` clash suffix, the convention every by-name section
-        here uses -- so a pre-existing object of the same name is never claimed.
-        Ledger claims land on the imported fcurves, and only where a key still
-        sits (the reducer may have taken it). Every time is shifted by
-        *frame_offset*, as the visibility replay's are. A scene that already
-        has shots keeps them and gains these after them. Mirror of mayatk's
-        ``BlenderSceneImport._apply_shots_manifest``.
+        Neither carrier has a place for a shot or an emissive group's
+        membership, so they cross as data. Names resolve against the IMPORTED
+        objects only -- exact, or modulo Blender's ``.001`` clash suffix, the
+        convention every by-name section here uses -- so a pre-existing object
+        of the same name is never claimed. Ledger claims land on the imported
+        fcurves, and only where a key still sits (the reducer may have taken
+        it). Every time is shifted by *frame_offset*, as the visibility
+        replay's are. A scene that already has shots or groups keeps them and
+        gains these beside them. Mirror of mayatk's
+        ``BlenderSceneImport._apply_scene_data``.
+
+        Parameters:
+            manifest: The ``ptk.HandoffManifest`` (or its payload / sidecar path).
+            imported: What the import created.
+            frame_offset: The importer's frame shift.
         """
-        section = (
-            manifest.get(self.SHOTS_SECTION) if isinstance(manifest, Mapping) else None
-        )
-        if not section:
-            return 0
-        from blendertk.anim_utils.shots._shots import BlenderShotStore
+        from blendertk.node_utils.data_nodes import DataNodes
 
+        if not isinstance(manifest, Mapping):
+            manifest = ptk.HandoffManifest.read(manifest) if manifest else {}
         by_name: Dict[str, Any] = {}
         by_short: Dict[str, List[str]] = {}
         for obj in imported:
@@ -1199,12 +1194,19 @@ class MayaSceneImport(ptk.LoggingMixin):
             obj = by_name.get(name)
             return obj is not None and getattr(obj, "parent", None) is None
 
-        store = BlenderShotStore.apply_transfer(
-            section, resolve=resolve, frame_offset=frame_offset, converted=converted
+        payload = getattr(manifest, "payload_path", None) or ""
+        ctx = DataNodes.receive_sections(
+            manifest,
+            resolve=resolve,
+            source=os.path.basename(payload),
+            frame_offset=frame_offset,
+            converted=converted,
         )
-        count = len(store.shots) if store is not None else 0
-        self.logger.info(f"Rebuilt the source scene's shots: {count} in the store.")
-        return count
+        self.logger.info(
+            "Landed the source scene's data"
+            + (f" ({len(ctx.notes)} note(s) above)." if ctx.notes else ".")
+        )
+        return ctx
 
     def _apply_skinning_methods(
         self, payload_path: str, manifest: Mapping[str, Any], imported: List[Any]
@@ -2504,7 +2506,6 @@ class MayaSceneImport(ptk.LoggingMixin):
             on_output=on_output,
         )
 
-    @_smart_bake_alias
     def bake_scene(
         self,
         src_path: str,
@@ -2542,11 +2543,9 @@ class MayaSceneImport(ptk.LoggingMixin):
             use_cache: Reuse a prior conversion + bake of the identical source.
             timeout: Max seconds for EACH headless stage; unset by default (see
                 :meth:`convert`).
-            smart_bake: Pre-bake driven animation to keys via mayatk's
-                ``SmartBake`` before the FBX export (see :meth:`import_scene`).
-                ``"auto"`` (default) acts only when a cheap probe detects it;
-                FBX route only — inert for ``via="usd"`` (which samples animation
-                natively) and for an ``.fbx`` source (no Maya stage to bake in).
+            rig_mode: How the source's rig logic travels (see
+                :meth:`import_scene`); inert for an ``.fbx`` source (no Maya
+                stage to bake in).
             reduce_keys: How the bake's per-frame keys are reduced before the save
                 (:meth:`import_payload`); ``"extremes"`` by default, falsy keeps them.
             progress: ``progress(current, total, message) -> bool`` over both stages

@@ -2395,7 +2395,7 @@ def _run_sequencer_checks():
         f"objects={dest.objects}",
     )
 
-    # -- every retime ripples BEFORE it scales (mirror of mayatk) ------------
+    # -- a growing retime ripples BEFORE it scales (mirror of mayatk) --------
     st, sq, obs = fresh({"rtA": {10: 0, 40: 5}, "rtB": {70: 0, 90: 5}})
     a = sq.define_shot("A", 0, 50, objects=["rtA"])
     b = sq.define_shot("B", 60, 100, objects=["rtB"])
@@ -2417,6 +2417,224 @@ def _run_sequencer_checks():
         and times_of(obs["roB"]) == [100.0, 120.0]
         and (b.start, b.end) == (90, 130),
         f"A={times_of(obs['roA'])} B={times_of(obs['roB'])} {(b.start, b.end)}",
+    )
+
+    # -- a SHRINKING retime scales first, then ripples (mirror of mayatk's
+    # TestAShrinkingRetimeNeverScalesItsNeighbour, 2026-09-19).  Rippled first,
+    # a shrink wider than the gap landed the neighbour inside the pivot's span
+    # and the scale then retimed the neighbour's keys with the pivot's.
+    def shrink_scene():
+        st_, sq_, obs_ = fresh(
+            {"srA": {5: 0, 20: 4, 35: 1, 48: 6}, "srB": {62: 0, 72: 7, 90: 2}}
+        )
+        a_ = sq_.define_shot("A", 0, 50, objects=["srA"])
+        b_ = sq_.define_shot("B", 60, 100, objects=["srB"])
+        return sq_, obs_, a_, b_
+
+    sq, obs, sa, sb = shrink_scene()
+    sq.resize_shot(sa.shot_id, 0, 25)  # halved; the gap is only 10 wide
+    check(
+        "shrink retime: the neighbour moves rigidly, the pivot scales",
+        bounds(sa, sb) == (0, 25, 35, 75)
+        and times_of(obs["srA"]) == [2.5, 10.0, 17.5, 24.0]
+        and times_of(obs["srB"]) == [37.0, 47.0, 65.0],
+        f"bounds={bounds(sa, sb)} A={times_of(obs['srA'])} B={times_of(obs['srB'])}",
+    )
+    sq, obs, sa, sb = shrink_scene()
+    sq.set_shot_duration(sa.shot_id, 25)
+    check(
+        "shrink duration: the neighbour moves rigidly, the pivot scales",
+        bounds(sa, sb) == (0, 25, 35, 75)
+        and times_of(obs["srA"]) == [2.5, 10.0, 17.5, 24.0]
+        and times_of(obs["srB"]) == [37.0, 47.0, 65.0],
+        f"bounds={bounds(sa, sb)} A={times_of(obs['srA'])} B={times_of(obs['srB'])}",
+    )
+    sq, obs, sa, sb = shrink_scene()
+    sq.resize_shot(sb.shot_id, 80, 100)  # B's head in by 20; the gap is 10
+    check(
+        "shrink retime (head): the shot before moves rigidly",
+        bounds(sa, sb) == (20, 70, 80, 100)
+        and times_of(obs["srB"]) == [81.0, 86.0, 95.0]
+        and times_of(obs["srA"]) == [25.0, 40.0, 55.0, 68.0],
+        f"bounds={bounds(sa, sb)} A={times_of(obs['srA'])} B={times_of(obs['srB'])}",
+    )
+
+    # -- a retime carries the system's claims (mirror of mayatk's
+    # TestARetimeCarriesTheSystemsClaims, 2026-09-19).  Every retime used to
+    # remap the keys and never the edit ledger, so a claimed end pin scaled
+    # onto the new end was released by the next reconcile and read as an
+    # animator key.
+    st, sq, obs = fresh({"rtcA": {10: 0, 40: 5, 70: 2, 90: 8}})
+    ra = sq.define_shot("A", 0, 50, objects=["rtcA"])
+    sq.define_shot("B", 60, 100, objects=["rtcA"])
+    rfc = fc_of(obs["rtcA"])
+    rkey = _SSI._fc_key("rtcA", rfc)
+    obs["rtcA"].location.x = rfc.evaluate(50.0)
+    obs["rtcA"].keyframe_insert(data_path="location", index=0, frame=50)
+    sq.ledger.record_key(rkey, 50.0, ra.shot_id, "end")
+    sq._enforce_gap_holds()  # the seam (the pin) is made CONSTANT and claimed
+    check(
+        "retime claims: setup -- the pin and its hold are claimed",
+        (50.0, ra.shot_id, "end") in sq.ledger.key_records(rkey)
+        and 50.0 in sq.ledger.step_times(rkey),
+        f"claims={sq.ledger.key_records(rkey)} steps={sq.ledger.step_times(rkey)}",
+    )
+    sq.resize_shot(ra.shot_id, 0, 70)  # the Shift edge drag: A's end +20
+    check(
+        "retime claims: the scaled end pin is still the system's on the bound",
+        (70.0, ra.shot_id, "end")
+        in [(round(t, 3), o, e) for t, o, e in sq.ledger.key_records(rkey)],
+        f"times={times_of(obs['rtcA'])} claims={sq.ledger.key_records(rkey)}",
+    )
+    check(
+        "retime claims: the retimed seam's hold is still claimed",
+        70.0 in [round(t, 3) for t in sq.ledger.step_times(rkey)],
+        f"steps={sq.ledger.step_times(rkey)}",
+    )
+
+    # -- a Ctrl edge drag moves no sample (mirror of mayatk's
+    # TestACtrlEdgeDragMovesNoSample, 2026-09-19).  The Ctrl path reconciled
+    # with the default rule, so a claimed pin FOLLOWED the bound, re-timing its
+    # ramp (and sliding past a gap key); nothing moves in a Ctrl drag.
+    from blendertk.anim_utils.shots.shot_sequencer.gap_manager import (
+        GapManagerMixin,
+    )
+
+    class _CtrlHost(GapManagerMixin):
+        _syncing = False
+
+        def __init__(self, seq_, sid):
+            self.sequencer, self.active_shot_id = seq_, sid
+
+        def _drag_modifiers(self):
+            return True, False  # Ctrl held at the press
+
+        def _save_shot_state(self):
+            pass
+
+        def _gap_edit_epilogue(self):
+            pass
+
+    for label, new_end in (("grow", 53), ("grow over a gap key", 57), ("shrink", 45)):
+        st, sq, obs = fresh({"cpA": {10: 0, 40: 5, 55: 1, 70: 2, 90: 8}})
+        ca = sq.define_shot("A", 0, 50, objects=["cpA"])
+        sq.define_shot("B", 60, 100, objects=["cpA"])
+        cfc = fc_of(obs["cpA"])
+        obs["cpA"].location.x = cfc.evaluate(50.0)
+        obs["cpA"].keyframe_insert(data_path="location", index=0, frame=50)
+        sq.ledger.record_key(_SSI._fc_key("cpA", cfc), 50.0, ca.shot_id, "end")
+        sq._enforce_gap_holds()  # so only the gesture is measured
+        before = [round(fc_of(obs["cpA"]).evaluate(f), 4) for f in range(0, 101)]
+        _CtrlHost(sq, ca.shot_id).on_range_highlight_changed(0, new_end)
+        after = [round(fc_of(obs["cpA"]).evaluate(f), 4) for f in range(0, 101)]
+        check(
+            f"ctrl {label}: the bound moves and no sample does",
+            sq.shot_by_id(ca.shot_id).end == new_end
+            and before == after
+            and 50.0 in times_of(obs["cpA"]),
+            f"end={sq.shot_by_id(ca.shot_id).end} times={times_of(obs['cpA'])} "
+            f"changed={sum(a != b for a, b in zip(before, after))}",
+        )
+
+    # -- a content-derived bound snaps OUTWARD (mirror of mayatk's
+    # TestABoundEnclosesFractionalContent, 2026-09-19).  Rounded to the
+    # nearest frame, a start landed past the first key and an end short of the
+    # last on fractional content -- what a retime leaves.
+    def frac_scene():
+        st_, sq_, obs_ = fresh(
+            {"frA": {10.6: 0, 25: 5, 40.4: 2}, "frB": {70: 0, 90: 5}}
+        )
+        a_ = sq_.define_shot("A", 0, 50, objects=["frA"])
+        sq_.define_shot("B", 60, 100, objects=["frB"])
+        return sq_, a_
+
+    sq, fa = frac_scene()
+    sq.trim_shot_to_content(fa.shot_id, edge="both")
+    check(
+        "fractional content: a trim encloses it",
+        (fa.start, fa.end) == (10.0, 41.0),
+        f"{(fa.start, fa.end)}",
+    )
+    sq, fa = frac_scene()
+    sq.resize_shot_bounds(fa.shot_id, 0, 30)  # asked past the last key, 40.4
+    check(
+        "fractional content: a plain shrink stops outside it",
+        fa.end == 41.0,
+        f"end={fa.end}",
+    )
+    st, sq, obs = fresh({"frM": {110: 0, 160.4: 5}})
+    sq.define_shot("S0", 100, 170, objects=["frM"])
+    fd = sq.define_shot("S1", 200, 240, objects=[])
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "frM",
+                "attr": "location",
+                "times": [110.0, 160.4],
+                "start": 110.0,
+                "end": 160.4,
+            }
+        ],
+        fd.shot_id,
+    )
+    landed = max(times_of(obs["frM"]))
+    check(
+        "fractional content: Move to Shot's destination encloses what landed",
+        abs(landed - 250.4) < 1e-3 and fd.end >= landed,
+        f"landed={landed} dest_end={fd.end}",
+    )
+    # The head room: a block ending 0.05 before the destination, onto an object
+    # keyed 0.2 into it, must be cleared whole (89.35 frames: 90, where the
+    # nearest frame is 89), or the block lands past the destination's first
+    # key, which then no longer moves with the rest of its content.
+    st, sq, obs = fresh({"frH": {110.6: 0, 150: 5, 199.95: 2, 200.2: 7, 230: 1}})
+    sq.define_shot("S0", 100, 200, objects=["frH"])
+    hd = sq.define_shot("S1", 200, 240, objects=["frH"])
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": "frH",
+                "attr": "location",
+                "times": [110.6, 150.0, 199.95],
+                "start": 110.6,
+                "end": 199.95,
+            }
+        ],
+        hd.shot_id,
+    )
+    hkv = sorted(
+        (round(kp.co[0], 3), round(kp.co[1]))
+        for kp in fc_of(obs["frH"]).keyframe_points
+    )
+    check(
+        "fractional content: Move to Shot's head room clears the whole block",
+        hkv == [(200.0, 0), (239.4, 5), (289.35, 2), (290.2, 7), (320.0, 1)],
+        f"keys={hkv}",
+    )
+    # A key dragged past the end (to 50.4): the shot grows AROUND it.
+    from blendertk.anim_utils.shots.shot_sequencer.clip_motion import (
+        ClipMotionMixin,
+    )
+
+    class _ExpandHost(ClipMotionMixin):
+        _syncing = False
+
+        def __init__(self, seq_):
+            self.sequencer, self._segment_cache = seq_, {}
+
+        def _get_sequencer_widget(self):
+            return None
+
+    st, sq, obs = fresh({"exA": {10.6: 0, 50.4: 2}, "exB": {70: 0, 90: 5}})
+    ea = sq.define_shot("A", 0, 50, objects=["exA"])
+    eb = sq.define_shot("B", 60, 100, objects=["exB"])
+    _ExpandHost(sq)._expand_shot_range(ea.shot_id, 10.6, 50.4)
+    check(
+        "fractional content: a key dragged past the end is enclosed",
+        bounds(ea, eb) == (0, 51, 61, 101) and times_of(obs["exB"]) == [71.0, 91.0],
+        f"bounds={bounds(ea, eb)} B={times_of(obs['exB'])}",
     )
 
     # -- a Move to Shot that extends its destination carries the end sample --

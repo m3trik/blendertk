@@ -18,12 +18,50 @@ unchanged and a producer ports across DCCs without renaming anything.
 | Private scope | one scene per file | **per scene**: each scene of a multi-scene `.blend` keeps its own group, and the store reads and writes the active scene's -- as the shots and key-stash records always were |
 | Deliverable carrier (`data_export`) | a locked, hidden `transform` + zero-scale locator shape | a plain **Empty** whose custom properties Blender's FBX exporter writes as user properties |
 | Shots / key-stash app state | `shot_store` / `key_stash` records on `data_internal` | the same records in the same group; a file saved before the group held them as top-level `scene["shot_store"]` / `scene["key_stash"]` |
-| Migration | — | a file saved before 2026-09-18 is **folded on its first private write**: the old `data_internal` Empty's properties and the two top-level scene properties move into the group, and the Empty is removed; a legacy value found beside the group was written after it (an older blendertk reopened the file) and wins. Reads find the old records without migrating (a panel draw may not edit data), and until the fold the export sets drop that Empty by name. A **library-linked** `data_internal` is the library's records: never read, never folded |
+| Migration | — | a file saved before 2026-09-18 is **folded on its first private write**: each scene's two top-level properties move into its own group, the old `data_internal` Empty's properties are copied into **every** local scene's group (the Empty was file-global: each scene read it), and the Empty is removed; a legacy value found beside the group was written after it (an older blendertk reopened the file) and wins. Reads find the old records without migrating (a panel draw may not edit data), and until the fold the export sets drop that Empty by name. A **library-linked** `data_internal` is the library's records: never read, never folded |
 | Carrier lifetime | a keep-alive input stops Maya deleting the network node with its last input | a property group has no inputs, so nothing to guard |
 | Duplicate carrier | duplicate *short names* at different DAG levels resolve to the shallowest path | object names are unique per library; an FBX re-import lands as `data_export.001`, which the store ignores. The store writes only the file's OWN `data_export`; a library-linked module's is listed by `get_export_nodes` (Maya's `NS:data_export`) but never written. An **unlinked** carrier (collection deleted) is relinked into the scene on the next write |
 | Carrier visibility | stays hidden; Maya exports hidden nodes in a selection | stays **visible/selectable** — a `use_selection` export can only ship what it can select (the `export_data_node` task clears any hide state defensively) |
 | Before-export hook | the `kBeforeExport` session hook republishes opted-in records for any FBX export | **none** — `bpy.app.handlers` has no FBX-export event, so producers also publish at authoring time through `FbxUtils.publish_authored` (the Lightmap Baker on commit), which is what a non-Scene-Exporter write ships; `enable_export_producer` records the opt-in for parity |
 | Stagers | `FbxUtils.STAGERS` runs the render-effects curve-proxy transport | `STAGERS` is empty: the Scene Exporter stages Blender's curve proxies in its own tasks (deferred restores). Session stagers (the shadow preview stands down for the write) `prepare` in every bracket and before a publish outside one, but `finish` only when a bracket closes -- so every write runs in one (the Scene Exporter's, the FBX and USD hand-offs'), and the Scene Exporter also stages the finish of what its publish prepared, for a run that stops before its write. `publish_authored` runs none |
+
+## Crossing into another file
+
+The records cross by the same rules as on Maya (mayatk's *Crossing into another
+scene*: one engine, `ptk.RecordTransfer`, driven by each record's declaration),
+through Blender's own routes:
+
+- **A linked library made local** -- the Reference Manager's *Make Local* /
+  *Unlink and Import* (`EnvUtils.make_library_local(library, scene_data=...)`).
+  A library's private records live on its scene, which no link reaches, so
+  `DataNodes.carriers_in(library)` reads them while it is still linked
+  (linking its scenes for the read, then removing what the read linked), with
+  its `data_export` and any pre-group `data_internal` Empty. The panel asks
+  only when a merge would keep something -- **Yes** merges, **No** drops,
+  **Cancel** leaves the library linked -- and names are respelled to where the
+  move put each object and action (Blender's `.001` clash suffix; a name an
+  object kept while an action lost it is ambiguous and left alone). The
+  library's actions come local with it: its parked clips name them. Before
+  this, the made-local `data_export.001` held deliverables nothing read, and a
+  library's pre-group Empty landed under the canonical name, where the next
+  private write folded it into this file's records and **replaced** them.
+- **A Maya hand-off** -- `MayaBridge`'s *Include Scene Data*
+  (`INCLUDE_SCENE_DATA`; was `INCLUDE_SHOTS`) and `MayaSceneImport`'s
+  `scene_data=` (was `shots=`): the portable records ride the sidecar's
+  `shots` / `records` sections both ways.
+
+`DataNodes.OWNERS` names the Blender owners (`BlenderShotStore`, `KeyStash`,
+`EmissiveGroups`); there is no bake-session owner -- a Blender bake parks
+nothing beside its record. An emissive group's membership rides the mesh data
+through a make-local (the boolean face attributes), and the hand-off payload
+(registry, face indices, each member's face count) through a bridge.
+
+`make_library_local` also takes every datablock of the library local **pass
+after pass** until one localizes nothing more, and drops the library only once
+nothing of it is still linked: `make_local` is a silent no-op on an ID whose
+only user is still linked (a mesh under a linked object), and the one-pass loop
+it replaced visited meshes first -- dropping the library then took every mesh
+object it had just made local.
 
 ## Getting it into the FBX
 

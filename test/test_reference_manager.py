@@ -133,6 +133,35 @@ try:
         "make_library_local leaves the data local (library is None)",
         local_coll is not None and local_coll.library is None,
     )
+    # The library's cube survives with its mesh local too. A single pass in dir() order
+    # visits meshes before objects, and a mesh used only by a still-linked object cannot
+    # be made local -- dropping the library then took the mesh AND the object now using it.
+    kept = [o for o in bpy.data.objects if o.type == "MESH"]
+    check(
+        "make_library_local keeps the library's mesh object, its mesh local",
+        len(kept) == 1 and kept[0].library is None and kept[0].data.library is None,
+        str([(o.name_full, o.type) for o in bpy.data.objects]),
+    )
+
+    # 8b. the same through the object fallback (a library with no collection).
+    flat_path = os.path.join(tmp, "libs", "flat.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    flat = bpy.data.objects.new("flat_geo", bpy.data.meshes.new("flat_mesh"))
+    bpy.context.scene.collection.objects.link(flat)
+    bpy.ops.wm.save_as_mainfile(filepath=flat_path)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    btk.link_blend_file(flat_path, link=True)
+    btk.make_library_local(next(iter(bpy.data.libraries)))
+    flat = bpy.data.objects.get("flat_geo")
+    check(
+        "make_library_local keeps a flat library's object, its mesh local",
+        flat is not None
+        and flat.library is None
+        and flat.data is not None
+        and flat.data.library is None
+        and not bpy.data.libraries,
+        str([(o.name_full, o.type) for o in bpy.data.objects]),
+    )
 
     # 9. make_library_local on a bogus name → 0 (no crash).
     check(

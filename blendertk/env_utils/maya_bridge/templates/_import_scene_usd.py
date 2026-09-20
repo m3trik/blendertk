@@ -828,141 +828,55 @@ def _transfer_rig(cmds, frames):
     }
 
 
-def _classify_rig_machinery(cmds, rig=None):
-    """Answer what each Maya node IS; ``ptk.RigMachinery`` names the apparatus.
+def _classify_rig_machinery(rig=None):
+    """Name the rig apparatus the bake left inert, for the consumer to drop.
 
     A carrier ships every DAG node as an object, so a rig that could not travel
     arrives TWICE over: its motion, as keys on whatever renders, AND the whole
-    apparatus that used to produce that motion -- constraint nodes, IK handles
-    and effectors, control curves, up-vector locators, the groups that hold only
-    those, and joints nothing content is skinned to. In the target that apparatus
-    selects, draws and drives nothing. On the production module it is 924 of 2727
-    transforms, landing as ~1100 inert objects around 1505 meshes, which is
-    exactly what "the rig is poorly reconstructed" looks like from the outside --
-    and it lands identically in BAKE mode, because baking never removed it.
+    apparatus that used to produce that motion -- which in the target selects,
+    draws and drives nothing. On the production module it is 924 of 2727
+    transforms, and it lands identically in BAKE mode, because baking never
+    removed it.
 
-    Named here rather than DELETED here, deliberately. The FBX route bakes before
-    it writes, but the USD route has no bake at all (mayaUsd samples the live
-    scene per frame), so deleting a constraint on this side would delete the
-    motion it was about to sample. What this names, the consumer drops once the
-    payload is in: that costs one carrier's worth of nodes and can never cost a
-    frame of animation.
+    Named here rather than DELETED here, deliberately: the USD route has no bake
+    (mayaUsd samples the live scene per frame), so deleting a constraint on this
+    side would delete the motion it was about to sample. What this names, the
+    consumer drops once the payload is in.
 
-    Only the FACTS are Maya's, and they are all this decides: what each node is
-    (one of ``RigMachinery.KINDS``, else ``CONTENT`` -- the shape test is a
-    DENYLIST, so an unknown shape type counts as content and survives), which
-    nodes are load-bearing (every influence of a skinCluster that deforms
-    content -- one deforming only the rig's own IK curve protects nothing -- and,
-    under ``rig`` mode, every node a BUILT record names, since the consumer
-    resolves those ids in the delivered scene), and which nodes ARE the rig (the
-    graph's own nodes, plus every constraint and IK node). The rule that turns
-    those into an answer -- protection propagating up, the sweep down, ambiguity
-    resolved in favour of keeping -- is one shared implementation, so both
-    directions of a hand-off can hold the same opinion.
+    The census is mayatk's ``RigGraphExtractor.machinery`` (the Maya facts, over
+    ``ptk.RigMachinery``'s rule) -- the one the Scene Exporter and the WebXR
+    preview drop the same apparatus from their own FBX with -- so every route
+    holds the same opinion of what a rig's apparatus is.
 
     Parameters:
-        cmds: ``maya.cmds``.
-        rig: The manifest's ``rig`` section when rig mode built one (schema
-            15.3); its graph is reused. Without it the graph is extracted here
-            (0.3 s of the census's 1.9 s on the production module), so bake mode
-            names the same set.
+        rig: The manifest's ``rig`` section when rig mode built one; its graph
+            is reused and its BUILT records' nodes are kept.
 
     Returns:
         dict: ``{maya dag path: kind}``. Empty when nothing qualifies, and empty
         on ANY failure: this is a cleanup, never a reason to lose a conversion.
     """
-    machinery_shapes = ("nurbsCurve", "bezierCurve", "locator")
     try:
-        from pythontk import RigMachinery
+        from mayatk.rig_utils.rig_graph_extract import RigGraphExtractor
     except Exception as error:
         print(
-            "rig: pythontk unavailable ({}); the rig's apparatus travels with "
-            "it.".format(error)
+            "rig: mayatk unavailable ({}); the rig's apparatus travels with it.".format(
+                error
+            )
         )
         return {}
     try:
-        transforms = cmds.ls(type="transform", long=True) or []
-        if not transforms:
-            return {}
-        nodes = {}
-        for node in transforms:
-            node_type = cmds.nodeType(node)
-            shapes = [
-                cmds.nodeType(s)
-                for s in (
-                    cmds.listRelatives(
-                        node, shapes=True, fullPath=True, noIntermediate=True
-                    )
-                    or []
-                )
-            ]
-            if any(s not in machinery_shapes for s in shapes):
-                kind = RigMachinery.CONTENT
-            elif node_type.endswith("Constraint"):
-                kind = "constraint"
-            elif node_type in ("ikHandle", "ikEffector"):
-                kind = "ik"
-            elif node_type == "joint":
-                kind = "joint"  # nothing content is skinned to it
-            elif shapes:
-                kind = "locator" if set(shapes) == {"locator"} else "control"
-            else:
-                kind = "group"
-            nodes[node] = kind
-
-        protected = []
-        for skin in cmds.ls(type="skinCluster") or []:
-            geometry = cmds.skinCluster(skin, query=True, geometry=True) or []
-            if not any(cmds.nodeType(g) not in machinery_shapes for g in geometry):
-                continue  # deforms only the rig's own curve: its joints are rig too
-            for influence in cmds.skinCluster(skin, query=True, influence=True) or []:
-                protected.extend(cmds.ls(influence, long=True) or [])
-
-        graph = (rig or {}).get("graph")
-        if graph is None:
-            try:
-                from mayatk.rig_utils.rig_graph_extract import RigGraphExtractor
-
-                graph = RigGraphExtractor().extract()
-            except Exception as error:
-                print(
-                    "rig: no graph to name the apparatus from ({}); only "
-                    "constraint and IK nodes are named.".format(error)
-                )
-                graph = {}
-        path_of = {n.get("id"): n.get("path") for n in graph.get("nodes") or []}
-        build = set(((rig or {}).get("plan") or {}).get("build") or [])
-        for record in graph.get("records") or []:
-            if record.get("id") not in build:
-                continue
-            ids = [(record.get("target") or {}).get("id")]
-            ids += [s.get("id") for s in record.get("sources") or []]
-            for node_id in ids:
-                path = path_of.get(node_id)
-                protected.extend((cmds.ls(path, long=True) or []) if path else ())
-
-        seeds = set()
-        for path in path_of.values():
-            seeds.update((cmds.ls(path, long=True) or []) if path else ())
-        for node_type in ("constraint", "ikHandle", "ikEffector"):
-            seeds.update(cmds.ls(type=node_type, long=True) or [])
-
-        kinds = RigMachinery.classify(nodes, seeds=seeds, protected=protected)
-        # Every DAG node, not just transforms: a USD payload lands each SHAPE as
-        # its own object too, so a shape's name is in the consumer's namespace.
-        kinds, dropped = RigMachinery.unambiguous(
-            kinds, cmds.ls(dag=True, long=True) or []
-        )
-        if dropped:
-            print(
-                "rig: {} apparatus node(s) share a short name with a node that "
-                "must survive; kept.".format(len(dropped))
-            )
-        return kinds
+        kinds, kept = RigGraphExtractor().machinery(rig=rig)
     except Exception:
         print("rig: machinery census failed; the rig's apparatus travels with it.")
         traceback.print_exc()
         return {}
+    if kept:
+        print(
+            "rig: {} apparatus node(s) share a short name with a node that "
+            "must survive; kept.".format(len(kept))
+        )
+    return kinds
 
 
 def write_manifest(
@@ -970,7 +884,7 @@ def write_manifest(
     materials=None,
     shading_groups=None,
     bones=None,
-    shots=None,
+    scene_data=None,
     rig=None,
     machinery=None,
 ):
@@ -1002,8 +916,8 @@ def write_manifest(
         **({"rig": rig} if rig else {}),
         **({"machinery": machinery} if machinery else {}),
     }
-    if shots:  # absent = nothing to say; the consumer gates on presence
-        data["shots"] = shots
+    # Absent = nothing to say; the consumer gates on presence.
+    data.update(scene_data or {})
     with open(OUT_USD + ".manifest.json", "w", encoding="utf-8") as fh:
         json.dump(data, fh)
     print(
@@ -1037,9 +951,11 @@ def main():
     _progress(0, 5, "Opening the scene")
     _open_scene(cmds, SRC_PATH)
     # Read off the ORIGINAL scene, before the skin pass rewrites its curves: the
-    # section describes what the artist authored. Names spelled as the exporter
+    # sections describe what the artist authored. Names spelled as the exporter
     # writes the prims.
-    shots = shots_section(cmds, lambda name: _sanitize_prim_name(name.split("|")[-1]))
+    scene_data = scene_data_sections(
+        cmds, lambda name: _sanitize_prim_name(name.split("|")[-1])
+    )
     # Read off the ORIGINAL networks: the usd-safe pass rewires them.
     _progress(1, 5, "Translating materials")
     materials, shading_groups = collect_materials(cmds)
@@ -1068,7 +984,7 @@ def main():
     # Named now, dropped by the consumer once the payload is in: deleting it
     # HERE would delete the motion mayaUsd is about to sample (this route has no
     # bake of its own). `raw` asks for the scene untouched, apparatus included.
-    machinery = {} if RIG_MODE == "raw" else _classify_rig_machinery(cmds, rig)
+    machinery = {} if RIG_MODE == "raw" else _classify_rig_machinery(rig)
     if not cmds.pluginInfo("mayaUsdPlugin", query=True, loaded=True):
         cmds.loadPlugin("mayaUsdPlugin")
     _progress(3, 5, "Writing the USD")
@@ -1082,35 +998,35 @@ def main():
         materials,
         shading_groups,
         bones,
-        shots=shots,
+        scene_data=scene_data,
         rig=rig,
         machinery=machinery,
     )
     _progress(5, 5, "Converted")
 
 
-def shots_section(cmds, spell):
-    """The scene's shots as the manifest's ``shots`` section, or ``None``.
+def scene_data_sections(cmds, spell):
+    """The scene's portable records as manifest sections (``shots``,
+    ``records``), or ``{}``.
 
-    Neither carrier has a place for a shot, a marker, a locked gap or the samples
-    the sequencer planted on shot bounds, so the store crosses as data and
-    ``MayaSceneImport`` rebuilds it 1:1. mayatk's store encodes it
-    (``ShotStore.export_transfer`` over ``pythontk.ShotTransfer``), names spelled
-    by *spell* as the carrier will write them. Guarded like the other mayatk
-    pre-passes: without mayatk on ``PYTHONPATH`` the shots are not carried, and a
-    printed line says so.
+    Neither carrier has a place for a shot, an emissive group's membership or
+    any other tool record, so they cross as data and ``MayaSceneImport`` lands
+    them 1:1. mayatk writes them (``DataNodes.transfer_sections`` over
+    ``pythontk.RecordTransfer``), names spelled by *spell* as the carrier will
+    write them. Guarded like the other mayatk pre-passes: without mayatk on
+    ``PYTHONPATH`` nothing is carried, and a printed line says so.
     """
     try:
-        from mayatk.anim_utils.shots._shots import ShotStore
+        from mayatk.node_utils.data_nodes import DataNodes
     except Exception as error:  # noqa: BLE001 -- degrade, never fail the conversion
-        print("shots: mayatk unavailable ({}); not carried.".format(error))
-        return None
+        print("scene data: mayatk unavailable ({}); not carried.".format(error))
+        return {}
     try:
-        return ShotStore.export_transfer(spell=spell)
+        return DataNodes.transfer_sections(spell=spell) or {}
     except Exception:  # noqa: BLE001
-        print("shots: could not read the scene's shots; not carried:")
+        print("scene data: could not read the scene's records; not carried:")
         traceback.print_exc()
-        return None
+        return {}
 
 
 def _exit(code):

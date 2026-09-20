@@ -154,6 +154,37 @@ class _ShotSequencerInternal(object):
         return i0
 
     @staticmethod
+    def _retime_fcurve(
+        fc, lo, hi, old_start, old_end, new_start, new_end, ledger=None, key=None
+    ) -> int:
+        """``AnimUtils.remap_keys_in_window`` that carries the edit ledger along.
+
+        A retime moves keys the shot system claims -- a pin on a bound, the
+        seam key a gap hold made CONSTANT -- and each claim has to move with
+        its key, or the next reconcile releases it and the sample reads as the
+        animator's from then on (mirror of mayatk's
+        ``_ShotApplyInternal._claims_follow``).  The keys in ``[lo, hi]`` are
+        read BEFORE the remap and their claims remapped after it: claims
+        travel by the keys moved -- the movers' rule, ``ledger.remap`` --
+        never by the window.  An unclaimed curve, or no *ledger*, costs
+        nothing.
+
+        Returns the number of keys remapped.
+        """
+        moved = []
+        if ledger is not None and key is not None and key in ledger.curves:
+            moved = [t for t in AnimUtils.key_times(fc) if lo <= t <= hi]
+        n = AnimUtils.remap_keys_in_window(
+            fc, lo, hi, old_start, old_end, new_start, new_end
+        )
+        if n and moved:
+            scale = (new_end - new_start) / (old_end - old_start)
+            ledger.remap(
+                key, [(t, new_start + (t - old_start) * scale) for t in sorted(moved)]
+            )
+        return n
+
+    @staticmethod
     def _has_keys(obj, start, end) -> bool:
         """True when any transform channel of *obj* carries a key in the range."""
         for fc in _ShotSequencerInternal._transform_fcurves(obj):
@@ -696,9 +727,12 @@ class ShotSequencer(_ShotSequencerInternal):
             if any(dest_seqs_by_obj.get(s["obj"]) for s in head_seqs):
                 # Its own displacement when it sat within a shot-gap of the
                 # destination (it and the content it joins shift as one run),
-                # else its span plus the standard clip separation.
+                # else its span plus the standard clip separation.  Up, never
+                # nearest: a room short of a fractional block lands the block's
+                # last key after the first key it was put in front of.
                 room = self.store.snap(
-                    block_max - block_min + min(dest.start - block_max, separation)
+                    block_max - block_min + min(dest.start - block_max, separation),
+                    "up",
                 )
                 self.add_shot_space(dest_shot_id, room, edge="leading")
                 for sid, grp in groups.items():
@@ -749,7 +783,8 @@ class ShotSequencer(_ShotSequencerInternal):
 
         # ---- 3. open the room, THEN land in it ----------------------------
         with self.store.batch_update():
-            room = self.store.snap(needed_end) - dest.end
+            # Up, never nearest: the destination encloses what lands in it.
+            room = self.store.snap(needed_end, "up") - dest.end
             if room > _EPS:
                 old_end = dest.end
                 # Source shots at or after the destination's end travel with
@@ -760,7 +795,7 @@ class ShotSequencer(_ShotSequencerInternal):
                     if sid is not None
                     and (self.shot_by_id(sid) or dest).start >= old_end - _EPS
                 }
-                dest.end = self.store.snap(needed_end)
+                dest.end = self.store.snap(needed_end, "up")
                 self.ripple_downstream(dest_shot_id, old_end, room)
                 for seq, source_id, _target in placements:
                     if source_id in travelled:
@@ -861,13 +896,13 @@ class ShotSequencer(_ShotSequencerInternal):
         else:
             new_start, new_end = content_start, content_end
 
-        if edge == "leading":
-            new_end = shot.end
-        elif edge == "trailing":
-            new_start = shot.start
-
-        new_start = self.store.snap(new_start)
-        new_end = self.store.snap(new_end)
+        # Outward, never nearest: the bounds must enclose fractional content
+        # (mirror of mayatk -- a start rounded up past its first key handed
+        # that key to the neighbour's envelope).  The excluded edge stays put.
+        new_start = (
+            shot.start if edge == "trailing" else self.store.snap(new_start, "down")
+        )
+        new_end = shot.end if edge == "leading" else self.store.snap(new_end, "up")
         head_delta = new_start - shot.start
         tail_delta = new_end - shot.end
         if abs(head_delta) < _EPS and abs(tail_delta) < _EPS:
@@ -1866,8 +1901,18 @@ class ShotSequencer(_ShotSequencerInternal):
             if o is None:
                 continue
             for fc in BlenderShotStore.iter_action_fcurves(o):
-                AnimUtils.remap_keys_in_window(
-                    fc, lo, hi, old_start, old_end, new_start, new_end
+                # The claims ride with the keys (_retime_fcurve): mirror of
+                # mayatk's scale_object_keys.
+                _ShotSequencerInternal._retime_fcurve(
+                    fc,
+                    lo,
+                    hi,
+                    old_start,
+                    old_end,
+                    new_start,
+                    new_end,
+                    ledger=self.ledger,
+                    key=_ShotSequencerInternal._fc_key(name, fc),
                 )
 
     def scale_object_keys(
@@ -2307,7 +2352,7 @@ class ShotSequencer(_ShotSequencerInternal):
         )
 
     def _reconcile_boundary_keys(
-        self, bounds: Optional[Dict[int, tuple]] = None
+        self, bounds: Optional[Dict[int, tuple]] = None, follow: bool = True
     ) -> Tuple[int, int]:
         """Make every claimed boundary sample follow — or leave — its bound.
 
@@ -2320,6 +2365,11 @@ class ShotSequencer(_ShotSequencerInternal):
         the store holds — the PENDING form
         (:meth:`_reconcile_pending_bounds`), for an edit that has not written
         its new bounds yet.
+
+        *follow* ``False`` never MOVES a sample (the Ctrl edge drag: the bound
+        moves and nothing else does -- a followed pin re-times its ramp, and
+        can slide past another key); one whose bound moved is cut when
+        provably redundant and disowned in place otherwise.
 
         Returns ``(moved, removed)``.
         """
@@ -2358,7 +2408,7 @@ class ShotSequencer(_ShotSequencerInternal):
                     bound is not None
                     and _ShotSequencerInternal._key_index_at(fc, bound) is not None
                 )
-                if bound is not None and not occupied:
+                if follow and bound is not None and not occupied:
                     kp = fc.keyframe_points[idx]
                     d = bound - kp.co[0]
                     kp.co[0] = bound
@@ -2394,13 +2444,15 @@ class ShotSequencer(_ShotSequencerInternal):
         """
         self._reconcile_boundary_keys(bounds={shot_id: (new_start, new_end)})
 
-    def reconcile_system_edits(self) -> Dict[str, int]:
+    def reconcile_system_edits(self, follow: bool = True) -> Dict[str, int]:
         """Release every shot-system write whose boundary has moved on.
 
         The single maintenance entry point, safe after any mutation.
+        *follow* ``False`` is the Ctrl edge drag's form: a sample whose bound
+        moved stays put (see :meth:`_reconcile_boundary_keys`).
         Returns ``{"keys_moved", "keys_removed", "holds"}``.
         """
-        moved, removed = self._reconcile_boundary_keys()
+        moved, removed = self._reconcile_boundary_keys(follow=follow)
         self._enforce_gap_holds()
         return {
             "keys_moved": moved,
@@ -2804,9 +2856,13 @@ class ShotSequencer(_ShotSequencerInternal):
             return
         old_end = shot.end
         new_end = self.store.snap(shot.start + new_duration)
-        # Ripple first, then scale (mirrors mayatk; see resize_shot).
-        self.ripple_downstream(shot_id, old_end, delta)
+        # A growing end ripples FIRST and a shrinking one AFTER the scale
+        # (mirrors mayatk; see resize_shot).
+        if delta > 0:
+            self.ripple_downstream(shot_id, old_end, delta)
         self.scale_shot_keys(shot.start, old_end, shot.start, new_end)
+        if delta < 0:
+            self.ripple_downstream(shot_id, old_end, delta)
         shot.end = new_end
         self.reconcile_system_edits()
         self.store.mark_dirty()
@@ -2826,16 +2882,22 @@ class ShotSequencer(_ShotSequencerInternal):
         old_start, old_end = shot.start, shot.end
         if abs(new_start - old_start) < _EPS and abs(new_end - old_end) < _EPS:
             return
-        # Ripple FIRST, then scale (mirrors mayatk): a key scaled into a
-        # neighbour's window rode away with the ripple; moving the
-        # neighbours first vacates the new span.
+        # Every GROWING edge ripples FIRST, then the scale, then every
+        # SHRINKING edge ripples (mirrors mayatk, whose resize_shot carries the
+        # measurements): a grow has to vacate the room before the scale fills
+        # it, and a shrink rippled first lands the neighbours inside the span
+        # this shot's content still occupies, where the scale retimes them too.
         tail_delta = new_end - old_end
-        if abs(tail_delta) > _EPS:
-            self.ripple_downstream(shot_id, old_end, tail_delta)
         head_delta = new_start - old_start
-        if abs(head_delta) > _EPS:
+        if tail_delta > _EPS:
+            self.ripple_downstream(shot_id, old_end, tail_delta)
+        if head_delta < -_EPS:
             self.ripple_upstream(shot_id, old_start, head_delta)
         self.scale_shot_keys(old_start, old_end, new_start, new_end)
+        if tail_delta < -_EPS:
+            self.ripple_downstream(shot_id, old_end, tail_delta)
+        if head_delta > _EPS:
+            self.ripple_upstream(shot_id, old_start, head_delta)
         shot.start = new_start
         shot.end = new_end
         if _enforce:
@@ -2892,10 +2954,12 @@ class ShotSequencer(_ShotSequencerInternal):
         on_bound: list = []
         if clamp and (new_start > old_start + _EPS or new_end < old_end - _EPS):
             first, last, _o1, _o2, on_bound = self._key_extent(shot, False)
+            # Snapped OUTWARD, so the clamp never stops inside fractional
+            # content (mirror of mayatk).
             if new_start > old_start + _EPS and first is not None:
-                new_start = self.store.snap(min(new_start, first))
+                new_start = self.store.snap(min(new_start, first), "down")
             if new_end < old_end - _EPS and last is not None:
-                new_end = self.store.snap(max(new_end, last))
+                new_end = self.store.snap(max(new_end, last), "up")
         if abs(new_start - old_start) < _EPS and abs(new_end - old_end) < _EPS:
             return
         tail_delta = new_end - old_end

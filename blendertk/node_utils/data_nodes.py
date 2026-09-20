@@ -29,11 +29,14 @@ the primitive that makes its guarantee structural:
 ``import bpy`` is deferred into the call bodies (no import side effects).
 """
 
-from typing import Any, Dict, List, Optional
+import logging
+import os
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import pythontk as ptk
 
 _Scope = ptk.Scope
+logger = logging.getLogger(__name__)
 
 
 class DataNodes(ptk.SceneStoreBase):
@@ -43,6 +46,9 @@ class DataNodes(ptk.SceneStoreBase):
     INTERNAL = "data_internal"
     EXPORT = "data_export"
     NAMES: Dict[ptk.Scope, str] = {_Scope.PRIVATE: INTERNAL, _Scope.DELIVERABLE: EXPORT}
+    #: ``{(library path, mtime): its private records}`` -- one linked read per
+    #: file (:meth:`_library_scene_values`).
+    _LIBRARY_SCENE_VALUES: Dict[tuple, Dict[str, Any]] = {}
 
     #: Record keys readers used to spell here; the declarations are
     #: ``ptk.SceneRecords`` and these are the same strings, not copies.
@@ -55,7 +61,6 @@ class DataNodes(ptk.SceneStoreBase):
         ptk.SceneRecords.SHOT_STORE.key,
         ptk.SceneRecords.KEY_STASH.key,
     )
-    _REMOVE_IN = "0.9.0"
 
     # ------------------------------------------------------------------
     # The private carrier: one scene ID property group
@@ -97,7 +102,7 @@ class DataNodes(ptk.SceneStoreBase):
         if scene is None:
             return None
         if create:
-            cls._fold_legacy(scene)
+            cls._fold_legacy()
             group = scene.get(cls.INTERNAL)
             return group if group is not None else cls._new_group(scene)
         return scene.get(cls.INTERNAL)
@@ -140,33 +145,40 @@ class DataNodes(ptk.SceneStoreBase):
         return scene[cls.INTERNAL]
 
     @classmethod
-    def _fold_legacy(cls, scene) -> None:
-        """One-time fold of a file saved before the group: the ``data_internal``
-        Empty's custom properties and the top-level ``shot_store`` /
-        ``key_stash`` scene properties move into the group, and the Empty is
-        removed.
+    def _fold_legacy(cls) -> None:
+        """One-time fold of a file saved before the group: each local scene's
+        top-level ``shot_store`` / ``key_stash`` properties move into that
+        scene's group, the ``data_internal`` Empty's custom properties are
+        copied into EVERY local scene's group, and the Empty is removed.
 
-        A legacy value REPLACES the group's: a fold removes every local legacy
-        source, so one found beside the group was written after it -- by an
-        older blendertk that reopened the file -- and is the newer record
-        (:meth:`read` agrees).  A library-linked Empty is not a source at all
-        (:meth:`_local_object`)."""
+        Every scene, not the current one alone: the Empty was file-global, so
+        each scene read its records (:meth:`read`), and folding them into one
+        scene before removing it cost every other scene its emissive registry
+        and bake manifests.  A legacy value REPLACES the group's: a fold
+        removes every local legacy source, so one found beside the group was
+        written after it -- by an older blendertk that reopened the file -- and
+        is the newer record (:meth:`read` agrees).  A library-linked Empty or
+        scene is not a source at all (:meth:`_local_object`)."""
         import bpy
 
         legacy = cls._local_object(cls.INTERNAL)
-        top = [k for k in cls._LEGACY_SCENE_KEYS if k in scene.keys()]
-        if legacy is None and not top:
-            return
-        group = scene.get(cls.INTERNAL)
-        if group is None:
-            group = cls._new_group(scene)
-        # Top-level first, so the Empty wins a key both hold, as in a read.
-        for key in top:
-            group[key] = scene[key]
-            del scene[key]
-        if legacy is not None:
-            for key, value in cls._object_values(legacy).items():
+        values = cls._object_values(legacy) if legacy is not None else {}
+        for scene in bpy.data.scenes:
+            if scene.library is not None:
+                continue
+            top = [k for k in cls._LEGACY_SCENE_KEYS if k in scene.keys()]
+            if not top and not values:
+                continue
+            group = scene.get(cls.INTERNAL)
+            if group is None:
+                group = cls._new_group(scene)
+            # Top-level first, so the Empty wins a key both hold, as in a read.
+            for key in top:
+                group[key] = scene[key]
+                del scene[key]
+            for key, value in values.items():
                 group[key] = value
+        if legacy is not None:
             bpy.data.objects.remove(legacy, do_unlink=True)
 
     # ------------------------------------------------------------------
@@ -296,7 +308,7 @@ class DataNodes(ptk.SceneStoreBase):
             # A private clear migrates an unfolded file first, as a write does
             # (the create path folds): clearing only the group would leave the
             # legacy copy for the next read to find.
-            cls._fold_legacy(cls._scene())
+            cls._fold_legacy()
         carrier = cls._carrier(scope, create=bool(text))
         if carrier is None:
             return None
@@ -355,65 +367,250 @@ class DataNodes(ptk.SceneStoreBase):
         }
 
     # ------------------------------------------------------------------
-    # Retired channel methods -- the record layer replaced them (2026-09-18)
+    # Crossings -- another file's records meeting this file's
     # ------------------------------------------------------------------
 
-    @ptk.Deprecation.symbol(
-        "DataNodes.write(ptk.Scope.PRIVATE, key, value)", remove_in=_REMOVE_IN
-    )
+    #: The record owners (``ptk.SceneStoreBase.OWNERS``: what each hook means
+    #: and when it runs), mirror of mayatk's table.  No bake-session owner: a
+    #: Blender bake parks nothing beside its record (its references are names,
+    #: which a crossing respells).
+    OWNERS: Dict[str, Tuple[str, str]] = {
+        ptk.SceneRecords.SHOT_STORE.key: (
+            "blendertk.anim_utils.shots._shots",
+            "BlenderShotStore",
+        ),
+        ptk.SceneRecords.KEY_STASH.key: (
+            "blendertk.anim_utils.key_stash._key_stash",
+            "KeyStash",
+        ),
+        ptk.SceneRecords.EMISSIVE_REGISTRY.key: (
+            "blendertk.mat_utils.emissive_groups",
+            "EmissiveGroups",
+        ),
+    }
+
     @classmethod
-    def set_internal_string(cls, key, value):
-        return cls.write(_Scope.PRIVATE, key, value)
+    def carriers_in(cls, library) -> Dict[ptk.Scope, "_Carrier"]:
+        """The carriers a linked *library* brings, by scope, read while it is
+        still linked (mirror of mayatk's ``carriers_in(namespace)``): its
+        ``data_export`` Empty, and its private records -- the ``data_internal``
+        group of its first scene holding one (no link reaches a scene
+        property; :meth:`_library_scene_values`) plus a pre-group
+        ``data_internal`` Empty it still carries, whose values win as in a
+        fold.  What ``merge_carriers`` / ``discard_carriers`` settle once the
+        library is local.  Leaves nothing behind."""
+        import bpy
 
-    @ptk.Deprecation.symbol(
-        "DataNodes.read(ptk.Scope.PRIVATE, key)", remove_in=_REMOVE_IN
-    )
+        found: Dict[ptk.Scope, _Carrier] = {}
+
+        def linked(name):
+            return [
+                o for o in bpy.data.objects if o.library == library and o.name == name
+            ]
+
+        export = linked(cls.EXPORT)[:1]
+        if export:
+            found[_Scope.DELIVERABLE] = _Carrier(cls._object_values(export[0]), export)
+        legacy = linked(cls.INTERNAL)[:1]
+        private = cls._library_scene_values(library)
+        if legacy:
+            private.update(cls._object_values(legacy[0]))
+        if private or legacy:
+            found[_Scope.PRIVATE] = _Carrier(private, legacy)
+        return found
+
     @classmethod
-    def get_internal_string(cls, key):
-        return cls.read(_Scope.PRIVATE, key)
+    def _library_scene_values(cls, library) -> Dict[str, Any]:
+        """The ``data_internal`` group of *library*'s first scene that holds
+        one, else ``{}``.  A scene is never linked with a library's
+        collections, so its group is read by linking the scenes for the read
+        -- and every datablock that read linked is removed again."""
+        import bpy
 
-    @ptk.Deprecation.symbol(
-        "ptk.SceneRecords.<RECORD>.save(DataNodes, payload)", remove_in=_REMOVE_IN
-    )
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        path = bpy.path.abspath(library.filepath)
+        if not os.path.isfile(path):
+            return {}
+        # The read links every scene's graph and unlinks it again -- a whole
+        # assembly, for one property group.  A linked file cannot change under
+        # us, so one read per (file, mtime) serves the decide / cancel / retry
+        # round trips of a make-local.
+        stamp = (path, os.path.getmtime(path))
+        cached = cls._LIBRARY_SCENE_VALUES.get(stamp)
+        if cached is not None:
+            return dict(cached)
+        before = {id_.session_uid for id_ in CoreUtils.all_ids()}
+        with bpy.data.libraries.load(path, link=True) as (source, target):
+            target.scenes = list(source.scenes)
+        try:
+            values: Dict[str, Any] = {}
+            for scene in target.scenes:
+                group = scene.get(cls.INTERNAL) if scene is not None else None
+                if group is not None and group.keys():
+                    values = cls._object_values(group)
+                    break
+            cls._LIBRARY_SCENE_VALUES[stamp] = dict(values)
+            return values
+        finally:
+            fresh = [
+                id_ for id_ in CoreUtils.all_ids() if id_.session_uid not in before
+            ]
+            if fresh:
+                bpy.data.batch_remove(fresh)
+
     @classmethod
-    def set_internal_json(cls, key, payload):
-        return cls.write(
-            _Scope.PRIVATE, key, _LEGACY_SPEC.encode(payload) if payload else None
-        )
+    def _drop_legacy_carrier(cls, carriers: Mapping[Any, "_Carrier"]) -> None:
+        """Remove the pre-group ``data_internal`` Empty *carriers* hold, once
+        its library is local -- its values were read while linked.  Left
+        under its canonical name, the next private write would fold it into
+        this file's records (:meth:`_fold_legacy`), silently REPLACING this
+        file's values with the library's."""
+        import bpy
 
-    @ptk.Deprecation.symbol(
-        "ptk.SceneRecords.<RECORD>.load(DataNodes)", remove_in=_REMOVE_IN
-    )
+        carrier = (carriers or {}).get(_Scope.PRIVATE)
+        for obj in list(getattr(carrier, "objects", ())):
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except ReferenceError:
+                pass
+        if carrier is not None:
+            carrier.objects = []
+
+    @staticmethod
+    def library_renames(before) -> Any:
+        """``rename(name)`` for a library made local: *before* is
+        ``[(datablock, name while linked), ...]`` for its objects and actions,
+        and each one the move renamed (Blender's ``.001`` clash suffix) maps
+        to its name now.  An ``object|data_path|index`` key -- the shot
+        ledger's -- maps through its object.  A name the move did not treat
+        alike for every datablock holding it -- an object kept it while an
+        action became ``.001`` -- is ambiguous and left alone: a record names
+        no type."""
+        renamed: Dict[str, set] = {}
+        kept: set = set()
+        for datablock, old in before:
+            try:
+                new = datablock.name
+            except ReferenceError:
+                continue
+            if new == old:
+                kept.add(old)
+            else:
+                renamed.setdefault(old, set()).add(new)
+        table = {
+            old: next(iter(news))
+            for old, news in renamed.items()
+            if len(news) == 1 and old not in kept
+        }
+
+        def rename(name: str) -> Optional[str]:
+            hit = table.get(name)
+            if hit:
+                return hit
+            head, sep, tail = str(name).partition("|")
+            hit = table.get(head) if sep else None
+            return f"{hit}|{tail}" if hit else None
+
+        return rename
+
+    # -- the carrier hooks of ``ptk.SceneStoreBase``'s crossings --------------
+
     @classmethod
-    def get_internal_json(cls, key, default=None):
-        return _LEGACY_SPEC.decode(cls.read(_Scope.PRIVATE, key), default)
+    def _live_carriers(
+        cls, carriers: Mapping[Any, "_Carrier"]
+    ) -> Dict[ptk.Scope, "_Carrier"]:
+        return {_Scope(s): c for s, c in (carriers or {}).items() if c is not None}
 
-    @ptk.Deprecation.symbol(
-        "DataNodes.write(ptk.Scope.DELIVERABLE, key, value)", remove_in=_REMOVE_IN
-    )
     @classmethod
-    def set_export_string(cls, key, value):
-        return cls.write(_Scope.DELIVERABLE, key, value)
+    def _foreign_carriers(cls, carriers) -> Dict[ptk.Scope, "_Carrier"]:
+        """:meth:`_live_carriers` less a ``data_export`` the move made this
+        file's own (it had none): adopted, not merged.  A private carrier is
+        never this file's -- that is the scene group, which no library
+        brings."""
+        own = cls._local_object(cls.EXPORT)
+        return {
+            scope: carrier
+            for scope, carrier in cls._live_carriers(carriers).items()
+            if not (own is not None and any(o == own for o in carrier.objects))
+        }
 
-    @ptk.Deprecation.symbol(
-        "DataNodes.read(ptk.Scope.DELIVERABLE, key)", remove_in=_REMOVE_IN
-    )
     @classmethod
-    def get_export_string(cls, key):
-        return cls.read(_Scope.DELIVERABLE, key)
+    def _carrier_values(cls, carrier: "_Carrier") -> Dict[str, Any]:
+        return dict(carrier.values)
 
-    @ptk.Deprecation.symbol(
-        "FbxUtils.publish_authored({RECORD: payload})", remove_in=_REMOVE_IN
-    )
     @classmethod
-    def set_export_json(cls, key, payload):
-        return cls.write(
-            _Scope.DELIVERABLE, key, _LEGACY_SPEC.encode(payload) if payload else None
-        )
+    def _carry_attributes(cls, carrier: "_Carrier", scope: ptk.Scope, ctx) -> None:
+        """Copy the other ``data_export``'s non-record custom properties -- an
+        emissive group's weight -- to this file's carrier when it has none of
+        that name; one this file has stays its own, and a keyed one's curve
+        does not move (both noted)."""
+        if _Scope(scope) is not _Scope.DELIVERABLE:
+            return
+        props = {
+            k: v
+            for k, v in carrier.values.items()
+            if not isinstance(v, str) and v is not None
+        }
+        if not props:
+            return
+        target = cls._export_object(create=True)
+        for key, value in props.items():
+            if key in target.keys():
+                ctx.note(
+                    f"{cls.EXPORT}.{key}: this file's own was kept; the other "
+                    "file's was not moved."
+                )
+                continue
+            target[key] = value
+            if any(cls._keyed(obj, key) for obj in carrier.objects):
+                ctx.note(f"{cls.EXPORT}.{key}: its value moved; its animation did not.")
+
+    @staticmethod
+    def _keyed(obj, key: str) -> bool:
+        """Whether *obj* animates its custom property *key*."""
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        path = f'["{key}"]'
+        try:
+            return any(fc.data_path == path for fc in AnimUtils.get_fcurves([obj]))
+        except ReferenceError:
+            return False
+
+    @classmethod
+    def _rederive(cls, specs, ctx) -> None:
+        """Produce *specs* again from the merged file (authoring context,
+        ``FbxUtils.publish``); mirror of mayatk's."""
+        from blendertk.env_utils.fbx_utils import FbxUtils
+
+        try:
+            FbxUtils.publish(
+                FbxUtils.export_context(mode=ptk.ExportContext.AUTHORING), only=specs
+            )
+        except Exception as error:  # noqa: BLE001 - the merge stands without them
+            logger.warning("Deliverable records not re-derived.", exc_info=True)
+            ctx.note(f"Deliverable records were not produced again ({error}).")
+
+    @classmethod
+    def _delete_carrier(cls, carrier: "_Carrier") -> None:
+        """Remove the objects that held another file's records."""
+        import bpy
+
+        for obj in carrier.objects:
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except ReferenceError:
+                continue
 
 
-#: A shapeless declaration the retired JSON getter decodes through: no
-#: envelope, so a legacy caller's payload comes back exactly as stored.
-_LEGACY_SPEC = ptk.RecordSpec(
-    "_legacy", _Scope.PRIVATE, 0, "legacy", "", envelope=False
-)
+class _Carrier:
+    """Another file's carrier as a crossing holds it: the *values* it held,
+    read while its library was still linked, and the *objects* that held them
+    -- local now, removed when the carrier is settled (none for a scene
+    group, which no link brings)."""
+
+    __slots__ = ("values", "objects")
+
+    def __init__(self, values: Mapping[str, Any], objects=()):
+        self.values = dict(values)
+        self.objects = list(objects)

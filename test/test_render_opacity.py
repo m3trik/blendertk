@@ -397,23 +397,19 @@ try:
     ptk.SceneRecords.FBX_TAKES.clear(DataNodes)
     ptk.SceneRecords.SHOTS.save(DataNodes, {"fps": 30.0, "shots": []})
 
-    # What the bake-range seed for clip_span["*"] actually describes, measured
-    # 2026-09-10 through FbxUtils.export rather than raw bpy.ops -- the answer
-    # differs by mode, which is why mayatk's fix cannot be mirrored blindly.
+    # What the bake-range seed for clip_span["*"] actually describes, through
+    # FbxUtils.export rather than raw bpy.ops. Blender's global take CLIPS to
+    # the range: a curve keyed 0-100 is written as 60 frames under a 20-80
+    # range, so the seed is TRUE -- in BOTH modes since 2026-09-19. Until then
+    # a write with no takes armed took Blender's operator defaults, emitted
+    # per-action start-zeroed takes over each action's OWN range, and wrote the
+    # curve whole (100 frames against a seed of 60). FbxUtils now makes every
+    # animated write one scene-range take (``FbxUtils.scene_range_take``), which
+    # is what the seed describes.
     #
-    #   takes armed    -> the write is ONE scene-range stack (blendertk forces
-    #                     bake_anim_use_nla_strips / use_all_actions off), so a
-    #                     curve keyed 0-100 is written as 60 frames under a
-    #                     20-80 range and the seed is TRUE.
-    #   no takes armed -> Blender's operator defaults apply, the exporter emits
-    #                     per-action start-zeroed stacks over each action's OWN
-    #                     range, and the same curve is written whole: 100 frames
-    #                     against a seed of 60.
-    #
-    # Maya writes the curve whole in BOTH cases, which is why its fix measures
-    # the key extent instead. Publishing a measured extent here would OVERSTATE
-    # the takes-armed write, so these two checks pin the split rather than the
-    # conclusion.
+    # Maya writes the curve whole under ANY range, which is why its fix
+    # measures the key extent instead; publishing a measured extent here would
+    # OVERSTATE the write, so these checks pin the Blender answer itself.
     _cube = bpy.data.objects.new("ClipSpanProbe", bpy.data.meshes.new("ClipSpanProbe"))
     bpy.context.collection.objects.link(_cube)
     for _f, _x in ((0, 0.0), (100, 10.0)):
@@ -459,8 +455,8 @@ try:
 
     _bare = _written_span(None)
     check(
-        "no takes: per-action stacks carry the curve WHOLE, so the seed understates it",
-        _bare == 100,
+        "no takes: still one scene-range take, so the bake-range seed is TRUE",
+        _bare == 60,
         detail=f"authored 100 frames, wrote {_bare} against a 60-frame seed",
     )
 

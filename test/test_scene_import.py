@@ -681,18 +681,15 @@ try:
         str(_vis),
     )
 
-    for val, lit in (("auto", "'auto'"), (True, "True"), (False, "False")):
-        s = eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", smart_bake=val)
+    for mode in ("auto", "bake", "raw"):
+        s = eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", rig_mode=mode)
         ok_compile = True
         try:
             compile(s, "r.py", "exec")
         except SyntaxError:
             ok_compile = False
-        check(
-            f"render: smart_bake={val!r} -> SMART_BAKE = {lit} (compiles)",
-            f"SMART_BAKE = {lit}" in s and ok_compile,
-        )
-    usd = eng.render_script(r"C:\s.ma", r"C:\o.usd", via="usd", smart_bake=True)
+        check(f"render: rig_mode={mode!r} (FBX) compiles", ok_compile)
+    usd = eng.render_script(r"C:\s.ma", r"C:\o.usd", via="usd", rig_mode="bake")
     check(
         "render: USD route omits SMART_BAKE (FBX-only feature)", "SMART_BAKE" not in usd
     )
@@ -700,7 +697,6 @@ try:
     # ---- rig_mode: ONE parameter for how rig logic travels (schema 15.1) ------
     import ast as _ast
     import json as _json
-    import warnings as _warnings
 
     for mode, smart in (
         ("auto", "'auto'"),
@@ -730,14 +726,14 @@ try:
     )
     r = eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", rig_mode="auto")
     check("render: a non-rig mode ships NO capability", "RIG_CAPABILITY = ''" in r)
-    with _warnings.catch_warnings(record=True) as caught:
-        _warnings.simplefilter("always")
-        legacy = eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", smart_bake=True)
+    try:
+        eng.render_script(r"C:\s.ma", r"C:\o.fbx", via="fbx", smart_bake=True)
+        _alias_gone = False
+    except TypeError:
+        _alias_gone = True
     check(
-        "render: smart_bake=True is a deprecated alias for rig_mode='bake'",
-        "SMART_BAKE = True" in legacy
-        and "RIG_MODE = 'bake'" in legacy
-        and any(issubclass(w.category, DeprecationWarning) for w in caught),
+        "render: the smart_bake= alias is gone (its remove_in was 0.7.0)",
+        _alias_gone,
     )
     check(
         "cache key: rig_mode is part of the conversion identity on BOTH routes",
@@ -833,9 +829,15 @@ try:
         check(
             f"template ({label}): names the baked rig's apparatus into the manifest",
             "def _classify_rig_machinery" in txt_
-            and "_classify_rig_machinery(cmds, rig)" in txt_
+            and "_classify_rig_machinery(rig)" in txt_
             and '"machinery": machinery' in txt_
             and 'RIG_MODE == "raw"' in txt_,
+        )
+        # The census is mayatk's, shared with the Scene Exporter and the WebXR
+        # preview: the template only delegates.
+        check(
+            f"template ({label}): the census is mayatk's RigGraphExtractor.machinery",
+            "RigGraphExtractor().machinery(rig=rig)" in txt_,
         )
     check(
         "template: the two _classify_rig_machinery copies are AST-identical (drift guard)",
@@ -844,9 +846,10 @@ try:
         == _fn(usd_t, "_classify_rig_machinery"),
     )
 
-    # Behavioural: the census, extracted from the template and run against a stub
-    # scene. What it must NOT name is the half that matters -- "draws nothing" is
-    # not "is a rig", or a scene's own export marker goes with the controls.
+    # Behavioural: the wrapper, extracted from the template and run against a
+    # stand-in mayatk. The census itself (content, influences and a scene's own
+    # nulls kept; a shared short name kept; a BUILT record's nodes kept) is
+    # tested against a real scene in mayatk's test_rig_graph_extract.
     _m_src = fbx_t[
         fbx_t.index("def _classify_rig_machinery") : fbx_t.index(
             "def _inherited_visibility_targets"
@@ -854,144 +857,59 @@ try:
     ]
     _m_ns = {"traceback": traceback}
     exec(compile(_m_src, "_classify_rig_machinery.py", "exec"), _m_ns)
-    _M_SCENE = {
-        "|grp": ("transform", []),
-        "|grp|cube": ("transform", ["mesh"]),
-        "|grp|cube|cube_parentConstraint1": ("parentConstraint", []),
-        "|rig": ("transform", []),
-        "|rig|ctrl_GRP": ("transform", []),
-        "|rig|ctrl_GRP|ctrl": ("transform", ["nurbsCurve"]),
-        "|rig|ctrl_GRP|ctrl|ctrl_pointConstraint1": ("pointConstraint", []),
-        "|rig|up_loc": ("transform", ["locator"]),
-        "|rig|ik": ("ikHandle", []),
-        "|rig|ik_curve": ("transform", ["nurbsCurve"]),
-        "|skel": ("joint", []),
-        "|skel|j1": ("joint", []),
-        "|driver_jnt": ("joint", []),
-        "|artist_null": ("transform", []),
-        "|data_export": ("transform", ["locator"]),
-        "|cam": ("transform", ["camera"]),
-        "|particles": ("transform", ["nParticle"]),
+    import types as _types
+
+    _extract_mod = "mayatk.rig_utils.rig_graph_extract"
+    _saved = {
+        k: sys.modules.get(k) for k in ("mayatk", "mayatk.rig_utils", _extract_mod)
     }
-    _M_SKINS = {
-        "skinCube": {"geometry": ["cubeShape"], "influence": ["|skel|j1"]},
-        "skinCurve": {"geometry": ["ik_curveShape"], "influence": ["|driver_jnt"]},
-    }
-    _M_SHAPES = {"cubeShape": "mesh", "ik_curveShape": "nurbsCurve"}
-    for _p, (_t, _sh) in _M_SCENE.items():
-        if _sh:
-            _M_SHAPES[_p.rsplit("|", 1)[-1] + "Shape"] = _sh[0]
 
-    class _MachineryCmds:
-        def ls(self, *a, **k):
-            kind = k.get("type")
-            if kind == "transform":
-                return sorted(_M_SCENE)
-            if kind == "skinCluster":
-                return sorted(_M_SKINS)
-            if kind == "constraint":
-                return [p for p, v in _M_SCENE.items() if v[0].endswith("Constraint")]
-            if kind in ("ikHandle", "ikEffector"):
-                return [p for p, v in _M_SCENE.items() if v[0] == kind]
-            if k.get("dag"):  # transforms AND the shapes under them
-                return sorted(
-                    list(_M_SCENE)
-                    + [
-                        p + "|" + p.rsplit("|", 1)[-1] + "Shape"
-                        for p, v in _M_SCENE.items()
-                        if v[1]
-                    ]
-                )
-            if a and a[0]:
-                return [a[0]] if a[0] in _M_SCENE else []
-            return []
+    def _stand_in(machinery):
+        """Install a mayatk whose extractor answers *machinery(rig)*."""
+        extract = _types.ModuleType(_extract_mod)
+        extract.RigGraphExtractor = type(
+            "RigGraphExtractor",
+            (),
+            {"machinery": lambda self, rig=None: machinery(rig)},
+        )
+        sys.modules["mayatk"] = _types.ModuleType("mayatk")
+        sys.modules["mayatk.rig_utils"] = _types.ModuleType("mayatk.rig_utils")
+        sys.modules[_extract_mod] = extract
 
-        def nodeType(self, node):
-            if node in _M_SCENE:
-                return _M_SCENE[node][0]
-            return _M_SHAPES.get(node, "unknown")
+    _seen = {}
 
-        def listRelatives(self, node, **k):
-            if k.get("shapes"):
-                return [node.rsplit("|", 1)[-1] + "Shape"] if _M_SCENE[node][1] else []
-            if k.get("allDescendents"):
-                return [p for p in _M_SCENE if p.startswith(node + "|")]
-            return []
+    def _answer(rig):
+        _seen["rig"] = rig
+        return {"|rig|ctrl": "control"}, ("|rig|up_loc",)
 
-        def skinCluster(self, skin, query=False, geometry=False, influence=False):
-            return _M_SKINS[skin]["geometry" if geometry else "influence"]
+    def _fails(rig):
+        raise RuntimeError("census exploded")
 
-    _M_GRAPH = {
-        "nodes": [
-            {"id": f"n{i}", "path": p}
-            for i, p in enumerate(
-                ("|rig|ctrl_GRP|ctrl", "|rig|ik_curve", "|driver_jnt", "|skel|j1")
-            )
-        ],
-        "records": [{"id": "r1", "target": {"id": "n0"}, "sources": [{"id": "n2"}]}],
-    }
-    _named = _m_ns["_classify_rig_machinery"](_MachineryCmds(), {"graph": _M_GRAPH})
-    check(
-        "machinery census: the rig's apparatus by kind, wrapper groups included",
-        _named
-        == {
-            "|grp|cube|cube_parentConstraint1": "constraint",
-            "|rig": "group",
-            "|rig|ctrl_GRP": "group",
-            "|rig|ctrl_GRP|ctrl": "control",
-            "|rig|ctrl_GRP|ctrl|ctrl_pointConstraint1": "constraint",
-            "|rig|up_loc": "locator",
-            "|rig|ik": "ik",
-            "|rig|ik_curve": "control",
-            "|driver_jnt": "joint",
-        },
-        str(sorted(_named.items())),
-    )
-    # The half that matters: apparatus means CONNECTED TO A RIG. A scene's own
-    # locator draws nothing either, and deleting it would be a data loss the user
-    # never asked for.
-    check(
-        "machinery census: content, influences and the scene's own nulls are kept",
-        not (
-            {
-                "|grp",
-                "|grp|cube",
-                "|skel",
-                "|skel|j1",
-                "|artist_null",
-                "|data_export",
-                "|cam",
-                "|particles",
-            }
-            & set(_named)
-        ),
-        str(sorted(_named)),
-    )
-    # Neither carrier keeps a Maya DAG path, so the consumer matches by LEAF
-    # name -- and a mirrored rig repeats short names. Ambiguity is resolved where
-    # the paths are, in favour of keeping.
-    _M_SCENE["|keepme"] = ("transform", [])
-    _M_SCENE["|keepme|up_loc"] = ("transform", ["locator"])
-    _collide = _m_ns["_classify_rig_machinery"](_MachineryCmds(), {"graph": _M_GRAPH})
-    del _M_SCENE["|keepme"], _M_SCENE["|keepme|up_loc"]
-    check(
-        "machinery census: a short name shared with a node that must survive is KEPT",
-        "|rig|up_loc" not in _collide
-        and "|keepme|up_loc" not in _collide
-        and "|rig|ctrl_GRP|ctrl" in _collide,
-        str(sorted(_collide)),
-    )
-    check(
-        "machinery census: a BUILT record keeps its nodes and their wrapper groups",
-        not (
-            {"|rig|ctrl_GRP|ctrl", "|driver_jnt", "|rig|ctrl_GRP"}
-            & set(
-                _m_ns["_classify_rig_machinery"](
-                    _MachineryCmds(), {"graph": _M_GRAPH, "plan": {"build": ["r1"]}}
-                )
-            )
-        ),
-    )
+    try:
+        _stand_in(_answer)
+        _named = _m_ns["_classify_rig_machinery"]({"graph": {"nodes": []}})
+        check(
+            "machinery census: the template returns mayatk's answer for the rig it had",
+            _named == {"|rig|ctrl": "control"}
+            and _seen.get("rig") == {"graph": {"nodes": []}},
+            str(_named),
+        )
+        _stand_in(_fails)
+        check(
+            "machinery census: a failing census names nothing -- never the conversion",
+            _m_ns["_classify_rig_machinery"](None) == {},
+        )
+        sys.modules[_extract_mod] = None  # an import that fails
+        check(
+            "machinery census: no mayatk names nothing -- the apparatus travels",
+            _m_ns["_classify_rig_machinery"](None) == {},
+        )
+    finally:
+        for _k, _v in _saved.items():
+            if _v is None:
+                sys.modules.pop(_k, None)
+            else:
+                sys.modules[_k] = _v
 
     # The consumer half: drop what was named, and refuse anything still load-bearing.
     import bpy
@@ -1221,17 +1139,17 @@ try:
     mayatk_parent = next((d for d in dirs if _holds(d, "mayatk")), None)
     baseline_pp = os.environ.get("PYTHONPATH", "")
     try:
-        EnvCaptureImport().convert(src2, out2, via="fbx", smart_bake=True)
+        EnvCaptureImport().convert(src2, out2, via="fbx", rig_mode="bake")
         pp_on = (envs["last"] or {}).get("PYTHONPATH", "")
         check(
-            "convert: smart_bake=True injects the mayatk parent on the child PYTHONPATH",
+            "convert: rig_mode='bake' injects the mayatk parent on the child PYTHONPATH",
             bool(mayatk_parent) and mayatk_parent in pp_on and pp_on != baseline_pp,
             pp_on,
         )
-        EnvCaptureImport().convert(src2, out2, via="fbx", smart_bake=False)
+        EnvCaptureImport().convert(src2, out2, via="fbx", rig_mode="raw")
         pp_off = (envs["last"] or {}).get("PYTHONPATH", "")
         check(
-            "convert: smart_bake=False still injects mayatk (the skin pre-pass "
+            "convert: rig_mode='raw' still injects mayatk (the skin pre-pass "
             "runs on both routes)",
             bool(mayatk_parent) and mayatk_parent in pp_off,
             pp_off,
@@ -2316,7 +2234,7 @@ try:
             == [
                 "Importing the FBX",
                 "Rebuilding lights",
-                "Rebuilding shots",
+                "Landing the scene data",
                 "Imported",
             ],
             str(_reports_shots),
@@ -2341,20 +2259,20 @@ try:
         MayaSceneImport().import_payload(
             _pl_fbx,
             reduce_keys=False,
-            shots=False,
+            scene_data=False,
             progress=lambda d, t, m: _reports_declined.append((d, t, m)),
         )
         check(
-            "import_payload: shots=False leaves the section alone",
-            "Rebuilding shots" not in [m for _, _, m in _reports_declined],
+            "import_payload: scene_data=False leaves the sections alone",
+            "Landing the scene data" not in [m for _, _, m in _reports_declined],
             str(_reports_declined),
         )
         check(
-            "conversion templates: both routes carry the shots through mayatk's store",
+            "conversion templates: both routes carry the scene data through mayatk",
             all(
-                "def shots_section(cmds, spell):"
+                "def scene_data_sections(cmds, spell):"
                 in (_IMPORT_TEMPLATE.parent / t).read_text()
-                and "shots=shots" in (_IMPORT_TEMPLATE.parent / t).read_text()
+                and "scene_data=scene_data" in (_IMPORT_TEMPLATE.parent / t).read_text()
                 for t in ("_import_scene.py", "_import_scene_usd.py")
             ),
         )
@@ -2846,6 +2764,30 @@ try:
             and _san("") == "_",
             f"{_san('ref:nsCube')}/{_san('Chair.001')}/{_san('1digit')}",
         )
+        # The source-side direction: the copy and the method it mirrors answer
+        # alike on every probe, so a change to UsdUtils.sanitize_prim_name fails
+        # here too -- the literals above only catch the COPY drifting. The DCC-twin
+        # ledger (m3trik check_dcc_twins.py) ties this UsdUtils to mayatk's.
+        from blendertk.env_utils.usd import UsdUtils as _BtkUsd
+
+        _probes = (
+            "ref:nsCube",
+            "Chair.001",
+            "1digit",
+            "",
+            "a b-c",
+            "café",
+            "__x",
+            "ns:sub:leaf",
+            "9",
+            "ok_name",
+        )
+        check(
+            "sanitizer copy answers like btk.UsdUtils.sanitize_prim_name on every probe",
+            [_san(n) for n in _probes]
+            == [_BtkUsd.sanitize_prim_name(n) for n in _probes],
+            str([(n, _san(n), _BtkUsd.sanitize_prim_name(n)) for n in _probes]),
+        )
 
     # import leg: a USD conversion without its sidecar must fail BEFORE importing.
     _usd_stub = os.path.join(tempfile.gettempdir(), "btk_strict_nomanifest.usda")
@@ -3120,8 +3062,13 @@ try:
         ):
             _ppath = os.path.join(_btk_bridge_dir, _pname)
             with open(_ppath, encoding="utf-8") as _fh:
-                _found = _re_ver.findall(r'"version":\s*(\d+)', _fh.read())
-            if not _found:
+                _text = _fh.read()
+            _found = _re_ver.findall(r'"version":\s*(\d+)', _text)
+            # A producer building through ``HandoffManifest`` writes the class's
+            # own number (``VERSION_KEY: HandoffManifest.VERSION``) -- it cannot
+            # drift, so the spelling counts as writing the version.
+            _symbolic = _re_ver.search(r"VERSION_KEY\s*:\s*[\w.]*\bVERSION\b", _text)
+            if not _found and not _symbolic:
                 _ver_bad.append(f"{_pname}: writes no version")
             _ver_bad += [
                 f"{_pname}: writes {_v}"

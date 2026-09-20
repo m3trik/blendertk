@@ -561,18 +561,19 @@ class SceneExporter(ptk.LoggingMixin):
             # install aborts with the install URL. Abort idiom, not a
             # raise: the panel's export button reads the return value and
             # the log.
-            try:
-                if not ptk.ImgUtils.ktx2_available():
-                    self.logger.info(
-                        "KTX2 delivery needs KTX-Software's toktx, which is "
-                        "not installed: offering the managed install."
-                    )
-                installed = ptk.ImgUtils.ensure_ktx2_encoder(prompt=self.confirm)
-            except FileNotFoundError as e:
-                self.logger.error(f"Export aborted: {e}")
+            if not ptk.ImgUtils.ktx2_available():
+                self.logger.info(
+                    "KTX2 delivery needs KTX-Software's toktx, which is "
+                    "not installed: offering the managed install."
+                )
+            if not ptk.ImgUtils.settle_ktx2_encoder(
+                prompt=self.confirm,
+                refused=lambda why: self.logger.error(f"Export aborted: {why}"),
+                installed=lambda path: self.logger.info(
+                    f"Installed KTX-Software (toktx): {path}"
+                ),
+            ):
                 return False
-            if installed:
-                self.logger.info(f"Installed KTX-Software (toktx): {installed}")
 
         resolved = self.resolve_export_path(
             self.output_name,
@@ -775,6 +776,13 @@ class SceneExporter(ptk.LoggingMixin):
                 # so the carrier repair (which needs the export set) runs first.
                 fbx_options = self._resolved_fbx_options()
                 self._force_carrier_readability(export_objects, fbx_options)
+                if run.drop_rig_apparatus:
+                    # Exclude Rig Helpers: a Blender rig's apparatus is its
+                    # control and mechanism bones, which the exporter's own
+                    # deform-only mode leaves out (keeping a non-deform bone
+                    # that deform bones hang under). Before the report, which
+                    # must describe the kwargs actually written with.
+                    fbx_options["use_armature_deform_only"] = True
                 self._log_fbx_options(fbx_options)
                 FbxUtils.export_selection_fbx(
                     filepath=fbx_write_path,
@@ -1371,15 +1379,10 @@ class SceneExporter(ptk.LoggingMixin):
                 "Animation takes are armed — forced bake_anim=True so the "
                 "write carries the scene-range take they are cut from."
             )
-        if not fbx_options.get("bake_anim"):
-            return
-        repaired = [
-            key
-            for key in ("bake_anim_use_nla_strips", "bake_anim_use_all_actions")
-            if fbx_options.get(key)
-        ]
-        for key in repaired:
-            fbx_options[key] = False
+        # The rule itself is FbxUtils' (every animated write it makes is one
+        # scene-range take); applied here too so the settings report shows
+        # what the write will use.
+        repaired = FbxUtils.scene_range_take(fbx_options)
         if repaired:
             self.logger.debug(
                 "Forced one scene-range animation take: "

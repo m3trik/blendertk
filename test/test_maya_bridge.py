@@ -164,6 +164,50 @@ try:
         "save template: bare-mayapy fallback re-selects the take (see import twin)",
         "FBXImportSetTake -ti -1" in save_txt,
     )
+    # The two Maya-side scripts share ONE recipe -- the same repairs, in the same
+    # order -- and each says so in prose; this is what holds them to it. Only the
+    # calls to the scripts' own recipe steps are compared: the setup around them
+    # (a new scene, a save, a view fit) is each mode's own business.
+    import ast as _recipe_ast
+
+    _RECIPE = {
+        "import_payload",
+        "restore_usd_locators",
+        "restore_empty_groups",
+        "rebuild_materials",
+        "rebuild_scene_data",
+    }
+
+    def _recipe(text):
+        main = next(
+            n
+            for n in _recipe_ast.parse(text).body
+            if isinstance(n, _recipe_ast.FunctionDef) and n.name == "main"
+        )
+        calls = [
+            n
+            for n in _recipe_ast.walk(main)
+            if isinstance(n, _recipe_ast.Call)
+            and isinstance(n.func, _recipe_ast.Name)
+            and n.func.id in _RECIPE
+        ]
+        return [
+            c.func.id for c in sorted(calls, key=lambda c: (c.lineno, c.col_offset))
+        ]
+
+    check(
+        "import + save templates run one recipe: the same repairs, same order",
+        _recipe(import_txt) == _recipe(save_txt)
+        and _recipe(save_txt)
+        == [
+            "import_payload",
+            "restore_usd_locators",
+            "restore_empty_groups",
+            "rebuild_materials",
+            "rebuild_scene_data",
+        ],
+        f"import={_recipe(import_txt)} save={_recipe(save_txt)}",
+    )
     check(
         "save template: .mb only when asked for, else mayaAscii",
         'mayaBinary" if OUT_FILE.lower().endswith(".mb")' in save_txt,
@@ -662,12 +706,27 @@ try:
     )
     os.remove(manifest_path)
     MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
-        [cube_a, cube_b], manifest_fbx, include_shots=False
+        [cube_a, cube_b], manifest_fbx, include_scene_data=False
     )
     with open(manifest_path, "r", encoding="utf-8") as fh:
         manifest = json.load(fh)
     check(
-        "manifest: include_shots=False leaves the section out", "shots" not in manifest
+        "manifest: include_scene_data=False leaves the section out",
+        "shots" not in manifest,
+    )
+    import warnings as _warnings
+
+    with _warnings.catch_warnings(record=True) as _caught:
+        _warnings.simplefilter("always")
+        _merged = MayaBridge(maya_path="C:/fake/maya.exe").merge_params(
+            {"INCLUDE_SHOTS": False}
+        )
+    check(
+        "params: the retired INCLUDE_SHOTS spelling still opts out (and warns)",
+        _merged.get("INCLUDE_SCENE_DATA") is False
+        and "INCLUDE_SHOTS" not in _merged
+        and any(issubclass(w.category, DeprecationWarning) for w in _caught),
+        str(_merged.get("INCLUDE_SCENE_DATA")),
     )
     os.remove(manifest_path)
     BlenderShotStore.clear_active()

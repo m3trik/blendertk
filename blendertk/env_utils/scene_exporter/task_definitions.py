@@ -125,6 +125,34 @@ class _TaskDefinitionsMixin:
                 ),
                 "setChecked": True,
             },
+            # A mode, not a task: ``ExportRun.from_tasks`` pops it into the flag
+            # the FBX write reads. Blender's rig apparatus lives in the armature
+            # -- control and mechanism BONES -- so the mirror of mayatk's census
+            # is the exporter's own ``use_armature_deform_only``, which keeps a
+            # non-deform bone only when deform bones hang under it.
+            "drop_rig_apparatus": {
+                "widget_type": "QCheckBox",
+                "panel": "settings",
+                "setText": "Exclude Rig Helpers",
+                "setToolTip": TooltipFormat.fmt(
+                    title="Exclude Rig Helpers",
+                    body="Write only the armature bones that deform a mesh: the "
+                    "control and mechanism bones of a rig stay out of the FBX, "
+                    "and so out of the GLB built from it.",
+                    notes=[
+                        "The baked motion is already on the deform bones; the "
+                        "rest draw nothing and deform nothing, yet each ships "
+                        "animated and the GLB conversion bakes every one at "
+                        "every frame.",
+                        "A non-deform bone with deform bones under it is kept, "
+                        "so the hierarchy that carries them survives.",
+                        "Helper OBJECTS (empties or curves a rig uses as "
+                        "targets) still ship; Maya's twin also names those.",
+                        "The scene is not changed. No effect on a USD export.",
+                    ],
+                ),
+                "setChecked": True,
+            },
             "reassign_duplicate_materials": {
                 "widget_type": "QCheckBox",
                 "group": "Materials",

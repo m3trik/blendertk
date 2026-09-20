@@ -1971,22 +1971,13 @@ class ShadowRig(ptk.LoggingMixin):
 
         Parameters:
             ctx (ptk.ExportContext): The export's decisions (unused: the
-                record is a function of the planes alone).  A plane object is
-                the retired per-plane spelling and answers as
-                :meth:`plane_record` does.
+                record is a function of the planes alone).  For one plane's
+                payload call :meth:`plane_record` instead.
 
         Returns:
             ptk.Record | None: The record, or ``None`` when there is no plane
             (the publisher then clears the channel).
         """
-        if ctx is not None and not isinstance(ctx, ptk.ExportContext):
-            ptk.Deprecation.warn(
-                "ShadowRig.export_record(plane)",
-                "ShadowRig.plane_record(plane)",
-                remove_in="0.9.0",
-                stacklevel=2,
-            )
-            return cls.plane_record(ctx)
         planes = cls.find_shadow_planes()
         if not planes:
             return None

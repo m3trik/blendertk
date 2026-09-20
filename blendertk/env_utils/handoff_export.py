@@ -59,22 +59,19 @@ class BlenderExportMixin:
     #: is not the authority on a bake the scene's markers no longer describe.
     export_stagers: Tuple[str, ...] = ()
 
-    def _export_stagers(self) -> Tuple[str, ...]:
-        """:attr:`export_stagers`, plus what a subclass still spells through
-        the retired ``refresh_producers`` tuple (its stager names honoured, its
-        record names ignored -- the context decides those now)."""
-        legacy = getattr(self, "refresh_producers", None)
-        if not legacy:
-            return tuple(self.export_stagers)
-        from blendertk.env_utils.fbx_utils import FbxUtils
+    #: Leave a rig's apparatus out of the FBX payload -- here its control and
+    #: mechanism bones, through the exporter's ``use_armature_deform_only``
+    #: (the Scene Exporter's Exclude Rig Helpers row does the same to its own
+    #: FBX). A bridge whose consumer plays only the baked motion opts in: the
+    #: GLB route. Off by default: a DCC hand-off may rebuild the rig from those
+    #: very bones. Mirror of mayatk's flag of the same name.
+    drop_rig_apparatus: bool = False
 
-        ptk.Deprecation.warn(
-            f"{type(self).__name__}.refresh_producers",
-            "export_stagers (records refresh by kind under a HANDOFF context)",
-            remove_in="0.9.0",
-        )
-        stagers = tuple(n for n in legacy if n in FbxUtils.STAGERS)
-        return tuple(dict.fromkeys((*self.export_stagers, *stagers)))
+    def _export_stagers(self) -> Tuple[str, ...]:
+        """:attr:`export_stagers` as a tuple -- the stager names this bridge's
+        write runs under (which RECORDS refresh is the context's call, not a
+        bridge's; see :attr:`export_stagers`)."""
+        return tuple(self.export_stagers)
 
     def lightmap_search_dirs(self) -> List[str]:
         """Where Blender's map files live now (:class:`pythontk.PreviewBridge` hook).
@@ -338,6 +335,10 @@ class BlenderExportMixin:
                     fbx_opts.get("object_types") or {"MESH"}
                 )
                 fbx_opts["object_types"] = types | {"EMPTY"}
+            if self.drop_rig_apparatus:
+                # Forced here for the carrier's reason: _fbx_options is
+                # overridden wholesale, and the flag must survive that.
+                fbx_opts["use_armature_deform_only"] = True
 
             # Guards the reset below on having ATTEMPTED the split rather than on
             # having armed one, mirroring mayatk: a raise inside ``apply_takes``

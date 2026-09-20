@@ -44,7 +44,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `anim_utils/key_stash/_key_stash.py` — Key Stash — park keyframes outside the working animation, retrieve later (Blender).
 - `class KeyStash(_KeyStashCore, _KeyStashInternal)`
-  - methods: active, rescale_to_fps, reconcile, stash, retrieve, drop, preview, end_preview
+  - methods: active, rescale_to_fps, reconcile, merge_carrier, discard_carrier, stash, retrieve, drop, preview, end_preview
 
 ### `anim_utils/key_stash/key_stash_slots.py` — Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
 - `class KeyStashSlots(ptk.LoggingMixin)`
@@ -66,7 +66,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class BlenderScenePersistence`
   - methods: store_cls, remove_callbacks, save, load, record_changed
 - `class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`
-  - methods: active, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
+  - methods: active, has_animation, detect_regions, assess, publish_export_view, export_transfer, apply_transfer, transfer_out, transfer_in, merge_carrier, iter_action_fcurves, collect_transform_segments, collect_selected_key_entries
 
 ### `anim_utils/shots/shot_manifest/_shot_manifest.py` — Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 - `class BlenderShotManifest(ShotManifest, _ShotManifestInternal)`
@@ -180,7 +180,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, undo_chunk, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override
+  - methods: strip_dup_suffix, all_ids, undo_chunk, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -348,7 +348,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/fbx_utils.py` — FBX import / export helpers — the Blender counterpart of mayatk's ``env_utils.fbx_utils``
 - `class FbxUtils(_FbxUtilsInternal)`
-  - methods: producers, export_context, publish, publish_authored, stagers, stage, begin_export, end_export, export_prepared, scratch_export, enable_export_producer, disable_export_producer, register_export_stager, unregister_export_stager, register_export_preparer, unregister_export_preparer, run_export_preparers, bake_range, reset_takes, apply_takes, stage_curve_proxy, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
+  - methods: producers, export_context, publish, publish_authored, stagers, stage, begin_export, end_export, export_prepared, scratch_export, enable_export_producer, disable_export_producer, register_export_stager, unregister_export_stager, scene_range_take, bake_range, reset_takes, apply_takes, stage_curve_proxy, apply_takes_from_node, export, import_fbx, scene_settings, export_selection_fbx
 
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
@@ -415,10 +415,10 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `skinning_methods(cmds)`
 - `scene_node_types(cmds)`
 - `scene_settings(cmds)`
-- `write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, shots=None, rig=None, machinery=None)`
+- `write_manifest(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None)`
 - `scene_lights(cmds)`
 - `main()`
-- `shots_section(cmds, spell)`
+- `scene_data_sections(cmds, spell)`
 - constants: SRC_PATH, OUT_FBX, EMBED_TEXTURES, INCLUDE_ANIMATION, SMART_BAKE, RIG_MODE, RIG_CAPABILITY, MODERN_SHADER_TYPES, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS
 
 ### `env_utils/maya_bridge/templates/_import_scene_usd.py` — Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
@@ -427,9 +427,9 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `collect_materials(cmds)`
 - `collect_instance_groups(cmds)`
 - `scene_settings(cmds)`
-- `write_manifest(cmds, materials=None, shading_groups=None, bones=None, shots=None, rig=None, machinery=None)`
+- `write_manifest(cmds, materials=None, shading_groups=None, bones=None, scene_data=None, rig=None, machinery=None)`
 - `main()`
-- `shots_section(cmds, spell)`
+- `scene_data_sections(cmds, spell)`
 - constants: SRC_PATH, OUT_USD, INCLUDE_ANIMATION, RIG_MODE, RIG_CAPABILITY, STINGRAY_SHADER_TYPES, STINGRAY_TEX_SLOTS, STINGRAY_SLOT_CHANNELS, STINGRAY_DATA_SLOTS
 
 ### `env_utils/maya_bridge/templates/_save_scene.py` — Import the bridged FBX into a headless ``mayapy`` and save it as a Maya scene.
@@ -439,7 +439,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `import_fbx(cmds, mel, engine)`
 - `restore_empty_groups(cmds, engine, new_nodes)`
 - `rebuild_materials(engine, new_nodes)`
-- `rebuild_shots(engine, new_nodes)`
+- `rebuild_scene_data(engine, new_nodes)`
 - `main()`
 - constants: BRIDGE_MODES, FBX_PATH, USD_EXTENSIONS, CARRIER, OUT_FILE, EXTRA_SYS_PATH, SHADER_TYPE, USD_IMPORT_OPTIONS
 
@@ -450,7 +450,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `restore_usd_locators(new_nodes)`
 - `restore_empty_groups(new_nodes)`
 - `rebuild_materials(new_nodes)`
-- `rebuild_shots(new_nodes)`
+- `rebuild_scene_data(new_nodes)`
 - `main()`
 - constants: BRIDGE_MODES, FBX_PATH, USD_EXTENSIONS, CARRIER, EXTRA_SYS_PATH, CLEAR_SCENE, FRAME_VIEW, SHADER_TYPE, USD_IMPORT_OPTIONS
 
@@ -472,7 +472,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/scene_exporter/task_manager.py` — The Scene Exporter's task/check manager -- mirror of mayatk's ``TaskManager``.
 - `class TaskManager(TaskFactory, _SceneTasksMixin, _TextureTasksMixin, _AnimationTasksMixin, _TaskChecksMixin, _TaskDefinitionsMixin)`
-  - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, publish_clip_mode, set_bake_animation_range, export_data_node, ensure_scene_records_published, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
+  - methods: run_tasks, objects, write_scene_data_sidecar, create_glb, set_linear_unit, exclude_hdr, ignore_groups, export_path, begin_run, reassign_duplicate_materials, convert_to_relative_paths, resolve_invalid_texture_paths, convert_textures, optimize_textures, smart_bake, optimize_keys, tie_all_keyframes, snap_keys_to_frame, set_bake_animation_range, export_data_node, ensure_scene_records_published, apply_declared_takes, check_framerate, check_referenced_objects, check_geometry_lod_suffix, check_duplicate_names, check_duplicate_locator_names, check_root_default_transforms, check_hidden_geometry, check_overlapping_duplicate_mesh, check_objects_below_floor, check_duplicate_materials, check_material_compatibility, check_texture_optimization, check_path_length, check_output_writable, check_valid_paths, check_texture_file_size, check_untied_keyframes, check_floating_point_keys, task_definitions, check_definitions, definitions
 
 ### `env_utils/scene_state.py` — Read named sections of live-scene state for transport.
 - `class SceneState`
@@ -540,7 +540,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 - `class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`
-  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, export_record, refresh_export_metadata
+  - methods: add_group, remove_group, list_groups, select_group, set_default, make_weights_keyable, remove_keyable_weights, key_weight, create_export_curve_proxies, remove_export_curve_proxies, compact_slots, validate, bake_vertex_colors, bake_mask, transfer_out, transfer_in, export_record, refresh_export_metadata
 - `class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, txt000_init, tbl000_init, b000, b001, b002, b003, tb000_init, tb000, select_members, remove_group, weights_all_on, weights_all_off, make_weights_keyable, key_weights, remove_keyable_weights, compact_slots, republish_export
 
@@ -755,7 +755,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes(ptk.SceneStoreBase)`
-  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, set_internal_string, get_internal_string, set_internal_json, get_internal_json, set_export_string, get_export_string, set_export_json
+  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, carriers_in, library_renames
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`

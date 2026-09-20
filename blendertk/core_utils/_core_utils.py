@@ -353,6 +353,31 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return _DUP_SUFFIX_RE.sub("", name)
 
     @staticmethod
+    def all_ids(library=None) -> list:
+        """Every datablock in the file, across every ID collection -- or only
+        those still linked from *library* when given (``make_library_local``
+        empties it pass by pass; the scene-data read removes what it linked).
+        """
+        import bpy
+
+        found = []
+        for attr in dir(bpy.data):
+            coll = getattr(bpy.data, attr, None)
+            if getattr(coll, "rna_type", None) is None or not hasattr(coll, "__iter__"):
+                continue
+            try:
+                items = list(coll)
+            except TypeError:
+                continue
+            found.extend(
+                db
+                for db in items
+                if hasattr(db, "session_uid")
+                and (library is None or getattr(db, "library", None) == library)
+            )
+        return found
+
+    @staticmethod
     @contextmanager
     def undo_chunk(name: str = ""):
         """Collapse every change made inside the block into ONE Blender undo step.

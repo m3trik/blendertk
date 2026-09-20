@@ -661,7 +661,6 @@ class FbxUtils(_FbxUtilsInternal):
     _bracket_stagers: Optional[
         Dict[str, Tuple[Optional[Callable], Optional[Callable]]]
     ] = None
-    _REMOVE_IN = "0.9.0"
 
     @classmethod
     def producers(cls, only: Optional[Iterable[Any]] = None) -> Dict[Any, Callable]:
@@ -904,54 +903,6 @@ class FbxUtils(_FbxUtilsInternal):
     def unregister_export_stager(cls, name: str) -> None:
         cls._session_stagers.pop(name, None)
 
-    # -- retired names (2026-09-18) --------------------------------------------
-
-    @ptk.Deprecation.symbol(
-        "FbxUtils.register_export_stager(name, prepare=...) or "
-        "FbxUtils.enable_export_producer(spec)",
-        remove_in=_REMOVE_IN,
-    )
-    @classmethod
-    def register_export_preparer(cls, name: str, prepare) -> None:
-        cls.register_export_stager(name, prepare=prepare)
-
-    @ptk.Deprecation.symbol("FbxUtils.unregister_export_stager", remove_in=_REMOVE_IN)
-    @classmethod
-    def unregister_export_preparer(cls, name: str) -> None:
-        cls.unregister_export_stager(name)
-
-    #: The preparer names ``run_export_preparers(only=...)`` took before the
-    #: record layer, as the records they refreshed (mirror of mayatk's).
-    _LEGACY_PRODUCER_NAMES: Dict[str, Any] = {
-        "shots": ptk.SceneRecords.SHOTS,
-        "visibility": ptk.SceneRecords.VISIBILITY,
-        "audio": ptk.SceneRecords.AUDIO,
-        "shadow": ptk.SceneRecords.SHADOWS,
-        "lightmap": ptk.SceneRecords.LIGHTMAPS,
-        "emissive_groups": ptk.SceneRecords.EMISSIVE_GROUPS,
-    }
-
-    @ptk.Deprecation.symbol("FbxUtils.publish", remove_in=_REMOVE_IN)
-    @classmethod
-    def run_export_preparers(cls, only: Optional[Iterable[str]] = None) -> None:
-        # A legacy name maps to its record, a stager's name selects that
-        # stager, a record key passes through, and anything else is ignored,
-        # as it always was.  Published inside a bracket, so every stager it
-        # prepares is finished.
-        stagers = records = None
-        if only is not None:
-            names = list(only)
-            known = set(cls.STAGERS) | set(cls._session_stagers)
-            stagers = [n for n in names if n in known]
-            records = [
-                cls._LEGACY_PRODUCER_NAMES.get(n) or ptk.SceneRecords.by_key(n)
-                for n in names
-                if n not in known
-            ]
-            records = [r for r in records if r is not None]
-        with cls.export_prepared(stagers=stagers):
-            cls.publish(only=records)
-
     # ------------------------------------------------------------------
     # Animation takes (generic — any tool can declare takes on a node)
     # ------------------------------------------------------------------
@@ -962,6 +913,38 @@ class FbxUtils(_FbxUtilsInternal):
     #: :meth:`reset_takes`, which is why the Scene Exporter's takes task
     #: stages that reset (see the module docstring's takes divergence note).
     _pending_takes = None
+
+    #: Blender's multi-stack animation modes. Both are ON in the operator's
+    #: defaults, and either one makes the exporter write a start-zeroed take
+    #: per NLA strip / action INSTEAD of the scene-range take
+    #: (``export_fbx_bin.fbx_animations``) -- a shape no toolkit write uses.
+    MULTI_STACK_OPTIONS: Tuple[str, str] = (
+        "bake_anim_use_nla_strips",
+        "bake_anim_use_all_actions",
+    )
+
+    @classmethod
+    def scene_range_take(cls, options: dict) -> list:
+        """Pin *options* to ONE scene-range animation take: every
+        :attr:`MULTI_STACK_OPTIONS` off. No-op unless *options* bakes
+        animation.
+
+        The toolkit's FBX contract: armed takes are split out of that one take
+        after the write, :meth:`bake_range` is the span it carries (so the
+        scene records' clip span is true by construction), and it is what
+        mayatk's FBX writes.
+
+        Returns:
+            The keys *options* turned ON -- an explicit request a caller
+            reports. An absent key is set too (the operator's default is ON),
+            silently.
+        """
+        if not options.get("bake_anim"):
+            return []
+        asked = [key for key in cls.MULTI_STACK_OPTIONS if options.get(key)]
+        for key in cls.MULTI_STACK_OPTIONS:
+            options[key] = False
+        return asked
 
     @staticmethod
     def bake_range(takes=None):
@@ -1240,16 +1223,20 @@ class FbxUtils(_FbxUtilsInternal):
         # translate them to export_scene.fbx kwargs so they don't fault the Blender exporter.
         opts = _FbxUtilsInternal._translate_fbx_options(opts)
 
-        # Armed takes are cut from the write's single scene-range AnimStack, so
-        # the two multi-stack modes must be off for this write — with either
-        # left on (they are Blender's operator DEFAULTS, so a caller passing
-        # only bake_anim=True gets them), the exporter writes per-action
-        # start-zeroed stacks and no scene-range stack exists to split.
-        if FbxUtils._pending_takes and opts.get("bake_anim"):
-            for key in ("bake_anim_use_nla_strips", "bake_anim_use_all_actions"):
-                if opts.get(key, True):
-                    opts[key] = False
-                    logger.debug(f"Animation takes armed — forced {key}=False.")
+        # ONE scene-range take for every animated write (scene_range_take). The
+        # two multi-stack modes are the operator's DEFAULTS, so a caller passing
+        # only bake_anim=True got per-action start-zeroed takes and no
+        # scene-range take at all: armed takes had nothing to split, and the
+        # data_export carrier's clip span -- seeded from the scene range the
+        # write bakes -- described a take the file did not hold.
+        asked = FbxUtils.scene_range_take(opts)
+        if asked:
+            logger.warning(
+                "FBX export: %s overridden to False -- every animated write is ONE "
+                "scene-range take (the takes, the scene records' clip span and "
+                "mayatk's FBX all assume it).",
+                ", ".join(asked),
+            )
 
         # Selection is read via the window-independent ``selected_objects`` (view layer), never
         # ``bpy.context.selected_objects`` — the latter raises AttributeError from tentacle's Qt
