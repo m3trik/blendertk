@@ -640,11 +640,12 @@ try:
                 "material[slot] = null" in viewer,
             ),
             # The key light goes off for a pre-lit model; the ENVIRONMENT does
-            # not, it is dimmed per material instead. Killing it outright (what
-            # this asserted until 2026-08-10) takes normal maps and specular
-            # with it, because three.js adds lightmap irradiance through a
-            # Lambert term with no normal dependence — leaving nothing in the
-            # render that samples the normal at all.
+            # not, it is confined to its specular term on the baked materials
+            # instead. Killing it outright (what this asserted until
+            # 2026-08-10) takes normal maps and specular with it, because
+            # three.js adds lightmap irradiance through a Lambert term with no
+            # normal dependence — leaving nothing in the render that samples
+            # the normal at all.
             # Asserted as the BEHAVIOUR -- zero when lightmapped, the standing
             # key intensity otherwise -- not as one literal right-hand side.
             # Pinning the spelling broke the moment the viewer routed its numbers
@@ -662,13 +663,17 @@ try:
                 )
                 and "DEFAULT_KEY_INTENSITY" in viewer,
             ),
-            # Asserted as "the dimming factor exists and drives envMapIntensity"
-            # rather than as one literal assignment: whether the write happens at
-            # bind time or in the lighting pass is an implementation detail this
-            # cross-package check has no business pinning.
+            # Asserted as "the environment level is still spent, and the line
+            # that would add its diffuse to a bake is the one named for
+            # removal" rather than as one literal assignment: where the shader
+            # edit is installed is an implementation detail this cross-package
+            # check has no business pinning. (Until 2026-09-21 the viewer
+            # dimmed the environment per baked material instead -- diffuse and
+            # specular together -- and a lightmapped room rendered washed out.)
             (
-                "viewer dims, rather than kills, the environment it keeps",
-                "LIGHTMAP_ENV_INTENSITY" in viewer and "envMapIntensity" in viewer,
+                "viewer keeps the environment for a pre-lit model, specular only",
+                "scene.environmentIntensity" in viewer
+                and "getIBLIrradiance( geometryNormal )" in viewer,
             ),
         ):
             check(label, cond)

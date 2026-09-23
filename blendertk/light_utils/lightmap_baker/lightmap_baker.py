@@ -19,40 +19,86 @@ over ``bpy.ops.object.bake``:
   to auto-bind Unity's native slots.
 
 **One bake level, and it is real lightmapping**, non-destructive and exposed in the panel:
-:meth:`bake_separated` bakes lighting-only irradiance onto the lightmap UV (channel 1) and
-:meth:`commit_lightmap` records it. The object's full PBR material and texture UV0 are
-**kept untouched** -- the engine composites ``albedo x lightmap``.
+:meth:`LightmapBaker.bake` bakes lighting-only irradiance onto the lightmap UV (channel 1)
+and records it (:class:`LightmapRecords`). The object's full PBR material and texture UV0
+are **kept untouched** -- the engine composites ``albedo x lightmap``. It is the whole
+workflow, as the panel runs it; :meth:`bake_separated` / :meth:`bake_atlas` are its two
+bake mechanisms, for a caller that records the maps itself.
 
 :meth:`revert` (== :meth:`revert_lightmap`) undoes it. A *fused unlit* level (albedo x
 lighting flattened behind an Emission material) was removed: it is not lightmapping, it
 discards every other map, and it only ever added a mode to choose wrongly from. Quality
 tiers come from :meth:`from_preset` (pythontk ``PresetStore``). HDR EXR throughout.
 
-The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only
-:class:`LightmapBakerSlots` touches Qt, lazily.
+The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only the
+panel (``lightmap_baker_slots.LightmapBakerSlots``) touches Qt, lazily.
 
-The ``.ui`` is a verbatim copy of mayatk's — same objectNames (``cmb_scope``,
-``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``, ``txt_output_dir``, ``txt000``,
-``b000``) — now that
-uitk host-namespaces the QSettings branch per DCC (``Switchboard.add_ui`` /
-``MainWindow._relative_state`` via ``context_tags``), identical objectNames across mayatk's
-and blendertk's copy of the same panel no longer collide in the shared "uitk"/"shared"
-registry root, so there is no need to renumber widgets to dodge it. Both ``cmb002`` packing
+The ``.ui`` shares mayatk's objectNames for the controls both panels have
+(``cmb_scope``, ``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``,
+``txt_output_dir``, ``txt000``, ``b000``); mayatk's has since grown rows this one has not
+(ledgered ``pending`` in ``tentacle/docs/parity_map.py``). Now that uitk host-namespaces
+the QSettings branch per DCC (``Switchboard.add_ui`` / ``MainWindow._relative_state`` via
+``context_tags``), identical objectNames across the two copies of the same panel no longer
+collide in the shared "uitk"/"shared" registry root, so there is no need to renumber
+widgets to dodge it. Both ``cmb002`` packing
 modes are live: "Per-Object" (one full-resolution map each) and "Atlas by Material" (per-material
 consolidation via :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer).
 """
 
 import contextlib
-import json
 import os
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
-from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.light_utils._light_utils import LightUtils
+from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
 from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
 from blendertk.mat_utils.texture_baker import TextureBaker
+
+
+@dataclass
+class LightmapBakeResult:
+    """What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
+
+    Attributes:
+        maps: ``{object: map path}``, every map the bake wrote and recorded.
+        rects: ``{object: [scaleX, scaleY, offsetX, offsetY]}``, each object's
+            engine binding into its map (the identity for a map of its own).
+        excluded: Objects the scene's lightmap exclusion set left out. They
+            keep any map they already had.
+        unbaked: Objects the bake was asked for and produced nothing for (a
+            cancel, a failed render). They keep any map they already had.
+        refused: Why nothing was baked, as a sentence for the artist, or
+            ``None``.
+        verdict: A warning about the finished maps' level (an unlit or a
+            blown-out bake), as a sentence, or ``None``.
+    """
+
+    maps: Dict[str, str] = field(default_factory=dict)
+    rects: Dict[str, List[float]] = field(default_factory=dict)
+    excluded: List[str] = field(default_factory=list)
+    unbaked: List[str] = field(default_factory=list)
+    refused: Optional[str] = None
+    verdict: Optional[str] = None
+
+    def __bool__(self) -> bool:
+        return bool(self.maps)
+
+    @property
+    def files(self) -> List[str]:
+        """The distinct map files, sorted: an atlas 40 objects share counts once."""
+        return sorted(set(self.maps.values()))
+
+    @property
+    def folders(self) -> List[str]:
+        """The distinct folders the maps landed in, compared the way the disk does."""
+        spelled: Dict[str, str] = {}
+        for path in self.maps.values():
+            folder = os.path.dirname(path)
+            spelled.setdefault(os.path.normcase(os.path.abspath(folder)), folder)
+        return sorted(spelled.values())
 
 
 class LightmapBaker(ptk.LoggingMixin):
@@ -61,38 +107,30 @@ class LightmapBaker(ptk.LoggingMixin):
     Usage::
 
         baker = LightmapBaker.from_preset("quest")        # or (resolution=, samples=)
-        baker.revert(objects)                              # bake the SOURCE material
-        out = baker.bake_separated(objects)                # {obj_name: exr_path}
-        baker.commit_lightmap(out)                         # mark + publish Unity metadata
+        result = baker.bake(objects)                       # atlas by material, recorded
+        result.maps                                        # {obj_name: exr_path}
         # The object keeps its full material; the lightmap rides UV channel 1 and the
         # wiring rides the FBX on the data_export Empty -- nothing is destroyed.
 
-    One shared map per material instead of one per object -- and the faster path, since it
-    plans the atlas before baking and sizes every bake to its footprint. The rect is the
-    per-instance engine binding (Unity ``lightmapScaleOffset``), so instances/linked
-    duplicates are first-class::
-
-        packed = baker.bake_atlas(objects)                 # {obj_name: (atlas, rect)}
-        baker.commit_lightmap({n: p for n, (p, _r) in packed.items()},
-                              scale_offsets={n: r for n, (_p, r) in packed.items()})
+    ``packing="atlas"`` (the default) gives one shared map per material instead of one
+    per object -- and the faster path, since it plans the atlas before baking and sizes
+    every bake to its footprint. The rect is the per-instance engine binding (Unity
+    ``lightmapScaleOffset``), so instances/linked duplicates are first-class.
     """
 
-    # Custom-property names stamped on a committed object (JSON). Persisting the restore
-    # record on the object -- not in memory -- is what makes commit non-destructive across
-    # save/reload and independent of the baker instance.
-    LIGHTMAP_INFO_PROP: str = (
-        "lightmapInfo"  # lighting-only: map / uv / intensity marker
-    )
-
-    # ``data_export`` channel: a scene-wide JSON manifest of every lighting-only lightmap,
-    # regenerated from the per-object markers and ridden into the FBX (informational;
-    # consumed by unitytk's optional Unity-native binder). The key and schema of the
-    # ``ptk.SceneRecords.LIGHTMAPS`` record -- stamped by the declaration, never spelled here.
-    LIGHTMAP_METADATA: str = ptk.SceneRecords.LIGHTMAPS.key
-    LIGHTMAP_METADATA_VERSION: int = ptk.SceneRecords.LIGHTMAPS.version
+    # The scene record's names, kept here for the callers that read them off the baker;
+    # the record itself is :class:`LightmapRecords`.
+    LIGHTMAP_INFO_PROP: str = LightmapRecords.LIGHTMAP_INFO_PROP
+    LIGHTMAP_INFO_ATTR: str = LightmapRecords.LIGHTMAP_INFO_ATTR  # mayatk's name
+    LIGHTMAP_METADATA: str = LightmapRecords.LIGHTMAP_METADATA
+    LIGHTMAP_METADATA_VERSION: int = LightmapRecords.LIGHTMAP_METADATA_VERSION
+    FOUND_BY_HINT: str = LightmapRecords.FOUND_BY_HINT
+    FOUND_BY_SEARCH: str = LightmapRecords.FOUND_BY_SEARCH
 
     # Identity atlas transform: the object's 0-1 lightmap UVs map to the whole texture.
-    _IDENTITY_SCALE_OFFSET: Tuple[float, float, float, float] = (1.0, 1.0, 0.0, 0.0)
+    _IDENTITY_SCALE_OFFSET: Tuple[float, float, float, float] = (
+        LightmapRecords.IDENTITY_SCALE_OFFSET
+    )
 
     # Rendered-dead rescue (twin of mayatk LightmapBaker._DEAD_TEXEL_*): Cycles
     # bakes every UV texel of the target regardless of world occlusion, so
@@ -236,7 +274,309 @@ class LightmapBaker(ptk.LoggingMixin):
         return cls(**kwargs)
 
     # ------------------------------------------------------------------
-    # Bake
+    # The workflow -- what the panel runs, and what a script should
+    # ------------------------------------------------------------------
+
+    def bake(
+        self,
+        objects=None,
+        packing: str = "atlas",
+        output_dir: Optional[str] = None,
+        prefix: str = "",
+        suffix: str = "_Lightmap",
+        on_progress: Optional[Callable[[int, int, str], bool]] = None,
+        intensity: float = 1.0,
+        **kwargs,
+    ) -> LightmapBakeResult:
+        """Bake *objects*' lightmaps and record them: the whole workflow, as the panel runs it.
+
+        Mirror of mayatk's :meth:`LightmapBaker.bake`:
+
+        1. The mesh objects in *objects* (default: the selection).
+        2. :meth:`preflight` -- a refusal when the scene has lights and none of
+           them can light the bake.
+        3. The bake: :meth:`bake_atlas` (``packing="atlas"``, one shared map
+           per material) or :meth:`bake_separated` (``"per_object"``). Both
+           migrate the targets' legacy markers first
+           (:meth:`LightmapRecords.migrate_legacy`).
+        4. *intensity*, when not 1.0, scaled into the maps this bake just
+           wrote -- once, so re-recording them can never apply it twice.
+        5. :meth:`LightmapRecords.commit` records each map with its rect.
+        6. :meth:`bake_verdict` reads the finished maps' level.
+
+        Nothing is reverted first. An object the bake does not finish keeps the
+        map it had, and that map is intact: a bake never writes a file another
+        object reads (:meth:`LightmapRecords.claims`).
+
+        Parameters:
+            objects: Mesh objects; ``None`` for the selection. Anything without
+                a mesh of its own (an Empty, a light) bakes nothing.
+            packing: ``"atlas"`` or ``"per_object"``.
+            output_dir: Where the maps go (see :meth:`bake_separated`).
+            prefix / suffix: Name affix around each map's texture-set stem.
+            on_progress: ``(done, total, name) -> bool`` per object; return
+                ``False`` to cancel the rest.
+            intensity: A multiplier baked into the texels; recorded in the
+                markers, informationally.
+            kwargs: Forwarded to the bake mechanism.
+
+        Returns:
+            :class:`LightmapBakeResult`: the maps and rects, the
+            unbaked objects, and the ``refused`` / ``verdict`` sentences for
+            the artist. (Blender has no exclusion set yet, so ``excluded`` is
+            always empty.)
+
+        Raises:
+            ValueError: *packing* is neither ``"atlas"`` nor ``"per_object"``.
+        """
+        if packing not in ("atlas", "per_object"):
+            raise ValueError(
+                f"packing must be 'atlas' or 'per_object', got {packing!r}"
+            )
+        result = LightmapBakeResult()
+        targets = [obj.name for obj in TextureBaker.resolve_meshes(objects)]
+        if not targets:
+            result.refused = "Nothing to bake: no mesh among the given objects."
+            return result
+        result.refused = self.preflight()
+        if result.refused:
+            return result
+
+        common = dict(
+            output_dir=output_dir,
+            prefix=prefix,
+            suffix=suffix,
+            on_progress=on_progress,
+            **kwargs,
+        )
+        if packing == "atlas":
+            packed = self.bake_atlas(targets, **common)
+        else:
+            packed = {
+                n: (path, None)
+                for n, path in self.bake_separated(targets, **common).items()
+            }
+        result.maps = {n: path for n, (path, _rect) in packed.items()}
+        result.rects = {
+            n: [float(v) for v in (rect or self._IDENTITY_SCALE_OFFSET)]
+            for n, (_path, rect) in packed.items()
+        }
+        result.unbaked = [n for n in targets if n not in result.maps]
+        if result.unbaked:
+            self.logger.warning(
+                "%d object(s) were not baked (cancelled, or failed); they keep "
+                "the lightmap they had: %s",
+                len(result.unbaked),
+                ", ".join(result.unbaked[:8])
+                + (" ..." if len(result.unbaked) > 8 else ""),
+            )
+        if not result.maps:
+            return result
+        if float(intensity) != 1.0:
+            self._apply_intensity(result.maps.values(), intensity)
+        LightmapRecords.commit(
+            result.maps, scale_offsets=result.rects, intensity=intensity
+        )
+        result.verdict = self.bake_verdict(result.maps.values())
+        return result
+
+    def preflight(self) -> Optional[str]:
+        """Why this file cannot bake now, or ``None`` (mirror of mayatk's).
+
+        Cycles ships with Blender, so there is no renderer to load. What is
+        left is mayatk's lights rule: a scene whose lights all exist but none
+        can light the bake -- every one hidden from the render or at zero
+        power, and no emitting world the bake keeps (Include Environment) --
+        is refused rather than baked at full cost to come back dark (measured
+        on the Maya side: four hidden area lights baked a room 147x dimmer than
+        its previous bake). The world counts because mayatk's skydome does: it
+        is a light there. "No lights at all" is NOT refused: a world or an
+        emissive material lights a Cycles bake with no light object in it;
+        :meth:`_warn_if_unlit_scene` warns and :meth:`bake_verdict` judges
+        the result.
+
+        A light is hidden from the render by its COLLECTIONS too -- a
+        collection's render toggle, or one excluded from the view layer, is
+        the usual Blender idiom for switching a group of lights off -- and
+        Cycles bakes through a render depsgraph where those lights are gone
+        (mayatk's rule reads inherited visibility the same way).
+        """
+        try:
+            import bpy
+
+            scene = bpy.context.scene
+            lights = [o for o in scene.objects if o.type == "LIGHT"] if scene else []
+            world_lights = self.include_environment and LightUtils.world_emits(
+                getattr(scene, "world", None)
+            )
+            rendered = self._render_collections(bpy.context.view_layer)
+        except Exception:  # no runtime / unreadable scene -- nothing to refuse
+            return None
+        lit = [
+            o
+            for o in lights
+            if not o.hide_render
+            and any(c.name in rendered for c in o.users_collection)
+            and float(getattr(o.data, "energy", 0.0) or 0.0) > 0.0
+        ]
+        if lights and not lit and not world_lights:
+            self.logger.warning(
+                "Bake refused: all %d light(s) in the scene are hidden from the "
+                "render or at zero power, so Cycles would bake no direct light "
+                "and the maps would come back essentially black.\n"
+                "Scene lights:\n%s",
+                len(lights),
+                self._light_audit(),
+            )
+            return (
+                f"Bake skipped: all {len(lights)} scene light(s) are hidden from "
+                "the render or at zero power (see the console)."
+            )
+        return None
+
+    @staticmethod
+    def _render_collections(view_layer) -> set:
+        """Names of the collections whose objects reach a render of *view_layer*.
+
+        A collection renders when it and every collection above it are enabled
+        for render and none is excluded from the layer; the scene collection
+        (an object linked to the scene directly) always does.
+        """
+        names: set = set()
+
+        def walk(layer_collection, enabled: bool) -> None:
+            enabled = (
+                enabled
+                and not layer_collection.exclude
+                and not layer_collection.collection.hide_render
+            )
+            if enabled:
+                names.add(layer_collection.collection.name)
+            for child in layer_collection.children:
+                walk(child, enabled)
+
+        walk(view_layer.layer_collection, True)
+        return names
+
+    def bake_verdict(self, paths) -> Optional[str]:
+        """A warning about a finished bake's level, or ``None`` when it is plausible.
+
+        Both directions, because a lightmap has no correct ABSOLUTE level and
+        each failure is a *successful* render of a wrong scene: nothing
+        upstream errors, and the artist otherwise finds out in the web preview,
+        where it reads as a pipeline bug. The black half caught an unlit room;
+        the blown half was missing until a Maya-bridge send crossed at 5.4e8 W
+        per fixture, saturated every atlas at the half-float ceiling and
+        reported success (mayatk CHANGELOG 2026-08-29). Measured by
+        :meth:`peak_level`; logged with a light audit, so a bad result carries
+        its own diagnosis. Mirror of mayatk's, which calls its lower line UNLIT
+        (it sits higher there, where dim-but-lit maps are the failure).
+        """
+        try:
+            peak = self.peak_level(paths)
+        except Exception:  # the check must never break a finished bake
+            return None
+        if peak is None:
+            return None
+        _path, mean, saturated = peak
+        if mean < self.BLACK_BAKE_MEAN:
+            self.logger.warning(
+                "Bake is essentially BLACK (brightest map mean %.4f). The bake "
+                "renders the scene's own lights: check light power (W), that the "
+                "lights are visible to the RENDER (not just the viewport), and "
+                "that the world background is not black -- an emissive material "
+                "lights a Cycles bake only while its object is render-visible.\n"
+                "Scene lights at bake time:\n%s",
+                mean,
+                self._light_audit(),
+            )
+            return "bake is essentially BLACK — check light power (see the console)."
+        if mean >= self.BLOWN_BAKE_MEAN:
+            self.logger.warning(
+                "Bake is BLOWN OUT (brightest map mean %.4g%s). A lightmap is "
+                "scene-relative irradiance and should land within a few multiples "
+                "of 1.0 whatever the exposure, so this is a light-POWER problem "
+                "rather than a bright room.\nScene lights at bake time:\n%s",
+                mean,
+                ", %.0f%% of it at the half-float ceiling — data lost"
+                % (saturated * 100.0)
+                if saturated > 0.001
+                else "",
+                self._light_audit(),
+            )
+            return "bake is BLOWN OUT — check light power (see the console)."
+        return None
+
+    @staticmethod
+    def _light_audit() -> str:
+        """One line per scene light: the attrs that decide whether a bake is lit.
+
+        Attached to the level verdict and the lights-off refusal so a dark
+        result carries its own diagnosis -- power, scale, render visibility and
+        the world strength are exactly the dials a black bake traces back to,
+        and none of them are visible in the bake output itself. Twin of
+        mayatk's ``_light_audit`` (Arnold's intensity/exposure/normalize ->
+        Cycles' watts).
+
+        Total-failure tolerant: it is evaluated as an argument to a warning,
+        so a raise here would propagate out of a finished bake -- the one
+        thing the checks promise never to do.
+        """
+        try:
+            import bpy
+
+            scene = bpy.context.scene
+            if scene is None:
+                return "  <no scene>"
+            rows = LightmapBaker._light_rows(scene)
+            world = scene.world
+            rows.append(
+                f"  <world>: emits={LightUtils.world_emits(world)}"
+                if world is not None
+                else "  <world>: none"
+            )
+            return "\n".join(rows)
+        except Exception:
+            return "  <scene unreadable>"
+
+    @staticmethod
+    def _light_rows(scene) -> List[str]:
+        """One ``  <name>: k=v ...`` row per light in *scene* (the audit's per-light half).
+
+        Each light is read under its own guard, so a single unreadable one costs its row
+        rather than the whole table.
+        """
+        rows: List[str] = []
+        for obj in scene.objects:
+            if obj.type != "LIGHT":
+                continue
+            try:
+                data = obj.data
+                sx, sy, _sz = obj.scale
+                energy = getattr(data, "energy", float("nan"))
+                bits = [
+                    f"type={data.type}",
+                    # Blender's own label for the dial, so the artist reads the same word
+                    # the UI shows: a SUN's energy is irradiance (W/m2, "Strength"), every
+                    # other type's is radiant power in watts ("Power").
+                    f"strength={energy:g}"
+                    if data.type == "SUN"
+                    else f"power={energy:g}W",
+                    f"scale={sx:g}x{sy:g}",
+                    # hide_render is what the BAKE obeys; hide_viewport is not enough to
+                    # explain a black bake on its own, so report both separately.
+                    f"render_visible={not obj.hide_render}",
+                    f"viewport_visible={obj.visible_get()}",
+                ]
+                if data.type == "AREA":
+                    bits.append(f"size={data.size:g}")
+                rows.append(f"  {obj.name}: " + "  ".join(bits))
+            except Exception:
+                rows.append(f"  {getattr(obj, 'name', '?')}: <unreadable>")
+        return rows or ["  <no lights in the scene>"]
+
+    # ------------------------------------------------------------------
+    # Bake mechanisms
     # ------------------------------------------------------------------
 
     def bake_separated(
@@ -249,7 +589,12 @@ class LightmapBaker(ptk.LoggingMixin):
         lightmap holds lighting only, to be combined ``albedo x lightmap`` by the engine.
         Unlike Maya this needs **no material swap** (Cycles excludes the color pass directly).
         Pairs with :meth:`commit_lightmap`. Returns ``{object_name: exr_path}``.
+
+        No map takes a file name another object reads
+        (:meth:`LightmapRecords.claims`); an object's own map keeps its name.
         """
+        if "claims" not in kwargs:
+            kwargs["claims"] = LightmapRecords.claims()
         return self._bake(objects, prefix=prefix, **kwargs)
 
     def _bake(
@@ -265,6 +610,7 @@ class LightmapBaker(ptk.LoggingMixin):
         stem: Optional[Any] = None,
         size: Optional[Any] = None,
         heal: bool = True,
+        claims: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, str]:
         """Bake one HDR lightmap per object into the lightmap UV channel.
 
@@ -294,6 +640,10 @@ class LightmapBaker(ptk.LoggingMixin):
                 its maps are intermediates that :meth:`_assemble_atlas_exr` masks
                 with the same rule while it composites them -- healing there is a
                 full load/save round trip per tile for an answer thrown away.
+            claims: :meth:`LightmapRecords.claims` -- the file names other
+                objects read, which no map of this bake may take (forwarded to
+                :meth:`TextureBaker.bake`). ``None`` for maps that are not
+                deliverables: an atlas's tiles, baked into a work dir.
 
         Returns ``{object_name: lightmap_path}`` for each successful bake.
         """
@@ -302,6 +652,10 @@ class LightmapBaker(ptk.LoggingMixin):
             self.logger.error("Nothing to bake. Pass objects= or select a mesh.")
             return {}
 
+        # A LEGACY atlas commit squeezed the lightmap UVs into its rect; restore
+        # the unit square before anything reads or bakes them, folding the rect
+        # into the binding so the object's current map still samples right.
+        LightmapRecords.migrate_legacy([obj.name for obj in meshes])
         self._warn_if_unlit_scene()
 
         uv_set = uv_set or LIGHTMAP_UV_SET
@@ -327,6 +681,7 @@ class LightmapBaker(ptk.LoggingMixin):
                 stem=stem,
                 size=size,
                 on_progress=on_progress,
+                claims=claims,
             )
         # EVERY delivered map, not just the ones an atlas consumes. Cycles'
         # native margin extends each island by a fixed few texels (~16 at 1024)
@@ -340,77 +695,6 @@ class LightmapBaker(ptk.LoggingMixin):
             for path in result.values():
                 self._heal_dead_texels(path)
         return result
-
-    # ------------------------------------------------------------------
-    # Commit: lighting-only (keep maps) -- fully non-destructive
-    # ------------------------------------------------------------------
-
-    def commit_lightmap(
-        self,
-        mapping: Dict[str, str],
-        intensity: float = 1.0,
-        scale_offsets: Optional[Dict[str, List[float]]] = None,
-        uv_rects: Optional[Dict[str, List[float]]] = None,
-    ) -> Dict[str, str]:
-        """Record a lighting-only bake for the engine (changes nothing about the material/UVs).
-
-        Per object stamps a small JSON marker (:attr:`LIGHTMAP_INFO_PROP`), then republishes
-        the scene-wide manifest onto the shared ``data_export`` carrier so it rides the FBX
-        (informational; unitytk's optional editor helper auto-binds Unity's native lightmap
-        slots from it). ``mapping`` is ``{object_name: lightmap_path}``. Returns the recorded
-        subset.
-
-        ``scale_offsets`` / ``uv_rects`` are the atlas hooks (mirror mayatk's
-        ``commit_lightmap``): ``{object_name: [scaleX, scaleY, offsetX, offsetY]}``.
-        ``scale_offsets`` is THE atlas binding — the per-instance rect the engine applies
-        (Unity ``lightmapScaleOffset``; glTF ``KHR_texture_transform``); the "Atlas by
-        Material" packing mode passes :meth:`pack_atlas`'s rects here. ``uv_rects`` is
-        legacy-marker compat only (a rect an old commit repacked INTO the UVs, marker key
-        ``uvRect``, revert bookkeeping) — new code never passes it. Per-object bakes pass
-        neither (identity).
-        """
-        import bpy
-
-        if float(intensity) != 1.0:
-            # Mirror of mayatk: Unity's native lightmaps have no per-map
-            # multiplier, so a non-1.0 intensity is applied INTO the texels
-            # here, once per unique file; the manifest field is informational
-            # after that. (Float-EXR load->scale->save round-trip verified in
-            # headless Blender 5.1, HDR >1 values included.)
-            self._apply_intensity(mapping.values(), intensity)
-
-        scale_offsets = scale_offsets or {}
-        uv_rects = uv_rects or {}
-        recorded: Dict[str, str] = {}
-        for name, path in mapping.items():
-            obj = bpy.data.objects.get(name)
-            if obj is None:
-                continue
-            lm = UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
-            so = scale_offsets.get(name) or self._IDENTITY_SCALE_OFFSET
-            info = {
-                "map": os.path.basename(path),
-                # Where the map lives, in the PORTABLE spelling (``//``-relative
-                # when inside the project -- the rule textures follow; mirrors
-                # mayatk): a teammate's machine mounts the cloud project
-                # elsewhere, and an absolute folder resolves nowhere there.
-                # Resolved on the machine that builds (:meth:`search_dirs`); the
-                # manifest itself names no folder.
-                "dir": self._portable_dir(path),
-                "uv_set": lm,
-                "intensity": float(intensity),
-                "scaleOffset": [float(v) for v in so],
-                "mode": "separated",
-            }
-            rect = uv_rects.get(name)
-            if rect and [float(v) for v in rect] != list(self._IDENTITY_SCALE_OFFSET):
-                info["uvRect"] = [float(v) for v in rect]
-            obj[self.LIGHTMAP_INFO_PROP] = json.dumps(info)
-            recorded[name] = path
-
-        if recorded:
-            self._publish_lightmap_metadata()
-        return recorded
 
     # ------------------------------------------------------------------
     # Atlas consolidation ("Atlas by Material" packing — cmb002 index 1)
@@ -438,6 +722,7 @@ class LightmapBaker(ptk.LoggingMixin):
         output_dir: Optional[str] = None,
         prefix: str = "",
         suffix: str = "_Lightmap",
+        claims: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Dict[str, Tuple[str, List[float]]]:
         """Bake a material-atlased lighting-only lightmap set — plan first, then bake to plan.
@@ -459,8 +744,11 @@ class LightmapBaker(ptk.LoggingMixin):
         Extra ``kwargs`` are forwarded to :meth:`bake_separated`. *prefix* / *suffix* name
         both the tiles and the atlas (the ``lightmap_irr_`` prefix a loose
         ``bake_separated`` call defaults to is pointless here — the tiles never
-        leave the work dir). Returns :meth:`pack_atlas`'s
-        ``{object_name: (atlas_path, rect)}``.
+        leave the work dir). *claims* are the file names other objects read
+        (:meth:`LightmapRecords.claims`, the default) that the finished maps must
+        not take; they name the deliverables, never the work-dir tiles -- passed
+        through to both, they collided on ``bake_separated``'s own and raised.
+        Returns :meth:`pack_atlas`'s ``{object_name: (atlas_path, rect)}``.
         """
         # The plan reads only geometry and material assignment, so it is available before the
         # lightmap UVs exist -- which is precisely what lets it size the bake that creates them.
@@ -472,6 +760,8 @@ class LightmapBaker(ptk.LoggingMixin):
             return {}
 
         output_dir = output_dir or TextureBaker.default_output_dir("baked_lighting")
+        if claims is None:
+            claims = LightmapRecords.claims()
         with ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp:
             baked = self.bake_separated(
                 planned,
@@ -485,6 +775,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 # an answer that is recomputed and discarded. A solo group, which
                 # skips the assembly, is healed by ``_pack_group`` instead.
                 heal=False,
+                # Named in the work dir, which nobody reads: the pack names the
+                # deliverables, against the file's claims.
+                claims=None,
                 **kwargs,
             )
             return self.pack_atlas(
@@ -493,6 +786,7 @@ class LightmapBaker(ptk.LoggingMixin):
                 prefix=prefix,
                 suffix=suffix,
                 plan=plan,
+                claims=claims,
             )
 
     def atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]:
@@ -577,6 +871,7 @@ class LightmapBaker(ptk.LoggingMixin):
         prefix: str = "",
         suffix: str = "_Lightmap",
         plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None,
+        claims: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Tuple[str, List[float]]]:
         """Consolidate ``{object_name: per_object_exr}`` into one atlas EXR per primary material.
 
@@ -598,6 +893,11 @@ class LightmapBaker(ptk.LoggingMixin):
         *plan* is an :meth:`atlas_plan` computed earlier — pass the one the sources were baked
         against so the layout can't be re-derived differently; ``None`` computes it here.
 
+        No atlas lands on a file name an object outside its group reads (*claims*,
+        :meth:`LightmapRecords.claims`; ``None`` reads the file's now): a partial
+        re-bake of a group -- or one whose member failed -- gets an atlas of its own,
+        and the member left out keeps sampling the old one.
+
         Returns ``{object_name: (atlas_path, [scaleX, scaleY, offsetX, offsetY])}`` — the rect
         is the ENGINE BINDING to publish per instance (``commit_lightmap(scale_offsets=...)``;
         identity for solo/fallback), not an applied UV remap.
@@ -607,6 +907,8 @@ class LightmapBaker(ptk.LoggingMixin):
         output_dir = output_dir or os.path.dirname(next(iter(mapping.values())))
         if plan is None:
             plan = self.atlas_plan(list(mapping))
+        if claims is None:
+            claims = LightmapRecords.claims()
 
         all_sources = {os.path.abspath(p) for p in mapping.values()}
         # A map the layout does not name still has to come out the other side:
@@ -646,6 +948,7 @@ class LightmapBaker(ptk.LoggingMixin):
                     suffix,
                     out,
                     used,
+                    claims,
                 )
             except (
                 Exception
@@ -658,7 +961,9 @@ class LightmapBaker(ptk.LoggingMixin):
                 for n, _rect in entries:
                     if n not in out and os.path.exists(mapping[n]):
                         try:
-                            path = self._place(mapping[n], output_dir, used)
+                            path = self._place(
+                                mapping[n], output_dir, used, claims=claims, owners=(n,)
+                            )
                         except OSError as move_error:
                             # This is the never-lose-a-bake handler; it must not become
                             # the thing that loses it. Report where the map actually is
@@ -676,9 +981,22 @@ class LightmapBaker(ptk.LoggingMixin):
         return out
 
     def _pack_group(
-        self, key, entries, mapping, all_sources, output_dir, prefix, suffix, out, used
+        self,
+        key,
+        entries,
+        mapping,
+        all_sources,
+        output_dir,
+        prefix,
+        suffix,
+        out,
+        used,
+        claims=None,
     ) -> None:
-        """Pack one material group's maps into its atlas (see :meth:`pack_atlas`)."""
+        """Pack one material group's maps into its atlas (see :meth:`pack_atlas`).
+
+        The atlas name is the group's to take only where the group's own members
+        are all that read it (*claims*)."""
         names = [n for n, _rect in entries]
         foreign = all_sources - {os.path.abspath(mapping[n]) for n in names}
         base = self._atlas_base(key, names)
@@ -696,6 +1014,8 @@ class LightmapBaker(ptk.LoggingMixin):
                 used,
                 stem=ptk.StrUtils.apply_affix(base, prefix, suffix),
                 avoid=foreign,
+                claims=claims,
+                owners=names,
             )
             # Idempotent safety net: a map baked HERE was already healed on
             # the way out of the bake, but ``pack_atlas`` is public and may be
@@ -703,9 +1023,6 @@ class LightmapBaker(ptk.LoggingMixin):
             self._heal_dead_texels(path)
             out[names[0]] = (path, list(self._IDENTITY_SCALE_OFFSET))
             return
-
-        name = ptk.StrUtils.apply_affix(base, prefix, suffix)
-        atlas_path = self._unique_atlas_path(output_dir, name, used, foreign)
 
         placements: List[Tuple[str, List[float], str]] = []
         for n, rect in entries:
@@ -715,6 +1032,19 @@ class LightmapBaker(ptk.LoggingMixin):
             placements.append((mapping[n], [float(v) for v in rect], n))
         if not placements:
             return
+
+        # Reserved for the members that are actually IN it: a member whose tile
+        # is missing gets no new map and keeps reading its old one, so counted as
+        # an owner it let the group take that very file.
+        name = ptk.StrUtils.apply_affix(base, prefix, suffix)
+        atlas_path = self._unique_atlas_path(
+            output_dir,
+            name,
+            used,
+            foreign,
+            claims,
+            owners=[n for _src, _so, n in placements],
+        )
 
         self._assemble_atlas_exr(
             atlas_path, [(p, so) for p, so, _ in placements], self._atlas_gutter()
@@ -750,21 +1080,25 @@ class LightmapBaker(ptk.LoggingMixin):
         used: set,
         stem: Optional[str] = None,
         avoid: frozenset = frozenset(),
+        claims: Optional[Dict[str, Any]] = None,
+        owners=(),
     ) -> str:
         """Move a finished map into *output_dir* and return its new path.
 
-        Only results belong in the destination — a bake's intermediates stay in whatever work
-        dir produced them. A same-named file already there is the PREVIOUS run's map for the
-        same object and is replaced (that is what re-baking means); collisions *within* one
-        pack get a numeric tail instead. ``shutil`` rather than ``os.replace`` because the work
-        dir is routinely on a different volume from the project.
+        Only results belong in the destination -- a bake's intermediates stay in whatever
+        work dir produced them. A same-named file already there is replaced when only the
+        map's own *owners* read it (that is what re-baking means); a name anything else
+        reads (*claims*, :meth:`LightmapRecords.claims`) is left alone, and so is a
+        collision *within* one pack -- both take a numeric tail instead
+        (:meth:`ptk.FileUtils.unique_path`). ``shutil`` rather than ``os.replace`` because
+        the work dir is routinely on a different volume from the project.
 
-        A destination that cannot be replaced takes an adjacent name instead of failing: the
-        realistic cause is the previous map being held open by the DCC's own texture cache,
-        and losing a finished bake over a file lock would be absurd.
+        A destination that cannot be replaced takes an adjacent name instead of failing:
+        the realistic cause is the previous map being held open by the DCC's own texture
+        cache, and losing a finished bake over a file lock would be absurd.
 
-        *stem* renames the map on the way in (default: keep the source's own). *avoid* is a
-        set of abspaths that must not be overwritten — another group's not-yet-consumed
+        *stem* renames the map on the way in (default: keep the source's own). *avoid* is
+        a set of abspaths that must not be overwritten -- another group's not-yet-consumed
         source maps, reachable only once *stem* is derived rather than inherited.
         """
         import shutil
@@ -773,21 +1107,28 @@ class LightmapBaker(ptk.LoggingMixin):
         os.makedirs(output_dir, exist_ok=True)
         src_stem, ext = os.path.splitext(os.path.basename(src))
         stem = stem or src_stem
-        dst = os.path.join(output_dir, f"{stem}{ext}")
-        k = 1
-        while (dst in used or os.path.abspath(dst) in avoid) and os.path.abspath(
-            dst
-        ) != src_abs:
-            dst = os.path.join(output_dir, f"{stem}_{k}{ext}")
-            k += 1
+        dst = ptk.FileUtils.unique_path(
+            output_dir, stem, ext, used, claims=claims, owners=owners, avoid=avoid
+        )
         if os.path.abspath(dst) != src_abs:
             if os.path.exists(dst):
                 try:
                     os.remove(dst)
                 except OSError:
-                    while dst in used or os.path.exists(dst):
-                        dst = os.path.join(output_dir, f"{stem}_{k}{ext}")
-                        k += 1
+                    # Held open: the next spelling nothing occupies and nobody
+                    # else reads.
+                    taken = set(used) | {
+                        os.path.join(output_dir, n) for n in os.listdir(output_dir)
+                    }
+                    dst = ptk.FileUtils.unique_path(
+                        output_dir,
+                        stem,
+                        ext,
+                        taken,
+                        claims=claims,
+                        owners=owners,
+                        avoid=avoid,
+                    )
             shutil.move(src_abs, dst)
         used.add(dst)
         return dst
@@ -1023,15 +1364,13 @@ class LightmapBaker(ptk.LoggingMixin):
         sourceimages beside the maps it belongs to rather than under the material's own
         name (``MAT_ROOM_ENV_Lightmap.exr`` next to ``ROOM_ENV_Base_color.png`` reads
         as a stray from a different set). The material name is an authoring detail; the
-        texture set is what the rest of the maps are keyed on. Suffix matching is
-        delegated to ``ptk.ImgUtils.get_base_texture_name`` — the map-suffix SSoT — so
-        this cannot drift from how the other tools split a texture name.
+        texture set is what the rest of the maps are keyed on.
 
-        The most COMMON base across the material's image nodes wins, so one oddly-named
-        map (a shared noise texture, a stray lookup) cannot rename the whole set.
-
-        Mirrors mayatk's ``LightmapBaker._texture_set_stem``, which had this rule first --
-        blendertk was the twin that drifted, naming atlases after the material.
+        The vote is :meth:`ptk.MapFactory.dominant_texture_set`, the rule mayatk's twin
+        names its maps by too: only a real material MAP votes (a noise texture, an
+        environment cube or a lookup carries no map-type token), and the most common
+        set wins, a tie going to the name that sorts first -- so one stray map cannot
+        rename the whole set.
         """
         import bpy
 
@@ -1039,60 +1378,27 @@ class LightmapBaker(ptk.LoggingMixin):
         tree = getattr(mat, "node_tree", None) if mat is not None else None
         if tree is None:
             return None
-        counts: Dict[str, int] = {}
-        for node in tree.nodes:
-            img = getattr(node, "image", None)
-            if img is None:
-                continue
-            # A packed or FBX-embedded image has no filepath but keeps the original
-            # filename as its datablock name, which is what the import leaves behind.
-            source = os.path.basename(str(img.filepath or "")) or str(img.name or "")
-            base = ptk.ImgUtils.get_base_texture_name(source) if source else ""
-            if base:
-                counts[base] = counts.get(base, 0) + 1
-        if not counts:
-            return None
-        # Sorted first so a tie breaks on the name rather than on node order.
-        return max(sorted(counts), key=counts.get)
+        found = ptk.MapFactory.dominant_texture_set(
+            TextureBaker.image_sources(
+                getattr(node, "image", None) for node in tree.nodes
+            )
+        )
+        return found[0] if found else None
 
     @staticmethod
-    def _unique_atlas_path(output_dir, name, used, avoid=frozenset()) -> str:
-        """Atlas path for *name*, unique within one pack (``used``) and clear of any other
-        group's not-yet-consumed source maps (*avoid*, a set of abspaths). Overwriting the
-        atlas's OWN prior file is allowed (that's the point of consolidation)."""
-        candidate = os.path.join(output_dir, f"{name}.exr")
-        k = 1
-        while candidate in used or os.path.abspath(candidate) in avoid:
-            candidate = os.path.join(output_dir, f"{name}_{k}.exr")
-            k += 1
-        used.add(candidate)
-        return candidate
-
-    @staticmethod
-    def _transform_lightmap_uvs(obj, uv_set, rect, invert=False) -> None:
-        """Affine-transform *obj*'s *uv_set* by a ``[sx, sy, ox, oy]`` rect. Forward maps the
-        unit square into the rect (``uv' = uv*s + o``); ``invert=True`` applies the exact
-        inverse. RETAINED FOR LEGACY REVERT ONLY: new atlas commits never touch UVs (the rect
-        is the engine binding), so the sole live caller is :meth:`revert_lightmap` undoing an
-        old ``uvRect`` marker whose commit repacked the UVs in place."""
-        import numpy as np
-
-        sx, sy, ox, oy = (float(v) for v in rect)
-        layer = obj.data.uv_layers.get(uv_set)
-        if layer is None:
-            raise RuntimeError(f"no lightmap UV set '{uv_set}'")
-        data = layer.data
-        buf = np.empty(len(data) * 2, dtype=np.float32)
-        data.foreach_get("uv", buf)
-        uv = buf.reshape(-1, 2)
-        if invert:
-            uv[:, 0] = (uv[:, 0] - ox) / sx
-            uv[:, 1] = (uv[:, 1] - oy) / sy
-        else:
-            uv[:, 0] = uv[:, 0] * sx + ox
-            uv[:, 1] = uv[:, 1] * sy + oy
-        data.foreach_set("uv", buf.reshape(-1))
-        obj.data.update()
+    def _unique_atlas_path(
+        output_dir, name, used, avoid=frozenset(), claims=None, owners=()
+    ) -> str:
+        """Atlas path for *name*, unique within one pack (``used``), clear of any other
+        group's not-yet-consumed source maps (*avoid*, a set of abspaths), and of any
+        file name an object outside *owners* still reads (*claims*,
+        :meth:`LightmapRecords.claims`). Overwriting the group's OWN prior atlas is
+        allowed (that's the point of consolidation). The rule is
+        :meth:`ptk.FileUtils.unique_path` -- mayatk's twin calls it too, so a fix to
+        one can no longer miss the other (it did: this copy never learned the claims)."""
+        return ptk.FileUtils.unique_path(
+            output_dir, name, ".exr", used, claims=claims, owners=owners, avoid=avoid
+        )
 
     def _apply_intensity(self, paths, intensity: float) -> None:
         """Scale each unique lightmap file's texels by *intensity*, once.
@@ -1133,240 +1439,96 @@ class LightmapBaker(ptk.LoggingMixin):
                     bpy.data.images.remove(img)
 
     # ------------------------------------------------------------------
-    # Lightmap dependencies -- the maps the markers name, on disk NOW
+    # The record -- LightmapRecords, reached through the baker
     # ------------------------------------------------------------------
     #
-    # Mirror of mayatk's ``LightmapBaker.lightmap_dependencies`` /
-    # ``search_dirs`` / ``heal_lightmap_paths`` / ``relocate_lightmaps`` /
-    # ``repath_lightmaps`` (same names, same record shape; objects are
-    # datablocks or names here). A committed lightmap is a texture dependency
-    # no Image datablock references: the marker records a basename plus the
-    # folder the bake was COMMITTED from, and that folder is history. These
-    # are the one lightmap-side answer the Texture Path Editor, the exporter's
-    # path check and the GLB conversion consume.
+    # Mirror of mayatk: what a bake leaves in the file is LightmapRecords'. The
+    # workflow verbs a baker is asked for stay here as delegates; the
+    # dependency and manifest calls moved there outright and warn here until
+    # 0.11.0 -- they never needed a baker.
 
-    #: How a dependency was located: ``"hint"`` (the marker's own folder),
-    #: ``"search"`` (elsewhere -- the hint is stale), ``None`` (nowhere).
-    FOUND_BY_HINT: str = "hint"
-    FOUND_BY_SEARCH: str = "search"
+    @ptk.Deprecation.parameter(
+        "uv_rects",
+        remove_in="0.11.0",
+        reason="Only an old atlas pack squeezed UVs into a rect, and "
+        "LightmapRecords.migrate_legacy now restores those losslessly.",
+    )
+    @ptk.Deprecation.parameter(
+        "intensity",
+        remove_in="0.11.0",
+        reason="Pass intensity to bake(), which scales the maps it has just "
+        "written exactly once; committing a map twice here scaled it twice.",
+    )
+    def commit_lightmap(
+        self,
+        mapping: Dict[str, str],
+        intensity: float = 1.0,
+        scale_offsets: Optional[Dict[str, List[float]]] = None,
+        uv_rects: Optional[Dict[str, List[float]]] = None,
+    ) -> Dict[str, str]:
+        """Record maps baked elsewhere: :meth:`LightmapRecords.commit`.
 
-    @staticmethod
-    def _portable_dir(path: str) -> str:
-        """The folder of *path* in the spelling a marker STORES: ``//``-relative
-        when the map sits inside the project (:func:`btk.to_project_relative`,
-        the rule textures follow), absolute otherwise -- so a project mounted
-        elsewhere on a teammate's machine still resolves it."""
-        from blendertk.mat_utils._mat_utils import MatUtils
+        :meth:`bake` records its own maps; this is for a caller that ran
+        :meth:`bake_separated` / :meth:`bake_atlas` itself. *mapping* is
+        ``{object_name: lightmap_path}`` and *scale_offsets* each object's atlas
+        rect (see :meth:`pack_atlas`). Mirror of mayatk's.
 
-        return os.path.dirname(
-            MatUtils.to_project_relative(os.path.abspath(path))
-        ).replace("\\", "/")
-
-    @staticmethod
-    def _resolved_dir(folder: str, basename: str) -> str:
-        """*folder* (a marker's stored spelling) as an absolute folder on THIS
-        machine -- a ``//`` path resolved against the open .blend the way an
-        image path is (``bpy.path.abspath``). ``""`` when nothing is recorded."""
-        import bpy
-
-        if not folder:
-            return ""
-        joined = os.path.join(folder, basename or "_")
-        try:
-            resolved = bpy.path.abspath(joined)
-        except Exception:
-            resolved = joined
-        return os.path.dirname(os.path.normpath(resolved)).replace("\\", "/")
-
-    def normalize_lightmap_paths(self, objects=None, relative: bool = True) -> int:
-        """Rewrite every in-scope marker's folder to its portable (or absolute) spelling.
-
-        The lightmap half of the Texture Path Editor's *Normalize Paths* /
-        *Make Paths Absolute* (mirror of mayatk): files are never touched, the
-        folder is re-spelled ``//``-relative when it lies inside the project
-        (``relative=True``) or expanded to absolute (``relative=False``), and
-        the manifest is republished. Returns how many markers changed.
+        Two parameters are deprecated (removed in 0.11.0) and keep their old
+        behaviour until then. ``intensity`` other than 1.0 is scaled into the
+        texels -- each unique file once per call, so committing a map again
+        scales it again; :meth:`bake`'s ``intensity`` applies it where the map
+        is written. ``uv_rects`` records a remap an old pack had already
+        squeezed INTO the UVs (the marker's ``uvRect``).
         """
-        dirs_by_map: Dict[str, str] = {}
-        for _obj, info in self._marker_records(objects):
-            basename = os.path.basename(str(info.get("map") or ""))
-            folder = self._resolved_dir(str(info.get("dir") or ""), basename)
-            if folder:
-                dirs_by_map[basename.lower()] = folder
-        if not dirs_by_map:
-            return 0
-        return self.repath_lightmaps(dirs_by_map, objects, relative=relative)
+        recorded = LightmapRecords.commit(
+            mapping, scale_offsets=scale_offsets, intensity=intensity
+        )
+        for name, rect in (uv_rects or {}).items():
+            if name in recorded:
+                LightmapRecords._stamp_uv_rect(name, rect)
+        if recorded and float(intensity) != 1.0:
+            self._apply_intensity(recorded.values(), intensity)
+        return recorded
 
-    def _marker_records(self, objects=None) -> List[Tuple[Any, Dict[str, Any]]]:
-        """``[(object, marker info)]`` for every marked object in scope.
+    def revert(self, objects=None) -> List[str]:
+        """Take the lightmaps off *objects*, or off every baked object for ``None``.
 
-        *objects* (names or datablocks) scopes to those objects AND their
-        descendants (an export set names roots; the lightmapped meshes sit
-        under them). ``None`` is the whole scene; an empty list is nothing.
+        :meth:`LightmapRecords.revert`: the markers go (a legacy UV remap is
+        restored first) and the manifest is republished. The materials were
+        never changed and the EXR files stay on disk. Returns the names cleared.
         """
-        import bpy
+        return LightmapRecords.revert(objects)
 
-        if objects is None:
-            scoped = list(self._marked_objects(self.LIGHTMAP_INFO_PROP, None))
-        else:
-            seen: set = set()
-            scoped = []
-            for o in ptk.make_iterable(objects):
-                root = bpy.data.objects.get(o) if isinstance(o, str) else o
-                if root is None:
-                    continue
-                for obj in (root, *root.children_recursive):
-                    if obj.name in seen or self.LIGHTMAP_INFO_PROP not in obj:
-                        continue
-                    seen.add(obj.name)
-                    scoped.append(obj)
-        records: List[Tuple[Any, Dict[str, Any]]] = []
-        for obj in sorted(scoped, key=lambda o: o.name):
-            try:
-                info = json.loads(obj[self.LIGHTMAP_INFO_PROP] or "{}")
-            except (ValueError, TypeError):
-                continue
-            if info.get("map"):
-                records.append((obj, info))
-        return records
+    def revert_lightmap(self, objects=None) -> List[str]:
+        """:meth:`revert`, under its original name."""
+        return LightmapRecords.revert(objects)
 
+    def baked_objects(self, objects=None) -> List[str]:
+        """The objects :meth:`revert` would take the lightmap from (names).
+
+        :meth:`LightmapRecords.baked_objects` (mirror of mayatk's).
+        """
+        return LightmapRecords.baked_objects(objects)
+
+    @ptk.Deprecation.symbol("LightmapRecords.lightmap_dependencies", remove_in="0.11.0")
     def lightmap_dependencies(
         self, objects=None, search_dirs=None, walk: bool = True
     ) -> List[Dict[str, Any]]:
-        """Every lightmap the scene's markers name, resolved on disk NOW.
-
-        One record per unique map::
-
-            {"map": basename, "dir": recorded folder, "objects": [object names],
-             "path": absolute path or None, "found_by": "hint" | "search" | None,
-             "note": "" | why an unresolved map stayed unresolved}
-
-        Resolution order is the GLB applier's (``ptk.MeshConvert.apply_glb_lightmaps``)
-        so the two can never disagree about a map: the marker's own ``dir``
-        hint, then *search_dirs* (default :meth:`EnvUtils.texture_search_dirs`),
-        each a plain join. With *walk* a map still missing is looked for under
-        the whole textures folder; a UNIQUE hit resolves it (``found_by`` =
-        ``"search"``), several same-named files leave it unresolved with the
-        count in ``note`` rather than guessed at.
-        """
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        records = self._marker_records(objects)
-        if not records:
-            return []
-        if search_dirs is None:
-            search_dirs = EnvUtils.texture_search_dirs()
-
-        deps: Dict[str, Dict[str, Any]] = {}
-        for obj, info in records:
-            basename = os.path.basename(str(info.get("map") or ""))
-            dep = deps.get(basename.lower())
-            if dep is None:
-                dep = deps[basename.lower()] = {
-                    "map": basename,
-                    "dir": str(info.get("dir") or "").replace("\\", "/"),
-                    "objects": [],
-                    "path": None,
-                    "found_by": None,
-                    "note": "",
-                }
-            dep["objects"].append(obj.name)
-
-        for dep in deps.values():
-            attempts = [
-                (self.FOUND_BY_HINT, self._resolved_dir(dep["dir"], dep["map"]))
-            ]
-            attempts.extend((self.FOUND_BY_SEARCH, d) for d in search_dirs)
-            for found_by, folder in attempts:
-                candidate = os.path.join(folder, dep["map"]) if folder else ""
-                if candidate and os.path.isfile(candidate):
-                    dep["path"] = os.path.abspath(candidate).replace("\\", "/")
-                    dep["found_by"] = found_by
-                    break
-
-        pending = [d for d in deps.values() if d["path"] is None]
-        root = EnvUtils.source_images_dir()
-        if walk and pending and root and os.path.isdir(root):
-            wanted = {d["map"].lower() for d in pending}
-            by_name: Dict[str, List[str]] = {}
-            for folder, _dirs, files in os.walk(root):
-                for name in files:
-                    if name.lower() in wanted:
-                        by_name.setdefault(name.lower(), []).append(
-                            os.path.join(folder, name)
-                        )
-            for dep in pending:
-                candidates = by_name.get(dep["map"].lower()) or []
-                if len(candidates) == 1:
-                    dep["path"] = os.path.abspath(candidates[0]).replace("\\", "/")
-                    dep["found_by"] = self.FOUND_BY_SEARCH
-                elif candidates:
-                    dep["note"] = (
-                        f"ambiguous: {len(candidates)} same-named files under "
-                        f"{root} -- not guessing"
-                    )
-        return list(deps.values())
+        """Moved to :meth:`LightmapRecords.lightmap_dependencies`."""
+        return LightmapRecords.lightmap_dependencies(objects, search_dirs, walk)
 
     @classmethod
+    @ptk.Deprecation.symbol("LightmapRecords.search_dirs", remove_in="0.11.0")
     def search_dirs(cls, objects=None) -> List[str]:
-        """Where this scene's lightmaps can be found NOW, for a consumer that joins.
+        """Moved to :meth:`LightmapRecords.search_dirs`."""
+        return LightmapRecords.search_dirs(objects)
 
-        Mirror of mayatk's: the folders the bake markers' maps resolve to
-        FIRST -- most-named first (by the objects baked into each), ties
-        broken on the path -- then :meth:`EnvUtils.texture_search_dirs`.  The
-        GLB applier's ``search_dirs`` joins a basename against the list and
-        takes the first hit, so the order is a priority: a texture folder
-        holding a same-named atlas from an earlier bake must not win.  The
-        deliverable names no folder of its own (the GLB embeds the maps), so
-        this is the one answer to where they are.  Existing folders,
-        deduplicated.
-        """
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        texture_dirs = list(EnvUtils.texture_search_dirs())
-        named: Dict[str, int] = {}
-        spelled: Dict[str, str] = {}
-        for dep in cls().lightmap_dependencies(objects, search_dirs=texture_dirs):
-            folder = os.path.dirname(dep["path"]) if dep["path"] else ""
-            if not folder or not os.path.isdir(folder):
-                continue
-            key = os.path.normcase(os.path.abspath(folder))
-            named[key] = named.get(key, 0) + max(1, len(dep.get("objects") or ()))
-            spelled.setdefault(key, folder)
-        dirs = [
-            spelled[key]
-            for key, _n in sorted(named.items(), key=lambda kv: (-kv[1], kv[0]))
-        ]
-        seen = set(named)
-        for folder in texture_dirs:
-            key = os.path.normcase(os.path.abspath(folder))
-            if key not in seen:
-                seen.add(key)
-                dirs.append(folder)
-        return dirs
-
+    @ptk.Deprecation.symbol("LightmapRecords.heal_lightmap_paths", remove_in="0.11.0")
     def heal_lightmap_paths(self, objects=None) -> Dict[str, Any]:
-        """Rewrite stale marker hints to where the maps actually are; republish.
+        """Moved to :meth:`LightmapRecords.heal_lightmap_paths`."""
+        return LightmapRecords.heal_lightmap_paths(objects)
 
-        The lightmap half of the exporter's *Resolve Invalid Texture Paths*
-        task: a map found by search has a hint that resolves nowhere, so the
-        scene's own answer to where its maps live (:meth:`search_dirs`, which
-        every GLB build is handed) rests on a guess. Files are never
-        touched. Returns ``{"healed": [(map, old_dir, new_dir)], "missing":
-        [records]}``.
-        """
-        deps = self.lightmap_dependencies(objects)
-        moves: Dict[str, str] = {}
-        healed: List[Tuple[str, str, str]] = []
-        for dep in deps:
-            if dep["path"] and dep["found_by"] == self.FOUND_BY_SEARCH:
-                new_dir = os.path.dirname(dep["path"])
-                moves[dep["map"].lower()] = new_dir
-                healed.append((dep["map"], dep["dir"], new_dir))
-        if moves:
-            self.repath_lightmaps(moves, objects)
-        return {"healed": healed, "missing": [d for d in deps if not d["path"]]}
-
+    @ptk.Deprecation.symbol("LightmapRecords.relocate_lightmaps", remove_in="0.11.0")
     def relocate_lightmaps(
         self,
         dest_dir: str,
@@ -1375,276 +1537,38 @@ class LightmapBaker(ptk.LoggingMixin):
         objects=None,
         dry_run: bool = False,
     ) -> Dict[str, Any]:
-        """Gather the scene's lightmaps into *dest_dir* and repoint the markers.
+        """Moved to :meth:`LightmapRecords.relocate_lightmaps`."""
+        return LightmapRecords.relocate_lightmaps(
+            dest_dir, source_dir, mode, objects, dry_run
+        )
 
-        The lightmap half of the Texture Path Editor's *Find & Copy*: a map
-        that resolves is its own source; one that does not is searched for
-        under *source_dir* (recursively; the newest same-named file wins). A
-        source already in *dest_dir* needs no file operation and still gets its
-        hint rewritten. Relocation goes through the panel's own collision
-        policy (``_safe_relocate``: same-size = reuse, different-size = skip).
-
-        Returns::
-
-            {"relocate": [(src, dst)], "in_place": [src], "missing": [records],
-             "copied": [(src, dst)], "updated": markers rewritten}
-        """
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
-
-        result: Dict[str, Any] = {
-            "relocate": [],
-            "in_place": [],
-            "missing": [],
-            "copied": [],
-            "updated": 0,
-        }
-        deps = self.lightmap_dependencies(objects)
-        if not deps:
-            return result
-        dest_dir = dest_dir.replace("\\", "/")
-
-        sources: Dict[str, str] = {}
-        for dep in deps:
-            if dep["path"]:
-                sources[dep["map"].lower()] = dep["path"]
-        pending = {d["map"].lower() for d in deps if d["map"].lower() not in sources}
-        if pending and source_dir and os.path.isdir(source_dir):
-            newest: Dict[str, Tuple[float, str]] = {}
-            for folder, _dirs, files in os.walk(source_dir):
-                for name in files:
-                    key = name.lower()
-                    if key not in pending:
-                        continue
-                    hit = os.path.join(folder, name)
-                    try:
-                        mtime = os.path.getmtime(hit)
-                    except OSError:
-                        mtime = 0.0
-                    if key not in newest or mtime > newest[key][0]:
-                        newest[key] = (mtime, hit)
-            for key, (_mtime, hit) in newest.items():
-                sources[key] = os.path.abspath(hit).replace("\\", "/")
-        result["missing"] = [d for d in deps if d["map"].lower() not in sources]
-
-        dest_key = os.path.normcase(os.path.abspath(dest_dir))
-        for src in sources.values():
-            if os.path.normcase(os.path.dirname(os.path.abspath(src))) == dest_key:
-                result["in_place"].append(src)
-            else:
-                dst = os.path.join(dest_dir, os.path.basename(src)).replace("\\", "/")
-                result["relocate"].append((src, dst))
-        if dry_run:
-            return result
-
-        if result["relocate"]:
-            os.makedirs(dest_dir, exist_ok=True)
-            for src, dst in result["relocate"]:
-                if _MatUtilsInternal._safe_relocate(src, dst, mode) in (
-                    "relocated",
-                    "rebind",
-                ):
-                    result["copied"].append((src, dst))
-        landed = {os.path.basename(dst).lower() for _src, dst in result["copied"]}
-        landed.update(os.path.basename(p).lower() for p in result["in_place"])
-        if landed:
-            result["updated"] = self.repath_lightmaps(
-                {key: dest_dir for key in landed}, objects
-            )
-        return result
-
+    @ptk.Deprecation.symbol("LightmapRecords.repath_lightmaps", remove_in="0.11.0")
     def repath_lightmaps(
         self, dirs_by_map: Dict[str, str], objects=None, relative: bool = True
     ) -> int:
-        """Point every in-scope marker naming a map in *dirs_by_map* at its new folder.
+        """Moved to :meth:`LightmapRecords.repath_lightmaps`."""
+        return LightmapRecords.repath_lightmaps(dirs_by_map, objects, relative)
 
-        Keys are lower-case basenames. The manual repath (Browse for File / a
-        typed path on a lightmap row) and the last step of
-        :meth:`heal_lightmap_paths` and :meth:`relocate_lightmaps`. Files are
-        never touched. The folder is stored in its portable spelling
-        (``//``-relative when inside the project) unless ``relative=False``
-        -- the Make Paths Absolute case. The manifest is republished once.
-        Returns how many markers changed; a marker already recording that
-        folder is untouched.
-        """
-        count = 0
-        for obj, info in self._marker_records(objects):
-            basename = os.path.basename(str(info.get("map") or ""))
-            new_dir = dirs_by_map.get(basename.lower())
-            if new_dir is None:
-                continue
-            if relative:
-                spelling = self._portable_dir(os.path.join(new_dir, basename))
-            else:
-                spelling = os.path.abspath(new_dir).replace("\\", "/")
-            if str(info.get("dir") or "").replace("\\", "/") == spelling:
-                continue
-            info["dir"] = spelling
-            obj[self.LIGHTMAP_INFO_PROP] = json.dumps(info)
-            count += 1
-        if count:
-            self._publish_lightmap_metadata()
-        return count
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.normalize_lightmap_paths", remove_in="0.11.0"
+    )
+    def normalize_lightmap_paths(self, objects=None, relative: bool = True) -> int:
+        """Moved to :meth:`LightmapRecords.normalize_lightmap_paths`."""
+        return LightmapRecords.normalize_lightmap_paths(objects, relative)
 
     @classmethod
+    @ptk.Deprecation.symbol("LightmapRecords.export_record", remove_in="0.11.0")
     def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
-        """The ``lightmap_metadata`` record for this file, or ``None`` when no
-        lightmapped object remains -- the ``ptk.SceneRecords.LIGHTMAPS`` producer
-        (``FbxUtils.PRODUCERS``, mirror of mayatk's).  Pure: it reads the markers
-        and never writes.
-
-        The manifest is regenerated purely from the per-object
-        :attr:`LIGHTMAP_INFO_PROP` markers, so bake settings are irrelevant -- a
-        default-configured instance is just a namespace here.
-
-        Parameters:
-            ctx: The export's decisions (unused: the manifest is a function of
-                the markers alone).
-        """
-        return cls()._lightmap_record()
+        """Moved to :meth:`LightmapRecords.export_record`."""
+        return LightmapRecords.export_record(ctx)
 
     @classmethod
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.refresh_export_metadata", remove_in="0.11.0"
+    )
     def refresh_export_metadata(cls) -> Optional[str]:
-        """Rebuild the ``lightmap_metadata`` export channel from the scene's markers.
-
-        The authoring-time publish of :meth:`export_record`: the record is
-        committed through ``FbxUtils.publish_authored`` (a file with no markers
-        CLEARS the channel).  An export pipeline runs the producer itself
-        (``FbxUtils.PRODUCERS``).
-
-        Returns:
-            The published JSON string, or ``None`` when cleared.
-        """
-        return cls()._publish_lightmap_metadata()
-
-    def _publish_lightmap_metadata(self) -> Optional[str]:
-        """Publish :meth:`_lightmap_record` onto the shared ``data_export`` carrier.
-
-        Regenerating from the markers (not the last bake) keeps incremental bakes
-        additive and a revert subtractive. Clears the channel when no lightmapped
-        objects remain; never creates the carrier just to write an empty manifest.
-
-        Returns the published JSON string, or ``None`` when cleared.
-        """
-        from blendertk.env_utils.fbx_utils import FbxUtils
-
-        record = self._lightmap_record()
-        FbxUtils.publish_authored({ptk.SceneRecords.LIGHTMAPS: record})
-        return record.text if record is not None else None
-
-    def _lightmap_record(self) -> Optional[ptk.Record]:
-        """(Re)build the lightmap manifest record from the scene's markers.
-
-        Scans every object carrying a :attr:`LIGHTMAP_INFO_PROP` marker into one
-        manifest (``{"objects": [...]}``, the ``version`` stamped by the
-        ``ptk.SceneRecords.LIGHTMAPS`` declaration), or ``None`` when no
-        lightmapped object remains. camelCase keys match unitytk's ``LightmapRecord``.
-        """
-        import bpy
-
-        objects: List[Dict[str, Any]] = []
-        for obj in bpy.data.objects:
-            if self.LIGHTMAP_INFO_PROP not in obj:
-                continue
-            try:
-                info = json.loads(obj[self.LIGHTMAP_INFO_PROP] or "{}")
-            except ValueError:
-                continue
-            # Publish the lightmap layer's REAL channel index (mirrors mayatk):
-            # Unity's native lightmaps only sample uv2 (index 1), so anything
-            # else is warned about instead of hidden behind a hardcoded 1.
-            # (No duplicate-name check here -- unlike Maya DAG leaves, Blender
-            # object names are globally unique, so the Unity join key can't
-            # collide within one export.)
-            uv_set = info.get("uv_set")
-            uv_index = 1
-            layers = getattr(getattr(obj, "data", None), "uv_layers", None)
-            if layers is not None and uv_set:
-                found = layers.find(uv_set)
-                if found >= 0:
-                    uv_index = found
-                else:
-                    self.logger.warning(
-                        "%s: committed lightmap layer %r no longer exists; "
-                        "publishing uvIndex 1 on faith. Re-run "
-                        "create_lightmap_uvs if the layer was renamed or "
-                        "removed.",
-                        obj.name,
-                        uv_set,
-                    )
-            if uv_index != 1:
-                self.logger.warning(
-                    "%s: lightmap layer %r sits at UV index %d, but Unity "
-                    "samples uv2 (index 1). Re-run create_lightmap_uvs before "
-                    "exporting.",
-                    obj.name,
-                    uv_set,
-                    uv_index,
-                )
-            objects.append(
-                {
-                    "name": obj.name,  # the Unity GameObject join key
-                    "map": info.get("map"),
-                    "uvIndex": uv_index,
-                    "intensity": info.get("intensity", 1.0),
-                    "scaleOffset": info.get(
-                        "scaleOffset", list(self._IDENTITY_SCALE_OFFSET)
-                    ),
-                }
-            )
-
-        if not objects:
-            return None
-        # Objects only, no folder (mirror of mayatk's): wherever the manifest
-        # becomes a GLB the maps are EMBEDDED, and the host hands that build
-        # where they live (:meth:`search_dirs`, from the markers' own portable
-        # folders) -- a build-time hint that does not belong in a deliverable.
-        # Before 0.8.0 this published the ABSOLUTE authoring folders (``dir`` /
-        # ``dirs``); a manifest carrying them still reads.
-        return ptk.SceneRecords.LIGHTMAPS.make({"objects": objects})
-
-    def revert_lightmap(self, objects=None) -> List[str]:
-        """Undo :meth:`commit_lightmap` -- restore any legacy UV remap, drop the markers, republish.
-
-        Current commits change nothing about the material/UVs (the atlas rect is a
-        ``scaleOffset`` binding, not a UV edit), so reverting them just drops the marker.
-        A LEGACY atlas commit repacked the object's lightmap UVs into its rect (recorded as
-        the marker's ``uvRect``); that was a UV change, so it is inverted here first —
-        restoring the original 0-1 layout so a re-bake starts clean. The baked texture and
-        UV layer are otherwise left in place. ``objects=None`` clears every marked object.
-        Returns the names cleared.
-        """
-        cleared = []
-        for obj in self._marked_objects(self.LIGHTMAP_INFO_PROP, objects):
-            try:
-                info = json.loads(obj[self.LIGHTMAP_INFO_PROP] or "{}")
-            except (ValueError, TypeError):
-                info = {}
-            rect = info.get("uvRect")
-            if rect and [float(v) for v in rect] != list(self._IDENTITY_SCALE_OFFSET):
-                uv_set = (
-                    info.get("uv_set")
-                    or UvUtils.find_lightmap_uv_set(obj)
-                    or LIGHTMAP_UV_SET
-                )
-                try:
-                    self._transform_lightmap_uvs(obj, uv_set, rect, invert=True)
-                except Exception as e:
-                    self.logger.warning(
-                        "Could not restore atlased lightmap UVs on %s: %s", obj.name, e
-                    )
-            del obj[self.LIGHTMAP_INFO_PROP]
-            cleared.append(obj.name)
-        if cleared:
-            self._publish_lightmap_metadata()
-        return cleared
-
-    def revert(self, objects=None) -> List[str]:
-        """Undo the lightmap wiring -- the spelling the panel and pre-bake use.
-
-        Kept as its own name (rather than callers reaching for :meth:`revert_lightmap`)
-        because it is the stable "undo whatever this workflow did" entry point.
-        """
-        return self.revert_lightmap(objects)
+        """Moved to :meth:`LightmapRecords.refresh_export_metadata`."""
+        return LightmapRecords.refresh_export_metadata()
 
     # ------------------------------------------------------------------ guards
     # ------------------------------------------------------------------
@@ -1775,9 +1699,9 @@ class LightmapBaker(ptk.LoggingMixin):
         """Warn (once per instance) when the scene has no light source to bake.
 
         A lightless bake silently produces a black lightmap -- worth a loud hint BEFORE the
-        rays are spent rather than only after (the panel's post-bake ``_level_warning``
-        reads the finished maps; this fires for scripted callers too, which is why it lives
-        on the workflow rather than the Slots). Twin of mayatk's guard, with the Arnold
+        rays are spent rather than only after (:meth:`bake_verdict` reads the finished
+        maps; this fires for every caller of the bake mechanisms, which is why it lives on
+        the workflow rather than the Slots). Twin of mayatk's guard, with the Arnold
         light-type probe replaced by Blender's own: a ``LIGHT`` object, or a world background
         that emits (Cycles' analogue of ``aiSkyDomeLight`` -- blendertk ships an HDR Manager,
         so an HDRI-only scene is a genuinely lit scene and must not trip this).
@@ -1809,642 +1733,3 @@ class LightmapBaker(ptk.LoggingMixin):
             "or set a world environment (light_utils' HDR Manager / "
             "LightUtils.set_world_environment)."
         )
-
-    @staticmethod
-    def _marked_objects(prop: str, objects) -> List[Any]:
-        """Objects carrying *prop*: ``objects=None`` -> all in scene; else the given subset."""
-        import bpy
-
-        if objects is None:
-            return [o for o in bpy.data.objects if prop in o]
-        out = []
-        for o in ptk.make_iterable(objects):
-            obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-            if obj is not None and prop in obj:
-                out.append(obj)
-        return out
-
-
-# -----------------------------------------------------------------------------
-# Switchboard panel
-# -----------------------------------------------------------------------------
-
-
-class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
-    """Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
-
-    A thin driver over :class:`LightmapBaker` (composition; no bake logic here). Mirrors
-    mayatk's ``LightmapBakerSlots`` 1:1 (same method names / signal-connection order); the one
-    spot where the engines currently diverge is noted below. **Bake Lightmaps** (``b000``) runs
-    revert -> bake -> commit for the selection: :meth:`~LightmapBaker.bake_separated` +
-    :meth:`~LightmapBaker.commit_lightmap` keep the full PBR material, bake lighting onto
-    UV1, and stamp Unity metadata on the shared ``data_export`` carrier.
-
-    ``b000`` first calls :meth:`~LightmapBaker.revert` to clear prior wiring so the
-    bake samples the real material; the header menu's **Revert to Source** undoes it. The
-    Quality combobox is populated from :meth:`~LightmapBaker.preset_store` and fills the
-    Resolution / Samples dials (the source of truth at bake time); the traffic runs both
-    ways, so a dial moved off the tier flips the combobox to *Custom*
-    (:meth:`_preset_for_dials`, wired as one ``sb.value_from`` rule). The Packing combobox
-    (``cmb002``) picks how the maps are laid out — Per-Object or Atlas by
-    Material (:meth:`~LightmapBaker.bake_atlas`); both are live.
-
-    Tentacle-independent (``ptk`` mixins only); the Qt-only ``uitk`` ``fmt`` helper is
-    deferred into the methods that use it (headless Blender ships no Qt binding).
-    """
-
-    # Packing labels for the Packing combobox (cmb002). Per-Object (index 0, the default) keeps
-    # one full-resolution map per object; Atlas by Material (index 1) consolidates a material
-    # group into one shared EXR, each object's rect committed as its per-instance scaleOffset
-    # binding via :meth:`LightmapBaker.bake_atlas`. _packing() reads it back.
-    _PACKING_LABELS = ("Per-Object (one map each)", "Atlas by Material (shared map)")
-
-    # Fixed lightmap sizes (square, px) for the Resolution combobox
-    # (cmb_resolution). Power-of-two atlas sizes; every Quality preset lands on
-    # one of these. _resolution() reads the selection back as an int.
-    _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
-
-    # Label for the Quality combobox row that means "whatever the dials say".
-    # NOT a stored preset -- ``_apply_preset`` declines it; it is the answer
-    # ``_preset_for_dials`` gives when Resolution / Samples match no tier, so
-    # the combo can never keep naming a preset the bake is no longer using.
-    _CUSTOM_PRESET_LABEL = "Custom"
-
-    # Scope labels for the Scope combobox (cmb_scope): which objects b000 bakes.
-    # Selected (index 0, default) preserves the prior selection-only behavior;
-    # _scope() / _scope_objects() resolve it to the mesh objects to bake.
-    _SCOPE_LABELS = ("Selected", "Visible", "Scene")
-
-    # Footer tail common to every lighting-only commit -- b000's per-object branch states it
-    # alone, its atlas branch appends it to the consolidation count, so the two can't drift
-    # (mirrors mayatk's ``_LIGHTING_ONLY_TAIL``).
-    _LIGHTING_ONLY_TAIL = (
-        "Maps kept; lightmap + Unity metadata stamped. Export the FBX."
-    )
-
-    def __init__(self, switchboard, log_level: str = "WARNING"):
-        super().__init__()
-        self.logger.setLevel(log_level)
-        self.logger.set_log_prefix("[lightmap_baker] ")
-
-        self.sb = switchboard
-        self.ui = self.sb.loaded_ui.lightmap_baker
-
-        self._last_output_dir: Optional[str] = None
-        self._baker: Optional[LightmapBaker] = None
-        # Dial signature -> preset name, built by cmb000_init from the same
-        # listing that fills the combo; _preset_for_dials reads it back.
-        self._preset_by_dials: Dict[Tuple[int, int], str] = {}
-
-        # Deferred: the switchboard builds this mid-load, before the combos are wired onto
-        # self.ui — sync the dials to the shown preset on the next tick.
-        self.sb.QtCore.QTimer.singleShot(0, self._initialize_ui)
-
-    def _initialize_ui(self) -> None:
-        self._apply_preset(self.ui.cmb000.currentText())
-        # Quality follows the dials from here on: move Resolution or Samples off
-        # the tier and the combo says *Custom* rather than keep naming a preset
-        # the bake is no longer using. Wired AFTER the preset is applied -- the
-        # rule applies immediately, and at widget-registration time the dials
-        # still hold the .ui defaults, so an earlier wire-up would open on Custom.
-        self.sb.value_from(
-            self.ui,
-            "cmb000",
-            ["cmb_resolution", "spn_samples"],
-            self._preset_for_dials,
-        )
-
-    # ------------------------------------------------------------------ header
-    def header_init(self, widget) -> None:
-        """Configure the header chrome (menu / collapse / hide), menu, help text."""
-        widget.config_buttons("menu", "collapse", "hide")
-        widget.menu.add(
-            "QPushButton",
-            setText="Revert to Source",
-            setObjectName="revert_to_source",
-            setToolTip="Undo the bake's wiring — restore the original material on the "
-            "selected (or all baked) objects.",
-        )
-        widget.menu.add(
-            "QPushButton",
-            setText="Open Output Folder",
-            setObjectName="open_output",
-            setToolTip="Open the folder the lightmaps were written to.",
-        )
-        widget.set_help_text(
-            self.sb.tooltip.fmt(
-                title="Lightmap Baker",
-                body="Bake Blender scene lighting (Cycles) into a texture per object for game "
-                "engines (Unity-first) and wire it up in one step — no manual export prep.",
-                steps=[
-                    "Choose a <b>Scope</b> — bake the <b>Selected</b> objects (default), all "
-                    "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
-                    "Pick a <b>Mode</b> and <b>Packing</b> (see below) and a <b>Quality</b> "
-                    "preset (fills Resolution / Samples; override either to taste — the "
-                    "preset then reads <i>Custom</i>). <b>Device</b> picks what Cycles "
-                    "bakes on — <i>Auto</i> takes the GPU per object where it pays and "
-                    "the CPU for tiles too small to repay a GPU session.",
-                    "Leave <b>Include Environment</b> on to bake the scene as authored. "
-                    "Off detaches the world for the bake (and restores it after), so you "
-                    "get the room's own lights without the environment's flat ambient "
-                    "lift — which cannot be taken back out of a map once it is in.",
-                    "Optionally set an <b>Output Directory</b> — empty writes to the "
-                    "workspace's texture folder; a relative entry (e.g. <i>lightmaps</i>) "
-                    "lands under it, so the setting travels with the project; an absolute "
-                    "one is used as-is.",
-                    "Press <b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
-                    "Properties</b> enabled (so the hidden <i>data_export</i> Empty carries "
-                    "the Unity wiring).",
-                ],
-                sections=[
-                    (
-                        "Mode: Lighting Only — real lightmapping (default)",
-                        [
-                            "Bakes <i>lighting only</i> (Cycles diffuse, no albedo) onto a second "
-                            "UV channel; your full PBR material is <b>kept untouched</b>.",
-                            "The lightmap is a <b>separate EXR</b>; the engine multiplies "
-                            "albedo × lightmap at runtime and your normal map still works. "
-                            "Self-contained export — UV2 samples the map directly in any "
-                            "engine; a one-file Unity editor helper (optional, unitytk's "
-                            "<i>LightmapMetadataController.cs</i>) auto-binds Unity's native "
-                            "lightmap slots from the FBX wiring on the shared data Empty.",
-                            "<b>Packing</b>: <i>Per-Object</i> gives each object its own full-"
-                            "resolution lightmap. <i>Atlas by Material</i> consolidates every object "
-                            "sharing a material into one shared, area-weighted EXR; each object's "
-                            "rect is published as its per-instance <i>scaleOffset</i> (Unity's "
-                            "native binding), so instanced/linked copies each get their own patch "
-                            "while still sharing one mesh.",
-                        ],
-                    ),
-                    (
-                        "Non-destructive",
-                        [
-                            "Nothing is deleted — the source material stays in the scene and the "
-                            "restore data is stamped on the object.",
-                            "<b>Revert to Source</b> (header menu) undoes the wiring; re-baking "
-                            "auto-reverts first.",
-                        ],
-                    ),
-                ],
-                notes=[
-                    "Cycles must be available (it ships with Blender). The bake runs on the "
-                    "CPU/GPU; higher Samples = cleaner GI, slower bake.",
-                ],
-            )
-        )
-
-    # ------------------------------------------------------------------ combos
-    def cmb000_init(self, widget) -> None:
-        """Populate the Quality combobox from the shared preset store.
-
-        A trailing *Custom* row is appended for the dials-match-no-tier case,
-        and the dial-signature lookup :meth:`_preset_for_dials` reads is built
-        from the same listing that fills the combo, so the two cannot disagree.
-        """
-        store = LightmapBaker.preset_store()
-        names = store.list()
-        self._preset_by_dials = {}
-        for name in names:
-            data = store.load(name)
-            if "resolution" in data and "samples" in data:
-                key = (int(data["resolution"]), int(data["samples"]))
-                self._preset_by_dials.setdefault(key, name)
-        widget.clear()
-        # The store's user tier is free-form, so a saved preset may already be
-        # named "Custom" -- appending blindly would show the row twice.
-        rows = list(names)
-        if self._CUSTOM_PRESET_LABEL not in rows:
-            rows.append(self._CUSTOM_PRESET_LABEL)
-        widget.addItems(rows)
-        idx = widget.findText("quest")
-        if idx >= 0:
-            widget.setCurrentIndex(idx)
-
-    def cmb000(self, index, widget) -> None:
-        """Apply the selected preset's dials to Resolution / Samples.
-
-        *Custom* is not a stored preset -- it is what the dials say when they
-        match no tier -- so it applies nothing and just reports that the dials
-        are in charge.
-        """
-        name = widget.currentText()
-        if self._apply_preset(name):
-            self.ui.footer.setText(f"Preset: {name}")
-        elif name == self._CUSTOM_PRESET_LABEL:
-            self.ui.footer.setText("Quality: Custom — Resolution / Samples as set.")
-
-    def cmb002_init(self, widget) -> None:
-        """Populate the Packing combobox; Per-Object is the default (Atlas by Material also live)."""
-        widget.clear()
-        widget.addItems(self._PACKING_LABELS)
-        widget.setCurrentIndex(0)  # Per-Object — one full-resolution map each
-
-    def _packing(self) -> str:
-        """``"atlas"`` or ``"per_object"`` from the Packing combobox (default per_object)."""
-        text = (self.ui.cmb002.currentText() or "").lower()
-        return "atlas" if "atlas" in text else "per_object"
-
-    def cmb_scope_init(self, widget) -> None:
-        """Populate the Scope combobox; Selected (current selection) is the default."""
-        widget.clear()
-        widget.addItems(self._SCOPE_LABELS)
-        widget.setCurrentIndex(0)  # Selected — the prior selection-only behavior
-
-    def _scope(self) -> str:
-        """``"selected"`` (default), ``"visible"`` or ``"scene"`` from cmb_scope."""
-        return (self.ui.cmb_scope.currentText() or "Selected").split()[0].lower()
-
-    def _scope_objects(self):
-        """The mesh objects to bake for the current Scope.
-
-        ``selected`` is the raw selection (unchanged behavior); ``visible`` and
-        ``scene`` gather mesh objects across the scene so a bake needn't be
-        preceded by a manual select-all.
-        """
-        scope = self._scope()
-        if scope == "selected":
-            return CoreUtils.selected_objects()
-        import bpy
-
-        # resolve_meshes is the baker's own "what counts as a bakeable mesh" SSoT,
-        # so the scope's count matches what bake() will actually process.
-        meshes = TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
-        if scope == "visible":
-            return [o for o in meshes if o.visible_get()]
-        return meshes  # scene
-
-    def cmb_resolution_init(self, widget) -> None:
-        """Populate the Resolution combobox (value carried as item data); default 1024."""
-        widget.clear()
-        for r in self._RESOLUTIONS:
-            widget.addItem(f"Resolution:\t{r}", r)
-        widget.setCurrentIndex(self._RESOLUTIONS.index(1024))
-
-    def _resolution(self) -> int:
-        """The selected lightmap resolution (px) from cmb_resolution (its item data)."""
-        value = self.ui.cmb_resolution.currentData()
-        return int(value) if value is not None else 1024
-
-    def _set_resolution(self, value: int) -> None:
-        """Select *value* in the Resolution combobox, snapping to the nearest fixed size."""
-        nearest = min(self._RESOLUTIONS, key=lambda r: abs(r - value))
-        cmb = self.ui.cmb_resolution
-        cmb.blockSignals(True)
-        try:
-            cmb.setCurrentIndex(self._RESOLUTIONS.index(nearest))
-        finally:
-            cmb.blockSignals(False)
-
-    #: Cycles bake device, ``(label, value)`` — mirror of mayatk's ``_DEVICES``.
-    _DEVICES = (("Auto", "AUTO"), ("GPU", "GPU"), ("CPU", "CPU"))
-
-    def cmb_device_init(self, widget) -> None:
-        """Populate the Device combobox (value carried as item data); default Auto."""
-        widget.clear()
-        for label, value in self._DEVICES:
-            widget.addItem(f"Device:\t{label}", value)
-        widget.setCurrentIndex(0)  # Auto
-
-    def _device(self) -> str:
-        """The selected bake device from cmb_device (its item data)."""
-        return self.ui.cmb_device.currentData() or self._DEVICES[0][1]
-
-    def _include_environment(self) -> bool:
-        """Whether the bake keeps the scene's environment (chk_environment)."""
-        return bool(self.ui.chk_environment.isChecked())
-
-    def txt_output_dir_init(self, widget) -> None:
-        """Add a directory browser to the optional output-directory field.
-
-        No clear button (mirrors mayatk's twin): the value arrives from the
-        browse dialog as often as it is typed, and a mis-click would drop a
-        path the user picked and can't retype -- the field's *empty* default is
-        one keystroke away anyway (see :meth:`_output_dir`).
-        """
-        widget.option_box.browse(
-            mode="directory",
-            title="Lightmap output directory",
-            tooltip="Browse for the lightmap output directory…",
-            start_dir=self._output_dir,
-            callback=self._relativize_output_dir,
-        )
-
-    def _relativize_output_dir(self, path: str) -> None:
-        """Store a browsed dir under the texture folder as a *relative* path.
-
-        The dialog can only hand back an absolute path, but the portable form
-        is the relative one: a project moved (or a teammate's copy) still bakes
-        into the same subfolder. Anything outside the texture folder is left
-        absolute -- that is what the user picked.
-        """
-        base = self._base_output_dir()
-        if not (path and base and ptk.FileUtils.is_under(path, base)):
-            return
-        rel = ptk.FileUtils.convert_to_relative_path(path, base, prepend_base=False)
-        self.ui.txt_output_dir.setText("" if rel == "." else rel)
-
-    def txt000_init(self, widget) -> None:
-        """Add the Prefix / Suffix / Auto picker to the name-affix field."""
-        widget.option_box.clear_option = True
-        # Explicit key: ``txt000`` is generic enough that another panel in the
-        # same host would share the auto-derived namespace.
-        widget.option_box.set_affix(
-            default="auto",
-            settings_key="lightmap_baker_affix",
-            # Fourth, custom state: take the lightmap affix from the shared
-            # naming convention instead of this one field.
-            convention_key="lightmap",
-        )
-
-    def _preset_for_dials(self, resolution: int, samples: int) -> str:
-        """The preset whose dials are exactly these, else :attr:`_CUSTOM_PRESET_LABEL`.
-
-        The resolver behind the ``sb.value_from`` rule wired in
-        :meth:`_initialize_ui`. A pure dict lookup (built once in
-        :meth:`cmb000_init`), so it costs nothing to re-run on every arrow-press
-        in the Samples spinbox.
-        """
-        return self._preset_by_dials.get(
-            (int(resolution), int(samples)), self._CUSTOM_PRESET_LABEL
-        )
-
-    def _apply_preset(self, name: str) -> bool:
-        store = LightmapBaker.preset_store()
-        if not name or not store.exists(name):
-            return False
-        data = store.load(name)
-        if "resolution" in data:
-            self._set_resolution(int(data["resolution"]))
-        if "samples" in data:
-            spin = self.ui.spn_samples
-            spin.blockSignals(True)
-            try:
-                spin.setValue(int(data["samples"]))
-            finally:
-                spin.blockSignals(False)
-        # Bounce depth has no panel widget -- Resolution and Samples do, so the tier
-        # reaches the bake through THEM, and anything the tier carries besides them
-        # has to be carried by hand. Without this the preset's ``bounces`` silently
-        # no-ops for every panel bake (exactly the failure mayatk's ``_preset_gi``
-        # comment records for gi_depth/gi_samples), leaving the panel on the
-        # constructor default whichever tier is showing.
-        self._preset_gi = {k: int(data[k]) for k in ("bounces",) if k in data}
-        return True
-
-    # ------------------------------------------------------------------ actions
-    def b000(self) -> None:
-        """Bake lightmaps for the selection in the chosen Mode (revert → bake → commit)."""
-        objects = self._scope_objects()
-        if not objects:
-            self.ui.footer.setText(
-                "Select one or more mesh objects to bake."
-                if self._scope() == "selected"
-                else f"No meshes found for scope '{self._scope()}'."
-            )
-            return
-
-        self._baker = LightmapBaker(
-            resolution=self._resolution(),
-            samples=self.ui.spn_samples.value(),
-            device=self._device(),
-            include_environment=self._include_environment(),
-            # Dials the tier carries but the panel does not show (mirrors mayatk).
-            **getattr(self, "_preset_gi", {}),
-        )
-        self._baker.revert(objects)  # clear prior wiring so we bake the real material
-
-        out_dir = self._output_dir()
-        # Name the output <object><affix> per the field (e.g. "<object>_Lightmap"), following
-        # the texture-set convention; the field's affix picker forces Prefix / Suffix / Auto.
-        # An empty field falls back to the placeholder default (the .ui's single source
-        # for it), so a cleared field never bakes affix-less files.
-        field = self.ui.txt000
-        affix = field.text().strip() or field.placeholderText()
-        prefix, suffix = field.option_box.resolve_affix(affix, default="suffix")
-        atlas = self._packing() == "atlas"
-        # Atlas packing is chosen BEFORE baking, not after: bake_atlas plans the layout up
-        # front so each object bakes at the size it will occupy, instead of baking a full
-        # map per object and downscaling most of it away.
-        bake = self._baker.bake_atlas if atlas else self._baker.bake_separated
-
-        # Indeterminate marquee + per-object text in OUR footer (mirrors mayatk's
-        # twin): a Cycles bake reports no sub-progress, so a percentage would sit
-        # at 0 and jump, but the text still says which object and how far in.
-        with self.ui.footer.progress(text="Baking lightmaps…") as update:
-            result = bake(
-                objects,
-                output_dir=out_dir,
-                prefix=prefix,
-                suffix=suffix,
-                on_progress=lambda done, total, name: update(
-                    None,
-                    f"Baking {name}…  ({min(done + 1, total)}/{total})"
-                    if done < total
-                    else f"Baked {total} object{'s' if total != 1 else ''}.",
-                ),
-            )
-        if not result:
-            self._last_output_dir = None
-            self.ui.footer.setText("Bake produced no output (see the console).")
-            return
-
-        if atlas:
-            # One shared EXR per primary material; UVs stay the shared [0,1] unwrap and
-            # each object's rect is committed as its scaleOffset — the per-instance engine
-            # binding (Unity lightmapScaleOffset; glTF KHR_texture_transform), which is
-            # what lets linked duplicates share one mesh yet own distinct patches.
-            rects = {name: so for name, (_path, so) in result.items()}
-            result = {name: path for name, (path, _so) in result.items()}
-            self._baker.commit_lightmap(result, scale_offsets=rects)
-            atlases = len(set(result.values()))
-            tail = (
-                f"Consolidated into {atlases} atlas{'es' if atlases != 1 else ''} by "
-                f"material. {self._LIGHTING_ONLY_TAIL}"
-            )
-        else:
-            self._baker.commit_lightmap(result)
-            tail = self._LIGHTING_ONLY_TAIL
-        self._last_output_dir = os.path.dirname(next(iter(result.values())))
-        count = len(result)
-        self.ui.footer.setText(
-            f"Baked {count} object{'s' if count != 1 else ''} → "
-            f"{self._last_output_dir}. {tail}" + self._level_warning(result)
-        )
-
-    def _level_warning(self, mapping) -> str:
-        """A footer warning when the committed maps are unlit OR blown out, else ''.
-
-        Both directions, because a lightmap has no correct ABSOLUTE level and each
-        failure is a *successful* render of a wrong scene: nothing upstream errors,
-        and the artist otherwise finds out in the web preview, where it reads as a
-        pipeline bug. The black half caught an unlit room; the blown half was missing
-        until a Maya-bridge send crossed at 5.4e8 W per fixture, saturated every atlas
-        at the half-float ceiling and reported success (mayatk CHANGELOG 2026-08-29) --
-        the same silent failure is reachable from this panel with hot enough lights.
-
-        Measurement is :meth:`LightmapBaker.peak_level` (the engine owns it, so the
-        bridge's headless template asks the same question the same way); an unreadable
-        map is skipped there -- the guard must never break a finished bake.
-        """
-        try:
-            peak = LightmapBaker.peak_level(mapping.values())
-        except Exception:
-            return ""
-        if peak is None:
-            return ""
-        _path, mean, saturated = peak
-        if mean < LightmapBaker.BLACK_BAKE_MEAN:
-            self.logger.warning(
-                "Bake is essentially BLACK (brightest map mean %.4f). The bake "
-                "renders the scene's own lights: check light power (W), that the "
-                "lights are visible to the RENDER (not just the viewport), and "
-                "that the world background is not black -- an emissive material "
-                "lights a Cycles bake only while its object is render-visible.\n"
-                "Scene lights at bake time:\n%s",
-                mean,
-                self._light_audit(),
-            )
-            return (
-                "  WARNING: bake is essentially BLACK — check light power "
-                "(see the console)."
-            )
-        if mean >= LightmapBaker.BLOWN_BAKE_MEAN:
-            self.logger.warning(
-                "Bake is BLOWN OUT (brightest map mean %.4g%s). A lightmap is "
-                "scene-relative irradiance and should land within a few multiples "
-                "of 1.0 whatever the exposure, so this is a light-POWER problem "
-                "rather than a bright room.\nScene lights at bake time:\n%s",
-                mean,
-                ", %.0f%% of it at the half-float ceiling — data lost"
-                % (saturated * 100.0)
-                if saturated > 0.001
-                else "",
-                self._light_audit(),
-            )
-            return "  WARNING: bake is BLOWN OUT — check light power (see the console)."
-        return ""
-
-    @staticmethod
-    def _light_audit() -> str:
-        """One line per scene light: the attrs that decide whether a bake is lit.
-
-        Attached to the black-bake warning so a dark result carries its own diagnosis --
-        power, scale, render visibility and the world strength are exactly the dials a black
-        bake traces back to, and none of them are visible in the bake output itself. Twin of
-        mayatk's ``_light_audit`` (Arnold's intensity/exposure/normalize -> Cycles' watts).
-
-        Total-failure tolerant: it is evaluated as an argument to the black-bake warning,
-        which sits OUTSIDE that guard's try/except, so a raise here would propagate out of a
-        finished bake -- the one thing the guard promises never to do.
-        """
-        try:
-            import bpy
-
-            scene = bpy.context.scene
-            if scene is None:
-                return "  <no scene>"
-            rows = LightmapBakerSlots._light_rows(scene)  # staticmethod: no self here
-            world = scene.world
-            rows.append(
-                f"  <world>: emits={LightUtils.world_emits(world)}"
-                if world is not None
-                else "  <world>: none"
-            )
-            return "\n".join(rows)
-        except Exception:
-            return "  <scene unreadable>"
-
-    @staticmethod
-    def _light_rows(scene) -> List[str]:
-        """One ``  <name>: k=v ...`` row per light in *scene* (the audit's per-light half).
-
-        Each light is read under its own guard, so a single unreadable one costs its row
-        rather than the whole table.
-        """
-        rows: List[str] = []
-        for obj in scene.objects:
-            if obj.type != "LIGHT":
-                continue
-            try:
-                data = obj.data
-                sx, sy, _sz = obj.scale
-                energy = getattr(data, "energy", float("nan"))
-                bits = [
-                    f"type={data.type}",
-                    # Blender's own label for the dial, so the artist reads the same word
-                    # the UI shows: a SUN's energy is irradiance (W/m2, "Strength"), every
-                    # other type's is radiant power in watts ("Power").
-                    f"strength={energy:g}"
-                    if data.type == "SUN"
-                    else f"power={energy:g}W",
-                    f"scale={sx:g}x{sy:g}",
-                    # hide_render is what the BAKE obeys; hide_viewport is not enough to
-                    # explain a black bake on its own, so report both separately.
-                    f"render_visible={not obj.hide_render}",
-                    f"viewport_visible={obj.visible_get()}",
-                ]
-                if data.type == "AREA":
-                    bits.append(f"size={data.size:g}")
-                rows.append(f"  {obj.name}: " + "  ".join(bits))
-            except Exception:
-                rows.append(f"  {getattr(obj, 'name', '?')}: <unreadable>")
-        return rows or ["  <no lights in the scene>"]
-
-    # ------------------------------------------------------------------ header menu
-    def revert_to_source(self) -> None:
-        """Undo the bake wiring on the selected objects (or all baked ones)."""
-        if self._baker is None:
-            self._baker = LightmapBaker()
-        selection = CoreUtils.selected_objects() or None
-        reverted = self._baker.revert(selection)
-        if reverted:
-            self.ui.footer.setText(
-                f"Reverted {len(reverted)} object{'s' if len(reverted) != 1 else ''} to source."
-            )
-        else:
-            self.ui.footer.setText("No baked objects to revert.")
-
-    def open_output(self) -> None:
-        """Open the most recent output folder in the file browser."""
-        out = self._last_output_dir or self._output_dir()
-        if out and os.path.isdir(out):
-            try:
-                ptk.FileUtils.reveal_in_file_manager(out)
-            except (FileNotFoundError, OSError) as e:
-                self.ui.footer.setText(str(e))
-        else:
-            self.ui.footer.setText("No output folder yet — bake first.")
-
-    # ------------------------------------------------------------------ helpers
-    def _output_dir(self) -> str:
-        """The bake's output directory: the field, resolved against the texture folder.
-
-        Empty field -> :meth:`_base_output_dir` itself. A subdirectory entry is joined
-        onto it so the setting survives a project move; a full path is taken as-is. The
-        directory itself is created by the bake."""
-        base = self._base_output_dir()
-        return ptk.FileUtils.resolve_output_dir(self.ui.txt_output_dir.text(), base)
-
-    @staticmethod
-    def _base_output_dir() -> str:
-        """What a relative Output Directory is relative to (and the default when it is
-        empty): the workspace's texture folder (its ``sourceImages`` rule for a marked
-        workspace.mel project, else ``textures`` next to the .blend), or a temp dir until
-        the file has been saved. The header menu's "Open Output Folder" — mayatk's
-        counterpart is "Open Sourceimages Folder" — browses the resolved output dir."""
-        import tempfile
-
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        return EnvUtils.source_images_dir() or os.path.join(
-            tempfile.gettempdir(), "textures"
-        )
-
-
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from blendertk.ui_utils.blender_ui_handler import BlenderUiHandler
-
-    ui = BlenderUiHandler.instance().get("lightmap_baker", reload=True)
-    ui.show(pos="screen", app_exec=True)

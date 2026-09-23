@@ -57,7 +57,7 @@ def _run_checks():
     from blendertk import BlenderShotStore
     from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
     from blendertk.audio_utils._audio_utils import AudioUtils
-    from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
     os.makedirs(TEMP, exist_ok=True)
     scene = bpy.context.scene
@@ -81,8 +81,8 @@ def _run_checks():
                 )
         return sorted(out)
 
-    OP = f'["{RenderOpacity.ATTR_NAME}"]'
-    VIS = RenderOpacity.VIS_PATH
+    OP = f'["{RenderEffects.ATTR_NAME}"]'
+    VIS = RenderEffects.VIS_PATH
 
     # ---- apply_behavior: dual-keyed opacity + stepped hide_render ---------
     Behaviors.apply_behavior("fade_geo", "fade_in", 10, 100)
@@ -104,8 +104,8 @@ def _run_checks():
         f"{vis}",
     )
     check(
-        "apply_behavior: opacity property auto-created (RenderOpacity)",
-        RenderOpacity.ATTR_NAME in bpy.data.objects["fade_geo"],
+        "apply_behavior: opacity property auto-created (RenderEffects)",
+        RenderEffects.ATTR_NAME in bpy.data.objects["fade_geo"],
     )
 
     # anchor_override places the block relative to the range end

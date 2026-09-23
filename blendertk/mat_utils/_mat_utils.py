@@ -517,29 +517,28 @@ class _MatUtilsInternal:
 
         Returns:
             ``"relocated"`` — the file was written to ``dst``.
-            ``"rebind"``    — ``dst`` already holds an identical-size file (reuse it without
-                              overwriting; for ``"move"`` the redundant ``src`` is removed), or
-                              ``src`` is already at ``dst``.
-            ``"skip"``      — ``dst`` holds a DIFFERENT-size file: refuse to overwrite, so we never
+            ``"rebind"``    — ``dst`` already holds a file of identical CONTENT (reuse it
+                              without overwriting; for ``"move"`` the redundant ``src`` is
+                              removed), or ``src`` already IS ``dst`` however either is
+                              spelled (a junction, a mapped drive) -- which is never removed.
+            ``"skip"``      — ``dst`` holds a DIFFERENT file: refuse to overwrite, so we never
                               rebind to the wrong texture (and never destroy the external).
+                              Size is not the test: two bakes of one map are the same size,
+                              and a move that trusted it deleted the new one.
             ``"error"``     — the disk op failed.
         """
         import shutil
 
-        if os.path.normpath(src) == os.path.normpath(dst):
-            return "rebind"  # already in place
+        if ptk.FileUtils.is_same_file(src, dst):
+            return "rebind"  # already in place, however either is spelled
         try:
             if os.path.exists(dst):
-                try:
-                    same = os.path.getsize(src) == os.path.getsize(dst)
-                except OSError:
-                    same = False
-                if not same:
+                if not ptk.FileUtils.has_same_content(src, dst):
                     # Mirrors mayatk's ``cmds.warning`` on the same collision — never silently
                     # rebind to a wrong texture, never destroy the external file.
                     logging.getLogger(__name__).warning(
-                        f"'{os.path.basename(dst)}' already exists at destination with a "
-                        f"different size; skipping to avoid a wrong-file rebind: {dst}"
+                        f"'{os.path.basename(dst)}' already exists at destination with "
+                        f"different content; skipping to avoid a wrong-file rebind: {dst}"
                     )
                     return "skip"  # different file, same name — don't clobber / wrong-rebind
                 if mode == "move":

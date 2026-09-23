@@ -11,7 +11,7 @@ Maya route, shared with the pull-direction conversion.
 
 Run through :class:`pythontk.ScriptRunDeliverer` (which wraps ``run_script_to_artifact``),
 so success is judged by the saved scene's existence -- NOT the exit code: standalone
-teardown is a known crasher, hence the ``os._exit`` below, which skips it entirely.
+teardown is a known crasher, hence the hard exit below, ``_exit``, which skips it.
 
 The save starts from a new empty scene: whatever ``initialize()`` leaves behind must not
 land in a file the artist thinks contains only their selection. Mirror of mayatk's
@@ -262,13 +262,27 @@ def main():
     print("Saved {} node(s) into {}".format(len(new_nodes), OUT_FILE))
 
 
+def _exit(code):
+    """Leave without teardown. ``os._exit`` is not enough on Windows: it still runs
+    every DLL's detach, where Maya's static destructors fault and its crash handler
+    files a dump and saves the open scene into the temp dir -- a ``[Recovered]`` copy
+    of the scene just saved, per ``save_as``. ``pythontk.ProcessExit`` skips detach;
+    without pythontk on the path this degrades to ``os._exit``."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    try:
+        # main() may have failed before _engine() put the parent's roots on the path.
+        _extend_sys_path()
+        from pythontk.core_utils.process_exit import ProcessExit
+    except Exception:  # noqa: BLE001 -- the exit must never raise
+        os._exit(code)
+    ProcessExit.hard_exit(code)
+
+
 try:
     main()
 except Exception:
     traceback.print_exc()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(1)
+    _exit(1)
 # Success is judged by the artifact; skip standalone teardown (known access violations).
-sys.stdout.flush()
-os._exit(0)
+_exit(0)

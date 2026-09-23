@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -155,6 +155,9 @@ DEFAULT_INCLUDE = {
     "light_utils.lightmap_baker.lightmap_baker": [
         "LightmapBaker",
     ],
+    "light_utils.lightmap_baker.lightmap_records": [
+        "LightmapRecords",
+    ],
     # The WebXR delivery half of the same tool — everything between a Cycles
     # lightmap EXR and a browser-ready GLB. Registered like its sibling above
     # because it is cross-package public surface: mayatk's ``bake_lightmaps``
@@ -226,7 +229,8 @@ DEFAULT_INCLUDE = {
     # discovered by the handler, not registered). Mirror of mayatk's
     # ``mat_utils.render_opacity`` subpackage.
     "mat_utils.render_opacity.render_effects": ["RenderEffects"],
-    # One-release alias of RenderEffects (deprecated import path).
+    # Deprecated import path of RenderEffects: resolves with a warning until its
+    # ``remove_in`` (``ptk.Deprecation.attributes`` in the module), then goes.
     "mat_utils.render_opacity._render_opacity": [
         "RenderOpacity",
     ],

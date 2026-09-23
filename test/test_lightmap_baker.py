@@ -41,6 +41,7 @@ try:
     import blendertk as btk
     import pythontk as ptk
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
     from blendertk.mat_utils.texture_baker import TextureBaker
 
     # --- presets -----------------------------------------------------------
@@ -314,7 +315,15 @@ try:
 
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
     cube_b = bpy.context.active_object
-    baker.commit_lightmap({cube.name: ipath, cube_b.name: ipath}, intensity=2.0)
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught_intensity:
+        warnings.simplefilter("always")
+        baker.commit_lightmap({cube.name: ipath, cube_b.name: ipath}, intensity=2.0)
+    check(
+        "commit_lightmap(intensity=) is deprecated (bake(intensity=) replaces it)",
+        any(issubclass(w.category, DeprecationWarning) for w in caught_intensity),
+    )
     reload = bpy.data.images.load(ipath)
     ibuf = np.empty(len(reload.pixels), dtype=np.float32)
     reload.pixels.foreach_get(ibuf)
@@ -486,7 +495,8 @@ try:
     # --- legacy uvRect commits still revert (old scenes repacked UVs in place) ---
     legacy_rect = [0.5, 0.5, 0.25, 0.25]
     lm_name = btk.find_lightmap_uv_set(a)
-    LightmapBaker._transform_lightmap_uvs(a, lm_name, legacy_rect)  # simulate old pack
+    # simulate an old pack
+    LightmapRecords._transform_lightmap_uvs(a, lm_name, legacy_rect)
     a[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
         {
             "map": "legacy.exr",
@@ -503,6 +513,56 @@ try:
         all(abs(x - y) < 1e-3 for x, y in zip(before_a, uv_bbox(a))),
         f"before={before_a} after={uv_bbox(a)}",
     )
+
+    # ...and a bake MIGRATES one instead, losslessly: the UVs come back to 0-1 and
+    # the rect moves into the binding, so the object still samples its own cell of
+    # the old atlas. Restored without the fold, the marker kept an identity binding
+    # over unsqueezed UVs -- the WHOLE atlas -- for any object the bake then failed on.
+    LightmapRecords._transform_lightmap_uvs(a, lm_name, legacy_rect)
+    a[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+        {
+            "map": "legacy.exr",
+            "uv_set": lm_name,
+            "scaleOffset": [1.0, 1.0, 0.0, 0.0],
+            "uvRect": legacy_rect,
+        }
+    )
+    migrated = LightmapRecords.migrate_legacy([a])
+    info_m = json.loads(a[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check(
+        "legacy: migrate_legacy restores the UVs and folds the rect into the binding",
+        migrated == [a.name]
+        and all(abs(x - y) < 1e-3 for x, y in zip(before_a, uv_bbox(a)))
+        and "uvRect" not in info_m
+        and info_m.get("scaleOffset") == legacy_rect,
+        f"{migrated} {info_m}",
+    )
+    check("legacy: migration is idempotent", LightmapRecords.migrate_legacy([a]) == [])
+
+    # ...and a rect whose recorded UV map is gone (deleted, or renamed) has no
+    # remap left to undo: dropped, nothing restored or folded. Left in place,
+    # the next bake's commit carried it onto the UV map that bake built, for a
+    # later migration to invert over the fresh unwrap.
+    before_gone = uv_bbox(a)
+    a[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+        {
+            "map": "legacy.exr",
+            "uv_set": "deleted_uv_map",
+            "scaleOffset": [1.0, 1.0, 0.0, 0.0],
+            "uvRect": legacy_rect,
+        }
+    )
+    gone = LightmapRecords.migrate_legacy([a])
+    info_g = json.loads(a[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check(
+        "legacy: a rect whose UV map is gone is dropped; binding and UVs untouched",
+        gone == [a.name]
+        and "uvRect" not in info_g
+        and info_g.get("scaleOffset") == [1.0, 1.0, 0.0, 0.0]
+        and all(abs(x - y) < 1e-6 for x, y in zip(before_gone, uv_bbox(a))),
+        f"{gone} {info_g}",
+    )
+    atlas_baker.revert([a])
 
     # --- rendered-dead rescue + border-texel-center rects ------------------
     # Twin of mayatk (test_exact_zero_cell_content_is_healed /
@@ -840,7 +900,7 @@ try:
     # widget, so _apply_preset has to carry it or the tier silently no-ops for every
     # panel bake and the panel sits on the constructor default whichever tier shows
     # (the exact failure mayatk's _preset_gi comment records for gi_depth).
-    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+    from blendertk.light_utils.lightmap_baker.lightmap_baker_slots import (
         LightmapBakerSlots,
     )
 
@@ -874,13 +934,14 @@ try:
         == LightmapBaker.from_preset("desktop").bounces,
     )
 
-    # --- level guard (panel): black AND blown --------------------------------
+    # --- level verdict (engine): black AND blown ----------------------------
     # Either failure is a FAITHFUL render of a wrong scene, so nothing errors;
-    # the panel's post-bake guard is what tells the artist before the map ships
-    # to a black (or white) web preview. The blown half exists because a Maya
-    # bridge send crossed at 5.4e8 W per fixture and saturated every atlas while
-    # reporting success -- reachable from this panel too, with hot enough lights.
-    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+    # the bake's verdict is what tells the artist before the map ships to a
+    # black (or white) web preview. The blown half exists because a Maya bridge
+    # send crossed at 5.4e8 W per fixture and saturated every atlas while
+    # reporting success. It moved from the panel to the engine, so a scripted
+    # bake hears it too (mirror of mayatk).
+    from blendertk.light_utils.lightmap_baker.lightmap_baker_slots import (
         LightmapBakerSlots,
     )
 
@@ -897,33 +958,31 @@ try:
         bpy.data.images.remove(img)
         return path
 
-    guard = LightmapBakerSlots.__new__(LightmapBakerSlots)
+    guard = LightmapBaker()
     black, lit = _exr("guard_black.exr", 0.001), _exr("guard_lit.exr", 1.0)
     blown = _exr("guard_blown.exr", 40000.0)
     check(
-        "level guard fires for an unlit map",
-        "BLACK" in guard._level_warning({"a": black}),
+        "the verdict fires for an unlit map",
+        "BLACK" in (guard.bake_verdict([black]) or ""),
     )
+    check("the verdict stays quiet for a lit map", guard.bake_verdict([lit]) is None)
     check(
-        "level guard stays quiet for a lit map", guard._level_warning({"a": lit}) == ""
-    )
-    check(
-        "one healthy map among dark ones clears the guard",
-        guard._level_warning({"a": black, "b": lit}) == "",
+        "one healthy map among dark ones clears the verdict",
+        guard.bake_verdict([black, lit]) is None,
     )
     check(
         "a missing map never breaks a finished bake",
-        guard._level_warning({"a": os.path.join(tmp_dir, "nope.exr")}) == "",
+        guard.bake_verdict([os.path.join(tmp_dir, "nope.exr")]) is None,
     )
     check(
-        "level guard fires for a blown map",
-        "BLOWN" in guard._level_warning({"a": blown}),
+        "the verdict fires for a blown map",
+        "BLOWN" in (guard.bake_verdict([blown]) or ""),
     )
     # The brightest map decides BOTH ways: one lit map disproves "unlit", and the
     # worst offender is what a blown bake has to show.
     check(
         "a blown map among lit ones still fires",
-        "BLOWN" in guard._level_warning({"a": lit, "b": blown}),
+        "BLOWN" in (guard.bake_verdict([lit, blown]) or ""),
     )
 
     # --- level primitive (engine) -------------------------------------------
@@ -1036,6 +1095,16 @@ try:
         "a driveless rooted entry stays a subdirectory",
         _slots("/lightmaps")._output_dir() == os.path.join(BASE, "lightmaps"),
     )
+
+    # A UNC share keeps its leading two backslashes: spelled "//nas/..." the
+    # marker's folder is what bpy.path.abspath reads as relative to the .blend.
+    if os.name == "nt":
+        unc = LightmapRecords._portable_dir(r"\\nas\share\maps\room_Lightmap.exr")
+        check(
+            "a UNC map folder keeps its share prefix",
+            unc.startswith("\\\\") and unc.endswith("maps"),
+            unc,
+        )
 
     # The browse dialog can only hand back an absolute path; a pick inside the
     # texture folder is rewritten to the portable relative form, anything
@@ -1327,7 +1396,13 @@ try:
     device_combo = _DeviceCombo()
     panel.cmb_device_init(device_combo)
     panel.ui = type(
-        "U", (), {"cmb_device": device_combo, "chk_environment": _Check(False)}
+        "U",
+        (),
+        {
+            "cmb_device": device_combo,
+            "chk_environment": _Check(False),
+            "chk_denoise": _Check(False),
+        },
     )()
     check(
         "the Device row offers Auto / GPU / CPU",
@@ -1339,13 +1414,15 @@ try:
         "the panel reads the Include Environment checkbox",
         panel._include_environment() is False,
     )
+    # The Denoise row drives the baker's existing knob (mirrors mayatk's).
+    check("the panel reads the Denoise checkbox", panel._denoise() is False)
     device_combo.setCurrentIndex(2)
     check("selecting CPU reads back as CPU", panel._device() == "CPU")
 
     # --- light audit diagnostic (mayatk parity) ----------------------------
     # mayatk attaches a per-light table to the black-bake warning so a dark
     # result carries its own diagnosis; blendertk's warning had no diagnostic.
-    audit = LightmapBakerSlots._light_audit()
+    audit = LightmapBaker._light_audit()
     check(
         "audit reports the world when the scene has no lights",
         "<no lights in the scene>" in audit and "<world>" in audit,
@@ -1357,7 +1434,7 @@ try:
     area.data.energy = 250.0
     area.data.size = 2.0
     area.hide_render = True
-    audit = LightmapBakerSlots._light_audit()
+    audit = LightmapBaker._light_audit()
     check(
         "audit lists the light with the dials a black bake traces to",
         area.name in audit
@@ -1391,8 +1468,8 @@ try:
     os.makedirs(dep_dir, exist_ok=True)
     dep_map = os.path.join(dep_dir, "dep_cube_LightMap.exr")
     open(dep_map, "wb").close()
-    dep_baker = LightmapBaker()
-    dep_baker.commit_lightmap({dep_cube.name: dep_map})
+    dep_baker = LightmapRecords
+    dep_baker.commit({dep_cube.name: dep_map})
 
     def _same_dir(a, b):
         return os.path.normcase(os.path.abspath(a)) == os.path.normcase(
@@ -1415,8 +1492,16 @@ try:
     check("...naming the object", bool(deps) and deps[0]["objects"] == ["dep_cube"])
     check(
         "search_dirs leads with the folder the marker's map resolves to",
-        _same_dir((LightmapBaker.search_dirs() or [""])[0], dep_dir),
-        f"{LightmapBaker.search_dirs()}",
+        _same_dir((LightmapRecords.search_dirs() or [""])[0], dep_dir),
+        f"{LightmapRecords.search_dirs()}",
+    )
+    with warnings.catch_warnings(record=True) as caught_alias:
+        warnings.simplefilter("always")
+        alias_deps = LightmapBaker().lightmap_dependencies()
+    check(
+        "the baker's old lightmap_dependencies spelling warns and still answers",
+        [d["map"] for d in alias_deps] == ["dep_cube_LightMap.exr"]
+        and any(issubclass(w.category, DeprecationWarning) for w in caught_alias),
     )
 
     moved_dir = os.path.join(tmp_dir, "moved")
@@ -1455,7 +1540,9 @@ try:
     check(
         "...and repoints the bake marker",
         result["updated"] == 1
-        and _same_dir(LightmapBaker._resolved_dir(marker["dir"], marker["map"]), dest),
+        and _same_dir(
+            LightmapRecords._resolved_dir(marker["dir"], marker["map"]), dest
+        ),
         f"{marker.get('dir')}",
     )
     manifest = json.loads(ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) or "{}")
@@ -1468,8 +1555,8 @@ try:
     )
     check(
         "...and search_dirs leads with the marker's new folder",
-        _same_dir((LightmapBaker.search_dirs() or [""])[0], dest),
-        f"{LightmapBaker.search_dirs()}",
+        _same_dir((LightmapRecords.search_dirs() or [""])[0], dest),
+        f"{LightmapRecords.search_dirs()}",
     )
     check(
         "the relocated map now resolves by hint",
@@ -1480,9 +1567,7 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     lost_cube = bpy.context.active_object
     lost_cube.name = "lost_cube"
-    dep_baker.commit_lightmap(
-        {lost_cube.name: os.path.join(tmp_dir, "gone", "lost.exr")}
-    )
+    dep_baker.commit({lost_cube.name: os.path.join(tmp_dir, "gone", "lost.exr")})
     result = dep_baker.relocate_lightmaps(
         dest, source_dir=moved_dir, objects=["lost_cube"]
     )
@@ -1503,7 +1588,7 @@ try:
         "repath_lightmaps rewrites a marker's folder",
         n == 1
         and _same_dir(
-            LightmapBaker._resolved_dir(lost_marker["dir"], "lost.exr"), moved_dir
+            LightmapRecords._resolved_dir(lost_marker["dir"], "lost.exr"), moved_dir
         ),
         f"{lost_marker.get('dir')}",
     )
@@ -1550,7 +1635,7 @@ try:
         }
     )
     with mock.patch.object(EnvUtils, "texture_search_dirs", return_value=[tex_dir]):
-        ordered = LightmapBaker.search_dirs()
+        ordered = LightmapRecords.search_dirs()
     check(
         "search_dirs: most-named marker folder first, ties by path, texture dirs last",
         len(ordered) == 4
@@ -1562,6 +1647,151 @@ try:
     )
     order_baker.revert()
     for obj in order_objs:
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+    # --- bake(): the whole workflow, the same for a script as for the panel ---
+    # Mirror of mayatk's LightmapBaker.bake: preflight, the bake, the record and
+    # the verdict, returned as a LightmapBakeResult. Nothing is reverted first.
+    from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+        LightmapBakeResult,
+    )
+
+    LightmapBaker().revert()
+    bpy.ops.object.light_add(type="SUN", location=(0, 0, 6))
+    wf_sun = bpy.context.active_object
+    wf_sun.data.energy = 3.0
+    bpy.ops.mesh.primitive_cube_add(location=(40, 0, 0))
+    wf_cube = bpy.context.active_object
+    wf_cube.name = "wf_cube"
+    btk.assign_mat(wf_cube, mat)
+    wf_baker = LightmapBaker.from_preset(
+        "preview", resolution=64, samples=4, denoise=False, device="CPU"
+    )
+    wf_dir = os.path.join(tmp_dir, "wf")
+    wf = wf_baker.bake([wf_cube], packing="per_object", output_dir=wf_dir)
+    check("bake(): returns a LightmapBakeResult", isinstance(wf, LightmapBakeResult))
+    wf_map = wf.maps.get(wf_cube.name, "")
+    check(
+        "bake(): the map is written and recorded",
+        bool(wf)
+        and os.path.isfile(wf_map)
+        and LightmapRecords._marker_info(wf_cube).get("map")
+        == os.path.basename(wf_map),
+        f"{wf}",
+    )
+    check(
+        "bake(): nothing refused, nothing left unbaked",
+        wf.refused is None and wf.unbaked == [],
+        f"{wf}",
+    )
+
+    # Every light hidden from the render, and no world the bake keeps: refused
+    # before a ray is spent (mayatk's rule; its skydome is the world here).
+    wf_sun.hide_render = True
+    dark = LightmapBaker.from_preset(
+        "preview",
+        resolution=64,
+        samples=4,
+        denoise=False,
+        device="CPU",
+        include_environment=False,
+    ).bake([wf_cube], packing="per_object", output_dir=wf_dir)
+    check(
+        "bake(): every light hidden from the render is refused, not baked dark",
+        bool(dark.refused) and "hidden" in dark.refused and not dark.maps,
+        f"{dark}",
+    )
+    check(
+        "preflight: an emitting world the bake keeps still lights it",
+        wf_baker.preflight() is None,
+    )
+    wf_sun.hide_render = False
+
+    # A light is hidden by its COLLECTION too -- the usual Blender idiom -- and
+    # the lit test read the object's own flag alone.
+    wf_lights = bpy.data.collections.new("wf_lights")
+    bpy.context.scene.collection.children.link(wf_lights)
+    for home in list(wf_sun.users_collection):
+        home.objects.unlink(wf_sun)
+    wf_lights.objects.link(wf_sun)
+    no_env = LightmapBaker.from_preset(
+        "preview",
+        resolution=64,
+        samples=4,
+        denoise=False,
+        device="CPU",
+        include_environment=False,
+    )
+    wf_lights.hide_render = True
+    check(
+        "preflight: a light in a render-disabled collection is no light",
+        bool(no_env.preflight()),
+    )
+    wf_lights.hide_render = False
+    layer_lights = bpy.context.view_layer.layer_collection.children["wf_lights"]
+    layer_lights.exclude = True
+    check(
+        "preflight: a light in an excluded collection is no light",
+        bool(no_env.preflight()),
+    )
+    layer_lights.exclude = False
+    check(
+        "preflight: the same light in an enabled collection lights the bake",
+        no_env.preflight() is None,
+    )
+    LightmapRecords.revert([wf_cube])  # the crates' claims below are the only ones
+
+    # --- a partial re-bake never writes over another object's map ----------
+    # Maps are named after their texture set, so two objects sharing one both
+    # want Crate_Lightmap.exr. Names were unique only within ONE bake, so
+    # re-baking one of them landed on the file the other still read, which then
+    # shipped this bake's lighting. The file claims (LightmapRecords.claims)
+    # decide now: a name another object reads is never taken; an object's own
+    # name is kept -- in both packings.
+    crate_mat = btk.create_mat("standard", name="crate_mat")
+    crate_img = bpy.data.images.new("Crate_BaseColor.png", 4, 4)
+    crate_node = crate_mat.node_tree.nodes.new("ShaderNodeTexImage")
+    crate_node.image = crate_img
+    crates = []
+    for i, name in enumerate(("crate_a", "crate_b")):
+        bpy.ops.mesh.primitive_cube_add(location=(44 + 4 * i, 0, 0))
+        crates.append(bpy.context.active_object)
+        crates[-1].name = name
+        btk.assign_mat(crates[-1], crate_mat)
+    crate_a, crate_b = crates
+    s1_dir = os.path.join(tmp_dir, "s1")
+    os.makedirs(s1_dir, exist_ok=True)
+    theirs = os.path.join(s1_dir, "Crate_Lightmap.exr")
+    with open(theirs, "wb") as fh:
+        fh.write(b"theirs")
+    mine = os.path.join(s1_dir, "Crate_Lightmap_1.exr")
+    with open(mine, "wb") as fh:
+        fh.write(b"mine")
+    LightmapRecords.commit({crate_a.name: theirs, crate_b.name: mine})
+    check(
+        "claims name the reader of every map",
+        LightmapRecords.claims()
+        == {
+            "crate_lightmap.exr": frozenset({"crate_a"}),
+            "crate_lightmap_1.exr": frozenset({"crate_b"}),
+        },
+        f"{LightmapRecords.claims()}",
+    )
+    for packing in ("per_object", "atlas"):
+        rebaked = wf_baker.bake([crate_b], packing=packing, output_dir=s1_dir)
+        check(
+            f"a partial re-bake keeps its own map's name ({packing})",
+            os.path.basename(rebaked.maps.get(crate_b.name, ""))
+            == "Crate_Lightmap_1.exr",
+            f"{rebaked.maps}",
+        )
+        with open(theirs, "rb") as fh:
+            check(
+                f"...and never writes over the map another object reads ({packing})",
+                fh.read() == b"theirs",
+            )
+    LightmapBaker().revert()
+    for obj in (wf_cube, wf_sun, crate_a, crate_b):
         bpy.data.objects.remove(obj, do_unlink=True)
 
     # --- a HIDDEN mesh is baked, not refused ------------------------------

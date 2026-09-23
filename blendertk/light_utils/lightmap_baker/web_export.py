@@ -49,6 +49,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 import pythontk as ptk
 
 from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
 from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
 
 
@@ -679,7 +680,7 @@ class LightmapWebExport(ptk.LoggingMixin):
         """The scene's COMMITTED lightmaps, wired for a native glTF export.
 
         The Blender-native counterpart of ``ptk.MeshConvert.apply_glb_lightmaps``: feeds
-        itself from the markers :meth:`LightmapBaker.commit_lightmap` stamped (map basename
+        itself from the markers :meth:`LightmapRecords.commit` stamped (map basename
         + its ``dir`` locate hint), encodes, wires the carrier slot on the lightmap UV, and
         yields the ``lightmap_web`` manifest -- pass it to :meth:`export_glb`, or export
         with ``bpy.ops.export_scene.gltf(export_extras=True)`` directly (the manifest is
@@ -701,6 +702,16 @@ class LightmapWebExport(ptk.LoggingMixin):
 
         mapping: Dict[str, str] = {}
         rects: Dict[str, List[float]] = {}
+        # Where each map is NOW, by the record's own resolution -- the marker's
+        # folder, then the host's search folders, then a walk -- the rule the
+        # Scene Exporter's GLB build and its path check already use. Joining
+        # the marker's folder alone shipped an object unlit the moment that
+        # folder went stale (a moved project, a renamed folder).
+        located = {
+            str(dep["map"]).lower(): dep["path"]
+            for dep in LightmapRecords.lightmap_dependencies(objects)
+            if dep.get("path")
+        }
         for obj in objects or bpy.data.objects:
             obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
             if obj is None or LightmapBaker.LIGHTMAP_INFO_PROP not in obj:
@@ -715,10 +726,10 @@ class LightmapWebExport(ptk.LoggingMixin):
             # The marker stores its folder in Blender's portable '//'-relative
             # spelling, which os.path.join cannot resolve -- joined raw it never
             # names a real file, so every committed lightmap was dropped and the
-            # GLB shipped unlit with no TEXCOORD_1 carrier. _resolved_dir is the
-            # baker's own resolver and also covers the search-dir fallbacks.
-            path = os.path.join(
-                LightmapBaker._resolved_dir(info.get("dir") or "", basename),
+            # GLB shipped unlit with no TEXCOORD_1 carrier. The resolved location
+            # first; the marker's own folder through _resolved_dir otherwise.
+            path = located.get(str(basename).lower()) or os.path.join(
+                LightmapRecords._resolved_dir(info.get("dir") or "", basename),
                 basename,
             )
             if not os.path.isfile(path):

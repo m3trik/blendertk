@@ -29,7 +29,7 @@ The three action-icon columns mirror Maya's: click the **link** icon to link/unl
 scene is highlighted + italicized), and the tri-state **display** icon to cycle Normal → Reference
 → Template. The row **context menu** is a flat 1:1 mirror of Maya's — Open / Rename / Delete /
 Reference-Unreference / Unlink-and-Import / Open File Location — where **Unlink and Import** makes a
-linked reference local *or* converts + imports a foreign (Maya / FBX) scene.
+linked reference local *or* converts + imports a foreign (Maya / FBX / USD) scene.
 
 Intentionally **not** mirrored (genuinely Maya-only): namespaces and assemblies
 (``AssemblyManager`` / ``convert_references_to_assemblies`` — no Blender analogue).
@@ -40,6 +40,7 @@ table degrades gracefully — file list without live linked-status — when bpy 
 """
 
 import contextlib
+import html
 import os
 
 import pythontk as ptk
@@ -96,12 +97,15 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     # File-type classification for this panel (mirror of mayatk, inverted). NATIVE types list
     # + link directly (Blender links .blend); FOREIGN types are cross-DCC rows converted through
     # the maya_bridge before they can be linked. The header's Include Types row toggles each
-    # extension; _INCLUDE_TYPES is the column order (shared across both panels).
-    _INCLUDE_TYPES = ("ma", "mb", "fbx", "blend")
+    # type; _INCLUDE_TYPES is the column order (shared across both panels).
+    _INCLUDE_TYPES = ("ma", "mb", "fbx", "usd", "blend")
     NATIVE_EXTENSIONS = (".blend",)
     # Foreign types the bridge can bake into a linkable .blend. .ma/.mb go through a headless
-    # Maya first; .fbx is already the bake's own input, so it needs no Maya at all.
-    FOREIGN_EXTENSIONS = (".ma", ".mb", ".fbx")
+    # Maya first; .fbx and USD are already the bake's own input, so they need no Maya at all.
+    FOREIGN_EXTENSIONS = (".ma", ".mb", ".fbx", *ptk.USD_EXTENSIONS)
+    # An include type that lists more than its own spelling: a USD layer or package is any
+    # of .usd/.usda/.usdc/.usdz. Every other type lists just ``.<type>``.
+    _INCLUDE_TYPE_EXTENSIONS = {"usd": ptk.USD_EXTENSIONS}
     # Default-checked include types for this panel — its own native scene type.
     _INCLUDE_DEFAULTS = (".blend",)
     # Max file names listed verbatim in the delete confirmation (the rest fold into
@@ -382,9 +386,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
 
         # No Rig setting: how a scene's rig logic travels is asked per scene, and
         # only when it has some (_resolve_rig_mode). Mirror of Maya.
-        # Include Types — a single horizontal row of per-extension toggles (mirror across both
+        # Include Types — a single horizontal row of per-type toggles (mirror across both
         # panels). Replaces the old single "Include Maya Scenes" toggle: .blend lists + links
-        # natively; .ma/.mb list as import-only rows converted through the maya_bridge.
+        # natively; .ma/.mb/.fbx/USD list as foreign rows baked to a .blend before linking.
         self._add_include_types_row(widget.menu)
         # Re-filter on a suffix / subfolder edit when a dependent filter is active (mirror of Maya).
         widget.menu.txt_suffix.textChanged.connect(
@@ -438,10 +442,10 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                             "<b>Save To Workspace</b>, beside those conventions in the group.",
                             "<b>Filter by Suffix / Folder Structure</b> narrow the list; <b>Hide Suffix / "
                             "Extension</b> shorten the displayed name; <b>Show Notes Column</b> reveals Notes.",
-                            "<b>Include Types</b> (ma / mb / fbx / blend) picks which file types list; "
-                            ".blend links natively, a foreign (ma / mb / fbx) row's link icon bakes it "
-                            "to a cached .blend and links that — right-click <b>Unlink and Import</b> "
-                            "for a local copy instead.",
+                            "<b>Include Types</b> (ma / mb / fbx / usd / blend) picks which file types "
+                            "list; .blend links natively, a foreign (ma / mb / fbx / usd) row's link "
+                            "icon bakes it to a cached .blend and links that — right-click <b>Unlink "
+                            "and Import</b> for a local copy instead.",
                             "<b>Operations</b>: <b>Unlink and Import All</b>; <b>Un-Reference "
                             "All</b> is on the footer.",
                         ],
@@ -477,6 +481,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             "ma": "List the workspace's Maya ASCII scenes (.ma) — referenced via a headless-Maya convert + .blend bake.",
             "mb": "List the workspace's Maya binary scenes (.mb) — referenced via a headless-Maya convert + .blend bake.",
             "fbx": "List the workspace's FBX files (.fbx) — referenced via a .blend bake (no Maya needed).",
+            "usd": "List the workspace's USD layers and packages (.usd / .usda / .usdc / .usdz) — "
+            "referenced via a .blend bake (no Maya needed).",
             "blend": "List the workspace's Blender scenes (.blend) — linked natively.",
         }
         items = [
@@ -485,7 +491,9 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 {
                     "setObjectName": f"chk_include_{t}",
                     "setText": t,
-                    "setChecked": f".{t}" in self._INCLUDE_DEFAULTS,
+                    "setChecked": bool(
+                        set(self._type_extensions(t)) & set(self._INCLUDE_DEFAULTS)
+                    ),
                     "setToolTip": tooltip[t],
                 },
             )
@@ -493,6 +501,14 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         ]
         for cb in menu.add_row(items, title="Include Types:", justify="expand"):
             cb.toggled.connect(lambda *_: self._refresh())
+
+    @classmethod
+    def _type_extensions(cls, include_type):
+        """Every extension the Include Types toggle *include_type* lists (``usd`` -> the
+        four USD spellings; any other type -> ``.<type>``). Mirror of mayatk's."""
+        return tuple(
+            cls._INCLUDE_TYPE_EXTENSIONS.get(include_type, (f".{include_type}",))
+        )
 
     def _included_extensions(self):
         """The set of extensions (``.ma`` … ``.blend``) whose Include Types checkbox is checked.
@@ -508,7 +524,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         for t in self._INCLUDE_TYPES:
             chk = getattr(menu, f"chk_include_{t}", None)
             if chk is not None and chk.isChecked():
-                included.add(f".{t}")
+                included.update(self._type_extensions(t))
         return included
 
     # ------------------------------------------------------------------ fields
@@ -701,7 +717,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 setText="Unlink and Import",
                 setObjectName="row_unlink_import",
                 setToolTip="Make an already-linked reference's data local, or, for a foreign\n"
-                "(Maya / FBX) scene, convert + import its contents as local data.",
+                "(Maya / FBX / USD) scene, convert + import its contents as local data.",
             )
             widget.menu.add(
                 "QPushButton",
@@ -1244,7 +1260,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                         if os.path.normcase(p) not in seen
                     ]
         # Cross-DCC: also list the workspace's foreign scenes for each checked foreign type
-        # (.ma/.mb/.fbx). A foreign row's link icon bakes it to a cached .blend and links
+        # (.ma/.mb/.fbx/USD). A foreign row's link icon bakes it to a cached .blend and links
         # that, so it carries the same referenced/unreferenced states as a native row; only
         # Open stays unavailable. Discovery uses the importer's own scan, restricted to the
         # checked extensions.
@@ -1576,7 +1592,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Display label for a file row — the bare (optionally suffix/extension-stripped) file name.
 
         No cross-DCC origin tag is appended: the user can reveal the extension (Hide Extension off)
-        to tell a foreign .ma/.mb/.fbx row from a native .blend, so a redundant '(Maya)' suffix is
+        to tell a foreign .ma/.mb/.fbx/USD row from a native .blend, so a redundant '(Maya)' suffix is
         omitted (mirror of the Maya panel, which likewise drops its '(Blender)' tag)."""
         return self._format_display_name(path, opt)
 
@@ -1692,7 +1708,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
     def _open_path(self, path):
         """Open ``path`` (replaces the current file), confirming first if there are unsaved changes.
 
-        A foreign (Maya / FBX) scene has no ``.blend`` to open, so it is baked and its bake is
+        A foreign (Maya / FBX / USD) scene has no ``.blend`` to open, so it is baked and its bake is
         opened as a new, unsaved file (see :meth:`_open_foreign_as_new`).
         """
         if not self._confirm_discard_unsaved():
@@ -1744,7 +1760,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         ``message_box`` takes standard Qt button names only, so the three
         outcomes ride Yes (transfer) / No (bake) / Ignore (raw) with the text
         saying which is which. ``.ma`` is line-scanned, ``.mb`` byte-scanned; an
-        ``.fbx`` is already baked and falls through to ``"auto"``."""
+        ``.fbx`` or USD source is already baked and falls through to ``"auto"``."""
         from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
 
         if not MayaSceneImport.scene_has_complex_animation(path):
@@ -1790,11 +1806,11 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             footer.setText(text, level=level)
 
     def _open_foreign_as_new(self, path):
-        """Bake a foreign (Maya / FBX) scene to a .blend and open it as a new, unsaved file.
+        """Bake a foreign (Maya / FBX / USD) scene to a .blend and open it as a new, unsaved file.
 
         The 'open' counterpart of the link icon's bake-and-reference: a fresh headless Maya
         converts the scene to FBX (default) or USD per the header-menu route, and a headless
-        Blender bakes that to a cached .blend (an .fbx source skips Maya). That cached bake is
+        Blender bakes that to a cached .blend (an .fbx or USD source skips Maya). That cached bake is
         copied to a scratch .blend (``<stem>_<ext>.blend`` in a swept temp dir — see
         :meth:`_foreign_scratch_path`) which is opened — so the user edits a throwaway document
         and saves it wherever they like, and the cache the link icon reuses is never touched.
@@ -1822,11 +1838,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self._footer_status(f"Stopped opening {name}.")
             return
         except FileNotFoundError as e:
-            self.sb.message_box(f"Can't open — Maya not found:<br>{e}")
+            # The error names what is missing -- Maya, the bake's Blender, or the
+            # scene itself (an .fbx / USD source needs no Maya at all).
+            self._error_box("Can't open", name, e)
             return
         except Exception as e:  # noqa: BLE001 — surface the bake error to the user
             self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-            self.sb.message_box(f"Open failed for <hl>{name}</hl>:<br>{e}")
+            self._error_box("Open failed for", name, e)
             return
 
         # Deterministic scratch twin so a second Open click resolves this row as 'current'
@@ -1960,17 +1978,29 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             self.sb.message_box(str(e))
 
     # ------------------------------------------------------------------ cross-DCC import
+    def _error_box(self, lead: str, name: str, error) -> None:
+        """Report *error* for the scene file *name*, in a message box.
+
+        Escaped: the box renders rich text, and an error's own text is not
+        markup -- pxr quotes prim paths as ``</>``, a repr reads ``<...>`` --
+        so unescaped, the part that named the problem vanished.
+        """
+        self.sb.message_box(
+            f"{lead} <hl>{html.escape(name)}</hl>:<br>{html.escape(str(error))}"
+        )
+
     def _import_foreign_paths(self, paths):
         """Import each foreign scene in *paths* as LOCAL data (blocking).
 
         Folded into the row menu's 'Unlink and Import' (see :meth:`unlink_import_selected`) as
-        the make-local counterpart for a not-yet-linked foreign row. A ``.ma``/``.mb`` goes
-        through ``btk.MayaSceneImport.import_scene`` — a
-        fresh mayapy converts it to FBX, which is imported and cleaned up (the same bridge
-        the Scene menu's 'Import Maya Scene' uses); a conversion reports into the footer
+        the make-local counterpart for a not-yet-linked foreign row, through
+        ``btk.MayaSceneImport.import_scene``. A ``.ma``/``.mb`` converts first — a fresh
+        mayapy writes FBX, which is imported and cleaned up (the same bridge the Scene
+        menu's 'Import Maya Scene' uses); a conversion reports into the footer
         (:meth:`_conversion_progress`, Esc-hold stops it) and a missing Maya install surfaces
-        as a clear message rather than a raw traceback. An ``.fbx`` is imported directly —
-        no Maya.
+        as a clear message rather than a raw traceback. An ``.fbx`` or USD source is imported
+        directly — no Maya — by the same consumer the link icon's bake runs, so the row lands
+        here exactly as it does linked.
         """
         paths = [p for p in (paths or []) if p and self._is_foreign(p)]
         if not paths:
@@ -1978,19 +2008,17 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         if not self._has_bpy():
             self.sb.message_box("Importing a foreign scene needs a running Blender.")
             return
-        from blendertk.env_utils.fbx_utils import FbxUtils
-        from blendertk.env_utils.maya_bridge._scene_import import MayaSceneImport
-
-        def _import(path, conv, progress):
-            if os.path.splitext(path)[1].lower() == ".fbx":
-                return FbxUtils.import_fbx(path)
-            return MayaSceneImport().import_scene(path, progress=progress, **conv)
+        from blendertk.env_utils.maya_bridge._scene_import import (
+            SUPPORTED_EXTENSIONS as MAYA_SCENES,
+            MayaSceneImport,
+        )
 
         # Resolve route + bake-vs-raw per scene (may prompt on the FBX route) BEFORE any
-        # progress starts. An .fbx needs no conversion; a cancelled scene is dropped.
+        # progress starts. Only a Maya scene converts, so only it can ask anything; a
+        # cancelled scene is dropped.
         plan = []
         for path in paths:
-            if os.path.splitext(path)[1].lower() == ".fbx":
+            if os.path.splitext(path)[1].lower() not in MAYA_SCENES:
                 plan.append((path, {}))
             else:
                 conv = self._resolve_conversion(path)
@@ -2004,17 +2032,24 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
             name = os.path.basename(path)
             try:
                 with self._conversion_progress(f"Importing {name}") as progress:
-                    total += len(_import(path, conv, progress))
+                    total += len(
+                        MayaSceneImport().import_scene(path, progress=progress, **conv)
+                    )
                 done += 1
             except ptk.OperationCancelled:
                 self._footer_status(f"Stopped importing {name}.")
                 break
             except FileNotFoundError as e:
-                self.sb.message_box(f"Can't import — Maya not found:<br>{e}")
+                # The error names what is missing. A missing Maya fails every
+                # conversion after this one, so stop; an .fbx / USD source needs no
+                # Maya, so all it can be missing is its own file -- carry on.
+                self._error_box("Can't import", name, e)
+                if os.path.splitext(path)[1].lower() not in MAYA_SCENES:
+                    continue
                 return
             except Exception as e:  # noqa: BLE001 — surface the conversion error to the user
                 self.logger.warning(f"Foreign scene import failed for {path}: {e}")
-                self.sb.message_box(f"Import failed for <hl>{name}</hl>:<br>{e}")
+                self._error_box("Import failed for", name, e)
         self.logger.info(f"Imported {total} object(s) from {done} foreign scene(s).")
         self._refresh()
 
@@ -2022,7 +2057,8 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Bake each foreign scene in *paths* to a cached .blend and link it. True on success.
 
         Blender can only link a ``.blend``, so a foreign row is referenced through a bake
-        (headless Maya → USD/FBX intermediate → headless Blender → cached .blend) rather
+        (headless Maya → USD/FBX intermediate → headless Blender → cached .blend; an .fbx
+        or USD source is already the intermediate) rather
         than directly.
         Both stages are cached, so re-linking the same unchanged scene is instant; a first
         run reports into the footer (:meth:`_conversion_progress`, Esc-hold stops it).
@@ -2058,11 +2094,13 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
                 self._footer_status(f"Stopped referencing {name}.")
                 break
             except FileNotFoundError as e:
-                self.sb.message_box(f"Can't reference — Maya not found:<br>{e}")
+                # The error names what is missing -- Maya, the bake's Blender, or the
+                # scene itself (an .fbx / USD source needs no Maya at all).
+                self._error_box("Can't reference", name, e)
                 return False
             except Exception as e:  # noqa: BLE001 — surface the bake error to the user
                 self.logger.warning(f"Foreign scene bake failed for {path}: {e}")
-                self.sb.message_box(f"Reference failed for <hl>{name}</hl>:<br>{e}")
+                self._error_box("Reference failed for", name, e)
                 return False
         return bool(linked)
 
@@ -2072,7 +2110,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         (Maya's 'Reference / Unreference').
 
         Each selected file is toggled independently: an already-linked one has its library
-        removed; a native file is linked; a foreign (Maya / FBX) file is baked and its bake
+        removed; a native file is linked; a foreign (Maya / FBX / USD) file is baked and its bake
         linked (through the same path the link icon uses).
         """
         paths = self._selected_paths()
@@ -2102,7 +2140,7 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         """Unlink and Import the selected row(s) — Maya's 'Unlink and Import', covering both cases.
 
         An already-linked reference has its data made local (unlink + import); a not-yet-linked
-        foreign (Maya / FBX) row is converted and its contents imported as local data (the old
+        foreign (Maya / FBX / USD) row is converted and its contents imported as local data (the old
         'Import (convert)' behaviour, folded in here for parity with the Maya panel).
         """
         paths = self._selected_paths()

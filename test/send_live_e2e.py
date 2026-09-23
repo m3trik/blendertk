@@ -82,8 +82,8 @@ def png(path, rgb, size=8, alpha=False):
                 + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
-# Inspection script run under mayapy against the two saved .ma files. {out_dir}
-# substituted via .format; writes JSON so the Blender side owns the asserts.
+# Inspection script run under mayapy against the two saved .ma files. {out_dir} /
+# {ptk_root} substituted via .format; writes JSON so the Blender side owns the asserts.
 _INSPECT = '''
 import json, os, sys
 import maya.standalone
@@ -184,7 +184,15 @@ for leg in ("closure", "scene", "openpbr", "standard", "scene_usd"):
 with open(os.path.join(OUT_DIR, "inspect.json"), "w") as fh:
     json.dump(state, fh)
 sys.stdout.flush()
-os._exit(0)  # skip standalone teardown (known crasher); artifact is the verdict
+# Skip standalone teardown (known crasher) -- and not with os._exit: on Windows
+# that still runs every DLL's detach, where Maya's destructors fault and file a
+# crash dump plus a [Recovered] scene per run.
+sys.path.insert(0, r"{ptk_root}")
+try:
+    from pythontk import ProcessExit
+except Exception:
+    os._exit(0)
+ProcessExit.hard_exit(0)
 '''
 
 
@@ -374,7 +382,7 @@ try:
         mayapy = bridge.headless_app_path
         got = ptk.ScriptRunner.run_script_to_artifact(
             mayapy,
-            _INSPECT.format(out_dir=TEMP),
+            _INSPECT.format(out_dir=TEMP, ptk_root=os.path.join(MONO, "pythontk")),
             artifact=os.path.join(TEMP, "inspect.json"),
             timeout=600,
         )

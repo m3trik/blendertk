@@ -643,8 +643,8 @@ try:
         and again._base == "Box",
     )
     check(
-        "_from_plane is kept as an alias",
-        ShadowRig._from_plane.__func__ is ShadowRig.from_plane.__func__,
+        "the retired _from_plane spelling stays removed (2026-09-21)",
+        not hasattr(ShadowRig, "_from_plane"),
     )
     for label, node in (
         ("plane", p),
@@ -1066,7 +1066,10 @@ try:
     c = cube("Box")
     bpy.context.view_layer.update()
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, mode="stretch")
-    check("retired 'stretch' mode builds as orbit", rig.mode == "orbit")
+    check(
+        "the retired 'stretch' mode builds as orbit, with no alias table left",
+        rig.mode == "orbit" and not hasattr(ShadowRig, "_DEPRECATED_MODES"),
+    )
     rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, axis="y")
     check(
         "a retired explicit axis still builds the projected silhouette",

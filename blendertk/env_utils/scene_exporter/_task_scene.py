@@ -39,7 +39,7 @@ class _SceneTasksMixin(_TaskDataMixin):
         self.logger.debug(f"Changed scene units to {system} (scale_length={scale}).")
         return None
 
-    def exclude_hdr(self, *legacy_enabled: bool, enabled: bool = True) -> None:
+    def exclude_hdr(self) -> None:
         """Remove image-based environment lighting objects from the export set.
 
         Blender's HDRI normally lives on the World, which is never an object
@@ -49,19 +49,10 @@ class _SceneTasksMixin(_TaskDataMixin):
         sphere) -- and strips them: the Blender analogue of mayatk's
         ``aiSkyDomeLight`` exclusion. Image-based lighting is scene lighting,
         not deliverable geometry, so it should not ride into a game-engine FBX.
-        A no-op when the export set carries none.
-
-        Parameters:
-            *legacy_enabled: Deprecated, removed next release: the released
-                ``exclude_hdr(enabled)`` call, where a falsy flag skips the
-                exclusion. It takes no argument now, as mayatk's. Variadic, with
-                *enabled* keyword-only, because ``ptk.TaskFactory`` gates a task
-                on its checkbox only while it takes nothing positional; a named
-                parameter would be handed the checkbox value instead.
-            enabled: Deprecated, removed next release: the same flag by keyword.
+        A no-op when the export set carries none. Takes no argument, as
+        mayatk's: ``ptk.TaskFactory`` gates a zero-argument task on its
+        checkbox (the ``enabled`` flag it once took was retired 2026-09-21).
         """
-        if not enabled or (legacy_enabled and not legacy_enabled[0]):
-            return
         if not self.objects:
             return
         excluded = [o for o in self._live_objects() if self._is_environment_object(o)]

@@ -74,7 +74,7 @@ class _TextureTasksMixin(_TaskDataMixin):
         """Attempt to resolve missing texture paths by searching the .blend's directory.
 
         The same hunt heals the lightmap markers first
-        (:meth:`LightmapBaker.heal_lightmap_paths`, mirror of mayatk): a
+        (:meth:`LightmapRecords.heal_lightmap_paths`, mirror of mayatk): a
         committed lightmap is a texture dependency with no Image datablock --
         its marker records the folder the bake was committed FROM -- so a
         project reorganised since leaves the FBX manifest pointing at nothing
@@ -103,20 +103,22 @@ class _TextureTasksMixin(_TaskDataMixin):
             self.logger.info(f"Resolved {resolved} missing texture path(s).")
 
     # -- lightmap dependencies (mirror of mayatk's TaskManager) ---------------
-    # The engine is LightmapBaker (blendertk.light_utils); these are the
+    # The engine is LightmapRecords (blendertk.light_utils); these are the
     # exporter's thin reads of it, scoped to the export set. Imported lazily:
-    # the baker pulls in the Cycles texture baker, which a headless export
-    # that never baked anything should not pay for at import time.
+    # a headless export that never baked anything should not load the
+    # lightmap package at import time.
 
     def _lightmap_dependencies(self) -> List[Dict[str, Any]]:
         """The lightmaps the export set's markers name, resolved on disk NOW
-        (:meth:`LightmapBaker.lightmap_dependencies`); ``[]`` when none."""
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+        (:meth:`LightmapRecords.lightmap_dependencies`); ``[]`` when none."""
+        from blendertk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
 
         objects = list(self.objects or [])
         if not objects:
             return []
-        return LightmapBaker().lightmap_dependencies(objects)
+        return LightmapRecords.lightmap_dependencies(objects)
 
     def _heal_lightmap_hints(self) -> None:
         """Rewrite stale lightmap marker hints to where the maps were found.
@@ -125,12 +127,14 @@ class _TextureTasksMixin(_TaskDataMixin):
         guess the user should be able to audit -- and what stays missing is
         named, since the exporter's path check is about to fail on it.
         """
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+        from blendertk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
 
         objects = list(self.objects or [])
         if not objects:
             return
-        report = LightmapBaker().heal_lightmap_paths(objects)
+        report = LightmapRecords.heal_lightmap_paths(objects)
         if report["healed"]:
             self.record_kept_edit("re-pointed lightmap folders")
         for basename, old_dir, new_dir in report["healed"]:

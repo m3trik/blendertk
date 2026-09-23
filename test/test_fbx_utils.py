@@ -4,6 +4,7 @@ behavior is covered by ``test_bridges.py``; this exercises the import side + ``s
 
 Run: blender --background --factory-startup --python blendertk/test/test_fbx_utils.py
 """
+
 import sys
 import os
 import tempfile
@@ -22,7 +23,9 @@ lines = []
 
 
 def check(name, cond, detail=""):
-    lines.append(f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}")
+    lines.append(
+        f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+    )
 
 
 try:
@@ -47,23 +50,33 @@ try:
 
     out = os.path.join(tmp, "rt.fbx")
     written = FbxUtils.export(filepath=out, objects=[cube])
-    check("FbxUtils.export writes the file",
-          written == out and os.path.isfile(out) and os.path.getsize(out) > 0)
+    check(
+        "FbxUtils.export writes the file",
+        written == out and os.path.isfile(out) and os.path.getsize(out) > 0,
+    )
 
     reset()
     check("scene cleared before import", len(bpy.data.objects) == 0)
     created = FbxUtils.import_fbx(out)
-    check("import_fbx returns the created objects", len(created) >= 1, f"{[o.name for o in created]}")
-    check("import_fbx actually adds a mesh to the scene",
-          any(o.type == "MESH" for o in bpy.data.objects))
+    check(
+        "import_fbx returns the created objects",
+        len(created) >= 1,
+        f"{[o.name for o in created]}",
+    )
+    check(
+        "import_fbx actually adds a mesh to the scene",
+        any(o.type == "MESH" for o in bpy.data.objects),
+    )
 
     # ---- .fbx auto-append + parent-dir creation -----------------------------
     reset()
     bpy.ops.mesh.primitive_cube_add()
     nested = os.path.join(tmp, "sub", "dir", "noext")  # no extension, missing dirs
     w2 = FbxUtils.export(filepath=nested, objects=[bpy.context.active_object])
-    check("export appends .fbx and creates parent dirs",
-          w2 == nested + ".fbx" and os.path.isfile(nested + ".fbx"))
+    check(
+        "export appends .fbx and creates parent dirs",
+        w2 == nested + ".fbx" and os.path.isfile(nested + ".fbx"),
+    )
 
     # ---- selection_only=False exports the whole scene -----------------------
     reset()
@@ -72,13 +85,17 @@ try:
     bpy.ops.object.select_all(action="DESELECT")  # nothing selected
     all_out = os.path.join(tmp, "all.fbx")
     written_all = FbxUtils.export(filepath=all_out, selection_only=False)
-    check("export(selection_only=False) ignores selection + writes",
-          written_all == all_out and os.path.isfile(all_out))
+    check(
+        "export(selection_only=False) ignores selection + writes",
+        written_all == all_out and os.path.isfile(all_out),
+    )
     reset()
     created_all = FbxUtils.import_fbx(all_out)
-    check("whole-scene export round-trips both meshes",
-          sum(1 for o in created_all if o.type == "MESH") == 2,
-          f"{[o.name for o in created_all]}")
+    check(
+        "whole-scene export round-trips both meshes",
+        sum(1 for o in created_all if o.type == "MESH") == 2,
+        f"{[o.name for o in created_all]}",
+    )
 
     # ---- the default export set preserves PARENTING -------------------------
     # Regression: ``_EXPORT_DEFAULTS`` pinned ``object_types={"MESH"}``, and Blender's FBX
@@ -177,8 +194,8 @@ try:
 
     _real_export = btk.FbxUtils.export_selection_fbx
     try:
-        btk.FbxUtils.export_selection_fbx = (
-            lambda filepath=None, objects=None, **o: _seen_opts.update(o) or filepath
+        btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: (
+            _seen_opts.update(o) or filepath
         )
         _CarrierProbe()._export_fbx([], os.path.join(tmp, "probe.fbx"), {})
     finally:
@@ -204,8 +221,8 @@ try:
     _seen_opts.clear()
     _real_export = btk.FbxUtils.export_selection_fbx
     try:
-        btk.FbxUtils.export_selection_fbx = (
-            lambda filepath=None, objects=None, **o: _seen_opts.update(o) or filepath
+        btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: (
+            _seen_opts.update(o) or filepath
         )
         _CarrierProbe()._export_fbx([lit], os.path.join(tmp, "probe2.fbx"), {})
     finally:
@@ -224,8 +241,7 @@ try:
     shipped = bpy.data.objects.get(DataNodes.EXPORT)
     check(
         "the WebXR preview export round-trips the manifest on the carrier",
-        shipped is not None
-        and shipped.get("lightmap_metadata") == '{"version": 1}',
+        shipped is not None and shipped.get("lightmap_metadata") == '{"version": 1}',
         f"{shipped and dict(shipped.items())}",
     )
 
@@ -246,10 +262,9 @@ try:
         _real_export = btk.FbxUtils.export_selection_fbx
         try:
             btk.FbxUtils.export_selection_fbx = (
-                lambda filepath=None, objects=None, **o: _armed.update(
-                    during=btk.FbxUtils._pending_takes
+                lambda filepath=None, objects=None, **o: (
+                    _armed.update(during=btk.FbxUtils._pending_takes) or filepath
                 )
-                or filepath
             )
             WebXrPreview()._export_fbx(
                 [lit],
@@ -316,19 +331,28 @@ try:
         path_mode="COPY",
         embed_textures=True,
     )
-    check("Scene Exporter kwargs export writes the file",
-          written_exp == exp_out and os.path.isfile(exp_out) and os.path.getsize(exp_out) > 0)
+    check(
+        "Scene Exporter kwargs export writes the file",
+        written_exp == exp_out
+        and os.path.isfile(exp_out)
+        and os.path.getsize(exp_out) > 0,
+    )
     # (Round-trip import of a light is skipped: Blender 5.1's bundled io_scene_fbx
     #  importer raises on lights — CyclesLightSettings.cast_shadow — unrelated to export.)
 
     # ---- GLB sidecar: the slot's 'Also Export GLB' native glTF call ---------
     glb_out = os.path.join(tmp, "exporter.glb")
     bpy.ops.export_scene.gltf(
-        filepath=glb_out, export_format="GLB", use_selection=False,
-        export_cameras=True, export_lights=True,
+        filepath=glb_out,
+        export_format="GLB",
+        use_selection=False,
+        export_cameras=True,
+        export_lights=True,
     )
-    check("GLB sidecar (export_scene.gltf) writes the file",
-          os.path.isfile(glb_out) and os.path.getsize(glb_out) > 0)
+    check(
+        "GLB sidecar (export_scene.gltf) writes the file",
+        os.path.isfile(glb_out) and os.path.getsize(glb_out) > 0,
+    )
 
     # ---- import_fbx missing file -> FileNotFoundError -----------------------
     try:
@@ -369,7 +393,8 @@ try:
     )
     check(
         "apply_takes arms both dict- and tuple-shaped defs",
-        n_armed == 2 and FbxUtils._pending_takes == [("shotA", 1, 10), ("shotB", 20, 30)],
+        n_armed == 2
+        and FbxUtils._pending_takes == [("shotA", 1, 10), ("shotB", 20, 30)],
         f"{FbxUtils._pending_takes}",
     )
 
@@ -586,7 +611,53 @@ try:
         f"raised={raised} ran={ran} depth={FbxUtils._export_depth}",
     )
 
+    # ---- upstream patches: still needed, and still working ------------------
+    from blendertk.env_utils.upstream_patches import SIBLING_ARMATURES, _armature_tree
+
+    # The sweep. Every patch declares a probe that reproduces the defect against
+    # the STOCK code, so the release that fixes one upstream makes this fail and
+    # names the patch to delete -- which is the only reason a monkey patch here
+    # ever gets removed.
+    for patch in ptk.UpstreamPatch.registry():
+        check(
+            f"upstream patch still needed: {patch.name}",
+            patch.available and patch.still_needed(),
+            f"{patch.target} -- if upstream fixed this, DELETE the patch and this "
+            "check goes with it",
+        )
+
+    # ...and the replacement actually corrects it, on the same fixture the probe
+    # measured, so the two can never drift apart.
+    from io_scene_fbx.import_fbx import FbxImportHelperNode as _helper
+
+    stock = vars(_helper)["collect_armature_meshes"]
+    root, armatures = _armature_tree()
+    with SIBLING_ARMATURES.applied() as active:
+        root.collect_armature_meshes()
+    bound = [a.fbx_name for a in armatures if a.meshes]
+    check("the patch applied at all", active)
+    check("it binds every sibling armature", len(bound) == 7, f"bound {bound}")
+    # The very object that was there, not its ``__module__``: ``functools.wraps``
+    # copies that onto the replacement, so a patch leaked into the whole process
+    # still read as upstream's.
+    check(
+        "and is removed again on the way out",
+        vars(_helper)["collect_armature_meshes"] is stock,
+        repr(vars(_helper)["collect_armature_meshes"]),
+    )
+
+    # A mesh already under its armature is Blender's own layout, which the defect
+    # cannot reach; it must still bind, patched or not.
+    root, armatures = _armature_tree(count=1)
+    nested = armatures[0]
+    for mesh in [c for c in root.children if c.fbx_name == "mesh0"]:
+        mesh.parent = nested
+    with SIBLING_ARMATURES.applied():
+        root.collect_armature_meshes()
+    check("a mesh already under its armature still binds", bool(nested.meshes))
+
     import shutil
+
     shutil.rmtree(tmp, ignore_errors=True)
 
 except Exception as e:

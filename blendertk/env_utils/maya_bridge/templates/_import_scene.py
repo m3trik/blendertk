@@ -5,7 +5,7 @@
 The Maya half of ``btk.import_maya_scene``: runs under ``mayapy`` via
 ``pythontk.run_script_to_artifact``, which judges success by the exported FBX's
 existence -- NOT the exit code (standalone teardown is a known crasher, hence the
-``os._exit`` below, which skips it entirely).
+hard exit below, ``_exit``, which skips it).
 
 The scene is opened for conversion only and never saved, so it may be mutated
 freely to maximize FBX fidelity: modern surface shaders (standardSurface /
@@ -375,6 +375,85 @@ def _sg_member_names(cmds, sg):
         if short not in names:
             names.append(short)
     return names
+
+
+def uniquify_short_names(cmds):
+    """Rename transforms until no two share a short name; return how many moved.
+
+    Maya permits duplicate short names under different parents, and production
+    scenes are full of them: the module this was measured on holds FOUR transforms
+    called ``handle_A``, four ``handle_B``, and 466 duplicated names over 487 extra
+    nodes. Every by-name section of the manifest is keyed by SHORT name, because
+    the Blender side has no DAG path to match on -- so a duplicate is ambiguous and
+    each collector degrades rather than guess:
+
+    * the FBX route's ``_collect_baked_visibility`` DROPS a name whose same-named
+      objects baked different curves ("no keys beats wrong keys"), which is why
+      20 instanced parts arrived in Blender still drawn through the frames Maya
+      hides them -- and why they started arriving correctly only after a round
+      trip had made the names unique by accident. Measured as `hop1` 65 animated
+      objects against `hop3` 85, where hop3 is the right answer.
+    * ``_classify_rig_machinery`` KEEPS apparatus that shares a short name with a
+      node that must survive, so a rig's leftovers travel with the payload.
+
+    Renaming here retires the whole class, and makes the two legs symmetric: the
+    return direction already folds every name to something Maya can hold
+    (``sanitize_names``), and this one makes every name it sends unique. Between
+    them, a payload this bridge writes carries globally-unique, Maya-legal names.
+
+    JOINTS are left alone. Nothing measured needs them (the production module has
+    no duplicated joint name at all), while a joint name can be embedded in an
+    expression's text and is what ``_export_ready_skins`` builds its flattened
+    skeletons against -- so they keep whatever ambiguity they have, and the
+    collectors keep degrading for them exactly as before.
+
+    Renames run DEEPEST FIRST: renaming an ancestor invalidates the DAG paths of
+    every descendant below it, and the deepest node's path can never be
+    invalidated by a rename still to come. A locked or referenced node simply
+    keeps its name, the way ``fbx_safe_materials`` keeps an untranslatable shader.
+    This Maya session is throwaway -- opened from the source, never saved -- so no
+    rename reaches the artist's file.
+    """
+    every = cmds.ls(type="transform", long=True) or []
+    joints = set(cmds.ls(type="joint", long=True) or [])
+    by_short = {}
+    for path in every:
+        if path not in joints:
+            by_short.setdefault(path.rsplit("|", 1)[-1], []).append(path)
+
+    # Seeded from EVERY transform, joints included: they are excluded from being
+    # renamed, not from holding a name, and handing their short name to something
+    # else would create the duplicate this pass exists to remove.
+    taken = {path.rsplit("|", 1)[-1] for path in every}
+    planned = []
+    for short, paths in sorted(by_short.items()):
+        if len(paths) < 2:
+            continue
+        # The first keeps the artist's name; only its twins move.
+        for path in sorted(paths)[1:]:
+            index, candidate = 1, "{}_1".format(short)
+            while candidate in taken:
+                index += 1
+                candidate = "{}_{}".format(short, index)
+            taken.add(candidate)
+            planned.append((path, candidate))
+    if not planned:
+        return 0
+
+    renamed, refused = 0, 0
+    for path, candidate in sorted(planned, key=lambda item: -item[0].count("|")):
+        try:
+            cmds.rename(path, candidate)
+            renamed += 1
+        except RuntimeError:  # locked or referenced -- it keeps its name
+            refused += 1
+    print(
+        "names: {} duplicate short name(s) made unique for the carrier{}.".format(
+            renamed,
+            "; {} locked/referenced and left".format(refused) if refused else "",
+        )
+    )
+    return renamed
 
 
 def fbx_safe_materials(cmds):
@@ -1158,6 +1237,10 @@ def main():
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
     _progress(0, 6, "Opening the scene")
     _open_scene(cmds, SRC_PATH)
+    # Before ANY collector: every by-name section is keyed by SHORT name, and Maya
+    # lets two nodes share one. Made unique here, once, so no collector has to
+    # guess or degrade (see uniquify_short_names).
+    uniquify_short_names(cmds)
     # Read off the ORIGINAL scene, before the skin and smart-bake passes rewrite
     # its curves: the sections describe what the artist authored. FBX writes the
     # short name with its namespace.

@@ -399,12 +399,12 @@ try:
     # like a bake commit: export_data_node now refreshes every producer
     # (FbxUtils.publish), so a hand-stamped channel with no scene
     # state behind it would be correctly regenerated away as stale.
-    from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+    from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
 
-    cube[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+    cube[LightmapRecords.LIGHTMAP_INFO_PROP] = json.dumps(
         {"map": "CarrierExportCube_Lightmap.exr", "intensity": 1.0}
     )
-    LightmapBaker.refresh_export_metadata()
+    LightmapRecords.refresh_export_metadata()
     payload = DataNodes.read(ptk.Scope.DELIVERABLE, "lightmap_metadata")
     check(
         "authoring-time publish stamps the carrier from the marker",
@@ -937,9 +937,8 @@ try:
         f"ok={_dn_ok} msgs={_dn_msgs}",
     )
     check(
-        "the pre-dial key still dispatches at the scope it always had",
-        not _dn_tm.check_duplicate_locator_names()[0],
-        "check_duplicate_locator_names(True) no longer flags the Empty pair",
+        "the retired pre-dial check stays removed (2026-09-21)",
+        not hasattr(_dn_tm, "check_duplicate_locator_names"),
     )
     _dn_ok, _dn_msgs = _dn_tm.check_duplicate_names("al")
     check(
@@ -1466,10 +1465,10 @@ try:
     bpy.ops.mesh.primitive_cube_add()
     gcube = bpy.context.active_object
     gcube.name = "GlbOrderCube"
-    gcube[LightmapBaker.LIGHTMAP_INFO_PROP] = json.dumps(
+    gcube[LightmapRecords.LIGHTMAP_INFO_PROP] = json.dumps(
         {"map": "GlbOrderCube_Lightmap.exr", "intensity": 1.0}
     )
-    LightmapBaker.refresh_export_metadata()
+    LightmapRecords.refresh_export_metadata()
 
     # ---- USD output format (mirror of mayatk) --------------------------------
 
@@ -1829,23 +1828,23 @@ try:
         [o.name for o in _hdr_tm.objects] == ["PlainSun", "Prop"],
         f"{[o.name for o in _hdr_tm.objects]}",
     )
-    # The released exclude_hdr(enabled) call works for one release, and the
-    # shim takes nothing positional, so the dispatcher still gates the task on
-    # its checkbox (TaskFactory._task_is_disabled counts positional parameters).
+    # The exclude_hdr(enabled) form (deprecated 2026-09-15) was retired
+    # 2026-09-21: the task takes nothing, like mayatk's, and the dispatcher
+    # gates it on its checkbox (TaskFactory._task_is_disabled counts positional
+    # parameters).
     _hdr_tm.objects = [_hdr_light, _plain_light, _dome, _prop]
-    try:
-        _hdr_tm.exclude_hdr(False)
-        _hdr_tm.exclude_hdr(enabled=False)
-        _legacy_off = [o.name for o in _hdr_tm.objects]
-        _hdr_tm.exclude_hdr(True)
-        _legacy_on = [o.name for o in _hdr_tm.objects]
-    except TypeError as _e:
-        _legacy_off = _legacy_on = repr(_e)
+    _refused = []
+    for _args, _kwargs in (((False,), {}), ((), {"enabled": False})):
+        try:
+            _hdr_tm.exclude_hdr(*_args, **_kwargs)
+        except TypeError:
+            _refused.append(True)
     check(
-        "the released exclude_hdr(enabled) call still works: False keeps, True strips",
-        _legacy_off == ["HdrSun", "PlainSun", "HdrDome", "Prop"]
-        and _legacy_on == ["PlainSun", "Prop"],
-        f"{_legacy_off} / {_legacy_on}",
+        "the retired exclude_hdr(enabled) forms are refused and strip nothing",
+        _refused == [True, True]
+        and [o.name for o in _hdr_tm.objects]
+        == ["HdrSun", "PlainSun", "HdrDome", "Prop"],
+        f"refused={_refused} objects={[o.name for o in _hdr_tm.objects]}",
     )
     check(
         "the dispatcher still gates Exclude HDR on its checkbox",
@@ -2025,6 +2024,35 @@ try:
     check(
         "the redundant Optimize GLB Textures row is gone",
         "glb_optimize_textures" not in _tf_defs,
+    )
+    # The WebXR preview offers these rows by the label and table pythontk
+    # declares (ExportProfile.GLB_ROWS / the combo tables); a row renamed or
+    # re-tabled here without it would leave the two panels naming the same
+    # setting differently, and Baked Reflections starts where the lighting
+    # recipe itself stands. Mirrors mayatk's test. Added: 2026-09-21
+    _glb_tables = {
+        "texture_file_type": ptk.ExportProfile.texture_file_type_options(),
+        "optimize_textures": ptk.ExportProfile.optimize_textures_options(),
+        "secondary_max_size": ptk.ExportProfile.SECONDARY_MAX_SIZE_OPTIONS,
+        "uastc_rdo": ptk.ExportProfile.UASTC_RDO_OPTIONS,
+        "baked_reflections": ptk.ExportProfile.BAKED_REFLECTIONS_OPTIONS,
+    }
+    check(
+        "the GLB rows are the ones the WebXR preview mirrors",
+        set(_glb_tables) == set(ptk.ExportProfile.GLB_ROWS)
+        and all(
+            _tf_defs[row]["set_row_label"] == label
+            and _tf_defs[row]["add"] == _glb_tables[row]
+            for row, label in ptk.ExportProfile.GLB_ROWS.items()
+        ),
+        f"{[(row, _tf_defs[row].get('set_row_label')) for row in ptk.ExportProfile.GLB_ROWS]}",
+    )
+    _reflections = _tf_defs["baked_reflections"]
+    check(
+        "Baked Reflections starts at the lighting recipe's own level",
+        list(_reflections["add"].values())[_reflections["setCurrentIndex"]]
+        == ptk.ExportProfile.baked_reflections_default(),
+        f"{_reflections.get('setCurrentIndex')}",
     )
     _tf_options = list(SceneExporter().task_manager._texture_file_type_options.items())
     check(
@@ -2262,7 +2290,7 @@ try:
         f"{sorted(_skip_calls[0]['tasks'])}",
     )
 
-    # -- the GLB half: both dials resolve through _glb_texture_params ---------------------
+    # -- the GLB half: the rows resolve through ExportRun.glb_texture_params ----------
     _tm = SceneExporter().task_manager
 
     def _glb_params(file_type=None, optimize=False, max_size=None, template=None):
@@ -2270,23 +2298,26 @@ try:
         _tm.run = _tm.run.replace(optimize_textures=optimize)
         _tm.run = _tm.run.replace(texture_max_size=max_size)
         _tm.run = _tm.run.replace(texture_template=template)
-        return _tm._glb_texture_params()
+        return _tm.run.glb_texture_params()
 
     # CONTRACT CHANGE (2026-08-29): untouched dials used to mean no pass at all.
     # Measured on a production assembly through mayatk's twin of this path, the
     # byte-stable default shipped 280.13 MB where the WebXR preview published
     # 8.71 MB of the same scene. Both dials are now OVERRIDES of one shared
     # web-delivery policy rather than the only thing that turns the pass on.
+    # CONTRACT CHANGE (2026-09-21): Optimize Textures OFF resizes nothing -- the
+    # policy's container, every pixel kept. Mirrors mayatk's test.
     _policy = ptk.MeshConvert.web_delivery_texture_params()
+    _full = {**_policy, "max_size": 0}
     check(
-        "neither dial set = the shared web-delivery policy, not a raw GLB",
-        _glb_params() == _policy,
-        f"{_glb_params()} vs {_policy}",
+        "neither dial set = the web container at full resolution, not a raw GLB",
+        _glb_params() == _full,
+        f"{_glb_params()} vs {_full}",
     )
     _p = _glb_params(file_type="webp")
     check(
-        "file type alone overrides the container and keeps the policy ceiling",
-        _p == {**_policy, "image_format": "WEBP"},
+        "file type alone overrides the container and leaves OFF resizing nothing",
+        _p == {**_full, "image_format": "WEBP"},
         f"{_p}",
     )
     _p = _glb_params(optimize=True, max_size=1024)
@@ -2310,7 +2341,7 @@ try:
     _p = _glb_params(file_type="tga", optimize=False)
     check(
         "a container glTF cannot embed falls back to the web-delivery container",
-        _p == _policy,
+        _p == _full,
         f"{_p}",
     )
     # The GLB-only dials (2026-09-13): the packed-data ceiling and the UASTC
@@ -2321,7 +2352,7 @@ try:
     _tm.run = _tm.run.replace(
         secondary_max_size=2048, uastc_rdo=1.0, glb_key_tolerance=1e-4
     )
-    _p = _tm._glb_texture_params()
+    _p = _tm.run.glb_texture_params()
     check(
         "secondary map size and UASTC RDO ride the policy call",
         (_p.get("secondary_max_size"), _p.get("uastc_rdo")) == (2048, 1.0),
@@ -2344,10 +2375,43 @@ try:
         and _build.call_args.kwargs.get("key_tolerance") == 1e-4,
         f"built={_built!r} kwargs={_build.call_args.kwargs if _build.called else None}",
     )
+    # The Baked Reflections row: one decision, both carriers -- the GLB's
+    # envelope and the FBX's handoff record. Mirrors mayatk's tests.
+    # Added: 2026-09-21
+    _tm.run = _tm.run.replace(baked_reflections=0.5)
+    with (
+        _mock.patch.object(ptk.GlbPipeline, "build", return_value={"glb": "x.glb"}),
+        _mock.patch.object(ptk.GlbPipeline, "envelope", return_value={}) as _envelope,
+        _mock.patch.object(_tm, "_live_objects", return_value=["obj"]),
+    ):
+        _tm.create_glb("x.fbx", announce=False)
+    check(
+        "create_glb hands the run's lighting choices to the envelope",
+        _envelope.called
+        and _envelope.call_args.kwargs.get("rendering")
+        == {"lightmappedMaterials": {"envMapIntensity": 0.5}},
+        f"{_envelope.call_args.kwargs if _envelope.called else None}",
+    )
+    from blendertk.env_utils.fbx_utils import FbxUtils as _FbxUtils
+
+    _tm.run = _tm.run.replace(baked_reflections=0.0)
+    with (
+        _mock.patch.object(_FbxUtils, "publish", return_value=None) as _publish,
+        _mock.patch.object(_tm, "stage_deferred_restore"),
+    ):
+        _tm._publish_scene_records()
+    check(
+        "the FBX handoff record is given the run's lighting choices",
+        _publish.called
+        and _publish.call_args[0][0].rendering
+        == {"lightmappedMaterials": {"envMapIntensity": 0.0}},
+        f"{_publish.call_args if _publish.called else None}",
+    )
+    _tm.run = _tm.run.replace(baked_reflections=None)
     _tm.run = _tm.run.replace(
         secondary_max_size=None, uastc_rdo=None, glb_key_tolerance=None
     )
-    _p = _tm._glb_texture_params()
+    _p = _tm.run.glb_texture_params()
     check(
         "unset GLB dials take the policy (off)",
         (_p.get("secondary_max_size"), _p.get("uastc_rdo")) == (0, None),
@@ -2470,7 +2534,7 @@ try:
             (
                 exp_twin.task_manager.run.texture_file_type,
                 exp_twin.task_manager.run.ktx2_fallback,
-                exp_twin.task_manager._glb_texture_params()["ktx2_fallback"],
+                exp_twin.task_manager.run.glb_texture_params()["ktx2_fallback"],
             )
         )
     check(
@@ -2630,8 +2694,10 @@ try:
         "a run with no tasks does not inherit the prior run's texture pass",
         first is True
         and exp_stale.task_manager.run.optimize_textures is False
-        and exp_stale.task_manager._glb_texture_params()
-        == ptk.MeshConvert.web_delivery_texture_params(),
+        # The untouched rows: the policy's container, every pixel kept (OFF
+        # resizes nothing since 2026-09-21) -- never the prior run's ceiling.
+        and exp_stale.task_manager.run.glb_texture_params()
+        == ptk.MeshConvert.web_delivery_texture_params(max_size=0),
         f"first={first}, second={exp_stale.task_manager.run.optimize_textures}",
     )
 

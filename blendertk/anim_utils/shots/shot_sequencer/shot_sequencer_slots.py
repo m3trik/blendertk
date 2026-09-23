@@ -1818,6 +1818,7 @@ class ShotSequencerController(
                     waveform=vis_waveform,
                     orig_start=seg.start,
                     orig_end=seg.end,
+                    vis_start=vis_start,  # a drag reports where THIS landed
                     shot_id=vs.shot_id,
                     **extra,
                 )
@@ -2964,15 +2965,6 @@ class ShotSequencerController(
 
         what = f"{side} handle {'broken' if broken else 'dragged'}"
         self._edit_key_tangents(targets, apply, what)
-
-    def on_key_tangent_dragged(
-        self, clip_id: int, time: float, side: str, dt: float, dv: float
-    ) -> None:
-        """DEPRECATED, one release: the single-key form of
-        :meth:`on_keys_tangent_dragged`, which every tangent drag now reports
-        through.  Kept for a host still wired to ``key_tangent_dragged``.
-        """
-        self.on_keys_tangent_dragged([(clip_id, [(time, dt, dv)])], side, False)
 
     def _edit_key_tangents(self, targets: list, apply, what: str) -> None:
         """Run ``apply(obj, attr, time, kp)`` on every selected keyframe

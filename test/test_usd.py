@@ -133,7 +133,7 @@ try:
     z_out = os.path.join(tmp, "pkg.usdz")
     written_z = UsdUtils.export(filepath=z_out, objects=[bpy.context.active_object])
     z_ok = os.path.isfile(z_out) and os.path.getsize(z_out) > 0
-    check("native .usdz export writes a package", z_ok)
+    check(".usdz export writes a package (scratch layer, shared packager)", z_ok)
     if z_ok:
         report = ptk.UsdzPackager.verify(z_out)
         check(
@@ -779,6 +779,293 @@ try:
     check(
         "...and its samples survive untouched",
         reopened.GetIndicesAttr().GetNumTimeSamples() == 2,
+    )
+
+    # ---- orthographic cameras: Blender's exporter writes only PERSPECTIVE ones ----
+    # Probed on 5.1: an ORTHO camera leaves a bare Xform (no Camera prim), so a
+    # production pull's only authored camera never reached Maya on the USD route.
+    reset()
+    ortho_data = bpy.data.cameras.new("ortho_cam")
+    ortho_data.type = "ORTHO"
+    ortho_data.ortho_scale = 7.5
+    ortho_cam = bpy.data.objects.new("ortho_cam", ortho_data)
+    bpy.context.scene.collection.objects.link(ortho_cam)
+    persp_cam = bpy.data.objects.new("persp_cam", bpy.data.cameras.new("persp_cam"))
+    bpy.context.scene.collection.objects.link(persp_cam)
+    cam_out = os.path.join(tmp, "cameras.usda")
+    UsdUtils.export(filepath=cam_out, selection_only=False, root_prim_path="")
+    check(
+        "export leaves an ORTHO camera ORTHO (flipped only for the exporter)",
+        ortho_data.type == "ORTHO" and persp_cam.data.type == "PERSP",
+        f"{ortho_data.type} / {persp_cam.data.type}",
+    )
+    from pxr import Usd as _Usd, UsdGeom as _UsdGeom
+
+    cam_stage = _Usd.Stage.Open(cam_out)
+
+    def camera_prim(path):
+        """The Camera prim an object exported to: the object's own prim when the
+        export merged it, else the camera child the exporter nests under it."""
+        prim = cam_stage.GetPrimAtPath(path)
+        for candidate in [prim] + (list(prim.GetChildren()) if prim else []):
+            if candidate and candidate.IsA(_UsdGeom.Camera):
+                return _UsdGeom.Camera(candidate)
+        return _UsdGeom.Camera()
+
+    ortho_prim = camera_prim("/ortho_cam")
+    check(
+        "an ORTHO camera exports as an orthographic Camera prim",
+        bool(ortho_prim)
+        and ortho_prim.GetProjectionAttr().Get() == _UsdGeom.Tokens.orthographic,
+        str(
+            [
+                c.GetTypeName()
+                for c in cam_stage.GetPrimAtPath("/ortho_cam").GetChildren()
+            ]
+        ),
+    )
+    check(
+        "...its width as both apertures (what Blender's own reader takes back)",
+        bool(ortho_prim)
+        and abs(ortho_prim.GetHorizontalApertureAttr().Get() - 7.5) < 1e-4
+        and abs(ortho_prim.GetVerticalApertureAttr().Get() - 7.5) < 1e-4,
+    )
+    persp_prim = camera_prim("/persp_cam")
+    check(
+        "a PERSP camera is left perspective",
+        bool(persp_prim)
+        and persp_prim.GetProjectionAttr().Get() == _UsdGeom.Tokens.perspective,
+    )
+    reset()
+    bpy.ops.wm.usd_import(filepath=cam_out)
+    ortho_back = next(
+        (
+            o
+            for o in bpy.data.objects
+            if o.type == "CAMERA" and o.name.startswith("ortho")
+        ),
+        None,
+    )
+    check(
+        "Blender reads the layer back ORTHO at the same ortho_scale",
+        ortho_back is not None
+        and ortho_back.type == "CAMERA"
+        and ortho_back.data.type == "ORTHO"
+        and abs(ortho_back.data.ortho_scale - 7.5) < 1e-4,
+        str(
+            ortho_back
+            and (
+                ortho_back.type,
+                getattr(ortho_back.data, "type", None),
+                getattr(ortho_back.data, "ortho_scale", None),
+            )
+        ),
+    )
+
+    # ---- static transforms keep no time samples --------------------------------
+    # Blender's writer samples the whole transform of ANY object holding an action,
+    # so an object whose only animation is a show/hide ships a per-frame copy of a
+    # STATIC transform, and mayaUsd turns the float noise in it into curves:
+    # measured on a production round trip, flat +-90/180 deg rotation curves that
+    # appeared and vanished pass to pass (+11/-2, then -9/+1) and kept the USD
+    # route's fixed point red.
+    from pxr import Gf as _Gf, Usd as _Usd, UsdGeom as _UsdGeom
+
+    static_path = os.path.join(tmp, "static_xforms.usda")
+    st = _Usd.Stage.CreateNew(static_path)
+    noisy = _UsdGeom.Xform.Define(st, "/noisy")
+    move = noisy.AddTranslateOp()
+    turn = noisy.AddRotateXYZOp()
+    for t, dx, rx in ((1, 0.0, 180.0), (2, 3e-5, -180.0), (3, -3e-5, 179.99999)):
+        move.Set(_Gf.Vec3d(5.0 + dx, 0, 0), t)  # noise under the tolerance
+        turn.Set(_Gf.Vec3f(rx, 0, 90.0), t)  # +-180 is ONE orientation
+    moving = _UsdGeom.Xform.Define(st, "/moving")
+    slide = moving.AddTranslateOp()
+    for t in (1, 2, 3):
+        slide.Set(_Gf.Vec3d(float(t), 0, 0), t)
+    single = _UsdGeom.Xform.Define(st, "/single")
+    single.AddTranslateOp().Set(_Gf.Vec3d(1, 2, 3), 1)
+    st.GetRootLayer().Save()
+    del st
+
+    collapsed = UsdUtils.collapse_static_xforms(static_path)
+    st = _Usd.Stage.Open(static_path)
+
+    def samples(path):
+        return [
+            op.GetAttr().GetNumTimeSamples()
+            for op in _UsdGeom.Xformable(st.GetPrimAtPath(path)).GetOrderedXformOps()
+        ]
+
+    check(
+        "collapse_static_xforms: a static-within-noise prim loses its samples",
+        collapsed == 2 and samples("/noisy") == [0, 0],
+        f"collapsed={collapsed}, samples={samples('/noisy')}",
+    )
+    held = _UsdGeom.Xformable(st.GetPrimAtPath("/noisy")).GetLocalTransformation()
+    check(
+        "...holding the transform it had (the Euler flip is one orientation)",
+        all(abs(held[3][i] - (5.0, 0.0, 0.0)[i]) < 1e-4 for i in range(3)),
+        str(held),
+    )
+    check(
+        "...a moving prim is left alone; a lone sample is held static too",
+        samples("/moving") == [3] and samples("/single") == [0],
+        f"{samples('/moving')} / {samples('/single')}",
+    )
+
+    # The translation test is PHYSICAL: a local delta times the parent's world
+    # scale times metersPerUnit, against ``distance`` metres. A single unitless
+    # threshold failed on production: a static child of a moving parent carried
+    # float noise with a 1.22e-4 spread in its cm-scaled local space -- 1.2 um --
+    # which a 1e-4 bound read as motion and mayaUsd keyed (hop6: +6 curves).
+    def noisy_child(stage_path, mpu, parent_scale, spread):
+        stage = _Usd.Stage.CreateNew(stage_path)
+        _UsdGeom.SetStageMetersPerUnit(stage, mpu)
+        parent = _UsdGeom.Xform.Define(stage, "/parent")
+        parent.AddScaleOp().Set(_Gf.Vec3f(parent_scale, parent_scale, parent_scale))
+        parent_move = parent.AddTranslateOp()
+        child = _UsdGeom.Xform.Define(stage, "/parent/child")
+        child_move = child.AddTranslateOp()
+        for t, sign in ((1, -1.0), (2, 1.0), (3, 0.0)):
+            parent_move.Set(_Gf.Vec3d(float(t), 0, 0), t)  # the parent MOVES
+            child_move.Set(_Gf.Vec3d(0.5 * spread * sign, 0.25, 0), t)
+        stage.GetRootLayer().Save()
+
+    cases = (
+        # (mpu, parent scale, spread in the child's local numbers, expect held)
+        (0.01, 1.0, 1.22e-4, True),  # production: cm layer, 1.2 um of noise
+        (0.01, 1.0, 0.5, False),  # a real 5 mm slide in the same layer
+        (1.0, 1.0, 2e-6, True),  # metre layer: 2 um of noise
+        (1.0, 1.0, 1e-3, False),  # metre layer: a real 1 mm slide
+        (0.01, 100.0, 1.22e-4, False),  # x100 parent: the same numbers are 0.12 mm
+    )
+    for index, (mpu, scale, spread, held) in enumerate(cases):
+        case_path = os.path.join(tmp, f"units_{index}.usda")
+        noisy_child(case_path, mpu, scale, spread)
+        UsdUtils.collapse_static_xforms(case_path)
+        case_stage = _Usd.Stage.Open(case_path)  # held: a prim dies with its stage
+        child_samples = [
+            op.GetAttr().GetNumTimeSamples()
+            for op in _UsdGeom.Xformable(
+                case_stage.GetPrimAtPath("/parent/child")
+            ).GetOrderedXformOps()
+        ]
+        check(
+            f"collapse_static_xforms is physical: mpu={mpu} parent x{scale} "
+            f"spread {spread} -> {'held' if held else 'kept'}",
+            (child_samples == [0]) == held,
+            str(child_samples),
+        )
+
+    # ...and export() runs it: a show/hide-only object ships a static transform.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(2, 0, 0))
+    blinker = bpy.context.active_object
+    blinker.name = "blinker"
+    for frame, hidden in ((1, False), (5, True), (9, False)):
+        blinker.hide_viewport = hidden
+        blinker.keyframe_insert("hide_viewport", frame=frame)
+    blink_out = os.path.join(tmp, "blink.usda")
+    UsdUtils.export(
+        filepath=blink_out,
+        selection_only=False,
+        root_prim_path="",
+        export_animation=True,
+        frame_range=(1, 9),
+    )
+    blink_stage = _Usd.Stage.Open(blink_out)
+    blink_ops = [
+        op.GetAttr().GetNumTimeSamples()
+        for p in blink_stage.Traverse()
+        if p.GetName().startswith("blinker")
+        for op in _UsdGeom.Xformable(p).GetOrderedXformOps()
+    ]
+    check(
+        "export: a show/hide-only object's transform carries no time samples",
+        bool(blink_ops) and not any(blink_ops),
+        str(blink_ops),
+    )
+
+    # ---- a .usdz export runs its post-passes before packaging -------------------
+    # pxr refuses to SAVE into a package, and every post-pass edits the layer: a
+    # hidden object raised inside mark_invisible (and left an unstamped package on
+    # disk), as would an ortho camera, a DQ skin or a container skeleton.
+    reset()
+    bpy.ops.mesh.primitive_uv_sphere_add(location=(3, 0, 0))
+    hidden_ball = bpy.context.active_object
+    hidden_ball.name = "hidden_ball"
+    hidden_ball.hide_set(True)
+    pkg_cam_data = bpy.data.cameras.new("pkg_cam")
+    pkg_cam_data.type = "ORTHO"
+    pkg_cam_data.ortho_scale = 4.0
+    pkg_cam = bpy.data.objects.new("pkg_cam", pkg_cam_data)
+    bpy.context.scene.collection.objects.link(pkg_cam)
+    pkg_out = os.path.join(tmp, "packaged.usdz")
+    try:
+        written = UsdUtils.export(
+            filepath=pkg_out, selection_only=False, root_prim_path=""
+        )
+        raised = None
+    except Exception as error:  # noqa: BLE001 -- the report is the assertion
+        written, raised = None, error
+    check(
+        "a .usdz export with post-pass work does not raise",
+        raised is None and written == pkg_out and ptk.UsdFile.sniff(pkg_out) == "usdz",
+        repr(raised),
+    )
+    if raised is None:
+        pkg_stage = _Usd.Stage.Open(pkg_out)
+        ball = next(
+            (p for p in pkg_stage.Traverse() if p.GetName().startswith("hidden_ball")),
+            None,
+        )
+        check(
+            "...the hidden object is stamped invisible INSIDE the package",
+            ball is not None
+            and _UsdGeom.Imageable(ball).ComputeVisibility() == "invisible",
+            str(ball and _UsdGeom.Imageable(ball).ComputeVisibility()),
+        )
+        cams = [p for p in pkg_stage.Traverse() if p.IsA(_UsdGeom.Camera)]
+        check(
+            "...and the ortho camera is orthographic inside it",
+            len(cams) == 1
+            and _UsdGeom.Camera(cams[0]).GetProjectionAttr().Get()
+            == _UsdGeom.Tokens.orthographic,
+            str([c.GetPath() for c in cams]),
+        )
+        check(
+            "...with the scene state restored after the call",
+            pkg_cam_data.type == "ORTHO" and hidden_ball.hide_get() is True,
+        )
+
+    # ...and the package still carries its textures: the writer puts them beside
+    # the scratch layer and the packager pulls them in (Blender's native usdz
+    # writer used to), so a textured deliverable cannot lose its maps silently.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    textured = bpy.context.active_object
+    image = bpy.data.images.new("pkg_albedo", 4, 4)
+    image.filepath_raw = os.path.join(tmp, "pkg_albedo.png")
+    image.file_format = "PNG"
+    image.save()
+    material = bpy.data.materials.new("pkg_mat")
+    material.use_nodes = True
+    node = material.node_tree.nodes.new("ShaderNodeTexImage")
+    node.image = image
+    material.node_tree.links.new(
+        node.outputs["Color"],
+        material.node_tree.nodes["Principled BSDF"].inputs["Base Color"],
+    )
+    textured.data.materials.append(material)
+    tex_out = os.path.join(tmp, "textured.usdz")
+    UsdUtils.export(filepath=tex_out, selection_only=False)
+    packed = ptk.UsdFile.list_package(tex_out)
+    check(
+        "a .usdz export packages its textures (the layer first, the map inside)",
+        packed[0].endswith(".usda")
+        and any(name.endswith("pkg_albedo.png") for name in packed),
+        str(packed),
     )
 
     import shutil

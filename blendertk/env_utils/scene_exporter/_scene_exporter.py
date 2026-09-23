@@ -56,7 +56,6 @@ import pythontk as ptk
 
 from blendertk.env_utils.scene_exporter.task_manager import TaskManager
 from blendertk.env_utils.usd import UsdUtils
-from blendertk.env_utils.hierarchy_sync.scene_data_sidecar import SceneDataSidecar
 
 # The engine's game-asset baseline (also shipped as the "game_asset" built-in preset -- see
 # presets/game_asset.json): embedded textures so nothing ships missing; baked animation since
@@ -930,8 +929,8 @@ class SceneExporter(ptk.LoggingMixin):
     #: Stamped by ``perform_export`` from the panel's fields. Class-level
     #: defaults so a name can be resolved before the first run -- the panel's
     #: live tooltip preview resolves one on every hover. ``timestamp`` is the
-    #: retired Timestamp checkbox, honoured for one release
-    #: (``ptk.ExportProfile.fold_legacy_naming``).
+    #: retired Timestamp checkbox, still honoured -- no removal release is set
+    #: yet (``ptk.ExportProfile.fold_legacy_naming``).
     output_name: Optional[str] = None
     name_regex: Optional[str] = None
     timestamp: bool = False
@@ -987,9 +986,11 @@ class SceneExporter(ptk.LoggingMixin):
         # what a blank field and ``*`` resolve to (``ExportProfile.NAME_KEY``).
         scene = basename or "untitled"
         return ptk.StrUtils.name_pattern_context(
-            # DEPRECATED alias, honoured for one release and deliberately absent
-            # from NAME_TOKENS: a saved pattern spelling the name {name} keeps
-            # resolving instead of baking a literal "{name}" into a filename.
+            # DEPRECATED alias (``ExportProfile.NAME_KEY_ALIASES``), still
+            # honoured -- no removal release is set yet -- and deliberately
+            # absent from NAME_TOKENS: a saved pattern spelling the name {name}
+            # keeps resolving instead of baking a literal "{name}" into a
+            # filename.
             name=scene,
             scene=scene,
             folder=os.path.basename(os.path.dirname(scene_path)),
@@ -1020,7 +1021,8 @@ class SceneExporter(ptk.LoggingMixin):
             name_regex: Overrides :attr:`name_regex` (see :meth:`name_context`).
             report: Log what the pattern hit. The tooltip passes False: it
                 resolves on every hover and shows the diagnostics itself.
-            version_format: DEPRECATED -- the retired Version pattern.
+            version_format: DEPRECATED -- the retired Version pattern (a
+                headless ``tasks["version"]``).
             timestamp: DEPRECATED -- the retired Timestamp checkbox.
 
         Returns:
@@ -1042,9 +1044,7 @@ class SceneExporter(ptk.LoggingMixin):
         )
         if report:
             for level, message in ptk.ExportProfile.naming_report(
-                resolved,
-                self.NAME_TOKENS,
-                version_suffix=SceneDataSidecar.VERSION_SUFFIX_RE,
+                resolved, self.NAME_TOKENS
             ):
                 getattr(self.logger, level)(message)
         return dict(resolved, context=context)

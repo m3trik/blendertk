@@ -170,7 +170,7 @@ class _TaskDataMixin:
             # A delivery-only container (KTX2, WebP) gets the same clamp a
             # template's would: no scene image or FBX importer reads it, so the
             # scene's own maps keep their container and that choice lands on the
-            # GLB carrier instead (:meth:`_glb_texture_params`). WebP is clamped
+            # GLB carrier instead (``ExportRun.glb_texture_params``). WebP is clamped
             # here even though BLENDER itself reads it (4.x+): the constraint is
             # the FBX's consumers, not the authoring app -- a Maya `file` node
             # reports a .webp as 0x0 (measured 2026-08-25) and a shipped
@@ -184,7 +184,7 @@ class _TaskDataMixin:
                         f"own maps keep their container"
                         + (
                             " (the GLB still carries it)."
-                            if chosen in self.GLB_CARRIER_FORMATS
+                            if chosen in ptk.MeshConvert.GLB_IMAGE_FORMATS
                             else "."
                         )
                     )
@@ -192,103 +192,17 @@ class _TaskDataMixin:
             return chosen
         return self._scene_safe_output_type(path, template) if template else None
 
-    #: Containers a GLB can embed: glTF-core (``MeshConvert.IMAGE_MIME_TYPES``,
-    #: the SSoT for what needs no extension) plus the two ``optimize_glb_textures``
-    #: declares an extension for — WebP (``EXT_texture_webp``) and KTX2
-    #: (``KHR_texture_basisu``). Everything else the Texture File Type dial offers
-    #: is a scene-side container only, so the GLB falls back to PNG.
-    GLB_CARRIER_FORMATS = frozenset(
-        [e.lstrip(".") for e in ptk.MeshConvert.IMAGE_MIME_TYPES] + ["webp", "ktx2"]
-    )
-
     #: Texture File Type token for KTX2 PLUS a core-readable PNG/JPEG twin of
     #: every map (``optimize_glb_textures(ktx2_fallback=True)``). The export
     #: parses it into the ``ktx2`` container and the per-run ``run.ktx2_fallback``
     #: flag, so no other consumer ever compares it. Mirrors mayatk.
     KTX2_WITH_FALLBACK = ptk.ExportRun.KTX2_WITH_FALLBACK
 
-    def _glb_texture_params(self):
-        """``optimize_glb_textures`` kwargs for this run's GLB deliverable.
-
-        The GLB's half of the panel's two GENERAL texture dials — it has no
-        dials of its own — resolved against
-        :meth:`pythontk.MeshConvert.web_delivery_texture_params`, the ONE
-        definition of what a web deliverable's textures are. Each dial
-        *overrides* that policy; neither has to restate it (mirror of mayatk's,
-        whose docstring carries the measurement that set the default):
-
-        * **Container** — Texture File Type, when it names something
-          :attr:`GLB_CARRIER_FORMATS` covers; anything else (and "Original")
-          takes the policy's container, because a GLB from this panel IS the
-          web deliverable — the FBX and USD formats beside it are the
-          interchange ones. ``KTX2 + PNG/JPEG`` is the KTX2 container plus
-          ``ktx2_fallback`` (``run.ktx2_fallback``): a core-readable copy of each
-          map beside its KTX2, for a GLB that must also open in Blender, Unreal
-          or stock Unity. Plain ``KTX2`` takes the policy's KTX2 alone.
-        * **Resolution** — the Optimize Textures combo's ceiling half, through the same
-          :meth:`_texture_size_clamp` every scene map goes through, so the export
-          has ONE size policy rather than a second hiding in the GLB. A dial
-          that names no ceiling takes the policy's.
-
-        **Behaviour change (2026-08-29)**: untouched dials used to mean no pass
-        at all. Measured on a production assembly through every leg, that
-        shipped 280.13 MB where the WebXR preview published 8.71 MB of the same
-        scene. ``MeshConvert.fbx_to_glb`` alone still runs no pass, for a
-        programmatic caller that wants the bytes untouched.
-        """
-        file_type = (self.run.texture_file_type or "").lower().lstrip(".")
-        optimize = bool(self.run.optimize_textures)
-
-        carrier = file_type if file_type in self.GLB_CARRIER_FORMATS else ""
-        if file_type and not carrier:
-            self.logger.info(
-                f"GLB textures: {file_type.upper()} is not a container glTF can "
-                f"embed — the GLB carries "
-                f"{ptk.MeshConvert.WEB_DELIVERY_FORMAT} (the scene's own maps "
-                f"still use {file_type.upper()})."
-            )
-
-        # ``or None`` on every part: an unset dial is "unspecified", which the
-        # shared resolver answers with the policy, NOT a falsy value it would
-        # read as a decision (0 there means "keep every pixel").
-        return ptk.MeshConvert.web_delivery_texture_params(
-            image_format=self._glb_format_id(carrier) if carrier else None,
-            max_size=(self._glb_max_size() if optimize else 0) or None,
-            ktx2_fallback=bool(self.run.ktx2_fallback) or None,
-            # The two GLB-only dials ride the same policy call; an
-            # unset dial is None so the policy answers, as above.
-            secondary_max_size=self.run.secondary_max_size or None,
-            uastc_rdo=self.run.uastc_rdo or None,
-        )
-
-    @staticmethod
-    def _glb_format_id(ext):
-        """*ext* as the format id ``optimize_glb_textures`` needs.
-
-        It passes ``image_format`` straight to Pillow AND builds the glTF mime
-        as ``image/<lowercased>``, so the container's file extension is not
-        always the right token: ``jpg`` is a legal choice on this dial (and a
-        legal filename suffix), but Pillow only knows ``JPEG`` and glTF only
-        accepts ``image/jpeg`` — ``JPG`` would raise ``KeyError`` mid-encode
-        and, if it hadn't, write an invalid glTF. Canonicalized through
-        ``MeshConvert.IMAGE_MIME_TYPES`` rather than a private alias table, so
-        the mapping stays the one glTF itself is keyed on.
-        """
-        mime = ptk.MeshConvert.IMAGE_MIME_TYPES.get(f".{ext}", "")
-        return (mime.split("/")[-1] or ext).upper()
-
-    def _glb_max_size(self):
-        """The size-ceiling half of Optimize Textures, as pixels for the GLB pass.
-
-        ``optimize_glb_textures`` takes pixels, while :meth:`_texture_size_clamp`
-        speaks the optimizer's richer rule (a ceiling OR the template's budget),
-        so the sentinel is resolved to the template's own ``max_size`` here.
-        """
-        template = self.run.texture_template
-        clamp = self._texture_size_clamp(template)
-        if clamp.get("enforce_budget"):
-            return int(ptk.OutputTemplates.budget(template).max_size or 0)
-        return int(clamp.get("max_size") or 0)
+    # The GLB half of the texture rows -- the container, the ceiling and the
+    # two GLB-only rows, resolved against the shared web delivery policy --
+    # is ``ptk.ExportRun.glb_texture_params``: ONE method both Scene
+    # Exporters and the WebXR preview call, so the same rows make the same
+    # images wherever the GLB is built (``create_glb`` passes this run's).
 
     #: ``run.texture_max_size`` sentinel: clamp to the active template's own
     #: :class:`~pythontk.DeliveryBudget` (``enforce_budget``) rather than to a

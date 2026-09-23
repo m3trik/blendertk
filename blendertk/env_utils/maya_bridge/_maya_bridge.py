@@ -167,15 +167,6 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     # ``save_as`` writes Maya's native scene format; a bare path gets ".ma" (ascii is
     # diffable, greppable, and survives a version bump -- ``.mb`` only on request).
     save_extensions = (".ma", ".mb")
-    # ``INCLUDE_SHOTS`` became ``INCLUDE_SCENE_DATA`` when every portable scene
-    # record -- not the shots alone -- started riding the sidecar.
-    param_aliases = staticmethod(
-        ptk.Deprecation.values(
-            {"INCLUDE_SHOTS": "INCLUDE_SCENE_DATA"},
-            what="MayaBridge parameter",
-            remove_in="0.10.0",
-        )
-    )
 
     def __init__(self, maya_path: Optional[str] = None):
         super().__init__(app_path=maya_path)

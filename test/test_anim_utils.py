@@ -82,6 +82,27 @@ try:
         and mover.hide_viewport is True,
         f"hide_viewport={mover.hide_viewport}",
     )
+
+    # ---- the retired "unbake" optimize level (renamed "extremes" 2026-09-02)
+    # resolves through ptk.Deprecation.values: it still lands on the live
+    # level, and now it SAYS so and names the release it stops working in.
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        level = AnimUtils.normalize_optimize_level("  Unbake ")
+    notices = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    check(
+        "retired 'unbake' level: resolves to 'extremes' and warns",
+        level == "extremes"
+        and len(notices) == 1
+        and "blendertk 0.11.0" in str(notices[0].message),
+        f"level={level!r} notices={[str(w.message) for w in notices]}",
+    )
+    check(
+        "retired AnimUtils.unbake_keys alias stays removed (2026-09-21)",
+        not hasattr(AnimUtils, "unbake_keys"),
+    )
 except Exception as e:  # noqa: BLE001
     traceback.print_exc()
     lines.append("FAIL test raised | " + repr(e))

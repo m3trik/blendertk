@@ -154,7 +154,12 @@ try:
         "save template: renames + saves, and exits hard (artifact is the verdict)",
         "cmds.file(rename=OUT_FILE)" in save_txt
         and "save=True" in save_txt
-        and "os._exit(0)" in save_txt,
+        # ProcessExit, never a bare os._exit: on Windows that still runs every DLL's
+        # detach, where Maya's destructors fault -- a crash dump plus a [Recovered]
+        # copy of the saved scene in the temp dir per save_as (the pulls' shape).
+        and "ProcessExit.hard_exit(code)" in save_txt
+        # ... on BOTH exits: the helper's own fallback is the only bare one.
+        and save_txt.count("os._exit(") == 1,
     )
     check(
         "save template: same paired-engine repairs as the interactive import",
@@ -714,18 +719,14 @@ try:
         "manifest: include_scene_data=False leaves the section out",
         "shots" not in manifest,
     )
-    import warnings as _warnings
-
-    with _warnings.catch_warnings(record=True) as _caught:
-        _warnings.simplefilter("always")
-        _merged = MayaBridge(maya_path="C:/fake/maya.exe").merge_params(
-            {"INCLUDE_SHOTS": False}
-        )
+    # INCLUDE_SHOTS warned until blendertk 0.10.0, where it goes (drift guard).
+    _merged = MayaBridge(maya_path="C:/fake/maya.exe").merge_params(
+        {"INCLUDE_SHOTS": False}
+    )
     check(
-        "params: the retired INCLUDE_SHOTS spelling still opts out (and warns)",
-        _merged.get("INCLUDE_SCENE_DATA") is False
-        and "INCLUDE_SHOTS" not in _merged
-        and any(issubclass(w.category, DeprecationWarning) for w in _caught),
+        "params: the retired INCLUDE_SHOTS spelling no longer resolves",
+        MayaBridge.param_aliases is None
+        and _merged.get("INCLUDE_SCENE_DATA") is not False,
         str(_merged.get("INCLUDE_SCENE_DATA")),
     )
     os.remove(manifest_path)

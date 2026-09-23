@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 # import Qt-free / bpy-deferred, so importing this module never needs a running Blender.
 from blendertk.core_utils._core_utils import CoreUtils
 
+# Blender's own defects we correct, declared once beside the probe that retires
+# each. Import-safe: nothing is applied until a ``with`` block asks for it.
+from blendertk.env_utils.upstream_patches import SIBLING_ARMATURES
+
 # Bridge/export defaults: geometry + hierarchy, modifiers applied, selection-only — the safe
 # hand-off set (the same defaults the bridges relied on when this lived in ``core_utils``).
 # ``EMPTY`` is load-bearing, NOT decoration: Blender's FBX exporter drops every object whose
@@ -635,8 +639,8 @@ class FbxUtils(_FbxUtilsInternal):
             "export_record",
         ),
         ptk.SceneRecords.LIGHTMAPS: (
-            "blendertk.light_utils.lightmap_baker.lightmap_baker",
-            "LightmapBaker",
+            "blendertk.light_utils.lightmap_baker.lightmap_records",
+            "LightmapRecords",
             "export_record",
         ),
     }
@@ -1318,18 +1322,31 @@ class FbxUtils(_FbxUtilsInternal):
 
         Returns:
             list: the objects created by the import (those newly added to ``bpy.data.objects``).
+
+        ``anim_offset`` defaults to 0.0 here, not Blender's 1.0: an imported curve keeps
+        the frames it was authored on, which is what Maya's own importer does.
+
+        Every sibling armature binds its meshes here, which the stock importer does not do
+        (``env_utils.upstream_patches.SIBLING_ARMATURES``) -- so this wrapper is the only
+        supported way to import an FBX that carries more than one skeleton.
         """
         import bpy
 
         filepath = os.path.abspath(os.path.expandvars(filepath))
         if not os.path.isfile(filepath):
             raise FileNotFoundError(f"FBX not found: {filepath}")
+        # Blender's importer defaults this to 1.0, so a curve authored at frames
+        # 1-10 arrives at 2-11 and every Maya -> Blender -> Maya hop drifts a frame
+        # further (measured on a production module: 3845/4738 -> 3846/4739 ->
+        # 3847/4740). Maya's importer shifts nothing, so 0.0 is what makes the two
+        # agree. A caller that wants the shift still passes it.
+        fbx_opts.setdefault("anim_offset", 0.0)
         before = set(bpy.data.objects)
         # Same contract as export above: io_scene_fbx reads context internally
         # (it selects the imported objects), so a window must be in context —
         # driven bare from tentacle's Qt event-pump timer, context.window is
         # None and the op raises.
-        with CoreUtils.window_context_override():
+        with CoreUtils.window_context_override(), SIBLING_ARMATURES.applied():
             bpy.ops.import_scene.fbx(filepath=filepath, **fbx_opts)
         return [o for o in bpy.data.objects if o not in before]
 

@@ -238,11 +238,13 @@ class TaskManager(
 
     def _lightmap_search_dirs(self) -> List[str]:
         """Folders the GLB applier joins the manifest's basenames against
-        (:meth:`LightmapBaker.search_dirs`, scoped to the export set; mirror of
+        (:meth:`LightmapRecords.search_dirs`, scoped to the export set; mirror of
         mayatk's ``TaskManager._lightmap_search_dirs``)."""
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+        from blendertk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
 
-        return LightmapBaker.search_dirs(self._live_objects() or None)
+        return LightmapRecords.search_dirs(self._live_objects() or None)
 
     def create_glb(
         self, fbx_path: Optional[str] = None, announce: bool = True
@@ -257,8 +259,9 @@ class TaskManager(
         preview publishes through -- handed this run's dials: the scene sidecar
         built from the export set (:class:`~blendertk.env_utils.scene_state.SceneState`,
         the readers the preview shares), where the maps live NOW
-        (:meth:`_lightmap_search_dirs`), the GLB's half of the panel's two
-        texture dials (:meth:`_glb_texture_params`) and the Animation Clips
+        (:meth:`_lightmap_search_dirs`), the GLB's half of the panel's texture
+        rows (:meth:`pythontk.ExportRun.glb_texture_params`, the method the preview
+        resolves the same rows with) and the Animation Clips
         choice ``apply_declared_takes`` recorded. A sidecar read failure
         degrades to a bare conversion rather than costing the deliverable; a
         failed conversion or texture pass fails it.
@@ -284,6 +287,9 @@ class TaskManager(
                 lambda: SceneState.read(objects),
                 source=SceneState.source(),
                 asset=os.path.basename(src),
+                # The lighting recipe with this run's choices (Baked
+                # Reflections): decided by the export, carried by the GLB.
+                rendering=self.run.rendering,
                 logger=self.logger,
             )
         try:
@@ -293,7 +299,7 @@ class TaskManager(
                 # Where the maps are NOW: the manifest's recorded authoring
                 # folder goes stale the moment the project is reorganised.
                 lightmap_dirs=self._lightmap_search_dirs(),
-                texture_params=self._glb_texture_params(),
+                texture_params=self.run.glb_texture_params(logger=self.logger),
                 # GLB Key Tolerance: the deviation bound, or None for the
                 # converter's per-frame keys.
                 key_tolerance=self.run.glb_key_tolerance,

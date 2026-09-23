@@ -74,11 +74,45 @@ class BlenderUiHandler(UiHandler):
         except Exception:  # never let a wiring hiccup block UI-handler startup
             pass
 
+        # Same runtime init point, same reason: show deprecation notices in the
+        # console (see _install_deprecation_sink). Mirror of MayaUiHandler.
+        self._install_deprecation_sink()
+
         # Wrap Blender's native menus for the both-button chord menu (mirror of the way
         # MayaUiHandler wraps Maya's). Register a lightweight proxy per symbolic node name so a
         # release on a bare-target MenuButton resolves to a real UI via the shared switchboard's
         # get_ui (loaded_ui lookup), and pops the native menu on show — see the methods below.
         self._register_native_menu_proxies()
+
+    @staticmethod
+    def _install_deprecation_sink() -> bool:
+        """Route ``ptk.Deprecation`` notices to Blender's console, once.
+
+        Mirror of :meth:`MayaUiHandler._install_deprecation_sink`:
+        ``DeprecationWarning`` is hidden outside ``__main__``, so without a sink
+        no artist ever sees that a call they rely on is going away. The notice
+        is printed -- the console and blendertk's Script Output capture both
+        read stdout. Additive (``warnings.warn`` still fires), once per record
+        per session, and a sink a host already set is left alone.
+
+        Returns:
+            bool: True when this call installed the sink.
+        """
+        try:
+            import pythontk as ptk
+
+            deprecation = ptk.Deprecation
+            if deprecation.sink is not None:
+                return False
+            deprecation.sink = BlenderUiHandler._print_deprecation
+            return True
+        except Exception:  # never let a wiring hiccup block UI-handler startup
+            return False
+
+    @staticmethod
+    def _print_deprecation(message: str) -> None:
+        """The console line a deprecation notice becomes (Blender's own style)."""
+        print(f"Warning: {message}")
 
     @classmethod
     def instance(cls, switchboard: Switchboard = None, **kwargs) -> "BlenderUiHandler":

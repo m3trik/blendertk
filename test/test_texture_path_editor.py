@@ -439,7 +439,7 @@ try:
     slot._lightmap_rows = {}
     slot._find_copy_lightmaps = []
     slot._find_copy_images = []
-    deps = slot._lightmap_baker().lightmap_dependencies()
+    deps = slot._lightmap_records().lightmap_dependencies()
     dep = deps[0] if deps else None
     check("the panel lists the committed lightmap as a dependency", dep is not None, f"{deps}")
     row_path = slot._lightmap_row_path(dep) if dep else ""
@@ -465,7 +465,7 @@ try:
     check("Find & Copy has no lightmap opt-out row -- the scope decides",
           "include_lightmaps" not in fields, f"{sorted(fields)}")
     os.remove(lm_map)
-    missing_dep = slot._lightmap_baker().lightmap_dependencies(search_dirs=[], walk=False)[0]
+    missing_dep = slot._lightmap_records().lightmap_dependencies(search_dirs=[], walk=False)[0]
     fields = {f["name"]: f for f in slot._find_and_copy_fields([], [], tmp, lightmaps=[missing_dep])}
     check("a missing lightmap switches the search folder on and is named in its hint",
           fields["source_dir"]["enabled"] and "ROOM_ENV_LightMap.exr" in fields["source_dir"]["hint"],

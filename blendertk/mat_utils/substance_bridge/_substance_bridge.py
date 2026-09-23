@@ -53,9 +53,6 @@ _TEMPLATE_DIR = _PKG_DIR / "templates"
 # it to the canon on the way in (``script_template._MODE_ALIASES``).
 SEND_TO = script_template.SEND_TO
 ROUND_TRIP = script_template.ROUND_TRIP
-#: Deprecated alias for :data:`ROUND_TRIP`, kept because it is a public export
-#: (``substance_bridge.__init__``). Bound to the canonical value, so the two cannot drift.
-ROUNDTRIP = ROUND_TRIP
 _MODES = (SEND_TO, ROUND_TRIP)
 
 # Allowed values for a template's ``TARGET_INSTANCE`` field and the

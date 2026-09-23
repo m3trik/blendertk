@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
@@ -74,10 +73,17 @@ _RIG_MODE_TO_SMART_BAKE = {"auto": "auto", "bake": True, "raw": False, "rig": Fa
 # Maya scene formats cmds.file(open=...) accepts; FBX would be imported directly.
 SUPPORTED_EXTENSIONS = (".ma", ".mb")
 
+# USD sources short-circuit the whole pipeline: both DCCs speak USD natively,
+# so there is no conversion (and no Maya install/license) involved at all.
+USD_EXTENSIONS = ptk.USD_EXTENSIONS
+
+# Sources that ARE the bake's own input: an .fbx or a USD layer skips the headless-Maya
+# hop (and the Maya license checkout) entirely -- the bake imports it directly.
+_DIRECT_BAKE_EXTENSIONS = (".fbx", *USD_EXTENSIONS)
+
 # Sources bake_scene turns into a linkable .blend. A .ma/.mb needs the headless-Maya
-# conversion first; an .fbx is already the bake's own input, so it skips that hop (and
-# the Maya license checkout) entirely.
-BAKE_SOURCE_EXTENSIONS = (".ma", ".mb", ".fbx")
+# conversion first; the rest are baked as they are (_DIRECT_BAKE_EXTENSIONS).
+BAKE_SOURCE_EXTENSIONS = SUPPORTED_EXTENSIONS + _DIRECT_BAKE_EXTENSIONS
 
 # Sidecar written beside every bake naming the scene it came from. The Reference Manager
 # lists SOURCE rows but links the BAKED file, so "is this row referenced?" can only be
@@ -101,10 +107,6 @@ _BAKE_LAUNCH_ARGS = ("--background", "--factory-startup", "--python")
 # the dependency-free copy in mayatk's ``blender_bridge/templates/import.py``.
 MAYA_GROUP_EMPTY_DISPLAY_SIZE = 0.0001
 
-# USD sources short-circuit the whole pipeline: both DCCs speak USD natively,
-# so there is no conversion (and no Maya install/license) involved at all.
-USD_EXTENSIONS = ptk.USD_EXTENSIONS
-
 # The FBX importer options every Maya payload imports with (see
 # ``MayaSceneImport.import_payload``): custom properties carry Maya's extra attributes,
 # every joint arrives as a bone INCLUDING a chain's tip, and bone orientation is derived
@@ -121,10 +123,24 @@ USD_EXTENSIONS = ptk.USD_EXTENSIONS
 # The tip's bone LENGTH is not the importer's extrapolation either:
 # `_apply_bone_lengths` re-derives every length from the recorded joint hierarchy,
 # and a joint with no children of its own takes its parent's length.
+#
+# ``anim_offset`` is pinned to 0.0 deliberately (2026-09-20). Blender's importer
+# defaults it to 1.0, landing every imported key one frame LATE; the appliers below
+# compensate by reading this same value (``_apply_scene_manifest`` shifts the adopted
+# ranges, ``_apply_visibility_manifest`` the replayed keys), so the pull was internally
+# consistent -- and one frame off Maya. Measured end to end on the production module:
+# a source at ``playbackOptions -min 3845 -max 4738 -ast 0 -aet 4741`` came back from
+# .ma -> .blend -> .ma at 3846/4739/1/4742, and a second round trip at 3847/4740/2/4743.
+# The drift is linear and never converges, so it is fixed at the source rather than
+# compensated: frames arrive as authored, and the appliers' offset resolves to zero.
+# ``FbxUtils.import_fbx`` defaults it to 0.0 too now; the bridge keeps its own pin
+# so its contract does not rest on another module's default (``test_scene_import``
+# guards the coupling rather than either literal).
 FBX_IMPORT_OPTIONS = {
     "use_custom_props": True,
     "ignore_leaf_bones": False,
     "automatic_bone_orientation": True,
+    "anim_offset": 0.0,
 }
 
 # How a foreign-scene conversion reduces its baked keys unless told otherwise: an
@@ -463,7 +479,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         )
 
     # ------------------------------------------------------------------ import
-    @ptk.Deprecation.parameter("shots", new="scene_data", remove_in="0.10.0")
     def import_scene(
         self,
         src_path: str,
@@ -487,12 +502,13 @@ class MayaSceneImport(ptk.LoggingMixin):
         manifest -- the same consumer the ``.blend`` bake and mayatk's send run.
 
         Parameters:
-            src_path: A ``.ma`` / ``.mb`` file — or a USD file
+            src_path: A ``.ma`` / ``.mb`` file — or an ``.fbx`` or USD file
                 (``.usd``/``.usda``/``.usdc``/``.usdz``), which short-circuits
-                the round-trip entirely: Blender imports USD natively, so no
-                headless Maya, license checkout, cache or manifest is involved
-                (``via``/``cleanup``/``use_cache``/``timeout``/``fbx_options``
-                are inert for USD sources).
+                the round-trip entirely: it IS a payload, so no headless Maya,
+                license checkout, cache or conversion is involved, and
+                :meth:`import_payload` imports it exactly as the ``.blend`` bake
+                of the same file does (``via``/``cleanup``/``use_cache``/
+                ``timeout``/``rig_mode`` are inert for these sources).
             via: Conversion intermediate for ``.ma``/``.mb`` sources.
                 ``"fbx"`` (default) = the classic material model + texture-
                 manifest sidecar rebuilt through ``create_pbr_material``;
@@ -525,7 +541,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             timeout: Max seconds for the Maya-side conversion; unset by default
                 (see :meth:`convert`).
             fbx_options: ``bpy.ops.import_scene.fbx`` kwargs over
-                :data:`FBX_IMPORT_OPTIONS` (``via="fbx"`` only).
+                :data:`FBX_IMPORT_OPTIONS` (``via="fbx"`` or an ``.fbx`` source).
             rig_mode: How the rig logic driving the scene travels, on either
                 route (:data:`pythontk.RIG_MODES`). ``"auto"`` (default) bakes
                 driven animation to keys via mayatk's ``SmartBake`` only when a
@@ -565,16 +581,23 @@ class MayaSceneImport(ptk.LoggingMixin):
         self._rig_mode_opts(script_opts, rig_mode)
 
         src = os.path.abspath(os.path.expanduser(os.path.expandvars(str(src_path))))
-        if os.path.splitext(src)[1].lower() in USD_EXTENSIONS:
-            # USD fast path: native import, no headless-Maya round-trip at all.
+        ext = os.path.splitext(src)[1].lower()
+        if ext in _DIRECT_BAKE_EXTENSIONS:
+            # Fast path: a USD layer or an .fbx IS a payload -- import it in place,
+            # no headless-Maya round trip, through the consumer the .blend bake runs,
+            # so a row imported lands the scene the same row linked does. Measured
+            # before .fbx took this path: Blender's stock FBX import combed a Maya
+            # joint chain the bake orients along it, and kept 300 keys to its 27.
+            kind = "FBX" if ext == ".fbx" else "USD"
             if not os.path.isfile(src):
-                raise FileNotFoundError(f"USD file not found: {src}")
+                raise FileNotFoundError(f"{kind} file not found: {src}")
             self.logger.info(
-                f"USD source — importing natively (no Maya conversion): {src}"
+                f"{kind} source — importing natively (no Maya conversion): {src}"
             )
             relay = ptk.ProgressRelay(progress, stages=1)
             imported = self.import_payload(
                 src,
+                fbx_options=fbx_options,
                 scene_settings=adopt_scene,
                 reduce_keys=reduce_keys,
                 scene_data=scene_data,
@@ -631,7 +654,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         self.logger.info(f"Imported {len(imported)} object(s) from {src_path}.")
         return imported
 
-    @ptk.Deprecation.parameter("shots", new="scene_data", remove_in="0.10.0")
     def import_payload(
         self,
         payload_path: str,
@@ -742,7 +764,9 @@ class MayaSceneImport(ptk.LoggingMixin):
         fbx_opts = dict(FBX_IMPORT_OPTIONS, **(fbx_options or {}))
         # FBX-imported curves land anim_offset frames late, so the replayed visibility
         # keys and the adopted ranges follow them; USD time codes map 1:1 onto frames.
-        frame_offset = 0.0 if is_usd else float(fbx_opts.get("anim_offset", 1.0))
+        # The fallback matches FbxUtils.import_fbx's own default, so a caller that
+        # passes options WITHOUT the key gets the shift the importer really used.
+        frame_offset = 0.0 if is_usd else float(fbx_opts.get("anim_offset", 0.0))
         imported: List[Any] = []
 
         def import_file():
@@ -2030,6 +2054,44 @@ class MayaSceneImport(ptk.LoggingMixin):
             )
         return plan
 
+    @staticmethod
+    def _usd_material_key(name: str, mapping: Mapping[str, Any]) -> str:
+        """The sidecar's ``shading_groups`` key for an imported material *name*.
+
+        Two spellings have to be undone before the lookup. Blender's own clash
+        suffix (``wall_matSG.001``) is the ordinary one. The other is an upstream
+        defect in Blender's USD importer: for a UV-map-specific binding it appends
+        the primvar name, and it appends it again to the ALREADY-suffixed name for
+        the next mesh, so one shading group arrives as ``<SG>``, ``<SG>_map1``,
+        ``<SG>_map1_map1``, ``<SG>_map1_map1_map1``... Measured on a production
+        module: 7 of 15 materials were such variants, one with 45 repetitions, and
+        539 of 1505 meshes wore one -- unrebuilt, because none of them matched the
+        sidecar. A bare ``wm.usd_import`` reproduces it with nothing of ours
+        running, and neither ``mtl_name_collision_mode`` helps (``MAKE_UNIQUE``
+        gives 15 materials, ``REFERENCE_EXISTING`` 119).
+
+        Trailing ``_<segment>`` groups are therefore stripped one at a time until
+        the result is a key the sidecar actually carries. That membership test is
+        the whole guard: an over-strip cannot happen, because a name that trims to
+        something the producer never wrote simply keeps its own. Everything the
+        USD route legitimately imports IS in the mapping -- ``mayaUSDExport`` names
+        every Material prim after a shading engine -- so what does not match is
+        exactly the junk. Once they share a key, the merge below folds them onto
+        one material, which is what it already does for a Maya material feeding
+        several shading groups.
+        """
+        import re
+
+        base = re.sub(r"\.\d+$", "", name)
+        if base in mapping:
+            return base
+        trimmed = base.rstrip("_")
+        while "_" in trimmed:
+            trimmed = trimmed.rsplit("_", 1)[0]
+            if trimmed in mapping:
+                return trimmed
+        return base
+
     def _rename_usd_materials(self, manifest_path: str, imported: List[Any]) -> int:
         """Rename the imported materials from their SHADING GROUP to their shader,
         merging the per-shading-group duplicates of one Maya material.
@@ -2047,7 +2109,6 @@ class MayaSceneImport(ptk.LoggingMixin):
         object wears is purged out of the way. Returns the rename + merge count.
         """
         import json
-        import re
 
         try:
             with open(manifest_path, "r", encoding="utf-8") as fh:
@@ -2063,7 +2124,10 @@ class MayaSceneImport(ptk.LoggingMixin):
             for slot in getattr(obj, "material_slots", []):
                 if slot.material is not None:
                     materials[slot.material.name] = slot.material
-        wants = {name: mapping.get(re.sub(r"\.\d+$", "", name)) for name in materials}
+        wants = {
+            name: mapping.get(self._usd_material_key(name, mapping))
+            for name in materials
+        }
         # shader name -> the material that owns it now; one already bearing its
         # name owns it whatever its slot order, so its twins fold onto it.
         owners: Dict[str, Any] = {
@@ -2283,7 +2347,8 @@ class MayaSceneImport(ptk.LoggingMixin):
         import path and the ``.blend`` bake template, exactly like
         :meth:`_apply_texture_manifest`, so there is one copy of the logic.
 
-        *frame_offset* MUST match the FBX importer's ``anim_offset`` (default 1.0):
+        *frame_offset* MUST match the FBX importer's ``anim_offset`` (0.0 since
+        2026-09-20, at both the bridge's option table and ``FbxUtils.import_fbx``):
         Blender shifts every FBX-imported curve by that many frames (Maya frame N
         lands on Blender frame N + anim_offset — verified), but these visibility
         values arrive as raw Maya frames, so the same shift is applied here to keep
@@ -2451,10 +2516,24 @@ class MayaSceneImport(ptk.LoggingMixin):
             {
                 "SRC_FILE": str(src_path).replace("\\", "/"),
                 "OUT_BLEND": str(out_path).replace("\\", "/"),
-                # The child is the same Blender build, so the parent's sys.path entries
-                # are valid there -- this is what makes the shared manifest replay
+                # The child is the same Blender build, so the parent's importable set
+                # is valid there -- this is what makes the shared manifest replay
                 # (blendertk in the child) reliable rather than best-effort.
-                "EXTRA_SYS_PATH": repr(list(sys.path)),
+                #
+                # Minus the parent's OWN interpreter directories: that assumption
+                # holds only while the parent IS this app, and driven from a
+                # workspace venv the parent's stdlib would land AHEAD of the
+                # child's (measured: a bake dying on `ModuleNotFoundError:
+                # _sha512`). Dropping them is inert in production -- the child has
+                # its own copies -- so one call serves both cases.
+                # Roots FIRST, then the rest of the parent's set: the parent may
+                # only be able to import blendertk through its own site-packages
+                # (an editable install contributing to a namespace package), which
+                # the filter below drops -- so the roots are named explicitly.
+                "EXTRA_SYS_PATH": repr(
+                    ptk.HandoffBridge.import_roots("blendertk", "pythontk")
+                    + ptk.HandoffBridge.child_sys_path()
+                ),
                 "REDUCE_KEYS": repr(AnimUtils.normalize_optimize_level(reduce_keys)),
             },
         )
@@ -2524,17 +2603,21 @@ class MayaSceneImport(ptk.LoggingMixin):
         native stand-in: ``.ma``/``.mb`` are converted to an FBX (default) or USD
         intermediate in a headless Maya (the cached intermediate :meth:`import_scene`
         already uses), then that intermediate is baked into a ``.blend`` in a headless
-        Blender through :meth:`import_payload`. An ``.fbx`` source skips straight to the
-        bake — no Maya, no license.
+        Blender through :meth:`import_payload`. An ``.fbx`` or USD source skips
+        straight to the bake — no Maya, no license.
 
         Both stages are cached independently, and the bake's key includes the
         intermediate's identity, the bake template's and this engine module's (the
         template calls back into the engine), and the key reduction -- its level, its
         bound, and the animation module that runs it -- so a fix to any of them
         invalidates stale bakes (a retry after an upgrade must not replay the old bug).
+        A USD source's identity is its ROOT layer's: an edit that lands only in a
+        sublayer or payload it composes is not seen until the root changes too
+        (``use_cache=False`` re-bakes).
 
         Parameters:
-            src_path: A ``.ma`` / ``.mb`` / ``.fbx`` file.
+            src_path: A ``.ma`` / ``.mb`` / ``.fbx`` or USD
+                (``.usd``/``.usda``/``.usdc``/``.usdz``) file.
             via: Conversion intermediate for ``.ma``/``.mb`` sources — ``"fbx"``
                 (default: format-native instancing + classic model / manifest
                 replay) or ``"usd"`` (native materials / animation / visibility,
@@ -2544,15 +2627,15 @@ class MayaSceneImport(ptk.LoggingMixin):
             timeout: Max seconds for EACH headless stage; unset by default (see
                 :meth:`convert`).
             rig_mode: How the source's rig logic travels (see
-                :meth:`import_scene`); inert for an ``.fbx`` source (no Maya
-                stage to bake in).
+                :meth:`import_scene`); inert for an ``.fbx`` or USD source (no
+                Maya stage to bake in).
             reduce_keys: How the bake's per-frame keys are reduced before the save
                 (:meth:`import_payload`); ``"extremes"`` by default, falsy keeps them.
             progress: ``progress(current, total, message) -> bool`` over both stages
                 (see :meth:`import_scene`); ``False`` kills the running child and
                 raises :class:`pythontk.OperationCancelled`.
             **script_opts: Maya-side conversion knobs (``embed_textures`` /
-                ``include_animation``); inert for an ``.fbx`` source.
+                ``include_animation``); inert for an ``.fbx`` or USD source.
 
         Returns:
             str: Path to the cached ``.blend`` — pass it to
@@ -2570,10 +2653,11 @@ class MayaSceneImport(ptk.LoggingMixin):
             raise FileNotFoundError(f"Scene not found: {src}")
         # Resolved here: an unknown level must fail before minutes of Maya, not after.
         level = _anim_utils.AnimUtils.normalize_optimize_level(reduce_keys)
-        stages = 1 if ext == ".fbx" else 2
+        direct = ext in _DIRECT_BAKE_EXTENSIONS
+        stages = 1 if direct else 2
         relay = ptk.ProgressRelay(progress, stages=stages)
 
-        if ext == ".fbx":
+        if direct:
             inter_path, conversion = src, None
         else:
             self._rig_mode_opts(script_opts, rig_mode)
@@ -2690,7 +2774,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         in string data) only costs an unnecessary bake attempt, never a wrong
         result, because the Maya-side probe re-decides authoritatively under
         ``"auto"``. Both early-exit on the first hit. Returns ``False`` for
-        ``.fbx`` (already baked — no Maya drivers)."""
+        ``.fbx`` and USD (already baked — no Maya drivers)."""
         ext = os.path.splitext(str(src_path))[1].lower()
         if ext not in SUPPORTED_EXTENSIONS or not os.path.isfile(src_path):
             return False
@@ -2746,12 +2830,13 @@ class MayaSceneImport(ptk.LoggingMixin):
 
         The discovery half of the import: pairs with :meth:`import_scene` so a browser can
         list convertible Maya scenes with one call, using the SAME extension set the importer
-        accepts. USD sources are import-capable too but are not *Maya scenes*, so they are
-        intentionally excluded here (list them from their own project, not as "Maya files").
+        accepts. USD sources are import-capable too but are not *Maya scenes*, so the
+        default leaves them out.
 
         *extensions* narrows or widens that default — a browser listing *bakeable* rows
-        passes :data:`BAKE_SOURCE_EXTENSIONS` (which adds ``.fbx``), or the subset the
-        user has enabled.
+        passes :data:`BAKE_SOURCE_EXTENSIONS` (which adds ``.fbx`` and every USD
+        spelling), or the subset the user has enabled (the Reference Manager's Include
+        Types row).
         """
         if not (root_dir and os.path.isdir(root_dir)):
             return []
