@@ -10,7 +10,7 @@ shared with mayatk).  This module supplies the **scene-touching** half:
 
 - :meth:`Behaviors.apply_behavior` / :meth:`Behaviors.apply_to_shots` key the
   template's keyframes onto ``bpy`` objects.  Maya's ``opacity`` ↔
-  ``visibility`` dual-keying maps to :class:`RenderOpacity`'s ``opacity``
+  ``visibility`` dual-keying maps to :class:`RenderEffects`'s ``opacity``
   custom property (smooth channel, drives material alpha) mirrored onto a
   stepped ``hide_render`` curve (the native render-visibility channel);
 - :meth:`Behaviors.verify_behavior` checks them (``exact`` /
@@ -107,17 +107,17 @@ class _BehaviorsInternal(object):
         """Map a template attribute name to *obj*'s fcurve data path.
 
         Returns ``(data_path, inverted)``.  ``visibility`` / ``opacity`` target
-        the :class:`RenderOpacity` ``opacity`` custom property (where
+        the :class:`RenderEffects` ``opacity`` custom property (where
         :meth:`Behaviors.apply_behavior` places the smooth keys); ``visibility``
         on an object with no opacity property falls back to ``hide_render``,
         whose values are the inverse of Maya's ``visibility``.
         """
-        from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
         if attr in ("visibility", "opacity"):
-            if RenderOpacity.ATTR_NAME in obj:
-                return f'["{RenderOpacity.ATTR_NAME}"]', False
-            return RenderOpacity.VIS_PATH, True
+            if RenderEffects.ATTR_NAME in obj:
+                return f'["{RenderEffects.ATTR_NAME}"]', False
+            return RenderEffects.VIS_PATH, True
         if hasattr(obj, attr):
             return attr, False
         return f'["{attr}"]', False
@@ -250,7 +250,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         """Apply a named behavior template to an object over a time range.
 
         Templates targeting ``visibility`` or ``opacity`` are dual-keyed the
-        Blender-native way: the value lands on :class:`RenderOpacity`'s
+        Blender-native way: the value lands on :class:`RenderEffects`'s
         ``opacity`` property (smooth channel, drives material alpha) and is
         mirrored onto ``hide_render`` as a stepped curve (hidden when the value
         is ``<= 0``) so exports carry a real visibility track — the same
@@ -290,7 +290,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
             Behaviors.apply_audio_clip(obj, start, end, source_path=source_path)
             return
 
-        from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
         node = bpy.data.objects.get(str(obj))
         if node is None:
@@ -324,15 +324,15 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
 
                 for k in resolve_keys(block, start, end):
                     interp = _INTERP.get(str(k["tangent"]).lower(), "BEZIER")
-                    RenderOpacity._set_key(
+                    RenderEffects._set_key(
                         node, target_path, k["time"], k["value"], interp
                     )
                     # Mirror: stepped render-visibility key so exports carry a
                     # real visibility curve (hide_render is the inverse).
                     if mirror_to_vis:
-                        RenderOpacity._set_key(
+                        RenderEffects._set_key(
                             node,
-                            RenderOpacity.VIS_PATH,
+                            RenderEffects.VIS_PATH,
                             k["time"],
                             0.0 if k["value"] > 0 else 1.0,
                             "CONSTANT",

@@ -161,6 +161,41 @@ try:
         UiUtils.dispatch_log_link in _BridgeSlotsInternal._LOG_LINK_HANDLERS,
     )
 
+    # 0b. ...and point ptk.Deprecation.sink at the console, once: a
+    #     DeprecationWarning is hidden outside __main__, so without it no artist
+    #     sees a deprecated call before it goes (mirror of MayaUiHandler). A sink
+    #     a host set first is left alone.
+    import contextlib
+    import io
+
+    import pythontk as ptk
+
+    check(
+        "BlenderUiHandler installs the console deprecation sink",
+        ptk.Deprecation.sink is BlenderUiHandler._print_deprecation,
+        f"sink={ptk.Deprecation.sink!r}",
+    )
+    _printed = io.StringIO()
+    with contextlib.redirect_stdout(_printed):
+        ptk.Deprecation.sink("X is deprecated and will be removed in blendertk 9.9.9")
+    check(
+        "the console sink prints the notice as a Warning line",
+        _printed.getvalue().strip()
+        == "Warning: X is deprecated and will be removed in blendertk 9.9.9",
+        repr(_printed.getvalue()),
+    )
+
+    def _host_sink(message):
+        pass
+
+    ptk.Deprecation.sink = _host_sink
+    check(
+        "a sink a host set first is left alone",
+        BlenderUiHandler._install_deprecation_sink() is False
+        and ptk.Deprecation.sink is _host_sink,
+    )
+    ptk.Deprecation.sink = None
+
     # 1. The handler's recursive scan of the blendertk package registers exactly the
     #    co-located tool panels listed in PANELS (and nothing spurious) — the core
     #    architectural guarantee.
@@ -467,6 +502,7 @@ try:
                     "chk_include_ma",
                     "chk_include_mb",
                     "chk_include_fbx",
+                    "chk_include_usd",
                     "chk_include_blend",
                 }
                 <= _hdr_names
@@ -545,7 +581,7 @@ try:
                 "reference_manager header wires the Include Types row",
                 all(
                     hasattr(rm_menu, f"chk_include_{t}")
-                    for t in ("ma", "mb", "fbx", "blend")
+                    for t in ("ma", "mb", "fbx", "usd", "blend")
                 ),
             )
             rm_menu.chk_include_ma.setChecked(True)
@@ -589,13 +625,14 @@ try:
                 if c.objectName().startswith("chk_include_")
             ]
             check(
-                "reference_manager header Include Types row is not duplicated (4 unique)",
+                "reference_manager header Include Types row is not duplicated (5 unique)",
                 sorted(_rm_hdr_incl)
                 == [
                     "chk_include_blend",
                     "chk_include_fbx",
                     "chk_include_ma",
                     "chk_include_mb",
+                    "chk_include_usd",
                 ],
                 f"{sorted(_rm_hdr_incl)}",
             )

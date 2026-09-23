@@ -412,7 +412,10 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         try:
             ctx = FbxUtils.export_context(
-                clip_mode=ptk.ExportRun.clip_mode(self.run.animation_clips_mode)
+                clip_mode=ptk.ExportRun.clip_mode(self.run.animation_clips_mode),
+                # The FBX's handoff record publishes the same lighting recipe
+                # the GLB's envelope does, with this run's choices.
+                rendering=self.run.rendering,
             )
             if not FbxUtils._export_depth:
                 staged = dict(FbxUtils._session_stagers)

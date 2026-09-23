@@ -667,18 +667,60 @@ try:
         BAKE_SOURCE_SUFFIX,
     )
 
+    import pythontk as _ptk_types
+
     check(
-        "_is_foreign classifies ma/mb/fbx foreign, blend native",
-        all(ReferenceManagerSlots._is_foreign(f"x{e}") for e in (".ma", ".mb", ".fbx"))
+        "_is_foreign classifies ma/mb/fbx + every USD spelling foreign, blend native",
+        all(
+            ReferenceManagerSlots._is_foreign(f"x{e}")
+            for e in (".ma", ".mb", ".fbx", *_ptk_types.USD_EXTENSIONS)
+        )
         and not ReferenceManagerSlots._is_foreign("x.blend"),
+    )
+    check(
+        "Include Types row is the five shared types, in the shared order",
+        ReferenceManagerSlots._INCLUDE_TYPES == ("ma", "mb", "fbx", "usd", "blend"),
+        str(ReferenceManagerSlots._INCLUDE_TYPES),
     )
     check(
         "NATIVE + FOREIGN partition covers exactly the Include Types row",
         set(ReferenceManagerSlots.NATIVE_EXTENSIONS)
         | set(ReferenceManagerSlots.FOREIGN_EXTENSIONS)
-        == {f".{t}" for t in ReferenceManagerSlots._INCLUDE_TYPES}
+        == {
+            e
+            for t in ReferenceManagerSlots._INCLUDE_TYPES
+            for e in ReferenceManagerSlots._type_extensions(t)
+        }
         and not set(ReferenceManagerSlots.NATIVE_EXTENSIONS)
         & set(ReferenceManagerSlots.FOREIGN_EXTENSIONS),
+    )
+    check(
+        "the usd toggle lists every USD spelling",
+        ReferenceManagerSlots._type_extensions("usd") == _ptk_types.USD_EXTENSIONS
+        and ReferenceManagerSlots._type_extensions("fbx") == (".fbx",),
+    )
+
+    class _Check:
+        def __init__(self, on):
+            self._on = on
+
+        def isChecked(self):
+            return self._on
+
+    _usd_menu = type(
+        "M",
+        (),
+        {
+            f"chk_include_{t}": _Check(t == "usd")
+            for t in ReferenceManagerSlots._INCLUDE_TYPES
+        },
+    )()
+    _s_usd, _ = make_slots()
+    _s_usd.ui = type("U", (), {"header": type("H", (), {"menu": _usd_menu})()})()
+    check(
+        "_included_extensions expands a checked usd toggle to all four spellings",
+        _s_usd._included_extensions() == set(_ptk_types.USD_EXTENSIONS),
+        str(_s_usd._included_extensions()),
     )
     check(
         "include defaults are this panel's native type",
@@ -764,6 +806,19 @@ try:
         fbx_scan == {"c.fbx"},
         str(fbx_scan),
     )
+    for fname in ("e.usd", "f.usda", "g.usdc", "h.usdz"):
+        open(os.path.join(scan_ws, fname), "w").close()
+    usd_scan = {
+        os.path.basename(p)
+        for p in MayaSceneImport.find_scenes(
+            scan_ws, extensions=list(_ptk_types.USD_EXTENSIONS)
+        )
+    }
+    check(
+        "find_scenes lists every USD spelling when the usd toggle is on",
+        usd_scan == {"e.usd", "f.usda", "g.usdc", "h.usdz"},
+        str(usd_scan),
+    )
 
     # Bake-source sidecar round trip (maps a linked bake back to the row the user sees).
     fake_bake = os.path.join(tmp, "fake_bake.blend")
@@ -821,6 +876,46 @@ try:
             use_empty=True
         )  # release the link before deleting
         for _p in (baked, baked + BAKE_SOURCE_SUFFIX):
+            try:
+                os.remove(_p)
+            except OSError:
+                pass
+
+    # --- End-to-end: USD source -> cached .blend bake -> link -> row resolution -------------
+    # A USD layer is the bake's own input exactly like an .fbx: the bake stage (a fresh
+    # headless Blender) imports it natively, so a USD row references with NO Maya at all.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.active_object.name = "usd_kit_cube"
+    usd_src = os.path.join(tmp, "kit_export.usda")
+    bpy.ops.wm.usd_export(filepath=usd_src)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    usd_baked = MayaSceneImport().bake_scene(usd_src, use_cache=False)
+    try:
+        check(
+            "bake_scene(.usda) produces a .blend with no Maya involved",
+            os.path.isfile(usd_baked) and usd_baked.lower().endswith(".blend"),
+            usd_baked,
+        )
+        check(
+            "bake sidecar points back at the USD source",
+            os.path.normcase(MayaSceneImport.bake_source(usd_baked) or "")
+            == os.path.normcase(usd_src),
+        )
+        n_usd = btk.link_blend_file(usd_baked, link=True)
+        check("baked USD links like a native library", n_usd >= 1, f"count={n_usd}")
+        s, _ = make_slots()
+        lib = s._library_for_path(usd_src)
+        check("_library_for_path resolves the USD row via its bake", lib is not None)
+        if lib is not None:
+            btk.remove_library(lib)
+            check(
+                "USD row un-references through the same path",
+                s._library_for_path(usd_src) is None,
+            )
+    finally:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        for _p in (usd_baked, usd_baked + BAKE_SOURCE_SUFFIX):
             try:
                 os.remove(_p)
             except OSError:
@@ -987,6 +1082,87 @@ try:
         bpy.ops.wm.read_factory_settings(use_empty=True)
     finally:
         _si_mod.MayaSceneImport.bake_scene = _orig_bake
+
+    # --- Unlink and Import on a not-linked USD row imports it directly: no Maya, no bake,
+    # and nothing to ask (only a Maya scene converts, so only it can prompt).
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    s, sb = make_progress_slots()
+    s._import_foreign_paths([usd_src])
+    check(
+        "a USD row imports directly as local data, asking nothing",
+        any(o.type == "MESH" and o.library is None for o in bpy.data.objects)
+        and not sb.messages,
+        f"objects={[o.name for o in bpy.data.objects]} messages={sb.messages}",
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # A USD row involves no Maya, so a missing file must not be reported as one.
+    s, sb = make_progress_slots()
+    s._import_foreign_paths([os.path.join(tmp, "gone.usda")])
+    check(
+        "a missing USD row's import names the file and blames no Maya",
+        bool(sb.messages)
+        and "gone.usda" in sb.messages[-1]
+        and "Maya" not in sb.messages[-1],
+        str(sb.messages),
+    )
+
+    # The box renders rich text, and pxr quotes prim paths as "</...>": unescaped,
+    # the part of the error that named the problem vanished (a file name's "&" too).
+    _stock_import_scene = _si_mod.MayaSceneImport.import_scene
+
+    def _failing_import(self, path, *args, **kwargs):
+        raise RuntimeError("layer </World/Crate> could not be read & skipped")
+
+    _si_mod.MayaSceneImport.import_scene = _failing_import
+    try:
+        s, sb = make_progress_slots()
+        s._import_foreign_paths([os.path.join(tmp, "R&D set.usda")])
+    finally:
+        _si_mod.MayaSceneImport.import_scene = _stock_import_scene
+    check(
+        "an import error reaches the box as text, not markup",
+        bool(sb.messages)
+        and "&lt;/World/Crate&gt;" in sb.messages[-1]
+        and "read &amp; skipped" in sb.messages[-1]
+        and "R&amp;D set.usda" in sb.messages[-1],
+        str(sb.messages),
+    )
+
+    # --- an .fbx row imported in place goes through the consumer its bake runs ------------
+    # Measured before (a Maya-exported joint chain): Blender's stock FBX import combed the
+    # bones the bake orients along the chain, and kept 300 keys to the bake's 27 -- the
+    # same row landed differently imported and linked.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _fbx_direct = MayaSceneImport(
+        maya_path="X:/definitely/not/maya.exe", log_level="WARNING"
+    ).import_scene(fbx_src)
+    check(
+        "import_scene(.fbx) imports in place, no Maya involved",
+        any(getattr(o, "type", "") == "MESH" for o in _fbx_direct),
+        f"{[getattr(o, 'name', o) for o in _fbx_direct]}",
+    )
+    _import_calls = []
+    _real_import_scene = _si_mod.MayaSceneImport.import_scene
+
+    def _recording_import(self, path, *args, **kwargs):  # wraps, never replaces
+        _import_calls.append(os.path.basename(path))
+        return _real_import_scene(self, path, *args, **kwargs)
+
+    _si_mod.MayaSceneImport.import_scene = _recording_import
+    try:
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        s, sb = make_progress_slots()
+        s._import_foreign_paths([fbx_src])
+    finally:
+        _si_mod.MayaSceneImport.import_scene = _real_import_scene
+    check(
+        "an .fbx row's Unlink and Import takes the bake's consumer, asking nothing",
+        _import_calls == [os.path.basename(fbx_src)]
+        and any(o.type == "MESH" for o in bpy.data.objects)
+        and not sb.messages,
+        f"calls={_import_calls} messages={sb.messages}",
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
 
     # --- foreign scratch: <temp>/btk_opened_<hash>/<stem>_<ext>.blend, per source ------------
     # A .ma opens as `<stem>_ma.blend` (provenance in the name, never shadowing a sibling

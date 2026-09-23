@@ -6,7 +6,7 @@ The USD sibling of ``templates/_import_scene.py`` (the FBX route), selected via
 ``import_scene(via="usd")``. Runs under ``mayapy`` via
 ``pythontk.run_script_to_artifact``, which judges success by the exported USD's
 existence -- NOT the exit code (standalone teardown is a known crasher, hence the
-``os._exit`` below).
+hard exit below, ``_exit``).
 
 Where the FBX route must downgrade every modern shader to phong and sidecar the
 PBR textures in a ``.manifest.json``, USD needs neither: ``mayaUSDExport``'s
@@ -584,6 +584,122 @@ def collect_materials(cmds):
     return entries, shading_groups
 
 
+def _fold_armature_transforms(cmds):
+    """Fold the transform a previous round trip wrapped around each skeleton root,
+    on this scratch scene, before anything reads it; return how many went.
+
+    A Blender armature OBJECT lands in Maya as a transform holding its same-named
+    root joint -- mayatk's import keeps that pair on purpose (the return leg's rig
+    ids resolve through it). Pulled as it is, Blender's importer makes it an Empty
+    holding an armature renamed ``.001``, and the next return lands one level
+    deeper: measured +7 levels per round trip on a production module. Folded
+    here, every pull sees the shape the first pull saw. The engine is mayatk's
+    (``BlenderSceneImport.collapse_nested_levels`` with ``joints=True``): only an
+    INERT level whose single child shares its name goes, a show/hide track handed
+    down to the child. The user's scene is never touched -- this is the
+    conversion's own copy.
+    """
+    try:
+        import mayatk as mtk
+
+        collapse = mtk.BlenderSceneImport.collapse_nested_levels
+    except Exception as error:
+        print(
+            "fold: mayatk unavailable ({}); nested levels export as they are.".format(
+                error
+            )
+        )
+        return 0
+    try:
+        folded = collapse(cmds.ls(type="transform", long=True) or [], joints=True)
+    except Exception:
+        print("fold: failed; nested levels export as they are.")
+        traceback.print_exc()
+        return 0
+    if folded:
+        print("fold: {} nested level(s) folded before the export.".format(folded))
+    return folded
+
+
+def uniquify_short_names(cmds):
+    """Rename transforms until no two share a short name; return how many moved.
+
+    Maya permits duplicate short names under different parents, and production
+    scenes are full of them: the module this was measured on holds FOUR transforms
+    called ``handle_A``, four ``handle_B``, and 466 duplicated names over 487 extra
+    nodes. Every by-name section of the manifest is keyed by SHORT name, because
+    the Blender side has no DAG path to match on -- so a duplicate is ambiguous and
+    each collector degrades rather than guess:
+
+    * the FBX route's ``_collect_baked_visibility`` DROPS a name whose same-named
+      objects baked different curves ("no keys beats wrong keys"), which is why
+      20 instanced parts arrived in Blender still drawn through the frames Maya
+      hides them -- and why they started arriving correctly only after a round
+      trip had made the names unique by accident. Measured as `hop1` 65 animated
+      objects against `hop3` 85, where hop3 is the right answer.
+    * ``_classify_rig_machinery`` KEEPS apparatus that shares a short name with a
+      node that must survive, so a rig's leftovers travel with the payload.
+
+    Renaming here retires the whole class, and makes the two legs symmetric: the
+    return direction already folds every name to something Maya can hold
+    (``sanitize_names``), and this one makes every name it sends unique. Between
+    them, a payload this bridge writes carries globally-unique, Maya-legal names.
+
+    JOINTS are left alone. Nothing measured needs them (the production module has
+    no duplicated joint name at all), while a joint name can be embedded in an
+    expression's text and is what ``_export_ready_skins`` builds its flattened
+    skeletons against -- so they keep whatever ambiguity they have, and the
+    collectors keep degrading for them exactly as before.
+
+    Renames run DEEPEST FIRST: renaming an ancestor invalidates the DAG paths of
+    every descendant below it, and the deepest node's path can never be
+    invalidated by a rename still to come. A locked or referenced node simply
+    keeps its name, the way ``fbx_safe_materials`` keeps an untranslatable shader.
+    This Maya session is throwaway -- opened from the source, never saved -- so no
+    rename reaches the artist's file.
+    """
+    every = cmds.ls(type="transform", long=True) or []
+    joints = set(cmds.ls(type="joint", long=True) or [])
+    by_short = {}
+    for path in every:
+        if path not in joints:
+            by_short.setdefault(path.rsplit("|", 1)[-1], []).append(path)
+
+    # Seeded from EVERY transform, joints included: they are excluded from being
+    # renamed, not from holding a name, and handing their short name to something
+    # else would create the duplicate this pass exists to remove.
+    taken = {path.rsplit("|", 1)[-1] for path in every}
+    planned = []
+    for short, paths in sorted(by_short.items()):
+        if len(paths) < 2:
+            continue
+        # The first keeps the artist's name; only its twins move.
+        for path in sorted(paths)[1:]:
+            index, candidate = 1, "{}_1".format(short)
+            while candidate in taken:
+                index += 1
+                candidate = "{}_{}".format(short, index)
+            taken.add(candidate)
+            planned.append((path, candidate))
+    if not planned:
+        return 0
+
+    renamed, refused = 0, 0
+    for path, candidate in sorted(planned, key=lambda item: -item[0].count("|")):
+        try:
+            cmds.rename(path, candidate)
+            renamed += 1
+        except RuntimeError:  # locked or referenced -- it keeps its name
+            refused += 1
+    print(
+        "names: {} duplicate short name(s) made unique for the carrier{}.".format(
+            renamed,
+            "; {} locked/referenced and left".format(refused) if refused else "",
+        )
+    )
+    return renamed
+
+
 def _export_ready_skins(cmds, frames, root_parent):
     """One shear-free skeleton per mesh skin, before the export reads the scene.
 
@@ -950,6 +1066,14 @@ def main():
     print("workspace: " + (workspace or "none found (Maya fallback resolution only)"))
     _progress(0, 5, "Opening the scene")
     _open_scene(cmds, SRC_PATH)
+    # Before anything reads the scene: this pull must see the shape the first
+    # pull saw, or Blender nests one more level around each skeleton root.
+    _fold_armature_transforms(cmds)
+    # Then, before any collector: every by-name section is keyed by SHORT name,
+    # and Maya lets two nodes share one (see uniquify_short_names). After the
+    # fold, so a wrapper level it removes never pushes its same-named child to
+    # a ``_1`` name first.
+    uniquify_short_names(cmds)
     # Read off the ORIGINAL scene, before the skin pass rewrites its curves: the
     # sections describe what the artist authored. Names spelled as the exporter
     # writes the prims.

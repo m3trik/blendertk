@@ -293,10 +293,14 @@ try:
         found and found.endswith(".mixed_v002.hierarchy.json"),
     )
 
-    # 7c. deprecated import location still resolves to the same class.
-    from blendertk.env_utils.hierarchy_sync.hierarchy_sidecar import HierarchySidecar
+    # 7c. the retired import location stays gone (shim removed 2026-09-21).
+    import importlib.util
 
-    check("hierarchy_sidecar shim aliases SceneDataSidecar", HierarchySidecar is SD)
+    check(
+        "retired hierarchy_sidecar module stays removed",
+        importlib.util.find_spec("blendertk.env_utils.hierarchy_sync.hierarchy_sidecar")
+        is None,
+    )
 
     # 8. top-level rollup + reparent detection (pure path logic).
     top = SD.get_top_level(["Grp", "Grp|A", "Grp|A|Leaf", "Other"])

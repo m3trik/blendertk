@@ -6,15 +6,18 @@
 Mirrors the module + class name and the export/import surface over Blender's native
 USD runtime (``bpy.ops.wm.usd_export`` / ``wm.usd_import``), which already converts
 Principled BSDF ↔ ``UsdPreviewSurface``, keeps instancing (``use_instancing``), and
-round-trips custom properties. Two intentional divergences from mayatk:
+round-trips custom properties. One intentional divergence from mayatk: **no
+plugin/namespace layer.** Maya needs ``load_plugin`` (mayaUsdPlugin) and
+active-namespace isolation; Blender's USD ops are built in and Blender has no
+namespaces — imported objects are simply returned (datablock diff), matching
+``FbxUtils.import_fbx``'s contract.
 
-* **No plugin/namespace layer.** Maya needs ``load_plugin`` (mayaUsdPlugin) and
-  active-namespace isolation; Blender's USD ops are built in and Blender has no
-  namespaces — imported objects are simply returned (datablock diff), matching
-  ``FbxUtils.import_fbx``'s contract.
-* **Native ``.usdz``.** Blender packages ``.usdz`` itself (a ``.usdz`` filepath is
-  enough); Maya-side ``.usdz`` composes ``pythontk.UsdzPackager`` instead. The shared
-  zero-dep floor (sniffing/packaging) still lives in ``pythontk.file_utils.usd``.
+``.usdz`` goes through the shared packager, as on the Maya side. Blender can package
+``.usdz`` itself, but pxr refuses to SAVE into a package and
+:meth:`UsdUtils.export`'s post-passes edit the layer, so a ``.usdz`` export writes a
+scratch text layer, runs every pass on it and packages it with
+``pythontk.UsdzPackager``. The zero-dep floor (sniffing/packaging) lives in
+``pythontk.file_utils.usd``.
 
 Option names drift across Blender majors (4.x ↔ 5.x renamed several ``usd_export``
 kwargs), so kwargs are filtered against the operator's live RNA properties — an
@@ -100,6 +103,34 @@ class _UsdUtilsInternal(object):
                 if eye:
                     o.hide_set(True)
             except (ReferenceError, RuntimeError):
+                continue
+
+    @staticmethod
+    def _as_perspective(objects):
+        """Flip every ORTHO camera among *objects* to PERSP for an export; return
+        the camera objects flipped, for :meth:`UsdUtils.mark_orthographic` and
+        :meth:`_restore_orthographic`.
+
+        Blender's USD camera writer supports perspective only (probed on 5.1: an
+        ORTHO camera leaves a bare Xform and no Camera prim), so the camera goes
+        out as a perspective one and is re-authored orthographic in the layer.
+        Collected before anything flips: a datablock shared by two objects would
+        otherwise read PERSP for the second and leave it out."""
+        cameras = [
+            o
+            for o in objects
+            if getattr(o, "type", None) == "CAMERA" and o.data.type == "ORTHO"
+        ]
+        for data in {o.data for o in cameras}:
+            data.type = "PERSP"
+        return cameras
+
+    @staticmethod
+    def _restore_orthographic(cameras):
+        for o in cameras:
+            try:
+                o.data.type = "ORTHO"
+            except (ReferenceError, AttributeError):
                 continue
 
     @staticmethod
@@ -209,7 +240,9 @@ class UsdUtils(_UsdUtilsInternal):
         Args:
             filepath: output path (``.usd`` appended when no USD extension is
                 given; parent dirs created). A ``.usdz`` path produces a
-                packaged archive (Blender packages natively). Defaults to
+                packaged archive: the export and its post-passes run into a
+                scratch text layer (pxr cannot save into a package), which
+                ``ptk.UsdzPackager.from_layer`` packages. Defaults to
                 ``<temp>/<blend-stem>_bridge.usd``.
             objects: objects (datablocks or names) to export; ``None`` exports the
                 current selection. When given, they are selected first and the prior
@@ -250,6 +283,26 @@ class UsdUtils(_UsdUtilsInternal):
         if os.path.splitext(filepath)[1].lower() not in USD_EXTENSIONS:
             filepath += ".usd"
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        if os.path.splitext(filepath)[1].lower() == ".usdz":
+            # pxr refuses to SAVE into a package and every post-pass below edits
+            # the layer: a hidden object raised inside mark_invisible and left an
+            # unstamped package behind. So the writer AND the passes run into a
+            # scratch text layer, and the shared packager builds the package from
+            # it, pulling the texture references in as Blender's own usdz writer
+            # does -- mayatk's export composes it the same way. A scratch
+            # DIRECTORY, not a file: the writer puts the textures beside the layer.
+            with ptk.TempArtifacts("btk_usdz_export", policy="scoped") as store:
+                stem = os.path.splitext(os.path.basename(filepath))[0]
+                layer = os.path.join(store.dir_path(), stem + ".usda")
+                UsdUtils.export(
+                    filepath=layer,
+                    objects=objects,
+                    selection_only=selection_only,
+                    frame_range=frame_range,
+                    include_hidden=include_hidden,
+                    **usd_opts,
+                )
+                return ptk.UsdzPackager.from_layer(layer, filepath)
 
         opts = dict(_EXPORT_DEFAULTS)
         opts["selected_objects_only"] = selection_only
@@ -260,16 +313,6 @@ class UsdUtils(_UsdUtilsInternal):
         fold = bool(opts.get("export_animation")) and bool(
             opts.get("merge_parent_xform")
         )
-        if fold and os.path.splitext(filepath)[1].lower() == ".usdz":
-            # A package can't be folded in place; unmerged is the lossless shape
-            # (Xform + child Mesh), the merged one drops the animated meshes.
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "Animated .usdz export: written UNMERGED (Xform + child Mesh per "
-                "object) -- Blender's merged export drops animated meshes and a "
-                "package cannot be folded after the fact."
-            )
         if fold:
             opts["merge_parent_xform"] = False
         # Where the exporter puts the prims: its own default (``/root``) when
@@ -309,9 +352,15 @@ class UsdUtils(_UsdUtilsInternal):
                 bpy.ops.object.select_all(action="DESELECT")
                 for obj in wanted:
                     obj.select_set(True)
+            ortho = []
             try:
                 if selection_only and not CoreUtils.selected_objects():
                     raise RuntimeError("Nothing selected to export.")
+                # Orthographic cameras travel: flipped to perspective for the
+                # writer (the only projection it supports), re-authored after.
+                ortho = _UsdUtilsInternal._as_perspective(
+                    CoreUtils.selected_objects() if selection_only else bpy.data.objects
+                )
                 if frame_range:
                     scene.frame_start, scene.frame_end = (
                         int(frame_range[0]),
@@ -324,6 +373,8 @@ class UsdUtils(_UsdUtilsInternal):
                 # them by path. Unconditional -- each is a no-op on a layer
                 # without the defect it repairs.
                 UsdUtils.pin_primvar_indices(filepath)
+                if opts.get("export_animation"):
+                    UsdUtils.collapse_static_xforms(filepath)
                 UsdUtils.mark_skinning_methods(filepath, wanted, root_prim_path)
                 UsdUtils.mark_container_skeletons(filepath)
                 if hidden:
@@ -336,7 +387,10 @@ class UsdUtils(_UsdUtilsInternal):
                             f"at their expected path under {root_prim_path!r}; "
                             "they arrive VISIBLE."
                         )
+                if ortho:
+                    UsdUtils.mark_orthographic(filepath, ortho, root_prim_path)
             finally:
+                _UsdUtilsInternal._restore_orthographic(ortho)
                 _UsdUtilsInternal._restore_hidden(revealed)
                 if frame_range:
                     scene.frame_start, scene.frame_end = prior_range
@@ -643,6 +697,81 @@ class UsdUtils(_UsdUtilsInternal):
         return count
 
     @staticmethod
+    def collapse_static_xforms(
+        filepath: str, tolerance: float = 1e-4, distance: float = 1e-5
+    ) -> int:
+        """Hold every prim whose LOCAL transform never changes at one static value:
+        its xform ops lose their time samples and keep their first sample as the
+        default. Rewrites *filepath* in place; returns the number of prims held.
+
+        Blender's writer samples the whole transform of ANY object holding an
+        action, so an object whose only animation is a show/hide ships a per-frame
+        copy of a static transform -- and the float noise in those copies becomes
+        curves downstream. Measured on a production USD round trip: mayaUsd keyed
+        +-90/180 deg rotation channels on show/hide-only objects whenever their
+        samples happened to differ, and the set flickered pass to pass (+11/-2,
+        then -9/+1 curves), which kept the route off its fixed point.
+
+        Judged on the COMPOSED local matrix, not on the op values: a rotation that
+        flips between -180 and 180 deg is one orientation, and a gimbal pose can
+        trade values between channels. Its rotation/scale block is held to
+        *tolerance* (unitless); its translation to *distance* METRES, measured
+        physically -- the local delta times the parent's world scale times the
+        stage's ``metersPerUnit``. One unitless bound for both read a child's local
+        numbers in whatever its parent's space happened to be (Blender's cm export
+        scales only the ROOT prims, so a child keeps its parent's units), and on a
+        production layer it took 1.2 um of float noise under a moving parent for
+        motion: mayaUsd keyed it, 6 curves on the third pass. A LONE
+        sample is static by definition -- the writer is sparse, so a transform that
+        never changes arrives as one sample -- and is held the same way. A prim
+        with no samples is left alone, as is a ``.usdz`` package (not editable in
+        place; returns 0).
+        """
+        import os
+
+        if os.path.splitext(str(filepath))[1].lower() == ".usdz":
+            return 0
+        from pxr import Sdf, Usd, UsdGeom
+
+        layer = Sdf.Layer.FindOrOpen(str(filepath))
+        if layer is None:
+            raise FileNotFoundError(f"USD layer not found: {filepath}")
+        stage = Usd.Stage.Open(layer)
+        metres = UsdGeom.GetStageMetersPerUnit(stage) or 1.0
+        count = 0
+        for prim in stage.Traverse():
+            xformable = UsdGeom.Xformable(prim)
+            if not xformable:
+                continue
+            ops = xformable.GetOrderedXformOps()
+            times = sorted({t for op in ops for t in op.GetAttr().GetTimeSamples()})
+            if not times:
+                continue
+            first = xformable.GetLocalTransformation(times[0])
+            parent = xformable.ComputeParentToWorldTransform(times[0])
+            scale = max(parent.GetRow3(i).GetLength() for i in range(3)) or 1.0
+            reach = distance / (metres * scale)  # *distance* in local numbers
+            if any(
+                abs(a - b) > (reach if row == 3 else tolerance)
+                for t in times[1:]
+                for row, (row_a, row_b) in enumerate(
+                    zip(xformable.GetLocalTransformation(t), first)
+                )
+                for a, b in zip(row_a, row_b)
+            ):
+                continue
+            for op in ops:
+                value = op.Get(times[0])
+                attr = op.GetAttr()
+                attr.Clear()
+                if value is not None:
+                    attr.Set(value)
+            count += 1
+        if count:
+            layer.Save()
+        return count
+
+    @staticmethod
     def mark_container_skeletons(filepath: str) -> int:
         """Mark each Skeleton prim that is only a CONTAINER for its bones with
         mayaUsd's ``customData Maya:generated``, so Maya makes no joint of it.
@@ -712,6 +841,62 @@ class UsdUtils(_UsdUtilsInternal):
             if not prim or not prim.IsValid():
                 continue
             UsdGeom.Imageable(prim).CreateVisibilityAttr().Set(UsdGeom.Tokens.invisible)
+            count += 1
+        if count:
+            layer.Save()
+        return count
+
+    @staticmethod
+    def mark_orthographic(
+        filepath: str, cameras: List[Any], root_prim_path: str = ""
+    ) -> int:
+        """Author each of *cameras* -- ORTHO camera objects, exported as perspective
+        because that is all Blender's USD writer knows -- as an orthographic Camera
+        prim; return the count. The layer is saved in place.
+
+        The width goes in as BOTH apertures, ``ortho_scale`` unconverted: the
+        inverse of Blender's own USD camera reader, which sets ``ortho_scale`` to
+        the aperture as written (measured on 5.1: a mayaUsd layer's 668.92 arrived
+        as 668.92), so a layer this writes reads back in Blender unchanged. mayaUsd
+        reads ``orthographicWidth`` as the horizontal aperture / 10, so a Maya
+        camera round-trips exactly (66.892 cm -> 668.92 -> 66.892, measured on a
+        production module). Static by design: an animated ortho width travels as
+        its current value.
+
+        The camera prim is the object's own when the export merged it, else the
+        camera child the exporter nests under it. Each attribute is CLEARED before
+        it is set: an animated export writes camera attributes per frame, and a
+        time sample outranks a default. An object whose prim is not in the layer
+        is skipped."""
+        from pxr import Sdf, Usd, UsdGeom
+
+        layer = Sdf.Layer.FindOrOpen(filepath)
+        if layer is None:
+            raise FileNotFoundError(f"USD layer not found: {filepath}")
+        stage = Usd.Stage.Open(layer)
+        count = 0
+        for obj in cameras:
+            prim = stage.GetPrimAtPath(UsdUtils.export_prim_path(obj, root_prim_path))
+            if not prim or not prim.IsValid():
+                continue
+            camera = next(
+                (
+                    UsdGeom.Camera(candidate)
+                    for candidate in [prim] + list(prim.GetChildren())
+                    if candidate.IsA(UsdGeom.Camera)
+                ),
+                None,
+            )
+            if camera is None:
+                continue
+            width = float(obj.data.ortho_scale)
+            for attr, value in (
+                (camera.CreateProjectionAttr(), UsdGeom.Tokens.orthographic),
+                (camera.CreateHorizontalApertureAttr(), width),
+                (camera.CreateVerticalApertureAttr(), width),
+            ):
+                attr.Clear()
+                attr.Set(value)
             count += 1
         if count:
             layer.Save()

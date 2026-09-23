@@ -12,10 +12,12 @@ Everything between the empty scene and the save is ONE engine call,
 :meth:`MayaSceneImport.import_payload` -- the same consumer the in-process import and
 mayatk's receiving templates run -- so every manifest section (group/locator identity,
 textures, visibility, lights, instances, the scene clock) and the key reduction replay the
-same way whichever door the scene came through. ``EXTRA_SYS_PATH`` carries the parent
-Blender's ``sys.path`` into this child (same Blender, same interpreter -- the entries are
-valid), so blendertk is always importable; a child that cannot import it fails the bake
-rather than caching a degraded scene.
+same way whichever door the scene came through. ``EXTRA_SYS_PATH`` carries blendertk's
+and pythontk's roots, then the parent's importable set minus the parent's own interpreter
+directories (``HandoffBridge.import_roots`` + ``child_sys_path``), so blendertk is always
+importable -- driven from a workspace venv too, whose stdlib must not land ahead of this
+Blender's; a child that cannot import it fails the bake rather than caching a degraded
+scene.
 
 Progress: each engine step prints a ``pythontk.ProgressRelay`` marker line, flushed, so the
 parent's footer follows the bake while it runs (``ScriptRunner`` streams the child's output).

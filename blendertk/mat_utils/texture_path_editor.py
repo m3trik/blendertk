@@ -756,16 +756,18 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     # Mirror of mayatk's: a committed lightmap is referenced by a bake marker
     # (map basename + the folder it was baked into), never by an Image
     # datablock, so every image command here was blind to it. The engine is
-    # ``LightmapBaker`` (list / heal / relocate / repath / normalize); the
+    # ``LightmapRecords`` (list / heal / relocate / repath / normalize); the
     # panel shows the records as rows and hands the relocation half to Find
     # & Copy.
 
     @staticmethod
-    def _lightmap_baker():
-        """The lightmap engine, imported on use (it drags the texture baker in)."""
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+    def _lightmap_records():
+        """The lightmap record (a class used as a namespace), imported on use."""
+        from blendertk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
 
-        return LightmapBaker()
+        return LightmapRecords
 
     def _show_lightmaps_enabled(self):
         """The header's "Show Lightmap Dependencies" toggle (default on)."""
@@ -778,7 +780,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         if not self._show_lightmaps_enabled():
             return []
         try:
-            return self._lightmap_baker().lightmap_dependencies()
+            return self._lightmap_records().lightmap_dependencies()
         except Exception as e:  # noqa: BLE001
             self.logger.warning(f"Lightmap dependencies not listed: {e}")
             return []
@@ -867,7 +869,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             self.sb.message_box("A lightmap path needs a folder.")
             return False
         try:
-            count = self._lightmap_baker().repath_lightmaps(
+            count = self._lightmap_records().repath_lightmaps(
                 {dep["map"].lower(): folder}, dep.get("objects")
             )
         except Exception as e:  # noqa: BLE001
@@ -888,7 +890,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         if not lightmaps:
             return 0
         try:
-            count = self._lightmap_baker().normalize_lightmap_paths(
+            count = self._lightmap_records().normalize_lightmap_paths(
                 self._lightmap_objects(lightmaps), relative=relative
             )
         except Exception as e:  # noqa: BLE001 — the texture half already ran
@@ -1969,7 +1971,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         return True
 
     # -- lightmaps through Find & Copy (mirror of mayatk) ----------------------
-    # The engine does the work (LightmapBaker.relocate_lightmaps: search, copy,
+    # The engine does the work (LightmapRecords.relocate_lightmaps: search, copy,
     # repoint the markers, republish the manifest); the panel scopes it to the
     # captured records and reports through the same pane.
 
@@ -1978,7 +1980,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
         if not lightmaps:
             return None
         try:
-            return self._lightmap_baker().relocate_lightmaps(
+            return self._lightmap_records().relocate_lightmaps(
                 dest_dir,
                 source_dir=source_dir or "",
                 mode=relocate_mode,
@@ -2027,7 +2029,7 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
     def _relocate_lightmaps(self, lightmaps, source_dir, dest_dir, relocate_mode):
         """Relocate *lightmaps* for real and report; returns whether any landed."""
         try:
-            result = self._lightmap_baker().relocate_lightmaps(
+            result = self._lightmap_records().relocate_lightmaps(
                 dest_dir,
                 source_dir=source_dir or "",
                 mode=relocate_mode,

@@ -706,7 +706,7 @@ class SceneExporterSlots(SceneExporter):
         A Settings row (``cmb008``) (mirror of mayatk's ``cmb004_init``). The
         container its embedded textures are written in is the general
         ``texture_file_type`` row (a GLB carries what glTF accepts — see
-        ``TaskManager._glb_texture_params``).
+        ``ptk.ExportRun.glb_texture_params``).
         """
         if not widget.is_initialized:
             widget.restore_state = True

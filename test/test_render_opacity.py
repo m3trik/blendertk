@@ -32,7 +32,8 @@ def approx(a, b, tol=1e-3):
 
 try:
     import bpy
-    from blendertk.mat_utils.render_opacity._render_opacity import RenderOpacity
+    import warnings
+    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
     def reset():
         bpy.ops.object.select_all(action="DESELECT")
@@ -58,7 +59,7 @@ try:
         return m
 
     def fcurve(obj, data_path):
-        return RenderOpacity._fcurve(
+        return RenderEffects._fcurve(
             obj, data_path
         )  # slot-aware (Blender 5.x has no act.fcurves)
 
@@ -73,11 +74,11 @@ try:
     m = mat("Shared")
     c.data.materials.append(m)
     bpy.context.view_layer.update()
-    results = RenderOpacity.create([c], mode="attribute")
+    results = RenderEffects.create([c], mode="attribute")
     check("create returns the object", "Box" in results)
     check(
         "opacity prop seeded (1.0)",
-        RenderOpacity.ATTR_NAME in c and approx(c["opacity"], 1.0),
+        RenderEffects.ATTR_NAME in c and approx(c["opacity"], 1.0),
         f"{c.get('opacity')}",
     )
     # The driver preview that wired Principled Alpha to the prop is retired
@@ -89,7 +90,7 @@ try:
     pn = next(
         n for n in c.data.materials[0].node_tree.nodes if n.type == "BSDF_PRINCIPLED"
     )
-    RenderOpacity.key_fade([c], start=1, end=11, direction="out")  # opacity 1 -> 0
+    RenderEffects.key_fade([c], start=1, end=11, direction="out")  # opacity 1 -> 0
     bpy.context.scene.frame_set(6)  # midpoint -> opacity 0.5
     check(
         "the prop animates (0.5 @ frame 6) while the material Alpha stays authored",
@@ -98,8 +99,8 @@ try:
         f"alpha={pn.inputs['Alpha'].default_value:.4f} opacity={c['opacity']:.4f}",
     )
     bpy.context.scene.frame_set(1)
-    RenderOpacity.remove([c])  # clean slate for the next sub-test
-    RenderOpacity.create([c])
+    RenderEffects.remove([c])  # clean slate for the next sub-test
+    RenderEffects.create([c])
 
     # ============================ SHARED MATERIAL STAYS SHARED ============================
     reset()
@@ -112,7 +113,7 @@ try:
         shared.users == 2,
         f"users={shared.users}",
     )
-    RenderOpacity.create([a, b])
+    RenderEffects.create([a, b])
     check(
         "create leaves a shared material shared (no per-object copy)",
         a.data.materials[0] is b.data.materials[0] and shared.users == 2,
@@ -123,8 +124,8 @@ try:
     reset()
     c = cube("Fade")
     c.data.materials.append(mat("Fm"))
-    RenderOpacity.create([c])
-    keyed = RenderOpacity.key_fade([c], start=1, end=20, direction="out")
+    RenderEffects.create([c])
+    keyed = RenderEffects.key_fade([c], start=1, end=20, direction="out")
     check("key_fade returns (name, 'out')", keyed == [("Fade", "out")], f"{keyed}")
     of = fcurve(c, '["opacity"]')
     vf = fcurve(c, "hide_render")
@@ -156,20 +157,20 @@ try:
     # objects_with_visibility_keys detects it
     check(
         "objects_with_visibility_keys finds the keyed object",
-        RenderOpacity.objects_with_visibility_keys([c]) == [c],
+        RenderEffects.objects_with_visibility_keys([c]) == [c],
     )
 
     # ---- auto_create on a FRESH object (no opacity yet) sets up the prop + keys in one call ----
     reset()
     fresh = cube("Fresh")
     fresh.data.materials.append(mat("Frm"))
-    keyed = RenderOpacity.key_fade(
+    keyed = RenderEffects.key_fade(
         [fresh], start=1, end=10, direction="in", auto_create=True
     )
     check(
         "key_fade auto_create seeds the prop + keys",
         keyed == [("Fresh", "in")]
-        and RenderOpacity.ATTR_NAME in fresh
+        and RenderEffects.ATTR_NAME in fresh
         and fcurve(fresh, '["opacity"]') is not None,
     )
 
@@ -177,11 +178,11 @@ try:
     reset()
     vis = cube("Vis")
     vis.data.materials.append(mat("Vm"))
-    RenderOpacity._set_key(
+    RenderEffects._set_key(
         vis, "hide_render", 1, 0.0, "CONSTANT"
     )  # manual vis key, no opacity
     try:
-        RenderOpacity.key_fade(
+        RenderEffects.key_fade(
             [vis], start=1, end=10, direction="out", auto_create=True
         )
         check("key_fade auto_create does not hit the create() visibility guard", True)
@@ -192,18 +193,32 @@ try:
     reset()
     c = cube("Hand")
     c.data.materials.append(mat("Hm"))
-    RenderOpacity.create([c])
+    RenderEffects.create([c])
     # Hand-key ONLY opacity (no visibility). Presence is derived from the ramp
     # downstream (ptk.MeshConvert._presence_keys), so the export writes no
     # mirror -- mirror of mayatk (2026-09-14).
-    RenderOpacity._set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
-    RenderOpacity._set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
+    RenderEffects._set_key(c, '["opacity"]', 1, 1.0, "LINEAR")
+    RenderEffects._set_key(c, '["opacity"]', 10, 0.0, "LINEAR")
     check(
         "no visibility keys after hand-keying opacity", fcurve(c, "hide_render") is None
     )
-    synced = RenderOpacity.prepare_for_export([c])
-    RenderOpacity.finish_export()
+    synced = RenderEffects.prepare_for_export()
+    RenderEffects.finish_export()
     check("prepare_for_export syncs nothing", synced == [], f"{synced}")
+    # The ignored ``objects`` argument warns (ptk.Deprecation, until 0.11.0) --
+    # positionally too -- and changes nothing about the staging.
+    with warnings.catch_warnings(record=True) as _caught:
+        warnings.simplefilter("always")
+        synced = RenderEffects.prepare_for_export([c])
+    RenderEffects.finish_export()
+    _notes = [w for w in _caught if issubclass(w.category, DeprecationWarning)]
+    check(
+        "prepare_for_export(objects) warns, names 0.11.0 and still stages",
+        synced == []
+        and len(_notes) == 1
+        and "blendertk 0.11.0" in str(_notes[0].message),
+        f"{[str(w.message) for w in _notes]}",
+    )
     check(
         "prepare_for_export writes no visibility mirror",
         fcurve(c, "hide_render") is None,
@@ -212,13 +227,13 @@ try:
     reset()
     c = cube("Sparse")
     c.data.materials.append(mat("Sm"))
-    RenderOpacity.create([c])
+    RenderEffects.create([c])
     for frame, value in ((1, 1.0), (5, 0.5), (10, 0.0), (15, 0.0)):
-        RenderOpacity._set_key(c, '["opacity"]', frame, value, "LINEAR")
-    RenderOpacity._set_key(c, "hide_render", 1, 0.0, "CONSTANT")
-    RenderOpacity._set_key(c, "hide_render", 10, 1.0, "CONSTANT")
+        RenderEffects._set_key(c, '["opacity"]', frame, value, "LINEAR")
+    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")
+    RenderEffects._set_key(c, "hide_render", 10, 1.0, "CONSTANT")
     authored = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
-    synced = RenderOpacity.prepare_for_export([c])
+    synced = RenderEffects.prepare_for_export()
     kept = [tuple(kp.co) for kp in fcurve(c, "hide_render").keyframe_points]
     check(
         "prepare_for_export leaves fewer visibility keys than opacity keys as authored",
@@ -230,27 +245,27 @@ try:
     reset()
     c = cube("Guard")
     c.data.materials.append(mat("Gm"))
-    RenderOpacity._set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
+    RenderEffects._set_key(c, "hide_render", 1, 0.0, "CONSTANT")  # pre-existing vis key
     raised = False
     try:
-        RenderOpacity.create([c], delete_visibility_keys=False)
+        RenderEffects.create([c], delete_visibility_keys=False)
     except RuntimeError:
         raised = True
     check("create raises on pre-existing visibility keys (delete=False)", raised)
-    RenderOpacity.create([c], delete_visibility_keys=True)  # now allowed
+    RenderEffects.create([c], delete_visibility_keys=True)  # now allowed
     check(
         "create with delete_visibility_keys=True clears them + applies",
-        RenderOpacity.ATTR_NAME in c and fcurve(c, "hide_render") is None,
+        RenderEffects.ATTR_NAME in c and fcurve(c, "hide_render") is None,
     )
 
     # ============================ REMOVE ============================
     reset()
     c = cube("Rem")
     c.data.materials.append(mat("Rm"))
-    RenderOpacity.create([c])
-    RenderOpacity.key_fade([c], start=1, end=10, direction="in")
-    RenderOpacity.remove([c])
-    check("remove deletes the opacity prop", RenderOpacity.ATTR_NAME not in c)
+    RenderEffects.create([c])
+    RenderEffects.key_fade([c], start=1, end=10, direction="in")
+    RenderEffects.remove([c])
+    check("remove deletes the opacity prop", RenderEffects.ATTR_NAME not in c)
     check(
         "remove deletes opacity + visibility curves",
         fcurve(c, '["opacity"]') is None and fcurve(c, "hide_render") is None,
@@ -268,10 +283,10 @@ try:
 
     c = cube("Gate")
     c.data.materials.append(mat("GateM"))
-    RenderOpacity.create([c])
-    RenderOpacity.key_fade([c], start=8, end=23, direction="in")
+    RenderEffects.create([c])
+    RenderEffects.key_fade([c], start=8, end=23, direction="in")
 
-    tracks = RenderOpacity.visibility_tracks()
+    tracks = RenderEffects.visibility_tracks()
     track = next((t for t in tracks if t["node"] == c.name), None)
     check("visibility_tracks finds the keyed object", track is not None)
     # hide_render is INVERTED on the way out: the published contract is glTF's
@@ -295,7 +310,7 @@ try:
     curve = fcurve(c, '["opacity"]')
     for point in curve.keyframe_points:
         point.interpolation = "CONSTANT"
-    ramp = RenderOpacity._linear_ramp(curve)
+    ramp = RenderEffects._linear_ramp(curve)
     check(
         "a CONSTANT segment is published as a hold, not a ramp",
         ramp == [[8.0, 0.0], [22.99, 0.0], [23.0, 1.0]],
@@ -305,8 +320,8 @@ try:
         point.interpolation = "LINEAR"
     check(
         "a LINEAR segment is published unchanged",
-        RenderOpacity._linear_ramp(curve) == [[8.0, 0.0], [23.0, 1.0]],
-        detail=repr(RenderOpacity._linear_ramp(curve)),
+        RenderEffects._linear_ramp(curve) == [[8.0, 0.0], [23.0, 1.0]],
+        detail=repr(RenderEffects._linear_ramp(curve)),
     )
 
     # The take as a publish declares it: a shot_metadata clip carrying its range.
@@ -317,14 +332,14 @@ try:
             "shots": [{"clip": "Shot_1", "start": 7, "end": 100, "objects": []}],
         },
     )
-    RenderOpacity.refresh_export_metadata()
+    RenderEffects.refresh_export_metadata()
     published = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
     check(
         "refresh_export_metadata publishes the channel",
-        published.get("version") == RenderOpacity.SCHEMA_VERSION,
+        published.get("version") == RenderEffects.SCHEMA_VERSION,
     )
     ptk.SceneRecords.SHOTS.clear(DataNodes)
-    RenderOpacity.refresh_export_metadata()
+    RenderEffects.refresh_export_metadata()
     republished = ptk.SceneRecords.VISIBILITY.load(DataNodes) or {}
     scene_fps = bpy.context.scene.render.fps / bpy.context.scene.render.fps_base
     check(
@@ -515,13 +530,30 @@ try:
     reset()
     check(
         "a file with no keyed visibility leaves no channel",
-        RenderOpacity.refresh_export_metadata() is None,
+        RenderEffects.refresh_export_metadata() is None,
+    )
+
+    # ---- the retired import path: RenderEffects still resolves to the class,
+    # but warns through ptk.Deprecation.attributes and names its release ----
+    import importlib
+
+    _legacy = importlib.import_module(
+        "blendertk.mat_utils.render_opacity._render_opacity"
+    )
+    with warnings.catch_warnings(record=True) as _caught:
+        warnings.simplefilter("always")
+        _alias = _legacy.RenderOpacity
+    _notes = [w for w in _caught if issubclass(w.category, DeprecationWarning)]
+    check(
+        "RenderOpacity forwards to RenderEffects and warns until blendertk 0.11.0",
+        _alias is RenderEffects
+        and len(_notes) == 1
+        and "blendertk 0.11.0" in str(_notes[0].message)
+        and "RenderEffects" in str(_notes[0].message),
+        f"{[str(w.message) for w in _notes]}",
     )
 
     # ---- highlight channel (mirror of mayatk's RenderEffects) ----------------
-    from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
-
-    check("RenderOpacity is the RenderEffects alias", RenderOpacity is RenderEffects)
     reset()
     box = cube("Glow")
     other = cube("Bystander")
@@ -732,17 +764,28 @@ try:
     m = bpy.data.materials.new("QuietMat")
     m.use_nodes = True
     box.data.materials.append(m)
-    RenderEffects.key_pulse([box], start=0, end=100, period=50, preview=False)
+    RenderEffects.key_pulse([box], start=0, end=100, period=50)
     check(
-        "key_pulse(preview=False) creates the prop and keys, wires no driver",
+        "key_pulse creates the prop and keys, wires no driver",
         "highlight" in box
         and RenderEffects._fcurve(box, '["highlight"]') is not None
         and not _emission_drivers(box),
     )
-    RenderEffects.key_pulse([box], start=0, end=100, period=50, preview=True)
+    try:
+        RenderEffects.key_pulse([box], start=0, end=100, period=50, preview=True)
+        _refused = False
+    except TypeError:
+        _refused = True
     check(
-        "key_pulse(preview=True) is honoured as a warning only -- no driver",
-        not _emission_drivers(box),
+        "the retired preview keyword is gone (2026-09-21) -- and wired no driver",
+        _refused and not _emission_drivers(box),
+    )
+    _before = dict(box.items())
+    check(
+        "the retired 'material' mode is refused before anything is touched",
+        RenderEffects.create([box], mode="material") == {}
+        and dict(box.items()).keys() == _before.keys()
+        and not hasattr(RenderEffects, "preview"),
     )
     # A scene saved with the old preview on still heals through remove().
     from blendertk.mat_utils._mat_utils import _MatUtilsInternal as _MI

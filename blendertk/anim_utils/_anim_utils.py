@@ -617,11 +617,17 @@ class AnimUtils(_AnimUtilsInternal):
     #: levels existed, so a bool keeps behaving exactly as it did.
     DEFAULT_OPTIMIZE_LEVEL = "flat"
 
-    #: Level names accepted for one release after a rename, mapped to the
-    #: canonical key. ``"unbake"`` (until 2026-09-02) read as reversing a
-    #: bake -- which is ``SmartBake.restore`` -- when the level only thins a
-    #: bake to its extremes; saved templates and headless callers still say it.
-    _OPTIMIZE_LEVEL_ALIASES = {"unbake": "extremes"}
+    #: Retired level names -> the canonical key, warning until they go.
+    #: ``"unbake"`` (until 2026-09-02) read as reversing a bake -- which is
+    #: ``SmartBake.restore`` -- when the level only thins a bake to its
+    #: extremes; a saved template or preset may still say it.
+    _resolve_retired_level = staticmethod(
+        ptk.Deprecation.values(
+            {"unbake": "extremes"},
+            what="AnimUtils optimize level",
+            remove_in="0.11.0",
+        )
+    )
 
     @classmethod
     def normalize_optimize_level(cls, level):
@@ -643,8 +649,7 @@ class AnimUtils(_AnimUtilsInternal):
             return None  # branch: "" is a falsy config value, not a bad level
         if not isinstance(level, str):  # True, or a legacy truthy bool flag
             return cls.DEFAULT_OPTIMIZE_LEVEL
-        key = level.strip().lower()
-        key = cls._OPTIMIZE_LEVEL_ALIASES.get(key, key)
+        key = cls._resolve_retired_level(level.strip().lower())
         if key not in cls.OPTIMIZE_LEVELS:
             raise ValueError(
                 f"Unknown optimize level {level!r}; expected one of "
@@ -1846,11 +1851,6 @@ class AnimUtils(_AnimUtilsInternal):
                 }
             )
         return reduced
-
-    #: Deprecated alias (2026-09-02): the method was renamed because "unbake"
-    #: read as reversing a bake (that is ``SmartBake.restore``) when it only
-    #: thins one. Remove in the release after.
-    unbake_keys = reduce_to_extremes
 
     @staticmethod
     def get_redundant_flat_keys(

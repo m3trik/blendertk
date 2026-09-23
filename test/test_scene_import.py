@@ -1,7 +1,8 @@
 """blendertk MayaSceneImport feature test (Qt-free; bpy optional).
 
 Run: blender --background --factory-startup --python blendertk/test/test_scene_import.py
-Also runs under the workspace ``.venv`` (the bpy-dependent import step is stubbed).
+Blender only: the render checks ask ``RigGraphBuilder.capability()``, which reads
+``bpy`` -- under a plain interpreter the run stops at the first of them.
 
 Covers the pull-direction engine: template hygiene (underscore-hidden, renders to
 valid Python, judged-by-artifact contract), mayapy derivation from the discovered
@@ -488,13 +489,44 @@ try:
             "visibility replay tolerates a missing/unreadable manifest", False, repr(e)
         )
     # Frame alignment (live-verified bug): Blender's FBX importer shifts every
-    # imported curve by anim_offset (default 1.0), so raw-Maya-frame visibility must
-    # be shifted by the SAME amount or it desyncs a frame from the transforms.
+    # imported curve by anim_offset, so raw-Maya-frame visibility must be shifted by
+    # the SAME amount or it desyncs a frame from the transforms. The check is that
+    # the replay READS the option rather than assuming a value -- the value itself
+    # is pinned below, and pinning the literal here would just restate it.
     check(
         "visibility replay shifts by the FBX importer's anim_offset (frame alignment)",
         "frame + frame_offset"
         in _inspect.getsource(MayaSceneImport._apply_visibility_manifest)
-        and 'get("anim_offset", 1.0)' in import_src,
+        and 'get("anim_offset"' in import_src,
+    )
+    # ...and the pull PINS that offset to zero, so the alignment above resolves to a
+    # no-op and frames arrive exactly as Maya authored them. Measured before this:
+    # .ma -> .blend -> .ma moved the whole clock +1 frame per round trip on the
+    # production module (3845/4738/0/4741 -> 3846/4739/1/4742 -> 3847/4740/2/4743).
+    from blendertk.env_utils.maya_bridge._scene_import import FBX_IMPORT_OPTIONS
+
+    check(
+        "pull imports FBX at anim_offset 0.0 (frames as authored, no per-hop drift)",
+        FBX_IMPORT_OPTIONS.get("anim_offset") == 0.0,
+        repr(FBX_IMPORT_OPTIONS.get("anim_offset")),
+    )
+    check(
+        "import_payload resolves the appliers' frame offset from that pinned option",
+        'fbx_opts.get("anim_offset"' in import_src
+        and float(FBX_IMPORT_OPTIONS.get("anim_offset", 1.0)) == 0.0,
+    )
+    # Drift guard on the coupling: a caller that passes options WITHOUT the key must
+    # get the shift the importer really applied, so the applier's FALLBACK has to
+    # equal the wrapper's own default. They live in different modules and nothing
+    # else ties them together.
+    from blendertk.env_utils.fbx_utils import FbxUtils as _FbxForOffset
+
+    _wrapper_src = _inspect.getsource(_FbxForOffset.import_fbx)
+    check(
+        "the applier's anim_offset fallback matches the import wrapper's default",
+        'setdefault("anim_offset", 0.0)' in _wrapper_src
+        and 'fbx_opts.get("anim_offset", 0.0)' in import_src,
+        "wrapper pins 0.0; applier must fall back to the same",
     )
 
     # scene_has_complex_animation — the cheap .ma text probe that lets the Reference
@@ -589,6 +621,23 @@ try:
     check(
         "usd template: tolerant scene open",
         "def _open_scene" in usd_txt and "_open_scene(cmds, SRC_PATH)" in usd_txt,
+    )
+    # The skeleton half of the USD accretion (BACKLOG 2026-09-21, S1): a Blender
+    # armature object lands in Maya as a transform holding its same-named root
+    # joint (kept there -- the rig ids resolve through it), and pulled as it is,
+    # Blender makes the pair an Empty holding an armature renamed .001, one level
+    # deeper every round trip. The pull folds it on its scratch scene, BEFORE
+    # anything reads the scene, so every pull sees the first pull's shape.
+    _fold_at = usd_txt.find("    _fold_armature_transforms(cmds)")
+    check(
+        "usd template: armature transforms fold right after the open, before any reader",
+        "def _fold_armature_transforms(cmds)" in usd_txt
+        and "mtk.BlenderSceneImport.collapse_nested_levels" in usd_txt
+        and "joints=True" in usd_txt
+        and usd_txt.find("_open_scene(cmds, SRC_PATH)")
+        < _fold_at
+        < usd_txt.find("scene_data = scene_data_sections("),
+        str(_fold_at),
     )
     check(
         "template: created shader nodes are namespace-safe (colon-free, root-namespace)",
@@ -2247,10 +2296,10 @@ try:
             from blendertk.anim_utils.shots._shots import BlenderShotStore as _BSS
 
             check(
-                "import_payload: the shot is rebuilt on the scene's store (FBX: bounds "
-                "shifted by the importer's anim_offset)",
+                "import_payload: the shot is rebuilt on the scene's store, at the "
+                "frames the sender authored (the pull pins anim_offset to 0.0)",
                 [(s.name, s.start, s.end) for s in _BSS.active().shots]
-                == [("Intro", 2.0, 25.0)],
+                == [("Intro", 1.0, 24.0)],
                 str([(s.name, s.start, s.end) for s in _BSS.active().shots]),
             )
             _BSS.clear_active()
@@ -3435,6 +3484,20 @@ try:
             f"{_scn.frame_start}-{_scn.frame_end} / {_scn.frame_preview_start}-{_scn.frame_preview_end} @ {_scn.frame_current}",
         )
         check("scene manifest: the applied record is returned", _got.get("fps") == 30.0)
+        # ...and at the offset the pull actually resolves (FBX_IMPORT_OPTIONS pins
+        # anim_offset to 0.0) the clock is adopted VERBATIM. This is the check that
+        # fails if the +1 ever comes back: a round trip drifted a frame per hop
+        # while the importer's default shifted the curves and this shifted to match.
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        _scn = bpy.context.scene
+        MayaSceneImport()._apply_scene_manifest(_man, None, frame_offset=0.0)
+        check(
+            "scene manifest: at the pull's pinned offset the clock is adopted verbatim",
+            (_scn.frame_start, _scn.frame_end) == (5, 100)
+            and (_scn.frame_preview_start, _scn.frame_preview_end) == (10, 90)
+            and _scn.frame_current == 42,
+            f"{_scn.frame_start}-{_scn.frame_end} / {_scn.frame_preview_start}-{_scn.frame_preview_end} @ {_scn.frame_current}",
+        )
         check(
             "scene manifest: no manifest, no intermediate -> nothing applied, no raise",
             MayaSceneImport()._apply_scene_manifest(None, None) == {},
@@ -3805,6 +3868,208 @@ try:
     finally:
         if os.path.exists(_tip_fbx):
             os.remove(_tip_fbx)
+
+    # ---- uniquify_short_names: the pull leg's half of the name contract -------
+    # Every by-name manifest section is keyed by SHORT name and Maya lets two
+    # nodes share one, so each collector degrades on a duplicate (visibility
+    # DROPS the name; the machinery census KEEPS apparatus it should have
+    # dropped). Lifted out of the template and run against a stub Maya -- the
+    # template carries __PLACEHOLDER__ tokens at module scope, so it cannot be
+    # imported, and this half runs under mayapy where these tests do not.
+    import ast as _ast_uniq
+
+    _src = _IMPORT_TEMPLATE.read_text()
+    _picked = [
+        n
+        for n in _ast_uniq.parse(_src).body
+        if isinstance(n, _ast_uniq.FunctionDef) and n.name == "uniquify_short_names"
+    ]
+    check("the template still defines uniquify_short_names", len(_picked) == 1)
+    # Both routes run it, before any collector reads a name: a fix on one route
+    # and not the other means FBX and USD disagree about the same scene. (The
+    # USD copy is the FBX one by the drift guard below.)
+    _usd_src = _IMPORT_TEMPLATE_USD.read_text()
+    check(
+        "FBX route: names are made unique after the open, before the first collector",
+        -1
+        < _src.find("_open_scene(cmds, SRC_PATH)")
+        < _src.find("    uniquify_short_names(cmds)")
+        < _src.find("scene_data = scene_data_sections("),
+    )
+    check(
+        "USD route: names are made unique after the armature fold, before the "
+        "first collector",
+        -1
+        < _usd_src.find("    _fold_armature_transforms(cmds)")
+        < _usd_src.find("    uniquify_short_names(cmds)")
+        < _usd_src.find("scene_data = scene_data_sections("),
+    )
+    _ns = {}
+    exec(compile(_ast_uniq.Module(body=_picked, type_ignores=[]), "tpl", "exec"), _ns)
+    uniquify = _ns["uniquify_short_names"]
+
+    class _StubCmds:
+        """Just the two calls the pass makes, over a fake DAG."""
+
+        def __init__(self, paths, joints=(), locked=()):
+            self.paths, self.joints, self.locked = list(paths), set(joints), set(locked)
+            self.renames = []
+
+        def ls(self, type=None, long=False):
+            return list(self.joints) if type == "joint" else list(self.paths)
+
+        def rename(self, path, name):
+            if path in self.locked:
+                raise RuntimeError("locked node")
+            self.renames.append((path, name))
+            self.paths[self.paths.index(path)] = path.rsplit("|", 1)[0] + "|" + name
+            return name
+
+    # Four `handle_A` under four parents: the production shape, exactly.
+    stub = _StubCmds(
+        [
+            "|rig|A|handle_A",
+            "|rig|B|handle_A",
+            "|rig|C|handle_A",
+            "|rig|D|handle_A",
+            "|rig|A|unique_one",
+        ]
+    )
+    moved = uniquify(stub)
+    leaves = sorted(p.rsplit("|", 1)[-1] for p in stub.paths)
+    check(
+        "duplicate short names are made unique, one keeping the artist's name",
+        moved == 3
+        and leaves
+        == ["handle_A", "handle_A_1", "handle_A_2", "handle_A_3", "unique_one"],
+        f"moved={moved} leaves={leaves}",
+    )
+
+    # A name the scene already holds must not be handed out as the new one.
+    stub = _StubCmds(["|a|x", "|b|x", "|c|x_1"])
+    uniquify(stub)
+    check(
+        "a candidate the scene already holds is skipped",
+        sorted(p.rsplit("|", 1)[-1] for p in stub.paths) == ["x", "x_1", "x_2"],
+        str(stub.paths),
+    )
+
+    # Deepest first, so renaming an ancestor cannot invalidate a descendant's path.
+    stub = _StubCmds(["|a|dup", "|b|dup", "|b|dup|deep", "|c|deep"])
+    uniquify(stub)
+    depths = [p.count("|") for p, _ in stub.renames]
+    check(
+        "renames run deepest first",
+        depths == sorted(depths, reverse=True),
+        str(stub.renames),
+    )
+
+    # A joint's short name is still SPOKEN FOR: it is excluded from being renamed,
+    # not from holding a name, so handing it to something else would create the
+    # duplicate this pass exists to remove.
+    stub = _StubCmds(["|a|d", "|b|d", "|c|d_1"], joints=["|c|d_1"])
+    uniquify(stub)
+    check(
+        "a candidate a joint already holds is skipped",
+        sorted(p.rsplit("|", 1)[-1] for p in stub.paths) == ["d", "d_1", "d_2"],
+        str(stub.paths),
+    )
+
+    # Joints keep whatever ambiguity they have: nothing measured needs them, and a
+    # joint name rides in expression text and the flattened-skeleton build.
+    stub = _StubCmds(["|a|j", "|b|j"], joints=["|a|j", "|b|j"])
+    check("joints are left alone", uniquify(stub) == 0 and not stub.renames)
+
+    # A referenced/locked node keeps its name rather than failing the conversion.
+    stub = _StubCmds(["|a|d", "|b|d"], locked=["|b|d"])
+    check("a locked node is refused, not fatal", uniquify(stub) == 0)
+
+    # Nothing to do is not a rename storm.
+    stub = _StubCmds(["|a|one", "|b|two"])
+    check("a scene with unique names is untouched", uniquify(stub) == 0)
+
+    # ---- the two PULL templates are a drift-guarded duplicate ----------------
+    # Same treatment mayatk's pair gets (`test_scene_import.py::
+    # TestConversionTemplateDrift`). They are dependency-free mayapy scripts, so the
+    # halves they share -- the material translation, the skin prep, the smart-bake,
+    # the scene clock -- cannot be factored into a common module; the duplicate is
+    # structural. What it must not be is UNGUARDED: a fix applied to one route and
+    # not the other means FBX and USD silently disagree about the same scene, and the
+    # route is a per-call argument.
+    import ast as _ast_drift
+
+    def _top_level(path):
+        src = path.read_text(encoding="utf-8")
+        out = {}
+        for node in _ast_drift.parse(src).body:
+            if isinstance(node, (_ast_drift.FunctionDef, _ast_drift.ClassDef)):
+                out[node.name] = _ast_drift.get_source_segment(src, node)
+            elif isinstance(node, _ast_drift.Assign):
+                for target in node.targets:
+                    if isinstance(target, _ast_drift.Name):
+                        out[target.id] = _ast_drift.get_source_segment(src, node)
+        return out
+
+    # Route-specific by design, and named so a SEVENTH divergence is a deliberate
+    # act rather than an accident: `main` and `write_manifest` are the routes
+    # themselves; the other four carry the same code under a docstring written for
+    # their own carrier (the FBX one cites the FBX exporter's mangling, the USD one
+    # cites asset refs).
+    _DIVERGENT = {
+        "_get_first",
+        "_ns_safe",
+        "_open_scene",
+        "_resolve_workspace",
+        "main",
+        "write_manifest",
+    }
+    # ``_IMPORT_TEMPLATE_USD`` is already bound above, in this same block.
+    _fbx_defs = _top_level(_IMPORT_TEMPLATE)
+    _usd_defs = _top_level(_IMPORT_TEMPLATE_USD)
+    _shared = set(_fbx_defs) & set(_usd_defs)
+    _drifted = sorted(
+        name for name in _shared - _DIVERGENT if _fbx_defs[name] != _usd_defs[name]
+    )
+    check(
+        "the pull templates' shared definitions are identical",
+        not _drifted,
+        f"drifted: {_drifted} -- fix BOTH, or name it in _DIVERGENT with a reason",
+    )
+    _stale = sorted(
+        name
+        for name in _DIVERGENT
+        if name not in _shared or _fbx_defs[name] == _usd_defs[name]
+    )
+    check(
+        "every declared divergence is still shared and still differs",
+        not _stale,
+        f"stale exemptions: {_stale} -- unified or removed, so the entry should go",
+    )
+
+    # ---- Blender's USD importer appends the UV map name, repeatedly ----------
+    # For a UV-specific binding it appends the primvar name, and appends it AGAIN
+    # to the already-suffixed name for the next mesh, so one shading group arrives
+    # as <SG>, <SG>_map1, <SG>_map1_map1, ... Measured on a production module: 7 of
+    # 15 materials were such variants, one with 45 repetitions, and 539 of 1505
+    # meshes wore one -- unrebuilt, because none matched the sidecar. A bare
+    # wm.usd_import reproduces it, and neither mtl_name_collision_mode helps.
+    _mapping = {"wall_matSG": "wall_mat", "trim_matSG1": "trim_mat"}
+    for _name, _want in (
+        ("wall_matSG", "wall_matSG"),
+        ("wall_matSG.001", "wall_matSG"),
+        ("wall_matSG_map1", "wall_matSG"),
+        ("wall_matSG_map1_map1_map1", "wall_matSG"),
+        ("trim_matSG1_map1_map1_", "trim_matSG1"),
+        # A name the producer never wrote keeps its own: the mapping-membership
+        # test is what makes an over-strip impossible.
+        ("unrelated_material", "unrelated_material"),
+        ("wall_matSG_extra_notauv", "wall_matSG"),
+    ):
+        check(
+            f"usd material key: {_name[:34]} -> {_want}",
+            MayaSceneImport._usd_material_key(_name, _mapping) == _want,
+            MayaSceneImport._usd_material_key(_name, _mapping),
+        )
 
 
 except Exception as e:

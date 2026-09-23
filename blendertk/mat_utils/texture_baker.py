@@ -132,6 +132,7 @@ class TextureBaker(ptk.LoggingMixin):
         size: Optional[Any] = None,
         on_progress: Optional[Callable[[int, int, str], bool]] = None,
         colorspace: str = "Non-Color",
+        claims: Optional[Any] = None,
     ) -> Dict[str, str]:
         """Bake each object's shaded surface to a per-object EXR.
 
@@ -159,6 +160,13 @@ class TextureBaker(ptk.LoggingMixin):
             on_progress: ``(done, total, name) -> bool`` per-object callback (return ``False`` to
                 cancel) so a UI can drive a progress bar.
             colorspace: Image colorspace (``Non-Color`` for a linear HDR map).
+            claims: File names (compared without case) mapped to the objects that
+                read each -- what ``LightmapRecords.claims`` returns. A name only the
+                object being baked reads stays its own (a re-bake keeps its map's
+                name); a name anything else reads is never written over, and the
+                output takes the next free ``_<k>`` spelling instead, exactly as a
+                collision within the bake does. A plain collection of names claims
+                each one outright. Mirror of mayatk's ``TextureBaker.bake``.
 
         Returns ``{object_name: texture_path}`` for each successful bake.
         """
@@ -191,6 +199,7 @@ class TextureBaker(ptk.LoggingMixin):
                         suffix,
                         stem,
                         used,
+                        claims=claims,
                         bake_type=bake_type,
                         pass_filter=pass_filter,
                         uv_set=uv_set,
@@ -267,6 +276,7 @@ class TextureBaker(ptk.LoggingMixin):
         stem,
         used: set,
         *,
+        claims: Optional[Any] = None,
         bake_type: str,
         pass_filter: Optional[set],
         uv_set,
@@ -286,7 +296,7 @@ class TextureBaker(ptk.LoggingMixin):
         materials, temp_material = self._ensure_materials(obj)
         base = self._resolve_stem(obj, stem) or obj.name
         name = ptk.StrUtils.apply_affix(base, prefix, suffix)
-        path = self._unique_path(output_dir, name, used)
+        path = self._unique_path(output_dir, name, used, claims, owner=obj.name)
 
         width, height = size
         self._apply_device(width * height * self.samples)
@@ -945,25 +955,47 @@ class TextureBaker(ptk.LoggingMixin):
     def texture_set_stem(obj) -> Optional[str]:
         """Base name of *obj*'s existing texture set (e.g. ``Plants_Metal_Base_01``).
 
-        So a baked map follows the material's texture-set naming (``<base>_Lightmap``) instead of
-        the object name. Scans the first file-backed image node and strips the map-type suffix via
-        ``ptk.MapFactory.get_base_texture_name`` (same helper the game shader uses). Returns
-        ``None`` (fall back to the object name) on any failure.
+        So a baked map follows the material's texture-set naming (``<base>_Lightmap``)
+        instead of the object name. The vote is ``ptk.MapFactory.dominant_texture_set``
+        over every image the object's materials use -- the rule mayatk's twin names its
+        maps by: only a real material MAP votes, and the most common set wins. It used
+        to take the FIRST file-backed image node, the rule that named a production Maya
+        bake after an environment cube. Returns ``None`` (fall back to the object name)
+        when nothing qualifies, or on any failure.
         """
-        import bpy
-
         try:
+            images = []
             for slot in getattr(obj, "material_slots", []):
                 mat = slot.material
                 if not mat or not mat.use_nodes:
                     continue
-                for node in mat.node_tree.nodes:
-                    if node.type == "TEX_IMAGE" and node.image and node.image.filepath:
-                        base = bpy.path.basename(node.image.filepath)
-                        return ptk.MapFactory.get_base_texture_name(base) or None
+                images.extend(
+                    getattr(node, "image", None) for node in mat.node_tree.nodes
+                )
+            found = ptk.MapFactory.dominant_texture_set(
+                TextureBaker.image_sources(images)
+            )
         except Exception:
             return None
-        return None
+        return found[0] if found else None
+
+    @staticmethod
+    def image_sources(images) -> List[str]:
+        """The file name each image datablock stands for, for a texture-set vote.
+
+        The filepath's basename -- or, for a packed or FBX-embedded image, which has no
+        filepath, the datablock's name, which keeps the original file name the import
+        left behind. ``None`` entries are skipped.
+        """
+        out: List[str] = []
+        for image in images or ():
+            if image is None:
+                continue
+            path = str(getattr(image, "filepath", "") or "").replace("\\", "/")
+            source = os.path.basename(path) or str(getattr(image, "name", "") or "")
+            if source:
+                out.append(source)
+        return out
 
     @staticmethod
     def default_output_dir(subdir: str = "baked_textures") -> str:
@@ -976,12 +1008,22 @@ class TextureBaker(ptk.LoggingMixin):
         return os.path.join(root, subdir)
 
     @staticmethod
-    def _unique_path(output_dir: str, name: str, used: set) -> str:
-        """``<output_dir>/<name>.exr`` made unique within one bake (shared stems -> ``_1`` …)."""
-        candidate = os.path.join(output_dir, f"{name}.exr")
-        k = 1
-        while candidate in used:
-            candidate = os.path.join(output_dir, f"{name}_{k}.exr")
-            k += 1
-        used.add(candidate)
-        return candidate
+    def _unique_path(
+        output_dir: str,
+        name: str,
+        used: set,
+        claims: Optional[Any] = None,
+        owner: Optional[str] = None,
+    ) -> str:
+        """``<output_dir>/<name>.exr`` made unique within one bake (shared stems -> ``_1`` ...),
+        and clear of any file name *claims* gives a reader other than *owner* (see
+        :meth:`bake`). The rule is ``ptk.FileUtils.unique_path`` -- mayatk's twin calls
+        it too, so the two can no longer drift apart."""
+        return ptk.FileUtils.unique_path(
+            output_dir,
+            name,
+            ".exr",
+            used,
+            claims=claims,
+            owners=(owner,) if owner else (),
+        )

@@ -320,6 +320,20 @@ try:
         and absp(cimg) == os.path.normpath(csrc),
         f"n={n} dst={os.path.getsize(os.path.join(cdst, 'tile.png'))}/{size_before}",
     )
+    # Size is not identity: two bakes of one map are the same size, and a MOVE
+    # that trusted it rebound to the other file and deleted the source.
+    cdst3 = os.path.join(tmp, "cdst3")
+    os.makedirs(cdst3, exist_ok=True)
+    with open(csrc, "rb") as fh:
+        body = fh.read()
+    with open(os.path.join(cdst3, "tile.png"), "wb") as fh:
+        fh.write(bytes(b ^ 0xFF for b in body))  # same size, other content
+    n3 = btk.set_texture_directory([cimg], cdst3, mode="move")
+    check(
+        "collision guard: a same-size DIFFERENT file is refused, and a move keeps its source",
+        n3 == 0 and os.path.isfile(csrc) and absp(cimg) == os.path.normpath(csrc),
+        f"n3={n3} src_kept={os.path.isfile(csrc)} path={absp(cimg)}",
+    )
     cdst2 = os.path.join(tmp, "cdst2")
     os.makedirs(cdst2, exist_ok=True)
     shutil.copy2(

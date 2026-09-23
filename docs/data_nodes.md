@@ -113,8 +113,8 @@ see `fbx_utils.py`'s module docstring), `visibility_tracks`
 (`RenderEffects`), `shadow_metadata` (`ShadowRig`), `emissive_groups`
 (`EmissiveGroups`; the keyed weights ship via transient scale-proxy Empties,
 since Blender's FBX exporter cannot animate a custom property) and
-`lightmap_metadata` (`LightmapBaker`; map file names, no folder -- a GLB build
-is handed `LightmapBaker.search_dirs()`).
+`lightmap_metadata` (`LightmapRecords`; map file names, no folder -- a GLB build
+is handed `LightmapRecords.search_dirs()`).
 
 Audio (`audio_manifest`) is not yet produced — the audio panel is VSE-only.
 When its port lands it adds one row to `PRODUCERS`; the declared dependency on

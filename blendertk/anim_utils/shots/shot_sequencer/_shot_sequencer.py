@@ -2110,7 +2110,9 @@ class ShotSequencer(_ShotSequencerInternal):
         *after_frame* and the first moved shot -- the pivot's trailing gap: a
         bound change ripples everything beyond the bound.  A whole-shot move
         carries its gap in its own envelope and passes ``carry_gap=False``.
-        Mirrors mayatk, whose docstring carries the measurements.
+        The carry never cuts into a shot it moves: a bound on or past the
+        neighbour's start moves the neighbour whole.  Mirrors mayatk, whose
+        docstring carries the measurements.
         """
         self._apply(
             ShotPlanner.plan_ripple_downstream(
@@ -2123,8 +2125,9 @@ class ShotSequencer(_ShotSequencerInternal):
     ) -> None:
         """Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).
 
-        *carry_gap* caps the last moved shot's window at *before_frame*, so the
-        pivot keeps the sample on its bound (see :meth:`ripple_downstream`).
+        *carry_gap* caps the last moved shot's window at a *before_frame* in its
+        trailing gap, so the pivot keeps the sample on its bound; a bound on or
+        before that shot's end moves it whole (see :meth:`ripple_downstream`).
         """
         self._apply(
             ShotPlanner.plan_ripple_upstream(

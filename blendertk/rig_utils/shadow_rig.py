@@ -79,8 +79,6 @@ class ShadowRig(ptk.LoggingMixin):
     """Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``)."""
 
     MODES = ("orbit",)
-    # Retired modes accepted for one release, mapped to their replacement.
-    _DEPRECATED_MODES = {"stretch": "orbit"}
     DEFAULT_SOURCE_NAME = "shadow_source"
     # Lift above the ground plane to avoid z-fighting (build + drivers; Maya parity).
     GROUND_OFFSET = 0.01
@@ -272,16 +270,8 @@ class ShadowRig(ptk.LoggingMixin):
 
     @classmethod
     def _resolve_mode(cls, mode):
-        """The live mode for *mode*, warning once per build on a retired alias."""
+        """The live mode for *mode*: one of :attr:`MODES`, else ``"orbit"``."""
         mode = str(mode or "orbit").lower()
-        if mode in cls._DEPRECATED_MODES:
-            live = cls._DEPRECATED_MODES[mode]
-            cls.logger.warning(
-                f"ShadowRig mode '{mode}' is retired and builds as '{live}': the "
-                "axis-aligned plane placed the silhouette upside down for any "
-                "light on the +Y side."
-            )
-            return live
         return mode if mode in cls.MODES else "orbit"
 
     # ------------------------------------------------------------------ handles
@@ -1636,9 +1626,6 @@ class ShadowRig(ptk.LoggingMixin):
         rig.horizon_path = cls._plane_horizon_path(plane)
         return rig
 
-    # Retained for one release: the pre-public spelling.
-    _from_plane = from_plane
-
     def set_source(self, source_name, position=(5.0, 5.0, 10.0), size=None):
         """Re-point this rig at another source — an existing object or light, or an empty to
         create at *position* — and re-render its silhouette from there. A baked plane has its
@@ -2590,8 +2577,8 @@ class ShadowRig(ptk.LoggingMixin):
         ``source_name`` is any existing object's name (a light included; a ``SUN`` projects
         along its direction) or the name of an Empty to create at ``light_pos``; one plane is
         built per source, so call :meth:`create_for_sources` for several. ``axis`` is retired
-        (the silhouette is always the projection through the source). ``mode="stretch"`` is
-        retired and builds as orbit with a warning.
+        (the silhouette is always the projection through the source). ``mode`` has one value,
+        ``"orbit"``; any other builds as orbit.
 
         ``rig_type`` is ``"projected"`` (default) or ``"horizon"`` — the latter also bakes the
         targets' horizon map (:meth:`bake_horizon`) so the engine can follow a runtime light;

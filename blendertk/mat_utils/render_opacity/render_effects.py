@@ -2,7 +2,8 @@
 # coding=utf-8
 """Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 mayatk's ``mat_utils.render_opacity.RenderEffects``: ``btk.RenderEffects`` ↔ ``mtk.RenderEffects``;
-``RenderOpacity`` is the previous name, kept one release).
+``RenderOpacity`` is the previous name, importable from ``_render_opacity`` with a deprecation
+warning until blendertk 0.11.0).
 
 Adds a keyable custom property per channel to objects — ``opacity`` (0-1) and ``highlight`` with its
 colour ramp — the channels the deliverables carry. ``key_fade`` animates a fade and, for opacity,
@@ -15,9 +16,9 @@ for a file exported before that transport existed -- and the GLB derives presenc
 channels (``ptk.MeshConvert.apply_glb_visibility``). ``prepare_for_export`` writes no visibility mirror.
 
 **Divergences from Maya (documented, not reductions):**
-  - **No attribute-vs-material split.** Maya's "material" mode also binds the material for viewport
-    lookdev; the material drivers that did that here were retired (2026-09-05), so ``"material"`` is
-    the attribute mode with a warning for one release.
+  - **No attribute-vs-material split** -- in either DCC now: the viewport material binding (Maya's
+    "material" mode, the material drivers here) was retired 2026-09-05 and the mode removed
+    2026-09-21; lookdev is the WebXR push.
   - **No transform/shape split & no ``visibility`` attr.** The visibility analogue is the object's
     ``hide_render`` (render visibility), keyed stepped.
 
@@ -45,8 +46,6 @@ class RenderEffects(ptk.LoggingMixin):
     #: spellings of one concept sit side by side rather than in two files.
     HIGHLIGHT_COLOR_STOPS = ptk.ColorStops("highlightColor", "highlightColorDim")
     HIGHLIGHT_TRACK_STOPS = ptk.ColorStops("highlight_color", "highlight_color_dim")
-    #: Deprecated read-through of the BRIGHT end, kept for one release.
-    HIGHLIGHT_COLOR_ATTR = HIGHLIGHT_COLOR_STOPS.hi
     CHANNELS = ("opacity", "highlight")
     #: The fcurve data paths of every render-effect property (the channels
     #: and both ends of the highlight colour) -- the mirror of mayatk's
@@ -249,7 +248,9 @@ class RenderEffects(ptk.LoggingMixin):
             prop, index = cls._channel_slot(obj, label)
             if prop in cls.CHANNELS or prop in cls.HIGHLIGHT_COLOR_STOPS.keys:
                 channel = cls.ATTR_NAME if prop == cls.ATTR_NAME else cls.HIGHLIGHT_ATTR
-                cls._ensure_channel([obj], channel, True, None, False)
+                cls._ensure_channel(
+                    [obj], channel, auto_create=True, delete_visibility_keys=False
+                )
             elif prop not in obj.keys():
                 obj[prop] = 0.0 if index < 0 else [0.0, 0.0, 0.0]
             value = rec.get("value")
@@ -287,12 +288,17 @@ class RenderEffects(ptk.LoggingMixin):
         """Add the channel's prop to *objects* (or remove it).
 
         ``mode`` mirrors mayatk: ``"attribute"`` adds the prop, ``"remove"``
-        delegates to :meth:`remove`, and ``"material"`` is DEPRECATED (2026-09-05,
-        one release) -- the material drivers that showed the channel in the
-        viewport copied a shared material per object and were retired; it is
-        the attribute mode with a warning. Objects with existing visibility keys
-        are skipped with a warning unless *delete_visibility_keys* is True.
+        delegates to :meth:`remove`, and anything else -- the retired
+        ``"material"`` included -- is refused (logged, ``{}`` returned) before
+        any object is touched. Objects with existing visibility keys raise
+        unless *delete_visibility_keys* is True.
         """
+        if mode not in ("attribute", "remove"):
+            # Refused up front, as mayatk does: past this point the objects'
+            # prior state (and, with delete_visibility_keys, their visibility
+            # keys) is cleared.
+            cls.logger.error(f"Unknown mode: {mode}")
+            return {}
 
         objects = cls._resolve(objects)
         if not objects:
@@ -313,8 +319,6 @@ class RenderEffects(ptk.LoggingMixin):
                     "Keys' or remove them manually before applying opacity."
                 )
 
-        if mode == "material":
-            cls._warn_preview_retired()
         cls.remove(objects)  # always clean prior state first (legacy drivers too)
         if mode == "remove":
             return {}
@@ -327,19 +331,6 @@ class RenderEffects(ptk.LoggingMixin):
                 cls._ensure_opacity_prop(obj, 1.0)
             results[obj.name] = {channel: True}
         return results
-
-    @classmethod
-    def _warn_preview_retired(cls):
-        """One line, once per session: the in-scene preview is gone, and why."""
-        if getattr(cls, "_preview_warned", False):
-            return
-        cls._preview_warned = True
-        cls.logger.warning(
-            "The viewport material preview was retired (2026-09-05): it copied "
-            "the authored material per object and cost every export a restore "
-            "step. Keys are written as before; preview the deliverable with the "
-            "WebXR push."
-        )
 
     @classmethod
     def _ensure_highlight_props(
@@ -412,7 +403,6 @@ class RenderEffects(ptk.LoggingMixin):
         dim_color=None,
         auto_create=True,
         channel="highlight",
-        preview=None,
         delete_visibility_keys=False,
         whole_frames=True,
     ):
@@ -422,8 +412,7 @@ class RenderEffects(ptk.LoggingMixin):
         cycle (bright hold, ramp down, dim hold, ramp up), because the published
         ramp is read linearly. The defaults are the cadence measured on the
         WebXR reference at 30 fps. Channel creation is owned here too (see
-        :meth:`_ensure_channel`). *preview* is DEPRECATED and ignored (one
-        release): the driver preview was retired 2026-09-05.
+        :meth:`_ensure_channel`).
 
         The train is bracketed by dim keys at *start* and *end*, because an
         F-Curve holds its first key value backwards and its last forwards: a
@@ -456,7 +445,7 @@ class RenderEffects(ptk.LoggingMixin):
         if not objects or not plan:
             return []
         cls._ensure_channel(
-            objects, cls.HIGHLIGHT_ATTR, auto_create, preview, delete_visibility_keys
+            objects, cls.HIGHLIGHT_ATTR, auto_create, delete_visibility_keys
         )
         start, end = plan[0][0], plan[-1][0]
         path = f'["{cls.HIGHLIGHT_ATTR}"]'
@@ -695,21 +684,6 @@ class RenderEffects(ptk.LoggingMixin):
         return written
 
     @classmethod
-    def preview(cls, objects=None, channel="highlight", enabled=True):
-        """DEPRECATED (one release). ``enabled=False`` removes the material drivers
-        a scene saved with the old preview still carries; ``True`` warns and does
-        nothing -- the prop and its keys are the whole authoring now."""
-        objects = cls._resolve(objects)
-        if not objects:
-            return {}
-        if enabled:
-            cls._warn_preview_retired()
-            return {}
-        for o in objects:
-            cls._remove_legacy_drivers(o, channel)
-        return {}
-
-    @classmethod
     def _remove_legacy_drivers(cls, obj, channel):
         """Strip the retired preview's drivers for *channel* off *obj*'s materials."""
         if channel == cls.HIGHLIGHT_ATTR:
@@ -862,20 +836,15 @@ class RenderEffects(ptk.LoggingMixin):
         return True if prev is None else prev < 0.5
 
     @classmethod
-    def _ensure_channel(
-        cls, objects, channel, auto_create, preview, delete_visibility_keys
-    ):
-        """Give *objects* the channel's prop (and its material drivers) before keying.
+    def _ensure_channel(cls, objects, channel, auto_create, delete_visibility_keys):
+        """Give *objects* the channel's prop before keying.
 
         Mirror of mayatk's ``RenderEffects._ensure_channel``. Objects lacking the
         prop get it; with *delete_visibility_keys* the opacity channel's create
         path clears their render-visibility keys first, otherwise the keying
         mirror writes over whatever is there -- NOT via :meth:`create`, whose
-        guard would raise. *preview* is the retired driver preview's kwarg:
-        honoured as a warning, nothing more.
+        guard would raise.
         """
-        if preview:
-            cls._warn_preview_retired()
         ensure = (
             cls._ensure_highlight_props
             if channel == cls.HIGHLIGHT_ATTR
@@ -899,7 +868,6 @@ class RenderEffects(ptk.LoggingMixin):
         direction="in",
         auto_create=True,
         tangent="LINEAR",
-        preview=None,
         delete_visibility_keys=False,
         channel="opacity",
         whole_frames=True,
@@ -917,9 +885,7 @@ class RenderEffects(ptk.LoggingMixin):
             cls.logger.warning("No objects selected.")
             return []
         start, end = ptk.RampKeys.frames(whole_frames, start, end)
-        cls._ensure_channel(
-            objects, channel, auto_create, preview, delete_visibility_keys
-        )
+        cls._ensure_channel(objects, channel, auto_create, delete_visibility_keys)
 
         path = f'["{channel}"]'
         keyed = []
@@ -985,10 +951,21 @@ class RenderEffects(ptk.LoggingMixin):
         opacity keyed by hand -- the GLB derives presence from the authored
         channels itself (``ptk.MeshConvert.apply_glb_visibility``).
 
-        *objects* is ignored and the return is always empty, both kept for API
-        compatibility for one release (it named the objects whose visibility was
-        re-synced).
+        *objects* is deprecated and ignored -- passing it warns until blendertk
+        0.11.0 -- and the return is always empty (it named the objects whose
+        visibility was re-synced).
         """
+        if objects is not None:
+            # A body notice rather than ``Deprecation.parameter``: callers pass
+            # it positionally as often as by name, and only this sees both.
+            ptk.Deprecation.warn(
+                "RenderEffects.prepare_for_export(objects)",
+                "RenderEffects.prepare_for_export()",
+                remove_in="0.11.0",
+                kind="parameter",
+                reason="The staging always covers every keyed channel.",
+                stacklevel=2,
+            )
         cls.stage_export_proxies()
         return []
 

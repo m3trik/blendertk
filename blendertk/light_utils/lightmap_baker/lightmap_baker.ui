@@ -289,6 +289,21 @@ Off bakes the room's own lights only: the world is detached for the bake and res
        </widget>
       </item>
       <item>
+       <widget class="QCheckBox" name="chk_denoise">
+        <property name="toolTip">
+         <string>Denoise every lightmap with Blender&apos;s own denoiser (OpenImageDenoise), run over the baked image.
+
+Cycles does not denoise a bake itself, so without this a map ships its sampling noise, which reads as splotches up close.</string>
+        </property>
+        <property name="text">
+         <string>Denoise</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="LineEdit" name="txt_output_dir">
         <property name="minimumSize">
          <size>

@@ -43,6 +43,12 @@ def main() -> int:
 
     before = set(bpy.data.objects)
     try:
+        # The bare operator, deliberately: this child runs --factory-startup with no
+        # blendertk on its path, and the staged .blend feeds a NAME/PATH diff that
+        # reads no modifiers. An FBX carrying several skeletons would arrive with
+        # some meshes unbound (upstream_patches.SIBLING_ARMATURES, which only
+        # FbxUtils.import_fbx applies), so anything here that grows to read
+        # skinning must route through FbxUtils.import_fbx.
         bpy.ops.import_scene.fbx(filepath=fbx_path)
     except Exception as e:  # noqa: BLE001 — surface any importer failure via exit code
         print(f"STAGE_FBX_ERROR: import failed: {e}")

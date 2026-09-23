@@ -68,7 +68,8 @@ def check(name, cond, detail=""):
     )
 
 
-# Generation script run under mayapy. {proj} / {abs_tex} substituted via .format.
+# Generation script run under mayapy. {proj} / {abs_tex} / {ptk_root} substituted
+# via .format.
 _GEN_SCENE = '''
 import os, struct, sys, zlib
 import maya.standalone
@@ -201,7 +202,15 @@ assign([inst_b], inst_green)  # per-INSTANCE assignment (Maya: instObjGroups[i])
 cmds.file(rename=os.path.join(PROJ, "scenes", "e2e_scene.ma").replace("\\\\", "/"))
 cmds.file(save=True, type="mayaAscii", force=True)
 sys.stdout.flush()
-os._exit(0)  # skip standalone teardown (known crasher); artifact is the ground truth
+# Skip standalone teardown (known crasher) -- and not with os._exit: on Windows
+# that still runs every DLL's detach, where Maya's destructors fault and file a
+# crash dump plus a [Recovered] scene per run.
+sys.path.insert(0, r"{ptk_root}")
+try:
+    from pythontk import ProcessExit
+except Exception:
+    os._exit(0)
+ProcessExit.hard_exit(0)
 '''
 
 
@@ -266,7 +275,9 @@ try:
     mayapy = btk.MayaSceneImport().require_mayapy()  # raises if no Maya install
     ptk.ScriptRunner.run_script_to_artifact(
         mayapy,
-        _GEN_SCENE.format(proj=proj, abs_tex=abs_tex),
+        _GEN_SCENE.format(
+            proj=proj, abs_tex=abs_tex, ptk_root=os.path.join(MONO, "pythontk")
+        ),
         artifact=src,
         timeout=600,
     )

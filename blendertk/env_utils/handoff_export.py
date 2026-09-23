@@ -82,13 +82,15 @@ class BlenderExportMixin:
         previews as an unlit push and reads as a broken bake. Mirror of
         mayatk's method of the same name: the workspace's texture folders plus
         wherever the markers' maps were actually found
-        (:meth:`LightmapBaker.search_dirs`), so a map the walk had to go
+        (:meth:`LightmapRecords.search_dirs`), so a map the walk had to go
         looking for still reaches a consumer that can only join a basename
         against a list.
         """
-        from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
+        from blendertk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
 
-        return LightmapBaker.search_dirs()
+        return LightmapRecords.search_dirs()
 
     #: What the USD carrier does with linked duplicates in the export set. USD
     #: leaves Blender FLAT (``use_instancing`` off: USD's instancing hands Maya

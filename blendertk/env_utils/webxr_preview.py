@@ -85,4 +85,6 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
                 include_textures=request.params.get("EMBED_TEXTURES", True),
             ),
             source=SceneState.source(),
+            # Carries the push's lighting choices (resolved in preflight).
+            request=request,
         )

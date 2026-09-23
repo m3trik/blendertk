@@ -1007,6 +1007,290 @@ def _run_sequencer_checks():
         f"{_times(batch_objs[0])} / {_times(batch_objs[1])}",
     )
 
+    # ---- a drag onto a KEYED neighbour boundary moves the neighbour whole ----
+    # Mirror of mayatk's TestADragOntoAKeyedNeighbourLeavesItWhole (2026-09-22):
+    # the key handlers ripple BEFORE the keys land, but the carried window
+    # treated the sample on the new bound as the dragged shot's, stranding the
+    # neighbour's own pose in the gap; the clip paths landed first instead and
+    # stacked the landed key on that pose.
+    def _seam_scene(name, shots, keys):
+        """A cube keyed on location.x, in every one of *shots*: (obj, store, seq)."""
+        BlenderShotStore.clear_active()
+        bpy.ops.mesh.primitive_cube_add()
+        o = bpy.context.active_object
+        o.name = name
+        for f, v in keys:
+            o.location = (float(v), 0.0, 0.0)
+            o.keyframe_insert(data_path="location", index=0, frame=f)
+        st = BlenderShotStore()
+        for sname, s, e in shots:
+            st.define_shot(sname, s, e, objects=[o.name])
+        return o, st, ShotSequencer(st)
+
+    def _loc_x(o):
+        return next(
+            fc
+            for fc in BlenderShotStore.iter_action_fcurves(o)
+            if fc.data_path == "location" and fc.array_index == 0
+        )
+
+    def _move_clip(data, sq, new_start):
+        host = _KeysHost(_FakeWidget(_FakeClip(data)), sq)
+        host._shifted_out_keys = {}
+        host._audio_segments_cache = None
+        host.on_clip_moved(1, new_start)
+
+    def _seam_case(name, shots, keys, gesture):
+        o, st, sq = _seam_scene(name, shots, keys)
+        ids = [st.shot_by_name(sname).shot_id for sname, _s, _e in shots]
+        kind, idx, payload = gesture
+        data = {"obj": o.name, "shot_id": ids[idx]}
+        if kind == "keys":
+            data["attr_name"] = "translateX"
+            _KeysHost(_FakeWidget(_FakeClip(data)), sq).on_keys_batch_moved(
+                [(1, payload)]
+            )
+        else:
+            clip_data, new_start = payload
+            _move_clip(dict(data, **clip_data), sq, new_start)
+        got = [
+            (round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points
+        ]
+        return [(s.start, s.end) for s in st.sorted_shots()], got
+
+    ab = [("A", 0, 50), ("B", 65, 100)]
+    bounds, got = _seam_case(
+        "SeamEq", ab, ((10, 0), (40, 1), (65, 1), (80, 2)), ("keys", 0, [(40.0, 65.0)])
+    )
+    check(
+        "keyed neighbour: a key onto its start moves it whole",
+        bounds == [(0, 65), (80, 115)]
+        and got == [(10.0, 0.0), (65.0, 1.0), (80.0, 1.0), (95.0, 2.0)],
+        f"{bounds} {got}",
+    )
+    _b, got = _seam_case(
+        "SeamNe", ab, ((10, 0), (40, 1), (65, 7), (80, 2)), ("keys", 0, [(40.0, 65.0)])
+    )
+    check(
+        "keyed neighbour: an unequal opening pose stays on its new start",
+        got == [(10.0, 0.0), (65.0, 1.0), (80.0, 7.0), (95.0, 2.0)],
+        f"{got}",
+    )
+    bounds, got = _seam_case(
+        "SeamUp",
+        [("P", 0, 35), ("A", 50, 100)],
+        ((5, 0), (35, 4), (60, 2), (90, 3)),
+        ("keys", 1, [(60.0, 35.0)]),
+    )
+    check(
+        "keyed neighbour: a key onto the previous shot's end moves it whole",
+        bounds == [(-15, 20), (35, 100)]
+        and got == [(-10.0, 0.0), (20.0, 4.0), (35.0, 2.0), (90.0, 3.0)],
+        f"{bounds} {got}",
+    )
+    _b, got = _seam_case(
+        "SeamIn",
+        ab,
+        ((10, 0), (40, 1), (65, 1), (70, 2), (80, 3)),
+        ("keys", 0, [(40.0, 70.0)]),
+    )
+    check(
+        "keyed neighbour: a key dragged inside it moves it whole",
+        got == [(10.0, 0.0), (70.0, 1.0), (85.0, 1.0), (90.0, 2.0), (100.0, 3.0)],
+        f"{got}",
+    )
+    _b, got = _seam_case(
+        "SeamClip",
+        ab,
+        ((10, 0), (30, 5), (40, 1), (65, 7), (80, 2)),
+        (
+            "clip",
+            0,
+            ({"attr_name": "translateX", "orig_start": 30.0, "orig_end": 40.0}, 55.0),
+        ),
+    )
+    check(
+        "keyed neighbour: a sub-row clip lands after the neighbour moved",
+        got == [(10.0, 0.0), (55.0, 5.0), (65.0, 1.0), (80.0, 7.0), (95.0, 2.0)],
+        f"{got}",
+    )
+    _b, got = _seam_case(
+        "SeamStep",
+        ab,
+        ((10, 0), (40, 1), (65, 7), (80, 2)),
+        ("clip", 0, ({"orig_start": 40.0, "orig_end": 40.0, "is_stepped": True}, 65.0)),
+    )
+    check(
+        "keyed neighbour: a stepped clip lands after the neighbour moved",
+        got == [(10.0, 0.0), (65.0, 1.0), (80.0, 7.0), (95.0, 2.0)],
+        f"{got}",
+    )
+    # A run that outlasts its shot: made room for before it moved, its part in
+    # the neighbour's envelope rode the ripple (+22) instead of the drag (+2).
+    bounds, got = _seam_case(
+        "SeamSpan",
+        ab,
+        ((10, 0), (45, 1), (70, 2), (85, 3)),
+        (
+            "clip",
+            0,
+            ({"attr_name": "translateX", "orig_start": 45.0, "orig_end": 70.0}, 47.0),
+        ),
+    )
+    check(
+        "keyed neighbour: a sub-row clip reaching into the next shot moves as one",
+        bounds == [(0, 72), (87, 122)]
+        and got == [(10.0, 0.0), (47.0, 1.0), (72.0, 2.0), (107.0, 3.0)],
+        f"{bounds} {got}",
+    )
+    # A claim is a (curve, time) pair, so it moves with its key -- as the key
+    # drag's always did; the sub-row move shifted the keys alone.
+    from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+        _ShotSequencerInternal,
+    )
+
+    co, cst, csq = _seam_scene("SeamClaim", ab, ((10, 0), (30, 5), (40, 1), (80, 2)))
+    ckey = _ShotSequencerInternal._fc_key(co.name, _loc_x(co))
+    csq.ledger.record_key(ckey, 40.0)
+    _move_clip(
+        {
+            "obj": co.name,
+            "shot_id": cst.shot_by_name("A").shot_id,
+            "attr_name": "translateX",
+            "orig_start": 30.0,
+            "orig_end": 40.0,
+        },
+        csq,
+        32.0,
+    )
+    ctimes = [round(kp.co[0], 3) for kp in _loc_x(co).keyframe_points]
+    check(
+        "keyed neighbour: a sub-row clip carries its keys' claims",
+        ctimes == [10.0, 32.0, 42.0, 80.0] and csq.ledger.key_times(ckey) == [42.0],
+        f"{ctimes} claims={csq.ledger.key_times(ckey)}",
+    )
+    # Dragged back past its shot's start, a clip grows the head, which ripples
+    # the shots before it back as far -- onto the lifted clip, on a long drag.
+    bounds, got = _seam_case(
+        "SeamBack",
+        [("A", 0, 50), ("B", 60, 100)],
+        ((10, 0), (40, 1), (70, 5), (90, 6)),
+        (
+            "clip",
+            1,
+            ({"attr_name": "translateX", "orig_start": 70.0, "orig_end": 90.0}, -980.0),
+        ),
+    )
+    check(
+        "keyed neighbour: a clip dragged far back is not met by the ripple",
+        bounds == [(-1040, -990), (-980, 100)]
+        and got == [(-1030.0, 0.0), (-1000.0, 1.0), (-980.0, 5.0), (-960.0, 6.0)],
+        f"{bounds} {got}",
+    )
+
+    # ---- an audio clip moves by what its VISIBLE part moved ---------------
+    # The widget draws only the part of a strip inside its shot and a drag
+    # reports where THAT landed; measured from the strip's own start the move
+    # was off by the part before the shot.
+    import wave
+
+    import pythontk as ptk
+    from blendertk.audio_utils._audio_utils import AudioUtils as _Audio
+
+    with ptk.TempArtifacts(prefix="btk_seq_visaudio_") as vtmp:
+        vwav = vtmp.path(".wav")
+        with wave.open(vwav, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(8000)
+            wf.writeframes(b"\x00\x00" * 4000)  # 0.5 s of silence
+        BlenderShotStore.clear_active()
+        vst = BlenderShotStore()
+        vst.define_shot("A", 0, 50, objects=[])
+        b_shot = vst.define_shot("B", 60, 100, objects=[])
+        strip = _Audio.add_clip(vwav, frame_start=55, scene=bpy.context.scene)
+        info = _Audio.get_clip(strip)
+        strip_data = {
+            "is_audio": True,
+            "audio_track_id": strip,
+            "shot_id": b_shot.shot_id,
+            "orig_start": float(info["frame_start"]),
+            "orig_end": float(info["frame_end"]),
+            "vis_start": 60.0,
+        }
+        _move_clip(strip_data, ShotSequencer(vst), 62.0)  # the visible part moved +2
+        moved = _Audio.get_clip(strip)["frame_start"]
+        vshots = [(s.start, s.end) for s in vst.sorted_shots()]
+        check(
+            "audio clip: moved by its visible part's +2, not +7, and no shot moved",
+            moved == 57 and vshots == [(0, 50), (60, 100)],
+            f"{moved} {vshots}",
+        )
+        _Audio.remove_clip(strip)
+
+    # ---- a refused drag reports instead of raising (mirror of mayatk) -------
+    # The planner REFUSES a ripple that would force two shots' disagreeing
+    # poses onto one frame; measured in Maya, that refusal came out of the
+    # clip handlers as a traceback at the end of a mouse drag.
+    from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+
+    class _RefusingHost(_KeysHost):
+        def __init__(self, widget, sequencer):
+            super().__init__(widget, sequencer)
+            self.footers, self.warned, self.dropped = [], [], []
+            self._shifted_out_keys = {}
+            self._audio_segments_cache = None
+            warned = self.warned
+
+            class _Log:
+                def warning(self, msg, *a, **k):
+                    warned.append(msg)
+
+                def __getattr__(self, _name):
+                    return lambda *a, **k: None
+
+            self.logger = _Log()
+
+        def _set_footer(self, text, *a, **k):
+            self.footers.append(text)
+
+        def _discard_shot_state(self):
+            self.dropped.append(True)
+
+        def _expand_shot_range(self, *_a, **_kw):
+            raise ShotBoundaryConflict([("crv", 1.0, [0.0, 1.0])])
+
+    for label, drag in (
+        ("a single clip drag", lambda h: h.on_clip_moved(1, 40.0)),
+        ("a batch clip drag", lambda h: h.on_clips_batch_moved([(1, 40.0)])),
+    ):
+        ro, rst, rsq = _seam_scene("RefuseMv", [("A", 10, 20)], ((10, 0), (20, 1)))
+        clip = _FakeClip(
+            {
+                "obj": ro.name,
+                "attr_name": "translateX",
+                "shot_id": rst.shot_by_name("A").shot_id,
+                "orig_start": 10.0,
+                "orig_end": 20.0,
+            }
+        )
+        rhost = _RefusingHost(_FakeWidget(clip), rsq)
+        try:
+            drag(rhost)
+            raised = None
+        except ShotBoundaryConflict as exc:  # the defect: a drag-end traceback
+            raised = exc
+        want = str(ShotBoundaryConflict([("crv", 1.0, [0.0, 1.0])]))
+        check(
+            f"refused drag: {label} reports the refusal instead of raising",
+            raised is None
+            and rhost.warned == [want]
+            and rhost.footers[-1:] == [want]
+            and rhost.dropped == [],
+            f"raised={raised!r} warned={rhost.warned} footers={rhost.footers} "
+            f"dropped={rhost.dropped}",
+        )
+
     # ---- _delete_clip_keys: whole-object clips scope to TRANSFORM curves ----
     # (pre-fix: every action fcurve in span was wiped — custom props included)
     from blendertk.anim_utils.shots.shot_sequencer.shot_sequencer_slots import (
@@ -2722,11 +3006,15 @@ def _run_sequencer_checks():
             pass
 
     tan_ctl = _TanCtl()
+    check(
+        "the retired single-key tangent handler stays removed (2026-09-21)",
+        not hasattr(_TanCtl, "on_key_tangent_dragged"),
+    )
     fc_tan = fc_of(obs["tanA"])
     kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
     kp_mid.handle_left_type = kp_mid.handle_right_type = "AUTO_CLAMPED"
     fc_tan.update()
-    tan_ctl.on_key_tangent_dragged(1, 10.0, "out", 3.0, 4.0)
+    tan_ctl.on_keys_tangent_dragged([(1, [(10.0, 3.0, 4.0)])], "out", False)
     kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
     hr = (round(kp_mid.handle_right[0], 3), round(kp_mid.handle_right[1], 3))
     hl = (kp_mid.handle_left[0] - 10.0, kp_mid.handle_left[1] - 5.0)
@@ -2753,7 +3041,7 @@ def _run_sequencer_checks():
         _SC.build_curve_preview(fc_tan, 0, 20)["broken"] == [False, True, False],
         f"{_SC.build_curve_preview(fc_tan, 0, 20).get('broken')}",
     )
-    tan_ctl.on_key_tangent_dragged(1, 10.0, "in", -2.0, 1.0)
+    tan_ctl.on_keys_tangent_dragged([(1, [(10.0, -2.0, 1.0)])], "in", False)
     kp_mid = next(kp for kp in fc_tan.keyframe_points if abs(kp.co[0] - 10) < 1e-3)
     check(
         "handle drag: a FREE side takes the vector as-is and stays FREE",

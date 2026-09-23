@@ -1,66 +1,108 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ 8d39c96)._
+_Diff vs the last release (origin/main @ 3573a65)._
 
-## Removed (15)
+## Removed (7)
 
-- `env_utils/fbx_utils.py::FbxUtils.register_export_preparer` — was `(cls, name: str, prepare) -> None`
-- `env_utils/fbx_utils.py::FbxUtils.run_export_preparers` — was `(cls, only: Optional[Iterable[str]] = None) -> None`
-- `env_utils/fbx_utils.py::FbxUtils.unregister_export_preparer` — was `(cls, name: str) -> None`
-- `env_utils/maya_bridge/templates/_import_scene.py::shots_section` — was `(cmds, spell)`
-- `env_utils/maya_bridge/templates/_import_scene_usd.py::shots_section` — was `(cmds, spell)`
-- `env_utils/maya_bridge/templates/_save_scene.py::rebuild_shots` — was `(engine, new_nodes)`
-- `env_utils/maya_bridge/templates/import.py::rebuild_shots` — was `(new_nodes)`
-- `env_utils/scene_exporter/task_manager.py::TaskManager.publish_clip_mode` — was `(self) -> None`
-- `node_utils/data_nodes.py::DataNodes.get_export_string` — was `(cls, key)`
-- `node_utils/data_nodes.py::DataNodes.get_internal_json` — was `(cls, key, default=None)`
-- `node_utils/data_nodes.py::DataNodes.get_internal_string` — was `(cls, key)`
-- `node_utils/data_nodes.py::DataNodes.set_export_json` — was `(cls, key, payload)`
-- `node_utils/data_nodes.py::DataNodes.set_export_string` — was `(cls, key, value)`
-- `node_utils/data_nodes.py::DataNodes.set_internal_json` — was `(cls, key, payload)`
-- `node_utils/data_nodes.py::DataNodes.set_internal_string` — was `(cls, key, value)`
+- `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py::ShotSequencerController.on_key_tangent_dragged` — was `(self, clip_id: int, time: float, side: str, dt: float, dv: float) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_delete_all_shots` — was `(self)`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_trim_all_shots` — was `(self)`
+- `env_utils/scene_exporter/task_manager.py::TaskManager.check_duplicate_locator_names` — was `(self, enabled=True) -> tuple`
+- `mat_utils/marmoset_bridge/_marmoset_engine.py::ROUNDTRIP` — was `(constant)`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.preview` — was `(cls, objects=None, channel='highlight', enabled=True)`
+- `mat_utils/substance_bridge/_substance_bridge.py::ROUNDTRIP` — was `(constant)`
 
-## Added (15)
+## Added (40)
 
-- `anim_utils/key_stash/_key_stash.py::KeyStash.discard_carrier(cls, carriers, other, ctx) -> None`
-- `anim_utils/key_stash/_key_stash.py::KeyStash.merge_carrier(cls, carriers, other, ctx) -> None`
-- `anim_utils/shots/_shots.py::BlenderShotStore.merge_carrier(cls, carriers, other, ctx) -> None`
-- `anim_utils/shots/_shots.py::BlenderShotStore.transfer_in(cls, payload: Dict[str, Any], ctx: 'ptk.TransferContext') -> None`
-- `anim_utils/shots/_shots.py::BlenderShotStore.transfer_out(cls, ctx: 'ptk.TransferContext') -> Optional[Dict[str, Any]]`
-- `core_utils/_core_utils.py::CoreUtils.all_ids(library=None) -> list`
-- `env_utils/fbx_utils.py::FbxUtils.scene_range_take(cls, options: dict) -> list`
-- `env_utils/maya_bridge/templates/_import_scene.py::scene_data_sections(cmds, spell)`
-- `env_utils/maya_bridge/templates/_import_scene_usd.py::scene_data_sections(cmds, spell)`
-- `env_utils/maya_bridge/templates/_save_scene.py::rebuild_scene_data(engine, new_nodes)`
-- `env_utils/maya_bridge/templates/import.py::rebuild_scene_data(new_nodes)`
-- `mat_utils/emissive_groups.py::EmissiveGroups.transfer_in(cls, payload: dict, ctx: 'ptk.TransferContext') -> None`
-- `mat_utils/emissive_groups.py::EmissiveGroups.transfer_out(cls, ctx: 'ptk.TransferContext') -> Optional[dict]`
-- `node_utils/data_nodes.py::DataNodes.carriers_in(cls, library) -> Dict[ptk.Scope, '_Carrier']`
-- `node_utils/data_nodes.py::DataNodes.library_renames(before) -> Any`
+- `env_utils/maya_bridge/templates/_import_scene.py::uniquify_short_names(cmds)`
+- `env_utils/maya_bridge/templates/_import_scene_usd.py::uniquify_short_names(cmds)`
+- `env_utils/upstream_patches.py::SIBLING_ARMATURES(constant)`
+- `env_utils/usd.py::UsdUtils.collapse_static_xforms(filepath: str, tolerance: float = 0.0001, distance: float = 1e-05) -> int`
+- `env_utils/usd.py::UsdUtils.mark_orthographic(filepath: str, cameras: List[Any], root_prim_path: str = '') -> int`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakeResult(class)`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakeResult.files(self) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakeResult.folders(self) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.bake(self, objects=None, packing: str = 'atlas', output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', on_progress: Optional[Callable[[int, int, str], bool]] = None, intensity: float = 1.0, **kwargs) -> LightmapBakeResult`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.bake_verdict(self, paths) -> Optional[str]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.baked_objects(self, objects=None) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.preflight(self) -> Optional[str]`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots(class)`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.b000(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb000(self, index, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb000_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb002_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_device_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_resolution_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb_scope_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.header_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.open_output(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.revert_to_source(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt000_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.txt_output_dir_init(self, widget) -> None`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords(class)`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.baked_objects(cls, objects=None) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.claims(cls, objects=None) -> Dict[str, FrozenSet[str]]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.commit(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0) -> Dict[str, str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.heal_lightmap_paths(cls, objects=None) -> Dict[str, Any]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.lightmap_dependencies(cls, objects=None, search_dirs=None, walk: bool = True) -> List[Dict[str, Any]]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.migrate_legacy(cls, objects=None) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.normalize_lightmap_paths(cls, objects=None, relative: bool = True) -> int`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.refresh_export_metadata(cls) -> Optional[str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.relocate_lightmaps(cls, dest_dir: str, source_dir: str = '', mode: str = 'copy', objects=None, dry_run: bool = False) -> Dict[str, Any]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.repath_lightmaps(cls, dirs_by_map: Dict[str, str], objects=None, relative: bool = True) -> int`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.revert(cls, objects=None) -> List[str]`
+- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.search_dirs(cls, objects=None) -> List[str]`
+- `mat_utils/texture_baker.py::TextureBaker.image_sources(images) -> List[str]`
 
-## Signature changed (8)
+## Deprecations (8)
 
-- `anim_utils/shots/_shots.py::BlenderShotStore.apply_transfer`
-  - was: `(cls, section: Dict[str, Any], *, resolve=None, frame_offset: float = 0.0, replace: bool = False, converted=None) -> Optional['BlenderShotStore']`
-  - now: `(cls, section: Dict[str, Any], *, resolve=None, frame_offset: float = 0.0, replace: bool = False, converted=None, ctx: Optional['ptk.TransferContext'] = None) -> Optional['BlenderShotStore']`
-- `anim_utils/shots/shot_sequencer/_shot_sequencer.py::ShotSequencer.reconcile_system_edits`
-  - was: `(self) -> Dict[str, int]`
-  - now: `(self, follow: bool = True) -> Dict[str, int]`
-- `anim_utils/shots/shot_sequencer/clip_motion.py::ClipMotionMixin.scale_attribute_keys`
-  - was: `(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float) -> bool`
-  - now: `(obj_name: str, attr_name: str, old_start: float, old_end: float, new_start: float, new_end: float, ledger=None) -> bool`
-- `env_utils/_env_utils.py::EnvUtils.make_library_local`
-  - was: `(library)`
-  - now: `(library, scene_data='merge')`
-- `env_utils/maya_bridge/_scene_import.py::MayaSceneImport.import_payload`
-  - was: `(self, payload_path: str, *, fbx_options: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, scene_settings: bool = False, reduce_keys: Union[bool, str, None] = False, shots: bool = True, progress: Optional[Callable[[int, int, str], Optional[bool]]] = None) -> List[Any]`
-  - now: `(self, payload_path: str, *, fbx_options: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, scene_settings: bool = False, reduce_keys: Union[bool, str, None] = False, scene_data: bool = True, progress: Optional[Callable[[int, int, str], Optional[bool]]] = None) -> List[Any]`
-- `env_utils/maya_bridge/_scene_import.py::MayaSceneImport.import_scene`
-  - was: `(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: Optional[float] = None, fbx_options: Optional[Dict[str, Any]] = None, rig_mode: str = 'auto', scene_settings: Union[bool, str] = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, shots: bool = True, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> List[Any]`
-  - now: `(self, src_path: str, *, via: str = 'fbx', cleanup: bool = True, use_cache: bool = True, timeout: Optional[float] = None, fbx_options: Optional[Dict[str, Any]] = None, rig_mode: str = 'auto', scene_settings: Union[bool, str] = 'auto', reduce_keys: Union[bool, str, None] = REDUCE_KEYS_DEFAULT, scene_data: bool = True, progress: Optional[Callable[..., Optional[bool]]] = None, **script_opts: Any) -> List[Any]`
-- `env_utils/maya_bridge/templates/_import_scene.py::write_manifest`
-  - was: `(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, shots=None, rig=None, machinery=None)`
-  - now: `(entries, visibility, node_types, scene, path, lights=(), skins=None, bones=None, scene_data=None, rig=None, machinery=None)`
-- `env_utils/maya_bridge/templates/_import_scene_usd.py::write_manifest`
-  - was: `(cmds, materials=None, shading_groups=None, bones=None, shots=None, rig=None, machinery=None)`
-  - now: `(cmds, materials=None, shading_groups=None, bones=None, scene_data=None, rig=None, machinery=None)`
+_Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its one-release window: delete the alias and its tests rather than moving the date._
+
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.export_record` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.heal_lightmap_paths` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.lightmap_dependencies` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.normalize_lightmap_paths` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.refresh_export_metadata` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.relocate_lightmaps` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.repath_lightmaps` — remove in 0.11.0
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.search_dirs` — remove in 0.11.0
+
+## Moved (13)
+
+_Still resolvable at the same call site -- hoisted to a base class or re-exported from another module. NOT a removal: no alias or minor bump is owed._
+
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.b000`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb000`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb000_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb002_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb_device_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb_resolution_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.cmb_scope_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.header_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.open_output`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.revert_to_source`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.txt000_init`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBakerSlots.txt_output_dir_init`
+
+## Signature changed (6)
+
+- `env_utils/scene_exporter/task_manager.py::TaskManager.exclude_hdr`
+  - was: `(self, *legacy_enabled: bool, enabled: bool = True) -> None`
+  - now: `(self) -> None`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.bake_atlas`
+  - was: `(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', **kwargs) -> Dict[str, Tuple[str, List[float]]]`
+  - now: `(self, objects=None, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', claims: Optional[Dict[str, Any]] = None, **kwargs) -> Dict[str, Tuple[str, List[float]]]`
+- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.pack_atlas`
+  - was: `(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None) -> Dict[str, Tuple[str, List[float]]]`
+  - now: `(self, mapping: Dict[str, str], output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', plan: Optional[Dict[str, List[Tuple[str, List[float]]]]] = None, claims: Optional[Dict[str, Any]] = None) -> Dict[str, Tuple[str, List[float]]]`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_fade`
+  - was: `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', preview=None, delete_visibility_keys=False, channel='opacity', whole_frames=True)`
+  - now: `(cls, objects=None, start=0, end=15, direction='in', auto_create=True, tangent='LINEAR', delete_visibility_keys=False, channel='opacity', whole_frames=True)`
+- `mat_utils/render_opacity/render_effects.py::RenderEffects.key_pulse`
+  - was: `(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', preview=None, delete_visibility_keys=False, whole_frames=True)`
+  - now: `(cls, objects=None, start=0, end=100, period=86, bright_fraction=0.59, ramp_fraction=0.25, lead_in=None, lead_out=None, color=None, dim_color=None, auto_create=True, channel='highlight', delete_visibility_keys=False, whole_frames=True)`
+- `mat_utils/texture_baker.py::TextureBaker.bake`
+  - was: `(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color') -> Dict[str, str]`
+  - now: `(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None) -> Dict[str, str]`
