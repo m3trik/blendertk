@@ -18,7 +18,8 @@ wired to no-op slots that explain why rather than silently doing nothing.
 Blender-side operation for it to perform. It exists for structural/API parity only.
 """
 
-from typing import List, Optional, Union
+import contextlib
+from typing import Iterator, List, Optional, Union
 
 import pythontk as ptk
 
@@ -37,6 +38,14 @@ class ArnoldBridge(ptk.LoggingMixin):
     Kept importable (rather than omitted) so code that duck-types across ``mtk.ArnoldBridge`` /
     ``btk.ArnoldBridge`` doesn't need a branch just to detect blendertk's absence of the concept.
     """
+
+    #: Cycles and EEVEE render every material graph they hold, so none needs a bridge.
+    UNTRANSLATABLE_TYPES = frozenset()
+
+    @classmethod
+    def unrenderable_materials(cls) -> List[str]:
+        """No material needs a bridge before a Blender render: always ``[]``."""
+        return []
 
     def add(
         self,
@@ -62,6 +71,12 @@ class ArnoldBridge(ptk.LoggingMixin):
     ) -> List[str]:
         self.logger.warning(_NOT_AVAILABLE)
         return []
+
+    @contextlib.contextmanager
+    def temporary(self, materials) -> Iterator[List[str]]:
+        """Bridge nothing for the block: there is no Arnold graph to add (see
+        the module docstring). Yields no shading groups."""
+        yield []
 
     def get_bridge(self, material) -> Optional[str]:
         return None

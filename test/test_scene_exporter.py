@@ -4125,13 +4125,29 @@ try:
     os.makedirs(_ndir, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_ndir, "test_scene.blend"))
 
-    def _stem_for(output_name, name_regex=None, timestamp=False):
+    import re
+    import warnings as _naming_warnings
+
+    def _retired_warned(caught, *names):
+        """Whether *caught* holds a DeprecationWarning naming each of *names*."""
+        said = [str(w.message) for w in caught if w.category is DeprecationWarning]
+        return all(any(name in m for m in said) for name in names)
+
+    _retired_seen = []
+
+    def _stem_for(output_name, **retired):
+        """The stem for *output_name*; *retired* takes the retired naming inputs
+        (2026-09-23), each of which must warn and still fold in until 0.12.0."""
         _e = SceneExporter()
         _e.export_dir = _ndir
         _e.output_name = output_name
-        _e.name_regex = name_regex
-        _e.timestamp = timestamp
-        return os.path.splitext(os.path.basename(_e.generate_export_path()))[0]
+        if not retired:
+            return os.path.splitext(os.path.basename(_e.generate_export_path()))[0]
+        with _naming_warnings.catch_warnings(record=True) as _caught:
+            _naming_warnings.simplefilter("always")
+            _path = _e.resolve_export_path(output_name, _ndir, **retired)["path"]
+        _retired_seen.append(_retired_warned(_caught, *(f"'{k}'" for k in retired)))
+        return os.path.splitext(os.path.basename(_path))[0]
 
     for _pattern, _expected in (
         (None, "test_scene"),
@@ -4179,6 +4195,11 @@ try:
         _got == "prod_scene_my text",
         f"got={_got!r}",
     )
+    check(
+        "a retired name_regex warns wherever it is still passed",
+        len(_retired_seen) == 3 and all(_retired_seen),
+        f"{_retired_seen}",
+    )
     _got = _stem_for("*_v{n:03d}")
     check(
         "a {n} counter versions the export", _got == "test_scene_v001", f"got={_got!r}"
@@ -4203,13 +4224,56 @@ try:
     )
     _e = SceneExporter()
     _e.export_dir, _e.output_name = _ndir, "WIP_*"
-    _legacy = os.path.basename(
-        _e.generate_export_path(version_format="{stem}_v{n:03d}")
-    )
+    with _naming_warnings.catch_warnings(record=True) as _caught:
+        _naming_warnings.simplefilter("always")
+        _legacy = os.path.basename(
+            _e.generate_export_path(version_format="{stem}_v{n:03d}")
+        )
+    # 0.12.0: a name outlives the release it first warns in (_scene_exporter).
     check(
-        "the retired Version pattern still resolves for one release",
-        _legacy == "WIP_test_scene_v001.fbx",
+        "the retired Version pattern warns and still resolves until 0.12.0",
+        _legacy == "WIP_test_scene_v001.fbx"
+        and _retired_warned(_caught, "'version_format'", "0.12.0"),
         f"got={_legacy!r}",
+    )
+    # perform_export folds a caller's retired inputs ONCE, at its entry point
+    # (resolved before the empty-objects abort): each warns, and output_name --
+    # what everything after reads -- states the whole rule.
+    for _kwargs, _named, _stem in (
+        ({"name_regex": "test_->prod_"}, "'name_regex'", "WIP_prod_scene"),
+        (
+            {"tasks": {"version": "{stem}_v{n:03d}"}},
+            "tasks['version']",
+            "WIP_test_scene_v001",
+        ),
+        ({"timestamp": True}, "'timestamp'", None),
+    ):
+        _e = SceneExporter()
+        with _naming_warnings.catch_warnings(record=True) as _caught:
+            _naming_warnings.simplefilter("always")
+            _e.perform_export(
+                export_dir=_ndir, objects=[], output_name="WIP_*", **_kwargs
+            )
+        _got = os.path.splitext(os.path.basename(_e.export_path or ""))[0]
+        check(
+            f"perform_export's retired {_named} warns and folds into the name once",
+            _retired_warned(_caught, _named)
+            and (
+                _got == _stem
+                if _stem
+                else bool(
+                    re.match(
+                        r"^WIP_test_scene_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$", _got
+                    )
+                )
+            )
+            and "*" not in (_e.output_name or ""),
+            f"got={_got!r} output_name={_e.output_name!r}",
+        )
+    check(
+        "the naming state perform_export used to stamp is gone",
+        not hasattr(SceneExporter, "timestamp")
+        and not hasattr(SceneExporter, "name_regex"),
     )
     import logging as _layout_logging
 

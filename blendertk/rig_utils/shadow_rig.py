@@ -638,6 +638,9 @@ class ShadowRig(ptk.LoggingMixin):
         # depsgraph does not watch ID-property writes on its own).
         p.update_tag()
 
+    @ptk.Deprecation.parameter(
+        "axis", drop=True, remove_in="0.12.0", since="2026-09-23"
+    )
     def create_silhouette_texture(
         self,
         size=512,
@@ -656,7 +659,8 @@ class ShadowRig(ptk.LoggingMixin):
         through the source — via ``pythontk.ImgUtils.rasterize_shadow``, and load it as a
         reusable image datablock.
 
-        ``axis`` is retired (the silhouette is always the projection; any other value warns).
+        ``axis`` is DEPRECATED (warns; removed in 0.12.0) and ignored: the silhouette is always the
+        projection; a positional value other than ``"auto"`` is logged (mirror of mayatk's).
         ``path`` overwrites a rig's existing PNG in place (:meth:`refresh_silhouette`) so the
         image datablock and the engine join key stay valid. ``refit`` fits the canvas to the new
         projection and restamps the plane (a live rig); False draws into the canvas the stamped
@@ -2558,6 +2562,9 @@ class ShadowRig(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ orchestration
     @classmethod
+    @ptk.Deprecation.parameter(
+        "axis", drop=True, remove_in="0.12.0", since="2026-09-23"
+    )
     def create(
         cls,
         targets,
@@ -2576,8 +2583,9 @@ class ShadowRig(ptk.LoggingMixin):
 
         ``source_name`` is any existing object's name (a light included; a ``SUN`` projects
         along its direction) or the name of an Empty to create at ``light_pos``; one plane is
-        built per source, so call :meth:`create_for_sources` for several. ``axis`` is retired
-        (the silhouette is always the projection through the source). ``mode`` has one value,
+        built per source, so call :meth:`create_for_sources` for several. ``axis`` is DEPRECATED
+        (warns; removed in 0.12.0) and ignored -- the silhouette is always the projection
+        through the source. ``mode`` has one value,
         ``"orbit"``; any other builds as orbit.
 
         ``rig_type`` is ``"projected"`` (default) or ``"horizon"`` — the latter also bakes the
@@ -2609,9 +2617,9 @@ class ShadowRig(ptk.LoggingMixin):
             rig.get_or_create_shadow_source(position=light_pos, source_name=source_name)
             rig.create_contact_locator()
             rig.create_shadow_plane()
-            rig.create_silhouette_texture(
-                size=texture_res, axis=axis, recursive=recursive
-            )
+            # Positional, so only a caller's own (positional) retired axis
+            # reaches the texture's notice -- the keyword form warned above.
+            rig.create_silhouette_texture(texture_res, axis, recursive)
             rig.create_material()
             # The group BEFORE the drivers: it carries the model's level-1
             # intermediates the plane's channels read.

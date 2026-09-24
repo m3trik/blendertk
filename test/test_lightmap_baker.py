@@ -12,13 +12,14 @@ import shutil
 import sys
 import tempfile
 import traceback
+import warnings
 
 import numpy as np  # ships with Blender
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -48,16 +49,30 @@ try:
     store = LightmapBaker.preset_store()
     check(
         "built-in presets ship",
-        set(store.list()) >= {"preview", "quest", "desktop"},
+        set(store.list()) >= {"preview", "mobile", "desktop"},
         f"{store.list()}",
     )
     # Cycles-appropriate sampling: the presets originally mirrored mayatk's Arnold
     # tiers (2/4/8 AA samples), which as CYCLES path-tracing samples are pure noise.
-    baker = LightmapBaker.from_preset("quest")
+    baker = LightmapBaker.from_preset("mobile")
     check(
         "from_preset reads the dials",
         baker.resolution == 1024 and baker.samples == 256,
         f"{baker.resolution}/{baker.samples}",
+    )
+    # "quest" was renamed "mobile" (mirrors mayatk): a script naming the old tier
+    # still bakes at its dials, and is told the new name.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        old = LightmapBaker.from_preset("quest")
+    check(
+        "the renamed quest tier still builds mobile, with a notice",
+        (old.resolution, old.samples, old.bounces) == (1024, 256, 4)
+        and any(
+            issubclass(w.category, DeprecationWarning) and "mobile" in str(w.message)
+            for w in caught
+        ),
+        f"{[str(w.message) for w in caught]}",
     )
     baker = LightmapBaker.from_preset("preview", resolution=64, samples=1)
     check(
@@ -79,7 +94,7 @@ try:
     # a detail.
     tiers = {
         n: LightmapBaker.from_preset(n).bounces
-        for n in ("preview", "quest", "desktop", "hero")
+        for n in ("preview", "mobile", "desktop", "hero")
     }
     check(
         "every preset carries a bounce depth",
@@ -88,7 +103,7 @@ try:
     )
     check(
         "bounces rise with the tier",
-        tiers["preview"] <= tiers["quest"] <= tiers["desktop"],
+        tiers["preview"] <= tiers["mobile"] <= tiers["desktop"],
         f"{tiers}",
     )
     # The production tiers keep CYCLES' own default depth (4), deliberately: pinning
@@ -100,17 +115,17 @@ try:
     # the residual is method (Arnold bakes through a white card), not bounce count.
     check(
         "every tier but preview keeps Cycles' own default depth",
-        tiers["quest"] == tiers["desktop"] == tiers["hero"] == 4,
+        tiers["mobile"] == tiers["desktop"] == tiers["hero"] == 4,
         f"{tiers}",
     )
     check(
         "only preview -- the tier that advertises speed -- trades bounces",
-        tiers["preview"] < tiers["quest"],
+        tiers["preview"] < tiers["mobile"],
         f"{tiers}",
     )
     check(
         "bounces is overridable like the other constructor args",
-        LightmapBaker.from_preset("quest", bounces=5).bounces == 5,
+        LightmapBaker.from_preset("mobile", bounces=5).bounces == 5,
     )
     check(
         "bounces reaches the primitive that applies it",
@@ -895,45 +910,6 @@ try:
         and cube.material_slots[0].material is src_mat,
     )
 
-    # --- the tier's bounce depth reaches the PANEL bake ----------------------
-    # Resolution and Samples reach the bake through their widgets; bounces has no
-    # widget, so _apply_preset has to carry it or the tier silently no-ops for every
-    # panel bake and the panel sits on the constructor default whichever tier shows
-    # (the exact failure mayatk's _preset_gi comment records for gi_depth).
-    from blendertk.light_utils.lightmap_baker.lightmap_baker_slots import (
-        LightmapBakerSlots,
-    )
-
-    class _Spin:
-        def __init__(self):
-            self._v = 0
-
-        def blockSignals(self, _b):
-            pass
-
-        def setValue(self, v):
-            self._v = int(v)
-
-        def value(self):
-            return self._v
-
-    panel = LightmapBakerSlots.__new__(LightmapBakerSlots)
-    panel.ui = type("U", (), {"spn_samples": _Spin()})()
-    panel._set_resolution = lambda v: None
-    for tier in ("preview", "quest", "desktop"):
-        panel._apply_preset(tier)
-        want = LightmapBaker.from_preset(tier).bounces
-        check(
-            f"_apply_preset carries {tier}'s bounce depth to the bake",
-            panel._preset_gi.get("bounces") == want,
-            f"{panel._preset_gi} want {want}",
-        )
-    check(
-        "the carried dials are exactly what LightmapBaker accepts",
-        LightmapBaker(resolution=64, samples=1, **panel._preset_gi).bounces
-        == LightmapBaker.from_preset("desktop").bounces,
-    )
-
     # --- level verdict (engine): black AND blown ----------------------------
     # Either failure is a FAITHFUL render of a wrong scene, so nothing errors;
     # the bake's verdict is what tells the artist before the map ships to a
@@ -1127,133 +1103,6 @@ try:
         s.ui.txt_output_dir.text() == abs_dir,
     )
 
-    # --- Quality follows the dials (panel) ---------------------------------
-    # Move Resolution or Samples off the tier and the combobox must say *Custom*
-    # rather than keep naming a preset the bake is no longer using. One
-    # ``sb.value_from`` rule does the following (uitk covers the rule itself);
-    # what is pinned here is the panel's half. Mirrors mayatk's
-    # TestQualityFollowsDials.
-    class _QualityCombo:
-        """Enough of QComboBox for cmb000_init / cmb000, populated by name."""
-
-        def __init__(self):
-            self.items, self._index = [], -1
-
-        def clear(self):
-            self.items, self._index = [], -1
-
-        def addItems(self, items):
-            self.items.extend(items)
-            if self._index < 0 and self.items:
-                self._index = 0
-
-        def findText(self, text):
-            return self.items.index(text) if text in self.items else -1
-
-        def setCurrentIndex(self, index):
-            self._index = index
-
-        def currentIndex(self):
-            return self._index
-
-        def currentText(self):
-            return self.items[self._index] if 0 <= self._index < len(self.items) else ""
-
-    class _ResCombo:
-        """cmb_resolution's item-data model: currentData() is the pixel size."""
-
-        _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
-
-        def __init__(self, resolution=1024):
-            self._data = resolution
-
-        def currentData(self):
-            return self._data
-
-        def setCurrentIndex(self, index):
-            self._data = self._RESOLUTIONS[index]
-
-        def blockSignals(self, _b):
-            pass
-
-    class _Spin:
-        def __init__(self, v):
-            self._v = v
-
-        def value(self):
-            return self._v
-
-        def setValue(self, v):
-            self._v = v
-
-        def blockSignals(self, _b):
-            pass
-
-    class _QualityUi:
-        def __init__(self, res, samples):
-            self.cmb_resolution = _ResCombo(res)
-            self.spn_samples = _Spin(samples)
-            self.footer = _Field()
-
-    def _quality_slots(res=1024, samples=256):
-        s = LightmapBakerSlots.__new__(LightmapBakerSlots)
-        s._preset_by_dials = {}
-        s.ui = _QualityUi(res, samples)
-        return s
-
-    q = _quality_slots()
-    quality_combo = _QualityCombo()
-    q.cmb000_init(quality_combo)
-    tier_names = list(store.list())
-    tiers = {}
-    for n in tier_names:
-        data = store.load(n)
-        tiers[(int(data["resolution"]), int(data["samples"]))] = n
-    check(
-        "the Quality combobox ends in a Custom row",
-        quality_combo.items == tier_names + ["Custom"],
-        f"{quality_combo.items}",
-    )
-    check("cmb000_init still defaults to quest", quality_combo.currentText() == "quest")
-    # Every tier the combo offers must be reachable from its dials, or the rule
-    # would report Custom for a preset the user just picked.
-    check(
-        "every listed tier is reachable from its dials",
-        q._preset_by_dials == tiers,
-        f"{q._preset_by_dials}",
-    )
-    check("dials on a tier name that tier", q._preset_for_dials(1024, 256) == "quest")
-    check(
-        "ONE dial off the tier is enough to read Custom",
-        q._preset_for_dials(1024, 255) == "Custom"
-        and q._preset_for_dials(512, 256) == "Custom",
-    )
-
-    # Custom is not a stored preset: selecting it must move no dial, and say so
-    # rather than fall silent.
-    q = _quality_slots(res=2048, samples=257)
-    quality_combo = _QualityCombo()
-    q.cmb000_init(quality_combo)
-    quality_combo.setCurrentIndex(quality_combo.findText("Custom"))
-    q.cmb000(quality_combo.currentIndex(), quality_combo)
-    check(
-        "selecting Custom leaves the dials alone",
-        q.ui.cmb_resolution.currentData() == 2048 and q.ui.spn_samples.value() == 257,
-    )
-    check("selecting Custom reports it", "Custom" in q.ui.footer.text())
-
-    # ...and the Custom row must not cost the combobox its original job.
-    quality_combo.setCurrentIndex(quality_combo.findText("desktop"))
-    q.cmb000(quality_combo.currentIndex(), quality_combo)
-    check(
-        "selecting a tier still fills the dials",
-        q.ui.cmb_resolution.currentData() == 2048 and q.ui.spn_samples.value() == 512,
-    )
-    check(
-        "the dials it wrote resolve back to that tier",
-        q._preset_for_dials(2048, 512) == "desktop",
-    )
-
     # --- pre-bake unlit-scene guard (mayatk parity) ------------------------
     # mayatk warns BEFORE spending the rays; blendertk previously only had the
     # panel's post-bake black-map check, so a scripted bake got no hint at all.
@@ -1361,63 +1210,6 @@ try:
         "an HDRI-only scene trips the guard when the environment is left out",
         hdri_only._warned_no_lights is True,
     )
-
-    # --- panel: Device row + Include Environment ---------------------------
-    class _DeviceCombo:
-        """Enough of QComboBox for cmb_device_init / _device (item data)."""
-
-        def __init__(self):
-            self.items, self._index = [], -1
-
-        def clear(self):
-            self.items, self._index = [], -1
-
-        def addItem(self, text, data=None):
-            self.items.append((text, data))
-            if self._index < 0:
-                self._index = 0
-
-        def setCurrentIndex(self, i):
-            self._index = i
-
-        def currentData(self):
-            if 0 <= self._index < len(self.items):
-                return self.items[self._index][1]
-            return None
-
-    class _Check:
-        def __init__(self, value):
-            self._value = value
-
-        def isChecked(self):
-            return self._value
-
-    panel = LightmapBakerSlots.__new__(LightmapBakerSlots)
-    device_combo = _DeviceCombo()
-    panel.cmb_device_init(device_combo)
-    panel.ui = type(
-        "U",
-        (),
-        {
-            "cmb_device": device_combo,
-            "chk_environment": _Check(False),
-            "chk_denoise": _Check(False),
-        },
-    )()
-    check(
-        "the Device row offers Auto / GPU / CPU",
-        [v for _t, v in device_combo.items] == ["AUTO", "GPU", "CPU"],
-        device_combo.items,
-    )
-    check("Device defaults to Auto", panel._device() == "AUTO")
-    check(
-        "the panel reads the Include Environment checkbox",
-        panel._include_environment() is False,
-    )
-    # The Denoise row drives the baker's existing knob (mirrors mayatk's).
-    check("the panel reads the Denoise checkbox", panel._denoise() is False)
-    device_combo.setCurrentIndex(2)
-    check("selecting CPU reads back as CPU", panel._device() == "CPU")
 
     # --- light audit diagnostic (mayatk parity) ----------------------------
     # mayatk attaches a per-light table to the black-bake warning so a dark
@@ -1537,13 +1329,12 @@ try:
         and len(result["copied"]) == 1,
         f"{result}",
     )
+    folder = LightmapRecords._folder_hint(marker, LightmapRecords._folder_hints())
     check(
-        "...and repoints the bake marker",
+        "...and repoints the map's recorded folder",
         result["updated"] == 1
-        and _same_dir(
-            LightmapRecords._resolved_dir(marker["dir"], marker["map"]), dest
-        ),
-        f"{marker.get('dir')}",
+        and _same_dir(LightmapRecords._resolved_dir(folder, marker["map"]), dest),
+        f"{folder}",
     )
     manifest = json.loads(ptk.SceneRecords.LIGHTMAPS.read_text(btk.DataNodes) or "{}")
     check(
@@ -1584,13 +1375,16 @@ try:
     )
     n = dep_baker.repath_lightmaps({"lost.exr": moved_dir}, ["lost_cube"])
     lost_marker = json.loads(lost_cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    lost_folder = LightmapRecords._folder_hint(
+        lost_marker, LightmapRecords._folder_hints()
+    )
     check(
-        "repath_lightmaps rewrites a marker's folder",
+        "repath_lightmaps rewrites a map's recorded folder",
         n == 1
         and _same_dir(
-            LightmapRecords._resolved_dir(lost_marker["dir"], "lost.exr"), moved_dir
+            LightmapRecords._resolved_dir(lost_folder, "lost.exr"), moved_dir
         ),
-        f"{lost_marker.get('dir')}",
+        f"{lost_folder}",
     )
     dep_baker.revert()
 
@@ -1958,6 +1752,1461 @@ try:
         check("a collection-hidden object bakes at all", False, "no map written")
 
     LightmapBaker().revert()
+
+    # --- parity with mayatk's 2026-09-22 panel: Exclude, presets, switches ---
+    # mayatk's baker grew an Exclude set, Beside Material Textures, Adaptive
+    # Sampling, Bounces on the panel and a preset template that stores the
+    # switches as well as the dials; these pin the Blender twin of each, engine
+    # half first, then the panel's.
+    import xml.etree.ElementTree as ET
+    from types import SimpleNamespace
+
+    from blendertk.core_utils._core_utils import CoreUtils
+    from blendertk.mat_utils.bake_sets import BakeSet, LightmapExcludeSet
+    from blendertk.mat_utils.substance_bridge._substance_bridge import HighPolySet
+    from blendertk.light_utils.lightmap_baker import lightmap_baker_slots as slots_mod
+
+    LightmapBaker().revert()
+    par_dir = os.path.join(tmp_dir, "parity")
+
+    def _par_cube(name, location, size=2.0):
+        bpy.ops.mesh.primitive_cube_add(size=size, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        return obj
+
+    # The Exclude set: members, an Empty's descendants, and bake_targets.
+    ex_a = _par_cube("ex_a", (60, 0, 0))
+    ex_b = _par_cube("ex_b", (64, 0, 0))
+    ex_group = bpy.data.objects.new("ex_group", None)
+    bpy.context.scene.collection.objects.link(ex_group)
+    ex_c = _par_cube("ex_c", (68, 0, 0))
+    ex_c.parent = ex_group
+    LightmapExcludeSet.define([ex_b, ex_group])
+    check(
+        "the Exclude set counts the meshes under an Empty member",
+        sorted(o.name for o in LightmapExcludeSet.meshes()) == ["ex_b", "ex_c"],
+        f"{[o.name for o in LightmapExcludeSet.meshes()]}",
+    )
+    check(
+        "bake_targets subtracts the Exclude set",
+        LightmapBaker.bake_targets([ex_a, ex_b, ex_c]) == ["ex_a"],
+        f"{LightmapBaker.bake_targets([ex_a, ex_b, ex_c])}",
+    )
+    ex_col = LightmapExcludeSet.collection()
+    check(
+        "the set is a stamped collection, disabled in viewports and renders",
+        ex_col is not None
+        and LightmapExcludeSet.STAMP in ex_col
+        and ex_col.hide_viewport
+        and ex_col.hide_render,
+    )
+    check(
+        "members stay in their own collections too (the set is a tag)",
+        len(ex_b.users_collection) == 2,
+        f"{[c.name for c in ex_b.users_collection]}",
+    )
+    bpy.ops.object.select_all(action="DESELECT")
+    ex_a.select_set(True)
+    check(
+        "define([]) clears the set rather than capturing the selection",
+        LightmapExcludeSet.define([]) == [] and not LightmapExcludeSet.exists(),
+    )
+    check(
+        "...and leaves its objects in the file",
+        all(o.name in bpy.data.objects and o.users_collection for o in (ex_b, ex_c)),
+    )
+    # Found by its stamp, never by name: a user collection that happens to
+    # carry the name is not adopted, and defining the set leaves it alone.
+    impostor = bpy.data.collections.new(LightmapExcludeSet.SET_NAME)
+    impostor.objects.link(ex_c)
+    check(
+        "a same-named user collection is not the set",
+        LightmapExcludeSet.collection() is None and LightmapExcludeSet.meshes() == [],
+    )
+    LightmapExcludeSet.define([ex_a])
+    check(
+        "...and defining the set leaves it alone",
+        LightmapExcludeSet.collection() is not impostor
+        and [o.name for o in impostor.objects] == ["ex_c"],
+    )
+    LightmapExcludeSet.clear()
+    impostor.objects.unlink(ex_c)
+    bpy.data.collections.remove(impostor)
+    # ...nor is a stamped set a LIBRARY links in: that set is the library file's,
+    # read-only here (a Maya reference's set is namespaced away the same way).
+    # Adopted, it kept the library's objects out of this file's bake, Set From
+    # Selection raised on it ("the collection is linked"), and Clear deleted the
+    # linked collection from the file.
+    lib_obj = bpy.data.objects.new("ex_lib_obj", bpy.data.meshes.new("ex_lib_mesh"))
+    lib_set = bpy.data.collections.new("ex_lib_set")
+    lib_set[LightmapExcludeSet.STAMP] = True
+    lib_set.objects.link(lib_obj)
+    lib_path = os.path.join(tmp_dir, "exclude_library.blend")
+    bpy.data.libraries.write(lib_path, {lib_set})
+    lib_mesh = lib_obj.data
+    bpy.data.collections.remove(lib_set)
+    bpy.data.objects.remove(lib_obj)
+    bpy.data.meshes.remove(lib_mesh)
+    with bpy.data.libraries.load(lib_path, link=True) as (_lib_src, lib_dst):
+        lib_dst.collections = ["ex_lib_set"]
+    linked_set = lib_dst.collections[0]
+    linked_library = linked_set.library
+    check(
+        "a stamped set a library links in is not this file's set",
+        linked_library is not None
+        and LightmapExcludeSet.collection() is None
+        and LightmapExcludeSet.meshes() == [],
+        f"{[o.name for o in LightmapExcludeSet.meshes()]}",
+    )
+    try:
+        LightmapExcludeSet.define([ex_a])
+        own = LightmapExcludeSet.collection()
+        defined = (
+            own is not None
+            and own.library is None
+            and [o.name for o in own.objects] == ["ex_a"]
+        )
+        define_error = ""
+    except RuntimeError as error:
+        defined, define_error = False, str(error)
+    check(
+        "...Set From Selection beside it defines this file's own", defined, define_error
+    )
+    LightmapExcludeSet.clear()
+    check(
+        "...and Clear leaves the linked collection in the file",
+        any(
+            c.library is not None and c.name == "ex_lib_set"
+            for c in bpy.data.collections
+        ),
+    )
+    bpy.data.libraries.remove(linked_library)
+    check(
+        "with no set, bake_targets bakes everything",
+        LightmapBaker.bake_targets([ex_a, ex_b, ex_c]) == ["ex_a", "ex_b", "ex_c"],
+    )
+    check(
+        "resolve_meshes names each mesh once",
+        [o.name for o in TextureBaker.resolve_meshes([ex_a, "ex_a", ex_b, ex_a])]
+        == ["ex_a", "ex_b"],
+    )
+    # A faceless mesh has no surface to bake: it passed, and its lightmap UV
+    # unwrap then failed the WHOLE bake (measured 2026-09-23, Blender 5.1) --
+    # mayatk's twin crashed mayapy in Arnold on one. Modifiers that BUILD faces
+    # on an empty base (geometry nodes) still count: the bake reads them.
+    faceless = bpy.data.objects.new("ex_faceless", bpy.data.meshes.new("ex_faceless"))
+    bpy.context.scene.collection.objects.link(faceless)
+    built = bpy.data.objects.new("ex_built", bpy.data.meshes.new("ex_built"))
+    bpy.context.scene.collection.objects.link(built)
+    gn_tree = bpy.data.node_groups.new("ex_built_cube", "GeometryNodeTree")
+    gn_tree.interface.new_socket(
+        name="Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry"
+    )
+    gn_tree.links.new(
+        gn_tree.nodes.new("GeometryNodeMeshCube").outputs["Mesh"],
+        gn_tree.nodes.new("NodeGroupOutput").inputs[0],
+    )
+    built.modifiers.new("build", "NODES").node_group = gn_tree
+    check(
+        "resolve_meshes leaves out a mesh with no faces, keeps one its modifiers build",
+        [o.name for o in TextureBaker.resolve_meshes([faceless, ex_a, built])]
+        == ["ex_a", "ex_built"],
+    )
+    for ob in (faceless, built):
+        mesh = ob.data
+        bpy.data.objects.remove(ob)
+        bpy.data.meshes.remove(mesh)
+    bpy.data.node_groups.remove(gn_tree)
+    check(
+        "HighPolySet stores its set the same way (BakeSet)",
+        issubclass(HighPolySet, BakeSet)
+        and HighPolySet.STAMP != LightmapExcludeSet.STAMP,
+    )
+
+    # Measured, not assumed: an excluded object gets no map but stays in the
+    # render -- it still shadows the floor -- while membership itself changes
+    # nothing about what renders. An object is in the render when ANY
+    # collection it is in renders, so a plain set collection brought a box its
+    # artist had switched off back into the bake (0.955 -> 0.000 under it).
+    bpy.ops.object.light_add(type="SUN", location=(80, 0, 8))
+    par_sun = bpy.context.active_object
+    par_sun.data.energy = 3.0
+    bpy.ops.mesh.primitive_plane_add(size=4, location=(80, 0, 0))
+    floor = bpy.context.active_object
+    floor.name = "ex_floor"
+    btk.assign_mat(floor, mat)
+    box = _par_cube("ex_box", (80, 0, 1.2), size=1.2)
+    btk.assign_mat(box, mat)
+    box_home = bpy.data.collections.new("ex_box_home")
+    bpy.context.scene.collection.children.link(box_home)
+    for c in list(box.users_collection):
+        c.objects.unlink(box)
+    box_home.objects.link(box)
+    ex_baker = LightmapBaker(
+        resolution=32, samples=16, denoise=False, device="CPU", bounces=1
+    )
+
+    def _floor_levels():
+        """(centre, corner) mean of the floor's fresh map: under the box, and not."""
+        rgb = _rgb(
+            # heal=False: the dead-texel rescue refills a deep shadow from its
+            # lit neighbours -- right for a shipped map, wrong for a measurement.
+            ex_baker.bake_separated(
+                [floor], output_dir=par_dir, suffix="_Probe", heal=False
+            )[floor.name]
+        )
+        h, w = rgb.shape[:2]
+        centre = float(rgb[h // 2 - 3 : h // 2 + 3, w // 2 - 3 : w // 2 + 3].mean())
+        corner = float(rgb[1:5, 1:5].mean())
+        return centre, corner
+
+    box_home.hide_render = True
+    open_centre, open_corner = _floor_levels()
+    box_home.hide_render = False
+    shadow_centre, shadow_corner = _floor_levels()
+    check(
+        "fixture: the box shadows the floor under it",
+        open_centre > 0.05 and shadow_centre < 0.5 * open_centre,
+        f"open {open_centre:.4f} shadowed {shadow_centre:.4f}",
+    )
+
+    LightmapExcludeSet.define([box])
+    wf_ex = ex_baker.bake([floor, box], packing="per_object", output_dir=par_dir)
+    check(
+        "bake() gives an Exclude-set member no map, and names it",
+        list(wf_ex.maps) == [floor.name] and wf_ex.excluded == [box.name],
+        f"{wf_ex}",
+    )
+    ex_centre, _ex_corner = _floor_levels()
+    check(
+        "an excluded object still shadows the objects that bake",
+        ex_centre < 0.5 * open_centre,
+        f"excluded {ex_centre:.4f} vs open {open_centre:.4f}",
+    )
+    box_home.hide_render = True  # the artist switches the box off for renders
+    neutral_centre, _n_corner = _floor_levels()
+    check(
+        "set membership never puts a render-hidden object back in the bake",
+        neutral_centre > 0.8 * open_centre,
+        f"{neutral_centre:.4f} vs open {open_centre:.4f}",
+    )
+    box_home.hide_render = False
+    only_box = ex_baker.bake([box], packing="per_object", output_dir=par_dir)
+    check(
+        "bake() of the Exclude set alone is refused, and says so",
+        bool(only_box.refused)
+        and "Exclude set" in only_box.refused
+        and not only_box.maps,
+        f"{only_box}",
+    )
+    plan = LightmapBaker(resolution=64).atlas_plan([floor, box])
+    check(
+        "atlas_plan gives an excluded object no cell",
+        [n for entries in plan.values() for n, _r in entries] == [floor.name],
+        f"{plan}",
+    )
+    check(
+        "bake_separated gives an excluded object no map",
+        list(ex_baker.bake_separated([floor, box], output_dir=par_dir)) == [floor.name],
+    )
+    LightmapRecords.revert([floor])
+    LightmapExcludeSet.clear()
+
+    # Beside Material Textures: each map in its texture set's folder, the rest
+    # in output_dir, and a folder that resolves nowhere here never created.
+    def _textured(name, location, folder, set_name, material=None):
+        obj = _par_cube(name, location)
+        if material is None:
+            material = btk.create_mat("standard", name=f"{name}_mat")
+            node = material.node_tree.nodes.new("ShaderNodeTexImage")
+            image = bpy.data.images.new(f"{set_name}_BaseColor.png", 4, 4)
+            image.filepath = os.path.join(folder, f"{set_name}_BaseColor.png")
+            node.image = image
+        btk.assign_mat(obj, material)
+        return obj, material
+
+    tex_root = os.path.join(par_dir, "tex")
+    crate_dir = os.path.join(tex_root, "crate")
+    shelf_dir = os.path.join(tex_root, "shelf")
+    gone_dir = os.path.join(tex_root, "moved", "library")
+    for folder in (crate_dir, shelf_dir):
+        os.makedirs(folder, exist_ok=True)
+    bs_crate, _ = _textured("bs_crate", (72, 8, 0), crate_dir, "Crate_Wood_01")
+    bs_gone, _ = _textured("bs_gone", (76, 8, 0), gone_dir, "Gone_Set_01")
+    bs_plain = _par_cube("bs_plain", (80, 8, 0))
+    found = TextureBaker.texture_set(bs_crate)
+    check(
+        "the texture set names the map and picks its folder",
+        found is not None
+        and found[0] == "Crate_Wood_01"
+        and os.path.normcase(found[1]) == os.path.normcase(os.path.normpath(crate_dir)),
+        f"{found}",
+    )
+    check(
+        "texture_set_stem reads the same answer",
+        TextureBaker.texture_set_stem(bs_crate) == "Crate_Wood_01",
+    )
+    bs_out = os.path.join(par_dir, "out")
+    beside = LightmapBaker(
+        resolution=32,
+        samples=4,
+        denoise=False,
+        device="CPU",
+        beside_textures=True,
+    )
+    sep = beside.bake_separated([bs_crate, bs_gone, bs_plain], output_dir=bs_out)
+
+    def _folder_of(path):
+        return os.path.normcase(os.path.dirname(os.path.abspath(path)))
+
+    check(
+        "beside textures: the map lands in its texture set's folder",
+        _folder_of(sep.get("bs_crate", "")) == os.path.normcase(crate_dir),
+        f"{sep}",
+    )
+    check(
+        "...an object with none takes output_dir",
+        _folder_of(sep.get("bs_plain", "")) == os.path.normcase(bs_out),
+        f"{sep}",
+    )
+    check(
+        "...and a texture folder missing here falls back, never created",
+        _folder_of(sep.get("bs_gone", "")) == os.path.normcase(bs_out)
+        and not os.path.exists(gone_dir),
+        f"{sep}",
+    )
+    check(
+        "...placed, not baked there: the texture folder holds the map alone",
+        os.listdir(crate_dir) == [os.path.basename(sep.get("bs_crate", "?"))],
+        f"{os.listdir(crate_dir)}",
+    )
+    shelf_a, shelf_mat = _textured(
+        "bs_shelf_a", (84, 8, 0), shelf_dir, "Shelf_Metal_01"
+    )
+    shelf_b, _ = _textured(
+        "bs_shelf_b", (88, 8, 0), shelf_dir, None, material=shelf_mat
+    )
+    atlas_out = os.path.join(par_dir, "atlas_out")
+    packed = beside.bake_atlas([shelf_a, shelf_b], output_dir=atlas_out)
+    atlas_paths = {p for p, _r in packed.values()}
+    check(
+        "beside textures: an atlas lands beside its material group's textures",
+        len(atlas_paths) == 1
+        and _folder_of(next(iter(atlas_paths))) == os.path.normcase(shelf_dir)
+        and os.path.basename(next(iter(atlas_paths))) == "Shelf_Metal_01_Lightmap.exr"
+        and os.path.isfile(next(iter(atlas_paths))),
+        f"{packed}",
+    )
+    check("...and nothing fell back to output_dir", not os.path.exists(atlas_out))
+    # A file in a shared texture folder that no marker in this file claims is
+    # another file's map: replacing it would hand that file this one's lighting.
+    # Once a marker claims it for the very objects being placed, it is theirs.
+    work = os.path.join(par_dir, "work")
+    os.makedirs(work, exist_ok=True)
+    theirs = os.path.join(crate_dir, "Shared_Set_Lightmap.exr")
+    with open(theirs, "wb") as fh:
+        fh.write(b"theirs")
+    staged = os.path.join(work, "Shared_Set_Lightmap.exr")
+    with open(staged, "wb") as fh:
+        fh.write(b"new")
+    placed = beside._place_unpacked(
+        {"bs_crate": (staged, None)}, bs_out, {"bs_crate": crate_dir}
+    )
+    with open(theirs, "rb") as fh:
+        untouched = fh.read() == b"theirs"
+    check(
+        "a map no marker claims is another file's: left alone, the bake takes _1",
+        untouched
+        and os.path.basename(placed.get("bs_crate", ("",))[0])
+        == "Shared_Set_Lightmap_1.exr",
+        f"{placed}",
+    )
+    with open(staged, "wb") as fh:
+        fh.write(b"newer")
+    placed = beside._place_unpacked(
+        {"bs_crate": (staged, None)},
+        bs_out,
+        {"bs_crate": crate_dir},
+        claims={"shared_set_lightmap.exr": frozenset({"bs_crate"})},
+    )
+    with open(theirs, "rb") as fh:
+        replaced = fh.read() == b"newer"
+    check(
+        "...and one this object's marker claims is its own to replace",
+        replaced and placed["bs_crate"][0] == theirs,
+        f"{placed}",
+    )
+
+    # _place never deletes the old map before the new one is in: a swap that
+    # fails leaves the destination as it was and takes an adjacent name.
+    held_dir = os.path.join(par_dir, "held")
+    os.makedirs(held_dir, exist_ok=True)
+    old_map = os.path.join(held_dir, "Held_Lightmap.exr")
+    with open(old_map, "wb") as fh:
+        fh.write(b"old")
+    fresh = os.path.join(par_dir, "Held_Lightmap.exr")
+    with open(fresh, "wb") as fh:
+        fh.write(b"new")
+    real_move = LightmapBaker.__dict__["_move_into_place"]
+
+    def _held(source, destination):
+        raise PermissionError("held open")
+
+    LightmapBaker._move_into_place = staticmethod(_held)
+    try:
+        landed = LightmapBaker._place(fresh, held_dir, set())
+    finally:
+        LightmapBaker._move_into_place = real_move
+    with open(old_map, "rb") as fh:
+        old_kept = fh.read() == b"old"
+    check(
+        "a held destination keeps its map and the bake takes an adjacent name",
+        old_kept and os.path.basename(landed) == "Held_Lightmap_1.exr",
+        f"{landed}",
+    )
+    # ...and the real swap, through _place_unpacked (Beside Material Textures):
+    # a map held open (a viewer, a sync client) goes to the next free name,
+    # never onto another file's, and one whose every move fails is left out --
+    # the bake reports it unbaked -- with the old map intact and nothing staged
+    # left behind. Mirror of mayatk's.
+    from unittest import mock
+
+    def _written(path, data):
+        with open(path, "wb") as fh:
+            fh.write(data)
+        return path
+
+    def _read(path):
+        """*path*'s bytes, or ``None`` once it is gone (a lost map FAILs, not raises)."""
+        try:
+            with open(path, "rb") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    lock_dir = os.path.join(par_dir, "locked")
+    os.makedirs(lock_dir, exist_ok=True)
+    own_lock = _written(os.path.join(lock_dir, "Floor_Lightmap.exr"), b"old")
+    theirs_lock = _written(os.path.join(lock_dir, "Floor_Lightmap_1.exr"), b"theirs")
+    lock_src = _written(os.path.join(work, "Floor_Lightmap.exr"), b"new")
+    if os.name == "nt":  # needs Windows' delete-while-open lock
+        with open(own_lock, "rb"):  # held: it cannot be replaced
+            locked = beside._place_unpacked(
+                {"lock_obj": (lock_src, None)},
+                lock_dir,
+                claims={"floor_lightmap.exr": frozenset({"lock_obj"})},
+            )
+        check(
+            "a map held open goes to the next free name, never onto another file's",
+            os.path.basename(locked.get("lock_obj", ("",))[0]) == "Floor_Lightmap_2.exr"
+            and _read(theirs_lock) == b"theirs"
+            and _read(own_lock) == b"old",
+            f"{locked} {sorted(os.listdir(lock_dir))}",
+        )
+    fail_dir = os.path.join(par_dir, "unplaceable")
+    os.makedirs(fail_dir, exist_ok=True)
+    own_fail = _written(os.path.join(fail_dir, "Fail_Lightmap.exr"), b"old")
+    fail_src = _written(os.path.join(work, "Fail_Lightmap.exr"), b"new")
+    with mock.patch.object(
+        shutil, "move", side_effect=OSError(28, "No space left on device")
+    ):
+        unplaced = beside._place_unpacked(
+            {"fail_obj": (fail_src, None)},
+            fail_dir,
+            claims={"fail_lightmap.exr": frozenset({"fail_obj"})},
+        )
+    check(
+        "a map that cannot be placed is left out, the old one intact, nothing staged",
+        "fail_obj" not in unplaced
+        and _read(own_fail) == b"old"
+        and sorted(os.listdir(fail_dir)) == ["Fail_Lightmap.exr"],
+        f"{unplaced} {sorted(os.listdir(fail_dir))}",
+    )
+
+    # Adaptive sampling: Cycles bakes honour the scene's flag, so the bake pins
+    # it (with Cycles' own threshold) and puts the scene's back afterwards.
+    scn.cycles.use_adaptive_sampling = False
+    scn.cycles.adaptive_threshold = 0.2
+    state = TextureBaker(adaptive=True)._configure_bake_scene(use_pass_color=False)
+    pinned = (
+        scn.cycles.use_adaptive_sampling,
+        round(scn.cycles.adaptive_threshold, 4),
+    )
+    TextureBaker()._restore_bake_scene(state)
+    check(
+        "the bake pins adaptive sampling and Cycles' own threshold",
+        pinned == (True, TextureBaker.ADAPTIVE_THRESHOLD),
+        f"{pinned}",
+    )
+    check(
+        "...and restores the scene's afterwards",
+        scn.cycles.use_adaptive_sampling is False
+        and round(scn.cycles.adaptive_threshold, 4) == 0.2,
+    )
+    state = TextureBaker(adaptive=False)._configure_bake_scene(use_pass_color=False)
+    off = scn.cycles.use_adaptive_sampling
+    TextureBaker()._restore_bake_scene(state)
+    check("adaptive=False gives every texel the full budget", off is False)
+    scn.cycles.use_adaptive_sampling = True
+    scn.cycles.adaptive_threshold = 0.01
+    check(
+        "the baker carries the switch to its bake primitive",
+        LightmapBaker(adaptive=False).adaptive is False
+        and LightmapBaker(adaptive=False)._texture_baker.adaptive is False
+        and LightmapBaker().adaptive is True,
+    )
+
+    # Presets carry the switches: a preset saved from the panel is a headless
+    # recipe too. The store's user tier is pointed at scratch, never the user's.
+    shipped = LightmapBaker.preset_store()
+    scratch_store = ptk.PresetStore(
+        "lightmap",
+        builtin_dir=shipped.builtin_dir,
+        user_dir=os.path.join(par_dir, "presets"),
+    )
+    panel_preset = {
+        "packing": "atlas",
+        "resolution": 512,
+        "samples": 3,
+        "bounces": 1,
+        "adaptive": False,
+        "include_environment": False,
+        "denoise": False,
+        "beside_textures": True,
+        "device": "CPU",
+    }
+    scratch_store.save("roomPass", panel_preset)
+    real_store = LightmapBaker.__dict__["preset_store"]
+    LightmapBaker.preset_store = staticmethod(lambda: scratch_store)
+    try:
+        saved = LightmapBaker.from_preset("roomPass")
+        overridden = LightmapBaker.from_preset(
+            "roomPass", denoise=True, adaptive=True, device="GPU"
+        )
+    finally:
+        LightmapBaker.preset_store = real_store
+    check(
+        "from_preset builds every switch a panel-saved preset stores",
+        (saved.resolution, saved.samples, saved.bounces) == (512, 3, 1)
+        and (saved.adaptive, saved.include_environment, saved.denoise)
+        == (False, False, False)
+        and saved.beside_textures is True,
+    )
+    check(
+        "...never the device (one machine's hardware), and overrides still win",
+        saved.device is None
+        and (overridden.denoise, overridden.adaptive, overridden.device)
+        == (True, True, "GPU"),
+    )
+
+    # The panel half needs uitk and a Qt binding -- the switches are found by
+    # uitk's option type -- which tentacle's Blender carries (PySide6); a bare
+    # Blender does not, and there it is reported rather than failed.
+    try:
+        import uitk.managers.preset_manager  # noqa: F401
+        import uitk.managers.reset_gesture  # noqa: F401
+        import uitk.widgets.optionBox.options.toggle  # noqa: F401
+
+        panel_qt = None
+    except Exception as exc:  # noqa: BLE001
+        panel_qt = exc
+    if panel_qt is not None:
+        lines.append(f"OK   (skipped) the panel half: no uitk/Qt here ({panel_qt})")
+    else:
+        # --- the panel's half (no Qt: stubs answer the way uitk's widgets do) ---
+        class _Toggle:
+            def __init__(self, on=False):
+                self.is_on = bool(on)
+
+            def set_on(self, value, *, emit=True):
+                self.is_on = bool(value)
+
+        class _SwitchBox:
+            """A field's option box: the one toggle it carries, found by type."""
+
+            def __init__(self, on=None):
+                self.toggle = None if on is None else _Toggle(on)
+                self.wired = None
+                self.actions = []
+
+            def find_option(self, _option_type):
+                return self.toggle
+
+            def set_toggle(self, *, initial=True, **kwargs):
+                self.toggle = _Toggle(initial)
+                self.wired = dict(kwargs, initial=initial)
+                return self
+
+            def add_action(self, **kwargs):
+                self.actions.append(kwargs)
+
+            def browse(self, **kwargs):
+                self.browsed = kwargs
+
+            def resolve_affix(self, text=None, *, default="prefix"):
+                return ptk.StrUtils.split_affix(
+                    text or "", mode="auto", default=default
+                )
+
+        class _Spin:
+            def __init__(self, v, switch=None):
+                self._v = v
+                self.option_box = _SwitchBox(switch)
+
+            def value(self):
+                return self._v
+
+            def setValue(self, v):
+                self._v = int(v)
+
+        class _Combo:
+            """Enough of QComboBox: addItem(s) by name or with item data."""
+
+            def __init__(self, switch=None):
+                self.items, self._index = [], -1
+                self.option_box = _SwitchBox(switch)
+
+            def clear(self):
+                self.items, self._index = [], -1
+
+            def addItems(self, items):
+                for text in items:
+                    self.addItem(text)
+
+            def addItem(self, text, data=None):
+                self.items.append((text, data))
+                if self._index < 0:
+                    self._index = 0
+
+            def setCurrentIndex(self, index):
+                self._index = index
+
+            def currentIndex(self):
+                return self._index
+
+            def currentText(self):
+                return (
+                    self.items[self._index][0]
+                    if 0 <= self._index < len(self.items)
+                    else ""
+                )
+
+            def currentData(self):
+                return (
+                    self.items[self._index][1]
+                    if 0 <= self._index < len(self.items)
+                    else None
+                )
+
+        class _Line:
+            def __init__(self, text="", placeholder="", switch=None):
+                self._text, self._placeholder = text, placeholder
+                self.option_box = _SwitchBox(switch)
+
+            def text(self):
+                return self._text
+
+            def setText(self, text):
+                self._text = text
+
+            def placeholderText(self):
+                return self._placeholder
+
+            def setPlaceholderText(self, text):
+                self._placeholder = text
+
+        class _Progress:
+            def __enter__(self):
+                return lambda value=None, text=None: True
+
+            def __exit__(self, *exc):
+                return False
+
+        class _Footer:
+            def __init__(self):
+                self._text = ""
+
+            def setText(self, text):
+                self._text = text
+
+            def text(self):
+                return self._text
+
+            def progress(self, total=None, text=""):
+                return _Progress()
+
+        class _Label(_Footer):
+            pass
+
+        def _panel(
+            res=1024,
+            samples=256,
+            bounces=4,
+            packing="atlas",
+            environment=True,
+            adaptive=True,
+            denoise=True,
+            beside=False,
+            device="AUTO",
+            scope="Selected",
+        ):
+            """A panel over stub widgets, each wired by its own ``_init``."""
+            p = LightmapBakerSlots.__new__(LightmapBakerSlots)
+            ui = SimpleNamespace(
+                cmb_scope=_Combo(),
+                cmb002=_Combo(),
+                cmb_device=_Combo(),
+                cmb_resolution=_Combo(),
+                spn_samples=_Spin(samples),
+                spn_bounces=_Spin(bounces),
+                txt_output_dir=_Line(placeholder="sourceimages"),
+                txt000=_Line("_Lightmap", "_Lightmap"),
+                lbl_exclude=_Label(),
+                footer=_Footer(),
+            )
+            p.ui = ui
+            p._baker = None
+            p._last_output_dir = None
+            p.cmb_scope_init(ui.cmb_scope)
+            p.cmb002_init(ui.cmb002)
+            p.cmb_device_init(ui.cmb_device)
+            p.cmb_resolution_init(ui.cmb_resolution)
+            p.spn_samples_init(ui.spn_samples)
+            p.txt_output_dir_init(ui.txt_output_dir)
+            p._set_resolution(res)
+            p._set_packing(packing)
+            ui.cmb_scope.setCurrentIndex(LightmapBakerSlots._SCOPE_LABELS.index(scope))
+            ui.cmb_device.setCurrentIndex(
+                [v for _t, v in LightmapBakerSlots._DEVICES].index(device)
+            )
+            for key, on in (
+                ("include_environment", environment),
+                ("adaptive", adaptive),
+                ("denoise", denoise),
+                ("beside_textures", beside),
+            ):
+                p._set_toggle_state(key, on)
+            return p
+
+        fresh_panel = _panel()
+        check(
+            "the panel opens on Atlas by Material (mayatk's default)",
+            fresh_panel._packing() == "atlas",
+        )
+        check(
+            "...the Selected scope with the environment in",
+            fresh_panel._scope() == "selected" and fresh_panel._include_environment(),
+        )
+        check(
+            "the Processor row offers Auto / GPU / CPU, Auto first",
+            [v for _t, v in fresh_panel.ui.cmb_device.items] == ["AUTO", "GPU", "CPU"]
+            and fresh_panel._device() == "AUTO"
+            and all(
+                t.startswith("Processor:") for t, _v in fresh_panel.ui.cmb_device.items
+            ),
+        )
+        check(
+            "each field wires its own switch under a panel-scoped key",
+            fresh_panel.ui.spn_samples.option_box.wired["settings_key"]
+            == "lightmap_baker_adaptive"
+            and fresh_panel.ui.cmb_scope.option_box.wired["settings_key"]
+            == "lightmap_baker_include_environment",
+        )
+        check(
+            "the switches ship on, Beside Material Textures off",
+            (
+                fresh_panel._adaptive(),
+                fresh_panel._denoise(),
+                fresh_panel._beside_textures(),
+            )
+            == (True, True, False),
+        )
+        check(
+            "the switches are keyed as the preset store keys them",
+            set(LightmapBakerSlots._TOGGLES) == set(LightmapBaker.PRESET_BOOL_KEYS),
+        )
+        bare = _panel()
+        for field in ("cmb_scope", "spn_samples", "cmb_resolution", "txt_output_dir"):
+            getattr(bare.ui, field).option_box.toggle = None
+        check(
+            "a switch read before its field is wired gives the shipped default",
+            (
+                bare._include_environment(),
+                bare._adaptive(),
+                bare._denoise(),
+                bare._beside_textures(),
+            )
+            == (True, True, True, False),
+        )
+        tuned = _panel(
+            res=2048,
+            samples=64,
+            bounces=2,
+            packing="per_object",
+            environment=False,
+            adaptive=False,
+            denoise=False,
+            beside=True,
+        )
+        tuned_values = tuned._preset_values()
+        check(
+            "Save reads every bake setting under its store key",
+            tuned_values
+            == {
+                "packing": "per_object",
+                "resolution": 2048,
+                "samples": 64,
+                "bounces": 2,
+                "include_environment": False,
+                "adaptive": False,
+                "denoise": False,
+                "beside_textures": True,
+            },
+            f"{tuned_values}",
+        )
+        check(
+            "every key the panel saves is one from_preset reads",
+            set(tuned_values) - {"packing"}
+            == set(LightmapBaker.PRESET_INT_KEYS) | set(LightmapBaker.PRESET_BOOL_KEYS),
+        )
+        reloaded = _panel()
+        applied = reloaded._apply_preset_values(dict(tuned_values, description="x"))
+        check(
+            "a saved preset loads back onto every widget and switch",
+            applied == len(tuned_values) and reloaded._preset_values() == tuned_values,
+            f"{applied} {reloaded._preset_values()}",
+        )
+        keep = _panel(environment=False, adaptive=False, denoise=False, beside=True)
+        keep._apply_preset_values(store.load("desktop"))
+        kept_values = keep._preset_values()
+        check(
+            "a shipped tier moves the dials, bounces included, and leaves the switches",
+            (kept_values["resolution"], kept_values["samples"], kept_values["bounces"])
+            == (2048, 512, 4)
+            and (
+                kept_values["include_environment"],
+                kept_values["adaptive"],
+                kept_values["denoise"],
+                kept_values["beside_textures"],
+            )
+            == (False, False, False, True),
+            f"{kept_values}",
+        )
+        bad = _panel(samples=64)
+        check(
+            "a bad preset value is skipped, not fatal",
+            bad._apply_preset_values({"samples": "lots", "bounces": 3}) == 1
+            and bad.ui.spn_samples.value() == 64
+            and bad.ui.spn_bounces.value() == 3,
+        )
+        shown = _panel()
+        shown._show_output_mode(True)
+        check(
+            "the beside switch says in the empty field where the maps go",
+            shown.ui.txt_output_dir.placeholderText()
+            == "beside textures, else sourceimages"
+            and shown.ui.txt_output_dir.option_box.wired.get("on_toggled")
+            == shown._show_output_mode,
+        )
+
+        # The .ui: the sections read top to bottom as mayatk's do, each switch on
+        # the field it qualifies (no checkbox rows), and the dial defaults ARE the
+        # default preset -- nothing re-applies a preset at open any more.
+        ui_root = ET.parse(
+            os.path.join(os.path.dirname(slots_mod.__file__), "lightmap_baker.ui")
+        ).getroot()
+
+        def _layout_items(name):
+            layout = next(i for i in ui_root.iter("layout") if i.get("name") == name)
+            return [
+                child.get("name") for item in layout.findall("item") for child in item
+            ]
+
+        check(
+            "the panel's sections read top to bottom as mayatk's do",
+            _layout_items("main_layout")
+            == [
+                "header",
+                "cmb_scope",
+                "exclude_layout",
+                "cmb002",
+                "cmb_device",
+                "quality_group",
+                "output_group",
+                "grp_process",
+                "verticalSpacer",
+                "footer",
+            ],
+            f"{_layout_items('main_layout')}",
+        )
+        check(
+            "the Quality group holds Resolution, Samples and Bounces",
+            _layout_items("quality_layout")
+            == ["cmb_resolution", "spn_samples", "spn_bounces"],
+        )
+        check(
+            "the action group reads Preset, Reset, Bake",
+            _layout_items("process_layout") == ["cmb000", "btn_reset_defaults", "b000"],
+        )
+        check(
+            "no switch is left as a checkbox row",
+            [
+                w.get("name")
+                for w in ui_root.iter("widget")
+                if w.get("class") == "QCheckBox"
+            ]
+            == [],
+        )
+
+        def _ui_value(widget_name):
+            widget = next(
+                w for w in ui_root.iter("widget") if w.get("name") == widget_name
+            )
+            prop = next(
+                p for p in widget.findall("property") if p.get("name") == "value"
+            )
+            return int(prop.findtext("number"))
+
+        default_tier = store.load(LightmapBakerSlots._DEFAULT_PRESET)
+        check(
+            "the .ui's dial defaults are the default preset's dials",
+            (
+                _ui_value("spn_samples"),
+                _ui_value("spn_bounces"),
+                fresh_panel._resolution(),
+            )
+            == (
+                default_tier["samples"],
+                default_tier["bounces"],
+                default_tier["resolution"],
+            ),
+            f"{default_tier}",
+        )
+
+        # cmb000_init: seeded once per machine; a pointer on a retired tier follows it.
+        class _Settings:
+            def __init__(self):
+                self.values = {}
+
+            def value(self, key, default=None):
+                return self.values.get(key, default)
+
+            def setValue(self, key, value):
+                self.values[key] = value
+
+        class _SeedPresets:
+            pointer = None
+
+            def __init__(self, **_kwargs):
+                self.active_preset = _SeedPresets.pointer
+
+            def use_logger(self, _logger):
+                pass
+
+            def exists(self, name):
+                return name == LightmapBakerSlots._DEFAULT_PRESET
+
+            def wire_combo(self, widget, placeholder=None):
+                pass
+
+        import uitk.managers.preset_manager as preset_manager_mod
+
+        def _open(settings):
+            p = LightmapBakerSlots.__new__(LightmapBakerSlots)
+            p.ui = SimpleNamespace(settings=settings)
+            real_manager = preset_manager_mod.PresetManager
+            preset_manager_mod.PresetManager = _SeedPresets
+            try:
+                p.cmb000_init(SimpleNamespace(restore_state=True))
+            finally:
+                preset_manager_mod.PresetManager = real_manager
+            return p._presets.active_preset
+
+        seed = _Settings()
+        _SeedPresets.pointer = None
+        check("the first open names the default tier", _open(seed) == "mobile")
+        _SeedPresets.pointer = None  # ...and a reset cleared it
+        check("an open after a reset keeps the pointer cleared", _open(seed) is None)
+        _SeedPresets.pointer = "quest"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            followed = _open(seed)
+        check(
+            "a pointer left on a renamed tier follows the rename", followed == "mobile"
+        )
+
+        class _FakePresets:
+            def __init__(self, active):
+                self.active_preset = active
+                self.refreshed = 0
+
+            def refresh_combo(self, select_name=None):
+                self.refreshed += 1
+
+        reset_panel = LightmapBakerSlots.__new__(LightmapBakerSlots)
+        reset_panel._presets = _FakePresets("mobile")
+        reset_panel._after_reset("reset")
+        check(
+            "a reset lets go of the active preset",
+            reset_panel._presets.active_preset is None
+            and reset_panel._presets.refreshed == 1,
+        )
+        reset_panel._presets = _FakePresets("mobile")
+        reset_panel._after_reset("save")
+        check(
+            "saving the current values as defaults keeps it",
+            reset_panel._presets.active_preset == "mobile",
+        )
+
+        # b000 hands the Scope (minus the Exclude set) and every dial and switch to
+        # bake(); the fake keeps the engine's contract, exclusion included.
+        class _FakeWorkflow:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.calls = []
+                _FakeWorkflow.instances.append(self)
+
+            def bake(self, objects, packing="atlas", output_dir=None, **kwargs):
+                from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+                    LightmapBakeResult,
+                )
+
+                targets = LightmapBaker.bake_targets(objects)
+                names = [o.name for o in TextureBaker.resolve_meshes(objects)]
+                result = LightmapBakeResult(
+                    excluded=[n for n in names if n not in targets]
+                )
+                self.calls.append(("bake", tuple(targets), packing))
+                if not targets:
+                    result.refused = (
+                        "Nothing to bake: all objects are in the Exclude set."
+                    )
+                    return result
+                for n in targets:
+                    result.maps[n] = os.path.join(
+                        output_dir or par_dir, f"{n}_Lightmap.exr"
+                    )
+                return result
+
+            def baked_objects(self, objects=None):
+                self.calls.append(
+                    ("baked_objects", tuple(objects) if objects else None)
+                )
+                return list(objects) if objects else ["marked"]
+
+            def revert(self, objects=None):
+                self.calls.append(("revert", tuple(objects) if objects else None))
+                return list(objects) if objects else ["marked"]
+
+        real_workflow = slots_mod.LightmapBaker
+        slots_mod.LightmapBaker = _FakeWorkflow
+        try:
+            _FakeWorkflow.instances = []
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in (ex_a, ex_b):
+                obj.select_set(True)
+            LightmapExcludeSet.define([ex_b])
+            run = _panel(
+                bounces=6,
+                adaptive=False,
+                environment=False,
+                denoise=False,
+                beside=True,
+                device="CPU",
+                packing="per_object",
+            )
+            run._output_dir = lambda: par_dir
+            run.b000()
+            wf_fake = _FakeWorkflow.instances[0]
+            check(
+                "b000 carries Bounces, Adaptive, Beside, Environment, Denoise and "
+                "the Processor to the bake",
+                {
+                    k: wf_fake.kwargs[k]
+                    for k in (
+                        "bounces",
+                        "adaptive",
+                        "beside_textures",
+                        "include_environment",
+                        "denoise",
+                        "device",
+                    )
+                }
+                == {
+                    "bounces": 6,
+                    "adaptive": False,
+                    "beside_textures": True,
+                    "include_environment": False,
+                    "denoise": False,
+                    "device": "CPU",
+                },
+                f"{wf_fake.kwargs}",
+            )
+            check(
+                "b000 never bakes an excluded object, and says how many it left",
+                wf_fake.calls == [("bake", ("ex_a",), "per_object")]
+                and "1 excluded" in run.ui.footer.text(),
+                f"{wf_fake.calls} | {run.ui.footer.text()}",
+            )
+            bpy.ops.object.select_all(action="DESELECT")
+            ex_b.select_set(True)
+            run.b000()
+            check(
+                "with everything excluded b000 bakes nothing and says why",
+                "Exclude set" in run.ui.footer.text(),
+                run.ui.footer.text(),
+            )
+            LightmapExcludeSet.clear()
+
+            # Revert to Source: asks first, and a Cancel changes nothing.
+            class _Sb:
+                def __init__(self, answer):
+                    self.answer, self.asked = answer, []
+
+                def confirm(self, question, yes="Yes", no="No"):
+                    self.asked.append((question, (yes, no)))
+                    return self.answer == yes
+
+            bpy.ops.object.select_all(action="DESELECT")
+            ex_a.select_set(True)
+            rv = _panel()
+            rv.sb = _Sb("Cancel")
+            rv.revert_to_source()
+            check(
+                "Revert to Source asks first, and Cancel reverts nothing",
+                len(rv.sb.asked) == 1
+                and "1 selected object" in rv.sb.asked[0][0]
+                and rv.sb.asked[0][1] == ("Ok", "Cancel")
+                and "revert" not in [c[0] for c in rv._baker.calls]
+                and "cancelled" in rv.ui.footer.text(),
+                f"{rv.sb.asked} {rv._baker.calls}",
+            )
+            rv.sb = _Sb("Ok")
+            rv._baker = None
+            rv.revert_to_source()
+            check(
+                "...and once confirmed it reverts the selection",
+                rv._baker.calls
+                == [("baked_objects", ("ex_a",)), ("revert", ("ex_a",))],
+                f"{rv._baker.calls}",
+            )
+            bpy.ops.object.select_all(action="DESELECT")
+            rv._baker = None
+            rv.sb = _Sb("Ok")
+            rv.revert_to_source()
+            check(
+                "...with nothing selected it offers every baked object, and says so",
+                "all of them" in rv.sb.asked[0][0]
+                and rv._baker.calls[-1] == ("revert", None),
+            )
+        finally:
+            slots_mod.LightmapBaker = real_workflow
+
+        # The Exclude row: set, select and clear the file's set; the label counts
+        # the meshes the bake will skip (an Empty counts what is under it).
+        row = _panel()
+        bpy.ops.object.select_all(action="DESELECT")
+        ex_group.select_set(True)
+        row.set_exclusions()
+        check(
+            "the Exclude row stores the selection and counts its meshes",
+            row.ui.lbl_exclude.text() == "Exclude (1):"
+            and "1 mesh excluded" in row.ui.footer.text(),
+            f"{row.ui.lbl_exclude.text()} | {row.ui.footer.text()}",
+        )
+        bpy.ops.object.select_all(action="DESELECT")
+        row.select_exclusions()
+        check(
+            "Select selects the set's members",
+            [o.name for o in CoreUtils.selected_objects()] == ["ex_group"],
+            f"{[o.name for o in CoreUtils.selected_objects()]}",
+        )
+        row.clear_exclusions()
+        check(
+            "Clear removes the set and resets the label",
+            not LightmapExcludeSet.exists() and row.ui.lbl_exclude.text() == "Exclude:",
+        )
+        bpy.ops.object.select_all(action="DESELECT")
+        row.set_exclusions()
+        check(
+            "Set with nothing selected clears, and says so",
+            not LightmapExcludeSet.exists() and "cleared" in row.ui.footer.text(),
+        )
+        bpy.ops.object.select_all(action="DESELECT")
+        par_sun.select_set(True)
+        row.set_exclusions()
+        check(
+            "a selection with no mesh in it excludes nothing, and says so",
+            row.ui.lbl_exclude.text() == "Exclude:"
+            and "holds no meshes" in row.ui.footer.text(),
+            row.ui.footer.text(),
+        )
+        LightmapExcludeSet.clear()
+
+    LightmapBaker().revert()
+    for obj in (
+        ex_a,
+        ex_b,
+        ex_c,
+        ex_group,
+        floor,
+        box,
+        par_sun,
+        bs_crate,
+        bs_gone,
+        bs_plain,
+        shelf_a,
+        shelf_b,
+    ):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.collections.remove(box_home)
+
+    # --- the folder hint never rides a marker (BACKLOG 2026-09-19) -----------
+    # A marker is an object property, so it rides every FBX; a folder on it put
+    # the authoring machine's build setup on the deliverable. The folder lives
+    # in the private LIGHTMAP_DIRS record now, and a marker baked before the
+    # move is lifted -- by a bake's migration, and by every export bracket.
+    bpy.ops.mesh.primitive_cube_add()
+    hint_cube = bpy.context.active_object
+    hint_cube.name = "hint_cube"
+    hint_dir = os.path.join(tmp_dir, "hint_maps")
+    os.makedirs(hint_dir, exist_ok=True)
+    hint_map = os.path.join(hint_dir, "hint_cube_LightMap.exr")
+    open(hint_map, "wb").close()
+    LightmapRecords.commit({hint_cube.name: hint_map})
+    hint_marker = json.loads(hint_cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    hints = LightmapRecords._folder_hints()
+    check(
+        "a commit writes no folder onto the marker",
+        "dir" not in hint_marker and hint_marker.get("map") == "hint_cube_LightMap.exr",
+        f"{hint_marker}",
+    )
+    check(
+        "...the private record holds it, and the map still resolves by it",
+        _same_dir(
+            LightmapRecords._resolved_dir(
+                hints.get("hint_cube_lightmap.exr", ""), "hint_cube_LightMap.exr"
+            ),
+            hint_dir,
+        )
+        and LightmapRecords.lightmap_dependencies(search_dirs=[], walk=False)[0][
+            "found_by"
+        ]
+        == LightmapBaker.FOUND_BY_HINT,
+        f"{hints}",
+    )
+
+    # A marker baked BEFORE the move: its folder rides on it.
+    legacy_info = dict(hint_marker, dir=LightmapRecords._portable_dir(hint_map))
+    LightmapRecords._write_marker(hint_cube, legacy_info)
+    LightmapRecords._save_folder_hints({})
+    check(
+        "a legacy marker's folder still resolves before any migration",
+        LightmapRecords.lightmap_dependencies(search_dirs=[], walk=False)[0]["found_by"]
+        == LightmapBaker.FOUND_BY_HINT,
+    )
+    stagers = btk.FbxUtils.stagers(["lightmap_folder_hints"])
+    check(
+        "every export bracket stages the lift, one way (no finish)",
+        "lightmap_folder_hints" in stagers
+        and callable(stagers["lightmap_folder_hints"][0])
+        and stagers["lightmap_folder_hints"][1] is None,
+        f"{stagers}",
+    )
+    fbx_path = os.path.join(tmp_dir, "hint_cube.fbx")
+    bpy.ops.object.select_all(action="DESELECT")
+    hint_cube.select_set(True)
+    with btk.FbxUtils.export_prepared():
+        bpy.ops.export_scene.fbx(
+            filepath=fbx_path, use_selection=True, use_custom_props=True
+        )
+    with open(fbx_path, "rb") as fh:
+        fbx_bytes = fh.read()
+    lifted = json.loads(hint_cube[LightmapBaker.LIGHTMAP_INFO_PROP])
+    check(
+        "an export of a legacy file ships the marker WITHOUT its folder",
+        b"hint_cube_LightMap.exr" in fbx_bytes and b'"dir"' not in fbx_bytes,
+        f"marker in FBX: {b'hint_cube_LightMap.exr' in fbx_bytes}, "
+        f"dir in FBX: {b'dir' in fbx_bytes}",
+    )
+    check(
+        "...the folder moved into the private record, off the marker",
+        "dir" not in lifted
+        and LightmapRecords._folder_hints().get("hint_cube_lightmap.exr")
+        == legacy_info["dir"],
+        f"{lifted} {LightmapRecords._folder_hints()}",
+    )
+    # A folder the record already holds for a map wins over a stale marker's.
+    LightmapRecords._write_marker(hint_cube, dict(lifted, dir="//stale_folder"))
+    check(
+        "the record's folder wins over a legacy marker's own",
+        LightmapRecords.migrate_folder_hints() == ["hint_cube"]
+        and LightmapRecords._folder_hints().get("hint_cube_lightmap.exr")
+        == legacy_info["dir"],
+        f"{LightmapRecords._folder_hints()}",
+    )
+    check(
+        "...and a second lift has nothing to do",
+        LightmapRecords.migrate_folder_hints() == [],
+    )
+    LightmapRecords.revert()
+    check(
+        "a revert drops the reverted maps' folders from the record",
+        LightmapRecords._folder_hints() == {},
+        f"{LightmapRecords._folder_hints()}",
+    )
+
+    # --- the folder is spelled from the FILE's own project (2026-09-23) ----------
+    # BACKLOG 2026-09-22, decided 2026-09-23 (mirror of mayatk): relative to the
+    # project the .blend lives in -- a ../ chain to a shared library beside it --
+    # the spelling mayatk stores, so the record reads alike across the bridge.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    proj = os.path.join(tmp_dir, "path_rule", "show")
+    os.makedirs(os.path.join(proj, "scenes"), exist_ok=True)
+    with open(os.path.join(proj, "workspace.mel"), "w") as fh:
+        fh.write("//Maya 2025 Project Definition\n")
+    in_dir = os.path.join(proj, "sourceimages", "lm")
+    lib_dir = os.path.join(tmp_dir, "path_rule", "library")
+    for folder in (in_dir, lib_dir):
+        os.makedirs(folder, exist_ok=True)
+    check(
+        "an unsaved file has no project: the folder is spelled absolute",
+        os.path.isabs(LightmapRecords._portable_dir(os.path.join(in_dir, "a.exr"))),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(proj, "scenes", "room.blend"))
+    spelled_in = LightmapRecords._portable_dir(os.path.join(in_dir, "a.exr"))
+    spelled_lib = LightmapRecords._portable_dir(os.path.join(lib_dir, "b.exr"))
+    check(
+        "saved into a project: inside it, and a ../ chain beside it",
+        (spelled_in, spelled_lib) == ("sourceimages/lm", "../library"),
+        f"{spelled_in} {spelled_lib}",
+    )
+    check(
+        "...each resolves back to its folder",
+        _same_dir(LightmapRecords._resolved_dir(spelled_in, "a.exr"), in_dir)
+        and _same_dir(LightmapRecords._resolved_dir(spelled_lib, "b.exr"), lib_dir),
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- a re-bake deletes the maps it superseded, and only its own ----------
+    # Mirror of mayatk's TestSupersededMaps: changing where or how maps are
+    # written left the old ones on disk, read by nobody. Every keep rule is a
+    # reader a delete would strand. Last, since it saves .blend files.
+    from unittest import mock
+
+    def _norm(path):
+        return os.path.normcase(os.path.abspath(path))
+
+    def _exr(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(b"map")
+        return path
+
+    sup_dir = os.path.join(tmp_dir, "superseded")
+    bpy.ops.object.light_add(type="SUN", location=(0, 0, 6))
+    bpy.ops.mesh.primitive_cube_add()
+    sup_cube = bpy.context.active_object
+    sup_cube.name = "sup_cube"
+    btk.assign_mat(sup_cube, btk.create_mat("standard", name="sup_mat"))
+    sup_baker = LightmapBaker.from_preset(
+        "preview", resolution=64, samples=4, denoise=False, device="CPU"
+    )
+    first = sup_baker.bake([sup_cube], packing="per_object", output_dir=sup_dir)
+    old = first.maps.get(sup_cube.name, "")
+    second = sup_baker.bake(
+        [sup_cube], packing="per_object", output_dir=sup_dir, suffix="_LM"
+    )
+    check(
+        "a re-bake under another affix deletes the old map",
+        os.path.isfile(second.maps.get(sup_cube.name, ""))
+        and not os.path.isfile(old)
+        and [_norm(p) for p in second.retired] == [_norm(old)],
+        f"{first.maps} {second.maps} {second.retired}",
+    )
+
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
+    sup_other = bpy.context.active_object
+    sup_other.name = "sup_other"
+    shared = _exr(os.path.join(sup_dir, "Shared_Lightmap.exr"))
+    LightmapRecords.commit({sup_cube.name: shared, sup_other.name: shared})
+    with LightmapRecords.superseding([sup_cube.name]):
+        LightmapRecords.commit(
+            {sup_cube.name: _exr(os.path.join(sup_dir, "Moved_Lightmap.exr"))}
+        )
+    check("a map another object still reads is kept", os.path.isfile(shared))
+    with LightmapRecords.superseding([sup_other.name]):
+        LightmapRecords.commit(
+            {sup_other.name: _exr(os.path.join(sup_dir, "Moved2_Lightmap.exr"))}
+        )
+    check("...and deleted once nothing does", not os.path.isfile(shared))
+
+    source = os.path.join(sup_dir, "source.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=source)
+    written = _exr(os.path.join(sup_dir, "Source_Lightmap.exr"))
+    LightmapRecords.commit({sup_cube.name: written})
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(sup_dir, "copy.blend"))
+    with LightmapRecords.superseding([sup_cube.name]) as gone:
+        LightmapRecords.commit(
+            {sup_cube.name: _exr(os.path.join(sup_dir, "Copy_Lightmap.exr"))}
+        )
+    check(
+        "the maps a Save As copy's source wrote are kept",
+        os.path.isfile(written) and gone == [],
+        f"{gone}",
+    )
+
+    copy_map = LightmapRecords._marker_info(sup_cube)["map"]
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(sup_dir, "renamed.blend"))
+    os.remove(os.path.join(sup_dir, "copy.blend"))
+    with LightmapRecords.superseding([sup_cube.name]):
+        LightmapRecords.commit(
+            {sup_cube.name: _exr(os.path.join(sup_dir, "Renamed_Lightmap.exr"))}
+        )
+    check(
+        "a renamed file's own maps are still its own",
+        not os.path.isfile(os.path.join(sup_dir, copy_map)),
+    )
+
+    kept = LightmapRecords._marker_info(sup_cube)["map"]
+    LightmapRecords._save_writers({})
+    with LightmapRecords.superseding([sup_cube.name]):
+        LightmapRecords.commit(
+            {sup_cube.name: _exr(os.path.join(sup_dir, "Unstamped_Lightmap.exr"))}
+        )
+    check(
+        "a map committed before writers were recorded is kept",
+        os.path.isfile(os.path.join(sup_dir, kept)),
+    )
+
+    linked = LightmapRecords._marker_info(sup_cube)["map"]
+    with mock.patch.object(LightmapRecords, "_referenced", return_value=True):
+        with LightmapRecords.superseding([sup_cube.name]):
+            LightmapRecords.commit(
+                {sup_cube.name: _exr(os.path.join(sup_dir, "Linked_Lightmap.exr"))}
+            )
+    check(
+        "a map a linked object reads is kept",
+        os.path.isfile(os.path.join(sup_dir, linked)),
+    )
+
+    raised = LightmapRecords._marker_info(sup_cube)["map"]
+    try:
+        with LightmapRecords.superseding([sup_cube.name]):
+            LightmapRecords.commit(
+                {sup_cube.name: _exr(os.path.join(sup_dir, "Raised_Lightmap.exr"))}
+            )
+            raise RuntimeError("the bake failed after its commit")
+    except RuntimeError:
+        pass
+    check(
+        "a block that raises deletes nothing",
+        os.path.isfile(os.path.join(sup_dir, raised)),
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
 
 except Exception:
     traceback.print_exc()

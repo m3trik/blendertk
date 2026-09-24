@@ -11,11 +11,12 @@ are deferred into the methods that use them (headless Blender ships no Qt).
 """
 
 import os
-from typing import Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
+from blendertk.mat_utils.bake_sets import LightmapExcludeSet
 from blendertk.mat_utils.texture_baker import TextureBaker
 from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 
@@ -23,29 +24,31 @@ from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
 class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     """Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
 
-    A thin driver over :class:`LightmapBaker` (composition; no bake logic here, and no
-    bake policy). Mirrors mayatk's ``LightmapBakerSlots`` (same method names /
-    signal-connection order). **Bake Lightmaps** (``b000``) hands the Scope and the dials
-    to :meth:`~LightmapBaker.bake`, which checks the scene, bakes, keeps the full PBR
-    material, puts lighting on UV1 and stamps Unity metadata on the shared ``data_export``
-    carrier; the panel reports what came back.
+    A thin driver over :class:`LightmapBaker` (composition; no bake logic here,
+    and no bake policy), mirroring mayatk's ``LightmapBakerSlots`` control for
+    control. **Bake Lightmaps** (``b000``) hands the objects in Scope and the
+    dials to :meth:`LightmapBaker.bake`, which checks the scene, bakes, keeps the
+    full PBR material, puts lighting on UV1 and stamps the engine metadata on the
+    shared ``data_export`` carrier; the panel reports what came back.
 
-    Nothing is reverted before a bake: an object the bake does not finish keeps the map it
-    had. The header menu's **Revert to Source** undoes the wiring. The Quality combobox is populated from :meth:`~LightmapBaker.preset_store` and fills the
-    Resolution / Samples dials (the source of truth at bake time); the traffic runs both
-    ways, so a dial moved off the tier flips the combobox to *Custom*
-    (:meth:`_preset_for_dials`, wired as one ``sb.value_from`` rule). The Packing combobox
-    (``cmb002``) picks how the maps are laid out — Per-Object or Atlas by
-    Material (:meth:`~LightmapBaker.bake_atlas`); both are live.
+    Nothing is reverted before a bake. An object in the file's Exclude set
+    (:class:`LightmapExcludeSet`, edited by the Exclude row) keeps any map it has
+    and still lights the rest, and so does an object the bake does not finish.
+    The header menu's **Revert to Source** undoes the wiring, once confirmed.
 
-    Tentacle-independent (``ptk`` mixins only); the Qt-only ``uitk`` ``fmt`` helper is
-    deferred into the methods that use it (headless Blender ships no Qt binding).
+    The **Preset** combo (``cmb000``) is uitk's preset template
+    (:meth:`PresetManager.wire_combo`) in semantic mode over
+    :meth:`LightmapBaker.preset_store` -- the store
+    :meth:`LightmapBaker.from_preset` reads, so a preset saved here is also a
+    headless bake recipe (and the Maya bridge's Quality tier). :meth:`_preset_fields`
+    is the one map between its keys and the widgets, which stay the source of
+    truth at bake time.
     """
 
-    # Packing labels for the Packing combobox (cmb002). Per-Object (index 0, the default) keeps
-    # one full-resolution map per object; Atlas by Material (index 1) consolidates a material
-    # group into one shared EXR, each object's rect committed as its per-instance scaleOffset
-    # binding via :meth:`LightmapBaker.bake_atlas`. _packing() reads it back.
+    # Packing labels for the Packing combobox (cmb002). Atlas by Material
+    # (index 1, the default) consolidates a material group into one shared EXR
+    # + a per-object scaleOffset rect; Per-Object keeps one full-resolution map
+    # each; _packing() reads it back.
     _PACKING_LABELS = ("Per-Object (one map each)", "Atlas by Material (shared map)")
 
     # Fixed lightmap sizes (square, px) for the Resolution combobox
@@ -53,23 +56,44 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
     # one of these. _resolution() reads the selection back as an int.
     _RESOLUTIONS = (256, 512, 1024, 2048, 4096)
 
-    # Label for the Quality combobox row that means "whatever the dials say".
-    # NOT a stored preset -- ``_apply_preset`` declines it; it is the answer
-    # ``_preset_for_dials`` gives when Resolution / Samples match no tier, so
-    # the combo can never keep naming a preset the bake is no longer using.
-    _CUSTOM_PRESET_LABEL = "Custom"
-
     # Scope labels for the Scope combobox (cmb_scope): which objects b000 bakes.
     # Selected (index 0, default) preserves the prior selection-only behavior;
     # _scope() / _scope_objects() resolve it to the mesh objects to bake.
     _SCOPE_LABELS = ("Selected", "Visible", "Scene")
 
-    # Footer tail common to every lighting-only commit -- b000's per-object branch states it
-    # alone, its atlas branch appends it to the consolidation count, so the two can't drift
-    # (mirrors mayatk's ``_LIGHTING_ONLY_TAIL``).
+    #: The panel's switches, ``{preset key: (field, default)}``. Each rides the
+    #: option box of the field it QUALIFIES rather than a checkbox row of its
+    #: own: the environment is part of what Scope gathers, adaptive sampling is
+    #: how the Samples are spent, denoise is what the map ships at that
+    #: Resolution, and Beside Material Textures redirects the Output Directory
+    #: (mirror of mayatk's).
+    #:
+    #: The keys are the preset store's (:attr:`LightmapBaker.PRESET_BOOL_KEYS`),
+    #: so :meth:`_preset_fields` builds its entries straight from here and
+    #: :meth:`_wire_toggle` derives each settings key from the same name.
+    _TOGGLES: Dict[str, Tuple[str, bool]] = {
+        "include_environment": ("cmb_scope", True),
+        "adaptive": ("spn_samples", True),
+        "denoise": ("cmb_resolution", True),
+        "beside_textures": ("txt_output_dir", False),
+    }
+
+    #: The tier a panel opened for the first time shows: the .ui's dial
+    #: defaults are its values, so naming it costs nothing and says which tier
+    #: the untouched dials are.
+    _DEFAULT_PRESET = "mobile"
+    #: Settings key recording that the default preset was seeded once (see
+    #: :meth:`cmb000_init`).
+    _PRESET_SEEDED_KEY = "lightmap_baker_preset_seeded"
+
+    # Footer tail for a per-object bake (mirrors mayatk's ``_LIGHTING_ONLY_TAIL``).
     _LIGHTING_ONLY_TAIL = (
         "Maps kept; lightmap + Unity metadata stamped. Export the FBX."
     )
+
+    #: Bake-processor rows, label -> the value the baker takes (mirror of
+    #: mayatk's ``_DEVICES``). Auto is first (the default): the GPU where it pays.
+    _DEVICES = (("Auto", "AUTO"), ("GPU", "GPU"), ("CPU", "CPU"))
 
     def __init__(self, switchboard, log_level: str = "WARNING"):
         super().__init__()
@@ -79,31 +103,63 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         self.sb = switchboard
         self.ui = self.sb.loaded_ui.lightmap_baker
 
+        # Output dir of the most recent bake (reported in the footer).
         self._last_output_dir: Optional[str] = None
+        # Workflow instance, rebuilt per bake from the current dials. commit /
+        # revert persist their state on the object, so revert works even from a
+        # fresh instance / reopened file.
         self._baker: Optional[LightmapBaker] = None
-        # Dial signature -> preset name, built by cmb000_init from the same
-        # listing that fills the combo; _preset_for_dials reads it back.
-        self._preset_by_dials: Dict[Tuple[int, int], str] = {}
+        # The Preset combo's manager, built by cmb000_init.
+        self._presets = None
 
-        # Deferred: the switchboard builds this mid-load, before the combos are wired onto
-        # self.ui — sync the dials to the shown preset on the next tick.
+        # Deferred to the next tick: the switchboard builds this instance
+        # mid-load, before child widgets (footer, combos) are wired onto self.ui.
         self.sb.QtCore.QTimer.singleShot(0, self._initialize_ui)
 
     def _initialize_ui(self) -> None:
-        self._apply_preset(self.ui.cmb000.currentText())
-        # Quality follows the dials from here on: move Resolution or Samples off
-        # the tier and the combo says *Custom* rather than keep naming a preset
-        # the bake is no longer using. Wired AFTER the preset is applied -- the
-        # rule applies immediately, and at widget-registration time the dials
-        # still hold the .ui defaults, so an earlier wire-up would open on Custom.
-        self.sb.value_from(
-            self.ui,
-            "cmb000",
-            ["cmb_resolution", "spn_samples"],
-            self._preset_for_dials,
-        )
+        """Wire what reads several widgets at once, once all of them exist.
 
-    # ------------------------------------------------------------------ header
+        Deferred from __init__ (QTimer) so every widget has run its ``*_init``
+        and restored its session value first: the Preset combo's modified
+        marker and the Exclude count. Unlike mayatk's, Adaptive Sampling is not
+        gated on the processor: Cycles samples adaptively on the CPU and the GPU
+        alike.
+        """
+        if self._presets is not None:
+            # Semantic presets leave this wiring to the owner
+            # (``PresetManager.connect_value_widgets`` is a no-op there): any
+            # edit to a setting a preset stores re-evaluates the " *" marker.
+            def refresh(*_):
+                self._presets.refresh_modified_state()
+
+            for control, _read, _write in self._preset_fields().values():
+                # A panel widget announces a change on the switchboard's
+                # default signal for its type; a field's switch is an
+                # option-box option, not a widget, and has ``toggled``.
+                signal = getattr(control, "default_signals", lambda: "toggled")()
+                if control is not None and signal:
+                    getattr(control, signal).connect(refresh)
+            # The widgets restored their session values with signals blocked.
+            self._presets.refresh_modified_state()
+
+        # The Exclude set lives in the file, so the count on its label must
+        # follow the file: another one opened, a Set undone. Blender reports a
+        # new file and an opened one as the same event (``load_post``).
+        from blendertk.core_utils.script_job_manager import ScriptJobManager
+
+        jobs = ScriptJobManager.instance()
+        for event in ("SceneOpened", "Undo", "Redo"):
+            try:
+                jobs.subscribe(event, self._refresh_exclusions, owner=self)
+            except Exception as error:  # noqa: BLE001 -- never block the panel
+                self.logger.debug(f"scene event {event!r} unavailable ({error})")
+        jobs.connect_cleanup(self.ui, owner=self)
+        self._refresh_exclusions()
+
+    # ------------------------------------------------------------------
+    # Header
+    # ------------------------------------------------------------------
+
     def header_init(self, widget) -> None:
         """Configure the header chrome (menu / collapse / hide), menu, help text."""
         widget.config_buttons("menu", "collapse", "hide")
@@ -112,167 +168,484 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             setText="Revert to Source",
             setObjectName="revert_to_source",
             setToolTip="Remove the lightmap wiring from the selected objects, or "
-            "from every baked object when nothing is selected. The materials were "
-            "never changed, and the baked EXR files stay on disk.",
+            "from every baked object when nothing is selected. Asks first; the "
+            "baked EXR files stay on disk.",
         )
         widget.menu.add(
             "QPushButton",
             setText="Open Output Folder",
             setObjectName="open_output",
-            setToolTip="Open the folder the lightmaps were written to.",
+            setToolTip="Open the folder the lightmaps are written to (where the "
+            "last bake wrote, else the Output Directory field) in the file manager.",
         )
         widget.set_help_text(
             self.sb.tooltip.fmt(
                 title="Lightmap Baker",
-                body="Bake Blender scene lighting (Cycles) into lightmaps — one per object, "
-                "or one atlas per material — for game engines (Unity-first) and wire "
-                "them up in one step — no manual export prep.",
+                body="Bakes the scene's lighting with Cycles into a lightmap per "
+                "object (or an atlas per material) and wires it for the engine in "
+                "one step. Materials and texture UVs are never changed: each mesh "
+                "samples its lightmap on a second UV channel, and the engine "
+                "multiplies it with the albedo.",
                 steps=[
-                    "Choose a <b>Scope</b> — bake the <b>Selected</b> objects (default), all "
-                    "<b>Visible</b> meshes, or the whole <b>Scene</b>.",
-                    "Pick a <b>Packing</b> (see below) and a <b>Quality</b> "
-                    "preset (fills Resolution / Samples; override either to taste — the "
-                    "preset then reads <i>Custom</i>). <b>Device</b> picks what Cycles "
-                    "bakes on — <i>Auto</i> takes the GPU per object where it pays and "
-                    "the CPU for tiles too small to repay a GPU session.",
-                    "Leave <b>Include Environment</b> on to bake the scene as authored. "
-                    "Off detaches the world for the bake (and restores it after), so you "
-                    "get the room's own lights without the environment's flat ambient "
-                    "lift — which cannot be taken back out of a map once it is in.",
-                    "Leave <b>Denoise</b> on: Cycles does not denoise a bake itself, "
-                    "so each map goes through Blender's own denoiser after it is baked.",
-                    "Optionally set an <b>Output Directory</b> — empty writes to the "
-                    "workspace's texture folder; a relative entry (e.g. <i>lightmaps</i>) "
-                    "lands under it, so the setting travels with the project; an absolute "
-                    "one is used as-is.",
-                    "Press <b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
-                    "Properties</b> enabled (so the hidden <i>data_export</i> Empty carries "
-                    "the Unity wiring).",
-                ],
-                sections=[
-                    (
-                        "Lighting only — real lightmapping",
-                        [
-                            "Bakes <i>lighting only</i> (Cycles diffuse, no albedo) onto a second "
-                            "UV channel; your full PBR material is <b>kept untouched</b>.",
-                            "The lightmap is a <b>separate EXR</b>; the engine multiplies "
-                            "albedo × lightmap at runtime and your normal map still works. "
-                            "Self-contained export — UV2 samples the map directly in any "
-                            "engine; a one-file Unity editor helper (optional, unitytk's "
-                            "<i>LightmapMetadataController.cs</i>) auto-binds Unity's native "
-                            "lightmap slots from the FBX wiring on the shared data Empty.",
-                            "<b>Packing</b>: <i>Per-Object</i> gives each object its own full-"
-                            "resolution lightmap. <i>Atlas by Material</i> consolidates every object "
-                            "sharing a material into one shared, area-weighted EXR; each object's "
-                            "rect is published as its per-instance <i>scaleOffset</i> (Unity's "
-                            "native binding), so instanced/linked copies each get their own patch "
-                            "while still sharing one mesh.",
-                        ],
-                    ),
-                    (
-                        "Non-destructive",
-                        [
-                            "Nothing is deleted — the source material stays in the scene and the "
-                            "restore data is stamped on the object.",
-                            "<b>Revert to Source</b> (header menu) undoes the wiring. Re-baking "
-                            "replaces the earlier maps; an object the bake doesn't finish keeps "
-                            "the map it had.",
-                        ],
-                    ),
+                    "<b>Scope</b>: the Selected meshes, every Visible one, or the "
+                    "whole Scene. Its button takes the world (an HDRI environment) "
+                    "in or out of the bake. <b>Exclude</b> keeps objects from "
+                    "getting a map of their own but leaves them in the render: they "
+                    "still cast shadows and bounce light onto everything that bakes.",
+                    "<b>Packing</b>: one atlas per material (the default), or one "
+                    "map per object. <b>Processor</b>: which one Cycles bakes on.",
+                    "<b>Quality</b>: Resolution, Samples and Bounces. Each dial "
+                    "carries its own switch: <b>Denoise</b> runs Blender's denoiser "
+                    "over every map (Cycles does not denoise a bake itself), "
+                    "<b>Adaptive Sampling</b> lets each texel stop once it is clean.",
+                    "<b>Output</b>: empty writes to the workspace's texture folder; "
+                    "the image button saves each map beside its material's texture "
+                    "maps.",
+                    "The group at the bottom runs the bake. <b>Preset</b>: pick "
+                    "one, or set the dials above and save your own (the disk "
+                    "icon). <b>Reset to Defaults</b> puts every setting back; "
+                    "Shift+Click makes the current ones your defaults.",
+                    "<b>Bake Lightmaps</b>, then export the FBX with <b>Custom "
+                    "Properties</b> on, so the hidden <i>data_export</i> Empty "
+                    "carries the engine wiring.",
                 ],
                 notes=[
-                    "Cycles must be available (it ships with Blender). The bake runs on the "
-                    "CPU/GPU; higher Samples = cleaner GI, slower bake.",
+                    "Re-baking replaces the earlier maps. <b>Revert to Source</b> "
+                    "(this menu) removes the wiring; the EXR files stay on disk.",
+                    "Cycles ships with Blender; the Maya bridge's lightmap bake "
+                    "runs this same baker.",
                 ],
             )
         )
 
-    # ------------------------------------------------------------------ combos
+    # ------------------------------------------------------------------
+    # Preset combobox (uitk preset template, semantic mode)
+    # ------------------------------------------------------------------
+
     def cmb000_init(self, widget) -> None:
-        """Populate the Quality combobox from the shared preset store.
+        """Wire the Preset combo: uitk's preset template over the shared store.
 
-        A trailing *Custom* row is appended for the dials-match-no-tier case,
-        and the dial-signature lookup :meth:`_preset_for_dials` reads is built
-        from the same listing that fills the combo, so the two cannot disagree.
+        Semantic mode (``value_provider`` / ``value_applier``): a preset is the
+        store's ``{key: value}`` dict, not a widget snapshot, so the file this
+        panel saves is the one :meth:`LightmapBaker.from_preset` reads -- and
+        the shipped tiers keep working here. The combo restores only its
+        SELECTION, from the store's active pointer; every dial restores its own
+        session value, so nothing is re-applied at open. That pointer owns the
+        selection outright: a restored index would second-guess it against a
+        list that grows whenever a preset is saved. Mirror of mayatk's.
         """
+        from uitk.managers.preset_manager import PresetManager
+
         store = LightmapBaker.preset_store()
-        names = store.list()
-        self._preset_by_dials = {}
-        for name in names:
-            data = store.load(name)
-            if "resolution" in data and "samples" in data:
-                key = (int(data["resolution"]), int(data["samples"]))
-                self._preset_by_dials.setdefault(key, name)
-        widget.clear()
-        # The store's user tier is free-form, so a saved preset may already be
-        # named "Custom" -- appending blindly would show the row twice.
-        rows = list(names)
-        if self._CUSTOM_PRESET_LABEL not in rows:
-            rows.append(self._CUSTOM_PRESET_LABEL)
-        widget.addItems(rows)
-        idx = widget.findText("quest")
-        if idx >= 0:
-            widget.setCurrentIndex(idx)
+        self._presets = PresetManager(
+            preset_dir=str(store.user_dir),
+            builtin_dir=str(store.builtin_dir) if store.builtin_dir else None,
+            value_provider=self._preset_values,
+            value_applier=self._apply_preset_values,
+        )
+        # The manager's user-facing lines (a preset that fails to load) reach
+        # this panel's log rather than only the console.
+        self._presets.use_logger(self.logger)
+        # A pointer left on a retired tier name ("quest", now "mobile") names a
+        # preset the store no longer has; follow the rename rather than open on
+        # no selection.
+        active = self._presets.active_preset
+        if active and not self._presets.exists(active):
+            current = LightmapBaker._resolve_retired_preset(active)
+            if current != active:
+                self._presets.active_preset = current
+        # Seeded ONCE per machine: a reset (or deleting the active user preset)
+        # clears the pointer, and read as "never set" it would be reseeded on
+        # the next open -- the reset values then showing as that preset,
+        # modified ("mobile *"), which is what ``_after_reset`` exists to stop.
+        settings = getattr(self.ui, "settings", None)
+        seeded = bool(settings and settings.value(self._PRESET_SEEDED_KEY, False))
+        if (
+            not seeded
+            and self._presets.active_preset is None
+            and self._presets.exists(self._DEFAULT_PRESET)
+        ):
+            self._presets.active_preset = self._DEFAULT_PRESET
+        if settings is not None and not seeded:
+            settings.setValue(self._PRESET_SEEDED_KEY, True)
+        widget.restore_state = False
+        self._presets.wire_combo(widget, placeholder="Preset…")
 
-    def cmb000(self, index, widget) -> None:
-        """Apply the selected preset's dials to Resolution / Samples.
+    def btn_reset_defaults_init(self, widget) -> None:
+        """Wire Reset to Defaults to uitk's shared reset grammar.
 
-        *Custom* is not a stored preset -- it is what the dials say when they
-        match no tier -- so it applies nothing and just reports that the dials
-        are in charge.
+        Click restores the defaults, Shift+Click makes the current values the
+        defaults and Ctrl+Shift+Click forgets those -- the grammar a per-field
+        reset option already teaches. The scope is every widget the window's
+        state manages; the Exclude set is file data rather than a widget value,
+        so a reset leaves it standing. Mirror of mayatk's.
         """
-        name = widget.currentText()
-        if self._apply_preset(name):
-            self.ui.footer.setText(f"Preset: {name}")
-        elif name == self._CUSTOM_PRESET_LABEL:
-            self.ui.footer.setText("Quality: Custom — Resolution / Samples as set.")
+        from uitk.managers.reset_gesture import ResetGesture
+        from uitk.managers.state_manager import StateManager
+
+        self._reset_gesture = ResetGesture(
+            widget,
+            state=lambda: StateManager.for_widget(self.ui),
+            on_performed=self._after_reset,
+        )
+
+    def _after_reset(self, action: str) -> None:
+        """Let go of the active preset when a reset moved the dials off it.
+
+        The values are the defaults now, not the preset the combo still names;
+        keeping the pointer would show them as that preset, modified. Saving the
+        current values as the defaults (Shift+Click) moves no dial, so it keeps
+        the selection.
+        """
+        from uitk.managers.reset_gesture import ResetGesture
+
+        presets = getattr(self, "_presets", None)
+        if presets is None or action == ResetGesture.SAVE:
+            return
+        presets.active_preset = None
+        presets.refresh_combo()
+
+    def _preset_fields(self) -> Dict[str, Tuple[Any, Callable[[], Any], Callable]]:
+        """``{preset key: (control, read, write)}`` -- the one map between the
+        preset store's keys and this panel's controls. Save reads through it
+        (:meth:`_preset_values`), a load writes through it
+        (:meth:`_apply_preset_values`) and each control's change re-evaluates
+        the modified marker (:meth:`_initialize_ui`), so a key added here is
+        saved, loaded and marked, or none of the three. The keys are
+        :attr:`LightmapBaker.PRESET_INT_KEYS` / ``PRESET_BOOL_KEYS`` plus the
+        panel's own ``packing``.
+        """
+        ui = self.ui
+        fields: Dict[str, Tuple[Any, Callable[[], Any], Callable]] = {
+            "packing": (ui.cmb002, self._packing, self._set_packing),
+            "resolution": (ui.cmb_resolution, self._resolution, self._set_resolution),
+            "samples": (
+                ui.spn_samples,
+                ui.spn_samples.value,
+                lambda v: ui.spn_samples.setValue(int(v)),
+            ),
+            "bounces": (
+                ui.spn_bounces,
+                ui.spn_bounces.value,
+                lambda v: ui.spn_bounces.setValue(int(v)),
+            ),
+        }
+        for key in self._TOGGLES:
+            fields[key] = (
+                self._toggle(key),
+                lambda key=key: self._toggle_state(key),
+                lambda value, key=key: self._set_toggle_state(key, value),
+            )
+        return fields
+
+    def _preset_values(self) -> Dict[str, Any]:
+        """The panel's bake settings, keyed as the preset store keys them."""
+        return {
+            key: read()
+            for key, (_control, read, _write) in self._preset_fields().items()
+        }
+
+    def _apply_preset_values(self, data: Dict[str, Any]) -> int:
+        """Write a preset's values onto the widgets; returns how many applied.
+
+        Overlay semantics: a key the preset lacks keeps its widget's value -- a
+        shipped tier stores only the quality dials, so loading one leaves the
+        switches as the user set them. Unknown keys (``description``) are
+        skipped. Signals are left on, so the session state records the loaded
+        values: that is what the next session restores the dials from.
+        """
+        fields = self._preset_fields()
+        applied = 0
+        for key, value in data.items():
+            field = fields.get(key)
+            if field is None:
+                continue
+            _control, _read, write = field
+            try:
+                write(value)
+            except (TypeError, ValueError) as error:
+                self.logger.warning(f"Preset value {key}={value!r} skipped: {error}")
+                continue
+            applied += 1
+        return applied
+
+    # ------------------------------------------------------------------
+    # Switches (option-box toggles)
+    # ------------------------------------------------------------------
+
+    def _wire_toggle(self, widget, key: str, icon: str, on: str, off: str, **kwargs):
+        """Hang the *key* switch off *widget*'s option box as a toggle button.
+
+        One shape for every entry in :attr:`_TOGGLES` (mirror of mayatk's). Off
+        takes the neutral "locked" tint rather than a toggle's default error red:
+        none of these switches stops the panel working. The settings key is
+        explicit and panel-scoped -- the auto-derived one is the field's own
+        objectName, which another panel in the same host would share.
+
+        Parameters:
+            widget: The field the switch rides.
+            key: Its :attr:`_TOGGLES` entry; names the default and the key.
+            icon: uitk icon name for the button.
+            on: Tooltip while on -- what it is doing, then what a click does.
+            off: Tooltip while off, the same way round.
+            kwargs: Forwarded to ``set_toggle`` (e.g. ``on_toggled``).
+        """
+        widget.option_box.set_toggle(
+            icon=icon,
+            tooltip_on=on,
+            tooltip_off=off,
+            initial=self._TOGGLES[key][1],
+            disabled_color=ptk.Palette.status()["locked"][0],
+            settings_key=f"lightmap_baker_{key}",
+            **kwargs,
+        )
+
+    def _toggle(self, key: str):
+        """The :attr:`_TOGGLES` switch *key*, or ``None`` before its field's
+        ``_init`` has built it (the preset machinery reads this map while the
+        panel is still loading)."""
+        from uitk.widgets.optionBox.options.toggle import ToggleOption
+
+        widget = getattr(self.ui, self._TOGGLES[key][0], None)
+        try:
+            return widget.option_box.find_option(ToggleOption)
+        except Exception:  # noqa: BLE001 -- no option box on a bare widget
+            return None
+
+    def _toggle_state(self, key: str) -> bool:
+        """Whether the *key* switch is on (its shipped default until wired)."""
+        toggle = self._toggle(key)
+        return self._TOGGLES[key][1] if toggle is None else bool(toggle.is_on)
+
+    def _set_toggle_state(self, key: str, value: bool) -> None:
+        """Set the *key* switch (a preset load)."""
+        toggle = self._toggle(key)
+        if toggle is not None:
+            toggle.set_on(bool(value))
+
+    # ------------------------------------------------------------------
+    # Scope, Exclude, Packing
+    # ------------------------------------------------------------------
 
     def cmb002_init(self, widget) -> None:
-        """Populate the Packing combobox; Per-Object is the default (Atlas by Material also live)."""
+        """Populate the Packing combobox; Atlas by Material is the default.
+
+        One shared map per material is what an engine wants: a glTF material
+        carries ONE lightmap, so per-object maps force a material copy per object
+        downstream. Per-Object is the opt-out, for a hero asset that earns a full
+        map of its own. Mirror of mayatk's (and of the Maya bridge's default).
+        """
         widget.clear()
         widget.addItems(self._PACKING_LABELS)
-        widget.setCurrentIndex(0)  # Per-Object — one full-resolution map each
+        widget.setCurrentIndex(1)  # Atlas by Material — one shared map each
 
     def _packing(self) -> str:
         """``"atlas"`` or ``"per_object"`` from the Packing combobox (default per_object)."""
         text = (self.ui.cmb002.currentText() or "").lower()
         return "atlas" if "atlas" in text else "per_object"
 
+    def _set_packing(self, value: str) -> None:
+        """Select the Packing row for ``"atlas"`` / ``"per_object"``."""
+        self.ui.cmb002.setCurrentIndex(1 if value == "atlas" else 0)
+
     def cmb_scope_init(self, widget) -> None:
-        """Populate the Scope combobox; Selected (current selection) is the default."""
+        """Populate the Scope combobox (Selected is the default) and hang the
+        Include Environment switch off it.
+
+        Scope is what the bake gathers, and the environment is part of that:
+        the world either lights the bake or it doesn't. Off detaches it for the
+        run (:meth:`LightmapBaker._muted_environment`).
+        """
         widget.clear()
         widget.addItems(self._SCOPE_LABELS)
         widget.setCurrentIndex(0)  # Selected — the prior selection-only behavior
+        self._wire_toggle(
+            widget,
+            "include_environment",
+            icon="light",
+            on="Include environment: the scene's world (an HDRI environment) "
+            "lights the bake along with its lights. Click to bake the room's own "
+            "lights only.",
+            off="Environment excluded: the world is detached for the bake and "
+            "restored afterwards. An HDRI is often a backdrop or a look-dev "
+            "convenience rather than the room's real lighting, and baking it in "
+            "is a flat ambient lift that cannot be taken back out of the map. "
+            "Click to bake it in.",
+        )
 
     def _scope(self) -> str:
         """``"selected"`` (default), ``"visible"`` or ``"scene"`` from cmb_scope."""
         return (self.ui.cmb_scope.currentText() or "Selected").split()[0].lower()
 
-    def _scope_objects(self):
-        """The mesh objects to bake for the current Scope.
+    def _scope_objects(self) -> List[Any]:
+        """The mesh objects the current Scope names (before the Exclude set).
 
-        ``selected`` is the raw selection (unchanged behavior); ``visible`` and
-        ``scene`` gather mesh objects across the scene so a bake needn't be
-        preceded by a manual select-all.
+        ``visible`` and ``scene`` gather mesh objects across the scene so a bake
+        needn't be preceded by a manual select-all; ``selected`` takes the
+        selection. Every scope resolves through ``TextureBaker.resolve_meshes``
+        -- the baker's own "what counts as a bakeable mesh" -- so a selection
+        that also holds the room's lights bakes the geometry, and a lights-only
+        selection reads as nothing to bake.
         """
         scope = self._scope()
         if scope == "selected":
-            return CoreUtils.selected_objects()
+            return TextureBaker.resolve_meshes(CoreUtils.selected_objects())
         import bpy
 
-        # resolve_meshes is the baker's own "what counts as a bakeable mesh" SSoT,
-        # so the scope's count matches what bake() will actually process.
         meshes = TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
         if scope == "visible":
             return [o for o in meshes if o.visible_get()]
         return meshes  # scene
 
+    def set_exclusions_init(self, widget) -> None:
+        """Hang Select / Clear off the Exclude row, and make its hover live.
+
+        The row mirrors mayatk's (and the Marmoset bridge's Bake Source row):
+        Set From Selection is the button, Select and Clear its option-box icons.
+        The set lives in the file, so the hover lists its CURRENT members
+        instead of the ones the panel opened on; it wraps each widget's own help
+        text.
+        """
+        widget.option_box.add_action(
+            callback=self.select_exclusions,
+            icon="select",
+            tooltip="Select the excluded objects.",
+            settings_key=False,
+        )
+        widget.option_box.add_action(
+            callback=self.clear_exclusions,
+            icon="clear",
+            tooltip="Clear the Exclude set: every object in Scope bakes again. "
+            "The objects themselves are untouched.",
+            settings_key=False,
+        )
+        for target in (widget, self.ui.lbl_exclude):
+            help_text = target.toolTip()
+            self.sb.tooltip.bind(
+                target, lambda text=help_text: self._exclusions_tooltip(text)
+            )
+
+    def _exclusions_tooltip(self, help_text: str) -> str:
+        """*help_text* over the meshes the Exclude set keeps from baking, live.
+
+        The meshes, not the set's members: an Empty stored in the set reads as
+        what the bake will actually skip -- the same count the label shows.
+        """
+        try:
+            meshes = LightmapExcludeSet.meshes()
+        except Exception:  # noqa: BLE001 -- a tooltip must never raise into Qt
+            return help_text
+        return self.sb.tooltip.stored_items(
+            meshes,
+            body=help_text.replace("\n", "<br>"),
+            formatter=lambda obj: obj.name,
+            noun="mesh(es) excluded in this file",
+            empty_text="Nothing is excluded in this file.",
+        )
+
+    def _refresh_exclusions(self) -> None:
+        """Show the Exclude set's mesh count on its label (``Exclude (3):``).
+
+        The count is of MESHES -- what the bake skips -- so an Empty reads as
+        everything under it. Runs on the panel's own edits and on file open /
+        undo / redo (see :meth:`_initialize_ui`).
+        """
+        label = getattr(self.ui, "lbl_exclude", None)
+        if label is None:
+            return
+        try:
+            count = len(LightmapExcludeSet.meshes())
+        except Exception:  # noqa: BLE001 -- a label refresh must never raise
+            count = 0
+        label.setText(f"Exclude ({count}):" if count else "Exclude:")
+
+    def set_exclusions(self) -> None:
+        """Make the selection the Exclude set; an empty selection clears it."""
+        members = LightmapExcludeSet.define()
+        self._refresh_exclusions()
+        if not members:
+            self.ui.footer.setText("Nothing selected — the Exclude set is cleared.")
+            return
+        count = len(LightmapExcludeSet.meshes())
+        self.ui.footer.setText(
+            f"{count} mesh{'es' if count != 1 else ''} excluded; "
+            "they still light the rest."
+            if count
+            else "Exclude set stored, but it holds no meshes -- nothing is excluded."
+        )
+
+    def select_exclusions(self) -> None:
+        """Select the Exclude set's members.
+
+        A member outside the active view layer cannot be selected at all
+        (``select_set`` raises there), and a hidden one refuses; both are
+        counted rather than forced -- unhiding geometry to satisfy a *select*
+        would change the scene the set promises to leave alone.
+        """
+        from blendertk.edit_utils.selection import Selection
+
+        members = LightmapExcludeSet.members()
+        self._refresh_exclusions()
+        if not members:
+            self.ui.footer.setText("Nothing is excluded in this file.")
+            return
+        # The selection menu's own replace, which skips what cannot be selected;
+        # a hidden member refuses without raising, so read back what landed.
+        Selection._apply_selection_mode(members, "replace")
+        selected = []
+        for obj in members:
+            try:
+                if obj.select_get():
+                    selected.append(obj)
+            except RuntimeError:  # outside the active view layer
+                continue
+        unreachable = len(members) - len(selected)
+        self.ui.footer.setText(
+            f"Selected {len(selected)} excluded object"
+            f"{'s' if len(selected) != 1 else ''}."
+            + (
+                f" {unreachable} could not be selected (hidden, or outside the "
+                "view layer); they stay excluded."
+                if unreachable
+                else ""
+            )
+        )
+
+    def clear_exclusions(self) -> None:
+        """Remove the Exclude set; its objects are left untouched."""
+        if not LightmapExcludeSet.exists():
+            self.ui.footer.setText("Nothing is excluded in this file.")
+            return
+        LightmapExcludeSet.clear()
+        self._refresh_exclusions()
+        self.ui.footer.setText("Exclude set cleared — every object in Scope bakes.")
+
+    # ------------------------------------------------------------------
+    # Quality
+    # ------------------------------------------------------------------
+
     def cmb_resolution_init(self, widget) -> None:
-        """Populate the Resolution combobox (value carried as item data); default 1024."""
+        """Populate the Resolution combobox (value carried as item data,
+        default 1024) and hang the Denoise switch off it.
+
+        Denoise cleans the map at the size this combo sets, so the switch
+        belongs to it (mirror of mayatk's).
+        """
         widget.clear()
         for r in self._RESOLUTIONS:
             widget.addItem(f"Resolution:\t{r}", r)
         widget.setCurrentIndex(self._RESOLUTIONS.index(1024))
+        self._wire_toggle(
+            widget,
+            "denoise",
+            icon="filter",
+            on="Denoise: every map goes through Blender's own denoiser "
+            "(OpenImageDenoise) once it is baked — Cycles does not denoise a "
+            "bake itself. Click to ship the bake as rendered.",
+            off="Not denoising. Cycles does not denoise a bake, so each map ships "
+            "its sampling noise, which reads as splotches up close. Click to "
+            "denoise.",
+        )
 
     def _resolution(self) -> int:
         """The selected lightmap resolution (px) from cmb_resolution (its item data)."""
@@ -281,43 +654,69 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
 
     def _set_resolution(self, value: int) -> None:
         """Select *value* in the Resolution combobox, snapping to the nearest fixed size."""
-        nearest = min(self._RESOLUTIONS, key=lambda r: abs(r - value))
-        cmb = self.ui.cmb_resolution
-        cmb.blockSignals(True)
-        try:
-            cmb.setCurrentIndex(self._RESOLUTIONS.index(nearest))
-        finally:
-            cmb.blockSignals(False)
+        nearest = min(self._RESOLUTIONS, key=lambda r: abs(r - int(value)))
+        self.ui.cmb_resolution.setCurrentIndex(self._RESOLUTIONS.index(nearest))
 
-    #: Cycles bake device, ``(label, value)`` — mirror of mayatk's ``_DEVICES``.
-    _DEVICES = (("Auto", "AUTO"), ("GPU", "GPU"), ("CPU", "CPU"))
+    def spn_samples_init(self, widget) -> None:
+        """Hang the Adaptive Sampling switch off the Samples field.
+
+        Adaptive sampling does not change how MANY samples the bake may spend
+        -- it decides where the Samples this field sets are spent -- so it
+        qualifies this dial (mirror of mayatk's).
+        """
+        self._wire_toggle(
+            widget,
+            "adaptive",
+            icon="activity",
+            on="Adaptive Sampling: each texel stops once its noise is low enough, "
+            "so the flat, lit ones finish early and the shadows take the rest of "
+            "the Samples. Measured on a shadowed floor after the denoise every "
+            "map gets: 32.6s where giving every texel the full budget took 71.7s "
+            "at 1024 samples, for residual noise of 0.37% against 0.26%. Click to "
+            "give every texel the full budget.",
+            off="Every texel gets the full Samples: the cleanest map, and the "
+            "slowest. Click to spend the budget adaptively.",
+        )
 
     def cmb_device_init(self, widget) -> None:
-        """Populate the Device combobox (value carried as item data); default Auto."""
+        """Populate the Processor combobox (value carried as item data); default Auto."""
         widget.clear()
         for label, value in self._DEVICES:
-            widget.addItem(f"Device:\t{label}", value)
+            widget.addItem(f"Processor:\t{label}", value)
         widget.setCurrentIndex(0)  # Auto
 
     def _device(self) -> str:
-        """The selected bake device from cmb_device (its item data)."""
+        """The processor the bake runs on, from cmb_device (its item data)."""
         return self.ui.cmb_device.currentData() or self._DEVICES[0][1]
 
+    def _adaptive(self) -> bool:
+        """Whether the bake samples adaptively (the Samples field's switch)."""
+        return self._toggle_state("adaptive")
+
     def _include_environment(self) -> bool:
-        """Whether the bake keeps the scene's environment (chk_environment)."""
-        return bool(self.ui.chk_environment.isChecked())
+        """Whether the bake keeps the scene's world (the Scope switch)."""
+        return self._toggle_state("include_environment")
 
     def _denoise(self) -> bool:
-        """Whether the bakes are denoised (chk_denoise; mirrors mayatk)."""
-        return bool(self.ui.chk_denoise.isChecked())
+        """Whether the maps are denoised (the Resolution switch)."""
+        return self._toggle_state("denoise")
+
+    # ------------------------------------------------------------------
+    # Output
+    # ------------------------------------------------------------------
 
     def txt_output_dir_init(self, widget) -> None:
-        """Add a directory browser to the optional output-directory field.
+        """Add the folder browser and the Beside Material Textures toggle.
 
         No clear button (mirrors mayatk's twin): the value arrives from the
-        browse dialog as often as it is typed, and a mis-click would drop a
-        path the user picked and can't retype -- the field's *empty* default is
-        one keystroke away anyway (see :meth:`_output_dir`).
+        browse dialog as often as it is typed, and a mis-click would drop a path
+        the user picked and can't retype -- the field's *empty* default is one
+        keystroke away anyway (see :meth:`_output_dir`).
+
+        The toggle is a switch on the field it redirects (:attr:`_TOGGLES`):
+        on, each map goes to its material's texture folder
+        (:attr:`LightmapBaker.beside_textures`) and this field only takes the
+        objects whose material has none.
         """
         widget.option_box.browse(
             mode="directory",
@@ -326,20 +725,70 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             start_dir=self._output_dir,
             callback=self._relativize_output_dir,
         )
+        self._wire_toggle(
+            widget,
+            "beside_textures",
+            icon="image",
+            on="Beside material textures: each lightmap is saved in the folder "
+            "its material's texture maps are in, named after that texture set. "
+            "This field only takes the objects whose material has no texture "
+            "folder (a packed or embedded image has none). Click to save every "
+            "map here instead.",
+            off="Saving every lightmap to this folder. Click to save each one "
+            "beside its material's texture maps instead.",
+            on_toggled=self._show_output_mode,
+        )
+        self._show_output_mode(self._beside_textures())
+
+    def _beside_textures(self) -> bool:
+        """Whether each map is saved beside its material's texture maps."""
+        return self._toggle_state("beside_textures")
+
+    def _show_output_mode(self, beside: bool) -> None:
+        """Say in the empty field where the maps will go."""
+        self.ui.txt_output_dir.setPlaceholderText(
+            "beside textures, else sourceimages" if beside else "sourceimages"
+        )
 
     def _relativize_output_dir(self, path: str) -> None:
-        """Store a browsed dir under the texture folder as a *relative* path.
+        """Store a browsed dir as the portable spelling of itself.
 
-        The dialog can only hand back an absolute path, but the portable form
-        is the relative one: a project moved (or a teammate's copy) still bakes
-        into the same subfolder. Anything outside the texture folder is left
-        absolute -- that is what the user picked.
+        The dialog can only hand back an absolute path; under the texture folder
+        the relative one is what survives the project being moved (or a
+        teammate's copy) -- see ``ptk.FileUtils.relativize_output_dir``, the
+        exact inverse of the ``resolve_output_dir`` :meth:`_output_dir` reads the
+        field with.
+        """
+        if not path:
+            return
+        self.ui.txt_output_dir.setText(
+            ptk.FileUtils.relativize_output_dir(path, self._base_output_dir())
+        )
+
+    def _output_dir(self) -> str:
+        """The bake's output directory: the field, resolved against the texture folder.
+
+        Empty field -> :meth:`_base_output_dir` itself. A subdirectory entry is
+        joined onto it so the setting survives a project move; a full path is
+        taken as-is. The directory itself is created by the bake.
         """
         base = self._base_output_dir()
-        if not (path and base and ptk.FileUtils.is_under(path, base)):
-            return
-        rel = ptk.FileUtils.convert_to_relative_path(path, base, prepend_base=False)
-        self.ui.txt_output_dir.setText("" if rel == "." else rel)
+        return ptk.FileUtils.resolve_output_dir(self.ui.txt_output_dir.text(), base)
+
+    @staticmethod
+    def _base_output_dir() -> str:
+        """What a relative Output Directory is relative to (and the default when
+        it is empty): the workspace's texture folder (its ``sourceImages`` rule
+        for a marked workspace.mel project, else ``textures`` next to the
+        .blend) -- or, before the file has been saved, where a scripted bake
+        would land on its own (:meth:`TextureBaker.default_output_dir`), so an
+        empty field never means two places. mayatk's twin falls back the same
+        way when there is no project."""
+        from blendertk.env_utils._env_utils import EnvUtils
+
+        return EnvUtils.source_images_dir() or TextureBaker.default_output_dir(
+            "baked_lighting"
+        )
 
     def txt000_init(self, widget) -> None:
         """Add the Prefix / Suffix / Auto picker to the name-affix field."""
@@ -354,44 +803,12 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             convention_key="lightmap",
         )
 
-    def _preset_for_dials(self, resolution: int, samples: int) -> str:
-        """The preset whose dials are exactly these, else :attr:`_CUSTOM_PRESET_LABEL`.
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
 
-        The resolver behind the ``sb.value_from`` rule wired in
-        :meth:`_initialize_ui`. A pure dict lookup (built once in
-        :meth:`cmb000_init`), so it costs nothing to re-run on every arrow-press
-        in the Samples spinbox.
-        """
-        return self._preset_by_dials.get(
-            (int(resolution), int(samples)), self._CUSTOM_PRESET_LABEL
-        )
-
-    def _apply_preset(self, name: str) -> bool:
-        store = LightmapBaker.preset_store()
-        if not name or not store.exists(name):
-            return False
-        data = store.load(name)
-        if "resolution" in data:
-            self._set_resolution(int(data["resolution"]))
-        if "samples" in data:
-            spin = self.ui.spn_samples
-            spin.blockSignals(True)
-            try:
-                spin.setValue(int(data["samples"]))
-            finally:
-                spin.blockSignals(False)
-        # Bounce depth has no panel widget -- Resolution and Samples do, so the tier
-        # reaches the bake through THEM, and anything the tier carries besides them
-        # has to be carried by hand. Without this the preset's ``bounces`` silently
-        # no-ops for every panel bake (exactly the failure mayatk's ``_preset_gi``
-        # comment records for gi_depth/gi_samples), leaving the panel on the
-        # constructor default whichever tier is showing.
-        self._preset_gi = {k: int(data[k]) for k in ("bounces",) if k in data}
-        return True
-
-    # ------------------------------------------------------------------ actions
     def b000(self) -> None:
-        """Bake lightmaps for the Scope (:meth:`LightmapBaker.bake`; mirrors mayatk)."""
+        """Bake lightmaps for the Scope, minus the Exclude set (:meth:`LightmapBaker.bake`)."""
         objects = self._scope_objects()
         if not objects:
             self.ui.footer.setText(
@@ -404,11 +821,12 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         self._baker = LightmapBaker(
             resolution=self._resolution(),
             samples=self.ui.spn_samples.value(),
+            bounces=self.ui.spn_bounces.value(),
             device=self._device(),
+            adaptive=self._adaptive(),
             include_environment=self._include_environment(),
             denoise=self._denoise(),
-            # Dials the tier carries but the panel does not show (mirrors mayatk).
-            **getattr(self, "_preset_gi", {}),
+            beside_textures=self._beside_textures(),
         )
 
         out_dir = self._output_dir()
@@ -453,19 +871,30 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             self._last_output_dir = None
             return "Bake produced no output (see the console)."
         self._last_output_dir = os.path.dirname(next(iter(result.maps.values())))
+        folders = result.folders
+        where = (
+            self._last_output_dir
+            if len(folders) == 1
+            else f"{len(folders)} folders (beside their textures)"
+        )
         if self._packing() == "atlas":
-            atlases = len(result.files)
+            n = len(result.files)
             tail = (
-                f"Consolidated into {atlases} atlas{'es' if atlases != 1 else ''} by "
-                f"material. {self._LIGHTING_ONLY_TAIL}"
+                f"Consolidated into {n} atlas map{'s' if n != 1 else ''}; each "
+                "object samples its own atlas rect at engine time. Export the FBX."
             )
         else:
             tail = self._LIGHTING_ONLY_TAIL
         count = len(result.maps)
-        notes = [
-            f"Baked {count} object{'s' if count != 1 else ''} → "
-            f"{self._last_output_dir}. {tail}"
-        ]
+        notes = [f"Baked {count} object{'s' if count != 1 else ''} → {where}. {tail}"]
+        if result.excluded:
+            notes.append(f" {len(result.excluded)} excluded.")
+        if result.retired:
+            n = len(result.retired)
+            notes.append(
+                f" Deleted {n} superseded map{'s' if n != 1 else ''} "
+                "nothing reads any more."
+            )
         if result.unbaked:
             notes.append(
                 f" {len(result.unbaked)} not baked (cancelled or failed); "
@@ -475,55 +904,81 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             notes.append(f"  WARNING: {result.verdict}")
         return "".join(notes)
 
-    # ------------------------------------------------------------------ header menu
+    # ------------------------------------------------------------------
+    # Header-menu actions
+    # ------------------------------------------------------------------
+
     def revert_to_source(self) -> None:
-        """Undo the bake wiring on the selected objects (or all baked ones)."""
+        """Take the lightmaps off the selected objects (or every baked one), once confirmed.
+
+        A header-menu item one row from the panel's other actions, and with
+        nothing selected it reaches every baked object in the file -- so it says
+        exactly what it will do and waits for OK (mirror of mayatk's). What it
+        removes is only the wiring: the materials and texture UVs were never
+        changed, and the EXR files stay on disk.
+        """
         if self._baker is None:
             self._baker = LightmapBaker()
-        selection = CoreUtils.selected_objects() or None
+        # Mesh objects, by the bake's own rule (resolve_meshes): anything else
+        # selected (an Empty, a light) has no lightmap to take off.
+        raw = CoreUtils.selected_objects()
+        selection = (
+            [obj.name for obj in TextureBaker.resolve_meshes(raw)] if raw else None
+        )
+        targets = self._baker.baked_objects(selection) if selection != [] else []
+        if not targets:
+            self.ui.footer.setText(
+                "None of the selected objects has a lightmap."
+                if raw
+                else "No baked objects to revert."
+            )
+            return
+        count = len(targets)
+        whose = "selected" if selection else "baked"
+        confirmed = self.sb.confirm(
+            f"<b>Revert to Source</b> &mdash; {count} {whose} "
+            f"object{'s' if count != 1 else ''}"
+            + ("" if selection else " (nothing is selected, so: all of them)")
+            + "<br><br>Removes their lightmap wiring: each object's lightmap "
+            "record and its entry in the file's lightmap export data. Their "
+            "materials and texture UVs were never changed, and the baked EXR "
+            "files stay on disk.<br><br>An export will carry no lightmap for "
+            "them until they are baked again. One Undo restores the wiring.",
+            yes="Ok",
+            no="Cancel",
+        )
+        if not confirmed:
+            self.ui.footer.setText("Revert to Source cancelled.")
+            return
         reverted = self._baker.revert(selection)
         if reverted:
             self.ui.footer.setText(
-                f"Reverted {len(reverted)} object{'s' if len(reverted) != 1 else ''} to source."
+                f"Reverted {count} object{'s' if count != 1 else ''} to source "
+                "(lightmap wiring removed; the EXR files stay on disk)."
             )
         else:
             self.ui.footer.setText("No baked objects to revert.")
 
     def open_output(self) -> None:
-        """Open the most recent output folder in the file browser."""
-        out = self._last_output_dir or self._output_dir()
-        if out and os.path.isdir(out):
-            try:
-                ptk.FileUtils.reveal_in_file_manager(out)
-            except (FileNotFoundError, OSError) as e:
-                self.ui.footer.setText(str(e))
-        else:
+        """Open the bake's output folder in the file manager.
+
+        The folder the last bake wrote to when there is one -- Beside Material
+        Textures sends maps away from the Output Directory, which then showed
+        nothing new -- else the Output Directory field's resolved target when it
+        exists, else the texture folder it resolves against (mirror of mayatk's
+        ``open_sourceimages``).
+        """
+        src = self._last_output_dir
+        if not (src and os.path.isdir(src)):
+            src = self._output_dir()
+        if src and not os.path.isdir(src):  # not baked into yet
+            src = self._base_output_dir()
+        if not (
+            src
+            and os.path.isdir(src)
+            and ptk.FileUtils.open_explorer(src, logger=self.logger)
+        ):
             self.ui.footer.setText("No output folder yet — bake first.")
-
-    # ------------------------------------------------------------------ helpers
-    def _output_dir(self) -> str:
-        """The bake's output directory: the field, resolved against the texture folder.
-
-        Empty field -> :meth:`_base_output_dir` itself. A subdirectory entry is joined
-        onto it so the setting survives a project move; a full path is taken as-is. The
-        directory itself is created by the bake."""
-        base = self._base_output_dir()
-        return ptk.FileUtils.resolve_output_dir(self.ui.txt_output_dir.text(), base)
-
-    @staticmethod
-    def _base_output_dir() -> str:
-        """What a relative Output Directory is relative to (and the default when it is
-        empty): the workspace's texture folder (its ``sourceImages`` rule for a marked
-        workspace.mel project, else ``textures`` next to the .blend), or a temp dir until
-        the file has been saved. The header menu's "Open Output Folder" — mayatk's
-        counterpart is "Open Sourceimages Folder" — browses the resolved output dir."""
-        import tempfile
-
-        from blendertk.env_utils._env_utils import EnvUtils
-
-        return EnvUtils.source_images_dir() or os.path.join(
-            tempfile.gettempdir(), "textures"
-        )
 
 
 # -----------------------------------------------------------------------------

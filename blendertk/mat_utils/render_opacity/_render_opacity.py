@@ -21,4 +21,5 @@ ptk.Deprecation.attributes(
         )
     },
     remove_in="0.11.0",
+    since="2026-09-23",
 )

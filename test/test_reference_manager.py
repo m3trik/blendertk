@@ -258,6 +258,16 @@ try:
         "rename_scene_file refuses an existing target (no side effect)",
         btk.rename_scene_file(renamed, "taken") is None and os.path.isfile(renamed),
     )
+    # 14a. a case-only rename goes through -- on a case-insensitive file system its target
+    #      "exists" (it IS the file), which used to read as a name clash.
+    recased = btk.rename_scene_file(renamed, "Shot_Final")
+    check(
+        "rename_scene_file does a case-only rename",
+        recased is not None
+        and "Shot_Final.blend" in os.listdir(os.path.dirname(renamed)),
+        str(recased),
+    )
+    renamed = recased or renamed
 
     # 14b. renaming the OPEN file is save-then-reopen: the edits authored since the last save go
     #      into the renamed file, and the session tracks the new path. Without it bpy.data.filepath
@@ -1260,6 +1270,38 @@ try:
         f"{_ws}",
     )
     btk.set_current_workspace(_prev_pin.root if _prev_pin else None)
+
+    # Save To Workspace: the footer tooltip previews the very path the save writes. Two
+    # ways they parted: the save kept a "{scene}" typo literally (a "{scene}" folder)
+    # while the tooltip read it as "{scenes}"; and a doubled-suffix scene prefilled a
+    # name still ending in the suffix, which the save's own strip then shortened
+    # (previewed scenes/villain_v01/villain_v01.blend, saved scenes/villain/...).
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _ws_save = os.path.join(tmp, "ws_save")
+    os.makedirs(_ws_save, exist_ok=True)
+    s, sb = make_slots()
+    s._workspace_dir = lambda: _ws_save
+    s._naming_options = lambda: ("None", "_v01", "{scene}/{name}")
+    s._current_scene_file = lambda: os.path.join(tmp, "villain_v01_v01.blend")
+    s._refresh = lambda: None
+    _previews = []
+    sb.tooltip = type(
+        "_Tip", (), {"fmt": staticmethod(lambda **kw: _previews.append(kw) or "")}
+    )()
+    sb.input_dialog = lambda title, label, default: default  # accept the prefill
+    s._save_scene_preview()
+    s.save_scene()
+    _expected = os.path.join(_ws_save, "scenes", "villain", "villain_v01.blend")
+    check(
+        "panel: Save reads a {scene} typo as {scenes}, as its tooltip does",
+        os.path.isfile(_expected),
+        str(sorted(os.listdir(_ws_save))),
+    )
+    check(
+        "panel: the Save tooltip previews the path the save wrote",
+        any(_expected in text for p in _previews for _k, text in p.get("rows") or ()),
+        str(_previews),
+    )
 
 except Exception as e:
     traceback.print_exc()

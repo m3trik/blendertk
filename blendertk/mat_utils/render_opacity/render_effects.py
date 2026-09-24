@@ -953,7 +953,7 @@ class RenderEffects(ptk.LoggingMixin):
 
         *objects* is deprecated and ignored -- passing it warns until blendertk
         0.11.0 -- and the return is always empty (it named the objects whose
-        visibility was re-synced).
+        visibility was re-synced); from 0.11.0, with *objects* gone, it is None.
         """
         if objects is not None:
             # A body notice rather than ``Deprecation.parameter``: callers pass
@@ -962,6 +962,7 @@ class RenderEffects(ptk.LoggingMixin):
                 "RenderEffects.prepare_for_export(objects)",
                 "RenderEffects.prepare_for_export()",
                 remove_in="0.11.0",
+                since="2026-09-23",
                 kind="parameter",
                 reason="The staging always covers every keyed channel.",
                 stacklevel=2,

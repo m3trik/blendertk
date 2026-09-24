@@ -2325,6 +2325,76 @@ try:
                 for t in ("_import_scene.py", "_import_scene_usd.py")
             ),
         )
+        # A scene baked before 2026-09-23 carries its lightmap folder ON the
+        # markers, which ride the conversion's carrier, and the bracket stager
+        # that lifts it never runs in a raw FBXExport: measured on the office
+        # module, a pull shipped all 51 markers' old folders and no record. The
+        # template lifts them first, then reads the records it sends.
+        import ast as _ast_lm
+        import types as _types_lm
+
+        _lm_calls = []
+
+        class _StubRecords:
+            @staticmethod
+            def migrate_folder_hints():
+                _lm_calls.append("lift")
+                return []
+
+        class _StubNodes:
+            @staticmethod
+            def transfer_sections(spell=None):
+                _lm_calls.append("send")
+                return {}
+
+        _stubs = {
+            "mayatk": _types_lm.ModuleType("mayatk"),
+            "mayatk.node_utils": _types_lm.ModuleType("mayatk.node_utils"),
+            "mayatk.node_utils.data_nodes": _types_lm.ModuleType("dn"),
+            "mayatk.light_utils": _types_lm.ModuleType("mayatk.light_utils"),
+            "mayatk.light_utils.lightmap_baker": _types_lm.ModuleType("lb"),
+            "mayatk.light_utils.lightmap_baker.lightmap_records": (
+                _types_lm.ModuleType("lr")
+            ),
+        }
+        _stubs["mayatk.node_utils.data_nodes"].DataNodes = _StubNodes
+        _lr_stub = _stubs["mayatk.light_utils.lightmap_baker.lightmap_records"]
+        _lr_stub.LightmapRecords = _StubRecords
+        _lm_order = {}
+        _saved = {k: sys.modules.get(k) for k in _stubs}
+        try:
+            sys.modules.update(_stubs)
+            for _tmpl in ("_import_scene.py", "_import_scene_usd.py"):
+                _tree = _ast_lm.parse(
+                    (_IMPORT_TEMPLATE.parent / _tmpl).read_text(encoding="utf-8")
+                )
+                _fn = next(
+                    n
+                    for n in _tree.body
+                    if isinstance(n, _ast_lm.FunctionDef)
+                    and n.name == "scene_data_sections"
+                )
+                _ns = {"traceback": traceback}
+                exec(
+                    compile(_ast_lm.Module(body=[_fn], type_ignores=[]), _tmpl, "exec"),
+                    _ns,
+                )
+                _lm_calls.clear()
+                _ns["scene_data_sections"](None, lambda n: n)
+                _lm_order[_tmpl] = list(_lm_calls)
+        finally:
+            for _k, _v in _saved.items():
+                if _v is None:
+                    sys.modules.pop(_k, None)
+                else:
+                    sys.modules[_k] = _v
+        check(
+            "conversion templates: legacy lightmap folders are lifted into the "
+            "record before the records are sent (both routes)",
+            all(order == ["lift", "send"] for order in _lm_order.values())
+            and len(_lm_order) == 2,
+            str(_lm_order),
+        )
         with open(_pl_fbx + ".manifest.json", "w", encoding="utf-8") as fh:
             _json_pl.dump({"version": 1, "transforms": {"grp": "group"}}, fh)
         check(

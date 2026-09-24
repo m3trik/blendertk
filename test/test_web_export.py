@@ -24,6 +24,7 @@ import shutil
 import sys
 import tempfile
 import traceback
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -603,6 +604,174 @@ try:
         or (sl.material is not None and sl.material is not shared)
     ]
     check("per-instance material overrides are reverted", not overrides, str(overrides))
+
+    # --- one material, DIFFERENT maps, no atlas ----------------------------
+    # A secondary material several baked objects share (one GLASS on two machine
+    # bodies) or a Per-Object bake of linked duplicates (one mesh, one material
+    # behind every instance): each object has a map of its own and no rect, and a
+    # glTF material carries ONE lightmap. Wired in place, the first object's map
+    # rode the material and every later object sampled it through its own UV2 --
+    # build_manifest could only warn "cannot be published". The twin of
+    # ptk.MeshConvert.apply_glb_lightmaps' 2026-09-21 fix: the first object keeps
+    # the material, each later one with a different map binds a per-object clone.
+    from blendertk.uv_utils._uv_utils import LIGHTMAP_UV_SET
+
+    glass = bpy.data.materials.new("M_Glass")
+    glass.use_nodes = True
+    bodies = []
+    for i, loc in enumerate(((12.0, 0.0, 0.0), (12.0, 3.0, 0.0))):
+        bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
+        ob = bpy.context.active_object
+        ob.name = f"glass_body_{i}"
+        ob.data.materials.append(glass)
+        ob.data.uv_layers.new(name=LIGHTMAP_UV_SET)
+        bodies.append(ob)
+    twin = bodies[0].copy()  # a linked duplicate: SAME mesh, same material
+    twin.name = "glass_body_twin"
+    twin.location = (12.0, 6.0, 0.0)
+    bpy.context.scene.collection.objects.link(twin)
+    bodies.append(twin)
+
+    split_maps = {}
+    for ob in bodies:
+        path = os.path.join(tmp_dir, f"{ob.name}_lm.png")
+        img = bpy.data.images.new(f"{ob.name}_lm", 8, 8)
+        img.filepath_raw = path
+        img.file_format = "PNG"
+        img.save()
+        bpy.data.images.remove(img)
+        split_maps[ob.name] = (path, 1.0)
+
+    def reached(ob):
+        """Basenames of the lightmaps the object's LIVE slot material samples."""
+        mat = ob.material_slots[0].material
+        return sorted(
+            os.path.basename(bpy.path.abspath(n.image.filepath))
+            for n in mat.node_tree.nodes
+            if n.label == "Lightmap" and n.image is not None
+        )
+
+    split_token = web.wire_lightmaps(split_maps)
+    got_maps = {ob.name: reached(ob) for ob in bodies}
+    want_maps = {n: [os.path.basename(p)] for n, (p, _s) in split_maps.items()}
+    check(
+        "objects sharing a material but baked into different maps each reach their own",
+        got_maps == want_maps,
+        f"got {json.dumps(got_maps)} want {json.dumps(want_maps)}",
+    )
+    split_manifest = web.build_manifest(split_maps, split_token["carrier"])
+    published = sorted(v["map"] for v in split_manifest.get("materials", {}).values())
+    check(
+        "...and the manifest publishes every map, one material each",
+        published == sorted(m[0] for m in want_maps.values()),
+        json.dumps(split_manifest.get("materials", {})),
+    )
+    split_glb = os.path.join(tmp_dir, "split.glb")
+    web.export_glb(
+        split_glb, objects=bodies, manifest=split_manifest, texture_max_size=None
+    )
+    web.unwire_lightmaps(split_token)
+    sgltf = glb_json(split_glb)
+
+    def shipped_map(node_name):
+        """The image name each exported node's material samples as its lightmap."""
+        node = next(
+            (n for n in sgltf.get("nodes", []) if n.get("name") == node_name), None
+        )
+        if node is None or "mesh" not in node:
+            return None
+        prim = sgltf["meshes"][node["mesh"]]["primitives"][0]
+        occ = sgltf["materials"][prim["material"]].get("occlusionTexture")
+        if not occ:
+            return None
+        texture = sgltf["textures"][occ["index"]]
+        # A WEBP export names its image under the extension, not `source`.
+        source = texture.get("source")
+        if source is None:
+            source = (texture.get("extensions") or {}).get("EXT_texture_webp", {})
+            source = source.get("source")
+        image = sgltf["images"][source] if source is not None else {}
+        return image.get("name") or image.get("uri")
+
+    got_glb = {ob.name: shipped_map(ob.name) for ob in bodies}
+    check(
+        "...and the GLB ships each object with its OWN lightmap",
+        all(
+            (got_glb[n] or "").startswith(os.path.splitext(want_maps[n][0])[0])
+            for n in got_glb
+        ),
+        json.dumps(got_glb),
+    )
+
+    def split_leftovers():
+        """What is left of the split wiring: re-linked or foreign slots, lightmap
+        nodes in the glass, and clones of it."""
+        return (
+            [
+                f"{o.name}[{i}]"
+                for o in bodies
+                for i, sl in enumerate(o.material_slots)
+                if sl.link == "OBJECT" or sl.material is not glass
+            ]
+            + [n.name for n in glass.node_tree.nodes if n.label == "Lightmap"]
+            + [m.name for m in bpy.data.materials if m.name.startswith("M_Glass~")]
+        )
+
+    split_left = split_leftovers()
+    check("...and the split wiring is fully reverted", not split_left, str(split_left))
+
+    # --- a wiring that fails part-way takes back what it did ---------------
+    # wire_lightmaps edits the LIVE scene (tentacle's GLB export wraps the
+    # artist's own .blend in wired_for_export), and it takes every clone and
+    # re-links its slot before the in-place pass. An error the per-material
+    # guard does not catch -- a slot that refuses the re-link, an interrupt --
+    # left those clones and overrides in the scene, to be saved with it.
+    class _Escape(BaseException):
+        """Raised past wire_lightmaps' per-material ``except Exception``."""
+
+    real_wire = LightmapWebExport._wire_material
+
+    def wire_then_escape(self, material, *args, **kwargs):
+        if material.name == glass.name:  # the in-place pass: every clone is made
+            raise _Escape()
+        return real_wire(self, material, *args, **kwargs)
+
+    escaped = False
+    try:
+        with mock.patch.object(LightmapWebExport, "_wire_material", wire_then_escape):
+            web.wire_lightmaps(split_maps)
+    except _Escape:
+        escaped = True
+    escape_left = split_leftovers()
+    check(
+        "a wiring that fails part-way takes back what it had done",
+        escaped and not escape_left,
+        f"escaped={escaped} left={escape_left}",
+    )
+
+    # ...and so does the export bracket, when its manifest cannot be built.
+    def no_manifest(*_args, **_kwargs):
+        raise RuntimeError("no manifest")
+
+    bracket_raised = False
+    try:
+        with mock.patch.object(LightmapWebExport, "build_manifest", no_manifest):
+            with web.wired_for_export(objects=[floor]):
+                pass
+    except RuntimeError:
+        bracket_raised = True
+    floor_left = [
+        n.name
+        for sl in floor.material_slots
+        if sl.material is not None and sl.material.node_tree is not None
+        for n in sl.material.node_tree.nodes
+        if n.label == "Lightmap"
+    ]
+    check(
+        "wired_for_export takes its wiring back when the manifest fails",
+        bracket_raised and not floor_left,
+        f"raised={bracket_raised} left={floor_left}",
+    )
 
     # --- the viewer's side of the contract ---------------------------------
     # The exporter and pythontk's WebXR viewer agree by convention, not by an interface,

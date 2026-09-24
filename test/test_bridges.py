@@ -612,6 +612,64 @@ try:
             f"{sorted(_models.values())} parents={_parents} animated={sorted(_animated)}",
         )
 
+    # ---- the Substance bake source ships its HIDDEN members too ----------------
+    # Blender's FBX export is selection-based and drops whatever it cannot select,
+    # so a high-poly mesh hidden by its own flags or by its collection left the
+    # bake source without it. The set's collection used to reveal the
+    # collection-hidden ones as a side effect -- in the viewport and the render
+    # too -- until it became render-neutral (``bake_sets.BakeSet``); the export
+    # reveals its members for the write alone and puts every flag back.
+    import pythontk as _hp_ptk
+    from blendertk.mat_utils.substance_bridge._substance_bridge import (
+        HighPolySet,
+        SubstanceBridge,
+    )
+
+    reset()
+    hp_home = bpy.data.collections.new("hp_hidden_home")
+    bpy.context.scene.collection.children.link(hp_home)
+    hp_objs = []
+    for i, name in enumerate(("hp_shown", "hp_flagged", "hp_in_hidden")):
+        bpy.ops.mesh.primitive_cube_add(location=(i * 3, 0, 0))
+        hp_objs.append(bpy.context.active_object)
+        hp_objs[-1].name = name
+    hp_shown, hp_flagged, hp_in_hidden = hp_objs
+    hp_flagged.hide_viewport = True
+    hp_flagged.hide_set(True)
+    for c in list(hp_in_hidden.users_collection):
+        c.objects.unlink(hp_in_hidden)
+    hp_home.objects.link(hp_in_hidden)
+    hp_home.hide_viewport = True
+    hp_home.hide_render = True
+    HighPolySet.define(hp_objs)
+    hp_written = SubstanceBridge()._export_bake_source(
+        os.path.join(tmp, "hp_asset.fbx"),
+        dict(_SUB_FBX),
+        {"BAKE_SOURCE_SET"},
+        _hp_ptk.HandoffRequest(),
+    )
+    hp_models = set()
+    if hp_written and os.path.isfile(hp_written):
+        for _rec in _hp_ptk.FbxFile.load(hp_written, raw_payloads=False).iter_objects():
+            _props = _rec["props"]
+            if _rec["name"] == "Model" and _props and isinstance(_props[0], int):
+                hp_models.add(_hp_ptk.FbxFile._display_name(_props[1]))
+    check(
+        "the Substance bake source ships its hidden members too",
+        {"hp_shown", "hp_flagged", "hp_in_hidden"} <= hp_models,
+        f"{hp_written} -> {sorted(hp_models)}",
+    )
+    check(
+        "...and the export leaves every hide flag as it found it",
+        hp_flagged.hide_viewport
+        and hp_flagged.hide_get()
+        and hp_home.hide_viewport
+        and hp_home.hide_render
+        and not hp_in_hidden.visible_get()
+        and hp_in_hidden.name not in bpy.context.scene.collection.objects,
+    )
+    HighPolySet.clear()
+
     import shutil
 
     shutil.rmtree(tmp, ignore_errors=True)

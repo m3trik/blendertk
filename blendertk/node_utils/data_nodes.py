@@ -602,6 +602,105 @@ class DataNodes(ptk.SceneStoreBase):
             except ReferenceError:
                 continue
 
+    # ------------------------------------------------------------------
+    # Project-relative paths (mirror of mayatk's)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def project_root(cls) -> Optional[str]:
+        """The project the open .blend lives in -- what the path records
+        (``ptk.RecordSpec.paths``) are spelled from; never a session pin,
+        which any other file may have set. ``None`` while unsaved."""
+        import bpy
+
+        return cls.project_root_of(bpy.data.filepath)
+
+    @classmethod
+    def install_path_rebase(cls) -> bool:
+        """Keep the path records spelled from the file's own project across a
+        save into another one (mirror of mayatk's): just before a save they
+        are re-spelled from the project of the file open now to the project
+        of the file being written (:meth:`rebase_paths`; ``save_pre`` gets
+        the target while ``bpy.data.filepath`` is still the old one). A Save
+        COPY, and a save that fails, leave the open file where it was, so
+        ``save_post`` / ``save_post_fail`` spell them back. A plain save
+        normalizes.
+
+        Persistent handlers (they survive a file load), idempotent and
+        reload-proof: a reinstall first removes any copy of them by name.
+        Installed at the UI handler's runtime init point
+        (``BlenderUiHandler``), never on import.
+        """
+        import bpy
+
+        cls.remove_path_rebase()
+        handlers = bpy.app.handlers
+        handlers.save_pre.append(handlers.persistent(cls._rebase_before_save))
+        for handler_list in cls._restore_handler_lists():
+            handler_list.append(handlers.persistent(cls._restore_after_copy))
+        return True
+
+    @staticmethod
+    def _restore_handler_lists() -> list:
+        """``save_post``, and ``save_post_fail`` where this Blender has it."""
+        import bpy
+
+        handlers = bpy.app.handlers
+        failed = getattr(handlers, "save_post_fail", None)
+        return [handlers.save_post] + ([failed] if failed is not None else [])
+
+    @classmethod
+    def remove_path_rebase(cls) -> None:
+        """Remove the re-base handlers -- any module copy's, matched by name."""
+        import bpy
+
+        names = {"_rebase_before_save", "_restore_after_copy"}
+        for handler_list in [bpy.app.handlers.save_pre, *cls._restore_handler_lists()]:
+            for fn in list(handler_list):
+                if getattr(fn, "__name__", "") in names and "DataNodes" in getattr(
+                    fn, "__qualname__", ""
+                ):
+                    handler_list.remove(fn)
+
+    @staticmethod
+    def _rebase_before_save(filepath=None, *_args) -> None:
+        """Re-spell the path records for the file about to be written. Never
+        raises: a record left spelled from the old project must not cost the
+        save."""
+        import bpy
+
+        try:
+            new_base = DataNodes.project_root_of(filepath or bpy.data.filepath)
+            if new_base is not None:
+                DataNodes.rebase_paths(DataNodes.project_root(), new_base)
+        except Exception:  # noqa: BLE001 - a save never fails on this
+            logger.warning(
+                "Scene-record paths were not re-spelled for the save.", exc_info=True
+            )
+
+    @staticmethod
+    def _restore_after_copy(filepath=None, *_args) -> None:
+        """After a Save Copy, or a save that failed, the open file is still the
+        one it was -- unsaved, perhaps: spell the records back from the
+        target's project to its own (none while unsaved: absolute)."""
+        import bpy
+
+        try:
+            current = bpy.data.filepath
+            if not filepath or (
+                current
+                and os.path.normcase(os.path.abspath(filepath))
+                == os.path.normcase(os.path.abspath(current))
+            ):
+                return  # the open file is the one written
+            DataNodes.rebase_paths(
+                DataNodes.project_root_of(filepath), DataNodes.project_root()
+            )
+        except Exception:  # noqa: BLE001 - a save never fails on this
+            logger.warning(
+                "Scene-record paths were not restored after a copy.", exc_info=True
+            )
+
 
 class _Carrier:
     """Another file's carrier as a crossing holds it: the *values* it held,

@@ -1188,6 +1188,341 @@ def _run_sequencer_checks():
         f"{bounds} {got}",
     )
 
+    # ---- a landing on a CONTIGUOUS seam grows its shot a frame past it -------
+    # Mirror of mayatk's TestALandingOnAContiguousSeamGrowsItsShotAFrame
+    # (BACKLOG 2026-09-22, decided 2026-09-23): touching shots share ONE
+    # sample, so a key landing on that frame took the neighbour's opening pose.
+    touching = [("A", 0, 50), ("B", 50, 100)]
+    seam_keys = ((10, 0), (40, 5), (50, 3), (70, 9), (90, 2))
+    bounds, got = _seam_case(
+        "SeamPast", touching, seam_keys, ("keys", 0, [(40.0, 60.0)])
+    )
+    check(
+        "contiguous seam: a key past the end leaves B its opening pose",
+        bounds == [(0, 61), (61, 111)]
+        and got
+        == [
+            (10.0, 0.0),
+            (50.0, 3.0),
+            (60.0, 5.0),
+            (61.0, 3.0),
+            (81.0, 9.0),
+            (101.0, 2.0),
+        ],
+        f"{bounds} {got}",
+    )
+    bounds, got = _seam_case(
+        "SeamEqual",
+        touching,
+        ((10, 0), (40, 5), (50, 5), (70, 9), (90, 2)),
+        ("keys", 0, [(40.0, 60.0)]),
+    )
+    check(
+        "contiguous seam: equal poses keep their frames",
+        bounds == [(0, 61), (61, 111)]
+        and got
+        == [
+            (10.0, 0.0),
+            (50.0, 5.0),
+            (60.0, 5.0),
+            (61.0, 5.0),
+            (81.0, 9.0),
+            (101.0, 2.0),
+        ],
+        f"{bounds} {got}",
+    )
+    bounds, got = _seam_case("SeamOn", touching, seam_keys, ("keys", 0, [(40.0, 50.0)]))
+    check(
+        "contiguous seam: a key onto the existing seam leaves B whole",
+        bounds == [(0, 51), (51, 101)]
+        and got == [(10.0, 0.0), (50.0, 5.0), (51.0, 3.0), (71.0, 9.0), (91.0, 2.0)],
+        f"{bounds} {got}",
+    )
+    bounds, got = _seam_case(
+        "SeamBack", touching, seam_keys, ("keys", 1, [(70.0, 45.0)])
+    )
+    check(
+        "contiguous seam: a key dragged back over it mirrors the step",
+        bounds == [(-6, 44), (44, 100)]
+        and got
+        == [
+            (4.0, 0.0),
+            (34.0, 5.0),
+            (44.0, 3.0),
+            (45.0, 9.0),
+            (50.0, 3.0),
+            (90.0, 2.0),
+        ],
+        f"{bounds} {got}",
+    )
+    unkeyed = ((10, 0), (20, 1), (40, 2), (55, 3))
+    bounds, got = _seam_case(
+        "SeamBare", [("A", 0, 30), ("B", 30, 60)], unkeyed, ("keys", 0, [(20.0, 30.0)])
+    )
+    check(
+        "contiguous seam: with no key on it nothing steps",
+        bounds == [(0, 30), (30, 60)]
+        and [t for t, _v in got] == [10.0, 30.0, 40.0, 55.0],
+        f"{bounds} {got}",
+    )
+    # A main-track OBJECT clip grows through move_object_in_shot, which sized
+    # the bound itself (rounded, no step): past the seam the dragged 5 landed
+    # on B's opening pose and one of the two was dropped, and onto the
+    # existing seam the same.
+    object_clip = {"orig_start": 10.0, "orig_end": 40.0}
+    bounds, got = _seam_case(
+        "SeamObjPast", touching, seam_keys, ("clip", 0, (object_clip, 30.0))
+    )
+    check(
+        "contiguous seam: an object clip past the end leaves B its opening pose",
+        bounds == [(0, 61), (61, 111)]
+        and got == [(30.0, 0.0), (60.0, 5.0), (61.0, 3.0), (81.0, 9.0), (101.0, 2.0)],
+        f"{bounds} {got}",
+    )
+    bounds, got = _seam_case(
+        "SeamObjOn", touching, seam_keys, ("clip", 0, (object_clip, 20.0))
+    )
+    check(
+        "contiguous seam: an object clip onto the existing seam leaves B whole",
+        bounds == [(0, 51), (51, 101)]
+        and got == [(20.0, 0.0), (50.0, 5.0), (51.0, 3.0), (71.0, 9.0), (91.0, 2.0)],
+        f"{bounds} {got}",
+    )
+    bounds, got = _seam_case(
+        "SeamObjBare",
+        [("A", 0, 30), ("B", 30, 60)],
+        unkeyed,
+        ("clip", 0, ({"orig_start": 10.0, "orig_end": 20.0}, 20.0)),
+    )
+    check(
+        "contiguous seam: an object clip onto an unkeyed seam steps nothing",
+        bounds == [(0, 30), (30, 60)]
+        and [t for t, _v in got] == [20.0, 30.0, 40.0, 55.0],
+        f"{bounds} {got}",
+    )
+    # Back over the seam, A's closing pose stays behind in B's landing zone:
+    # the object move shifted keys raw (mayatk's clears the landing zone), so
+    # it stayed there as a stray 3 inside B and A closed on nothing.
+    bounds, got = _seam_case(
+        "SeamObjBack",
+        touching,
+        seam_keys,
+        ("clip", 1, ({"orig_start": 70.0, "orig_end": 90.0}, 45.0)),
+    )
+    check(
+        "contiguous seam: an object clip dragged back over it mirrors the step",
+        bounds == [(-6, 44), (44, 100)]
+        and got == [(4.0, 0.0), (34.0, 5.0), (44.0, 3.0), (45.0, 9.0), (65.0, 2.0)],
+        f"{bounds} {got}",
+    )
+
+    # ---- a split seam: both shots play on as they did -----------------------
+    # BACKLOG 2026-09-07 (mirror of mayatk's TestASplitSeamPlaysOnAsItDid):
+    # opening a contiguous seam copies the shared sample to the following
+    # shot's new start -- or CARRIES it there when only that shot animates the
+    # curve. Inserted plain, the key took the default AUTO_CLAMPED handles (a
+    # VECTOR seam: the following shot 1.152 off), the insert's subdivision cut
+    # the next key's ALIGNED handle (0.431 off), and CONT_ACCEL re-solved each
+    # auto run through the seam (a seam on a slope: AUTO_CLAMPED 0.437 off
+    # before it, 0.718 after).
+    def _split_case(name, keys, handle, op):
+        o, st, sq = _seam_scene(name, [("A", 0, 50), ("B", 50, 100)], keys)
+        fc = _loc_x(o)
+        for kp in fc.keyframe_points:
+            kp.handle_left_type = kp.handle_right_type = handle
+        fc.update()
+        a0 = [fc.evaluate(f) for f in range(0, 51)]
+        b0 = [fc.evaluate(f) for f in range(50, 101)]
+        if op == "grow":
+            sq.resize_shot_bounds(st.shot_by_name("A").shot_id, 0, 60)
+        else:
+            sq.move_shot(st.shot_by_name("B").shot_id, 60)
+        a1 = [fc.evaluate(f) for f in range(0, 51)]
+        b1 = [fc.evaluate(f + 10) for f in range(50, 101)]
+        da = max(abs(x - y) for x, y in zip(a0, a1))
+        db = max(abs(x - y) for x, y in zip(b0, b1))
+        return fc, da, db
+
+    _split_keys = {
+        "extremum": seam_keys,
+        "slope": ((10, 0), (40, 3), (50, 5), (70, 9), (90, 2)),
+    }
+    for _where, _keys in _split_keys.items():
+        for _handle in ("AUTO", "AUTO_CLAMPED", "VECTOR", "ALIGNED"):
+            for _op in ("grow", "move"):
+                _fc, _da, _db = _split_case(
+                    f"Split{_where}{_handle}{_op}", _keys, _handle, _op
+                )
+                check(
+                    f"a split {_handle} seam ({_where}, {_op}): both shots play on",
+                    _da < 1e-3 and _db < 1e-3,
+                    f"A {_da:.5f} B {_db:.5f}",
+                )
+    _carried = ((-30, 1), (50, 3), (70, 9), (90, 2))
+    for _handle in ("AUTO", "AUTO_CLAMPED", "VECTOR", "ALIGNED"):
+        _fc, _da, _db = _split_case(f"Carried{_handle}", _carried, _handle, "move")
+        check(
+            f"a carried {_handle} opening pose: the following shot plays on",
+            _db < 1e-3,
+            f"B {_db:.5f}",
+        )
+    # A claimed carried sample (B's start-bound sample) leaves no claim behind
+    # on the frame it was cut from (mirror of mayatk's).
+    _o, _st, _sq = _seam_scene("CarriedClaim", [("A", 0, 50), ("B", 50, 100)], _carried)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _loc_x(_o))
+    _sq.ledger.record_key(_key, 50.0, _st.shot_by_name("B").shot_id, "start")
+    _sq.move_shot(_st.shot_by_name("B").shot_id, 60)
+    _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
+    check(
+        "a carried sample leaves no claim behind at its old frame",
+        _times == [-30.0, 60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [60.0],
+        f"{_times} claims={_sq.ledger.key_times(_key)}",
+    )
+    # ...and an UNCLAIMED one -- the animator's own opening pose -- lands
+    # unclaimed: carried, it is still their key, not a sample the system made
+    # (claimed, content scans skip it and a bound edit may move or cut it).
+    _o, _st, _sq = _seam_scene("CarriedOwn", [("A", 0, 50), ("B", 50, 100)], _carried)
+    _key = _ShotSequencerInternal._fc_key(_o.name, _loc_x(_o))
+    _sq.move_shot(_st.shot_by_name("B").shot_id, 60)
+    _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
+    check(
+        "a carried animator pose stays the animator's",
+        _times == [-30.0, 60.0, 80.0, 100.0] and _sq.ledger.key_times(_key) == [],
+        f"{_times} claims={_sq.ledger.key_times(_key)}",
+    )
+    # So do a lossless merge's cut keys (mirror of mayatk's): closing gaps
+    # onto agreeing poses, B's 110 and C's 120 both land on 100 and one is
+    # cut at its old frame, where C's animator key from 140 then lands.
+    _o, _st, _sq = _seam_scene(
+        "MergeClaim",
+        [("A", 0, 50), ("B", 60, 110), ("C", 120, 170)],
+        ((0, 0), (50, 2), (60, 2), (110, 4), (120, 4), (130, 5), (140, 7), (170, 9)),
+    )
+    _key = _ShotSequencerInternal._fc_key(_o.name, _loc_x(_o))
+    for _t, _shot, _edge in (
+        (50, "A", "end"),
+        (60, "B", "start"),
+        (110, "B", "end"),
+        (120, "C", "start"),
+    ):
+        _sq.ledger.record_key(_key, float(_t), _st.shot_by_name(_shot).shot_id, _edge)
+    _sq.respace(gap=0, start_frame=0)
+    _times = [round(kp.co[0], 3) for kp in _loc_x(_o).keyframe_points]
+    check(
+        "a lossless merge's cut keys leave no claim behind",
+        _times == [0.0, 50.0, 100.0, 110.0, 120.0, 150.0]
+        and _sq.ledger.key_times(_key) == [50.0, 100.0],
+        f"{_times} claims={_sq.ledger.key_times(_key)}",
+    )
+
+    def _halves(fc, t):
+        kp = next(k for k in fc.keyframe_points if abs(k.co[0] - t) < 1e-3)
+        return kp.handle_left_type, kp.handle_right_type, kp
+
+    # A seam the split did not move keeps its types; one it did is frozen,
+    # the shot-facing half exactly where it was while shared.
+    _fc, _da, _db = _split_case("SplitGate", seam_keys, "AUTO_CLAMPED", "move")
+    check(
+        "a split AUTO_CLAMPED extremum keeps its handle types",
+        _halves(_fc, 50)[:2] == _halves(_fc, 60)[:2] == ("AUTO_CLAMPED",) * 2,
+        f"50 {_halves(_fc, 50)[:2]} 60 {_halves(_fc, 60)[:2]}",
+    )
+    _o, _st, _sq = _seam_scene(
+        "SplitFreeze", [("A", 0, 50), ("B", 50, 100)], _split_keys["slope"]
+    )
+    _fc = _loc_x(_o)
+    for _kp in _fc.keyframe_points:
+        _kp.handle_left_type = _kp.handle_right_type = "AUTO"
+    _fc.update()
+    _shared = _halves(_fc, 50)[2]
+    _roff = _shared.handle_right[1] - _shared.co[1]
+    _sq.move_shot(_st.shot_by_name("B").shot_id, 60)
+    _lt, _rt, _copy = _halves(_fc, 60)
+    check(
+        "a split AUTO seam on a slope: the copy is frozen at the shared handle",
+        (_lt, _rt) == ("FREE", "FREE")
+        and abs(_copy.handle_right[1] - _copy.co[1] - _roff) < 1e-4,
+        f"{_lt}/{_rt} right {_copy.handle_right[1] - _copy.co[1]:.4f} vs {_roff:.4f}",
+    )
+
+    # ---- Move to Shot: a head block owns the contiguous seam it lands on -----
+    # Mirror of mayatk's test_a_head_block_owns_the_contiguous_seam_it_lands_on
+    # (BACKLOG 2026-09-19, decided 2026-09-23): the leading room's split left
+    # the source's closing-pose copy on the seam, where the block's first key
+    # landed, and the copy was pushed to 290.1 -- a stray sixth key.
+    block = [110.7, 150.0, 199.8]
+    o, st, sq = _seam_scene(
+        "SeamHead",
+        [("S0", 100, 200), ("S1", 200, 240)],
+        ((110.7, 0), (150, 5), (199.8, 2), (200, 7), (230, 1)),
+    )
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": o.name,
+                "attr": "location",
+                "times": block,
+                "start": block[0],
+                "end": block[-1],
+            }
+        ],
+        st.shot_by_name("S1").shot_id,
+    )
+    got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
+    check(
+        "Move to Shot: a head block owns the contiguous seam (no stray key)",
+        got == [(200.0, 0.0), (239.3, 5.0), (289.1, 2.0), (290.0, 7.0), (320.0, 1.0)],
+        f"{got}",
+    )
+    # The same move as a whole-object sequence (mayatk's fixture), which lands
+    # through move_object_keys rather than a key selection.
+    o, st, sq = _seam_scene(
+        "SeamHeadObj",
+        [("S0", 100, 200), ("S1", 200, 240)],
+        ((110.7, 0), (150, 5), (199.8, 2), (200, 7), (230, 1)),
+    )
+    sq.move_sequences_to_shot(
+        [{"kind": "anim", "obj": o.name, "start": 110.7, "end": 199.8}],
+        st.shot_by_name("S1").shot_id,
+    )
+    got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
+    check(
+        "Move to Shot: a whole-object head block owns the contiguous seam too",
+        got == [(200.0, 0.0), (239.3, 5.0), (289.1, 2.0), (290.0, 7.0), (320.0, 1.0)]
+        and [(s.start, s.end) for s in st.sorted_shots()] == [(100, 200), (200, 330)],
+        f"{got} {[(s.start, s.end) for s in st.sorted_shots()]}",
+    )
+    # ...and on a curve of just the block's key and the seam pose: "never below
+    # two keys" left that pose to be pushed a frame into S1 (201 (7)), though
+    # the block's own key keeps the curve alive.  (location.y gives S1 content
+    # of this object, so the leading room is made.)
+    o, st, sq = _seam_scene(
+        "SeamHeadTwo", [("S0", 100, 200), ("S1", 200, 240)], ((150, 5), (200, 7))
+    )
+    for f, v in ((200, 1.0), (230, 2.0)):
+        o.location[1] = v
+        o.keyframe_insert(data_path="location", index=1, frame=f)
+    sq.move_sequences_to_shot(
+        [
+            {
+                "kind": "anim",
+                "obj": o.name,
+                "attr": "location",
+                "times": [150.0],
+                "start": 150.0,
+                "end": 150.0,
+            }
+        ],
+        st.shot_by_name("S1").shot_id,
+    )
+    got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in _loc_x(o).keyframe_points]
+    check(
+        "Move to Shot: a head block owns the seam on a two-key curve too",
+        got == [(200.0, 5.0)],
+        f"{got}",
+    )
+
     # ---- an audio clip moves by what its VISIBLE part moved ---------------
     # The widget draws only the part of a strip inside its shot and a drag
     # reports where THAT landed; measured from the strip's own start the move
@@ -1309,7 +1644,7 @@ def _run_sequencer_checks():
         _FakeWidget(
             _FakeClip({"obj": "DelScope", "orig_start": 0.0, "orig_end": 10.0})
         ),
-        sequencer=object(),
+        sequencer=ShotSequencer(BlenderShotStore()),
     )
     ShotSequencerController._delete_clip_keys(del_host, [1])
     remaining = {
@@ -1321,6 +1656,134 @@ def _run_sequencer_checks():
         "Delete Key: transform keys deleted, custom-prop key survives",
         "location" not in remaining and '["myprop"]' in remaining,
         f"{remaining}",
+    )
+    # A key delete is a key edit like any other, so it runs the bracket's
+    # reconcile: a deleted key's claims -- a sample's and a gap hold's -- go
+    # with it instead of waiting for the next key that lands on the frame.
+    bpy.ops.mesh.primitive_cube_add()
+    dc_obj = bpy.context.active_object
+    dc_obj.name = "DelClaims"
+    for f, v in ((5, 1.0), (10, 2.0), (60, 3.0)):
+        dc_obj.location = (v, 0.0, 0.0)
+        dc_obj.keyframe_insert(data_path="location", index=0, frame=f)
+    dc_store = BlenderShotStore()
+    dc_store.define_shot("A", 0, 50, objects=["DelClaims"])
+    dc_seq = ShotSequencer(dc_store)
+    dc_fc = next(
+        fc
+        for fc in BlenderShotStore.iter_action_fcurves(dc_obj)
+        if fc.data_path == "location" and fc.array_index == 0
+    )
+    dc_key = _ShotSequencerInternal._fc_key("DelClaims", dc_fc)
+    dc_seq.ledger.record_key(dc_key, 10.0, 0, "end")
+    dc_seq.ledger.record_step(dc_key, 10.0, "CONSTANT", "CONSTANT")
+    dc_host = _KeysHost(
+        _FakeWidget(
+            _FakeClip({"obj": "DelClaims", "orig_start": 0.0, "orig_end": 50.0})
+        ),
+        sequencer=dc_seq,
+    )
+    ShotSequencerController._delete_clip_keys(dc_host, [1])
+    dc_times = [round(kp.co[0], 3) for kp in dc_fc.keyframe_points]
+    check(
+        "Delete Key: a deleted key's claims go with it",
+        dc_times == [60.0]
+        and dc_seq.ledger.key_times(dc_key) == dc_seq.ledger.step_times(dc_key) == [],
+        f"{dc_times} claims={dc_seq.ledger.key_times(dc_key)} "
+        f"steps={dc_seq.ledger.step_times(dc_key)}",
+    )
+    # ...a sample still ON its bound too -- where the system makes them.  The
+    # reconcile passed a claim on its bound before asking whether its key was
+    # still there, so the claim waited on the frame for the next key to land.
+    bpy.ops.mesh.primitive_cube_add()
+    db_obj = bpy.context.active_object
+    db_obj.name = "DelOnBound"
+    for f, v in ((10, 0.0), (30, 5.0), (50, 3.0)):
+        db_obj.location = (v, 0.0, 0.0)
+        db_obj.keyframe_insert(data_path="location", index=0, frame=f)
+    db_store = BlenderShotStore()
+    db_shot = db_store.define_shot("A", 0, 50, objects=["DelOnBound"])
+    db_seq = ShotSequencer(db_store)
+    db_fc = next(
+        fc
+        for fc in BlenderShotStore.iter_action_fcurves(db_obj)
+        if fc.data_path == "location" and fc.array_index == 0
+    )
+    db_key = _ShotSequencerInternal._fc_key("DelOnBound", db_fc)
+    db_seq.ledger.record_key(db_key, 50.0, db_shot.shot_id, "end")
+    _KeysHost(
+        _FakeWidget(
+            _FakeClip(
+                {
+                    "obj": "DelOnBound",
+                    "attr_name": "translateX",
+                    "shot_id": db_shot.shot_id,
+                }
+            )
+        ),
+        sequencer=db_seq,
+    ).on_keys_deleted(1, [50.0])
+    db_times = [round(kp.co[0], 3) for kp in db_fc.keyframe_points]
+    check(
+        "Delete Key: a deleted sample on its bound gives up its claim",
+        db_times == [10.0, 30.0] and db_seq.ledger.key_times(db_key) == [],
+        f"{db_times} claims={db_seq.ledger.key_times(db_key)}",
+    )
+    # The restore point PREDATES the edit (mirror of mayatk's scene_edit): a
+    # delete now reconciles, releasing the deleted keys' claims, so a point
+    # pushed after it handed undo a ledger without them -- the keys came back
+    # unclaimed.  A delete that removed nothing leaves no point behind.
+    from pythontk.core_utils.engines.shots.shot_ledger import ShotEditLedger
+
+    class _SnapHost(_KeysHost):
+        def _save_shot_state(self):
+            self.sequencer.store.push_boundary_snapshot()
+
+        def _discard_shot_state(self):
+            self.sequencer.store.discard_boundary_snapshot()
+
+    bpy.ops.mesh.primitive_cube_add()
+    du_obj = bpy.context.active_object
+    du_obj.name = "DelUndo"
+    for f, v in ((10, 0.0), (30, 5.0), (50, 3.0)):
+        du_obj.location = (v, 0.0, 0.0)
+        du_obj.keyframe_insert(data_path="location", index=0, frame=f)
+    du_store = BlenderShotStore()
+    du_shot = du_store.define_shot("A", 0, 50, objects=["DelUndo"])
+    du_seq = ShotSequencer(du_store)
+    du_key = _ShotSequencerInternal._fc_key("DelUndo", _loc_x(du_obj))
+    du_seq.ledger.record_key(du_key, 50.0, du_shot.shot_id, "end")
+    du_data = {"obj": "DelUndo", "attr_name": "translateX", "shot_id": du_shot.shot_id}
+    du_host = _SnapHost(_FakeWidget(_FakeClip(du_data)), sequencer=du_seq)
+    du_host.on_keys_deleted(1, [50.0])
+    du_points = [state for state, _tag in du_store._boundary_undo]
+    du_saved = (
+        ShotEditLedger.from_dict(du_points[-1].get("ledger")).key_times(du_key)
+        if du_points
+        else None
+    )
+    check(
+        "Delete Key: the restore point predates the edit (undo gets the claims)",
+        len(du_points) == 1
+        and du_saved == [50.0]
+        and du_seq.ledger.key_times(du_key) == [],
+        f"points={len(du_points)} saved={du_saved} "
+        f"now={du_seq.ledger.key_times(du_key)}",
+    )
+    du_host.on_keys_deleted(1, [30.5])  # no key there
+    ShotSequencerController._delete_clip_keys(
+        _SnapHost(
+            _FakeWidget(
+                _FakeClip({"obj": "DelUndo", "orig_start": 31.0, "orig_end": 40.0})
+            ),
+            sequencer=du_seq,
+        ),
+        [1],
+    )
+    check(
+        "Delete Key: a delete that removed nothing leaves no restore point",
+        len(du_store._boundary_undo) == 1,
+        f"points={len(du_store._boundary_undo)}",
     )
 
     # ---- depsgraph filter: keyframe edits pass, everything else doesn't ----
@@ -1991,6 +2454,45 @@ def _run_sequencer_checks():
         f"{t}",
     )
 
+    # An OBJECT move clears its landing zone too (mirror of mayatk, whose
+    # move_object_keys is move_attribute_keys): a raw shift laid 20 (5) onto
+    # 40 (3) and Blender kept one of the two.
+    build_scene()
+    fc = _lone_curve("collide_object", [(10, 0.0), (20, 5.0), (40, 3.0), (60, 9.0)])
+    ShotSequencer(BlenderShotStore()).move_object_keys("collide_object", 10, 20, 30)
+    got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in fc.keyframe_points]
+    check(
+        "landing zone: an object move pushes the pose it lands on, never drops it",
+        got == [(30.0, 0.0), (40.0, 5.0), (41.0, 3.0), (60.0, 9.0)],
+        f"{got}",
+    )
+
+    # A displaced key merges into a same-valued key it would be pushed onto
+    # only when it is ALONE: the rest of a block are still pushed by the same
+    # delta, past the key the merged one joined, and 50 (5), 55 (8) ahead of
+    # 56 (5) came out 56 (5), 61 (8) -- the return to 5 after the 8 gone.
+    build_scene()
+    fc = _lone_curve(
+        "collide_merge_order",
+        [(0, 0.0), (40, 1.0), (45, 2.0), (50, 5.0), (55, 8.0), (56, 5.0), (70, 0.0)],
+    )
+    ShotSequencer.move_curve_keys(fc, [40.0, 45.0], 10.0)
+    got = [(round(kp.co[0], 3), round(kp.co[1], 3)) for kp in fc.keyframe_points]
+    check(
+        "landing zone: a same-value merge never reorders a displaced block",
+        got
+        == [
+            (0.0, 0.0),
+            (50.0, 1.0),
+            (55.0, 2.0),
+            (56.0, 5.0),
+            (61.0, 8.0),
+            (62.0, 5.0),
+            (70.0, 0.0),
+        ],
+        f"{got}",
+    )
+
     # ---- edit ledger + shot lifecycle -------------------------------------
     # The two writes the shot system makes on the animator's curves have to be
     # releasable, and a shot has to be deletable / mergeable / splittable.
@@ -2614,6 +3116,33 @@ def _run_sequencer_checks():
         f"at52={fc_of(obs['ret']).evaluate(52.0)} claims={sorted(sq.ledger.key_times(rkey))}",
     )
 
+    # The same chain on a seam two shots SHARE (mirror of mayatk's, measured
+    # 2026-09-23 at gap 0): the respace split leaves the empty shot ending on
+    # a claimed copy of C's opening pose, and the claim must name the EMPTY
+    # shot's end, or its delete leaves the sample for C's ripple to land on.
+    st, sq, obs = fresh({"cseam": {20: 5, 40: 0, 50: 0, 70: -6, 100: -8}})
+    a = sq.define_shot("A", 0, 50, objects=["cseam"])
+    c = sq.define_shot("C", 50, 100, objects=["cseam"])
+    st.gap = 0.0
+
+    def c_plays():
+        return [
+            round(fc_of(obs["cseam"]).evaluate(c.start + f), 4) for f in range(0, 51, 2)
+        ]
+
+    before = c_plays()
+    ins = sq.insert_shot("INS", 12.0, at_position=2)
+    sq.apply_gap(20.0, scope="all")
+    sq.delete_shot(ins.shot_id)
+    check(
+        "delete: an empty shot on a contiguous seam leaves nothing behind",
+        bounds(a, c) == (0, 50, 70, 120)
+        and c_plays() == before
+        and times_of(obs["cseam"]) == [20.0, 40.0, 50.0, 70.0, 90.0, 120.0],
+        f"bounds={bounds(a, c)} plays={c_plays()} was={before} "
+        f"times={times_of(obs['cseam'])}",
+    )
+
     st, sq, obs = fresh({"stl": {10: 0, 20: 1, 38: 1, 44: 0}, "snb": {60: 0, 70: 5}})
     a = sq.define_shot("A", 0, 40, objects=["stl"])
     b = sq.define_shot("B", 55, 100, objects=["snb"])
@@ -3102,17 +3631,39 @@ def _run_sequencer_checks():
         "boundary sample: a pose is kept, not cut",
         removed == 0 and times_of(obs["bndA"]) == [1.0, 40.0],
     )
-    # One inside a flat plateau plays no part, so it goes.
+    # One inside a flat plateau plays no part, so it goes -- and every claim
+    # with it: a step claim left on the frame would later hand the pre-hold
+    # tangent to a stepped key that landed there (_release_gap_holds).
     st, sq, obs = fresh({"bndC": {1: 5, 20: 5, 40: 5, 60: 9}})
     sc = sq.define_shot("C", 1, 60, objects=["bndC"])
-    sq.ledger.record_key(
-        _SSI._fc_key("bndC", fc_of(obs["bndC"])), 20.0, sc.shot_id, "start"
-    )
+    key = _SSI._fc_key("bndC", fc_of(obs["bndC"]))
+    sq.ledger.record_key(key, 20.0, sc.shot_id, "start")
+    sq.ledger.record_step(key, 20.0, "AUTO_CLAMPED", "AUTO_CLAMPED")
+    sq.ledger.record_key(key, 30.0, sc.shot_id, "start")  # its key is long gone
+    sq.ledger.record_step(key, 30.0, "AUTO_CLAMPED", "AUTO_CLAMPED")
     _m, removed = sq._reconcile_boundary_keys()
     check(
-        "boundary sample: a redundant one is cut",
-        removed == 1 and times_of(obs["bndC"]) == [1.0, 40.0, 60.0],
-        f"removed={removed} {times_of(obs['bndC'])}",
+        "boundary sample: a redundant one is cut, with every claim on it",
+        removed == 1
+        and times_of(obs["bndC"]) == [1.0, 40.0, 60.0]
+        and sq.ledger.key_times(key) == sq.ledger.step_times(key) == [],
+        f"removed={removed} {times_of(obs['bndC'])} "
+        f"claims={sq.ledger.key_times(key)} steps={sq.ledger.step_times(key)}",
+    )
+    # A redundant key a bound moved past is cut to clear its frame for what
+    # ripples onto it -- which must not inherit a gap hold's step claim.
+    st, sq, obs = fresh({"passA": {20: 1, 50: 0, 100: 0, 140: 5}})
+    sq.define_shot("A", 0, 100, objects=["passA"])
+    fc = fc_of(obs["passA"])
+    key = _SSI._fc_key("passA", fc)
+    sq.ledger.record_step(key, 100.0, "CONSTANT", "CONSTANT")
+    cut = sq._cut_passed_bound_keys([("passA", fc, 100.0)], 0, 100, 0, 50)
+    check(
+        "a key a bound moved past is cut with every claim on it",
+        cut == 1
+        and times_of(obs["passA"]) == [20.0, 50.0, 140.0]
+        and sq.ledger.step_times(key) == [],
+        f"cut={cut} {times_of(obs['passA'])} steps={sq.ledger.step_times(key)}",
     )
 
     # -- delete takes the contents and closes the timeline ------------------

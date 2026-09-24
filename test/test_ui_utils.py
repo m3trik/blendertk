@@ -85,6 +85,13 @@ try:
     check("reveal_in_outliner: prior selection replaced", not rv_a.select_get())
     UiUtils.reveal_in_outliner(["NoSuchObject"])
     check("reveal_in_outliner: unknown name is a clean no-op", bpy.context.view_layer.objects.active is rv_b)
+    # From tentacle's Qt event pump bpy.context.window is None, and the screen-context
+    # selected_objects reads EMPTY while objects are selected -- the reveal must still
+    # replace the selection (the shot sequencer's clip menu calls it from there).
+    rv_a.select_set(True)
+    with bpy.context.temp_override(selected_objects=[]):
+        UiUtils.reveal_in_outliner(["RevealB"])
+    check("reveal_in_outliner: replaces the selection with no context window", rv_b.select_get() and not rv_a.select_get())
     check("btk.reveal_in_outliner mirrors mtk (callable)", callable(getattr(btk, "reveal_in_outliner", None)))
 
     # ---- NodeIcons: Object.type -> uitk icon name (mirror of mtk.NodeIcons) --

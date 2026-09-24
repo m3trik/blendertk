@@ -318,7 +318,11 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
 
     def _expand_shot_for_clip(self, clip, new_start: float, new_end: float) -> None:
         """Grow the shot if the clip's new range exceeds bounds (skipped when Shift is held)."""
-        self._expand_shot_range(clip.data.get("shot_id"), new_start, new_end)
+        obj, attr = clip.data.get("obj"), clip.data.get("attr_name")
+        curves = ClipMotionMixin.curves_for_attr(obj, attr) if obj and attr else None
+        self._expand_shot_range(
+            clip.data.get("shot_id"), new_start, new_end, curves=curves
+        )
 
     def _lift_make_room_land(
         self, clip, lo, hi, delta, lowest, move, shown_from=None
@@ -356,8 +360,15 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         times = [kp.co[0] for fc in curves or () for kp in fc.keyframe_points]
         return min(times) if times else None
 
-    def _expand_shot_range(self, shot_id, new_start: float, new_end: float) -> None:
+    def _expand_shot_range(
+        self, shot_id, new_start: float, new_end: float, curves=None
+    ) -> None:
         """Grow *shot_id* so ``[new_start, new_end]`` fits inside it.
+
+        *curves* are the fcurves the moved content rides on: a landing on a
+        contiguous seam steps the bound one frame past it only when one of them
+        holds a key ON the seam (``ShotStore.enclosing_bounds``; mirror of
+        mayatk). ``None`` assumes one does.
 
         Shared by clip drags and per-key drags: without it a key dragged
         onto the next shot's first frame is owned by that shot while its
@@ -380,12 +391,23 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if shot is None:
             return
         prior_start, prior_end = shot.start, shot.end
-        # Outward to whole frames, so the shot ENCLOSES what moved (mirror of
-        # mayatk): rounded to the nearest frame, a key dragged to 50.4 past an
-        # end at 50 left the end at 50 and the key outside it.
-        store = self.sequencer.store
-        expanded_start = min(shot.start, store.snap(new_start, "down"))
-        expanded_end = max(shot.end, store.snap(new_end, "up"))
+        # Outward to whole frames, so the shot ENCLOSES what moved, and one
+        # frame past a contiguous seam the landing would sit on, so the
+        # touching neighbour keeps its opening pose (mirror of mayatk).
+        seam_keyed = None
+        if curves:
+            from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+                _ShotSequencerInternal,
+            )
+
+            fcurves = list(curves)
+
+            def seam_keyed(frame: float) -> bool:
+                return _ShotSequencerInternal._any_key_at(fcurves, frame)
+
+        expanded_start, expanded_end = self.sequencer.store.enclosing_bounds(
+            shot_id, new_start, new_end, seam_keyed
+        )
         start_delta = expanded_start - prior_start
         end_delta = expanded_end - prior_end
         if abs(start_delta) > 1e-6 or abs(end_delta) > 1e-6:
@@ -586,7 +608,12 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 if o != sid and self.sequencer.shot_by_id(o) is not None
             }
             lo, hi = shot_extents[sid]
-            self._expand_shot_range(sid, lo, hi)
+            curves = [
+                entry["fc"]
+                for entry in curve_moves.values()
+                if any(psid == sid for _old, _new, psid in entry["pairs"])
+            ]
+            self._expand_shot_range(sid, lo, hi, curves=curves)
             for o, pre_start in others.items():
                 shot_o = self.sequencer.shot_by_id(o)
                 if shot_o is None:
@@ -713,6 +740,10 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             return
 
         deleted = False
+        # The restore point BEFORE the edit (mirror of mayatk's scene_edit):
+        # the reconcile below releases the deleted keys' claims, so a point
+        # taken after it handed undo a ledger without them.
+        self._save_shot_state()
         # Guarded like every other edit path here: removing a keyframe point
         # tags its Action and the depsgraph handler reacts to exactly that.
         # Whether Blender delivers that synchronously is NOT measured (mayatk's
@@ -732,12 +763,16 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                             deleted = True
                         if i1 > i0:
                             fc.update()
+                if deleted:
+                    # A key edit like any other (``_key_scene_edit``): the claims
+                    # on the deleted keys go with them and the gap holds re-settle.
+                    self.sequencer.reconcile_system_edits()
         finally:
             self._syncing = was_syncing
         if not deleted:
+            self._discard_shot_state()  # nothing happened -- no dead restore point
             return
 
-        self._save_shot_state()
         shot_id = clip.data.get("shot_id")
         self._sync_to_widget(shot_id=shot_id)
         n = len(times)
