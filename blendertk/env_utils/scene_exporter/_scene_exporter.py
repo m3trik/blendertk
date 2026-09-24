@@ -111,6 +111,17 @@ _DEFAULT_FBX_OPTIONS: Dict[str, Any] = {
     "object_types": ["EMPTY", "ARMATURE", "MESH"],
 }
 
+#: What a caller of a retired naming input does instead: fold it into the
+#: Output Filename pattern, as :meth:`SceneExporter.perform_export` does once.
+#: Those inputs go in 0.12.0 where mayatk's go in its next minor: blendertk
+#: 0.11.0 is the release they first ship in (measured 2026-09-23, it removes
+#: public API, so push.ps1's semver gate owes a minor), and a name outlives the
+#: release it first warns in -- the calendar window alone holds it 30 days.
+_FOLD_FIRST = (
+    "Fold it into the pattern first: ptk.ExportProfile.fold_legacy_naming("
+    "pattern, version_format, timestamp, name_regex)."
+)
+
 
 class SceneExporter(ptk.LoggingMixin):
     # PresetStore identity for FBX export-option presets (see module docstring).
@@ -450,6 +461,18 @@ class SceneExporter(ptk.LoggingMixin):
             config["tasks"]["output_format"] = output_format
         return config
 
+    @ptk.Deprecation.parameter(
+        "timestamp",
+        remove_in="0.12.0",
+        since="2026-09-23",
+        reason="Write '*_{date}_{time}' into output_name instead.",
+    )
+    @ptk.Deprecation.parameter(
+        "name_regex",
+        remove_in="0.12.0",
+        since="2026-09-23",
+        reason="Write '{scene:PATTERN->REPLACEMENT}' into output_name instead.",
+    )
     def perform_export(
         self,
         export_dir: str,
@@ -487,6 +510,12 @@ class SceneExporter(ptk.LoggingMixin):
         an absent task or check is off -- there are no implicit defaults. The
         panel sends every row (``ptk.ExportProfile.read_values``), so a headless
         caller that wants the panel's behaviour passes every row it wants on.
+
+        *timestamp*, *name_regex* and ``tasks["version"]`` are the retired
+        naming inputs (each warns; removed in 0.12.0, ``tasks["version"]`` in
+        pythontk 0.12.0). They fold into *output_name* once, here
+        (``ptk.ExportProfile.fold_legacy_naming``), and the log names the
+        pattern that says the same thing (mirror of mayatk).
         """
         # First, so a caller's level/handler sees every message of this run,
         # the early aborts below included.
@@ -514,8 +543,6 @@ class SceneExporter(ptk.LoggingMixin):
 
         self.preset_name = preset_name
         self.output_name = output_name
-        self.name_regex = name_regex
-        self.timestamp = timestamp
         self.create_log_file = create_log_file
         self.hide_log_file = hide_log_file
 
@@ -533,6 +560,17 @@ class SceneExporter(ptk.LoggingMixin):
             getattr(self.logger, level)(message)
         if any(level == "error" for level, _ in notes):
             return False  # a config error (an unknown texture file type)
+        # The retired naming inputs fold into the name ONCE, here; everything
+        # past this point -- the path, the sidecar, the log -- reads the pattern.
+        self.output_name = ptk.ExportProfile.fold_legacy_naming(
+            output_name, run.version_format, timestamp, name_regex
+        )
+        if self.output_name != output_name:
+            self.logger.warning(
+                "The Version, Timestamp and RegEx inputs are retired: write them "
+                "into the Output Filename instead -- this export resolves as "
+                f"{self.output_name!r}."
+            )
         # "usd": the deliverable is a USD layer (mirror of mayatk). Same pipeline
         # up to the write; the FBX-only knobs (preset, takes, GLB) are reported
         # inert rather than silently ignored.
@@ -575,11 +613,7 @@ class SceneExporter(ptk.LoggingMixin):
                 return False
 
         resolved = self.resolve_export_path(
-            self.output_name,
-            self.export_dir,
-            output_format=run.output_format,
-            version_format=run.version_format,
-            timestamp=self.timestamp,
+            self.output_name, self.export_dir, output_format=run.output_format
         )
         self.export_path = resolved["path"]
         self.logger.debug(f"Generated export path: {self.export_path}")
@@ -926,14 +960,11 @@ class SceneExporter(ptk.LoggingMixin):
         self.logger.info(f"USD written: {written}")
         return written
 
-    #: Stamped by ``perform_export`` from the panel's fields. Class-level
-    #: defaults so a name can be resolved before the first run -- the panel's
-    #: live tooltip preview resolves one on every hover. ``timestamp`` is the
-    #: retired Timestamp checkbox, still honoured -- no removal release is set
-    #: yet (``ptk.ExportProfile.fold_legacy_naming``).
+    #: Stamped by ``perform_export``: the Output Filename pattern, any retired
+    #: naming input already folded in. A class-level default so a name can be
+    #: resolved before the first run -- the panel's live tooltip preview
+    #: resolves one on every hover.
     output_name: Optional[str] = None
-    name_regex: Optional[str] = None
-    timestamp: bool = False
 
     #: The Output Filename's wildcard (``*``), version counter (``{n}``) and the
     #: files each output format ships: the contract ``ptk.ExportProfile`` owns
@@ -965,6 +996,9 @@ class SceneExporter(ptk.LoggingMixin):
             return os.path.abspath(os.path.expandvars(export_dir))
         return os.path.dirname(bpy.data.filepath) if bpy.data.filepath else ""
 
+    @ptk.Deprecation.parameter(
+        "name_regex", drop=True, remove_in="0.12.0", since="2026-09-23"
+    )
     def name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]:
         """Live value for every token in :attr:`NAME_TOKENS` but the counter.
 
@@ -973,8 +1007,9 @@ class SceneExporter(ptk.LoggingMixin):
         The counter resolves later, against the output folder
         (:meth:`resolve_export_path`).
 
-        *name_regex* overrides :attr:`name_regex` -- the panel reads its field
-        straight from the UI so the tooltip previews what the next export writes.
+        *name_regex* is retired and ignored (warns; removed in 0.12.0): a
+        regex is an inline modifier on the name token now, so the context never
+        applied one.
         """
         import bpy
 
@@ -996,6 +1031,15 @@ class SceneExporter(ptk.LoggingMixin):
             folder=os.path.basename(os.path.dirname(scene_path)),
         )
 
+    @ptk.Deprecation.parameter(
+        "name_regex", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
+    )
+    @ptk.Deprecation.parameter(
+        "version_format", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
+    )
+    @ptk.Deprecation.parameter(
+        "timestamp", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
+    )
     def resolve_export_path(
         self,
         pattern: Optional[str] = None,
@@ -1018,12 +1062,15 @@ class SceneExporter(ptk.LoggingMixin):
             pattern: The Output Filename text.
             export_dir: The folder written to; the counter scans it.
             output_format: An :attr:`OUTPUT_EXTENSIONS` key.
-            name_regex: Overrides :attr:`name_regex` (see :meth:`name_context`).
+            name_regex: DEPRECATED (warns; removed in 0.12.0) -- the retired
+                RegEx field; write ``{scene:PATTERN->REPLACEMENT}`` into
+                *pattern* instead.
             report: Log what the pattern hit. The tooltip passes False: it
                 resolves on every hover and shows the diagnostics itself.
-            version_format: DEPRECATED -- the retired Version pattern (a
-                headless ``tasks["version"]``).
-            timestamp: DEPRECATED -- the retired Timestamp checkbox.
+            version_format: DEPRECATED (warns; removed in 0.12.0) -- the
+                retired Version pattern; write a ``{n}`` counter instead.
+            timestamp: DEPRECATED (warns; removed in 0.12.0) -- the retired
+                Timestamp checkbox; write ``*_{date}_{time}`` instead.
 
         Returns:
             ``ExportProfile.resolve_output_path``'s dict (``path``, ``paths``,
@@ -1032,15 +1079,12 @@ class SceneExporter(ptk.LoggingMixin):
         """
         context = self.name_context()
         resolved = ptk.ExportProfile.resolve_output_path(
-            pattern,
+            ptk.ExportProfile.fold_legacy_naming(
+                pattern, version_format, timestamp, name_regex
+            ),
             context,
             export_dir or "",
             output_format=output_format,
-            version_format=version_format,
-            timestamp=timestamp,
-            # The retired field folds INTO the pattern here rather than shaping
-            # the context value, so the preview and the log show the rule.
-            name_regex=self.name_regex if name_regex is None else name_regex,
         )
         if report:
             for level, message in ptk.ExportProfile.naming_report(
@@ -1049,6 +1093,9 @@ class SceneExporter(ptk.LoggingMixin):
                 getattr(self.logger, level)(message)
         return dict(resolved, context=context)
 
+    @ptk.Deprecation.parameter(
+        "version_format", remove_in="0.12.0", since="2026-09-23", reason=_FOLD_FIRST
+    )
     def generate_export_path(
         self,
         version_format: str = "",
@@ -1061,8 +1108,9 @@ class SceneExporter(ptk.LoggingMixin):
         too.
 
         Parameters:
-            version_format: DEPRECATED -- the retired Version pattern; write a
-                ``{n}`` counter into the Output Filename instead.
+            version_format: DEPRECATED (warns; removed in 0.12.0) -- the
+                retired Version pattern; write a ``{n}`` counter into the
+                Output Filename instead.
             extension: ``.usd`` selects the USD format when *output_format* is
                 not given; anything else FBX.
             output_format: An :attr:`OUTPUT_EXTENSIONS` key.
@@ -1070,27 +1118,26 @@ class SceneExporter(ptk.LoggingMixin):
         if output_format is None:
             output_format = "usd" if extension.lower() == ".usd" else "fbx"
         return self.resolve_export_path(
-            self.output_name,
+            ptk.ExportProfile.fold_legacy_naming(self.output_name, version_format),
             self.export_dir,
             output_format=output_format,
-            version_format=version_format,
-            timestamp=self.timestamp,
         )["path"]
 
+    @ptk.Deprecation.symbol(
+        "an inline {scene:PATTERN->REPLACEMENT} modifier in the Output Filename",
+        remove_in="0.12.0",
+        since="2026-09-23",
+    )
     def format_export_name(self, name: str, name_regex: Optional[str] = None) -> str:
         """*name* reshaped by the retired free-standing RegEx field.
 
-        DEPRECATED path, kept so a saved field keeps working. Both the grammar
-        and the substitution now live in pythontk's token system
+        DEPRECATED (warns; removed in 0.12.0). Both the grammar and the
+        substitution live in pythontk's token system
         (``ExportProfile.fold_legacy_regex`` -> ``StrUtils.apply_regex_modifier``),
-        the same code an inline ``{name:PATTERN->REPLACEMENT}`` modifier runs
+        the same code an inline ``{scene:PATTERN->REPLACEMENT}`` modifier runs
         through -- write the modifier into the Output Filename instead and the
         whole naming rule is ONE string.
-
-        *name_regex* overrides :attr:`name_regex` (the panel passes its field's
-        live text so a tooltip preview matches the next export).
         """
-        name_regex = self.name_regex if name_regex is None else name_regex
         spec = ptk.ExportProfile.fold_legacy_regex(name_regex)
         if spec is None:
             return name

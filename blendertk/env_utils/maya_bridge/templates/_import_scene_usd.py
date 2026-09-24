@@ -595,9 +595,11 @@ def _fold_armature_transforms(cmds):
     deeper: measured +7 levels per round trip on a production module. Folded
     here, every pull sees the shape the first pull saw. The engine is mayatk's
     (``BlenderSceneImport.collapse_nested_levels`` with ``joints=True``): only an
-    INERT level whose single child shares its name goes, a show/hide track handed
-    down to the child. The user's scene is never touched -- this is the
-    conversion's own copy.
+    INERT transform whose single child is a ROOT JOINT of the very same name goes,
+    a show/hide track handed down to the joint. Nothing else folds here -- a
+    transform pair is the import's to fold, so on the pull it is authored
+    structure (a ``Door`` group holding ``Door_01`` stays two objects). The user's
+    scene is never touched -- this is the conversion's own copy.
     """
     try:
         import mayatk as mtk
@@ -1145,6 +1147,20 @@ def scene_data_sections(cmds, spell):
     except Exception as error:  # noqa: BLE001 -- degrade, never fail the conversion
         print("scene data: mayatk unavailable ({}); not carried.".format(error))
         return {}
+    try:
+        # A scene baked before the lightmap folder moved off the markers still
+        # carries it ON them (2026-09-23): lift it into the private record
+        # first -- the markers ride this conversion's carrier, and the record is
+        # what crosses (shipped absolute from this scene's own project). The
+        # scene is this conversion's throwaway copy, so the lift is never saved.
+        from mayatk.light_utils.lightmap_baker.lightmap_records import (
+            LightmapRecords,
+        )
+
+        LightmapRecords.migrate_folder_hints()
+    except Exception:  # noqa: BLE001 -- degrade: the maps are still searched for
+        print("scene data: legacy lightmap folders not lifted:")
+        traceback.print_exc()
     try:
         return DataNodes.transfer_sections(spell=spell) or {}
     except Exception:  # noqa: BLE001

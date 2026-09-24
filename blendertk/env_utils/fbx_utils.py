@@ -645,11 +645,21 @@ class FbxUtils(_FbxUtilsInternal):
         ),
     }
 
-    #: Export stagers: name -> (module, class, prepare, finish).  The Scene
-    #: Exporter stages Blender's curve proxies in its own tasks (deferred
-    #: restores), so the known table is empty here; a stager registered for
+    #: Export stagers: name -> (module, class, prepare, finish); a ``None``
+    #: finish is a one-way stage.  The Scene Exporter stages Blender's curve
+    #: proxies in its own tasks (deferred restores); a stager registered for
     #: the session runs in every bracket.
-    STAGERS: Dict[str, Tuple[str, str, str, str]] = {}
+    STAGERS: Dict[str, Tuple[str, str, str, Optional[str]]] = {
+        # One-way: a marker baked before 2026-09-23 still carries its map's
+        # folder, and markers ride every FBX -- lifted into the private record
+        # before the write, so an old file ships clean without a re-bake.
+        "lightmap_folder_hints": (
+            "blendertk.light_utils.lightmap_baker.lightmap_records",
+            "LightmapRecords",
+            "migrate_folder_hints",
+            None,
+        ),
+    }
 
     #: Record keys opted into a before-export publish.  Kept for parity with
     #: mayatk's session hook, whose registry this is: bpy offers no such
@@ -777,7 +787,10 @@ class FbxUtils(_FbxUtilsInternal):
             except Exception:
                 logger.debug("Stager %r unavailable; skipped.", name, exc_info=True)
                 continue
-            table[name] = (getattr(owner, prepare, None), getattr(owner, finish, None))
+            table[name] = tuple(
+                getattr(owner, method, None) if method else None
+                for method in (prepare, finish)
+            )
         table.update(cls._session_stagers)
         return table
 

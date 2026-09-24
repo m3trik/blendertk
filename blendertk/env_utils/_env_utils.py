@@ -309,6 +309,8 @@ class EnvUtils(_EnvUtilsInternal):
                 f"{EnvUtils.SCENE_DATA_MODES} or a callable"
             )
         source = os.path.basename(lib.filepath)  # the library goes with the move
+        # Its path records are spelled from ITS project, read before it goes.
+        source_project = DataNodes.project_root_of(bpy.path.abspath(lib.filepath))
         carriers = DataNodes.carriers_in(lib)
         decision = "merge"
         if carriers:
@@ -396,6 +398,7 @@ class EnvUtils(_EnvUtilsInternal):
                 carriers,
                 rename=DataNodes.library_renames(named),
                 source=source,
+                source_path_base=source_project,
                 # What the library brought, for an owner that removes on
                 # discard: a name alone can be this file's own datablock.
                 adapters={
@@ -786,18 +789,19 @@ class EnvUtils(_EnvUtilsInternal):
         return base
 
     @staticmethod
-    def save_scene_as(
-        directory, name, case=None, suffix="", subfolder="", overwrite=True
-    ):
-        """Save the current scene as a .blend under ``directory`` with naming conventions applied —
-        mirror of mayatk's ``save_scene``. ``case``/``suffix`` format the name; ``subfolder`` is an
-        optional path pattern with ``{name}`` / ``{workspace}`` / ``{suffix}`` / ``{scenes}``
-        placeholders (``{scenes}`` resolves through the workspace's ``scene`` file rule when
-        ``directory`` is a marked workspace — the same ``workspace -q -fre "scene"`` lookup mayatk
-        does — falling back to the literal ``"scenes"``). Returns the saved path (or ``None`` if it
-        exists and ``overwrite`` is False, or on failure).
+    def scene_save_path(directory, name, case=None, suffix="", subfolder=""):
+        """The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure
+        path computation (no ``bpy``, nothing created on disk), split out so a
+        panel's save-preview tooltip shows exactly what the save will do.
+
+        ``case``/``suffix`` format the name; ``subfolder`` is an optional path
+        pattern with ``{name}`` / ``{workspace}`` / ``{suffix}`` / ``{scenes}``
+        placeholders (``{scenes}`` resolves through the workspace's ``scene`` file
+        rule when ``directory`` is a marked workspace — the same
+        ``workspace -q -fre "scene"`` lookup mayatk does — falling back to the
+        literal ``"scenes"``). Returns ``None`` for missing inputs; propagates
+        ``ValueError`` from an invalid placeholder pattern.
         """
-        import bpy
         import pythontk as ptk
 
         if not (directory and name):
@@ -816,11 +820,33 @@ class EnvUtils(_EnvUtilsInternal):
                 else "scenes",
             )
             target_dir = os.path.join(directory, resolved)
+        # normpath: the pattern's own separators ride through the join, and the
+        # path is user-facing (a panel's save tooltip previews it verbatim).
+        return os.path.normpath(os.path.join(target_dir, base + ".blend"))
+
+    @staticmethod
+    def save_scene_as(
+        directory, name, case=None, suffix="", subfolder="", overwrite=True
+    ):
+        """Save the current scene as a .blend under ``directory`` with naming conventions applied —
+        mirror of mayatk's ``save_scene``. Naming/placeholder handling per
+        :meth:`scene_save_path` (the shared path computation). Returns the saved path
+        (or ``None`` if it exists and ``overwrite`` is False, or on failure).
+        """
+        import bpy
+
         try:
-            os.makedirs(target_dir, exist_ok=True)
+            path = EnvUtils.scene_save_path(
+                directory, name, case=case, suffix=suffix, subfolder=subfolder
+            )
+        except ValueError:
+            return None
+        if not path:
+            return None
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
         except OSError:
             return None
-        path = os.path.join(target_dir, base + ".blend")
         if os.path.exists(path) and not overwrite:
             return None
         try:
@@ -903,19 +929,18 @@ class EnvUtils(_EnvUtilsInternal):
         filename that no longer exists, so the next save silently resurrects it and the panel
         lists two scenes where the user renamed one.
 
-        Returns the new path, or ``None`` (missing source, name clash, no-op rename, or the open
-        file could not be saved).
+        Returns the new path, or ``None`` (missing source, name clash, an unchanged name, or the
+        open file could not be saved). A case-only rename goes through: on a case-insensitive
+        file system its target "exists" -- it is the file itself -- and ``os.rename`` recases it.
         """
         if not (path and os.path.isfile(path) and new_base):
             return None
         directory = os.path.dirname(path)
         ext = os.path.splitext(path)[1] or ".blend"
         new_path = os.path.join(directory, new_base + ext)
-        if os.path.normcase(os.path.normpath(new_path)) == os.path.normcase(
-            os.path.normpath(path)
-        ):
+        if os.path.normpath(new_path) == os.path.normpath(path):
             return None
-        if os.path.exists(new_path):
+        if os.path.exists(new_path) and not ptk.FileUtils.is_same_file(new_path, path):
             return None
         is_open = EnvUtils._is_open_file(path)
         if is_open and not EnvUtils._save_open_file():

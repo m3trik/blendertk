@@ -77,12 +77,27 @@ class BlenderUiHandler(UiHandler):
         # Same runtime init point, same reason: show deprecation notices in the
         # console (see _install_deprecation_sink). Mirror of MayaUiHandler.
         self._install_deprecation_sink()
+        # And keep the scene records' paths spelled from the file's own
+        # project across a Save As into another one (mirror of MayaUiHandler).
+        self._install_record_path_rebase()
 
         # Wrap Blender's native menus for the both-button chord menu (mirror of the way
         # MayaUiHandler wraps Maya's). Register a lightweight proxy per symbolic node name so a
         # release on a bare-target MenuButton resolves to a real UI via the shared switchboard's
         # get_ui (loaded_ui lookup), and pops the native menu on show — see the methods below.
         self._register_native_menu_proxies()
+
+    @staticmethod
+    def _install_record_path_rebase() -> bool:
+        """``DataNodes.install_path_rebase``, once per session (mirror of
+        :meth:`MayaUiHandler._install_record_path_rebase`). Never blocks
+        UI-handler startup."""
+        try:
+            from blendertk.node_utils.data_nodes import DataNodes
+
+            return DataNodes.install_path_rebase()
+        except Exception:  # never let a wiring hiccup block UI-handler startup
+            return False
 
     @staticmethod
     def _install_deprecation_sink() -> bool:

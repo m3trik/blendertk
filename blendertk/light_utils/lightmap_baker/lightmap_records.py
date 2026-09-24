@@ -7,8 +7,9 @@ the maps; :class:`LightmapRecords` records them and answers for them afterwards:
 
 * **Markers** -- a JSON ``lightmapInfo`` custom property on each baked object:
   :meth:`LightmapRecords.commit`, :meth:`LightmapRecords.revert`,
-  :meth:`LightmapRecords.baked_objects`, and
-  :meth:`LightmapRecords.migrate_legacy` for markers older than the
+  :meth:`LightmapRecords.baked_objects`,
+  :meth:`LightmapRecords.superseding` (what a re-bake leaves behind, deleted),
+  and :meth:`LightmapRecords.migrate_legacy` for markers older than the
   rect-binding contract.
 * **The manifest** -- the ``lightmap_metadata`` record that rides the FBX on the
   ``data_export`` Empty, rebuilt from the markers:
@@ -25,9 +26,10 @@ Editor, the Scene Exporter and the FBX producer read it without building a
 baker. The engine surface imports without ``bpy`` (deferred into the calls).
 """
 
+import contextlib
 import json
 import os
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Tuple
 
 import pythontk as ptk
 
@@ -96,6 +98,113 @@ class LightmapRecords(ptk.LoggingMixin):
         """Store *info* as *obj*'s marker."""
         cls._object(obj)[cls.LIGHTMAP_INFO_PROP] = json.dumps(info)
 
+    # ------------------------------------------------------------------
+    # Folder hints -- private, never on a marker
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _hint_key(map_name) -> str:
+        """A map's key in the folder record: its lower-case file name."""
+        return os.path.basename(str(map_name or "")).lower()
+
+    @classmethod
+    def _folder_hints(cls) -> Dict[str, str]:
+        """``{lower-case map name: stored folder}`` -- where each map was written.
+
+        The private ``ptk.SceneRecords.LIGHTMAP_DIRS`` record, not the marker: a
+        marker is an object property and rides every FBX, so a folder on it put
+        build-setup data on the deliverable. Mirror of mayatk's.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        data = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes, {})
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items() if v}
+
+    @classmethod
+    def _save_folder_hints(cls, hints: Dict[str, str]) -> None:
+        """Store *hints* as the folder record (an empty one clears it)."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, dict(sorted(hints.items())))
+
+    @classmethod
+    def _folder_hint(cls, info: Dict[str, Any], hints: Dict[str, str]) -> str:
+        """The stored folder of the map *info* names: the record's, else a
+        LEGACY marker's own ``dir`` (read until :meth:`migrate_folder_hints`
+        lifts it)."""
+        return str(hints.get(cls._hint_key(info.get("map"))) or info.get("dir") or "")
+
+    @classmethod
+    def _prune_folder_hints(cls) -> None:
+        """Drop the folder and writer entries no marker names any more (a revert)."""
+        hints, writers = cls._folder_hints(), cls._writers()
+        if not (hints or writers):
+            return
+        named = {cls._hint_key(i.get("map")) for _o, i in cls._marker_records()}
+        kept = {k: v for k, v in hints.items() if k in named}
+        if kept != hints:
+            cls._save_folder_hints(kept)
+        kept = {k: v for k, v in writers.items() if k in named}
+        if kept != writers:
+            cls._save_writers(kept)
+
+    # ------------------------------------------------------------------
+    # Writers -- which file wrote each map
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _writers(cls) -> Dict[str, str]:
+        """``{lower-case map name: stored .blend}`` -- who wrote each map.
+
+        The ``ptk.SceneRecords.LIGHTMAP_WRITERS`` record, stamped by
+        :meth:`commit` (mirror of mayatk's). ``""`` is a map committed while
+        the file was unsaved -- its own only while it still is (a Save As
+        copy carries the same ``""``); a map with no entry is nobody's to
+        delete.
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        data = ptk.SceneRecords.LIGHTMAP_WRITERS.load(DataNodes, {})
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v or "") for k, v in data.items()}
+
+    @classmethod
+    def _save_writers(cls, writers: Dict[str, str]) -> None:
+        """Store *writers* as the writer record (an empty one clears it)."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        ptk.SceneRecords.LIGHTMAP_WRITERS.save(DataNodes, dict(sorted(writers.items())))
+
+    @staticmethod
+    def _scene_file() -> str:
+        """This .blend as the writer record stores it: spelled from its own
+        project (``ptk.FileUtils.portable_path``), ``""`` while unsaved."""
+        import bpy
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        path = bpy.data.filepath
+        if not path:
+            return ""
+        spelled = ptk.FileUtils.portable_path(path, DataNodes.project_root())
+        # A UNC share keeps its leading backslashes (see :meth:`_portable_dir`).
+        return ptk.FileUtils.format_path(path) if spelled.startswith("//") else spelled
+
+    @staticmethod
+    def _written_here(writer: Optional[str]) -> bool:
+        """Whether *writer* (a writer-record entry) makes a map this file's own
+        (:meth:`ptk.FileDependencies.written_here`; mirror of mayatk's)."""
+        import bpy
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return ptk.FileDependencies.written_here(
+            writer, bpy.data.filepath, DataNodes.project_root()
+        )
+
     @classmethod
     def _marker_records(cls, objects=None) -> List[Tuple[Any, Dict[str, Any]]]:
         """``[(object, marker info)]`` for every marked object in scope.
@@ -148,9 +257,11 @@ class LightmapRecords(ptk.LoggingMixin):
     ) -> Dict[str, str]:
         """Record a lighting-only bake (changes nothing about the material/UVs).
 
-        Per object stamps the marker, then republishes the scene-wide manifest
-        onto the shared ``data_export`` carrier so it rides the FBX. Files are
-        never touched. Mirror of mayatk's.
+        Per object stamps the marker and records the map's folder and writer
+        (this file) in the private records, then republishes the scene-wide
+        manifest onto the shared ``data_export`` carrier so it rides the FBX.
+        Files are never touched: a re-bake deletes the maps it superseded
+        around its commit (:meth:`superseding`). Mirror of mayatk's.
 
         Parameters:
             mapping: ``{object name: lightmap path}``.
@@ -169,21 +280,21 @@ class LightmapRecords(ptk.LoggingMixin):
 
         scale_offsets = scale_offsets or {}
         recorded: Dict[str, str] = {}
+        folders: Dict[str, str] = {}
         for name, path in mapping.items():
             obj = cls._object(name)
             if obj is None:
                 continue
             lm = UvUtils.find_lightmap_uv_set(obj) or LIGHTMAP_UV_SET
             so = scale_offsets.get(name) or cls.IDENTITY_SCALE_OFFSET
+            # Where the map lives goes in the PRIVATE folder record, never on
+            # the marker: the marker is an object property and rides every FBX,
+            # and a folder there is build-setup data on the deliverable. The
+            # PORTABLE spelling (relative to the file's own project; mirrors
+            # mayatk), resolved on the machine that builds (:meth:`search_dirs`).
+            folders[cls._hint_key(path)] = cls._portable_dir(path)
             info = {
                 "map": os.path.basename(path),
-                # Where the map lives, in the PORTABLE spelling (``//``-relative
-                # when inside the project -- the rule textures follow; mirrors
-                # mayatk): a teammate's machine mounts the cloud project
-                # elsewhere, and an absolute folder resolves nowhere there.
-                # Resolved on the machine that builds (:meth:`search_dirs`); the
-                # manifest itself names no folder.
-                "dir": cls._portable_dir(path),
                 "uv_set": lm,
                 "intensity": float(intensity),
                 "scaleOffset": [float(v) for v in so],
@@ -200,6 +311,14 @@ class LightmapRecords(ptk.LoggingMixin):
             recorded[name] = path
 
         if recorded:
+            hints = cls._folder_hints()
+            hints.update(folders)
+            cls._save_folder_hints(hints)
+            # ...and that THIS file wrote them: what lets a later re-bake
+            # delete them once superseded (:meth:`superseding`).
+            writers = cls._writers()
+            writers.update(dict.fromkeys(folders, cls._scene_file()))
+            cls._save_writers(writers)
             cls._publish()
         return recorded
 
@@ -214,8 +333,18 @@ class LightmapRecords(ptk.LoggingMixin):
         change, so it is inverted here first -- restoring the original 0-1
         layout so a re-bake starts clean. The baked texture and UV layer are
         otherwise left in place. ``objects=None`` clears every marked object.
-        Returns the names cleared.
+        One undo step (mirror of mayatk's chunk), so a single Ctrl+Z puts every
+        marker, the manifest and the folder record back -- a raw ``bpy.data``
+        edit pushes none of its own. Returns the names cleared.
         """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        with CoreUtils.undo_chunk("Revert Lightmaps"):
+            return cls._revert_markers(objects)
+
+    @classmethod
+    def _revert_markers(cls, objects=None) -> List[str]:
+        """:meth:`revert`'s work, inside its undo step."""
         cleared = []
         for obj in cls._marked_objects(objects):
             info = cls._marker_info(obj)
@@ -225,6 +354,94 @@ class LightmapRecords(ptk.LoggingMixin):
         if cleared:
             cls._publish()
         return cleared
+
+    @classmethod
+    @contextlib.contextmanager
+    def superseding(cls, objects) -> Iterator[List[str]]:
+        """Around a re-bake's :meth:`commit`: delete the maps *objects* stop reading.
+
+        Mirror of mayatk's. A re-bake that changes where or how its maps are
+        written -- another output folder, Beside Material Textures, another
+        name affix, per-object maps folded into an atlas or back -- leaves the
+        old files behind, read by nobody; the maps *objects* read on entry are
+        deleted on a clean exit once no marker in the file reads them
+        (:meth:`ptk.FileDependencies.remove_superseded`). A block that raises
+        deletes nothing.
+
+        Only this file's own maps are candidates: recorded in its folder record
+        AND written by it (:meth:`_written_here`) -- never a map another .blend
+        still reads, nor one committed before writers were recorded -- and
+        never one a LINKED object reads, which its library may name too.
+
+        Parameters:
+            objects: The objects (names) the block commits new maps for.
+
+        Yields:
+            A list, filled with the deleted paths on exit.
+        """
+        retired: List[str] = []
+        before = cls._written_reads(objects)
+        yield retired
+        if not before:
+            return
+        retired.extend(ptk.FileDependencies.remove_superseded(before, cls._reads()))
+        if retired:
+            cls.logger.info(
+                "Deleted %d superseded lightmap(s) nothing reads any more: %s",
+                len(retired),
+                ", ".join(os.path.basename(p) for p in retired),
+            )
+
+    @classmethod
+    def _written_reads(cls, objects) -> List[str]:
+        """The map files *objects* read now that are this file's to delete once
+        superseded (:meth:`superseding`)."""
+        if not objects:
+            return []
+        hints, writers = cls._folder_hints(), cls._writers()
+        readers = cls.claims()
+        own: Dict[Optional[str], bool] = {}
+        paths: List[str] = []
+        for _obj, info in cls._marker_records(list(objects)):
+            name = os.path.basename(str(info.get("map") or ""))
+            key = cls._hint_key(name)
+            writer = writers.get(key)
+            if writer not in own:
+                own[writer] = cls._written_here(writer)
+            if key not in hints or not own[writer]:
+                continue
+            if any(cls._referenced(o) for o in readers.get(key, ())):
+                continue
+            path = os.path.join(cls._resolved_dir(hints[key], name), name)
+            if os.path.isfile(path):
+                paths.append(path)
+        return paths
+
+    @classmethod
+    def _reads(cls) -> List[Tuple[str, str, Optional[str]]]:
+        """``(object name, map name, path)`` per marker: the file each reads NOW.
+
+        Mirror of mayatk's: the marker's own recorded folder when the map is
+        there, else where the texture search folders find it (:meth:`_resolve`,
+        without the walk), else ``None``.
+        """
+        hints = cls._folder_hints()
+        found = {d["name"].lower(): d["path"] for d in cls._resolve(walk=False)}
+        reads: List[Tuple[str, str, Optional[str]]] = []
+        for obj, info in cls._marker_records():
+            name = os.path.basename(str(info.get("map") or ""))
+            folder = cls._folder_hint(info, hints)
+            path = os.path.join(cls._resolved_dir(folder, name), name) if folder else ""
+            if not os.path.isfile(path):
+                path = found.get(name.lower())
+            reads.append((obj.name, name, path))
+        return reads
+
+    @classmethod
+    def _referenced(cls, name: str) -> bool:
+        """Whether the object *name* comes from a library: linked, or overridden."""
+        obj = cls._object(name)
+        return obj is not None and bool(obj.library or obj.override_library)
 
     # ------------------------------------------------------------------
     # Legacy markers
@@ -249,11 +466,15 @@ class LightmapRecords(ptk.LoggingMixin):
         UV map that bake builds, for a later migration to invert over a fresh
         unwrap.
 
+        A marker's legacy folder moves to the private record on the way
+        (:meth:`migrate_folder_hints`).
+
         A bake runs this over its own objects before it bakes anything; *objects*
         ``None`` migrates the whole file. Idempotent. Returns the names of the
         objects whose marker changed.
         """
-        changed: List[str] = []
+        changed: List[str] = cls.migrate_folder_hints(objects)
+        rebound: List[str] = []
         for obj, info in cls._marker_records(objects):
             if "uvRect" not in info:
                 continue  # current format
@@ -283,14 +504,47 @@ class LightmapRecords(ptk.LoggingMixin):
                 )
             info.pop("uvRect", None)
             cls._write_marker(obj, info)
-            changed.append(obj.name)
-        if changed:
+            rebound.append(obj.name)
+        if rebound:
             cls.logger.info(
                 "Migrated %d legacy lightmap marker(s) to the rect binding.",
-                len(changed),
+                len(rebound),
             )
             cls._publish()
-        return changed
+        return changed + [name for name in rebound if name not in changed]
+
+    @classmethod
+    def migrate_folder_hints(cls, objects=None) -> List[str]:
+        """Lift a legacy marker's ``dir`` into the private folder record.
+
+        Until 2026-09-23 every marker carried its map's folder, and a marker is
+        an object property that rides every FBX: build-setup data on the
+        deliverable. The folder now lives in ``ptk.SceneRecords.LIGHTMAP_DIRS``
+        (:meth:`_folder_hints`); this moves an old marker's folder there -- a
+        folder the record already holds for that map wins -- and strips it
+        from the marker. Lossless and idempotent. A bake runs it through
+        :meth:`migrate_legacy`, and every export bracket stages it
+        (``FbxUtils.STAGERS``), so a file baked before the move ships clean
+        without a re-bake. Mirror of mayatk's.
+
+        Returns:
+            The names of the objects whose marker changed.
+        """
+        legacy = [(o, i) for o, i in cls._marker_records(objects) if "dir" in i]
+        if not legacy:
+            return []
+        hints = cls._folder_hints()
+        for obj, info in legacy:
+            folder = str(info.pop("dir") or "")
+            if folder:
+                hints.setdefault(cls._hint_key(info.get("map")), folder)
+            cls._write_marker(obj, info)
+        cls._save_folder_hints(hints)
+        cls.logger.info(
+            "Moved %d lightmap marker folder(s) into the file's private record.",
+            len(legacy),
+        )
+        return [obj.name for obj, _info in legacy]
 
     @staticmethod
     def _transform_lightmap_uvs(obj, uv_set, rect, invert=False) -> None:
@@ -402,6 +656,7 @@ class LightmapRecords(ptk.LoggingMixin):
         """
         from blendertk.env_utils.fbx_utils import FbxUtils
 
+        cls._prune_folder_hints()
         record = cls._record()
         FbxUtils.publish_authored({ptk.SceneRecords.LIGHTMAPS: record})
         return record.text if record is not None else None
@@ -501,8 +756,9 @@ class LightmapRecords(ptk.LoggingMixin):
         cls, objects=None, search_dirs=None, walk: bool = True
     ) -> List[Dict[str, Any]]:
         """The markers' maps through :meth:`ptk.FileDependencies.resolve`, Blender's way."""
+        hints = cls._folder_hints()
         refs = [
-            (obj.name, str(info.get("map") or ""), str(info.get("dir") or ""))
+            (obj.name, str(info.get("map") or ""), cls._folder_hint(info, hints))
             for obj, info in cls._marker_records(objects)
         ]
         if not refs:
@@ -542,8 +798,8 @@ class LightmapRecords(ptk.LoggingMixin):
              "note": "" | why an unresolved map stayed unresolved}
 
         Resolution order is the GLB applier's (``ptk.MeshConvert.apply_glb_lightmaps``)
-        so the two can never disagree about a map: the marker's own ``dir``
-        hint, then *search_dirs* (default :meth:`EnvUtils.texture_search_dirs`),
+        so the two can never disagree about a map: the map's recorded folder
+        (:meth:`_folder_hints`), then *search_dirs* (default :meth:`EnvUtils.texture_search_dirs`),
         each a plain join. With *walk* a map still missing is looked for under
         the whole textures folder; a UNIQUE hit resolves it, several same-named
         files leave it unresolved with the count in ``note`` rather than
@@ -601,9 +857,10 @@ class LightmapRecords(ptk.LoggingMixin):
         the manifest is republished. Returns how many markers changed.
         """
         dirs_by_map: Dict[str, str] = {}
+        hints = cls._folder_hints()
         for _obj, info in cls._marker_records(objects):
             basename = os.path.basename(str(info.get("map") or ""))
-            folder = cls._resolved_dir(str(info.get("dir") or ""), basename)
+            folder = cls._resolved_dir(cls._folder_hint(info, hints), basename)
             if folder:
                 dirs_by_map[basename.lower()] = folder
         if not dirs_by_map:
@@ -657,33 +914,52 @@ class LightmapRecords(ptk.LoggingMixin):
 
     @staticmethod
     def _portable_dir(path: str) -> str:
-        """The folder of *path* in the spelling a marker STORES: ``//``-relative
-        when the map sits inside the project (:func:`btk.to_project_relative`,
-        the rule textures follow), absolute otherwise -- so a project mounted
-        elsewhere on a teammate's machine still resolves it. Forward slashes,
-        except a UNC share's leading two (``ptk.FileUtils.format_path``):
-        spelled ``//server/share`` it read as relative to the .blend."""
-        from blendertk.mat_utils._mat_utils import MatUtils
+        """The folder of *path* in the spelling the folder record STORES
+        (``ptk.FileUtils.portable_path``; mirror of mayatk's): relative to the
+        file's own project (``DataNodes.project_root``) wherever a relative
+        spelling reaches -- a ``../`` chain to a shared library beside it
+        included -- absolute on another drive. The same spelling mayatk
+        stores, so the record reads the same on both sides of the bridge; a
+        Save As into another project re-spells it."""
+        from blendertk.node_utils.data_nodes import DataNodes
 
-        return ptk.FileUtils.format_path(
-            os.path.dirname(MatUtils.to_project_relative(os.path.abspath(path)))
+        folder = os.path.dirname(os.path.abspath(path))
+        spelled = ptk.FileUtils.portable_path(folder, DataNodes.project_root())
+        # An absolute UNC share keeps its two leading backslashes
+        # (``ptk.FileUtils.format_path``): spelled ``//server/share`` it reads
+        # as relative to the .blend wherever ``bpy.path.abspath`` meets it.
+        return (
+            ptk.FileUtils.format_path(folder) if spelled.startswith("//") else spelled
         )
 
     @classmethod
     def _resolved_dir(cls, folder: str, basename: str) -> str:
-        """*folder* (a marker's stored spelling) as an absolute folder on THIS
-        machine -- a ``//`` path resolved against the open .blend the way an
-        image path is (``bpy.path.abspath``). ``""`` when nothing is recorded."""
+        """*folder* (a stored spelling) as an absolute folder on THIS machine:
+        from the file's own project (``ptk.FileUtils.resolve_portable_path``).
+        A ``//`` spelling written before that rule is .blend-relative, and is
+        read the way an image path is (``bpy.path.abspath``) -- unless only a
+        UNC share of that spelling exists, which ``//server/share`` also is.
+        ``""`` when nothing is recorded."""
         import bpy
+
+        from blendertk.node_utils.data_nodes import DataNodes
 
         if not folder:
             return ""
+        if not folder.startswith("//"):
+            resolved = ptk.FileUtils.resolve_portable_path(
+                folder, DataNodes.project_root()
+            )
+            return ptk.FileUtils.format_path(os.path.normpath(resolved))
         joined = os.path.join(folder, basename or "_")
         try:
             resolved = bpy.path.abspath(joined)
         except Exception:
             resolved = joined
-        return ptk.FileUtils.format_path(os.path.dirname(os.path.normpath(resolved)))
+        blend_relative = os.path.dirname(os.path.normpath(resolved))
+        if not os.path.isdir(blend_relative) and os.path.isdir(folder):
+            return ptk.FileUtils.format_path(folder)  # a UNC share after all
+        return ptk.FileUtils.format_path(blend_relative)
 
     @classmethod
     def _texture_search_dirs(cls) -> List[str]:
@@ -728,12 +1004,15 @@ class LightmapRecords(ptk.LoggingMixin):
         Keys are lower-case basenames. The manual repath (Browse for File / a
         typed path on a lightmap row) and the last step of
         :meth:`heal_lightmap_paths` and :meth:`relocate_lightmaps`. Files are
-        never touched. The folder is stored in its portable spelling
+        never touched. The folder is stored -- in the private folder record,
+        per map (:meth:`_folder_hints`) -- in its portable spelling
         (``//``-relative when inside the project) unless ``relative=False`` --
-        the Make Paths Absolute case. The manifest is republished once. Returns
-        how many markers changed; a marker already recording that folder is
-        untouched.
+        the Make Paths Absolute case; a LEGACY marker's own ``dir`` naming the
+        map is lifted off it on the way. Returns how many markers now resolve
+        to a different folder; one already there is untouched.
         """
+        hints = cls._folder_hints()
+        before = dict(hints)
         count = 0
         for obj, info in cls._marker_records(objects):
             basename = os.path.basename(str(info.get("map") or ""))
@@ -744,11 +1023,14 @@ class LightmapRecords(ptk.LoggingMixin):
                 spelling = cls._portable_dir(os.path.join(new_dir, basename))
             else:
                 spelling = ptk.FileUtils.format_path(os.path.abspath(new_dir))
-            if ptk.FileUtils.format_path(str(info.get("dir") or "")) == spelling:
-                continue
-            info["dir"] = spelling
-            cls._write_marker(obj, info)
-            count += 1
+            if ptk.FileUtils.format_path(cls._folder_hint(info, hints)) != spelling:
+                count += 1
+            hints[cls._hint_key(basename)] = spelling
+            if "dir" in info:
+                info.pop("dir")
+                cls._write_marker(obj, info)
+        if hints != before:
+            cls._save_folder_hints(hints)
         if count:
             cls._publish()
         return count

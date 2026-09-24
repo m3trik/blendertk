@@ -241,6 +241,11 @@ class LightmapWebExport(ptk.LoggingMixin):
         (applying the bottom-up -> top-down V flip itself), so the deliverable matches
         ``ptk.MeshConvert.apply_glb_lightmaps``, which ships the same rect the same way.
 
+        The same per-object binding applies with no rect at all, whenever a material is
+        shared by objects baked into DIFFERENT maps -- a secondary material on two baked
+        bodies, or a Per-Object bake of linked duplicates. A glTF material carries one
+        lightmap: the first object keeps the material, each later one binds a clone.
+
         Returns a restore token for :meth:`unwire_lightmaps`; the wiring is a transport
         detail, not a change the artist asked for.
         """
@@ -276,18 +281,18 @@ class LightmapWebExport(ptk.LoggingMixin):
             return None if rect == list(LightmapBaker._IDENTITY_SCALE_OFFSET) else rect
 
         windows = {name: window((rects or {}).get(name)) for name in encoded}
-        # Atlased objects FIRST, because a clone has to be taken from a PRISTINE
-        # material: the identity branch wires the source in place, so cloning
-        # after it copies that wiring too and the clone ends up carrying two
-        # lightmap textures and two glTF-output groups, of which the exporter
-        # picks one arbitrarily -- measured, an atlased object then ships the
-        # UNTRANSFORMED binding, i.e. the very bug the rect is here to fix.
-        # Reachable whenever one material spans both modes, which two bakes into
-        # one scene (per-object then atlased) produce. sorted() is stable, so
-        # objects keep their order within each group.
-        ordered = sorted(encoded.items(), key=lambda kv: windows[kv[0]] is None)
-
-        for name, (png, _scalar) in ordered:
+        # A glTF material carries ONE lightmap, so the source material carries in
+        # place only the map of the first object to claim it without a rect. Any
+        # other binding is that object's alone and rides a clone: a per-instance
+        # rect, or a DIFFERENT map on a material another object already claimed --
+        # a secondary material two baked objects share (one GLASS on two machine
+        # bodies), or a Per-Object bake of linked duplicates (one mesh, one
+        # material behind every instance). Wired in place, those later objects
+        # sampled the first one's map through their own UV2. The twin of
+        # ``ptk.MeshConvert.apply_glb_lightmaps``, which binds the same way.
+        in_place: Dict[str, str] = {}  # material -> the map it carries in place
+        bindings = []
+        for name, (png, _scalar) in encoded.items():
             obj = bpy.data.objects.get(name)
             if obj is None:
                 continue
@@ -297,7 +302,22 @@ class LightmapWebExport(ptk.LoggingMixin):
                 material = slot.material
                 if material is None:
                     continue
-                if rect is None:
+                own = rect is not None or (
+                    in_place.setdefault(material.name, png) != png
+                )
+                bindings.append((obj, index, slot, material, png, lm, rect, own))
+
+        # Every clone BEFORE any in-place wiring, because a clone has to be taken
+        # from a PRISTINE material: wired in place first, the copy carries that
+        # wiring too -- two lightmap textures and two glTF-output groups, of which
+        # the exporter picks one arbitrarily (measured: an atlased object shipped
+        # the UNTRANSFORMED binding, the very bug the rect is here to fix).
+        # sorted() is stable, so objects keep their order within each pass.
+        try:
+            for obj, index, slot, material, png, lm, rect, own in sorted(
+                bindings, key=lambda binding: not binding[-1]
+            ):
+                if not own:
                     if material.name in wired:
                         continue
                     try:
@@ -311,7 +331,8 @@ class LightmapWebExport(ptk.LoggingMixin):
                     )
                     continue
 
-                key = (material.name, png, tuple(float(v) for v in rect))
+                window_key = tuple(float(v) for v in rect) if rect is not None else None
+                key = (material.name, png, window_key)
                 clone = clones.get(key)
                 if clone is None:
                     clone = material.copy()
@@ -325,10 +346,11 @@ class LightmapWebExport(ptk.LoggingMixin):
                     clones[key] = clone
                     token["copies"].append(clone.name)
                 # A slot holds BOTH a data-level and an object-level material and
-                # the link only says which one is live, so the object-level one has
-                # to be read THROUGH the link we are about to take over -- reading
-                # it as `slot.material` under a DATA link returns the mesh's and
-                # restore then clears a material the object was carrying (measured).
+                # the link only says which one is live, so the object-level one
+                # has to be read THROUGH the link we are about to take over --
+                # reading it as `slot.material` under a DATA link returns the
+                # mesh's and restore then clears a material the object was
+                # carrying (measured).
                 prior_link = slot.link
                 slot.link = "OBJECT"
                 prior = slot.material
@@ -341,6 +363,12 @@ class LightmapWebExport(ptk.LoggingMixin):
                     }
                 )
                 slot.material = clone
+        except BaseException:
+            # Past the per-material guard (a slot that refuses the re-link, an
+            # interrupt): this runs on the artist's live scene, so the clones
+            # and slot overrides made so far go back before the error does.
+            self.unwire_lightmaps(token)
+            raise
 
         return token
 
@@ -516,10 +544,11 @@ class LightmapWebExport(ptk.LoggingMixin):
                 claimed = materials.setdefault(slot.material.name, entry)
                 if claimed["map"] != entry["map"]:
                     # A glTF material carries exactly one lightmap, so the second one has
-                    # nowhere to go. Atlas packing is what normally prevents this; reaching
-                    # here means it fell back to per-object maps (a packing failure, logged
-                    # by pack_atlas). Say so — the symptom is one object wearing another's
-                    # lighting, which looks like a bad bake rather than a dropped map.
+                    # nowhere to go. wire_lightmaps gives every map past a material's first
+                    # a per-object clone, so reaching here means that clone could not be
+                    # wired (logged there) or the manifest was built without the wiring.
+                    # Say so — the symptom is one object wearing another's lighting, which
+                    # looks like a bad bake rather than a dropped map.
                     self.logger.warning(
                         "Material %r already carries %s, so %s (from %s) cannot be "
                         "published — that object will sample the first map. Re-run with "
@@ -680,12 +709,13 @@ class LightmapWebExport(ptk.LoggingMixin):
         """The scene's COMMITTED lightmaps, wired for a native glTF export.
 
         The Blender-native counterpart of ``ptk.MeshConvert.apply_glb_lightmaps``: feeds
-        itself from the markers :meth:`LightmapRecords.commit` stamped (map basename
-        + its ``dir`` locate hint), encodes, wires the carrier slot on the lightmap UV, and
-        yields the ``lightmap_web`` manifest -- pass it to :meth:`export_glb`, or export
-        with ``bpy.ops.export_scene.gltf(export_extras=True)`` directly (the manifest is
-        also stamped on the scene for the duration, so either route carries it). Materials
-        are restored on exit, wired only for the export's lifetime.
+        itself from the markers :meth:`LightmapRecords.commit` stamped (the map's
+        basename; its folder from the scene's lightmap record), encodes, wires the carrier
+        slot on the lightmap UV, and yields the ``lightmap_web`` manifest -- pass it to
+        :meth:`export_glb`, or export with ``bpy.ops.export_scene.gltf(export_extras=True)``
+        directly (the manifest is also stamped on the scene for the duration, so either
+        route carries it). Materials are restored on every exit -- a manifest that cannot
+        be built included -- wired only for the export's lifetime.
 
         A scene with no committed bake yields ``None`` and touches nothing, which is what
         makes it safe to wrap around *every* GLB export unconditionally: the exporter needs
@@ -702,16 +732,17 @@ class LightmapWebExport(ptk.LoggingMixin):
 
         mapping: Dict[str, str] = {}
         rects: Dict[str, List[float]] = {}
-        # Where each map is NOW, by the record's own resolution -- the marker's
-        # folder, then the host's search folders, then a walk -- the rule the
-        # Scene Exporter's GLB build and its path check already use. Joining
-        # the marker's folder alone shipped an object unlit the moment that
+        # Where each map is NOW, by the record's own resolution -- the map's
+        # recorded folder, then the host's search folders, then a walk -- the rule
+        # the Scene Exporter's GLB build and its path check already use. Joining
+        # the recorded folder alone shipped an object unlit the moment that
         # folder went stale (a moved project, a renamed folder).
         located = {
             str(dep["map"]).lower(): dep["path"]
             for dep in LightmapRecords.lightmap_dependencies(objects)
             if dep.get("path")
         }
+        hints = LightmapRecords._folder_hints()
         for obj in objects or bpy.data.objects:
             obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
             if obj is None or LightmapBaker.LIGHTMAP_INFO_PROP not in obj:
@@ -723,13 +754,15 @@ class LightmapWebExport(ptk.LoggingMixin):
             basename = info.get("map")
             if not basename:
                 continue
-            # The marker stores its folder in Blender's portable '//'-relative
+            # The recorded folder is in Blender's portable '//'-relative
             # spelling, which os.path.join cannot resolve -- joined raw it never
             # names a real file, so every committed lightmap was dropped and the
             # GLB shipped unlit with no TEXCOORD_1 carrier. The resolved location
-            # first; the marker's own folder through _resolved_dir otherwise.
+            # first; the map's recorded folder through _resolved_dir otherwise.
             path = located.get(str(basename).lower()) or os.path.join(
-                LightmapRecords._resolved_dir(info.get("dir") or "", basename),
+                LightmapRecords._resolved_dir(
+                    LightmapRecords._folder_hint(info, hints), basename
+                ),
                 basename,
             )
             if not os.path.isfile(path):
@@ -757,13 +790,13 @@ class LightmapWebExport(ptk.LoggingMixin):
         encoded = self.encode_for_web(
             mapping, output_dir=png_dir, percentile=percentile
         )
-        token = self.wire_lightmaps(encoded, carrier=carrier, rects=rects)
-        manifest = self.build_manifest(encoded, carrier=carrier)
-
         scene = bpy.context.scene
         prior = scene.get(self.EXTRAS_KEY)
-        scene[self.EXTRAS_KEY] = json.dumps(manifest)
+        token = self.wire_lightmaps(encoded, carrier=carrier, rects=rects)
+        # Everything after the wiring is inside the bracket that takes it back.
         try:
+            manifest = self.build_manifest(encoded, carrier=carrier)
+            scene[self.EXTRAS_KEY] = json.dumps(manifest)
             yield manifest
             if glb_path and os.path.isfile(glb_path):
                 ptk.MeshConvert.fix_glb_lightmap_metadata(glb_path)

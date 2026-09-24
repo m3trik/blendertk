@@ -30,6 +30,13 @@ import pythontk as ptk
 # Module logger for the classmethod paths, where there is no instance to log through.
 _logger = logging.getLogger(__name__)
 
+# The Cycles fields a bake pins for :attr:`TextureBaker.adaptive` and puts back after.
+_ADAPTIVE_ATTRS = (
+    "use_adaptive_sampling",
+    "adaptive_threshold",
+    "adaptive_min_samples",
+)
+
 
 class TextureBaker(ptk.LoggingMixin):
     """Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
@@ -57,6 +64,12 @@ class TextureBaker(ptk.LoggingMixin):
     #: so :meth:`_apply_device` flips ``compute_device_type`` per object as well.
     GPU_MIN_WORK: int = 1_000_000
 
+    #: The noise threshold an :attr:`adaptive` bake stops a texel at: Cycles'
+    #: own default, pinned with the switch so a scene saved with a looser one
+    #: (a fast look-dev render) cannot quietly loosen the bake as well. Twin of
+    #: mayatk's ``TextureBaker.ADAPTIVE_THRESHOLD`` (Arnold's own default).
+    ADAPTIVE_THRESHOLD: float = 0.01
+
     def __init__(
         self,
         resolution: int = 1024,
@@ -64,6 +77,7 @@ class TextureBaker(ptk.LoggingMixin):
         denoise: bool = True,
         device: Optional[str] = None,
         bounces: int = 4,
+        adaptive: bool = True,
     ):
         super().__init__()
         self.resolution = int(resolution)
@@ -110,6 +124,19 @@ class TextureBaker(ptk.LoggingMixin):
         #: ``"GPU"`` / ``"CPU"`` / ``"AUTO"`` / ``None`` (leave the scene's own device
         #: alone). ``"AUTO"`` decides per object -- see :attr:`GPU_MIN_WORK`.
         self.device = device
+        #: Spend :attr:`samples` adaptively: a texel stops once its noise is under
+        #: :attr:`ADAPTIVE_THRESHOLD`, so flat, lit texels finish early and the
+        #: shadows take what is left. Cycles bakes honour
+        #: ``scene.cycles.use_adaptive_sampling`` (measured 2026-09-23 on a shadowed
+        #: 512 px floor, CPU, denoised as every map ships: 11.3 s instead of 19.2 s
+        #: at 256 samples and 32.6 s instead of 71.7 s at 1024, for residual noise
+        #: of 0.37% against 0.30% / 0.26%, the level unchanged). It is ON in a
+        #: factory scene, which is how every bake ran before this pinned it; off
+        #: gives every texel the full budget. Pinned for the bake and put back after,
+        #: like :attr:`bounces`. mayatk's twin spends an Arnold GPU bake adaptively
+        #: in the other direction (AA samples as the floor, more where it is noisy);
+        #: both answer "where does the budget go".
+        self.adaptive = bool(adaptive)
         #: The compute devices the last :meth:`_configure_bake_scene` enabled (empty on
         #: the CPU) -- what ``"AUTO"`` and the GPU denoise decide on -- and the Cycles
         #: backend (``"OPTIX"`` / ``"CUDA"`` / ...) they were found under.
@@ -435,6 +462,12 @@ class TextureBaker(ptk.LoggingMixin):
             "max_bounces": getattr(scene.cycles, "max_bounces", None)
             if has_cycles
             else None,
+            # Adaptive sampling, pinned for the same reason: a bake honours the
+            # scene's, which is whatever the file last rendered with.
+            **{
+                attr: getattr(scene.cycles, attr, None) if has_cycles else None
+                for attr in _ADAPTIVE_ATTRS
+            },
             "device": getattr(scene.cycles, "device", None) if has_cycles else None,
             # Margin is set per object (sizes differ), so capture it here to restore.
             "bake": {k: getattr(bake, k) for k in (*new_bake, "margin")},
@@ -456,6 +489,11 @@ class TextureBaker(ptk.LoggingMixin):
                     scene.cycles.max_bounces = max(prev["max_bounces"], self.bounces)
             if prev["film_exposure"] is not None:
                 scene.cycles.film_exposure = 1.0
+            if prev["use_adaptive_sampling"] is not None:
+                scene.cycles.use_adaptive_sampling = self.adaptive
+                if self.adaptive:
+                    scene.cycles.adaptive_threshold = self.ADAPTIVE_THRESHOLD
+                    scene.cycles.adaptive_min_samples = 0  # Cycles' own: automatic
             if self.device in ("GPU", "AUTO"):
                 self._gpu_devices = self._enable_gpu_devices()
                 # AUTO re-decides per object (_apply_device); until then, and for a
@@ -874,6 +912,7 @@ class TextureBaker(ptk.LoggingMixin):
                 "film_exposure",
                 "diffuse_bounces",
                 "max_bounces",
+                *_ADAPTIVE_ATTRS,
             ):
                 if prev.get(attr) is not None:
                     setattr(scene.cycles, attr, prev[attr])
@@ -887,18 +926,34 @@ class TextureBaker(ptk.LoggingMixin):
 
     @staticmethod
     def resolve_meshes(objects) -> List[Any]:
-        """Normalize ``objects`` (refs / names / None=selection) to mesh objects."""
+        """Normalize ``objects`` (refs / names / None=selection) to mesh objects.
+
+        Each mesh once, in the order first given (mirror of mayatk's): an object
+        named twice -- a set member that is also the child of another member --
+        would otherwise bake, and be counted, twice. A mesh with no faces has no
+        surface to bake and is left out (its lightmap unwrap failed the whole
+        bake; mayatk's twin crashed Arnold on one) -- unless its modifiers build
+        faces on the empty base (geometry nodes), which the bake renders.
+        """
         import bpy
         from blendertk.core_utils._core_utils import CoreUtils
 
         if objects is None:
             objects = CoreUtils.selected_objects()
-        pool = []
+        pool: Dict[Any, None] = {}
+        depsgraph = None
         for o in ptk.make_iterable(objects):
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-            if obj is not None and getattr(obj, "type", None) == "MESH":
-                pool.append(obj)
-        return pool
+            if obj is None or getattr(obj, "type", None) != "MESH":
+                continue
+            if not obj.data.polygons:
+                if not obj.modifiers:
+                    continue
+                depsgraph = depsgraph or bpy.context.evaluated_depsgraph_get()
+                if not obj.evaluated_get(depsgraph).data.polygons:
+                    continue
+            pool.setdefault(obj, None)
+        return list(pool)
 
     @staticmethod
     def _ensure_materials(obj) -> Tuple[List[Any], Any]:
@@ -952,16 +1007,19 @@ class TextureBaker(ptk.LoggingMixin):
         return max(1, int(width)), max(1, int(height))
 
     @staticmethod
-    def texture_set_stem(obj) -> Optional[str]:
-        """Base name of *obj*'s existing texture set (e.g. ``Plants_Metal_Base_01``).
+    def texture_set(obj) -> Optional[Tuple[str, str]]:
+        """``(stem, folder)`` of *obj*'s existing texture set, or ``None``.
 
-        So a baked map follows the material's texture-set naming (``<base>_Lightmap``)
-        instead of the object name. The vote is ``ptk.MapFactory.dominant_texture_set``
-        over every image the object's materials use -- the rule mayatk's twin names its
-        maps by: only a real material MAP votes, and the most common set wins. It used
-        to take the FIRST file-backed image node, the rule that named a production Maya
-        bake after an environment cube. Returns ``None`` (fall back to the object name)
-        when nothing qualifies, or on any failure.
+        The stem (e.g. ``Plants_Metal_Base_01``) is what a baked map is named after
+        (``<base>_Lightmap``) instead of the object name; the folder is where the
+        lightmap baker's ``beside_textures`` puts it -- one answer for both, so a map
+        never takes its name from one texture set and its folder from another
+        (mirror of mayatk's ``LightmapBaker._texture_set``). The vote is
+        ``ptk.MapFactory.dominant_texture_set`` over every image the object's
+        materials use: only a real material MAP votes, and the most common set wins.
+        The folder is ``""`` for a set whose images carry no file path (packed, or
+        embedded by an FBX import). Returns ``None`` when nothing qualifies, or on
+        any failure.
         """
         try:
             images = []
@@ -972,27 +1030,46 @@ class TextureBaker(ptk.LoggingMixin):
                 images.extend(
                     getattr(node, "image", None) for node in mat.node_tree.nodes
                 )
-            found = ptk.MapFactory.dominant_texture_set(
+            return ptk.MapFactory.dominant_texture_set(
                 TextureBaker.image_sources(images)
             )
         except Exception:
             return None
+
+    @staticmethod
+    def texture_set_stem(obj) -> Optional[str]:
+        """Base name of *obj*'s existing texture set (:meth:`texture_set`), or ``None``.
+
+        So a baked map follows the material's texture-set naming (``<base>_Lightmap``)
+        instead of the object name -- the rule mayatk's twin names its maps by. It used
+        to take the FIRST file-backed image node, the rule that named a production Maya
+        bake after an environment cube. ``None`` falls back to the object name.
+        """
+        found = TextureBaker.texture_set(obj)
         return found[0] if found else None
 
     @staticmethod
     def image_sources(images) -> List[str]:
-        """The file name each image datablock stands for, for a texture-set vote.
+        """The file each image datablock stands for, for a texture-set vote.
 
-        The filepath's basename -- or, for a packed or FBX-embedded image, which has no
-        filepath, the datablock's name, which keeps the original file name the import
-        left behind. ``None`` entries are skipped.
+        The image's absolute file path (``//`` resolved against the .blend it lives
+        in), so the vote can name the set's folder as well as its base -- or, for a
+        packed or FBX-embedded image with no file path, the datablock's name, which
+        keeps the original file name the import left behind. ``None`` entries are
+        skipped.
         """
+        import bpy
+
         out: List[str] = []
         for image in images or ():
             if image is None:
                 continue
-            path = str(getattr(image, "filepath", "") or "").replace("\\", "/")
-            source = os.path.basename(path) or str(getattr(image, "name", "") or "")
+            path = str(getattr(image, "filepath", "") or "")
+            if path:
+                path = os.path.normpath(
+                    bpy.path.abspath(path, library=getattr(image, "library", None))
+                )
+            source = path or str(getattr(image, "name", "") or "")
             if source:
                 out.append(source)
         return out

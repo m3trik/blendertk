@@ -1070,7 +1070,21 @@ try:
         "the retired 'stretch' mode builds as orbit, with no alias table left",
         rig.mode == "orbit" and not hasattr(ShadowRig, "_DEPRECATED_MODES"),
     )
-    rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, axis="y")
+    import warnings as _axis_warnings
+
+    with _axis_warnings.catch_warnings(record=True) as _axis_caught:
+        _axis_warnings.simplefilter("always")
+        rig = ShadowRig.create([c], light_pos=(5, 5, 10), texture_res=32, axis="y")
+    _axis_notices = [
+        str(w.message)
+        for w in _axis_caught
+        if issubclass(w.category, DeprecationWarning) and "'axis'" in str(w.message)
+    ]
+    check(
+        "the retired axis keyword warns once through ptk.Deprecation (mirror of mayatk's)",
+        len(_axis_notices) == 1 and "blendertk 0.12.0" in _axis_notices[0],
+        str(_axis_notices),
+    )
     check(
         "a retired explicit axis still builds the projected silhouette",
         rig.image is not None and tuple(rig.image.size) == (32, 32),

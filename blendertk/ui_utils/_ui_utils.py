@@ -232,20 +232,25 @@ class UiUtils(_UiUtilsInternal):
         primary action and always happens; scrolling an Outliner to it is the
         best-effort half (``outliner.show_active`` under a temp override of the
         first open Outliner area) — a layout without one degrades to a plain
-        select instead of raising half-way through.
+        select instead of raising half-way through. The selection is read and
+        written through the view layer, not the screen context: from tentacle's
+        Qt event pump ``bpy.context.window`` is None and ``selected_objects``
+        reads empty, which left the prior selection in place.
         """
         import bpy
 
         if not objects:
             return
-        view_layer = bpy.context.view_layer
-        for o in list(bpy.context.selected_objects):
-            o.select_set(False)
+        view_layer = CoreUtils._active_view_layer()
+        if view_layer is None:
+            return
+        for o in CoreUtils.selected_objects():
+            o.select_set(False, view_layer=view_layer)
         active = None
         for item in objects:
             obj = bpy.data.objects.get(item) if isinstance(item, str) else item
             if obj is not None and obj.name in view_layer.objects:
-                obj.select_set(True)
+                obj.select_set(True, view_layer=view_layer)
                 active = obj
         if active is None:
             return

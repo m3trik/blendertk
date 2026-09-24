@@ -3133,13 +3133,19 @@ class ShotSequencerController(
                             deleted += 1
                         if i1 > i0:
                             fc.update()
+                if deleted:
+                    # A key edit like any other (``_key_scene_edit``): the claims
+                    # on the deleted keys go with them and the gap holds re-settle.
+                    self.sequencer.reconcile_system_edits()
         finally:
             self._syncing = was_syncing
-        if deleted:
-            self._segment_cache.clear()
-            self._sub_row_cache.clear()
-            self._sync_to_widget()
-            self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
+        if not deleted:
+            self._discard_shot_state()  # nothing happened -- no dead restore point
+            return
+        self._segment_cache.clear()
+        self._sub_row_cache.clear()
+        self._sync_to_widget()
+        self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
 
     def _stash_clip_keys(self, clip_ids: list) -> None:
         """Move the given clips' keys into the key stash (``KeyStash.stash``).
@@ -3299,6 +3305,10 @@ class ShotSequencerController(
 
         if by_clip:
             deleted = 0
+            # The restore point BEFORE the edit (mirror of mayatk's scene_edit):
+            # its reconcile releases the deleted keys' claims, so a point taken
+            # after it handed undo a ledger without them.
+            self._save_shot_state()
             # Guarded like every other edit path here: removing a keyframe point
             # tags its Action and the depsgraph handler reacts to exactly that.
             # Whether Blender delivers that synchronously is NOT measured (mayatk's
@@ -3330,15 +3340,21 @@ class ShotSequencerController(
                                     fc.update()
                             if cut_ok:
                                 deleted += 1
+                    if deleted:
+                        # A key edit like any other (``_key_scene_edit``): the
+                        # claims on the deleted keys go with them and the gap
+                        # holds re-settle.
+                        self.sequencer.reconcile_system_edits()
             finally:
                 self._syncing = was_syncing
-            if deleted:
-                self._save_shot_state()
-                shot_id = self.active_shot_id
-                self._segment_cache.clear()
-                self._sub_row_cache.clear()
-                self._sync_to_widget(shot_id=shot_id)
-                self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
+            if not deleted:
+                self._discard_shot_state()  # nothing happened -- no dead point
+                return
+            shot_id = self.active_shot_id
+            self._segment_cache.clear()
+            self._sub_row_cache.clear()
+            self._sync_to_widget(shot_id=shot_id)
+            self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
             return
 
         selected = widget.selected_clips() or []

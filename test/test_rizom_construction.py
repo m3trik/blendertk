@@ -99,17 +99,37 @@ try:
     b20 = RizomUVBridge(rizom_path=V2020)
     b20.export_path = "C:/tmp/x.fbx"
     full20 = b20._construct_full_script(pack)
-    check("2020.1: gated ZomPack fields stripped (no MaxMutations/Rotate.Enable)",
+    check("2020.1: gated ZomPack fields stripped (no MaxMutations/Scaling.Mix/Rotate.Enable)",
           "MaxMutations" not in code_lines(full20)
           and "__PACK_MAX_MUTATIONS__" not in full20
+          and "Mix=" not in code_lines(full20)
           and "Enable=" not in code_lines(full20))
     # Resolution is deliberately NOT gated: probed safe on 2020.1, and sending it
     # is what makes a single send converge instead of needing a second one.
     check("2020.1: Resolution survives (ungated -- converges the pack in one send)",
           "Resolution=" in code_lines(full20)
           and "__PACK_RESOLUTION__" not in full20)
-    check("2020.1: non-gated fields survive (RecursionDepth resolved)",
-          "RecursionDepth" in full20 and "__RECURSION_DEPTH__" not in full20)
+    # Pinned, not a knob: the bridge never builds nested island groups, so depths
+    # 1/2/5 saved byte-identical layouts (probed through the real bridge).
+    check("RecursionDepth pinned to 1 (no bundled preset shows the dead knob)",
+          "RecursionDepth=1," in code_lines(full20)
+          and not any("RECURSION_DEPTH" in P.Parameters.referenced_keys(
+              s.read_text(encoding="utf-8")) for s in _SCRIPT_DIR.glob("*.lua")))
+    shown20 = P.Parameters.referenced_keys(P.Parameters.strip_unsupported(
+        P.Parameters.expand_includes(pack), (2020, 1)))
+    check("2020.1: Mix Scale hidden (no effect there), Rotate shown (works via Mode/Step)",
+          "SCALING_MIX" not in shown20 and "PACK_ROTATE_ENABLE" in shown20)
+    b20._params = {"PACK_ROTATE_ENABLE": False, "ROTATE_STEP": 45}
+    rot_off = code_lines(b20._construct_full_script(pack))
+    b20._params = {}
+    check("rotate off renders Mode 0 + Step 0 (keeps every island's angle on 2020.1)",
+          "local rotate = false" in rot_off
+          and "Step=rotate and 45 or 0," in rot_off
+          and "Mode=(not rotate) and 0 or nil," in rot_off
+          and "Enable=" not in rot_off)
+    check("shell subset token renders nil unless the host sets it",
+          P.Parameters.render_context({})["PACK_SUBSET"] == "nil"
+          and "PACK_SUBSET = nil" in full20)
     check("2020.1: no FBX={UseUVSetNames} flag on the ZomLoad/ZomSave lines (below the gate)",
           "UseUVSetNames" not in zom_lines(full20), zom_lines(full20))
     check("2022.2: FBX={UseUVSetNames=true} flag on the ZomLoad/ZomSave lines (above the gate)",
@@ -142,10 +162,11 @@ try:
 
     # ---- param overrides flow into the script ------------------------------------
     full_ovr = b._construct_full_script(pack)  # defaults
-    b._params = {"RECURSION_DEPTH": 5}
+    b._params = {"PACK_RESOLUTION": 4096}
     full_ovr2 = b._construct_full_script(pack)
+    b._params = {}
     check("param override changes the rendered script",
-          "RecursionDepth=5" in full_ovr2 and "RecursionDepth=5" not in full_ovr)
+          "Resolution=4096" in full_ovr2 and "Resolution=4096" not in full_ovr)
 
     # ---- keep-stacked: pack-only opt-in behind a Lua literal, Lua vendored from mayatk ----
     keys = lambda name: P.Parameters.referenced_keys(  # noqa: E731
@@ -198,14 +219,18 @@ try:
     opt_full = b._construct_full_script(optimize)
     opt_left = re.findall(r"__[A-Z][A-Z0-9_]*__", opt_full)
     check("optimize: no unresolved __KEY__ placeholders left", not opt_left, str(opt_left))
+    # The shared block's pack() sends its two arguments as Scaling.Mode and
+    # LayoutScalingMode; the plain call carries the panel's values.
     check("optimize: pack knobs come from the panel, not hardcoded invariants",
-          f"LayoutScalingMode={P.PARAMS['LAYOUT_SCALING_MODE'].default}" in opt_full
-          and f"Scaling={{Mode={P.PARAMS['SCALING_MODE'].default}," in opt_full)
+          f"pack({P.PARAMS['SCALING_MODE'].default}, "
+          f"{P.PARAMS['LAYOUT_SCALING_MODE'].default})" in opt_full
+          and "LayoutScalingMode=layout_mode," in opt_full)
 
     import filecmp
     _maya_rb = _SCRIPT_DIR.parents[4] / "mayatk" / "mayatk" / "uv_utils" / "rizom_bridge"
     if _maya_rb.is_dir():
         vendored = ("scripts/pack.lua", "scripts/optimize.lua",
+                    "scripts/pack_into_existing.lua",
                     "templates/pack_block.lua", "templates/keep_stacked_block.lua")
         stale = [f for f in vendored
                  if not filecmp.cmp(_maya_rb / f, _SCRIPT_DIR.parent / f, shallow=False)]

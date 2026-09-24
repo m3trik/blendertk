@@ -339,7 +339,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/_env_utils.py` — blendertk environment / scene-library utilities — the engine behind the Reference Manager panel.
 - `class EnvUtils(_EnvUtilsInternal)`
-  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
+  - methods: find_blend_files, list_libraries, linked_blend_paths, is_blend_linked, link_blend_file, reload_library, remove_library, make_library_local, set_current_workspace, current_workspace, workspace_root, scene_artifact_path, source_images_dir, texture_search_dirs, scenes_dir, workspace_scenes_dir, list_workspace_templates, workspace_template_rules, save_workspace_template, delete_workspace_template, create_workspace, promote_workspace, find_workspaces, open_scene, new_scene, scene_has_content, scene_has_unsaved_changes, scene_settings, apply_scene_settings, format_scene_name, scene_save_path, save_scene_as, export_scene_as_obj, rename_scene_file, delete_scene_file, set_reference_display_mode, get_reference_display_mode
 
 ### `env_utils/blender_connection.py` — Launch a FRESH headless Blender to run a script / code string and capture its output — the
 - constants: RESULT_PASS
@@ -462,7 +462,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/reference_manager.py` — Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 - `class ReferenceManagerSlots(ptk.LoggingMixin)`
-  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, toggle_reference_selected, unlink_import_selected, reload_all, make_local_all, remove_all
+  - methods: header_init, txt000_init, cmb000_init, txt001_init, tbl000_init, new_workspace, mark_workspace, open_selected, save_scene, rename_selected, delete_selected, open_location_selected, copy_path_selected, toggle_reference_selected, unlink_import_selected, reload_all, make_local_all, remove_all
 
 ### `env_utils/scene_exporter/_scene_exporter.py` — Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 - `class SceneExporter(ptk.LoggingMixin)`
@@ -524,15 +524,15 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 - `class LightmapBakeResult`
   - methods: files, folders
 - `class LightmapBaker(ptk.LoggingMixin)`
-  - methods: resolution, samples, denoise, device, bounces, preset_store, from_preset, bake, preflight, bake_verdict, bake_separated, bake_atlas, atlas_plan, plan_sizes, pack_atlas, commit_lightmap, revert, revert_lightmap, baked_objects, lightmap_dependencies, search_dirs, heal_lightmap_paths, relocate_lightmaps, repath_lightmaps, normalize_lightmap_paths, export_record, refresh_export_metadata, map_levels, peak_level
+  - methods: resolution, samples, denoise, device, bounces, adaptive, preset_store, from_preset, bake_targets, bake, preflight, bake_verdict, bake_separated, bake_atlas, atlas_plan, plan_sizes, pack_atlas, commit_lightmap, revert, revert_lightmap, baked_objects, lightmap_dependencies, search_dirs, heal_lightmap_paths, relocate_lightmaps, repath_lightmaps, normalize_lightmap_paths, export_record, refresh_export_metadata, map_levels, peak_level
 
 ### `light_utils/lightmap_baker/lightmap_baker_slots.py` — The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 - `class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`
-  - methods: header_init, cmb000_init, cmb000, cmb002_init, cmb_scope_init, cmb_resolution_init, cmb_device_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
+  - methods: header_init, cmb000_init, btn_reset_defaults_init, cmb002_init, cmb_scope_init, set_exclusions_init, set_exclusions, select_exclusions, clear_exclusions, cmb_resolution_init, spn_samples_init, cmb_device_init, txt_output_dir_init, txt000_init, b000, revert_to_source, open_output
 
 ### `light_utils/lightmap_baker/lightmap_records.py` — The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 - `class LightmapRecords(ptk.LoggingMixin)`
-  - methods: baked_objects, commit, revert, migrate_legacy, export_record, refresh_export_metadata, claims, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, repath_lightmaps
+  - methods: baked_objects, commit, revert, superseding, migrate_legacy, migrate_folder_hints, export_record, refresh_export_metadata, claims, lightmap_dependencies, search_dirs, heal_lightmap_paths, normalize_lightmap_paths, relocate_lightmaps, repath_lightmaps
 
 ### `light_utils/lightmap_baker/web_export.py` — Ship a committed lightmap bake in a web (GLB) deliverable.
 - `class LightmapWebExport(ptk.LoggingMixin)`
@@ -547,9 +547,14 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/arnold_bridge.py` — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 - `class ArnoldBridge(ptk.LoggingMixin)`
-  - methods: add, remove, rebuild, get_bridge, has_bridge
+  - methods: unrenderable_materials, add, remove, rebuild, temporary, get_bridge, has_bridge
 - `class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin)`
   - methods: header_init, cmb000_init
+
+### `mat_utils/bake_sets.py` — Scene-stored bake sets: named object sets the bake tools read (Blender).
+- `class BakeSet`
+  - methods: collection, exists, members, meshes, define, clear
+- `class LightmapExcludeSet(BakeSet)`
 
 ### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 - `class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`
@@ -671,8 +676,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
-- `class HighPolySet`
-  - methods: collection, exists, members, define, clear
+- `class HighPolySet(BakeSet)`
 - `class SubstanceBridge(ptk.HandoffBridge)`
   - methods: painter_path, painter_log_path, instances, find_live_managed, send, ensure_rpc_plugin, high_poly_path_for, mesh_map_files, list_templates, parse_template, list_template_modes, resolve_painter_log_path
 
@@ -748,7 +752,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/texture_baker.py` — Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 - `class TextureBaker(ptk.LoggingMixin)`
-  - methods: bake, denoise_image, denoise_images, resolve_meshes, texture_set_stem, image_sources, default_output_dir
+  - methods: bake, denoise_image, denoise_images, resolve_meshes, texture_set, texture_set_stem, image_sources, default_output_dir
 
 ### `mat_utils/texture_path_editor.py` — Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 - `class TexturePathEditorSlots(ptk.LoggingMixin)`
@@ -768,7 +772,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes(ptk.SceneStoreBase)`
-  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, carriers_in, library_renames
+  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, carriers_in, library_renames, project_root, install_path_rebase, remove_path_rebase
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(ptk.LoggingMixin)`
@@ -914,7 +918,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
   - methods: rizom_path, rizom_version, export_path, script_path, build_send_script, send, process_with_rizomuv, expand_by_materials
 
 ### `uv_utils/rizom_bridge/parameters.py` — Registry of user-tunable RizomUV parameters exposed to the bridge UI.
-- constants: PARAMS, DERIVED_KEYS, MIN_VERSIONS, FBX_USE_UV_SET_NAMES_MIN_VERSION
+- constants: PARAMS, DERIVED_KEYS, HOST_TOKEN_DEFAULTS, MIN_VERSIONS, FBX_USE_UV_SET_NAMES_MIN_VERSION
 - `class Parameters`
   - methods: expand_includes, preset_min_version, referenced_keys, defaults, derived_values, render_context, strip_unsupported
 

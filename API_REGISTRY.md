@@ -114,6 +114,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`light_utils/lightmap_baker/web_export.py`](#light_utils--lightmap_baker--web_export) — Ship a committed lightmap bake in a web (GLB) deliverable.
 - [`mat_utils/_mat_utils.py`](#mat_utils--_mat_utils) — Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 - [`mat_utils/arnold_bridge.py`](#mat_utils--arnold_bridge) — Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
+- [`mat_utils/bake_sets.py`](#mat_utils--bake_sets) — Scene-stored bake sets: named object sets the bake tools read (Blender).
 - [`mat_utils/emissive_groups.py`](#mat_utils--emissive_groups) — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 - [`mat_utils/game_shader.py`](#mat_utils--game_shader) — Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 - [`mat_utils/image_to_plane/_image_to_plane.py`](#mat_utils--image_to_plane--_image_to_plane) — Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
@@ -542,7 +543,7 @@ Tree-widget presentation mixin for the Shot Manifest controller.
 
 Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 
-- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L198)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
+- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L229)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
   - `ShotSequencer.shots(self)` *(property)*
   - `ShotSequencer.hidden_objects(self) -> set` *(property)*
   - `ShotSequencer.markers(self)` *(property)*
@@ -694,9 +695,9 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3521)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3537)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot', validate=None)` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3602)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3618)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -1512,6 +1513,7 @@ blendertk environment / scene-library utilities — the engine behind the Refere
   - `EnvUtils.scene_settings(scene=None)` *(static)* — The live scene's time setup as the bridges' ``scene`` record (see
   - `EnvUtils.apply_scene_settings(settings, scene=None)` *(static)* — Apply a ``scene`` record (any subset of :attr:`SCENE_SETTINGS_KEYS`) to the live
   - `EnvUtils.format_scene_name(name, case=None, suffix='')` *(static)* — Apply a naming convention to a base scene name — ``case`` via :meth:`pythontk.StrUtils.set_case`
+  - `EnvUtils.scene_save_path(directory, name, case=None, suffix='', subfolder='')` *(static)* — The absolute ``.blend`` path :meth:`save_scene_as` would write — the pure
   - `EnvUtils.save_scene_as(directory, name, case=None, suffix='', subfolder='', overwrite=True)` *(static)* — Save the current scene as a .blend under ``directory`` with naming conventions applied —
   - `EnvUtils.export_scene_as_obj(file_path=None, *, selection_only=False, materials=True, smoothing=True, normals=True, groups=True)` *(static)* — Export the scene as a Wavefront OBJ — mirror of mayatk's ``export_scene_as_obj``.
   - `EnvUtils.rename_scene_file(path, new_base)` *(static)* — Rename a .blend on disk (and its ``.blend1`` backup) — mirror of mayatk's ``rename_scene``.
@@ -1831,12 +1833,12 @@ Open a Maya scene headlessly (mayapy) and export it as USD for a Blender import.
 - [`usd_safe_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L245) — Make every material export as well as mayaUsd's registry can write it.
 - [`export_usd(cmds, frame_range=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L353) — Whole-scene ``mayaUSDExport`` with per-flag tolerance across mayaUsd versions.
 - [`collect_materials(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L529) — The texture manifest the FBX route ships, for the USD route -- read off
-- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L624) — Rename transforms until no two share a short name;
-- [`collect_instance_groups(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L765) — Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
-- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L826) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
-- [`write_manifest(cmds, materials=None, shading_groups=None, bones=None, scene_data=None, rig=None, machinery=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L998) — Sidecar beside the USD carrying what USD itself cannot: instance groups,
-- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1058)
-- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1132) — The scene's portable records as manifest sections (``shots``,
+- [`uniquify_short_names(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L626) — Rename transforms until no two share a short name;
+- [`collect_instance_groups(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L767) — Maya instance sets -> ``[[sanitized prim paths sharing one shape], ...]``.
+- [`scene_settings(cmds)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L828) — The scene's time setup -- the manifest's ``scene`` section, the one part of a
+- [`write_manifest(cmds, materials=None, shading_groups=None, bones=None, scene_data=None, rig=None, machinery=None)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1000) — Sidecar beside the USD carrying what USD itself cannot: instance groups,
+- [`main()`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1060)
+- [`scene_data_sections(cmds, spell)`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L1134) — The scene's portable records as manifest sections (``shots``,
 - [`SRC_PATH`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L40) — constant
 - [`OUT_USD`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L41) — constant
 - [`INCLUDE_ANIMATION`](blendertk/blendertk/env_utils/maya_bridge/templates/_import_scene_usd.py#L42) — constant
@@ -1914,10 +1916,11 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
   - `ReferenceManagerSlots.new_workspace(self)` — Create a marked workspace under the root (rules from the active template — see
   - `ReferenceManagerSlots.mark_workspace(self)` — Promote the current workspace folder to a shared Maya/Blender project — writes a
   - `ReferenceManagerSlots.open_selected(self)` — Open the selected .blend (replaces the current file;
-  - `ReferenceManagerSlots.save_scene(self)` — Save the current scene into the workspace with the header naming conventions.
+  - `ReferenceManagerSlots.save_scene(self)` — Save the current scene into the workspace with the naming conventions
   - `ReferenceManagerSlots.rename_selected(self)` — Rename the selected .blend on disk.
   - `ReferenceManagerSlots.delete_selected(self)` — Delete the selected .blend file(s) from disk (confirmed).
   - `ReferenceManagerSlots.open_location_selected(self)` — Reveal the selected .blend in the OS file manager (any row).
+  - `ReferenceManagerSlots.copy_path_selected(self)` — Copy the selected file's full path to the clipboard (mirror of mayatk).
   - `ReferenceManagerSlots.toggle_reference_selected(self)` — Reference / Unreference the selected row(s) — the row-menu twin of the link icon
   - `ReferenceManagerSlots.unlink_import_selected(self)` — Unlink and Import the selected row(s) — Maya's 'Unlink and Import', covering both cases.
   - `ReferenceManagerSlots.reload_all(self)` — Reload every linked library from disk (Maya's Update References).
@@ -1929,7 +1932,7 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
-- **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L115)**
+- **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L126)**
   - `SceneExporter.confirm(self, question: str) -> bool` — Yes/no consent for an export-time side effect (a tool download).
   - `SceneExporter.confirm_check_override(self) -> bool` — Ask, at the failure point, whether to export despite failed checks.
   - `SceneExporter.run_config_from_values(self, values: Dict[str, Any], override_checks: bool = False, ignore_groups_case_sensitive: bool = False) -> Dict[str, Any]` — Widget values -> the inputs :meth:`perform_export` takes.
@@ -1937,7 +1940,7 @@ Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
   - `SceneExporter.name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]` — Live value for every token in :attr:`NAME_TOKENS` but the counter.
   - `SceneExporter.resolve_export_path(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', name_regex: Optional[str] = None, report: bool = True, version_format: str = '', timestamp: bool = False) -> Dict[str, Any]` — Resolve the Output Filename field into the file(s) an export writes.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx', output_format: Optional[str] = None) -> str` — The full export path, from the fields :meth:`perform_export` stamps.
-  - `SceneExporter.format_export_name(self, name: str, name_regex: Optional[str] = None) -> str` — *name* reshaped by the retired free-standing RegEx field.
+  - `SceneExporter.format_export_name(self, name: str, name_regex: Optional[str] = None) -> str` **DEPRECATED (remove in 0.12.0)** — *name* reshaped by the retired free-standing RegEx field.
   - `SceneExporter.generate_log_file_path(self, export_path: str) -> str` — Generate the log file path based on the export path.
   - `SceneExporter.setup_file_logging(self, log_file_path: str)` — Setup file logging to log actions during export.
   - `SceneExporter.close_file_handlers(self)` — Close and remove file handlers after logging is complete.
@@ -2199,17 +2202,19 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L62)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
+- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L63)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
   - `LightmapBakeResult.files(self) -> List[str]` *(property)* — The distinct map files, sorted: an atlas 40 objects share counts once.
   - `LightmapBakeResult.folders(self) -> List[str]` *(property)* — The distinct folders the maps landed in, compared the way the disk does.
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L104)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L114)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
   - `LightmapBaker.device(self) -> Optional[str]` *(property)*
   - `LightmapBaker.bounces(self) -> int` *(property)* — Diffuse bounces the bake integrates -- role-twin of mayatk's ``gi_depth``.
+  - `LightmapBaker.adaptive(self) -> bool` *(property)* — Whether the bake spends its samples adaptively: a texel stops once its
   - `LightmapBaker.preset_store() -> 'ptk.PresetStore'` *(static)* — Shared store of lightmap quality presets (built-in + user tiers).
-  - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a preset (``resolution`` / ``samples`` / ``bounces``).
+  - `LightmapBaker.from_preset(cls, name: str, **overrides) -> 'LightmapBaker'` *(class)* — Construct a baker from a named preset.
+  - `LightmapBaker.bake_targets(cls, objects=None) -> List[str]` *(class)* — The names of the meshes a bake of *objects* acts on (default: the selection).
   - `LightmapBaker.bake(self, objects=None, packing: str = 'atlas', output_dir: Optional[str] = None, prefix: str = '', suffix: str = '_Lightmap', on_progress: Optional[Callable[[int, int, str], bool]] = None, intensity: float = 1.0, **kwargs) -> LightmapBakeResult` — Bake *objects*' lightmaps and record them: the whole workflow, as the panel runs it.
   - `LightmapBaker.preflight(self) -> Optional[str]` — Why this file cannot bake now, or ``None`` (mirror of mayatk's).
   - `LightmapBaker.bake_verdict(self, paths) -> Optional[str]` — A warning about a finished bake's level, or ``None`` when it is plausible.
@@ -2238,30 +2243,37 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 
-- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L23)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L24)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
-  - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Populate the Quality combobox from the shared preset store.
-  - `LightmapBakerSlots.cmb000(self, index, widget) -> None` — Apply the selected preset's dials to Resolution / Samples.
+  - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Wire the Preset combo: uitk's preset template over the shared store.
+  - `LightmapBakerSlots.btn_reset_defaults_init(self, widget) -> None` — Wire Reset to Defaults to uitk's shared reset grammar.
   - `LightmapBakerSlots.cmb002_init(self, widget) -> None` — Populate the Packing combobox;
-  - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox;
-  - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data);
-  - `LightmapBakerSlots.cmb_device_init(self, widget) -> None` — Populate the Device combobox (value carried as item data);
-  - `LightmapBakerSlots.txt_output_dir_init(self, widget) -> None` — Add a directory browser to the optional output-directory field.
+  - `LightmapBakerSlots.cmb_scope_init(self, widget) -> None` — Populate the Scope combobox (Selected is the default) and hang the
+  - `LightmapBakerSlots.set_exclusions_init(self, widget) -> None` — Hang Select / Clear off the Exclude row, and make its hover live.
+  - `LightmapBakerSlots.set_exclusions(self) -> None` — Make the selection the Exclude set;
+  - `LightmapBakerSlots.select_exclusions(self) -> None` — Select the Exclude set's members.
+  - `LightmapBakerSlots.clear_exclusions(self) -> None` — Remove the Exclude set;
+  - `LightmapBakerSlots.cmb_resolution_init(self, widget) -> None` — Populate the Resolution combobox (value carried as item data,
+  - `LightmapBakerSlots.spn_samples_init(self, widget) -> None` — Hang the Adaptive Sampling switch off the Samples field.
+  - `LightmapBakerSlots.cmb_device_init(self, widget) -> None` — Populate the Processor combobox (value carried as item data);
+  - `LightmapBakerSlots.txt_output_dir_init(self, widget) -> None` — Add the folder browser and the Beside Material Textures toggle.
   - `LightmapBakerSlots.txt000_init(self, widget) -> None` — Add the Prefix / Suffix / Auto picker to the name-affix field.
-  - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the Scope (:meth:`LightmapBaker.bake`;
-  - `LightmapBakerSlots.revert_to_source(self) -> None` — Undo the bake wiring on the selected objects (or all baked ones).
-  - `LightmapBakerSlots.open_output(self) -> None` — Open the most recent output folder in the file browser.
+  - `LightmapBakerSlots.b000(self) -> None` — Bake lightmaps for the Scope, minus the Exclude set (:meth:`LightmapBaker.bake`).
+  - `LightmapBakerSlots.revert_to_source(self) -> None` — Take the lightmaps off the selected objects (or every baked one), once confirmed.
+  - `LightmapBakerSlots.open_output(self) -> None` — Open the bake's output folder in the file manager.
 
 <a id="light_utils--lightmap_baker--lightmap_records"></a>
 ### `light_utils/lightmap_baker/lightmap_records.py`
 
 The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 
-- **[`class LightmapRecords(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L35)** — Blender's lightmap markers and manifest, and the files they name.
+- **[`class LightmapRecords(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L37)** — Blender's lightmap markers and manifest, and the files they name.
   - `LightmapRecords.baked_objects(cls, objects=None) -> List[str]` *(class)* — The objects :meth:`revert` would take the lightmap from (names).
   - `LightmapRecords.commit(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0) -> Dict[str, str]` *(class)* — Record a lighting-only bake (changes nothing about the material/UVs).
   - `LightmapRecords.revert(cls, objects=None) -> List[str]` *(class)* — Undo :meth:`commit` -- restore any legacy UV remap, drop the markers, republish.
+  - `LightmapRecords.superseding(cls, objects) -> Iterator[List[str]]` *(class)* — Around a re-bake's :meth:`commit`: delete the maps *objects* stop reading.
   - `LightmapRecords.migrate_legacy(cls, objects=None) -> List[str]` *(class)* — Bring markers older than the rect-binding contract up to date, losslessly.
+  - `LightmapRecords.migrate_folder_hints(cls, objects=None) -> List[str]` *(class)* — Lift a legacy marker's ``dir`` into the private folder record.
   - `LightmapRecords.export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]` *(class)* — The ``lightmap_metadata`` record for this file, or ``None`` when no
   - `LightmapRecords.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Rebuild the ``lightmap_metadata`` export channel from the file's markers.
   - `LightmapRecords.claims(cls, objects=None) -> Dict[str, FrozenSet[str]]` *(class)* — ``{file name: object names}`` -- which objects read which map (mirror of mayatk's).
@@ -2343,15 +2355,31 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
 
 Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 
-- **[`class ArnoldBridge(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L34)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
+- **[`class ArnoldBridge(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L35)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
+  - `ArnoldBridge.unrenderable_materials(cls) -> List[str]` *(class)* — No material needs a bridge before a Blender render: always ``[]``.
   - `ArnoldBridge.add(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None, force: bool = False) -> List[str]`
   - `ArnoldBridge.remove(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]`
   - `ArnoldBridge.rebuild(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]`
+  - `ArnoldBridge.temporary(self, materials) -> Iterator[List[str]]` — Bridge nothing for the block: there is no Arnold graph to add (see
   - `ArnoldBridge.get_bridge(self, material) -> Optional[str]`
   - `ArnoldBridge.has_bridge(self, material) -> bool`
-- **[`class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L73)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
+- **[`class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L88)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
   - `ArnoldBridgeSlots.header_init(self, widget) -> None` — Configure the help text (no menu actions -- the panel is inert).
   - `ArnoldBridgeSlots.cmb000_init(self, widget) -> None` — Populate with mayatk's scope labels for visual parity (the combo itself stays
+
+<a id="mat_utils--bake_sets"></a>
+### `mat_utils/bake_sets.py`
+
+Scene-stored bake sets: named object sets the bake tools read (Blender).
+
+- **[`class BakeSet`](blendertk/blendertk/mat_utils/bake_sets.py#L35)** — A file's named object set, stored as a stamped, render-neutral Collection.
+  - `BakeSet.collection(cls)` *(class)* — This file's stamped collection, or ``None`` when the file has no set.
+  - `BakeSet.exists(cls) -> bool` *(class)* — Whether the set's collection is present in the file.
+  - `BakeSet.members(cls) -> List[Any]` *(class)* — The set's objects (an empty list when there is no set).
+  - `BakeSet.meshes(cls) -> List[Any]` *(class)* — The mesh objects the set covers -- a member counts its descendants.
+  - `BakeSet.define(cls, objects: Optional[List[Any]] = None) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
+  - `BakeSet.clear(cls) -> None` *(class)* — Remove the set's collection (one undo step);
+- **[`class LightmapExcludeSet(BakeSet)`](blendertk/blendertk/mat_utils/bake_sets.py#L179)** — Objects every lightmap bake of the file gives no map of their own.
 
 <a id="mat_utils--emissive_groups"></a>
 ### `mat_utils/emissive_groups.py`
@@ -2775,18 +2803,13 @@ Shader Templates tool panel — Switchboard slot wiring for the co-located
 
 Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
-- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L54) — constant
-- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L55) — constant
-- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L67) — constant
-- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L68) — constant
-- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L69) — constant
-- **[`class HighPolySet`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L160)** — The scene's high-poly bake source, stored as a stamped Collection.
-  - `HighPolySet.collection(cls)` *(class)* — The stamped high-poly collection, or ``None`` when absent.
-  - `HighPolySet.exists(cls) -> bool` *(class)* — Whether the high-poly collection is present in the file.
-  - `HighPolySet.members(cls) -> List[Any]` *(class)* — The set's objects (an empty list when there is no set).
-  - `HighPolySet.define(cls, objects: Optional[List[Any]] = None) -> List[Any]` *(class)* — Replace the set's contents with *objects* (default: the selection).
-  - `HighPolySet.clear(cls) -> None` *(class)* — Remove the collection;
-- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L270)** — Export Blender selection to Substance Painter via a chosen template.
+- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L56) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L57) — constant
+- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L69) — constant
+- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L70) — constant
+- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L71) — constant
+- **[`class HighPolySet(BakeSet)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L162)** — The scene's high-poly bake source, stored as a stamped Collection.
+- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L188)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.painter_path(self) -> Optional[str]` *(property)* — Resolve the Painter executable path via :func:`find_painter_exe`.
   - `SubstanceBridge.painter_log_path(self) -> Optional[str]` *(property)* — Path to Painter's application ``log.txt``, or *None* if absent.
   - `SubstanceBridge.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
@@ -2990,13 +3013,14 @@ Render the current Painter project via Iray (JS body unverified).
 
 Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 
-- **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L34)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
+- **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L41)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
   - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None) -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
   - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None, gpu: Optional[bool] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
   - `TextureBaker.denoise_images(cls, paths: Iterable[str], outputs: Optional[Iterable[Optional[str]]] = None, gpu: Optional[bool] = None) -> Dict[str, str]` *(class)* — Denoise several baked EXRs through ONE compositor build and ONE engine flip.
   - `TextureBaker.resolve_meshes(objects) -> List[Any]` *(static)* — Normalize ``objects`` (refs / names / None=selection) to mesh objects.
-  - `TextureBaker.texture_set_stem(obj) -> Optional[str]` *(static)* — Base name of *obj*'s existing texture set (e.g.
-  - `TextureBaker.image_sources(images) -> List[str]` *(static)* — The file name each image datablock stands for, for a texture-set vote.
+  - `TextureBaker.texture_set(obj) -> Optional[Tuple[str, str]]` *(static)* — ``(stem, folder)`` of *obj*'s existing texture set, or ``None``.
+  - `TextureBaker.texture_set_stem(obj) -> Optional[str]` *(static)* — Base name of *obj*'s existing texture set (:meth:`texture_set`), or ``None``.
+  - `TextureBaker.image_sources(images) -> List[str]` *(static)* — The file each image datablock stands for, for a texture-set vote.
   - `TextureBaker.default_output_dir(subdir: str = 'baked_textures') -> str` *(static)* — ``<subdir>`` next to the saved .blend, else under the OS temp dir.
 
 <a id="mat_utils--texture_path_editor"></a>
@@ -3111,6 +3135,9 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
   - `DataNodes.dump_export_nodes(cls, decode: bool = True) -> Dict[str, Dict[str, Any]]` *(class)* — Every ``data_export`` carrier's channels (:meth:`get_export_nodes`),
   - `DataNodes.carriers_in(cls, library) -> Dict[ptk.Scope, '_Carrier']` *(class)* — The carriers a linked *library* brings, by scope, read while it is
   - `DataNodes.library_renames(before) -> Any` *(static)* — ``rename(name)`` for a library made local: *before* is
+  - `DataNodes.project_root(cls) -> Optional[str]` *(class)* — The project the open .blend lives in -- what the path records
+  - `DataNodes.install_path_rebase(cls) -> bool` *(class)* — Keep the path records spelled from the file's own project across a
+  - `DataNodes.remove_path_rebase(cls) -> None` *(class)* — Remove the re-base handlers -- any module copy's, matched by name.
 
 <a id="nurbs_utils--_nurbs_utils"></a>
 ### `nurbs_utils/_nurbs_utils.py`
@@ -3306,7 +3333,7 @@ Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.
   - `ShadowRig.create_for_sources(cls, targets, sources, **kwargs)` *(class)* — One shadow rig per source — N lights cast N shadows (mirror of mayatk's).
   - `ShadowRig.create_horizon_for_sources(cls, targets, sources, **kwargs)` *(class)* — :meth:`create_for_sources` for the ``horizon`` rig type.
   - `ShadowRig.create_per_object(cls, targets, sources, **kwargs)` *(class)* — One rig per target per source — the panel's *Per object* planes.
-- **[`class ShadowRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L2694)** — Switchboard slot wiring for the Shadow Rig panel.
+- **[`class ShadowRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L2702)** — Switchboard slot wiring for the Shadow Rig panel.
   - `ShadowRigSlots.header_init(self, widget)` — Configure header help text.
   - `ShadowRigSlots.cmb_type_init(self, widget)` — A rig type the panel only plans for is listed but not selectable.
   - `ShadowRigSlots.txt_source_init(self, widget)` — Source Name's option box: the two actions about the source --
@@ -3672,10 +3699,11 @@ RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 
 - [`PARAMS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L47) — constant
-- [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L470) — constant
-- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L658) — constant
-- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L668) — constant
-- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L479)** — Parameters — module namespace.
+- [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L481) — constant
+- [`HOST_TOKEN_DEFAULTS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L488) — constant
+- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L684) — constant
+- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L694) — constant
+- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L497)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
   - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).

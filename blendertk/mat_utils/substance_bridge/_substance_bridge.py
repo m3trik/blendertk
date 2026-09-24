@@ -32,8 +32,10 @@ import pythontk as ptk
 from pythontk.core_utils import script_template
 from pythontk.str_utils._str_utils import StrUtils
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.env_utils.usd import UsdUtils
+from blendertk.mat_utils.bake_sets import BakeSet
 from blendertk.mat_utils.mat_manifest import MatManifest
 from blendertk.mat_utils.substance_bridge.connection import SubstanceConnection
 from blendertk.mat_utils.substance_bridge.substance_rpc import DEFAULT_RPC_PORT
@@ -157,108 +159,24 @@ _TEMPLATE_TYPES: Dict[str, type] = {
 # -- High-poly membership --------------------------------------------------
 
 
-class HighPolySet:
+class HighPolySet(BakeSet):
     """The scene's high-poly bake source, stored as a stamped Collection.
 
-    Mirror of mayatk's ``HighPolySet`` (an ``objectSet`` there). Painter
-    bakes from a *separate* mesh file, so the high-poly geometry is not part
-    of the export scope -- it is its own set, defined once and reused across
-    sends no matter what the Scope combo resolves to. Keeping it in the
-    scene rather than in panel settings means it saves with the .blend,
-    shows up in the Outliner, and can't go stale against a file it was never
-    captured in. Same idiom as
-    :class:`blendertk.display_utils.color_id.ColorId`: created stamped, and
-    looked up by that stamp rather than by name, so a user's own collection
-    that happens to share the name is never adopted.
-
-    Members are *added* to the collection, never moved out of their existing
-    ones -- the set is a tag, not a re-parent. Hidden members need no special
-    treatment either: FBX carries hidden geometry verbatim, so the export
-    never touches the scene.
+    Mirror of mayatk's ``BakeSourceSet`` (its ``HighPolySet`` until mayatk
+    moved it into ``bake_sets``; an ``objectSet`` there). Painter bakes from a
+    *separate* mesh file, so the high-poly geometry is not part of the export
+    scope -- it is its own set, defined once and reused across sends no matter
+    what the Scope combo resolves to. The storage is
+    :class:`~blendertk.mat_utils.bake_sets.BakeSet`'s: a stamped collection
+    that saves with the .blend and never changes what renders. Hidden members
+    ship too: Blender's FBX export drops what it cannot select, so
+    :meth:`SubstanceBridge._export_bake_source` reveals each member for the
+    write alone and puts every flag back.
     """
 
     SET_NAME = "substanceBridge_highPoly"
-    #: Custom-property stamp identifying our collection (see class docstring).
+    #: Custom-property stamp identifying our collection (see :class:`BakeSet`).
     STAMP = "btk_substance_high_poly"
-
-    @classmethod
-    def collection(cls):
-        """The stamped high-poly collection, or ``None`` when absent."""
-        import bpy
-
-        return next((c for c in bpy.data.collections if cls.STAMP in c), None)
-
-    @classmethod
-    def exists(cls) -> bool:
-        """Whether the high-poly collection is present in the file."""
-        return cls.collection() is not None
-
-    @classmethod
-    def members(cls) -> List[Any]:
-        """The set's objects (an empty list when there is no set)."""
-        col = cls.collection()
-        return list(col.objects) if col is not None else []
-
-    @classmethod
-    def define(cls, objects: Optional[List[Any]] = None) -> List[Any]:
-        """Replace the set's contents with *objects* (default: the selection).
-
-        Returns the resulting members. An empty input removes the
-        collection -- "no high poly" is the absence of the collection, so a
-        cleared set never lingers as a confusing empty container.
-        """
-        import bpy
-
-        if objects is None:
-            import blendertk as btk
-
-            objects = btk.selected_objects()
-        objects = [o for o in objects or [] if o is not None]
-        if not objects:
-            cls.clear()
-            return []
-
-        col = cls.collection()
-        if col is None:
-            col = bpy.data.collections.new(cls.SET_NAME)
-            col[cls.STAMP] = True
-            bpy.context.scene.collection.children.link(col)
-        else:  # redefining replaces membership wholesale
-            for obj in list(col.objects):
-                cls._rehome_if_last(col, obj)
-                col.objects.unlink(obj)
-        for obj in objects:
-            if obj.name not in col.objects:
-                col.objects.link(obj)
-        return cls.members()
-
-    @classmethod
-    def clear(cls) -> None:
-        """Remove the collection; its objects are left in the scene."""
-        import bpy
-
-        col = cls.collection()
-        if col is None:
-            return
-        for obj in list(col.objects):
-            cls._rehome_if_last(col, obj)
-        bpy.data.collections.remove(col)
-
-    @staticmethod
-    def _rehome_if_last(col, obj) -> None:
-        """Link *obj* to the scene root if *col* is its only collection.
-
-        A zero-collection object is orphaned data -- gone from the view
-        layer and collected on the next save/load. Members are normally
-        *added* to the set while staying in their own collections, so this
-        only bites when the user unlinked an object's home afterwards; both
-        the redefine path and :meth:`clear` call it, so neither can be the
-        one that loses geometry.
-        """
-        import bpy
-
-        if list(obj.users_collection) == [col]:
-            bpy.context.scene.collection.objects.link(obj)
 
 
 # -- Painter log resolution (mirror of marmoset's version-aware resolver) --
@@ -1190,10 +1108,14 @@ class SubstanceBridge(ptk.HandoffBridge):
         which is the state a user reads as a bug. Same contract as the
         Marmoset bridge, which never had the second control.
 
-        The scene is never modified. Hidden members export exactly like
-        visible ones (FBX carries the geometry regardless), which is also
-        why this can't disturb a "Visible Only" scope: it reads the set,
-        not the selection.
+        Hidden members export exactly like visible ones, and the scene is
+        left as it was found. Blender's FBX export is selection-based and
+        drops whatever it cannot select, so each member is revealed for the
+        write alone (:meth:`CoreUtils.visible_override`, which puts every
+        flag and link back); a high-poly mesh hidden by its own flags or by
+        its collection otherwise left the bake source without it. Reading the
+        set rather than the selection is also why this can't disturb a
+        "Visible Only" scope.
         """
         if "BAKE_SOURCE_SET" not in referenced:
             return None
@@ -1216,7 +1138,8 @@ class SubstanceBridge(ptk.HandoffBridge):
         high_path = self.high_poly_path_for(fbx_path)
         self.logger.info(f"Exporting bake source ({len(members)} object(s)) ...")
         try:
-            self._export_model(high_path, members, request, options)
+            with CoreUtils.visible_override(members):
+                self._export_model(high_path, members, request, options)
         except Exception as e:  # noqa: BLE001 -- optional leg, never fatal
             self.logger.error(f"Bake-source export failed: {e}")
             return None

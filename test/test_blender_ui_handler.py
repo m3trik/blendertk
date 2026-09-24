@@ -494,7 +494,6 @@ try:
             check(
                 "reference_manager header mirrors Maya's items (no Blender-only extras in the header)",
                 {
-                    "txt_subfolder_structure",
                     # Operations buttons carry Maya's exact labels/names (renamed from the
                     # old Make Local All / Remove All).
                     "btn_unlink_import_all",
@@ -514,6 +513,8 @@ try:
                         "btn_reload_all",
                         # Redundant with the footer's Un-Reference All.
                         "btn_unreference_all",
+                        # Save To Workspace is footer-only.
+                        "btn_save_scene",
                     }
                     & _hdr_names
                 ),
@@ -524,6 +525,98 @@ try:
                 {"chk_recursive", "btn_new_workspace", "btn_mark_workspace"}
                 <= _opt_names,
                 f"optbox={sorted(_opt_names)}",
+            )
+            # The naming conventions are panel-wide (Save and Rename apply them,
+            # the filters match against them), so they live in the header menu
+            # (both panels), read by the one _naming_options path, captured by
+            # the header presets; Save's footer button carries no option box.
+            _naming = ("cmb_case_style", "txt_suffix", "txt_subfolder_structure")
+            _preset_widgets = {
+                w.objectName()
+                for w in rm_ui.header.menu.presets._get_widgets()
+                if w.objectName()
+            }
+            _save_btn = getattr(rm_ui.footer, "_rm_save_btn", None)
+            check(
+                "reference_manager naming fields live in the header menu (presets capture them)",
+                set(_naming) <= _hdr_names
+                and set(_naming) <= _preset_widgets
+                and rm._naming_menu() is rm_ui.header.menu
+                # Seated directly in the row: no option-box container wraps it.
+                and rm_ui.footer.main_layout.indexOf(_save_btn) >= 0,
+                f"header={sorted(set(_naming) & _hdr_names)} "
+                f"presets={sorted(set(_naming) & _preset_widgets)}",
+            )
+            _preview = rm._save_scene_preview() if _save_btn is not None else ""
+            check(
+                "reference_manager footer Save button exists and previews the save path",
+                _save_btn is not None
+                and "Save To Workspace" in _preview
+                and (".blend" in _preview or "workspace" in _preview.lower()),
+                # ascii-safe: the preview carries "→" glyphs the cp1252
+                # console this harness prints to can't encode.
+                "preview="
+                + _preview[:200].encode("ascii", "backslashreplace").decode("ascii"),
+            )
+            # The prepopulated Save name keeps the authored casing and any dots:
+            # it must read the RAW filepath (_current_scene_file), never the
+            # lowercased comparison key (_current_scene_path), and only the
+            # extension comes off.
+            rm._current_scene_file = lambda: "C:/proj/scenes/Hero.rig.blend"
+            _default = rm._default_save_name("None", "")
+            del rm._current_scene_file
+            check(
+                "reference_manager Save prepopulates the authored name (case + dots kept)",
+                _default == "Hero.rig",
+                f"default={_default!r}",
+            )
+
+            # A slots reload rebuilds the instance on the SAME persisted footer:
+            # construction must not run again (duplicate buttons).
+            def _footer_action_count():
+                return sum(
+                    1
+                    for b in rm_ui.footer.findChildren(QtWidgets.QPushButton)
+                    if b.text() in ("Save To Workspace", "Un-Reference All")
+                )
+
+            _before = _footer_action_count()
+            rm2 = type(rm)(rm.sb)
+            check(
+                "reference_manager footer actions survive a slots reload without duplicating",
+                _footer_action_count() == _before == 2
+                and rm_ui.footer._rm_save_btn is _save_btn,
+                f"before={_before} after={_footer_action_count()}",
+            )
+            # ...and the header (which also outlives the reload) re-targets its
+            # naming-field edits at the NEW instance, not the dead one.
+            rm2.header_init(rm_ui.header)
+            _refreshed = []
+            rm._refresh = lambda: _refreshed.append("old")
+            rm2._refresh = lambda: _refreshed.append("new")
+            _hide = rm_ui.header.menu.chk_hide_suffix
+            _hide.blockSignals(True)
+            _hide.setChecked(True)
+            _suffix_w = rm_ui.header.menu.txt_suffix
+            _suffix_was = _suffix_w.text()
+            _suffix_w.setText(_suffix_was + "_x")
+            _suffix_w.setText(_suffix_was)
+            _hide.setChecked(False)
+            _hide.blockSignals(False)
+            del rm._refresh, rm2._refresh
+            check(
+                "reference_manager a naming-field edit after a reload re-filters the new instance",
+                _refreshed == ["new", "new"],
+                f"refreshed={_refreshed}",
+            )
+
+            # Footer row, left to right: Un-Reference All, then Save To Workspace.
+            _unref_i = rm_ui.footer.main_layout.indexOf(rm_ui.footer._rm_unref_btn)
+            _save_i = rm_ui.footer.main_layout.indexOf(rm_ui.footer._rm_save_btn)
+            check(
+                "reference_manager footer: Un-Reference All sits left of Save To Workspace",
+                0 <= _unref_i < _save_i,
+                f"unref={_unref_i} save={_save_i}",
             )
 
             rm_tbl = rm_ui.tbl000
@@ -862,6 +955,86 @@ try:
             finally:
                 _rm_si.MayaSceneImport.import_scene = _rm_orig_import
                 del rm._has_bpy, rm._refresh, rm.sb.message_box
+
+            # Notes are keyed by path, so a note must follow its file: a rename
+            # re-keys it, a delete drops it (mayatk's sidecar travels the same
+            # way). Real on-disk rename/delete (no bpy: nothing is "open").
+            _nd = os.path.join(rm_tmp, "notes_probe")  # outside the 'proj' workspace
+            os.makedirs(_nd)
+            _old = os.path.join(_nd, "hero.blend")
+            open(_old, "wb").close()
+            _new = os.path.join(_nd, "villain.blend")
+            _saved_notes = dict(rm._notes)
+            rm._notes[rm._path_key(_old)] = "keep me"
+            rm.sb.input_dialog = lambda *a, **k: "villain"
+            rm.sb.message_box = lambda *a, **k: "Yes"
+            rm._refresh = lambda: None
+            rm._selected_paths = lambda: [_new]
+            try:
+                rm._rename_path(_old)
+                _moved = rm._notes.get(rm._path_key(_new))
+                _left = rm._path_key(_old) in rm._notes
+                rm.delete_selected()
+                _after = rm._notes.get(rm._path_key(_new))
+                check(
+                    "reference_manager a note follows its file through rename and delete",
+                    _moved == "keep me"
+                    and not _left
+                    and _after is None
+                    and not os.path.exists(_new),
+                    f"moved={_moved!r} left_on_old={_left} after_delete={_after!r}",
+                )
+            finally:
+                rm._notes.clear()
+                rm._notes.update(_saved_notes)
+                rm.ui.settings.setValue("reference_notes", rm._notes)
+                del rm.sb.input_dialog, rm.sb.message_box, rm._refresh
+                del rm._selected_paths
+
+            # Save appends the suffix, so one typed into its dialog must come off
+            # first (mirror of mayatk). The file name alone never doubled here
+            # (format_scene_name skips a suffix the name ends with), but the
+            # {name} folder resolves from the typed name: "villain_v01" landed in
+            # a villain_v01/ folder instead of villain/.
+            _saves = []
+            _orig_save_as = _rm_btk.save_scene_as
+            _rm_btk.save_scene_as = lambda ws, name, **kw: _saves.append((ws, name, kw))
+            _suffix_w = rm._naming_menu().txt_suffix
+            _struct_w = rm._naming_menu().txt_subfolder_structure
+            _orig_suffix, _orig_struct = _suffix_w.text(), _struct_w.text()
+            _suffix_w.setText("_v01")
+            _struct_w.setText("{scenes}/{name}")
+            rm.sb.input_dialog = lambda *a, **k: "villain_v01"
+            rm.sb.message_box = lambda *a, **k: None
+            rm._refresh = lambda: None
+            try:
+                rm.save_scene()
+                _ws, _name, _kw = _saves[0] if _saves else (None, None, {})
+                _saved_as = (
+                    os.path.relpath(
+                        _rm_btk.EnvUtils.scene_save_path(
+                            _ws,
+                            _name,
+                            case=_kw.get("case"),
+                            suffix=_kw.get("suffix", ""),
+                            subfolder=_kw.get("subfolder", ""),
+                        ),
+                        _ws,
+                    )
+                    if _saves
+                    else None
+                )
+                check(
+                    "reference_manager a suffix typed into Save is written once "
+                    "(file and {name} folder)",
+                    _saved_as == os.path.join("scenes", "villain", "villain_v01.blend"),
+                    f"saved_as={_saved_as!r} name={_name!r}",
+                )
+            finally:
+                _rm_btk.save_scene_as = _orig_save_as
+                _suffix_w.setText(_orig_suffix)
+                _struct_w.setText(_orig_struct)
+                del rm.sb.input_dialog, rm.sb.message_box, rm._refresh
         finally:
             rm_ui.txt000.clear()
             _rm_shutil.rmtree(rm_tmp, ignore_errors=True)
@@ -1057,6 +1230,12 @@ try:
     # spinbox) and the Scope combo gates which objects bake; both are Qt-only (no bpy). Verify
     # the lists, the defaults, and that a Quality preset snaps the Resolution combo.
     lb_ui = sb.get_ui("lightmap_baker")
+    # Pump once, as a shown panel is, before reading its fields: each field's
+    # init hangs a switch off its option box, and run instead from a lazy first
+    # attribute read, that wrap drops the Python wrapper of a QUiLoader-built
+    # QSpinBox under PySide6 6.10 (the C++ widget lives on; Blender's 6.11 and a
+    # shown panel are unaffected -- measured 2026-09-23).
+    app.processEvents()
     lb = getattr(lb_ui, "slots", None)
     if lb is not None:
         res_items = [
@@ -1078,13 +1257,46 @@ try:
             and lb._scope() == "selected",
             f"{scope_items} _scope()={lb._scope()}",
         )
-        lb._apply_preset("preview")
+        # The Preset combo is uitk's preset template; a preset writes the dials
+        # (Bounces included) and the switches through the one field map.
+        from blendertk.light_utils.lightmap_baker.lightmap_baker import (
+            LightmapBaker as _LightmapBaker,
+        )
+
+        lb_store = _LightmapBaker.preset_store()
+        lb._apply_preset_values(lb_store.load("preview"))
         lb_preview = lb._resolution()
-        lb._apply_preset("desktop")
+        lb._apply_preset_values(lb_store.load("desktop"))
         check(
-            "lightmap_baker Quality preset snaps the Resolution combo",
-            lb_preview == 256 and lb._resolution() == 2048,
-            f"preview={lb_preview} desktop={lb._resolution()}",
+            "lightmap_baker a preset snaps Resolution, Samples and Bounces",
+            lb_preview == 256
+            and lb._resolution() == 2048
+            and lb_ui.spn_samples.value() == 512
+            and lb_ui.spn_bounces.value() == 4,
+            f"preview={lb_preview} desktop={lb._resolution()} "
+            f"samples={lb_ui.spn_samples.value()} bounces={lb_ui.spn_bounces.value()}",
+        )
+        lb_switches = {key: lb._toggle(key) for key in lb._TOGGLES}
+        check(
+            "lightmap_baker hangs each switch off the option box of its field",
+            all(toggle is not None for toggle in lb_switches.values()),
+            f"unwired: {[k for k, t in lb_switches.items() if t is None]}",
+        )
+        lb._apply_preset_values({"adaptive": False, "beside_textures": True})
+        check(
+            "lightmap_baker a preset writes the switches through the real toggles",
+            lb._adaptive() is False
+            and lb._beside_textures() is True
+            and lb_ui.txt_output_dir.placeholderText().startswith("beside"),
+            f"placeholder={lb_ui.txt_output_dir.placeholderText()!r}",
+        )
+        lb._apply_preset_values({"adaptive": True, "beside_textures": False})
+        lb_items = [lb_ui.cmb000.itemText(i) for i in range(lb_ui.cmb000.count())]
+        check(
+            "lightmap_baker Preset combo is the preset template over the shipped tiers",
+            getattr(lb, "_presets", None) is not None
+            and {"preview", "mobile", "desktop", "hero"} <= set(lb_items),
+            f"{lb_items}",
         )
     else:
         check("lightmap_baker exposes slots for the combo check", False, "no slots")

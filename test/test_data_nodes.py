@@ -452,10 +452,17 @@ try:
     _lib = _host_linking(_lib_path)
     _made = EnvUtils.make_library_local(_lib)
     check("make local: the datablocks came local", _made > 0, str(_made))
+    _audio = _SR.AUDIO_FILE_MAP.load(DataNodes) or {}
     check(
-        "merge: a mapping record unites (this file's entry kept)",
-        _SR.AUDIO_FILE_MAP.load(DataNodes) == {"1": "a.wav", "2": "b.wav"},
-        str(_SR.AUDIO_FILE_MAP.load(DataNodes)),
+        "merge: a mapping record unites (this file's entry kept), the library's "
+        "path spelled from ITS project and landed from this file's -- absolute "
+        "while this one is unsaved (2026-09-23)",
+        _audio.get("1") == "a.wav"
+        and os.path.normcase(_audio.get("2", ""))
+        == os.path.normcase(
+            os.path.join(os.path.dirname(_lib_path), "b.wav").replace("\\", "/")
+        ),
+        str(_audio),
     )
     _shots = (_SR.SHOT_STORE.load(DataNodes) or {}).get("shots") or [{}]
     check(
@@ -566,6 +573,125 @@ try:
     )
     _store.cleanup()
     bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- project-relative paths follow the file (mirror of mayatk) -----------------
+    # BACKLOG 2026-09-22, decided 2026-09-23: a path record is spelled from the
+    # FILE's own project, ``../`` chains included, so a Save As into another
+    # project re-spells it (``save_pre`` gets the target while bpy.data.filepath
+    # is still the old one), and a Save COPY leaves the open file's alone.
+    _paths = ptk.TempArtifacts("btk_dn_paths", policy="scoped")
+    _root = _paths.dir_path()
+    _proj_a = os.path.join(_root, "shows", "a")
+    _proj_b = os.path.join(_root, "shows", "deeper", "b")
+    for _proj in (_proj_a, _proj_b):
+        os.makedirs(os.path.join(_proj, "scenes"), exist_ok=True)
+        with open(os.path.join(_proj, "workspace.mel"), "w") as _fh:
+            _fh.write("//Maya 2025 Project Definition\n")
+    _lib = os.path.join(_root, "library", "lm")
+    _maps = os.path.join(_proj_a, "sourceimages", "lm")
+    for _d in (_lib, _maps):
+        os.makedirs(_d, exist_ok=True)
+
+    def _abs(base, spelled):
+        return os.path.normcase(os.path.normpath(os.path.join(base, spelled)))
+
+    DataNodes.install_path_rebase()
+    DataNodes.install_path_rebase()  # idempotent: one pair, not two
+    _pre = [
+        f
+        for f in bpy.app.handlers.save_pre
+        if getattr(f, "__name__", "") == "_rebase_before_save"
+    ]
+    check("the re-base installs one persistent pair", len(_pre) == 1, str(_pre))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "shot.blend"))
+    check(
+        "the file's own project is the project it lives in",
+        os.path.normcase(DataNodes.project_root() or "") == os.path.normcase(_proj_a),
+        str(DataNodes.project_root()),
+    )
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(
+        DataNodes,
+        {
+            "in.exr": ptk.FileUtils.portable_path(_maps, _proj_a),
+            "lib.exr": ptk.FileUtils.portable_path(_lib, _proj_a),
+        },
+    )
+    _stored = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "spelled from the project: inside it, and a ../ chain beside it",
+        _stored == {"in.exr": "sourceimages/lm", "lib.exr": "../../library/lm"},
+        str(_stored),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_b, "scenes", "shot.blend"))
+    _moved = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "a Save As into another project re-spells every entry, same folders",
+        _moved["lib.exr"] == "../../../library/lm"
+        and _abs(_proj_b, _moved["in.exr"]) == os.path.normcase(_maps)
+        and _abs(_proj_b, _moved["lib.exr"]) == os.path.normcase(_lib),
+        str(_moved),
+    )
+    bpy.ops.wm.save_as_mainfile(
+        filepath=os.path.join(_proj_a, "scenes", "copy.blend"), copy=True
+    )
+    check(
+        "a Save Copy leaves the open file's spellings as they were",
+        ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == _moved,
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=os.path.join(_proj_a, "scenes", "copy.blend"))
+    _copied = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "...and the copy on disk carries its own project's spellings",
+        _copied == {"in.exr": "sourceimages/lm", "lib.exr": "../../library/lm"},
+        str(_copied),
+    )
+    # A save that FAILS moves nothing: save_pre re-spelled the records for its
+    # target, and the file still open is spelled back (save_post_fail).
+    _before_fail = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    _blocked = os.path.join(_proj_b, "scenes", "blocked.blend")
+    os.makedirs(_blocked)  # a folder where the file would go: the write fails
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=_blocked)
+    except RuntimeError:
+        pass
+    check(
+        "a Save As that fails leaves the open file's spellings as they were",
+        os.path.basename(bpy.data.filepath) == "copy.blend"
+        and ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == _before_fail,
+        f"{bpy.data.filepath} {ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)}",
+    )
+    # A Save Copy of a file NEVER saved: the open file has no project, so its
+    # spellings stay absolute -- a copy's must not stay behind in it.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    DataNodes.install_path_rebase()
+    _lib_abs = ptk.FileUtils.portable_path(_lib, None)
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, {"lib.exr": _lib_abs})
+    _unsaved_copy = os.path.join(_proj_a, "scenes", "unsaved_copy.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_unsaved_copy, copy=True)
+    check(
+        "a Save Copy of an unsaved file leaves its spellings absolute",
+        not bpy.data.filepath
+        and ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes) == {"lib.exr": _lib_abs},
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=_unsaved_copy)
+    check(
+        "...and that copy on disk is spelled from its own project",
+        ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+        == {"lib.exr": "../../library/lm"},
+        str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
+    )
+    DataNodes.remove_path_rebase()
+    check(
+        "remove takes the pair out",
+        not any(
+            getattr(f, "__name__", "") == "_rebase_before_save"
+            for f in bpy.app.handlers.save_pre
+        ),
+    )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _paths.cleanup()
 
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")

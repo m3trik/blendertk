@@ -33,26 +33,27 @@ tiers come from :meth:`from_preset` (pythontk ``PresetStore``). HDR EXR througho
 The engine surface is Qt-free and defers ``import bpy`` (headless-importable); only the
 panel (``lightmap_baker_slots.LightmapBakerSlots``) touches Qt, lazily.
 
-The ``.ui`` shares mayatk's objectNames for the controls both panels have
-(``cmb_scope``, ``cmb002``, ``cmb000``, ``cmb_resolution``, ``spn_samples``,
-``txt_output_dir``, ``txt000``, ``b000``); mayatk's has since grown rows this one has not
-(ledgered ``pending`` in ``tentacle/docs/parity_map.py``). Now that uitk host-namespaces
-the QSettings branch per DCC (``Switchboard.add_ui`` / ``MainWindow._relative_state`` via
-``context_tags``), identical objectNames across the two copies of the same panel no longer
-collide in the shared "uitk"/"shared" registry root, so there is no need to renumber
-widgets to dodge it. Both ``cmb002`` packing
-modes are live: "Per-Object" (one full-resolution map each) and "Atlas by Material" (per-material
-consolidation via :meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer).
+The ``.ui`` shares mayatk's objectNames control for control, except where Cycles has
+no counterpart (Arnold's GI Samples: one Cycles sample count covers every ray -- ledgered
+in ``tentacle/docs/parity_map.py``). Now that uitk host-namespaces the QSettings branch per
+DCC (``Switchboard.add_ui`` / ``MainWindow._relative_state`` via ``context_tags``),
+identical objectNames across the two copies of the same panel no longer collide in the
+shared "uitk"/"shared" registry root, so there is no need to renumber widgets to dodge it.
+Both ``cmb002`` packing modes are live: "Atlas by Material" (per-material consolidation via
+:meth:`LightmapBaker.pack_atlas`, the Blender port of mayatk's atlas packer) and
+"Per-Object" (one full-resolution map each).
 """
 
 import contextlib
 import os
+import shutil
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pythontk as ptk
 
 from blendertk.light_utils._light_utils import LightUtils
+from blendertk.mat_utils.bake_sets import LightmapExcludeSet
 from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
 from blendertk.uv_utils._uv_utils import UvUtils, LIGHTMAP_UV_SET
 from blendertk.mat_utils.texture_baker import TextureBaker
@@ -68,8 +69,15 @@ class LightmapBakeResult:
             engine binding into its map (the identity for a map of its own).
         excluded: Objects the scene's lightmap exclusion set left out. They
             keep any map they already had.
+        hidden: Objects left out because the renderer shows nothing of them.
+            Always empty here: Cycles bakes a hidden object like any other
+            (:meth:`LightmapBaker.bake_targets`); mayatk's Arnold bake is the
+            one that has to leave them out.
         unbaked: Objects the bake was asked for and produced nothing for (a
             cancel, a failed render). They keep any map they already had.
+        retired: Map files the bake superseded and deleted -- what its
+            objects read before, that nothing reads now
+            (:meth:`LightmapRecords.superseding`).
         refused: Why nothing was baked, as a sentence for the artist, or
             ``None``.
         verdict: A warning about the finished maps' level (an unlit or a
@@ -79,7 +87,9 @@ class LightmapBakeResult:
     maps: Dict[str, str] = field(default_factory=dict)
     rects: Dict[str, List[float]] = field(default_factory=dict)
     excluded: List[str] = field(default_factory=list)
+    hidden: List[str] = field(default_factory=list)
     unbaked: List[str] = field(default_factory=list)
+    retired: List[str] = field(default_factory=list)
     refused: Optional[str] = None
     verdict: Optional[str] = None
 
@@ -106,7 +116,7 @@ class LightmapBaker(ptk.LoggingMixin):
 
     Usage::
 
-        baker = LightmapBaker.from_preset("quest")        # or (resolution=, samples=)
+        baker = LightmapBaker.from_preset("mobile")       # or (resolution=, samples=)
         result = baker.bake(objects)                       # atlas by material, recorded
         result.maps                                        # {obj_name: exr_path}
         # The object keeps its full material; the lightmap rides UV channel 1 and the
@@ -152,8 +162,16 @@ class LightmapBaker(ptk.LoggingMixin):
         device: Optional[str] = None,
         bounces: int = 4,
         include_environment: bool = True,
+        adaptive: bool = True,
+        beside_textures: bool = False,
     ):
         super().__init__()
+        # Save each finished map in the folder its material's texture maps live
+        # in, named after that texture set, instead of all of them in one output
+        # folder (see :meth:`_texture_homes`). A material whose images have no
+        # file on this machine has no such folder, so its map falls back to the
+        # bake's ``output_dir``. Mirror of mayatk's.
+        self.beside_textures = bool(beside_textures)
         # Bake the scene's world (an HDRI environment) along with its lights.
         # ON is the scene as authored -- the historical behaviour. OFF detaches
         # the world for the duration (see :meth:`_muted_environment`): an HDRI
@@ -166,12 +184,13 @@ class LightmapBaker(ptk.LoggingMixin):
         # workflow (UV2, commit/revert, engine metadata) composes it — mirror of mayatk's
         # TextureBaker / LightmapBaker split. ``resolution``/``samples`` stay readable/settable on
         # the baker (below) as a single source of truth (no drift between the two objects).
-        # ``denoise``/``device`` are Cycles quality/throughput knobs owned by the same primitive.
+        # ``denoise``/``device``/``adaptive`` are Cycles quality/throughput knobs owned by
+        # the same primitive.
         # ``samples`` is Cycles PATHS, deliberately NOT mayatk's 5 (Arnold AA
         # samples) -- see TextureBaker.__init__ for why mirroring the API does
         # not mean mirroring the number across a unit change.
         self._texture_baker = TextureBaker(
-            resolution, samples, denoise, device, bounces
+            resolution, samples, denoise, device, bounces, adaptive
         )
         # Latch for the pre-bake unlit-scene guard (warn once per instance).
         self._warned_no_lights = False
@@ -217,9 +236,52 @@ class LightmapBaker(ptk.LoggingMixin):
     def bounces(self, value: int) -> None:
         self._texture_baker.bounces = int(value)
 
+    @property
+    def adaptive(self) -> bool:
+        """Whether the bake spends its samples adaptively: a texel stops once its
+        noise is under the threshold, so the shadows take what the flat texels
+        leave. Lives on the bake primitive (:attr:`TextureBaker.adaptive`, which
+        records what it measured); mirror of mayatk's."""
+        return self._texture_baker.adaptive
+
+    @adaptive.setter
+    def adaptive(self, value: bool) -> None:
+        self._texture_baker.adaptive = bool(value)
+
     # ------------------------------------------------------------------
     # Quality-tier presets (pythontk PresetStore: built-in + user tiers)
     # ------------------------------------------------------------------
+
+    #: What a preset may carry, by type: the quality dials, then the switches
+    #: (mirror of mayatk's). The panel's preset template saves exactly these
+    #: (plus ``packing``, the panel's choice between :meth:`bake_separated` and
+    #: :meth:`bake_atlas`, which no constructor takes), so a preset saved in the
+    #: panel builds the same baker through :meth:`from_preset`. The device is
+    #: deliberately not one: it names one machine's hardware, and a preset
+    #: travels. ``bounces`` is mayatk's ``gi_depth`` under Cycles' own name, and
+    #: there is no ``gi_samples``: Cycles traces every path from ``samples``.
+    PRESET_INT_KEYS: Tuple[str, ...] = ("resolution", "samples", "bounces")
+    PRESET_BOOL_KEYS: Tuple[str, ...] = (
+        "adaptive",
+        "include_environment",
+        "denoise",
+        "beside_textures",
+    )
+    #: Retired built-in tier names -> the current one, warning until they go
+    #: (mirrors mayatk). ``"quest"`` (until 2026-09-23) named one headset for a
+    #: tier that serves every mobile / standalone-VR target; a script, an older
+    #: Maya bridge or the panel's preset pointer may still say it.
+    #: :meth:`from_preset` resolves only a name the store lacks, so a user preset
+    #: saved under a retired name still wins.
+    _resolve_retired_preset = staticmethod(
+        ptk.Deprecation.values(
+            {"quest": "mobile"},
+            what="LightmapBaker preset",
+            remove_in="0.12.0",
+            since="2026-09-23",
+            reason="The tier was renamed; its settings are unchanged.",
+        )
+    )
 
     @staticmethod
     def preset_store() -> "ptk.PresetStore":
@@ -234,10 +296,14 @@ class LightmapBaker(ptk.LoggingMixin):
 
     @classmethod
     def from_preset(cls, name: str, **overrides) -> "LightmapBaker":
-        """Construct a baker from a preset (``resolution`` / ``samples`` / ``bounces``).
+        """Construct a baker from a named preset.
 
-        ``overrides`` win over the preset; extra preset keys (``description``) are ignored.
-        Built-ins (Cycles samples, denoised): ``preview`` (256/64), ``quest`` (1024/256),
+        A preset is a small JSON dict of :attr:`PRESET_INT_KEYS` (the quality dials
+        every built-in stores) and :attr:`PRESET_BOOL_KEYS` (the switches a preset
+        saved from the panel adds). ``overrides`` win over the preset (e.g.
+        ``from_preset("mobile", resolution=1536)``); extra preset keys
+        (``description``, the panel's ``packing``) are ignored.
+        Built-ins (Cycles samples, denoised): ``preview`` (256/64), ``mobile`` (1024/256),
         ``desktop`` (2048/512), ``hero`` (4096/1024). The tiers name an ATLAS size, and an
         atlas is shared by a whole material group -- a 40-piece room on one material gets
         1/40th of it each, which is why an environment needs a tier above its per-object
@@ -253,25 +319,62 @@ class LightmapBaker(ptk.LoggingMixin):
         white card) rather than bounce count. Every tier but ``preview`` therefore
         keeps Cycles' own default of 4: pinning is here to make a bake REPRODUCIBLE,
         not to restyle one that was already being produced at the factory default,
-        and ``quest`` is the default tier on both the panel and the Maya bridge.
-        Only ``preview``, which advertises speed, trades bounces for it.
+        and ``mobile`` is the default tier on both the panel and the Maya bridge.
+        Only ``preview``, which advertises speed, trades bounces for it. A retired
+        tier name (``quest``) still resolves, with a notice.
         """
         store = cls.preset_store()
+        if not store.exists(name):
+            name = cls._resolve_retired_preset(name)
         if not store.exists(name):
             raise ValueError(
                 f"Unknown lightmap preset {name!r}. Available: {store.list()}"
             )
         data = {**store.load(name), **overrides}
+        # Pass only the keys the preset provides; absent ones fall back to the
+        # constructor's own defaults (no duplicated default literals to drift).
         kwargs: Dict[str, Any] = {
-            k: int(data[k]) for k in ("resolution", "samples", "bounces") if k in data
+            k: int(data[k]) for k in cls.PRESET_INT_KEYS if k in data
         }
-        # Constructor args a preset does not carry but a caller may override --
-        # previously dropped silently, so from_preset(name, device="CPU") built a
-        # GPU baker and nothing said so.
-        for key in ("denoise", "device", "include_environment"):
-            if key in overrides:
-                kwargs[key] = overrides[key]
+        kwargs.update({k: bool(data[k]) for k in cls.PRESET_BOOL_KEYS if k in data})
+        # ...and the knob a preset never stores but an override legitimately
+        # passes. Filtering to the preset keys alone silently dropped it, so
+        # from_preset(name, device="CPU") built a GPU baker and nothing said so.
+        if "device" in overrides:
+            kwargs["device"] = overrides["device"]
         return cls(**kwargs)
+
+    @classmethod
+    def bake_targets(cls, objects=None) -> List[str]:
+        """The names of the meshes a bake of *objects* acts on (default: the selection).
+
+        :meth:`TextureBaker.resolve_meshes` -- the one definition of a bakeable
+        mesh -- minus the file's :class:`LightmapExcludeSet`, a member counting
+        everything under it. An excluded mesh is only left without a map of its
+        own: it stays in the render, so it still casts shadows and bounces light
+        onto the meshes that bake. Every bake entry point filters through here, so
+        the panel, a headless bake and a preset run of the same file all skip the
+        same objects. Mirror of mayatk's.
+
+        Unlike mayatk's, a HIDDEN mesh is not left out: Arnold renders no hidden
+        object, but :meth:`TextureBaker.bake` reveals each object for its own bake,
+        so here a hidden mesh bakes like any other.
+        """
+        meshes = TextureBaker.resolve_meshes(objects)
+        if not meshes:
+            return []
+        excluded = set(LightmapExcludeSet.meshes())
+        kept = [obj.name for obj in meshes if obj not in excluded]
+        if len(kept) != len(meshes):
+            skipped = [obj.name for obj in meshes if obj in excluded]
+            cls.logger.info(
+                "Skipping %d object(s) in the lightmap exclusion set (%s); they "
+                "still light the bake: %s",
+                len(skipped),
+                LightmapExcludeSet.SET_NAME,
+                ", ".join(skipped[:8]) + (" ..." if len(skipped) > 8 else ""),
+            )
+        return kept
 
     # ------------------------------------------------------------------
     # The workflow -- what the panel runs, and what a script should
@@ -292,7 +395,8 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Mirror of mayatk's :meth:`LightmapBaker.bake`:
 
-        1. The mesh objects in *objects* (default: the selection).
+        1. The mesh objects in *objects* (default: the selection), minus the
+           file's :class:`LightmapExcludeSet` (:meth:`bake_targets`).
         2. :meth:`preflight` -- a refusal when the scene has lights and none of
            them can light the bake.
         3. The bake: :meth:`bake_atlas` (``packing="atlas"``, one shared map
@@ -301,12 +405,16 @@ class LightmapBaker(ptk.LoggingMixin):
            (:meth:`LightmapRecords.migrate_legacy`).
         4. *intensity*, when not 1.0, scaled into the maps this bake just
            wrote -- once, so re-recording them can never apply it twice.
-        5. :meth:`LightmapRecords.commit` records each map with its rect.
+        5. :meth:`LightmapRecords.commit` records each map with its rect, and
+           the maps the baked objects read before -- when this file wrote
+           them and nothing reads them now -- are deleted
+           (:meth:`LightmapRecords.superseding`).
         6. :meth:`bake_verdict` reads the finished maps' level.
 
         Nothing is reverted first. An object the bake does not finish keeps the
         map it had, and that map is intact: a bake never writes a file another
-        object reads (:meth:`LightmapRecords.claims`).
+        object reads (:meth:`LightmapRecords.claims`), and the only files it
+        deletes are ones no object reads any more.
 
         Parameters:
             objects: Mesh objects; ``None`` for the selection. Anything without
@@ -322,9 +430,8 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Returns:
             :class:`LightmapBakeResult`: the maps and rects, the
-            unbaked objects, and the ``refused`` / ``verdict`` sentences for
-            the artist. (Blender has no exclusion set yet, so ``excluded`` is
-            always empty.)
+            excluded and unbaked objects, and the ``refused`` / ``verdict``
+            sentences for the artist.
 
         Raises:
             ValueError: *packing* is neither ``"atlas"`` nor ``"per_object"``.
@@ -334,9 +441,24 @@ class LightmapBaker(ptk.LoggingMixin):
                 f"packing must be 'atlas' or 'per_object', got {packing!r}"
             )
         result = LightmapBakeResult()
-        targets = [obj.name for obj in TextureBaker.resolve_meshes(objects)]
-        if not targets:
+        scoped = TextureBaker.resolve_meshes(objects)
+        if not scoped:
             result.refused = "Nothing to bake: no mesh among the given objects."
+            return result
+        # The Exclude set comes off BEFORE anything else touches the scene.
+        targets = self.bake_targets(scoped)
+        kept = set(targets)
+        result.excluded = [obj.name for obj in scoped if obj.name not in kept]
+        if not targets:
+            result.refused = (
+                "Nothing to bake: "
+                + (
+                    "the object is"
+                    if len(scoped) == 1
+                    else f"all {len(scoped)} objects are"
+                )
+                + " in the Exclude set."
+            )
             return result
         result.refused = self.preflight()
         if result.refused:
@@ -374,9 +496,11 @@ class LightmapBaker(ptk.LoggingMixin):
             return result
         if float(intensity) != 1.0:
             self._apply_intensity(result.maps.values(), intensity)
-        LightmapRecords.commit(
-            result.maps, scale_offsets=result.rects, intensity=intensity
-        )
+        with LightmapRecords.superseding(list(result.maps)) as retired:
+            LightmapRecords.commit(
+                result.maps, scale_offsets=result.rects, intensity=intensity
+            )
+        result.retired = retired
         result.verdict = self.bake_verdict(result.maps.values())
         return result
 
@@ -590,12 +714,45 @@ class LightmapBaker(ptk.LoggingMixin):
         Unlike Maya this needs **no material swap** (Cycles excludes the color pass directly).
         Pairs with :meth:`commit_lightmap`. Returns ``{object_name: exr_path}``.
 
-        No map takes a file name another object reads
-        (:meth:`LightmapRecords.claims`); an object's own map keeps its name.
+        The objects go through :meth:`bake_targets`, so a member of the file's
+        :class:`LightmapExcludeSet` gets no map (it still lights the rest). No map
+        takes a file name another object reads (:meth:`LightmapRecords.claims`);
+        an object's own map keeps its name. With :attr:`beside_textures` the maps
+        are baked into a swept work dir and each is then placed in its texture
+        set's folder (:meth:`_texture_homes`), *output_dir* taking any object
+        without one -- placed, not baked there, so a bake that fails partway
+        leaves no stray file in a texture folder. Mirror of mayatk's.
         """
-        if "claims" not in kwargs:
-            kwargs["claims"] = LightmapRecords.claims()
-        return self._bake(objects, prefix=prefix, **kwargs)
+        targets = self.bake_targets(objects)
+        if not targets:
+            self.logger.error("Nothing to bake. Pass objects= or select a mesh.")
+            return {}
+        claims = kwargs.pop("claims", None)
+        if claims is None:
+            claims = LightmapRecords.claims()
+        if not self.beside_textures:
+            return self._bake(targets, prefix=prefix, claims=claims, **kwargs)
+
+        homes = self._texture_homes(targets)
+        output_dir = kwargs.pop("output_dir", None) or TextureBaker.default_output_dir(
+            "baked_lighting"
+        )
+        with ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp:
+            baked = self._bake(
+                targets,
+                output_dir=tmp.dir_path(),
+                prefix=prefix,
+                claims=claims,
+                **kwargs,
+            )
+            # Moved out before the work dir is swept on exit.
+            placed = self._place_unpacked(
+                {name: (path, None) for name, path in baked.items()},
+                output_dir,
+                homes,
+                claims=claims,
+            )
+        return {name: path for name, (path, _rect) in placed.items()}
 
     def _bake(
         self,
@@ -739,9 +896,13 @@ class LightmapBaker(ptk.LoggingMixin):
 
         Intermediates never reach *output_dir*: the per-object tiles are baked into a tracked
         temp dir and only the finished maps are placed, so a bake cannot litter a project's
-        texture folder with files the caller has no use for.
+        texture folder with files the caller has no use for. With :attr:`beside_textures`
+        the atlases are packed in the work dir too and each is placed in its material
+        group's texture folder (:meth:`_texture_homes`), *output_dir* taking a group
+        without one. The plan resolves through :meth:`bake_targets`, so members of the
+        file's :class:`LightmapExcludeSet` take no cell (they still light the rest).
 
-        Extra ``kwargs`` are forwarded to :meth:`bake_separated`. *prefix* / *suffix* name
+        Extra ``kwargs`` are forwarded to the bake core (:meth:`_bake`). *prefix* / *suffix* name
         both the tiles and the atlas (the ``lightmap_irr_`` prefix a loose
         ``bake_separated`` call defaults to is pointless here — the tiles never
         leave the work dir). *claims* are the file names other objects read
@@ -762,8 +923,13 @@ class LightmapBaker(ptk.LoggingMixin):
         output_dir = output_dir or TextureBaker.default_output_dir("baked_lighting")
         if claims is None:
             claims = LightmapRecords.claims()
+        # Read BEFORE the bake, as mayatk's is (there a target wears the white card
+        # while it bakes, and its textures cannot be read off it).
+        homes = self._texture_homes(planned) if self.beside_textures else None
         with ptk.TempArtifacts("lightmap_bake", policy="scoped") as tmp:
-            baked = self.bake_separated(
+            # The bake core, not bake_separated: these are tiles for the pack, which
+            # Beside Material Textures must not scatter into texture folders.
+            baked = self._bake(
                 planned,
                 output_dir=tmp.dir_path(),
                 prefix=prefix,
@@ -780,14 +946,25 @@ class LightmapBaker(ptk.LoggingMixin):
                 claims=None,
                 **kwargs,
             )
-            return self.pack_atlas(
+            packed = self.pack_atlas(
                 baked,
-                output_dir=output_dir,
+                # Beside the textures, the atlases are staged in a folder of their
+                # own -- never among the tiles, whose names they share -- and placed
+                # per group below.
+                output_dir=(
+                    os.path.join(tmp.dir_path(), "atlas")
+                    if homes is not None
+                    else output_dir
+                ),
                 prefix=prefix,
                 suffix=suffix,
                 plan=plan,
                 claims=claims,
             )
+            if homes is None:
+                return packed
+            # The work dir is swept on exit, so nothing may still point into it.
+            return self._place_unpacked(packed, output_dir, homes, claims=claims)
 
     def atlas_plan(self, objects) -> Dict[str, List[Tuple[str, List[float]]]]:
         """``{material: [(object_name, rect), ...]}`` — the atlas layout, decided before baking.
@@ -801,15 +978,12 @@ class LightmapBaker(ptk.LoggingMixin):
         proportional texels.
 
         Pure bookkeeping: nothing is baked, read from disk or written, which is what lets
-        :meth:`bake_atlas` size each bake from it.
+        :meth:`bake_atlas` size each bake from it. The meshes come from
+        :meth:`bake_targets`, so an excluded one takes no cell.
         """
         import bpy
 
-        meshes = TextureBaker.resolve_meshes(objects)
-        names: List[str] = [
-            obj.name
-            for obj in sorted(meshes, key=lambda o: o.name)  # deterministic order
-        ]
+        names: List[str] = sorted(self.bake_targets(objects))  # deterministic order
 
         groups: Dict[str, List[str]] = {}
         for name in names:
@@ -1095,14 +1269,13 @@ class LightmapBaker(ptk.LoggingMixin):
 
         A destination that cannot be replaced takes an adjacent name instead of failing:
         the realistic cause is the previous map being held open by the DCC's own texture
-        cache, and losing a finished bake over a file lock would be absurd.
+        cache, and losing a finished bake over a file lock would be absurd. The swap is
+        :meth:`_move_into_place`'s, so a move that fails never takes the old map with it.
 
         *stem* renames the map on the way in (default: keep the source's own). *avoid* is
         a set of abspaths that must not be overwritten -- another group's not-yet-consumed
         source maps, reachable only once *stem* is derived rather than inherited.
         """
-        import shutil
-
         src_abs = os.path.abspath(src)
         os.makedirs(output_dir, exist_ok=True)
         src_stem, ext = os.path.splitext(os.path.basename(src))
@@ -1111,27 +1284,183 @@ class LightmapBaker(ptk.LoggingMixin):
             output_dir, stem, ext, used, claims=claims, owners=owners, avoid=avoid
         )
         if os.path.abspath(dst) != src_abs:
-            if os.path.exists(dst):
-                try:
-                    os.remove(dst)
-                except OSError:
-                    # Held open: the next spelling nothing occupies and nobody
-                    # else reads.
-                    taken = set(used) | {
-                        os.path.join(output_dir, n) for n in os.listdir(output_dir)
-                    }
-                    dst = ptk.FileUtils.unique_path(
-                        output_dir,
-                        stem,
-                        ext,
-                        taken,
-                        claims=claims,
-                        owners=owners,
-                        avoid=avoid,
-                    )
-            shutil.move(src_abs, dst)
+            try:
+                LightmapBaker._move_into_place(src_abs, dst)
+            except OSError:
+                # Held open: the next spelling nothing occupies and nobody else
+                # reads. The old file was never deleted, so it is still there.
+                taken = set(used) | {
+                    os.path.join(output_dir, n) for n in os.listdir(output_dir)
+                }
+                dst = ptk.FileUtils.unique_path(
+                    output_dir,
+                    stem,
+                    ext,
+                    taken,
+                    claims=claims,
+                    owners=owners,
+                    avoid=avoid,
+                )
+                shutil.move(src_abs, dst)
         used.add(dst)
         return dst
+
+    @staticmethod
+    def _move_into_place(source: str, destination: str) -> None:
+        """Move *source* onto *destination*, never deleting what is there first.
+
+        Staged beside the destination, then swapped in by one ``os.replace``, so a
+        failure anywhere leaves the destination's old file as it was -- the object
+        keeps its map. Deleting first and moving second lost both when the move
+        failed (a full disk, a folder the user cannot write). A swap that fails puts
+        the source back, for the caller's next name. Mirror of mayatk's.
+
+        Raises:
+            OSError: The move or the swap failed; *destination* is untouched.
+        """
+        stem, ext = os.path.splitext(os.path.basename(destination))
+        staged = os.path.join(
+            os.path.dirname(destination), f".{stem}.{os.getpid()}.part{ext}"
+        )
+        shutil.move(source, staged)
+        try:
+            os.replace(staged, destination)
+        except OSError:
+            try:
+                shutil.move(staged, source)
+            except OSError:
+                pass
+            raise
+
+    def _texture_homes(self, objects) -> Dict[str, str]:
+        """``{object_name: folder}`` -- where :attr:`beside_textures` puts each map.
+
+        The folder of the object's texture set (:meth:`TextureBaker.texture_set`),
+        so ``<set>_Lightmap.exr`` lands beside ``<set>_BaseColor.png``. Only an
+        absolute folder that exists on THIS machine qualifies: an image path that
+        resolves nowhere (another drive, a moved library) must not have a bake
+        create it, a packed image has no folder at all, and a ``//`` path in a
+        .blend never saved resolves against Blender's working directory, which is
+        no texture folder. An object without one is left out, and its map takes
+        the bake's ``output_dir``. Mirror of mayatk's.
+        """
+        import bpy
+
+        names = [getattr(o, "name", o) for o in objects]
+        homes: Dict[str, str] = {}
+        for name in names:
+            found = TextureBaker.texture_set(bpy.data.objects.get(name))
+            folder = found[1] if found else ""
+            if folder and os.path.isabs(folder) and os.path.isdir(folder):
+                homes[name] = folder
+        if len(homes) != len(names):
+            self.logger.info(
+                "Beside textures: %d of %d object(s) have no texture folder on "
+                "disk; their maps go to the output folder.",
+                len(names) - len(homes),
+                len(names),
+            )
+        return homes
+
+    def _place_unpacked(
+        self,
+        packed: Dict[str, Tuple[str, Optional[List[float]]]],
+        output_dir: str,
+        homes: Optional[Dict[str, str]] = None,
+        claims: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Tuple[str, Optional[List[float]]]]:
+        """Move each map still outside its folder into it; return the fixed mapping.
+
+        A map's folder is its object's entry in *homes* (the texture folders
+        :attr:`beside_textures` places maps in), else *output_dir*. One move per
+        unique file -- an atlas shared by six objects is not moved six times, and
+        the first of them (plan order) decides its folder. No file lands on a name
+        *claims* (:meth:`LightmapRecords.claims`) gives to an object the file is not
+        placed for, nor over a file on disk the objects it is placed for do not ALL
+        read: a texture folder other files share holds their maps under the same
+        names, and replacing one hands that file this one's lighting. Mirror of
+        mayatk's.
+
+        A map that cannot be placed at all is left out of the returned mapping --
+        the caller reports its objects unbaked, and they keep the map and marker
+        they had. Handing back its work-dir path would point the marker at a file
+        the caller is about to sweep.
+        """
+        homes = homes or {}
+        claims = claims or {}
+        failed: set = set()
+        # The objects each source file is placed for: a name only they read is
+        # theirs to replace, a name anyone else reads is not.
+        placed_for: Dict[str, set] = {}
+        for name, (path, _rect) in packed.items():
+            placed_for.setdefault(os.path.abspath(path), set()).add(name)
+        moved: Dict[str, str] = {}
+        out: Dict[str, Tuple[str, Optional[List[float]]]] = {}
+        for name, (path, rect) in packed.items():
+            source = os.path.abspath(path)
+            if source in moved:
+                out[name] = (moved[source], rect)
+                continue
+            if source in failed:
+                continue
+            folder = homes.get(name) or output_dir
+            if os.path.normcase(os.path.dirname(source)) == os.path.normcase(
+                os.path.abspath(folder)
+            ):
+                moved[source] = path
+                out[name] = (path, rect)
+                continue
+            stem, ext = os.path.splitext(os.path.basename(path))
+            os.makedirs(folder, exist_ok=True)
+            # An adjacent name rather than a refusal when the destination is held
+            # open: the source sits in a work dir the caller is about to sweep, so
+            # refusing loses the bake outright. Nothing placed earlier in this call
+            # is replaced at all.
+            placed = {os.path.normcase(p) for p in moved.values()}
+            owners = placed_for.get(source, set())
+            dst, error = None, None
+            k = attempts = 0
+            while attempts < 4:
+                candidate = os.path.join(
+                    folder, f"{stem}{ext}" if k == 0 else f"{stem}_{k}{ext}"
+                )
+                k += 1
+                readers = claims.get(os.path.basename(candidate).lower())
+                mine = bool(readers) and set(readers) <= owners
+                if (
+                    os.path.normcase(candidate) in placed
+                    or (readers and not mine)
+                    or (os.path.exists(candidate) and not mine)
+                ):
+                    continue
+                attempts += 1
+                try:
+                    self._move_into_place(source, candidate)
+                    dst = candidate
+                    break
+                except OSError as e:
+                    error = e
+            if dst is None:
+                self.logger.error(
+                    "Could not place %s in %s (%s); %s keep the map they had.",
+                    os.path.basename(path),
+                    folder,
+                    error,
+                    ", ".join(sorted(owners)) or name,
+                )
+                failed.add(source)
+                continue
+            if os.path.basename(dst) != f"{stem}{ext}":
+                self.logger.warning(
+                    "%s%s is held by another process or another file's map; "
+                    "wrote %s instead.",
+                    stem,
+                    ext,
+                    os.path.basename(dst),
+                )
+            moved[source] = dst
+            out[name] = (dst, rect)
+        return out
 
     @classmethod
     def _signal_mask(cls, rgb):
@@ -1450,12 +1779,14 @@ class LightmapBaker(ptk.LoggingMixin):
     @ptk.Deprecation.parameter(
         "uv_rects",
         remove_in="0.11.0",
+        since="2026-09-23",
         reason="Only an old atlas pack squeezed UVs into a rect, and "
         "LightmapRecords.migrate_legacy now restores those losslessly.",
     )
     @ptk.Deprecation.parameter(
         "intensity",
         remove_in="0.11.0",
+        since="2026-09-23",
         reason="Pass intensity to bake(), which scales the maps it has just "
         "written exactly once; committing a map twice here scaled it twice.",
     )
@@ -1510,7 +1841,9 @@ class LightmapBaker(ptk.LoggingMixin):
         """
         return LightmapRecords.baked_objects(objects)
 
-    @ptk.Deprecation.symbol("LightmapRecords.lightmap_dependencies", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.lightmap_dependencies", remove_in="0.11.0", since="2026-09-23"
+    )
     def lightmap_dependencies(
         self, objects=None, search_dirs=None, walk: bool = True
     ) -> List[Dict[str, Any]]:
@@ -1518,17 +1851,23 @@ class LightmapBaker(ptk.LoggingMixin):
         return LightmapRecords.lightmap_dependencies(objects, search_dirs, walk)
 
     @classmethod
-    @ptk.Deprecation.symbol("LightmapRecords.search_dirs", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.search_dirs", remove_in="0.11.0", since="2026-09-23"
+    )
     def search_dirs(cls, objects=None) -> List[str]:
         """Moved to :meth:`LightmapRecords.search_dirs`."""
         return LightmapRecords.search_dirs(objects)
 
-    @ptk.Deprecation.symbol("LightmapRecords.heal_lightmap_paths", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.heal_lightmap_paths", remove_in="0.11.0", since="2026-09-23"
+    )
     def heal_lightmap_paths(self, objects=None) -> Dict[str, Any]:
         """Moved to :meth:`LightmapRecords.heal_lightmap_paths`."""
         return LightmapRecords.heal_lightmap_paths(objects)
 
-    @ptk.Deprecation.symbol("LightmapRecords.relocate_lightmaps", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.relocate_lightmaps", remove_in="0.11.0", since="2026-09-23"
+    )
     def relocate_lightmaps(
         self,
         dest_dir: str,
@@ -1542,7 +1881,9 @@ class LightmapBaker(ptk.LoggingMixin):
             dest_dir, source_dir, mode, objects, dry_run
         )
 
-    @ptk.Deprecation.symbol("LightmapRecords.repath_lightmaps", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.repath_lightmaps", remove_in="0.11.0", since="2026-09-23"
+    )
     def repath_lightmaps(
         self, dirs_by_map: Dict[str, str], objects=None, relative: bool = True
     ) -> int:
@@ -1550,21 +1891,27 @@ class LightmapBaker(ptk.LoggingMixin):
         return LightmapRecords.repath_lightmaps(dirs_by_map, objects, relative)
 
     @ptk.Deprecation.symbol(
-        "LightmapRecords.normalize_lightmap_paths", remove_in="0.11.0"
+        "LightmapRecords.normalize_lightmap_paths",
+        remove_in="0.11.0",
+        since="2026-09-23",
     )
     def normalize_lightmap_paths(self, objects=None, relative: bool = True) -> int:
         """Moved to :meth:`LightmapRecords.normalize_lightmap_paths`."""
         return LightmapRecords.normalize_lightmap_paths(objects, relative)
 
     @classmethod
-    @ptk.Deprecation.symbol("LightmapRecords.export_record", remove_in="0.11.0")
+    @ptk.Deprecation.symbol(
+        "LightmapRecords.export_record", remove_in="0.11.0", since="2026-09-23"
+    )
     def export_record(cls, ctx: ptk.ExportContext) -> Optional[ptk.Record]:
         """Moved to :meth:`LightmapRecords.export_record`."""
         return LightmapRecords.export_record(ctx)
 
     @classmethod
     @ptk.Deprecation.symbol(
-        "LightmapRecords.refresh_export_metadata", remove_in="0.11.0"
+        "LightmapRecords.refresh_export_metadata",
+        remove_in="0.11.0",
+        since="2026-09-23",
     )
     def refresh_export_metadata(cls) -> Optional[str]:
         """Moved to :meth:`LightmapRecords.refresh_export_metadata`."""

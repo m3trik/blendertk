@@ -626,6 +626,7 @@ class AnimUtils(_AnimUtilsInternal):
             {"unbake": "extremes"},
             what="AnimUtils optimize level",
             remove_in="0.11.0",
+            since="2026-09-23",
         )
     )
 
