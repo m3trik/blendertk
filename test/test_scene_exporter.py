@@ -436,6 +436,13 @@ try:
         result is True and os.path.isfile(carrier_file),
         f"result={result} exists={os.path.isfile(carrier_file)}",
     )
+    # Cleared for the write only: a restore runs AFTER it (restore-point
+    # audit, 2026-09-24 -- the carrier used to be left visible for good).
+    check(
+        "the hidden carrier is hidden again after the export",
+        carrier.hide_get() and carrier.hide_select,
+        f"hide_get={carrier.hide_get()} hide_select={carrier.hide_select}",
+    )
 
     # The scene-data sidecar records what shipped: decoded carrier channels +
     # exported hierarchy paths (`TaskManager.write_scene_data_sidecar`).
@@ -1047,6 +1054,37 @@ try:
         tex_node.image.filepath == _ip_orig,
         f"after={tex_node.image.filepath}",
     )
+
+    # Unsaved paint lives only in memory and every repath reloads from disk, so
+    # a painted, unsaved image came back as the file after every staged export
+    # (restore-point audit, 2026-09-24).
+    def _ip_png(name, rgba):
+        path = os.path.join(tmp, name)
+        img = bpy.data.images.new(name, 4, 4)
+        img.pixels.foreach_set(list(rgba) * 16)
+        img.filepath_raw = path
+        img.file_format = "PNG"
+        img.save()
+        bpy.data.images.remove(img)
+        return path
+
+    _ip_src = _ip_png("ip_paint.png", (1.0, 0.0, 0.0, 1.0))
+    _ip_staged = _ip_png("ip_staged.png", (0.0, 1.0, 0.0, 1.0))
+    _ip_img = bpy.data.images.load(_ip_src)
+    _ip_img.pixels.foreach_set([0.0, 0.0, 1.0, 1.0] * 16)  # painted, not saved
+    _ip_img.update()
+    _ip_path, _ip_painted = _ip_img.filepath, list(_ip_img.pixels)
+    with _MU.image_paths_scope([_ip_img], new_path=_ip_staged):
+        _ip_during = list(_ip_img.pixels)[:4]
+    check(
+        "image_paths_scope hands unsaved paint back, still unsaved",
+        _ip_img.filepath == _ip_path
+        and list(_ip_img.pixels) == _ip_painted
+        and _ip_img.is_dirty,
+        f"inside={_ip_during} after={list(_ip_img.pixels)[:4]} "
+        f"dirty={_ip_img.is_dirty}",
+    )
+    bpy.data.images.remove(_ip_img)
 
     # ---- Texture Template: check + task keyed off ONE selection (mirrors mayatk) ----
     # The combobox (cmb005) is the single definition; b000 folds it into
@@ -2006,6 +2044,72 @@ try:
     from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
         SceneExporterSlots as _Slots,
     )
+
+    # A stale-shot note links the Shots window, whose All Shots group deletes
+    # them, and the panel's link handler opens it (mirror of mayatk's).
+    import types as _types
+
+    check(
+        "a shots note links the Shots window",
+        "action://show?ui=shots"
+        in SceneExporter().task_manager._note_link(ptk.SceneRecords.SHOTS.key),
+    )
+    _shown = []
+    _link_slots = _Slots.__new__(_Slots)
+    _link_slots.sb = _types.SimpleNamespace(
+        handlers=_types.SimpleNamespace(
+            marking_menu=_types.SimpleNamespace(show=_shown.append)
+        )
+    )
+    _link_slots._on_log_link_clicked(
+        _types.SimpleNamespace(
+            scheme=lambda: "action", host=lambda: "show", query=lambda: "ui=shots"
+        )
+    )
+    check(
+        "a note's show link opens the panel it names", _shown == ["shots"], f"{_shown}"
+    )
+
+    # Export Scene Data Node OFF: the takes task publishes instead, and it must
+    # say what it left out as well -- the stale-shot note and its Open Shots
+    # link reached the log only through the carrier task (mirror of mayatk's).
+    import logging as _note_logging
+    from blendertk.anim_utils.shots._shots import BlenderShotStore as _NoteStore
+
+    class _NoteLog(_note_logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    reset_scene()
+    _note_gone = bpy.data.objects.new("NoteGone", None)
+    _note_kept = bpy.data.objects.new("NoteKept", None)
+    for _note_obj in (_note_gone, _note_kept):
+        bpy.context.scene.collection.objects.link(_note_obj)
+    _note_store = _NoteStore()
+    _NoteStore.set_active(_note_store)
+    _note_store.define_shot("NoteGoneShot", 9000, 9020, objects=["NoteGone"])
+    bpy.data.objects.remove(_note_gone, do_unlink=True)
+    _note_tm = SceneExporter().task_manager
+    _note_tm.objects = [_note_kept]
+    _note_log = _NoteLog()
+    _note_tm.logger.addHandler(_note_log)
+    try:
+        _note_tm.apply_declared_takes("both")
+    finally:
+        _note_tm.logger.removeHandler(_note_log)
+        _note_tm.run_deferred_restores()
+        _NoteStore.clear_active()
+    _note_warned = [m for m in _note_log.messages if "left out" in m]
+    check(
+        "with the carrier task off the takes publish still names the stale shots",
+        bool(_note_warned) and "action://show?ui=shots" in _note_warned[0],
+        f"{_note_log.messages}",
+    )
+    reset_scene()
 
     def _fake_convert(src, **kw):
         p = os.path.splitext(src)[0] + ".glb"
@@ -4386,6 +4490,110 @@ try:
         _data == {_DN.EXPORT: {"probe_channel": {"a": [1, 2]}}}
         and _kw["save_path"].endswith("_data_export.json"),
         str(_shown[-1])[:300],
+    )
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    reset_scene()
+
+    # --- hierarchy baseline across a Save As (mirror of mayatk, 2026-09-24) -------
+    # A module saved as a new module carried its source's record, and the copy's
+    # first export was diffed against what the SOURCE exported. The record names
+    # the file that recorded it; one whose writer is another .blend still on disk
+    # is set aside, and the copy's first export replaces it rather than merging.
+    # Last in the suite: a saved .blend would leak into every block after it.
+    from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import (
+        HierarchyBaseline as _HB,
+    )
+
+    _fk_dir = os.path.join(tmp, "fork")
+    os.makedirs(_fk_dir, exist_ok=True)
+    _fk_tm = SceneExporter().task_manager
+    _fk_src = bpy.data.objects.new("SourceModule", None)
+    bpy.context.scene.collection.objects.link(_fk_src)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_fk_dir, "source_module.blend"))
+    _fk_tm.objects = [_fk_src]
+    _fk_tm.run = _fk_tm.run.replace(export_path=os.path.join(_fk_dir, "source.fbx"))
+    _fk_tm.write_scene_data_sidecar()
+    _fk_source = _HB.read()
+    check(
+        "a saved file's baseline is its own",
+        bool(_fk_source) and _HB.inherited_from() is None,
+        f"read={sorted(_fk_source)} from={_HB.inherited_from()!r}",
+    )
+
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_fk_dir, "copy_module.blend"))
+    _fk_from = _HB.inherited_from()
+    check(
+        "a Save As copy sets its source's baseline aside, naming the source",
+        _HB.read() == set() and (_fk_from or "").endswith("source_module.blend"),
+        f"read={sorted(_HB.read())} from={_fk_from!r}",
+    )
+
+    _fk_copy_obj = bpy.data.objects.new("CopyModule", None)
+    bpy.context.scene.collection.objects.link(_fk_copy_obj)
+    _fk_tm.objects = [_fk_copy_obj]
+    _fk_tm.run = _fk_tm.run.replace(export_path=os.path.join(_fk_dir, "copy.fbx"))
+    _fk_tm.write_scene_data_sidecar()
+    _fk_copy = _HB.read()
+    check(
+        "the copy's first export records its own baseline, not a merge",
+        bool(_fk_copy) and not (_fk_copy & _fk_source) and _HB.inherited_from() is None,
+        f"copy={sorted(_fk_copy)} source={sorted(_fk_source)}",
+    )
+
+    # Only THIS deliverable's sidecar is adopted: every module can export into
+    # one folder, and a neighbour's sidecar there is the neighbour's history.
+    _DN.write(ptk.Scope.PRIVATE, _HB.ATTR_NAME, "")
+    with open(os.path.join(_fk_dir, ".neighbour.scene_data.json"), "w") as _fk_f:
+        json.dump({"format": 3, "hierarchy": {"paths": ["NeighbourPart"]}}, _fk_f)
+    _fk_tm.write_scene_data_sidecar()
+    check(
+        "a neighbouring deliverable's sidecar is never adopted",
+        bool(_HB.read()) and "NeighbourPart" not in _HB.read(),
+        str(sorted(_HB.read())),
+    )
+
+    # A legacy (unstamped) record covering two deliverables is set aside; the
+    # first export adopts ITS sidecar and records its scope alone, and the
+    # second deliverable's history must still come from its own sidecar -- an
+    # all-or-nothing adoption refused it once the record held the first, and
+    # its next export had nothing to diff (mayatk mirror).
+    _lg = {}
+    for _lg_name, _lg_parent in (
+        ("LegacyA", None),
+        ("LegacyA_part", "LegacyA"),
+        ("LegacyB", None),
+        ("LegacyB_blade", "LegacyB"),
+        ("LegacyB_hilt", "LegacyB"),
+    ):
+        _lg[_lg_name] = bpy.data.objects.new(_lg_name, None)
+        bpy.context.scene.collection.objects.link(_lg[_lg_name])
+        if _lg_parent:
+            _lg[_lg_name].parent = _lg[_lg_parent]
+    _lg_a = [_lg["LegacyA"], _lg["LegacyA_part"]]
+    _lg_b = [_lg["LegacyB"], _lg["LegacyB_blade"], _lg["LegacyB_hilt"]]
+    _lg_paths_a = SceneDataSidecar.build_full_path_set(_lg_a)
+    _lg_paths_b = SceneDataSidecar.build_full_path_set(_lg_b)
+    ptk.SceneRecords.HIERARCHY_BASELINE.save(
+        _DN, ptk.HierarchyBaseline.encode(_lg_paths_a | _lg_paths_b)
+    )
+    for _lg_stem, _lg_paths in (("legacy_a", _lg_paths_a), ("legacy_b", _lg_paths_b)):
+        with open(os.path.join(_fk_dir, f".{_lg_stem}.scene_data.json"), "w") as _lg_f:
+            json.dump({"format": 3, "hierarchy": {"paths": sorted(_lg_paths)}}, _lg_f)
+    _fk_tm.objects = _lg_a
+    _fk_tm.run = _fk_tm.run.replace(export_path=os.path.join(_fk_dir, "legacy_a.fbx"))
+    _fk_tm.write_scene_data_sidecar()
+    _lg_adopted = _HB.adopt_sidecar(os.path.join(_fk_dir, "legacy_b.fbx"))
+    bpy.data.objects.remove(_lg["LegacyB_blade"], do_unlink=True)
+    _lg_diff = _HB.compare(
+        SceneDataSidecar.build_full_path_set([_lg["LegacyB"], _lg["LegacyB_hilt"]])
+    )
+    check(
+        "a legacy baseline's second deliverable is still diffed after the first's export",
+        _lg_adopted
+        and not _lg_diff[3]
+        and any(p.endswith("LegacyB_blade") for p in _lg_diff[1]),
+        f"adopted={_lg_adopted} diff={_lg_diff}",
     )
 
     bpy.ops.wm.read_factory_settings(use_empty=True)

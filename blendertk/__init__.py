@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -46,6 +46,12 @@ DEFAULT_INCLUDE = {
     "core_utils.diagnostics->Diagnostics": "*",
     "core_utils.diagnostics.mesh_diag": "MeshDiagnostics",
     "core_utils.diagnostics.transform_diag": "TransformDiagnostics",
+    # Get Scene Info's engine + its section vocabulary (mirror of mtk.SceneAnalyzer /
+    # mtk.SceneInfoSection; mayatk keeps the latter in ``audit_records``).
+    "core_utils.diagnostics.scene_audit": [
+        "SceneAnalyzer",
+        "SceneInfoSection",
+    ],
     "xform_utils._xform_utils": "*",
     # Matrix helpers — mirror of mayatk's ``xform_utils.matrices.Matrices`` (the portable
     # compose/decompose/space-conversion + object-matrix IO subset over ``mathutils.Matrix``;

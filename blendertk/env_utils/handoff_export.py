@@ -308,7 +308,9 @@ class BlenderExportMixin:
         When ``INCLUDE_MATERIALS`` is False the objects are copied (full data copy),
         their material slots cleared on the copies, the copies exported, then removed
         -- the originals and the user's selection are untouched (Blender's FBX
-        exporter has no "exclude materials" flag).
+        exporter has no "exclude materials" flag). Only what holds material slots
+        is copied, and whatever hangs under a copy: the rest -- a camera, an
+        Empty -- has nothing to clear, and ships as itself.
 
         The ``data_export`` carrier (when :attr:`include_data_export`) joins the export
         set but never the strip copy -- it holds no material slots to clear, and a copy
@@ -375,9 +377,25 @@ class BlenderExportMixin:
                     for o in objects
                 ]
                 src = [o for o in src if o is not None]
+                # Only what holds material slots is copied -- and whatever hangs
+                # under a copy, so the hierarchy below survives the re-parenting.
+                # The rest has nothing to clear, and a copy of it would ship under
+                # a ``.001`` name: a camera the WebXR preview starts its views at,
+                # found by name, would be found by nothing. It ships as itself.
+                copied = {
+                    o for o in src if hasattr(getattr(o, "data", None), "materials")
+                }
+                grew = True
+                while grew:
+                    grew = False
+                    for o in src:
+                        if o not in copied and o.parent in copied:
+                            copied.add(o)
+                            grew = True
+                kept = [o for o in src if o not in copied]
                 dups = []  # (object, copied_data)
                 dup_of = {}
-                for o in src:
+                for o in [o for o in src if o in copied]:
                     nd = o.copy()
                     copied_data = None
                     if getattr(o, "data", None) is not None:
@@ -392,10 +410,12 @@ class BlenderExportMixin:
                 # flatten the very hierarchy the closure preserved. The copied
                 # ``matrix_parent_inverse`` stays valid -- the new parent has the
                 # source parent's transform -- so assigning ``.parent`` directly
-                # keeps world placement. A parent OUTSIDE the set stays aimed at the
-                # original (unexported -> the exporter re-roots that child with its
-                # world transform, same as before the closure existed).
-                for o in src:
+                # keeps world placement. A parent that ships as itself keeps its
+                # copied children as they are -- it IS in the file. A parent OUTSIDE
+                # the set stays aimed at the original (unexported -> the exporter
+                # re-roots that child with its world transform, same as before the
+                # closure existed).
+                for o in dup_of:
                     if o.parent in dup_of:
                         dup_of[o].parent = dup_of[o.parent]
                 try:
@@ -405,7 +425,7 @@ class BlenderExportMixin:
                             data.materials.clear()
                     btk.FbxUtils.export_selection_fbx(
                         filepath=fbx_path,
-                        objects=[d[0] for d in dups] + carrier,
+                        objects=[d[0] for d in dups] + kept + carrier,
                         **fbx_opts,
                     )
                 finally:

@@ -17,6 +17,7 @@ The functional engine behaviour (CSV → shots + native fades + VSE audio + asse
 which needs a real scene) is covered by ``test_shot_manifest.py`` under the Blender
 harness.
 """
+
 import os
 import sys
 import tempfile
@@ -70,6 +71,9 @@ class TestShotManifestPanelLoads(unittest.TestCase):
 
         cls.sb = Switchboard()
         cls.handler = BlenderUiHandler(switchboard=cls.sb)
+        # A process singleton: in a run that built it earlier (another panel
+        # module) it keeps ITS switchboard, which is the one holding the UIs.
+        cls.sb = cls.handler.sb
         cls.ui = cls.handler.get("shot_manifest")
         for _ in range(5):
             cls.app.processEvents()
@@ -93,7 +97,15 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.assertEqual(type(ctrl).__name__, "ShotManifestController")
 
     def test_static_widgets_exist(self):
-        expected = ["header", "footer", "chk_csv", "txt_csv_path", "tbl_steps", "b002", "b003"]
+        expected = [
+            "header",
+            "footer",
+            "chk_csv",
+            "txt_csv_path",
+            "tbl_steps",
+            "b002",
+            "b003",
+        ]
         missing = [w for w in expected if not hasattr(self.ui, w)]
         self.assertEqual(missing, [])
 
@@ -120,13 +132,15 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         self.assertIsNotNone(cmb)
         data = [cmb.itemData(i) for i in range(cmb.count())]
         self.assertIn(None, data, f"expected a '(none)' entry: {data}")
-        self.assertIn("default", data, f"expected the built-in 'default' mapping: {data}")
+        self.assertIn(
+            "default", data, f"expected the built-in 'default' mapping: {data}"
+        )
 
     def test_tbl_steps_headers(self):
         """The tree carries the unified 6-column layout."""
         from blendertk.anim_utils.shots.shot_manifest.manifest_data import HEADERS
 
-        tree = self.ui.tbl_steps
+        self.assertIsNotNone(self.ui.tbl_steps)
         # populate_table sets header labels; before first populate the column
         # count may be default — assert the constant is the 6-col contract.
         self.assertEqual(len(HEADERS), 6)
@@ -207,9 +221,7 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         finally:
             ctrl._set_footer = orig_footer
             ctrl._last_results = []
-        self.assertEqual(
-            buf.getvalue(), "", "expand_missing must not print to stdout"
-        )
+        self.assertEqual(buf.getvalue(), "", "expand_missing must not print to stdout")
         self.assertTrue(
             any("expanded" in m for m in footers),
             f"expected the mayatk-style footer feedback, got {footers}",

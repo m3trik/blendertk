@@ -622,7 +622,25 @@ try:
         _stored == {"in.exr": "sourceimages/lm", "lib.exr": "../../library/lm"},
         str(_stored),
     )
+    # The hierarchy baseline names the file that recorded it (2026-09-24), and
+    # that stamp is a path: left spelled from the source's project, a copy at
+    # the SAME relative path in another project resolved it to ITSELF and owned
+    # its source's baseline.
+    from blendertk.env_utils.hierarchy_sync.hierarchy_baseline import (
+        HierarchyBaseline as _HB,
+    )
+
+    _HB.write({"GRP"})
+    check("the source owns its baseline", _HB.inherited_from() is None)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_b, "scenes", "shot.blend"))
+    _from = _HB.inherited_from()
+    check(
+        "a copy saved into another project still names the baseline's source",
+        _from is not None
+        and _abs(_proj_b, _from)
+        == os.path.normcase(os.path.join(_proj_a, "scenes", "shot.blend")),
+        repr(_from),
+    )
     _moved = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
     check(
         "a Save As into another project re-spells every entry, same folders",

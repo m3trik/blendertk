@@ -29,10 +29,11 @@ Example:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pythontk as ptk
 
+from blendertk.env_utils.fbx_utils import FbxUtils
 from blendertk.env_utils.handoff_export import BlenderExportMixin
 from blendertk.env_utils.scene_state import SceneState
 
@@ -61,6 +62,32 @@ class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge):
     #: default there): the preview shows what the deliverable ships. Mirror of
     #: mayatk's ``WebXrPreview``.
     drop_rig_apparatus = True
+
+    def _fbx_options(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """The hand-off's FBX options, with cameras let through.
+
+        The start camera (the deliverer's ``user_pos``) is what the page opens
+        its views through and stands a headset under; every camera in the
+        pushed set rides along, and the page looks the start up by name and
+        ignores the rest. The hand-off default keeps cameras out because a
+        receiving DCC has its own; the preview is the one receiver that reads
+        one. Mirror of mayatk's.
+        """
+        options = super()._fbx_options(params)
+        options["object_types"] = FbxUtils._as_object_types(
+            options.get("object_types") or {"MESH"}
+        ) | {"CAMERA"}
+        return options
+
+    def _start_node(self, name: str) -> Optional[Any]:
+        """The current scene's object named *name*, or ``None``.
+
+        The current scene's, not ``bpy.data``'s: an object only another scene
+        links would ship into a push of this one.
+        """
+        import bpy
+
+        return bpy.context.scene.objects.get(name)
 
     def _produce(self, objects, request) -> Optional[ptk.Payload]:
         """Export the FBX, then attach the scene sidecar the FBX can't carry.

@@ -132,6 +132,9 @@ class TestSmartBakePanelLoads(unittest.TestCase):
 
         cls.sb = Switchboard()
         cls.handler = BlenderUiHandler(switchboard=cls.sb)
+        # A process singleton: in a run that built it earlier (another panel
+        # module) it keeps ITS switchboard, which is the one holding the UIs.
+        cls.sb = cls.handler.sb
         cls.ui = cls.handler.get("smart_bake")
         # Flush the QTimer.singleShot(0, self._initialize_ui) deferred in __init__ — Blender's
         # own event loop does this immediately in real use.

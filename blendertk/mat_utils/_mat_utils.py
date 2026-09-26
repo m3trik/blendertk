@@ -622,6 +622,25 @@ class _MatUtilsInternal:
             _MatUtilsInternal._norm(path), _MatUtilsInternal._norm(base)
         )
 
+    @staticmethod
+    def _stash_pixels(img):
+        """*img*'s in-memory pixels and size -- unsaved paint, which a reload
+        from disk would replace -- for :meth:`_put_back_pixels`."""
+        import numpy as np
+
+        buf = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(buf)
+        return tuple(img.size), buf
+
+    @staticmethod
+    def _put_back_pixels(img, stash) -> None:
+        """Write a :meth:`_stash_pixels` stash back into *img*, at its size."""
+        size, buf = stash
+        if tuple(img.size) != size:
+            img.scale(*size)
+        img.pixels.foreach_set(buf)
+        img.update()
+
 
 # ---------------------------------------------------------------------------------------------
 # Texture path management (backs the Texture Path Editor panel) — mirror of mayatk's
@@ -1569,6 +1588,12 @@ class MatUtils(_MatUtilsInternal):
         (LIFO), which the Scene Exporter hands to ``TaskFactory.stage_deferred_context`` when
         the write must still see the staged paths.
 
+        Unsaved paint is put back too.  It lives only in memory, and every repath reloads the
+        datablock from disk -- the staged copy on entry, the original file on exit -- so an
+        image painted and not saved came back as the file on disk after every export
+        (2026-09-24).  A dirty image's pixels are stashed on entry and written back after its
+        path is restored, so it is handed back exactly as it was: still unsaved.
+
         Args:
             images: one image datablock or name, or an iterable of them.
             new_path: optional path to repath every image to for the block.
@@ -1584,6 +1609,11 @@ class MatUtils(_MatUtilsInternal):
             for i in ptk.make_iterable(images)
         ]
         originals = {img: img.filepath for img in resolved if img is not None}
+        unsaved = {
+            img: cls._stash_pixels(img)
+            for img in originals
+            if getattr(img, "is_dirty", False) and img.has_data
+        }
         if new_path is not None:
             for img in originals:
                 cls.repath_image(img, new_path)
@@ -1597,6 +1627,8 @@ class MatUtils(_MatUtilsInternal):
                     try:
                         if img.filepath != original:
                             cls.repath_image(img, original)
+                        if img in unsaved:
+                            cls._put_back_pixels(img, unsaved[img])
                     except ReferenceError:
                         pass  # datablock freed since the write
 

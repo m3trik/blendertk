@@ -179,11 +179,11 @@ class TaskManager(
         try:
             paths = SceneDataSidecar.build_full_path_set(objects)
 
-            # Adopt any on-disk baselines before rolling forward, so history
-            # survives the upgrade (mirror of mayatk; no-ops once the .blend
-            # carries a record of its own). There is no hierarchy CHECK here to
-            # do it, so the writer is the only place it can happen.
-            HierarchyBaseline.migrate_from_sidecar(os.path.dirname(export_path))
+            # Adopt this deliverable's on-disk baseline before rolling forward,
+            # so history survives the upgrade (mirror of mayatk; no-ops once
+            # the .blend's record holds this deliverable's scope). There is no hierarchy
+            # CHECK here to do it, so the writer is the only place it can happen.
+            HierarchyBaseline.adopt_sidecar(export_path, **self._sidecar_kwargs())
 
             # The BASELINE first, and unconditionally: it goes to the .blend,
             # not the sidecar, so it must not be skipped by the sidecar's own
