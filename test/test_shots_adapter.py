@@ -350,8 +350,7 @@ def _run_shots_adapter_checks():
     check(
         "the next shots publish clears a legacy fbx_takes",
         DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None
-        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
-        is not None,
+        and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is not None,
     )
     for sid in [s.shot_id for s in list(pub_store.shots)]:
         pub_store.remove_shot(sid)
@@ -361,6 +360,84 @@ def _run_shots_adapter_checks():
         DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is None
         and DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.FBX_TAKES) is None,
     )
+
+    # ---- stale shots: every member gone, nothing keyed in the window ------
+    # A file saved from another keeps its shots; with their objects deleted
+    # they describe nothing (mayatk mirror, 2026-09-24).  An export leaves
+    # them out, and Remove Stale Shots drops their records -- nothing moves.
+    gone = add_keyed_cube("StaleGone", [100, 120], 0.0)
+    live = add_keyed_cube("StaleLive", [200, 220], 0.0)
+    stale_store = BlenderShotStore()
+    stale_store.define_shot("GoneShot", 100, 120, objects=["StaleGone"])
+    stale_store.define_shot("LiveShot", 200, 220, objects=["StaleLive"])
+    bpy.data.objects.remove(gone, do_unlink=True)
+    check(
+        "a shot whose object and keys are gone is stale",
+        [s.name for s in stale_store.stale_shots()] == ["GoneShot"],
+        f"{[s.name for s in stale_store.stale_shots()]}",
+    )
+    stale_store.publish_export_view()
+    meta_raw = DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA)
+    clips = [s.get("clip") for s in (json.loads(meta_raw) if meta_raw else {})["shots"]]
+    check("an export leaves the stale shot out", clips == ["LiveShot"], f"{clips}")
+
+    def live_key_times():
+        return sorted(
+            {
+                kp.co[0]
+                for fc in BlenderShotStore.iter_action_fcurves(live)
+                for kp in fc.keyframe_points
+            }
+        )
+
+    removed = stale_store.remove_stale_shots()
+    check(
+        "Remove Stale Shots drops only the stale record and moves no key",
+        [s.name for s in removed] == ["GoneShot"]
+        and [s.name for s in stale_store.shots] == ["LiveShot"]
+        and live_key_times() == [200.0, 220.0],
+        f"removed={[s.name for s in removed]} "
+        f"kept={[s.name for s in stale_store.shots]} keys={live_key_times()}",
+    )
+    bpy.data.objects.remove(live, do_unlink=True)
+    stale_store.publish_export_view()
+    check(
+        "a wholly stale store clears the shot record",
+        DataNodes.read(ptk.Scope.DELIVERABLE, DataNodes.SHOT_METADATA) is None,
+    )
+    # Content is ANY key in the window, not only an object's own action: a
+    # light's energy is keyed on its data (mayatk asks every animation curve).
+    lamp = bpy.data.lights.new("StaleLamp", "POINT")
+    lamp_obj = bpy.data.objects.new("StaleLampObj", lamp)
+    scene.collection.objects.link(lamp_obj)
+    for frame, energy in ((300, 10.0), (320, 50.0)):
+        lamp.energy = energy
+        lamp.keyframe_insert("energy", frame=frame)
+    lamp_store = BlenderShotStore()
+    lamp_store.define_shot("LampShot", 300, 320, objects=["GoneLampRig"])
+    check(
+        "a light's own keys keep a shot whose members are gone",
+        lamp_store.stale_shots() == [],
+        f"{[s.name for s in lamp_store.stale_shots()]}",
+    )
+    bpy.data.objects.remove(lamp_obj, do_unlink=True)
+    bpy.data.lights.remove(lamp)
+    # A PARKED action animates nothing: a Key Stash clip, SmartBake's original
+    # -- an orphan kept alive by its fake user, which ``users`` counts.  Its
+    # keys must not keep a dead shot declared (mayatk mirror: a stash curve's
+    # message link to its registry drives nothing either).
+    parked_obj = add_keyed_cube("StaleParked", [100, 120], 0.0)
+    parked = parked_obj.animation_data.action
+    parked.use_fake_user = True
+    parked_store = BlenderShotStore()
+    parked_store.define_shot("ParkedShot", 100, 120, objects=["StaleParked"])
+    bpy.data.objects.remove(parked_obj, do_unlink=True)
+    check(
+        "a parked (fake-user) action's keys keep no dead shot declared",
+        [s.name for s in parked_store.stale_shots()] == ["ParkedShot"],
+        f"users={parked.users} {[s.name for s in parked_store.stale_shots()]}",
+    )
+    bpy.data.actions.remove(parked)
 
     # ---- scene-swap invalidation lifecycle (C1) ---------------------------
     # BlenderScenePersistence must wire load_post (via ScriptJobManager) so a

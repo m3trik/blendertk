@@ -587,6 +587,51 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
             for s in self.shots
         }
 
+    def _existing_objects(self, names) -> set:
+        """Which of *names* the file still holds (``ptk.ShotStore.stale_shots``).
+
+        Blender object names are unique and stored verbatim, so a member is
+        present exactly when an object bears its name (mayatk also tries a
+        moved DAG path's leaf; a Blender name has no path to move).
+        """
+        names = [str(n) for n in names]
+        try:
+            import bpy
+        except ImportError:
+            return set(names)
+        return {n for n in names if n in bpy.data.objects}
+
+    def _keyed_windows(self, windows) -> List[bool]:
+        """Per ``(start, end)`` window, whether anything in the file is keyed
+        inside it (``ptk.ShotStore.stale_shots``) -- every action in use, every
+        slot, whatever it animates: an object, a camera's lens, a light, a
+        shape key, as mayatk asks every animation curve.  An action with no
+        user (a deleted object's) animates nothing and is skipped, and so is
+        one only its fake user holds: a Key Stash clip, SmartBake's parked
+        original -- ``users`` counts the fake user (mayatk skips a curve whose
+        only link is its stash registry's ``message``).  One sorted pass over
+        the key times, each window a bisection.
+        """
+        windows = list(windows)
+        try:
+            import bpy
+        except ImportError:
+            return super()._keyed_windows(windows)
+        from bisect import bisect_left
+
+        times: List[float] = []
+        for action in bpy.data.actions:
+            if action.users <= int(action.use_fake_user):
+                continue
+            for fc in AnimUtils._slot_fcurves(action):
+                times.extend(AnimUtils.key_times(fc))
+        times.sort()
+        keyed = []
+        for start, end in windows:
+            i = bisect_left(times, start)
+            keyed.append(i < len(times) and times[i] <= end)
+        return keyed
+
     # ---- export-view projection (Blender carrier) --------------------------
 
     def publish_export_view(self, strategy: Optional[str] = None) -> Optional[str]:

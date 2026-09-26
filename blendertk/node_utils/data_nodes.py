@@ -607,13 +607,27 @@ class DataNodes(ptk.SceneStoreBase):
     # ------------------------------------------------------------------
 
     @classmethod
-    def project_root(cls) -> Optional[str]:
-        """The project the open .blend lives in -- what the path records
-        (``ptk.RecordSpec.paths``) are spelled from; never a session pin,
-        which any other file may have set. ``None`` while unsaved."""
+    def scene_path(cls) -> str:
+        """The open .blend, ``""`` while unsaved -- what the store's project
+        root and writer stamp (``ptk.SceneStoreBase.project_root`` /
+        ``writer_stamp`` / ``written_here``) derive from: the project the
+        .blend lives in, never a session pin, which any other file may have
+        set (mirror of mayatk's)."""
         import bpy
 
-        return cls.project_root_of(bpy.data.filepath)
+        return bpy.data.filepath
+
+    @classmethod
+    def writer_stamp(cls) -> str:
+        """The base's stamp (``ptk.SceneStoreBase.writer_stamp``), except a UNC
+        share keeps its leading backslashes: a forward-slash ``//`` reads as
+        Blender's own file-relative prefix."""
+        stamp = super().writer_stamp()
+        return (
+            ptk.FileUtils.format_path(cls.scene_path())
+            if stamp.startswith("//")
+            else stamp
+        )
 
     @classmethod
     def install_path_rebase(cls) -> bool:

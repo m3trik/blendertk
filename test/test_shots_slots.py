@@ -287,6 +287,9 @@ class TestShotsPanelLoads(unittest.TestCase):
 
         cls.sb = Switchboard()
         cls.handler = BlenderUiHandler(switchboard=cls.sb)
+        # A process singleton: in a run that built it earlier (another panel
+        # module) it keeps ITS switchboard, which is the one holding the UIs.
+        cls.sb = cls.handler.sb
         cls.ui = cls.handler.get("shots")
         for _ in range(5):
             cls.app.processEvents()
@@ -331,10 +334,57 @@ class TestShotsPanelLoads(unittest.TestCase):
             "spn_gap",
             "spn_shift_all",
             "btn_trim_all",
+            "btn_delete_stale",
             "btn_delete_all",
         ]
         missing = [w for w in expected if not hasattr(self.ui, w)]
         self.assertEqual(missing, [])
+
+    def test_delete_stale_shots_is_offered_while_the_store_has_shots(self):
+        """All Shots > Delete Stale Shots (mayatk mirror): enabled while the
+        store holds a shot, and the click decides.  Deleting an object raises
+        no store event, so a state judged at the last one went stale -- the
+        export's Open Shots link opened the panel with the button greyed out.
+        With none stale it says so and deletes nothing; with one it asks with
+        the names and deletes records only.  No bpy here, so the store's two
+        scene hooks stand in for the file."""
+        from unittest import mock
+        from pythontk import ShotBlock
+
+        ctrl = self.ui.slots.controller
+        store = ctrl._active_store()
+        store.shots = [
+            ShotBlock(1, "Live", 0, 20, ["Held"]),
+            ShotBlock(2, "Gone", 40, 60, ["Lost"]),
+        ]
+        held = {"Held", "Lost"}
+        store._existing_objects = lambda names: {n for n in names if n in held}
+        store._keyed_windows = lambda windows: [False] * len(windows)
+        asked = []
+
+        def answer(*args, **kwargs):
+            asked.append(args[2])
+            return QtWidgets.QMessageBox.Yes
+
+        try:
+            ctrl.refresh_state()
+            self.assertTrue(self.ui.btn_delete_stale.isEnabled())
+            with mock.patch.object(
+                QtWidgets.QMessageBox, "question", new=staticmethod(answer)
+            ):
+                self.ui.slots.btn_delete_stale()  # nothing stale yet
+                self.assertEqual((asked, len(store.shots)), ([], 2))
+                held.discard("Lost")  # deleted from the file: no store event
+                self.ui.slots.btn_delete_stale()
+            self.assertIn("Gone [40–60]", asked[0])
+            self.assertEqual([s.name for s in store.shots], ["Live"])
+            store.shots = []
+            ctrl.refresh_state()
+            self.assertFalse(self.ui.btn_delete_stale.isEnabled())
+        finally:
+            del store._existing_objects, store._keyed_windows
+            store.shots = []
+            store.set_active_shot(None)  # the re-sync picked the survivor
 
     def test_detection_mode_combo_items(self):
         cmb = self.ui.cmb_detection_mode

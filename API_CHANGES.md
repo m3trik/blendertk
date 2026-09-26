@@ -1,42 +1,24 @@
 # blendertk — API Changes
 
-_Diff vs the last release (origin/main @ b7b4d32)._
+_Diff vs the last release (origin/main @ f096c57)._
 
-## Removed (1)
+## Added (13)
 
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.cmb000` — was `(self, index, widget) -> None`
+- `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py::ShotSequencerController.delete_stale_shots(self) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsController.confirm_stale_removal(stale, parent=None) -> bool`
+- `anim_utils/shots/shots_slots.py::ShotsController.on_delete_stale_shots(self) -> None`
+- `anim_utils/shots/shots_slots.py::ShotsSlots.btn_delete_stale(self)`
+- `core_utils/diagnostics/scene_audit.py::SceneAnalyzer(class)`
+- `core_utils/diagnostics/scene_audit.py::SceneAnalyzer.format_audit_html(cls, adaptive: bool = False, objects=None, progress_callback: Optional[Callable[[int, int, str], None]] = None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]`
+- `core_utils/diagnostics/scene_audit.py::SceneAnalyzer.format_audit_text(cls, adaptive: bool = False, objects=None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]`
+- `core_utils/diagnostics/scene_audit.py::SceneInfoSection(class)`
+- `core_utils/diagnostics/scene_audit.py::SceneInfoSection.normalize(cls, sections: Optional[Iterable[str]]) -> List[str]`
+- `env_utils/hierarchy_sync/hierarchy_baseline.py::HierarchyBaseline.adopt_sidecar(cls, export_path: str, *, base_stem: bool = False) -> bool`
+- `env_utils/hierarchy_sync/hierarchy_baseline.py::HierarchyBaseline.inherited_from(cls) -> Optional[str]`
+- `node_utils/data_nodes.py::DataNodes.scene_path(cls) -> str`
+- `node_utils/data_nodes.py::DataNodes.writer_stamp(cls) -> str`
 
-## Added (27)
-
-- `env_utils/_env_utils.py::EnvUtils.scene_save_path(directory, name, case=None, suffix='', subfolder='')`
-- `env_utils/reference_manager.py::ReferenceManagerSlots.copy_path_selected(self)`
-- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.adaptive(self) -> bool`
-- `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.bake_targets(cls, objects=None) -> List[str]`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.btn_reset_defaults_init(self, widget) -> None`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.clear_exclusions(self) -> None`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.select_exclusions(self) -> None`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_exclusions(self) -> None`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.set_exclusions_init(self, widget) -> None`
-- `light_utils/lightmap_baker/lightmap_baker_slots.py::LightmapBakerSlots.spn_samples_init(self, widget) -> None`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.migrate_folder_hints(cls, objects=None) -> List[str]`
-- `light_utils/lightmap_baker/lightmap_records.py::LightmapRecords.superseding(cls, objects) -> Iterator[List[str]]`
-- `mat_utils/arnold_bridge.py::ArnoldBridge.temporary(self, materials) -> Iterator[List[str]]`
-- `mat_utils/arnold_bridge.py::ArnoldBridge.unrenderable_materials(cls) -> List[str]`
-- `mat_utils/bake_sets.py::BakeSet(class)`
-- `mat_utils/bake_sets.py::BakeSet.clear(cls) -> None`
-- `mat_utils/bake_sets.py::BakeSet.collection(cls)`
-- `mat_utils/bake_sets.py::BakeSet.define(cls, objects: Optional[List[Any]] = None) -> List[Any]`
-- `mat_utils/bake_sets.py::BakeSet.exists(cls) -> bool`
-- `mat_utils/bake_sets.py::BakeSet.members(cls) -> List[Any]`
-- `mat_utils/bake_sets.py::BakeSet.meshes(cls) -> List[Any]`
-- `mat_utils/bake_sets.py::LightmapExcludeSet(class)`
-- `mat_utils/texture_baker.py::TextureBaker.texture_set(obj) -> Optional[Tuple[str, str]]`
-- `node_utils/data_nodes.py::DataNodes.install_path_rebase(cls) -> bool`
-- `node_utils/data_nodes.py::DataNodes.project_root(cls) -> Optional[str]`
-- `node_utils/data_nodes.py::DataNodes.remove_path_rebase(cls) -> None`
-- `uv_utils/rizom_bridge/parameters.py::HOST_TOKEN_DEFAULTS(constant)`
-
-## Deprecations (9)
+## Deprecations (10)
 
 _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived its window: delete the alias and its tests rather than moving the date. A **HELD** row is due by version, but its notice has not yet had its calendar window._
 
@@ -48,14 +30,11 @@ _Live retirement debt, earliest deadline first. An **EXPIRED** row has outlived 
 - **HELD** `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.relocate_lightmaps` — remove in 0.11.0, not before 2026-10-23
 - **HELD** `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.repath_lightmaps` — remove in 0.11.0, not before 2026-10-23
 - **HELD** `light_utils/lightmap_baker/lightmap_baker.py::LightmapBaker.search_dirs` — remove in 0.11.0, not before 2026-10-23
-- `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.format_export_name` — remove in 0.12.0, not before 2026-10-23
+- **HELD** `env_utils/scene_exporter/_scene_exporter.py::SceneExporter.format_export_name` — remove in 0.12.0, not before 2026-10-23
+- `env_utils/hierarchy_sync/hierarchy_baseline.py::HierarchyBaseline.migrate_from_sidecar` — remove in 0.13.0, not before 2026-10-24
 
-## Moved (5)
+## Moved (1)
 
 _Still resolvable at the same call site -- hoisted to a base class or re-exported from another module. NOT a removal: no alias or minor bump is owed._
 
-- `mat_utils/substance_bridge/_substance_bridge.py::HighPolySet.clear`
-- `mat_utils/substance_bridge/_substance_bridge.py::HighPolySet.collection`
-- `mat_utils/substance_bridge/_substance_bridge.py::HighPolySet.define`
-- `mat_utils/substance_bridge/_substance_bridge.py::HighPolySet.exists`
-- `mat_utils/substance_bridge/_substance_bridge.py::HighPolySet.members`
+- `node_utils/data_nodes.py::DataNodes.project_root`

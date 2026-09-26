@@ -48,6 +48,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/auto_instancer/geometry_matcher.py`](#core_utils--auto_instancer--geometry_matcher) — Geometry analysis and matching logic for AutoInstancer (bpy adapter).
 - [`core_utils/auto_instancer/instancing_strategy.py`](#core_utils--auto_instancer--instancing_strategy) — Instancing strategy logic for AutoInstancer (mirror of mayatk's).
 - [`core_utils/diagnostics/mesh_diag.py`](#core_utils--diagnostics--mesh_diag) — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
+- [`core_utils/diagnostics/scene_audit.py`](#core_utils--diagnostics--scene_audit) — Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit``.
 - [`core_utils/diagnostics/transform_diag.py`](#core_utils--diagnostics--transform_diag) — Transform diagnostics — the Blender counterpart of mayatk's
 - [`core_utils/preview.py`](#core_utils--preview) — Live-preview driver for the tentacle Blender tool panels — the Blender analogue of
 - [`core_utils/script_job_manager.py`](#core_utils--script_job_manager) — Centralized Blender event-subscription manager — the Blender counterpart of mayatk's
@@ -671,6 +672,7 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
   - `ShotSequencerController.on_zone_context_menu(self, zone: str, time: float, global_pos) -> None` — ``"shot_lane"`` is every click on the lane, plus every click over
   - `ShotSequencerController.delete_shot(self, shot_id: int) -> None` — Delete *shot_id* with its contents, closing the timeline behind it.
+  - `ShotSequencerController.delete_stale_shots(self) -> None` — Delete every stale shot, after naming them (``ShotStore.remove_stale_shots``).
   - `ShotSequencerController.move_shot_to_position(self, shot_id: int, position: int) -> None` — Re-slot *shot_id* at 1-based *position*, pushing the rest along.
   - `ShotSequencerController.merge_shot_with(self, shot_id: int, other_id: int) -> None` — Fuse two neighbouring shots into one spanning both.
   - `ShotSequencerController.split_shot_at(self, shot_id: int, time: float) -> None` — Cut *shot_id* in two at *time*, leaving its content where it is.
@@ -695,9 +697,9 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerController.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
   - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
   - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3537)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3568)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot', validate=None)` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3618)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3649)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -725,13 +727,15 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.on_shot_end_changed(self, value: float) -> None`
   - `ShotsController.on_shot_desc_changed(self, text: str) -> None`
   - `ShotsController.on_delete_shot(self) -> None` — Delete the active shot after confirmation.
+  - `ShotsController.confirm_stale_removal(stale, parent=None) -> bool` *(static)* — Ask before ``ShotStore.remove_stale_shots``, naming *stale* (mirror
+  - `ShotsController.on_delete_stale_shots(self) -> None` — Delete the stale shots after naming them (All Shots group;
   - `ShotsController.on_delete_all_shots(self) -> None` — Delete every shot after confirmation.
   - `ShotsController.on_move_shot(self) -> None` — Move the active shot to the position specified by spn_move_to.
   - `ShotsController.on_trim_empty(self, edge: str = 'both') -> None` — Trim empty space from the active shot, at *edge*.
   - `ShotsController.on_trim_all_shots(self, edge: str = 'both') -> None` — Trim empty space from every shot, at *edge*.
   - `ShotsController.on_shift_all_shots(self, start: float) -> None` — Shift every shot so the first one starts on *start*.
   - `ShotsController.on_add_space(self, edge: str = 'leading') -> None` — Pad the active shot with ``spn_space`` frames of room at *edge*.
-- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1199)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1246)** — Switchboard slot class — routes UI events to the controller.
   - `ShotsSlots.header_init(self, widget)` — Configure header help text.
   - `ShotsSlots.spn_detection(self, value)` — Detection threshold changed.
   - `ShotsSlots.cmb_detection_mode(self, index)` — Detection mode combobox changed.
@@ -745,6 +749,7 @@ Switchboard slots for the Shots settings UI.
   - `ShotsSlots.txt_shot_desc(self, text=None)` — Shot description edited.
   - `ShotsSlots.b000(self)` — Delete the selected shot.
   - `ShotsSlots.btn_delete_all(self)` — Delete every shot (All Shots group).
+  - `ShotsSlots.btn_delete_stale(self)` — Delete the stale shots (All Shots group).
   - `ShotsSlots.btn_move_shot(self)` — Move shot to the position in spn_move_to.
   - `ShotsSlots.btn_apply_gap(self)` — Apply gap value with the scope selected in the option box.
   - `ShotsSlots.btn_shift_all(self)` — Re-base every shot onto the frame in spn_shift_all.
@@ -916,7 +921,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L336)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L323)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
@@ -931,7 +936,7 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.get_recent_autosave(filter_time=24, timestamp_format='%H:%M:%S')` *(static)* — Recent autosave .blend files as ``(path, timestamp)`` pairs, newest first
   - `CoreUtils.get_scene_info(objects=None)` *(static)* — Scene audit record — the Blender analogue of Maya's Get Scene Info (a focused
   - `CoreUtils.format_scene_info_html(info)` *(static)* — Render a :func:`get_scene_info` record as an HTML report for the text-view dialog.
-  - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,
+  - `CoreUtils.analyze_scene(objects=None, adaptive=True, sections=None)` *(static)* — Game-readiness scene report -- the sectioned audit behind Get Scene Info.
   - `CoreUtils.cleanup_scene(quiet=False)` *(static)* — Purge orphan datablocks (0 users, no fake user) across the main collections — the
   - `CoreUtils.selected_objects()` *(static)* — The current object selection, filtered of ``None`` (mirror of Maya's
   - `CoreUtils.active_object()` *(static)* — The active object, resolved window-independently (``view_layer.objects.active``).
@@ -1014,6 +1019,17 @@ Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostic
 
 - **[`class MeshDiagnostics(_MeshDiagnosticsInternal)`](blendertk/blendertk/core_utils/diagnostics/mesh_diag.py#L75)** — Mesh problem-detection (mirror of mayatk's ``MeshDiagnostics``).
   - `MeshDiagnostics.find_problem_geometry(objects, *, ngons=False, nonmanifold=False, interior=False, nonplanar=False, loose=False, concave=False, quads=False, zero_area_faces=False, zero_length_edges=False, zero_uv_area=False, planar_tolerance=0.001, area_tolerance=1e-06, edge_length_tolerance=1e-06, uv_area_tolerance=1e-06, select=True)` *(static)* — Find (and optionally **select**) problem mesh components — the diagnostic half of Maya's
+
+<a id="core_utils--diagnostics--scene_audit"></a>
+### `core_utils/diagnostics/scene_audit.py`
+
+Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit``.
+
+- **[`class SceneInfoSection`](blendertk/blendertk/core_utils/diagnostics/scene_audit.py#L41)** — Get Scene Info's report sections -- mirror of ``mtk.SceneInfoSection``.
+  - `SceneInfoSection.normalize(cls, sections: Optional[Iterable[str]]) -> List[str]` *(class)* — *sections* as known keys, de-duplicated in the caller's order.
+- **[`class SceneAnalyzer`](blendertk/blendertk/core_utils/diagnostics/scene_audit.py#L145)** — Get Scene Info in Blender -- mirror of ``mtk.SceneAnalyzer``'s sectioned report.
+  - `SceneAnalyzer.format_audit_html(cls, adaptive: bool = False, objects=None, progress_callback: Optional[Callable[[int, int, str], None]] = None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — Run the audit and return ``{"_header": html, section: html, ...}``.
+  - `SceneAnalyzer.format_audit_text(cls, adaptive: bool = False, objects=None, sections: Optional[Iterable[str]] = None, scope: Optional[str] = None) -> Dict[str, str]` *(class)* — :meth:`format_audit_html` as plain text (console / log).
 
 <a id="core_utils--diagnostics--transform_diag"></a>
 ### `core_utils/diagnostics/transform_diag.py`
@@ -1605,12 +1621,14 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
 
 The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
 
-- **[`class HierarchyBaseline`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_baseline.py#L35)** — Read, compare and roll forward the file's hierarchy baseline.
+- **[`class HierarchyBaseline`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_baseline.py#L46)** — Read, compare and roll forward the file's hierarchy baseline.
   - `HierarchyBaseline.read(cls) -> Set[str]` *(class)* — Every path the file has recorded, across all scopes.
+  - `HierarchyBaseline.inherited_from(cls) -> Optional[str]` *(class)* — Who recorded the baseline this file holds but does not own.
   - `HierarchyBaseline.is_unreadable(cls) -> bool` *(class)* — The channel holds something, but no baseline could be read from it.
   - `HierarchyBaseline.compare(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> Tuple[bool, List[str], List[str], bool]` *(class)* — Diff *current_paths* against the baseline, scoped to what is exporting.
   - `HierarchyBaseline.write(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> bool` *(class)* — Roll the exported scope forward, leaving every other scope intact.
-  - `HierarchyBaseline.migrate_from_sidecar(cls, export_dir: str) -> int` *(class)* — Adopt any on-disk baselines in *export_dir* into the file, once.
+  - `HierarchyBaseline.adopt_sidecar(cls, export_path: str, *, base_stem: bool = False) -> bool` *(class)* — Give the file what *export_path* last shipped, where its own
+  - `HierarchyBaseline.migrate_from_sidecar(cls, export_dir: str) -> int` *(class)* **DEPRECATED (remove in 0.13.0)** — Adopt every on-disk baseline in *export_dir* into the file, once.
 
 <a id="env_utils--hierarchy_sync--hierarchy_sync_slots"></a>
 ### `env_utils/hierarchy_sync/hierarchy_sync_slots.py`
@@ -2134,7 +2152,7 @@ USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 
 Push the Blender selection to a live browser / WebXR preview.
 
-- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L40)** — Live browser / WebXR preview of the Blender selection.
+- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L41)** — Live browser / WebXR preview of the Blender selection.
 
 <a id="env_utils--workspace_editor"></a>
 ### `env_utils/workspace_editor.py`
@@ -2302,10 +2320,10 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L643) — constant
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L719)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L662) — constant
+- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L738)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L985)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1004)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -3135,7 +3153,8 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
   - `DataNodes.dump_export_nodes(cls, decode: bool = True) -> Dict[str, Dict[str, Any]]` *(class)* — Every ``data_export`` carrier's channels (:meth:`get_export_nodes`),
   - `DataNodes.carriers_in(cls, library) -> Dict[ptk.Scope, '_Carrier']` *(class)* — The carriers a linked *library* brings, by scope, read while it is
   - `DataNodes.library_renames(before) -> Any` *(static)* — ``rename(name)`` for a library made local: *before* is
-  - `DataNodes.project_root(cls) -> Optional[str]` *(class)* — The project the open .blend lives in -- what the path records
+  - `DataNodes.scene_path(cls) -> str` *(class)* — The open .blend, ``""`` while unsaved -- what the store's project
+  - `DataNodes.writer_stamp(cls) -> str` *(class)* — The base's stamp (``ptk.SceneStoreBase.writer_stamp``), except a UNC
   - `DataNodes.install_path_rebase(cls) -> bool` *(class)* — Keep the path records spelled from the file's own project across a
   - `DataNodes.remove_path_rebase(cls) -> None` *(class)* — Remove the re-base handlers -- any module copy's, matched by name.
 

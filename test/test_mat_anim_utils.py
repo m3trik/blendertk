@@ -2070,8 +2070,7 @@ try:
 
     # ---- analyze_scene (budgeted, sectioned audit) -------------------------
     reset()
-    # one small cube (under budget) + one dense ico sphere (over the Generic 100k? no -> use a
-    # tiny generic budget via the adaptive path on a big object). Build a clearly-over-budget mesh.
+    # one small cube (under budget) + one dense ico sphere (~80k tris: over the Generic 20k).
     bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=6)  # ~80k tris
     big = bpy.context.active_object
     bpy.ops.mesh.primitive_cube_add(location=(5, 0, 0))
@@ -2079,25 +2078,31 @@ try:
         adaptive=False, sections=("summary", "pareto", "offenders", "assumptions")
     )
     check(
-        "analyze_scene returns only requested sections",
-        set(rep) == {"summary", "pareto", "offenders", "assumptions"},
+        "analyze_scene returns the header + only the requested sections",
+        list(rep) == ["_header", "summary", "pareto", "offenders", "assumptions"],
         f"{list(rep)}",
     )
-    check(
-        "analyze_scene summary names the Generic profile", "Generic" in rep["summary"]
-    )
+    check("analyze_scene header names the Generic profile", "Generic" in rep["_header"])
     check("analyze_scene pareto lists the dense mesh", big.name in rep["pareto"])
     rep_a = btk.analyze_scene(adaptive=True, sections=("summary",))
-    check("analyze_scene adaptive profile labelled", "Adaptive" in rep_a["summary"])
-    # textures section: a file image bucketed by dimension
+    check("analyze_scene adaptive profile labelled", "Adaptive" in rep_a["_header"])
+    # textures + pipeline: a map the dense mesh's material reads, missing on disk
     img = bpy.data.images.new("Tex4K", width=4096, height=4096)
     img.source = "FILE"
-    img.filepath = "//missing_tex_4k.png"
+    img.filepath = "//missing_tex_4k_Base_Color.png"
+    tex_mat = bpy.data.materials.new("TexMat")
+    tex_mat.use_nodes = True
+    tex_node = tex_mat.node_tree.nodes.new("ShaderNodeTexImage")
+    tex_node.image = img
+    bsdf = next(n for n in tex_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    tex_mat.node_tree.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
+    big.data.materials.append(tex_mat)
     rep_t = btk.analyze_scene(sections=("textures", "pipeline"))
     check("analyze_scene textures section present", "Textures" in rep_t["textures"])
     check(
         "analyze_scene pipeline flags missing texture",
-        "missing_tex_4k" in rep_t["pipeline"] or "resolve" in rep_t["pipeline"],
+        "missing_tex_4k_Base_Color" in rep_t["pipeline"],
+        rep_t["pipeline"][:300],
     )
 
     orphan_me = bpy.data.meshes.new("OrphanMesh")  # 0 users -> purged

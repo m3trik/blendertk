@@ -245,6 +245,10 @@ class LightmapWebExport(ptk.LoggingMixin):
         shared by objects baked into DIFFERENT maps -- a secondary material on two baked
         bodies, or a Per-Object bake of linked duplicates. A glTF material carries one
         lightmap: the first object keeps the material, each later one binds a clone.
+        And whenever an object this wiring does not light -- one the bake never saw --
+        wears the material too: every baked object then binds a clone, and the material
+        stays as authored for the rest, which would otherwise export lit by another
+        object's bake.
 
         Returns a restore token for :meth:`unwire_lightmaps`; the wiring is a transport
         detail, not a change the artist asked for.
@@ -291,6 +295,19 @@ class LightmapWebExport(ptk.LoggingMixin):
         # sampled the first one's map through their own UV2. The twin of
         # ``ptk.MeshConvert.apply_glb_lightmaps``, which binds the same way.
         in_place: Dict[str, str] = {}  # material -> the map it carries in place
+        # Materials an object this wiring does not light also wears. Wired in
+        # place, such a material exported that object lit by a baked one's map
+        # (through its own UV2, or one texel of it with none) -- the applier's
+        # ``unlit_users`` rule. By NAME: bpy hands out a fresh wrapper per
+        # access, so an identity test never matches.
+        lit = set(encoded)
+        shared_with_unlit = {
+            slot.material.name
+            for other in bpy.data.objects
+            if other.name not in lit
+            for slot in getattr(other, "material_slots", []) or []
+            if slot.material is not None
+        }
         bindings = []
         for name, (png, _scalar) in encoded.items():
             obj = bpy.data.objects.get(name)
@@ -302,8 +319,10 @@ class LightmapWebExport(ptk.LoggingMixin):
                 material = slot.material
                 if material is None:
                     continue
-                own = rect is not None or (
-                    in_place.setdefault(material.name, png) != png
+                own = (
+                    rect is not None
+                    or material.name in shared_with_unlit
+                    or in_place.setdefault(material.name, png) != png
                 )
                 bindings.append((obj, index, slot, material, png, lm, rect, own))
 

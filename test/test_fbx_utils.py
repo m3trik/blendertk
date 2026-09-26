@@ -245,6 +245,75 @@ try:
         f"{shipped and dict(shipped.items())}",
     )
 
+    # ---- the start camera: the page's views start through it ----------------
+    # The page opens its views through the scene's `user_pos` camera and stands a
+    # headset under it -- so the preview lets cameras through its FBX (the hand-off
+    # default keeps them out), and a push joins the start camera to whatever its
+    # scope chose. Mirror of mayatk's check.
+    reset()
+    preview = WebXrPreview()
+    types = preview._fbx_options({})["object_types"]
+    check(
+        "the preview's FBX lets cameras through, keeping the hand-off's types",
+        types >= {"MESH", "EMPTY", "ARMATURE", "OTHER", "CAMERA"},
+        f"{types}",
+    )
+    check("no start camera -> none found", preview._start_node("user_pos") is None)
+    bpy.ops.mesh.primitive_cube_add()
+    start_mesh = bpy.context.active_object
+    start_mesh.name = "StartMesh"
+    start = bpy.data.objects.new("user_pos", bpy.data.cameras.new("user_pos"))
+    check(
+        "an object no scene links is not the start",
+        preview._start_node("user_pos") is None,
+    )
+    bpy.context.scene.collection.objects.link(start)
+    check("the scene's user_pos is the start", preview._start_node("user_pos") == start)
+    _sent = []
+    preview.send = lambda objects, **kwargs: _sent.append(list(objects))
+    preview.push(objects=[start_mesh])
+    preview.push(objects=[])
+    check(
+        "a push ships the start camera it was not given; an empty one stays empty",
+        _sent == [[start_mesh, start], []],
+        f"{_sent}",
+    )
+    start_out = os.path.join(tmp, "start.fbx")
+    WebXrPreview()._export_fbx(
+        [start_mesh, start], start_out, {"EMBED_TEXTURES": False}
+    )
+    reset()
+    FbxUtils.import_fbx(start_out)
+    arrived = bpy.data.objects.get("user_pos")
+    check(
+        "the start camera survives the preview's FBX",
+        arrived is not None and arrived.type == "CAMERA",
+        f"{arrived and arrived.type}",
+    )
+
+    # The materials strip copies what it clears, and only that: a camera has no
+    # slots, and its copy would ship as `user_pos.001` -- found by nothing.
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    strip_mesh = bpy.context.active_object
+    strip_mesh.name = "StripMesh"
+    strip_cam = bpy.data.objects.new("user_pos", bpy.data.cameras.new("user_pos"))
+    bpy.context.scene.collection.objects.link(strip_cam)
+    strip_out = os.path.join(tmp, "strip.fbx")
+    WebXrPreview()._export_fbx(
+        [strip_mesh, strip_cam],
+        strip_out,
+        {"EMBED_TEXTURES": False, "INCLUDE_MATERIALS": False},
+    )
+    reset()
+    FbxUtils.import_fbx(strip_out)
+    names = sorted(o.name for o in bpy.data.objects)
+    check(
+        "a materials strip ships the start camera as itself, under its own name",
+        "user_pos" in names and bpy.data.objects["user_pos"].type == "CAMERA",
+        f"{names}",
+    )
+
     # ---- declared takes reach ANY animated hand-off, not just the exporter ----
     # Mirror of mayatk's check of the same contract. The take split lived only in
     # the Scene Exporter's task, so a preview push of a shot-carrying scene came

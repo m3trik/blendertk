@@ -25,19 +25,6 @@ _DUP_SUFFIX_RE = re.compile(r"\.\d{3}$")
 # ``btk.FbxUtils.export_selection_fbx`` (class-only — a generic ``export`` would collide flat).
 
 
-_SCENE_SECTIONS = (
-    "summary",
-    "fix_first",
-    "pareto",
-    "offenders",
-    "categories",
-    "textures",
-    "pipeline",
-    "assumptions",
-)
-_GENERIC_TRI_BUDGET = 100_000  # flat per-object triangle budget (Generic profile)
-
-
 class _CoreUtilsInternal(object):
     """Internal helpers for CoreUtils."""
 
@@ -793,166 +780,23 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
 
     @staticmethod
     def analyze_scene(objects=None, adaptive=True, sections=None):
-        """Game-readiness scene audit — the Blender port of mayatk's ``SceneAnalyzer`` (the budgeted,
-        sectioned report behind Get Scene Info). Returns ``{section_key: html}`` for the requested
-        ``sections`` (default all, rendered in canonical order).
+        """Game-readiness scene report -- the sectioned audit behind Get Scene Info.
 
-        ``adaptive`` picks the triangle-budget profile: **Adaptive (Game Ready)** scales each mesh's
-        budget by its world-space size (a hero mesh gets a larger budget than a small prop, clamped
-        10k–1M); **Generic** applies a flat 100k budget to every mesh. Meshes over budget are the
-        offenders driving Fix-First / Offenders. Sections: ``summary`` (totals + over-budget count),
-        ``fix_first`` (worst offenders), ``pareto`` (top-10 triangle contributors), ``offenders``
-        (per-asset table), ``categories`` (multi-material meshes), ``textures`` (4K+ histogram),
-        ``pipeline`` (missing texture files), ``assumptions`` (methodology). ``objects`` defaults to the
-        whole scene. Headless-safe (pure bpy queries)."""
-        import bpy
+        Delegates to :class:`~blendertk.core_utils.diagnostics.scene_audit.SceneAnalyzer`
+        (the mirror of ``mtk.SceneAnalyzer``), whose sections and look match mayatk's:
+        returns ``{"_header": html, section_key: html}`` for the requested ``sections``
+        (default all, canonical order). ``adaptive`` picks the triangle-budget profile
+        (mayatk's: Adaptive scales the budget with each mesh's world-space size; Generic
+        is flat). ``objects`` defaults to the whole scene. Headless-safe (pure bpy queries).
+        """
+        from blendertk.core_utils.diagnostics.scene_audit import SceneAnalyzer
 
-        wanted = [s for s in _SCENE_SECTIONS if s in (sections or _SCENE_SECTIONS)]
-        pool = (
-            ptk.make_iterable(objects)
-            if objects is not None
-            else list(bpy.context.scene.objects)
+        return SceneAnalyzer.format_audit_html(
+            adaptive=adaptive,
+            objects=objects,
+            sections=sections,
+            scope="all" if objects is None else None,
         )
-        meshes = [o for o in pool if o.type == "MESH"]
-
-        recs = []
-        for o in meshes:
-            tris = _CoreUtilsInternal._mesh_face_counts(o.data)[0]
-            d = o.dimensions
-            diag = (d.x * d.x + d.y * d.y + d.z * d.z) ** 0.5
-            recs.append(
-                {
-                    "name": o.name,
-                    "tris": tris,
-                    "diag": diag,
-                    "mats": len([s for s in o.material_slots if s.material]),
-                }
-            )
-        total_tris = sum(r["tris"] for r in recs)
-        diags = sorted((r["diag"] for r in recs)) or [0.0]
-        median = diags[len(diags) // 2] or 1.0
-        for r in recs:
-            if adaptive:
-                scale = (r["diag"] / median) if median else 1.0
-                r["budget"] = int(
-                    min(1_000_000, max(10_000, _GENERIC_TRI_BUDGET * scale))
-                )
-            else:
-                r["budget"] = _GENERIC_TRI_BUDGET
-            r["over"] = r["tris"] - r["budget"]
-
-        offenders = sorted((r for r in recs if r["over"] > 0), key=lambda r: -r["over"])
-        pareto = sorted(recs, key=lambda r: -r["tris"])[:10]
-
-        def _table(header, rows):
-            body = "".join(
-                "<tr>"
-                + "".join(f"<td align='right'>&nbsp;{c}</td>" for c in row)
-                + "</tr>"
-                for row in rows
-            )
-            head = "".join(f"<th align='right'>&nbsp;{h}</th>" for h in header)
-            return f"<table cellspacing='6'><tr>{head}</tr>{body}</table>"
-
-        out = {}
-        if "summary" in wanted:
-            out["summary"] = (
-                "<h3>Executive Summary</h3>"
-                f"<table cellspacing='6'>"
-                f"<tr><td>Profile</td><td align='right'>&nbsp;{'Adaptive (Game Ready)' if adaptive else 'Generic'}</td></tr>"
-                f"<tr><td>Meshes</td><td align='right'>&nbsp;{len(meshes):,}</td></tr>"
-                f"<tr><td>Triangles</td><td align='right'>&nbsp;{total_tris:,}</td></tr>"
-                f"<tr><td>Materials</td><td align='right'>&nbsp;{len(bpy.data.materials):,}</td></tr>"
-                f"<tr><td>Over-budget meshes</td><td align='right'>&nbsp;{len(offenders):,}</td></tr>"
-                "</table>"
-            )
-        if "fix_first" in wanted:
-            rows = [
-                (r["name"], f"{r['tris']:,}", f"{r['budget']:,}", f"+{r['over']:,}")
-                for r in offenders[:5]
-            ]
-            out["fix_first"] = "<h4>Fix First (High Impact)</h4>" + (
-                _table(("Asset", "Tris", "Budget", "Over"), rows)
-                if rows
-                else "<p>No meshes exceed their triangle budget. ✓</p>"
-            )
-        if "pareto" in wanted:
-            rows = [
-                (
-                    r["name"],
-                    f"{r['tris']:,}",
-                    f"{(100 * r['tris'] / total_tris):.1f}%" if total_tris else "0%",
-                )
-                for r in pareto
-            ]
-            out["pareto"] = "<h4>Pareto View — top triangle contributors</h4>" + _table(
-                ("Asset", "Tris", "% of total"), rows
-            )
-        if "offenders" in wanted:
-            rows = [
-                (r["name"], f"{r['tris']:,}", f"{r['budget']:,}", f"+{r['over']:,}")
-                for r in offenders
-            ]
-            out["offenders"] = "<h4>Top Issues by Asset</h4>" + (
-                _table(("Asset", "Tris", "Budget", "Over"), rows)
-                if rows
-                else "<p>No over-budget assets. ✓</p>"
-            )
-        if "categories" in wanted:
-            multi = sorted(
-                (r for r in recs if r["mats"] > 1), key=lambda r: -r["mats"]
-            )[:10]
-            rows = [(r["name"], r["mats"]) for r in multi]
-            out["categories"] = (
-                "<h4>Top Offenders by Category — multi-material meshes</h4>"
-                + (
-                    _table(("Asset", "Material slots"), rows)
-                    if rows
-                    else "<p>No multi-material meshes.</p>"
-                )
-            )
-        if "textures" in wanted:
-            imgs = [i for i in bpy.data.images if i.source == "FILE"]
-            buckets = {"<1K": 0, "1K": 0, "2K": 0, "4K+": 0}
-            for i in imgs:
-                m = max(i.size[0], i.size[1])
-                buckets[
-                    "4K+"
-                    if m >= 4096
-                    else "2K"
-                    if m >= 2048
-                    else "1K"
-                    if m >= 1024
-                    else "<1K"
-                ] += 1
-            rows = [(k, v) for k, v in buckets.items()]
-            out["textures"] = f"<h4>Textures — {len(imgs)} file image(s)</h4>" + _table(
-                ("Max dimension", "Count"), rows
-            )
-        if "pipeline" in wanted:
-            missing = [
-                f"{i.name} ({i.filepath})"
-                for i in bpy.data.images
-                if i.source == "FILE"
-                and i.filepath
-                and not os.path.exists(bpy.path.abspath(i.filepath))
-            ]
-            out["pipeline"] = "<h4>Pipeline Integrity</h4>" + (
-                "<p>Missing texture files:<br> • " + "<br> • ".join(missing) + "</p>"
-                if missing
-                else "<p>All referenced texture files resolve. ✓</p>"
-            )
-        if "assumptions" in wanted:
-            note = (
-                "Adaptive budget scales the 100k base by each mesh's world-size relative to the "
-                "scene median (clamped 10k-1M)."
-                if adaptive
-                else "Generic budget is a flat 100k triangles per mesh."
-            )
-            out["assumptions"] = (
-                f"<h4>Data Assumptions</h4><p>Triangles are fan-count per face (n-2). {note}</p>"
-            )
-        return out
 
     @staticmethod
     def cleanup_scene(quiet=False):

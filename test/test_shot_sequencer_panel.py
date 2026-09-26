@@ -67,6 +67,9 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
 
         cls.sb = Switchboard()
         cls.handler = BlenderUiHandler(switchboard=cls.sb)
+        # A process singleton: in a run that built it earlier (another panel
+        # module) it keeps ITS switchboard, which is the one holding the UIs.
+        cls.sb = cls.handler.sb
         cls.ui = cls.handler.get("shot_sequencer")
         for _ in range(5):
             cls.app.processEvents()
@@ -208,6 +211,48 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
             "_edit_shot_in_settings",
         ):
             self.assertTrue(callable(getattr(self.ui.slots, name, None)), name)
+
+    def test_delete_stale_shots_is_offered_asks_and_drops_records(self):
+        """The shot list's Delete Stale Shots (mayatk mirror): offered while a
+        stale shot exists, asks with the names, drops records only.  No bpy
+        here, so the store's two scene hooks stand in for the file."""
+        from unittest import mock
+        from qtpy import QtCore
+        from uitk.widgets.context_menu import ContextMenu
+
+        ctl = self.ui.slots.controller
+        store = ctl.sequencer.store
+        for shot in list(store.shots):
+            store.remove_shot(shot.shot_id)
+        store.define_shot("GoneShot", 100, 120, objects=["Gone"])
+        store.define_shot("LiveShot", 200, 220, objects=["Live"])
+        store._existing_objects = lambda names: {n for n in names if n == "Live"}
+        store._keyed_windows = lambda windows: [a <= 210 <= b for a, b in windows]
+        offered, asked = {}, []
+
+        def shown(menu, *args, **kwargs):
+            for row in menu.list.get_items():
+                if callable(getattr(row, "text", None)):
+                    offered[row.text()] = row.isEnabled()
+
+        def answer(*args, **kwargs):
+            asked.append(args[2])
+            return QtWidgets.QMessageBox.Yes
+
+        try:
+            with mock.patch.object(ContextMenu, "exec_", new=shown):
+                self.ui.slots._cmb_context_menu(QtCore.QPoint(0, 0))
+            self.assertTrue(offered.get("Delete Stale Shots…"), offered)
+            with mock.patch.object(
+                QtWidgets.QMessageBox, "question", new=staticmethod(answer)
+            ):
+                ctl.delete_stale_shots()
+            self.assertIn("GoneShot [100–120]", asked[0])
+            self.assertEqual([s.name for s in store.shots], ["LiveShot"])
+        finally:
+            del store._existing_objects, store._keyed_windows
+            for shot in list(store.shots):
+                store.remove_shot(shot.shot_id)
 
     def test_key_edit_rows_mirror_mayatk(self):
         """The Edit submenu's rows, Simplify included, and their handlers."""

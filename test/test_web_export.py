@@ -720,6 +720,42 @@ try:
     split_left = split_leftovers()
     check("...and the split wiring is fully reverted", not split_left, str(split_left))
 
+    # --- one material, a BAKED object and one the bake never saw ------------
+    # Wired in place, the material carried the wall's lightmap to everything
+    # wearing it, so the unbaked prop exported lit by the wall's bake (through
+    # its own UV2) and the viewer counted the material as lightmapped. The twin
+    # of ptk.MeshConvert.apply_glb_lightmaps' 2026-09-24 fix: the baked object
+    # binds a clone, and the material stays as authored for the prop.
+    paint = bpy.data.materials.new("M_Paint")
+    paint.use_nodes = True
+    painted = {}
+    for role, loc in (("wall", (18.0, 0.0, 0.0)), ("prop", (18.0, 3.0, 0.0))):
+        bpy.ops.mesh.primitive_plane_add(size=2, location=loc)
+        ob = bpy.context.active_object
+        ob.name = f"paint_{role}"
+        ob.data.materials.append(paint)
+        ob.data.uv_layers.new(name=LIGHTMAP_UV_SET)
+        painted[role] = ob
+    wall_png = os.path.join(tmp_dir, "paint_wall_lm.png")
+    wall_img = bpy.data.images.new("paint_wall_lm", 8, 8)
+    wall_img.filepath_raw = wall_png
+    wall_img.file_format = "PNG"
+    wall_img.save()
+    bpy.data.images.remove(wall_img)
+
+    paint_token = web.wire_lightmaps({painted["wall"].name: (wall_png, 1.0)})
+    got_paint = {role: reached(ob) for role, ob in painted.items()}
+    check(
+        "an unbaked object sharing a baked one's material is not lit by its bake",
+        got_paint == {"wall": ["paint_wall_lm.png"], "prop": []},
+        json.dumps(got_paint),
+    )
+    web.unwire_lightmaps(paint_token)
+    paint_left = [n.name for n in paint.node_tree.nodes if n.label == "Lightmap"] + [
+        m.name for m in bpy.data.materials if m.name.startswith("M_Paint~")
+    ]
+    check("...and that wiring is fully reverted", not paint_left, str(paint_left))
+
     # --- a wiring that fails part-way takes back what it did ---------------
     # wire_lightmaps edits the LIVE scene (tentacle's GLB export wraps the
     # artist's own .blend in wired_for_export), and it takes every clone and

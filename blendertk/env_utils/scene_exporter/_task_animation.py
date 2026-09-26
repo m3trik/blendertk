@@ -318,8 +318,8 @@ class _AnimationTasksMixin(_TaskDataMixin):
         Idempotent; a no-op when the scene has no carrier.  Shared by
         :meth:`export_data_node` and :meth:`apply_declared_takes` (mirror of
         mayatk's ``_include_data_export_node``), and — beyond the mayatk twin —
-        also clears whatever hide state would make the selection-based FBX
-        funnel silently drop the Empty.
+        also clears, for the write only, whatever hide state would make the
+        selection-based FBX funnel silently drop the Empty.
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
@@ -330,11 +330,26 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         # The FBX funnel exports via use_selection + select_set, which can only
         # ship selectable, visible objects — a hidden carrier would silently
-        # drop the metadata, so clear any hide state before including it.
-        # Deliberately NOT restored afterwards: task reverts run when
-        # run_tasks returns, which is BEFORE the FBX write — re-hiding there
-        # would drop the carrier from the export again (proven by the
-        # hidden-carrier round-trip check in test_scene_exporter.py).
+        # drop the metadata, so clear any hide state before including it, and
+        # put it back after the write: a deferred restore runs AFTER it (the
+        # task reverts that ran before the write were retired 2026-09-13, and
+        # the carrier was left visible for good until 2026-09-24).
+        try:
+            layer_hidden = carrier.hide_get()
+        except RuntimeError:  # not in the active view layer
+            layer_hidden = False
+        hide_state = (carrier.hide_select, carrier.hide_viewport, layer_hidden)
+
+        def _rehide(carrier=carrier, state=hide_state):
+            try:
+                carrier.hide_select, carrier.hide_viewport = state[0], state[1]
+                if state[2]:
+                    carrier.hide_set(True)
+            except (RuntimeError, ReferenceError):
+                pass  # unlinked from the layer since, or freed
+
+        # First wins: a later call sees the state this one cleared.
+        self.stage_deferred_restore("data_export_hide", _rehide)
         was_hidden = carrier.hide_select or carrier.hide_viewport
         carrier.hide_select = False
         carrier.hide_viewport = False
@@ -388,9 +403,13 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
     def ensure_scene_records_published(self):
         """Publish once if no task did (mirror of mayatk's): the write's
-        fallback for a run with the carrier tasks off."""
+        fallback for a run with the carrier tasks off.  What it left out is
+        logged as the carrier task's publish logs it
+        (:meth:`_log_snapshot_notes`): with that task off, this is the run's
+        only publish, and the only place a stale shot is named."""
         if self._scene_snapshot is None:
             self._scene_snapshot = self._publish_scene_records()
+            self._log_snapshot_notes()
 
     def _publish_scene_records(self, only=None):
         """``FbxUtils.publish`` with THIS run's context (mirror of mayatk's).
@@ -580,10 +599,15 @@ class _AnimationTasksMixin(_TaskDataMixin):
         else:
             self.logger.debug("No takes declared. Skipping animation takes.")
 
+    #: The panel that acts on a record's export notes (mirror of mayatk's):
+    #: record key -> (link label, panel name), opened by ``action://show``.
+    NOTE_PANELS = {ptk.SceneRecords.SHOTS.key: ("Open Shots", "shots")}
+
     def _log_data_node_summary(self):
         """Log what this run published on ``data_export`` -- the snapshot's
         own summary (mirror of mayatk's), so a silently-empty export is
-        distinguishable from a populated one.  Best-effort: never aborts the
+        distinguishable from a populated one -- and what a producer left out
+        of it (:meth:`_log_snapshot_notes`).  Best-effort: never aborts the
         export it describes."""
         snapshot = self._scene_snapshot
         if snapshot is None:
@@ -594,6 +618,33 @@ class _AnimationTasksMixin(_TaskDataMixin):
                 self.logger.info(f"Embedded on data_export: {summary}.")
         except Exception:  # a summary must never break the export it describes
             self.logger.debug("data_export summary skipped.", exc_info=True)
+        self._log_snapshot_notes()
+
+    def _log_snapshot_notes(self):
+        """Log, as warnings, what a producer left out of this run's publish
+        (``ExportSnapshot.noted``), each with a link to the panel that acts on
+        it (:attr:`NOTE_PANELS`).  Every publish path calls it -- the carrier
+        task's summary and the fallback publish of a run with that task off
+        (mirror of mayatk's).  Best-effort: never aborts the export."""
+        snapshot = self._scene_snapshot
+        if snapshot is None:
+            return
+        try:
+            for key, notes in snapshot.noted.items():
+                link = self._note_link(key)
+                for note in notes:
+                    self.logger.warning(f"{note} {link}" if link else note)
+        except Exception:  # a note must never break the export it describes
+            self.logger.debug("data_export notes skipped.", exc_info=True)
+
+    def _note_link(self, key: str) -> str:
+        """The link to the panel that acts on *key*'s notes, or ``""``."""
+        entry = self.NOTE_PANELS.get(key)
+        build = getattr(self.logger, "log_link", None)
+        if entry is None or build is None:
+            return ""
+        label, panel = entry
+        return build(label, "show", ui=panel)
 
     def _restore_bake_session(self) -> None:
         """Undo :meth:`smart_bake`'s session -- the restore that task stages.

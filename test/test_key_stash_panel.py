@@ -70,6 +70,9 @@ class TestKeyStashPanelLoads(unittest.TestCase):
 
         cls.sb = Switchboard()
         cls.handler = BlenderUiHandler(switchboard=cls.sb)
+        # A process singleton: in a run that built it earlier (another panel
+        # module) it keeps ITS switchboard, which is the one holding the UIs.
+        cls.sb = cls.handler.sb
         cls.ui = cls.handler.get("key_stash")
         # The slots populate on the next event-loop tick; give it that tick.
         for _ in range(50):

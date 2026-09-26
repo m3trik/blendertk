@@ -360,10 +360,17 @@ class ShotsController(ptk.LoggingMixin):
             )
 
         # All Shots group -- every control there needs at least one shot.
+        # Delete Stale Shots too, and the click decides whether one is stale
+        # (on_delete_stale_shots says "No stale shots"): deleting an object
+        # raises no store event, so a state judged at the last one goes stale
+        # -- the export log's Open Shots link opened the panel with the button
+        # greyed out -- and judging it here looked every member and frame up
+        # in the file on every store event (mirror of mayatk's).
         for name in (
             "spn_gap",
             "spn_shift_all",
             "btn_trim_all",
+            "btn_delete_stale",
             "btn_delete_all",
         ):
             w = getattr(self.ui, name, None)
@@ -1014,6 +1021,46 @@ class ShotsController(ptk.LoggingMixin):
             parts.append(f"closed {closed:.0f}f")
         self._set_footer(" \u00b7 ".join(parts))
 
+    @staticmethod
+    def confirm_stale_removal(stale, parent=None) -> bool:
+        """Ask before ``ShotStore.remove_stale_shots``, naming *stale* (mirror
+        of mayatk's): the one question for this panel's All Shots group and
+        the Sequencer's shot list."""
+        from qtpy import QtWidgets
+
+        listed = "\n".join(
+            f"  {s.name} [{s.start:.0f}–{s.end:.0f}]" for s in stale[:12]
+        )
+        if len(stale) > 12:
+            listed += f"\n  … and {len(stale) - 12} more"
+        reply = QtWidgets.QMessageBox.question(
+            parent,
+            "Delete Stale Shots",
+            f"Delete {len(stale)} shot(s) whose objects are all gone from the "
+            f"file and which key nothing?\n\n{listed}\n\n"
+            "No keyframe is touched and no other shot moves.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel,
+        )
+        return reply == QtWidgets.QMessageBox.Yes
+
+    def on_delete_stale_shots(self) -> None:
+        """Delete the stale shots after naming them (All Shots group; mirror
+        of mayatk's): records only, one undoable edit, no key or shot moves."""
+        store = self._active_store()
+        if store is None:
+            return
+        stale = store.stale_shots()
+        if not stale:
+            self._set_footer("No stale shots")
+            return
+        if not self.confirm_stale_removal(stale, self.ui):
+            return
+        removed = []
+        if self._boundary_edit(
+            store, "delstale", lambda: removed.extend(store.remove_stale_shots())
+        ):
+            self._set_footer(f"Deleted {len(removed)} stale shot(s)")
+
     def on_delete_all_shots(self) -> None:
         """Delete every shot after confirmation."""
         from qtpy import QtWidgets
@@ -1260,6 +1307,7 @@ class ShotsSlots(ptk.LoggingMixin):
                             "<b>Gap</b> \u2014 Frame gap. Click option box \u25b8 to choose scope (All Shots / Start / End / Start &amp; End) and apply. <b>Override Locked Gaps</b> there spends the value on locked gaps too, without unlocking them.",
                             "<b>Shift To</b> \u2014 Frame the first shot should start on; option box \u25b8 to move every shot by the same amount, keeping their spacing.",
                             "<b>Trim Empty (All)</b> \u2014 Trim every shot; option box \u25b8 for leading / trailing only.",
+                            "<b>Delete Stale Shots</b> \u2014 Deletes the shots whose objects are all gone from the file and which key nothing (a file saved from another keeps them; exports already leave them out). No key or other shot moves.",
                             "<b>Delete All Shots</b> \u2014 Clears the store. Keyframes stay in the scene.",
                         ],
                     ),
@@ -1322,6 +1370,10 @@ class ShotsSlots(ptk.LoggingMixin):
     def btn_delete_all(self):
         """Delete every shot (All Shots group)."""
         self.controller.on_delete_all_shots()
+
+    def btn_delete_stale(self):
+        """Delete the stale shots (All Shots group)."""
+        self.controller.on_delete_stale_shots()
 
     def btn_move_shot(self):
         """Move shot to the position in spn_move_to."""
