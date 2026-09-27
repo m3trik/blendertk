@@ -161,13 +161,19 @@ try:
     )
     check("to_project_relative still handles the flat layout", flat == "//sourceimages/t.png", flat)
     # Case-folding: os.path.commonpath compares case-sensitively, so a differently-cased blend dir
-    # used to leave the path absolute on Windows.
+    # used to leave the path absolute on Windows. On a case-sensitive filesystem the recased dir
+    # is a different folder, so the path correctly stays absolute there.
+    _abs_tex = os.path.join(tmp, "proj", "sourceimages", "t.png")
     cased = btk.to_project_relative(
-        os.path.join(tmp, "proj", "sourceimages", "t.png"),
+        _abs_tex,
         blenddir=os.path.join(tmp, "proj").upper(),
         project_root=os.path.join(tmp, "proj").upper(),
     )
-    check("to_project_relative folds path case", cased == "//sourceimages/t.png", cased)
+    check(
+        "to_project_relative folds path case exactly where the OS does",
+        cased == ("//sourceimages/t.png" if os.name == "nt" else _abs_tex.replace("\\", "/")),
+        cased,
+    )
     outside = btk.to_project_relative(
         os.path.join(tmp, "elsewhere", "t.png"),
         blenddir=os.path.join(tmp, "proj", "scenes"),

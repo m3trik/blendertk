@@ -15,10 +15,7 @@ subprocess); only Blender-executable *discovery* is Blender-specific. No ``bpy``
 the launcher, run from outside Blender (e.g. the workspace ``.venv`` or a parent process).
 """
 
-import glob
 import os
-import platform
-import shutil
 from typing import List, Optional
 
 import pythontk as ptk
@@ -41,39 +38,29 @@ class BlenderConnection:
             )
         self.factory_startup = factory_startup
 
+    #: Every OS's install roots, in priority order; the highest version wins
+    #: within each (``AppLauncher.scan_install_dirs``: natural sort -- 4.10
+    #: over 4.9 -- with ``~`` expanded, Windows roots skipped elsewhere).
+    _INSTALL_GLOBS = (
+        r"{program_files}\Blender Foundation\Blender *\blender.exe",
+        "/Applications/Blender*.app/Contents/MacOS/Blender",
+        "/opt/blender*/blender",
+        "/usr/local/blender*/blender",
+        "/usr/share/blender*/blender",
+        "~/blender-*/blender",
+    )
+
     # ------------------------------------------------------------------ discovery
     @classmethod
     def find_blender(cls) -> Optional[str]:
-        """Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` → common install
-        dirs (highest version wins). Returns the absolute path or ``None``."""
-        for var in cls._ENV_VARS:
-            p = os.environ.get(var)
-            if p and os.path.isfile(p):
-                return p
-        which = shutil.which("blender")
-        if which:
-            return which
-
-        system = platform.system().lower()
-        candidates: List[str] = []
-        if system == "windows":
-            roots = {
-                os.environ.get("ProgramFiles", r"C:\Program Files"),
-                os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-            }
-            for root in filter(None, roots):
-                candidates += glob.glob(
-                    os.path.join(root, "Blender Foundation", "Blender *", "blender.exe")
-                )
-        elif system == "darwin":
-            candidates += glob.glob("/Applications/Blender*.app/Contents/MacOS/Blender")
-        else:  # linux / other unix
-            candidates += glob.glob("/usr/share/blender*/blender")
-            candidates += glob.glob("/opt/blender*/blender")
-            candidates += glob.glob("/usr/local/blender*/blender")
-        candidates = [c for c in candidates if os.path.isfile(c)]
-        # sort so the highest "Blender <ver>" path is last (best-guess newest)
-        return sorted(candidates)[-1] if candidates else None
+        """Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` (and the
+        OS's app registry: App Paths, the Linux application menu) → :attr:`_INSTALL_GLOBS`.
+        Returns the absolute path or ``None``."""
+        return ptk.AppLauncher.resolve_app_path(
+            env_vars=cls._ENV_VARS,
+            app_names=("blender",),
+            scan_globs=cls._INSTALL_GLOBS,
+        )
 
     # ------------------------------------------------------------------ run
     def _base_args(self) -> List[str]:

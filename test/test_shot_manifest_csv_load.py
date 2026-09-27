@@ -36,7 +36,7 @@ from pythontk.core_utils.engines.shots.manifest.manifest_model import (  # noqa:
 )
 
 try:
-    from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
+    from pythontk import TooltipFormat
     from blendertk.anim_utils.shots.shot_manifest.shot_manifest_slots import (
         ShotManifestController,
     )

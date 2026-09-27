@@ -663,9 +663,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
 
     def tb000_init(self, widget):
         """Key Opacity Fade Init — configure option-box menu."""
-        from pythontk.file_utils.mesh_convert.glb_fades import CHANNELS as GLTF
         from uitk.widgets.editors.color_editor import FadeWaveform, RampPreview
 
+        GLTF = ptk.GlbFades.CHANNELS
         widget.option_box.menu.setTitle("Key Opacity Fade")
         self._add_mode(widget, self.OPACITY)
         widget.option_box.menu.add(
@@ -823,9 +823,9 @@ class RenderEffectsSlots(ptk.LoggingMixin):
     def tb001_init(self, widget):
         """Key Highlight Pulse Init — configure option-box menu."""
         from qtpy import QtCore
-        from pythontk.file_utils.mesh_convert.glb_fades import CHANNELS as GLTF
         from uitk.widgets.editors.color_editor import ColorRampEditor
 
+        GLTF = ptk.GlbFades.CHANNELS
         widget.option_box.menu.setTitle("Key Highlight Pulse")
         self._add_mode(widget, self.HIGHLIGHT)
         # SECONDS, like every other field in this box (mirrors mayatk): the

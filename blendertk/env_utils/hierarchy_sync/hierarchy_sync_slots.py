@@ -46,10 +46,9 @@ Scope of this port:
       only "Full Hierarchy Compare" ever had a real effect (clearing selection) — the other three
       modes changed nothing but a debug log line, so there is no working behavior to mirror.
 
-``import bpy`` / ``qtpy`` are deferred into method bodies where the rest of this port's ported
-Slots classes do so, EXCEPT for the module-level ``_MiddleButtonDragFilter`` (a ``QObject``
-subclass needs its Qt base class resolved at class-definition time, matching mayatk's own
-convention for this file).
+``import bpy`` is deferred into method bodies where the rest of this port's ported Slots classes
+do so; ``qtpy`` is imported at module level, matching mayatk's own convention for this file.
+The drag-to-reparent filter on ``tree001`` is the shared ``uitk.TreeDragReparentFilter``.
 """
 
 import os
@@ -927,81 +926,6 @@ class HierarchySyncController(ptk.LoggingMixin):
         self.ui.settings.setValue("recent_reference_scenes", recent_scenes)
 
 
-class _MiddleButtonDragFilter(QtCore.QObject):
-    """Event filter enabling middle-mouse drag-to-reparent on a QTreeWidget.
-
-    Installed on ``tree001``'s viewport to intercept middle-button presses and synthesise
-    left-button events so Qt's built-in ``InternalMove`` drag-drop machinery handles the visual
-    move. Also installed on the tree widget itself to intercept ``Drop`` events; after Qt
-    completes the internal move, the filter calls back into the slots layer to mirror the
-    reparent operation inside the Blender scene.
-    """
-
-    def __init__(self, parent=None, *, reparent_callback=None):
-        super().__init__(parent)
-        self._mid_dragging = False
-        self._reparent_callback = reparent_callback
-        self._dragged_items = []
-
-    @staticmethod
-    def _synth_mouse(etype, event, button=QtCore.Qt.LeftButton):
-        return QtGui.QMouseEvent(
-            etype, event.localPos(), button, button, event.modifiers()
-        )
-
-    def eventFilter(self, obj, event):  # noqa: N802
-        etype = event.type()
-        is_viewport = not obj.inherits("QTreeWidget")
-
-        if is_viewport:
-            if (
-                etype == QtCore.QEvent.MouseButtonPress
-                and event.button() == QtCore.Qt.MiddleButton
-            ):
-                tree = obj.parent()
-                self._dragged_items = list(tree.selectedItems())
-                self._mid_dragging = True
-                QtCore.QCoreApplication.sendEvent(
-                    obj, self._synth_mouse(QtCore.QEvent.MouseButtonPress, event)
-                )
-                return True
-
-            if self._mid_dragging and etype == QtCore.QEvent.MouseMove:
-                QtCore.QCoreApplication.sendEvent(
-                    obj, self._synth_mouse(QtCore.QEvent.MouseMove, event)
-                )
-                return True
-
-            if (
-                etype == QtCore.QEvent.MouseButtonRelease
-                and event.button() == QtCore.Qt.MiddleButton
-            ):
-                was_dragging = self._mid_dragging
-                self._mid_dragging = False
-                if was_dragging:
-                    QtCore.QCoreApplication.sendEvent(
-                        obj, self._synth_mouse(QtCore.QEvent.MouseButtonRelease, event)
-                    )
-                    return True
-
-            return super().eventFilter(obj, event)
-
-        if etype == QtCore.QEvent.Drop and self._reparent_callback:
-            # Let Qt handle the tree-item move first.
-            result = super().eventFilter(obj, event)
-            # Mirror every reparent via ONE batch callback. The callback rebuilds
-            # the tree, which deletes every QTreeWidgetItem — a per-item callback
-            # left the remaining iterations holding dangling C++ items
-            # (RuntimeError + partial reparent on multi-select drags).
-            moves = [(item, item.parent()) for item in self._dragged_items]
-            self._dragged_items.clear()
-            if moves:
-                self._reparent_callback(moves)
-            return result
-
-        return super().eventFilter(obj, event)
-
-
 class HierarchySyncSlots(ptk.LoggingMixin):
     """Slots class for hierarchy management UI operations.
 
@@ -1026,7 +950,9 @@ class HierarchySyncSlots(ptk.LoggingMixin):
 
         self.controller = HierarchySyncController(self)
 
-        self._tree001_drag_filter = _MiddleButtonDragFilter(
+        from uitk import TreeDragReparentFilter
+
+        self._tree001_drag_filter = TreeDragReparentFilter(
             self.ui, reparent_callback=self._on_tree001_drop_reparent
         )
 
@@ -1318,7 +1244,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
     def _on_tree001_drop_reparent(self, moves):
         """Mirror tree-widget drag-drop reparents in the Blender scene.
 
-        Called by :class:`_MiddleButtonDragFilter` with the whole dropped
+        Called by ``uitk.TreeDragReparentFilter`` with the whole dropped
         selection after Qt finishes moving the tree items. Every ``(obj,
         parent_obj)`` is resolved from its ``QTreeWidgetItem`` up front, before
         the final tree rebuild — ``refresh_trees`` clears ``tree001`` and
@@ -1461,8 +1387,7 @@ class HierarchySyncSlots(ptk.LoggingMixin):
 
             widget.setDragDropMode(self.sb.QtWidgets.QAbstractItemView.InternalMove)
             widget.setDefaultDropAction(self.sb.QtCore.Qt.MoveAction)
-            widget.viewport().installEventFilter(self._tree001_drag_filter)
-            widget.installEventFilter(self._tree001_drag_filter)
+            self._tree001_drag_filter.install(widget)
 
             widget.is_initialized = True
 

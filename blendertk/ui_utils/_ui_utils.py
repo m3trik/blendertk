@@ -300,10 +300,14 @@ class UiUtils(_UiUtilsInternal):
         for the rest of the calling callback — ``bpy.context.window`` reads None — so any
         ``show_region_*`` assignment after this call is the ``ED_area_init`` hard crash. Do
         region-flag work *before* closing areas, or in a later tick.
+
+        **GUI-only:** under ``--background`` ``screen.area_close`` overflows the C stack
+        (5.1, any area; the process dies with no Python frame to catch), so this returns
+        False there without running it.
         """
         import bpy
 
-        if area is None or window is None:
+        if area is None or window is None or bpy.app.background:
             return False
         try:
             if len(window.screen.areas) <= 1:

@@ -51,7 +51,7 @@ def check(name, cond, detail=""):
 try:
     import bpy
     import blendertk as btk
-    from pythontk.core_utils.app_handoff import HandoffRequest
+    from pythontk import HandoffRequest
     from blendertk.env_utils.unity_bridge._unity_bridge import UnityBridge
 
     def reset():

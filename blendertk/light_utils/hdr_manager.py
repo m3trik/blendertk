@@ -276,8 +276,9 @@ class HdrManagerSlots(ptk.LoggingMixin):
                 steps=[
                     "Header menu (▸) → <b>Set HDR Folder…</b> once — Blender has no project "
                     "workspace to auto-resolve a folder from, unlike Maya's sourceimages.",
-                    "Pick an HDR / EXR from the dropdown to light the scene; pick <b>None</b> "
-                    "to remove the HDR environment.",
+                    "Pick an HDR / EXR from the dropdown to light the scene (lists the "
+                    "environment maps in the HDR folder); pick <b>None</b> to remove the HDR "
+                    "environment.",
                     "Open the dropdown's option menu (▸) → <b>Add HDR(s)…</b> to add images — "
                     "one dialog picks loose files and/or a whole folder; the import mode is "
                     "set just below it.",
@@ -303,14 +304,24 @@ class HdrManagerSlots(ptk.LoggingMixin):
                         "Add HDR(s)… (option-box menu ▸)",
                         [
                             "One dialog picks <b>loose files and/or a whole folder</b>; folders are "
-                            "expanded to their .hdr/.exr contents. Incomplete/corrupt files are "
-                            "skipped.",
+                            "expanded to the environment maps they hold (per the <b>List</b> "
+                            "toggles). Incomplete/corrupt files are skipped.",
                             "Files already inside the HDR folder (any subfolder) are used in place "
                             "— never duplicated; the dropdown lists them automatically.",
                             "<b>Copy</b> — duplicate an <i>external</i> file into the HDR folder "
                             "(default; keeps the folder self-contained).",
                             "<b>Move</b> — relocate an external file into the HDR folder.",
                             "<b>Link</b> — wire each in at its original path.",
+                        ],
+                    ),
+                    (
+                        "List (option-box menu ▸)",
+                        [
+                            "<b>Latlong Only (2:1)</b> — list only images shaped like an "
+                            "equirectangular environment, the projection the world maps; hides "
+                            "square lightmaps and textures.",
+                            "<b>Hide Lightmaps</b> — hide files named with the Lightmap affix of "
+                            "the shared naming convention (<i>Naming ▸ Suffix By Type</i>).",
                         ],
                     ),
                     (
@@ -406,6 +417,63 @@ class HdrManagerSlots(ptk.LoggingMixin):
             ),
             addItems=[label for label, _token in self._ADD_MODES],
         )
+        # What the dropdown (and a folder add) takes from disk. Both filters re-list on toggle;
+        # see ptk.ImgUtils.is_environment_map.
+        widget.option_box.menu.add("Separator", setTitle="List")
+        for name, text, tip in (
+            (
+                "chk_latlong_only",
+                "Latlong Only (2:1)",
+                "List only images shaped like an equirectangular environment (2:1) — the "
+                "projection the world maps. Hides lightmaps and other square textures by their "
+                "size.\nOnline-only cloud files are listed unread (reading one would download it).",
+            ),
+            (
+                "chk_hide_lightmaps",
+                "Hide Lightmaps",
+                "Hide files named with the Lightmap affix of the shared naming convention "
+                "(Naming ▸ Suffix By Type ▸ Lightmap; '_Lightmap' by default) — including tiles "
+                "and light groups such as 'room_Lightmap_3' or 'desk_Lightmap.LIGHT_A'.",
+            ),
+        ):
+            check = widget.option_box.menu.add(
+                "QCheckBox",
+                setText=text,
+                setObjectName=name,
+                setChecked=True,
+                setToolTip=tip,
+            )
+            check.toggled.connect(lambda *_: self._refresh_and_sync_combo())
+
+    def _list_filter(self) -> dict:
+        """``ptk.ImgUtils.is_environment_map`` keywords from the List toggles.
+
+        Both filters default on when the option box isn't built yet (early init, tests) — the
+        same fallback :meth:`_add_mode` takes."""
+        try:
+            menu = self.ui.cmb000.option_box.menu
+            return {
+                "latlong_only": menu.chk_latlong_only.isChecked(),
+                "skip_lightmaps": menu.chk_hide_lightmaps.isChecked(),
+            }
+        except AttributeError:
+            return {"latlong_only": True, "skip_lightmaps": True}
+
+    def _folder_hdrs(self, directory: str) -> list:
+        """The environment maps directly in *directory*, per the List toggles.
+
+        A folder add takes what the dropdown would list: adding the HDR folder itself in Link
+        mode otherwise wired whichever file came last — possibly a baked lightmap. Loose files the
+        user picks are taken as-is."""
+        flags = self._list_filter()
+        return [
+            path
+            for path in ptk.get_dir_contents(
+                directory, "filepath", inc_files=self.HDR_PATTERNS
+            )
+            or []
+            if ptk.ImgUtils.is_environment_map(path, **flags)
+        ]
 
     # ------------------------------------------------------------------
     # HDR folder (Blender has no Maya-style project workspace to auto-resolve one)
@@ -472,16 +540,28 @@ class HdrManagerSlots(ptk.LoggingMixin):
             inc_files=self.HDR_PATTERNS,
             group_by_type=True,
         )
-        count = len(hdr_info["filename"])
-        self.ui.footer.setText(
-            f"{count} HDR{'s' if count != 1 else ''} in {os.path.basename(src)}."
-        )
+        # The folder may also hold baked lightmaps and other EXR textures; list only what can
+        # light the world (ptk.ImgUtils.is_environment_map).
+        flags = self._list_filter()
+        listed = [
+            (name, path)
+            for name, path in zip(hdr_info["filename"], hdr_info["filepath"])
+            if ptk.ImgUtils.is_environment_map(path, **flags)
+        ]
+        names = [name for name, _path in listed]
+        paths = [path for _name, path in listed]
+        count, hidden = len(paths), len(hdr_info["filepath"]) - len(paths)
+        message = f"{count} HDR{'s' if count != 1 else ''} in {os.path.basename(src)}"
+        if hidden:
+            message += f" ({hidden} other image{'s' if hidden != 1 else ''} hidden)"
+        self.ui.footer.setText(message + ".")
 
         # Skip the destructive clear+repopulate when the listed HDRs are unchanged. _refresh_combo
         # runs on EVERY dropdown-open (before_popup_shown); rebuilding the item model right before
         # the popup shows can leave the popup view's selection desynced so the first click is
-        # dropped. The disk listing is the only input, so an unchanged listing -> leave it intact.
-        if self._listed_paths_match(hdr_info["filepath"]):
+        # dropped. The filtered disk listing is the only input, so an unchanged one -> leave it
+        # intact.
+        if self._listed_paths_match(paths):
             return
 
         # Block signals so the rebuild doesn't fire cmb000 -> set the environment -> re-trigger
@@ -493,11 +573,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
             # selection back to -1 after every pick — hiding the active map AND zeroing
             # currentData() so the apply silently no-ops. The combo must instead display the live
             # selection.
-            self.ui.cmb000.add(
-                zip(hdr_info["filename"], hdr_info["filepath"]),
-                ascending=False,
-                clear=True,
-            )
+            self.ui.cmb000.add(zip(names, paths), ascending=False, clear=True)
             self.ui.cmb000.restore_state = False
             # Explicit "None" entry at the top so the user can clear the HDR environment from the
             # same dropdown that sets it.
@@ -843,7 +919,8 @@ class HdrManagerSlots(ptk.LoggingMixin):
         """Add HDR(s) from one dialog — pick loose files and/or a whole folder.
 
         Option-box menu action (the panel's sole add affordance). Selected directories are
-        expanded to their ``.hdr`` / ``.exr`` contents; loose files are taken as-is. Everything is
+        expanded to their environment maps (:meth:`_folder_hdrs`); loose files are taken as-is.
+        Everything is
         imported per the current mode. Picking a *single* loose file gets the careful UX (modal on
         a bad file, overwrite prompt); a folder or several files is a bulk add (skip+count)."""
         start = self._hdr_folder()
@@ -855,9 +932,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         files = [p for p in selected if os.path.isfile(p)]
         paths = list(files)
         for d in dirs:
-            paths.extend(
-                ptk.get_dir_contents(d, "filepath", inc_files=self.HDR_PATTERNS) or []
-            )
+            paths.extend(self._folder_hdrs(d))
 
         # One explicit loose file -> careful; a folder or multiple -> bulk.
         careful = len(files) == 1 and not dirs
@@ -902,7 +977,7 @@ class HdrManagerSlots(ptk.LoggingMixin):
         Copy / Move bring each file into the HDR folder (so it lists in the dropdown); Link wires
         it in place. Wires the last good HDR into the environment and reports a summary."""
         if not paths:
-            self._notify(f"No HDR/EXR files in {where}.", level="warning")
+            self._notify(f"No HDR environment maps in {where}.", level="warning")
             return
 
         mode = self._add_mode()

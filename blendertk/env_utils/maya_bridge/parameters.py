@@ -20,18 +20,12 @@ call bodies so the engine surface still resolves under headless ``blender --back
 
 from __future__ import annotations
 
-from typing import Any
-
-from uitk.bridge import AttributeSpec, Formatters, Parameters as _BridgeParams
+from uitk.bridge import AttributeSpec, ParamRegistry, Parameters as _BridgeParams
 
 # Default VALUES live with the Qt-free engine so ``params_defaults()`` still answers
 # where this module cannot be imported (a DCC running headless has no Qt); the specs
 # below read them, so the two can never drift.
 from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS
-
-
-# Templates are executable Maya Python -- substitute user values as Python source literals.
-_FORMATTER = Formatters.python_literal
 
 
 # Display order is iteration order over this dict.
@@ -57,9 +51,30 @@ PARAMS: "dict[str, AttributeSpec]" = {
         default=DEFAULTS["EMBED_TEXTURES"],
         tooltip="Copy the texture files alongside the FBX so Maya resolves the maps.",
     ),
-    # Shared with the Maya-side pull panel (uitk owns the one spec): both run the
-    # SAME rebuild, so the control must not exist on only one of them.
-    "SHADER_TYPE": _BridgeParams.shader_type_spec(default=DEFAULTS["SHADER_TYPE"]),
+    # Which Maya shader the rebuild targets. The values are mayatk.GameShader's own
+    # (Maya's vocabulary, so it lives with the bridge that targets Maya, not in
+    # uitk); the Maya-side pull takes the same choice as an ``import_scene``
+    # keyword. Stingray leads: the only family that DECLARES its texture slots, so a
+    # material round-trips back out with its maps intact.
+    "SHADER_TYPE": AttributeSpec(
+        key="SHADER_TYPE",
+        label="Rebuild Shader",
+        kind="choice",
+        default=DEFAULTS["SHADER_TYPE"],
+        choices=[
+            ("Stingray PBS", "stingray"),
+            ("Standard Surface", "standard_surface"),
+            ("OpenPBR Surface", "open_pbr"),
+        ],
+        tooltip=(
+            "Which Maya shader the materials are rebuilt as:\n"
+            "\u2022 Stingray PBS \u2014 the game shader; its declared texture slots\n"
+            "  round-trip back out intact. Needs the shaderFX plugin.\n"
+            "\u2022 Standard Surface \u2014 renders anywhere, no plugin needed.\n"
+            "\u2022 OpenPBR Surface \u2014 the open PBR standard; needs a recent Maya 2025+.\n"
+            "A type this Maya cannot build falls back to Standard Surface."
+        ),
+    ),
     "APPLY_UNIT_SCALE": AttributeSpec(
         key="APPLY_UNIT_SCALE",
         label="Apply Unit Scale",
@@ -131,25 +146,13 @@ PARAMS: "dict[str, AttributeSpec]" = {
 }
 
 
-class Parameters:
-    """Parameters — module namespace."""
+class Parameters(ParamRegistry):
+    """Parameters — module namespace.
 
-    #: The parameter registry, exposed on the class so a bridge slot can hand
-    #: this class to the shared base as its ``params_module`` (the base reads
-    #: ``params_module.PARAMS`` and ``.referenced_keys``) — no module-level shim.
+    Declared as data: :class:`uitk.bridge.ParamRegistry` supplies
+    ``referenced_keys`` / ``defaults`` / ``render_context`` (Python literals)
+    over :data:`PARAMS`, and a bridge slot hands this class to the shared base
+    as its ``params_module``.
+    """
+
     PARAMS = PARAMS
-
-    @staticmethod
-    def referenced_keys(script_text: str) -> "set[str]":
-        """Registered keys present in *script_text* (delegates to uitk.bridge)."""
-        return _BridgeParams.referenced_keys(script_text, PARAMS)
-
-    @staticmethod
-    def defaults() -> "dict[str, Any]":
-        """Return ``{key: default}`` for every registered parameter."""
-        return _BridgeParams.defaults(PARAMS)
-
-    @staticmethod
-    def render_context(values: "dict[str, Any]") -> "dict[str, str]":
-        """Format *values* for ``StrUtils.replace_delimited`` using Python literals."""
-        return _BridgeParams.render_context(values, PARAMS, formatter=_FORMATTER)

@@ -265,7 +265,7 @@ def build_scene(bpy):
 
 def run_gui_leg(bridge, ptk, seeds):
     """Interactive-send leg: real ``maya.exe`` with ``-log``; see module docstring."""
-    from pythontk.core_utils.app_handoff import HandoffRequest
+    from pythontk import HandoffRequest
     from blendertk.env_utils.maya_bridge._maya_bridge import MayaBridge
 
     sentinel = os.path.join(TEMP, "gui_state.json")

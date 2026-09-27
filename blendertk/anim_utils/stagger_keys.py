@@ -8,6 +8,8 @@ to avoid an import cycle (``_anim_utils`` re-imports ``stagger_keys`` so ``AnimU
 / ``btk.stagger_keys`` keep resolving).
 """
 
+import pythontk as ptk
+
 
 class _StaggerKeysInternal(object):
     """Internal helpers for StaggerKeys."""
@@ -15,19 +17,9 @@ class _StaggerKeysInternal(object):
     @staticmethod
     def _group_units(units, merge_touching):
         """Group units whose key ranges overlap (or merely touch, when ``merge_touching``) into
-        blocks. Units are swept in start-frame order; chained overlaps fold into one block."""
-        blocks = []
-        for u in sorted(units, key=lambda u: u["start"]):
-            if blocks:
-                last_end = max(x["end"] for x in blocks[-1])
-                joins = (
-                    u["start"] <= last_end if merge_touching else u["start"] < last_end
-                )
-                if joins:
-                    blocks[-1].append(u)
-                    continue
-            blocks.append([u])
-        return blocks
+        blocks. Units are swept in start-frame order; chained overlaps fold into one block
+        (``ptk.ShotDetection.cluster_spans``, the ecosystem's one key-timing grouping)."""
+        return ptk.ShotDetection.cluster_spans(units, inclusive=bool(merge_touching))
 
 
 class StaggerKeys(_StaggerKeysInternal):

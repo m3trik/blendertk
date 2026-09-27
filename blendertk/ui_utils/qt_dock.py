@@ -133,8 +133,15 @@ class QtDock:
 
     @classmethod
     def supported(cls) -> bool:
-        """True when embedding can work here: Windows + a live QApplication."""
-        return sys.platform == "win32" and cls._qt_app() is not None
+        """True when embedding can work here: Windows, a live QApplication, and a real
+        window to embed into (``--background`` Blender has none)."""
+        import bpy
+
+        return (
+            sys.platform == "win32"
+            and not bpy.app.background
+            and cls._qt_app() is not None
+        )
 
     # -- state ----------------------------------------------------------------------
     @property

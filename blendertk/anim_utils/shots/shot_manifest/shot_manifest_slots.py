@@ -55,13 +55,6 @@ from pythontk import (
     ShotRemoved,
 )
 
-# When free space is below this, surface the actual figure alongside the
-# read-failure causes: low disk is then a plausible culprit and the concrete
-# number helps the user spot a (nearly) full volume.  Shown as a fact, never
-# asserted as *the* cause; above this it's omitted as noise.  A healthy working
-# volume rarely sits this low, so it won't fire on a normal disk.
-_LOW_DISK_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
-
 
 class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
     """Business logic for the Shot Manifest UI."""
@@ -167,7 +160,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
     def _is_built(self) -> bool:
         """True if any CSV step already exists as a shot in the store."""
         try:
-            built_map = {s.name for s in BlenderShotStore.active().shots}
+            built_map = {s.name for s in self._store_cls().active().shots}
         except Exception:
             return False
         return any(step.step_id in built_map for step in self._steps)
@@ -175,7 +168,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
     def _step_is_built(self, step_id: str) -> bool:
         """True if a specific step already exists as a shot in the store."""
         try:
-            return any(s.name == step_id for s in BlenderShotStore.active().shots)
+            return any(s.name == step_id for s in self._store_cls().active().shots)
         except Exception:
             return False
 
@@ -200,21 +193,22 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     def _all_ranges_complete(self) -> bool:
         """True when every step has a user-supplied (start, end) pair."""
-        return bool(self._steps) and all(
-            (r := self._user_ranges.get(s.step_id)) is not None
-            and r[0] is not None
-            and r[1] is not None
-            for s in self._steps
-        )
+        return ptk.RangeResolver.all_ranges_complete(self._steps, self._user_ranges)
 
     # ---- store access -----------------------------------------------------
+
+    @staticmethod
+    def _store_cls():
+        """This host's ``ShotStore`` class: the one name the twins spell
+        differently, so every method that reaches the store is shared text."""
+        return BlenderShotStore
 
     def _active_store(self):
         """Return the cached store, or try ``BlenderShotStore.active()``."""
         if self._store is not None:
             return self._store
         try:
-            return BlenderShotStore.active()
+            return self._store_cls().active()
         except Exception:
             return None
 
@@ -377,67 +371,31 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         if not isinstance(step_data, BuilderStep):
             return
 
-        start_raw = item.text(COL_START).strip()
-        end_raw = item.text(COL_END).strip()
-
-        # Both empty — clear user range
-        if not start_raw and not end_raw:
+        # The edit rules (numbers, a start, start >= 0, end > start) are
+        # RangeResolver.parse_range_edit's; both cells empty clears the range.
+        try:
+            user_range = ptk.RangeResolver.parse_range_edit(
+                item.text(COL_START), item.text(COL_END)
+            )
+        except ValueError:
+            self._revert_range_cell(item, step_data.step_id)
+            return
+        if user_range is None:
             self._user_ranges.pop(step_data.step_id, None)
             self._refresh_ranges()
             return
-
-        # Parse values
-        start: Optional[float] = None
-        end: Optional[float] = None
-        try:
-            if start_raw:
-                start = float(start_raw)
-        except ValueError:
-            self._revert_range_cell(item, step_data.step_id)
-            return
-        try:
-            if end_raw:
-                end = float(end_raw)
-        except ValueError:
-            self._revert_range_cell(item, step_data.step_id)
-            return
-
-        if start is None:
-            # Can't store a range without a start value
-            self._revert_range_cell(item, step_data.step_id)
-            return
-
-        # Reject negative start.
-        if start < 0:
-            self._revert_range_cell(item, step_data.step_id)
-            return
-
-        # Reject end <= start when end is given.
-        if end is not None and end <= start:
-            self._revert_range_cell(item, step_data.step_id)
-            return
+        start, end = user_range
 
         # Reject start before the previous step's resolved end.
-        # _last_resolved may be sparse (selected-keys mode skips
-        # unresolved steps), so look up the nearest resolved
-        # predecessor by step_id — positional indexing would compare
-        # against the wrong step's end.
         step_idx = self._step_index(step_data.step_id)
         if step_idx < 0:
             return
-        if step_idx > 0 and self._last_resolved:
-            resolved_ends = {sid: e for sid, _, e, _ in self._last_resolved}
-            prev_end = next(
-                (
-                    resolved_ends[s.step_id]
-                    for s in reversed(self._steps[:step_idx])
-                    if resolved_ends.get(s.step_id) is not None
-                ),
-                None,
-            )
-            if prev_end is not None and start < prev_end:
-                self._revert_range_cell(item, step_data.step_id)
-                return
+        prev_end = ptk.RangeResolver.previous_end(
+            self._steps, self._last_resolved, step_idx
+        )
+        if prev_end is not None and start < prev_end:
+            self._revert_range_cell(item, step_data.step_id)
+            return
 
         # Valid — store, clear downstream, and refresh.
         self._user_ranges[step_data.step_id] = (start, end)
@@ -446,7 +404,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     def _step_index(self, step_id: str) -> int:
         """Return the list index for *step_id*, or -1 if not found."""
-        return next((i for i, s in enumerate(self._steps) if s.step_id == step_id), -1)
+        return ptk.RangeResolver.step_index(self._steps, step_id)
 
     def _refresh_ranges(self, from_step_idx: int = 0) -> list:
         """Re-resolve, auto-fill, and validate all ranges.
@@ -470,8 +428,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     def _cascade_from(self, step_idx: int) -> None:
         """Clear user ranges on all steps after *step_idx* so they re-flow."""
-        for s in self._steps[step_idx + 1 :]:
-            self._user_ranges.pop(s.step_id, None)
+        ptk.RangeResolver.cascade_from(self._steps, self._user_ranges, step_idx)
 
     # ---- auto-fill logic -------------------------------------------------
 
@@ -489,20 +446,17 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
         store = self._active_store()
         gap = store.gap if store else 0.0
+        det_threshold = store.detection_threshold if store else 5.0
         use_sel = self._use_selected_keys
 
         # Detect animation regions for auto-fill (cached per assess cycle).
         if self._cached_gaps is not None:
             gap_starts = self._cached_gaps
         else:
-            regions = self._detect_regions(store.detection_threshold if store else 5.0)
-            gap_starts = [r["start"] for r in regions] if regions else []
-            self._cached_gaps = gap_starts
-            self._cached_gap_ends = (
-                {r["start"]: r["end"] for r in regions if r.get("end") is not None}
-                if regions
-                else {}
+            gap_starts, self._cached_gap_ends = ptk.RangeResolver.gaps_from_regions(
+                self._detect_regions(det_threshold)
             )
+            self._cached_gaps = gap_starts
 
         if use_sel and not gap_starts:
             return []
@@ -539,7 +493,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         if self._store_listener_bound:
             return
         try:
-            store = BlenderShotStore.active()
+            store = self._store_cls().active()
             store.add_listener(self._on_store_event)
             self._bound_store = store
             self._store_listener_bound = True
@@ -711,7 +665,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
         # Pre-compute built-step names once for all guards in this menu.
         try:
-            built_names = {s.name for s in BlenderShotStore.active().shots}
+            built_names = {s.name for s in self._store_cls().active().shots}
         except Exception:
             built_names = set()
         any_built = bool(built_names & {s.step_id for s in self._steps})
@@ -887,7 +841,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         The sequencer controller lazily wraps ``BlenderShotStore.active()`` via
         its ``sequencer`` property — no manual wiring needed here.
         """
-        store = BlenderShotStore.active()
+        store = self._store_cls().active()
         if not store.shots:
             self._set_footer("Build shots first before opening the sequencer.")
             return
@@ -924,7 +878,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     def _open_in_shots(self, step_id: str) -> None:
         """Open the Shots editor UI and navigate to the shot matching *step_id*."""
-        store = BlenderShotStore.active()
+        store = self._store_cls().active()
         if not store.shots:
             self._set_footer("Build shots first before opening the shots editor.")
             return
@@ -1087,19 +1041,19 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         )
         menu.add(
             "QPushButton",
-            setText="Colors…",
+            setText="Colors\u2026",
             setObjectName="btn_manifest_colors",
             setToolTip="Edit manifest status colors.",
         ).released.connect(self._open_color_editor)
         menu.add(
             "QPushButton",
-            setText="Audio Clips…",
+            setText="Audio Clips\u2026",
             setObjectName="btn_audio_clips",
             setToolTip="Open the Audio Clips editor to load, key, and\nmanage audio tracks used by this manifest.",
         ).released.connect(self._open_audio_clips)
         menu.add(
             "QPushButton",
-            setText="Shots…",
+            setText="Shots\u2026",
             setObjectName="btn_settings",
             setToolTip="Open shared shot generation, gap, and editing settings.",
         )
@@ -1110,7 +1064,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
                 body="Build and validate shots from a CSV file or by generating from scene animation.",
                 sections=[
                     (
-                        "Quick Start — CSV",
+                        "Quick Start \u2014 CSV",
                         [
                             "Check the <b>CSV</b> checkbox and browse to a CSV file, or "
                             "paste a web address (a Google Sheets share link works).",
@@ -1120,9 +1074,9 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
                         ],
                     ),
                     (
-                        "Quick Start — Animation",
+                        "Quick Start \u2014 Animation",
                         [
-                            "Uncheck <b>CSV</b> — shots are generated from animation using the settings in Shot Settings.",
+                            "Uncheck <b>CSV</b> \u2014 shots are generated from animation using the settings in Shot Settings.",
                             "Refine ranges in the table if needed.",
                             "Click <b>Build</b>, then <b>Assess</b>.",
                         ],
@@ -1130,11 +1084,11 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
                     (
                         "Table Columns",
                         [
-                            "<b>Step</b> — Step ID (e.g. A01).",
-                            "<b>Section</b> — Read-only grouping label from CSV.",
-                            "<b>Description</b> — Audio narration or step notes.",
-                            "<b>Behaviors</b> — Per-object actions; click the child row label to toggle.",
-                            "<b>Start / End</b> — Frame range. Solid text = user-entered; dim italic = auto-filled.",
+                            "<b>Step</b> \u2014 Step ID (e.g. A01).",
+                            "<b>Section</b> \u2014 Read-only grouping label from CSV.",
+                            "<b>Description</b> \u2014 Audio narration or step notes.",
+                            "<b>Behaviors</b> \u2014 Per-object actions; click the child row label to toggle.",
+                            "<b>Start / End</b> \u2014 Frame range. Solid text = user-entered; dim italic = auto-filled.",
                         ],
                     ),
                     (
@@ -1142,8 +1096,8 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
                         [
                             "Double-click Start or End to type a frame. Downstream steps re-flow.",
                             "Right-click a range cell: Set Start to Current Frame, Auto-fill from Gaps, Clear Range.",
-                            "<b>Assess</b> — Read-only comparison; red tint = missing, grey = locked, normal = valid.",
-                            "<b>Build</b> — Create or update shots from loaded steps. Locked shots are never modified.",
+                            "<b>Assess</b> \u2014 Read-only comparison; red tint = missing, grey = locked, normal = valid.",
+                            "<b>Build</b> \u2014 Create or update shots from loaded steps. Locked shots are never modified.",
                             "Right-click step row: Exclude, Open in Sequencer, Show Excluded.",
                         ],
                     ),
@@ -1154,18 +1108,18 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
     @property
     def _initial_shot_length(self) -> float:
         """Read the shot-construction default from the active store."""
-        store = BlenderShotStore.active()
+        store = self._store_cls().active()
         if store is not None:
             return float(store.initial_shot_length)
-        return BlenderShotStore.DEFAULT_INITIAL_SHOT_LENGTH
+        return self._store_cls().DEFAULT_INITIAL_SHOT_LENGTH
 
     @property
     def _fit_mode(self) -> str:
         """Read the fit-mode policy from the active store."""
-        store = BlenderShotStore.active()
+        store = self._store_cls().active()
         if store is not None:
             return store.fit_mode
-        return BlenderShotStore.DEFAULT_FIT_MODE
+        return self._store_cls().DEFAULT_FIT_MODE
 
     def _on_long_names_toggled(self, checked: bool) -> None:
         """Persist and apply the long-names display preference."""
@@ -1433,39 +1387,12 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     @staticmethod
     def _seed_mappings_folder(ts) -> None:
-        """Seed *ts*'s empty user folder with an example mapping + format reference.
-
-        A no-op once the folder holds anything, so it never clobbers the user's
-        files or re-creates ones they deleted on purpose.  Failures are
-        swallowed — seeding is a convenience, not a precondition for opening.
-        The folder is derived from *ts* so the seeded example (written via
-        ``write_skeleton``) and the reference always land together.  The
-        reference is generated from the same ``format_markdown`` SSoT as the
-        shipped doc, so it's always current with the schema.
+        """Seed *ts*'s empty user folder with an example mapping + format
+        reference (``Mapping.seed_user_folder``: a no-op once it holds anything).
         """
-        from pathlib import Path
-        from pythontk.core_utils.engines.shots.manifest.mapping import MappingSpec
+        from pythontk.core_utils.engines.shots.manifest.mapping import Mapping
 
-        folder = Path(ts.user_dir)
-        try:
-            # "Empty" means no user-managed files. Ignore bookkeeping dotfiles
-            # (the PresetStore ``.active`` last-used pointer in particular) —
-            # selecting a mapping writes ``.active`` here, and without this filter
-            # the very first 'Open folder' after a selection would skip seeding.
-            if any(p for p in folder.iterdir() if not p.name.startswith(".")):
-                return
-        except OSError:
-            return
-        try:
-            ts.write_skeleton("example")
-        except Exception:
-            pass
-        try:
-            (folder / "MAPPING_FORMAT.md").write_text(
-                MappingSpec.format_markdown(), encoding="utf-8"
-            )
-        except Exception:
-            pass
+        Mapping.seed_user_folder(ts)
 
     # ---- mode switching (single source of truth) -------------------------
 
@@ -1609,7 +1536,7 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
         # immediately shows correct Start/End for built steps.
         store_ranges = {}
         try:
-            store = BlenderShotStore.active()
+            store = self._store_cls().active()
             step_ids = {s.step_id for s in steps}
             store_ranges = {
                 s.name: (s.start, s.end)
@@ -1633,36 +1560,9 @@ class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin):
 
     @staticmethod
     def _describe_read_failure(path: str, exc: OSError) -> str:
-        """Explain an unreadable CSV without over-committing to one cause.
-
-        ``isfile()`` passed but the bytes wouldn't read.  The tempting
-        diagnosis -- "it's a cloud file that hasn't downloaded, make it
-        available offline" -- is usually wrong: cloud placeholders hydrate on
-        demand fine, and a genuine failure is far more often a full volume or a
-        stopped sync client.
-
-        So *enumerate* the likely causes (the cloud-client clause only for
-        cloud-managed files) rather than assert one, always include the raw
-        error, and append the actual free space when it's low enough to be a
-        plausible culprit -- as a fact the user can act on, never as the single
-        asserted cause.
-        """
-        import os
-
-        causes = ["the disk may be full"]
-        if ptk.FileUtils.is_cloud_placeholder(path):
-            causes.append("your cloud sync client may not be running")
-        causes.append("the file may be locked by another program")
-        causes.append("the drive may be disconnected")
-        msg = (
-            f"Can't read CSV: {exc}. The file exists but its contents can't be "
-            f"read - {', '.join(causes)}. Check, then reload."
-        )
-        free = ptk.FileUtils.free_space(path)
-        if free is not None and free < _LOW_DISK_BYTES:
-            drive = os.path.splitdrive(os.path.abspath(path))[0] or "the drive"
-            msg += f" ({drive} has only {free // (1024 * 1024)} MB free.)"
-        return msg
+        """Explain an unreadable CSV by its likely causes, never one asserted
+        (``ManifestModel.describe_read_failure``)."""
+        return ptk.ManifestModel.describe_read_failure(path, exc)
 
     # ---- helpers ---------------------------------------------------------
 

@@ -208,43 +208,27 @@ class HierarchySync(ptk.LoggingMixin):
 
     # ------------------------------------------------------------------ #
     # Detection passes (called by analyze_hierarchies) — pure path-string logic,
-    # ported verbatim from mayatk (no cmds/bpy dependency in the original either).
+    # shared with mayatk through ptk.HierarchyAnalyzer's pairing passes.
     # ------------------------------------------------------------------ #
 
     def _detect_reparented(
         self, remaining_missing: List[str], remaining_extra: List[str]
     ) -> Tuple[List[Dict], List[str], List[str]]:
-        """Detect items that exist in both pools under different parents."""
+        """Detect items that exist in both pools under different parents.
+
+        The pass is ``ptk.HierarchyAnalyzer.detect_reparented``, shared with
+        mayatk (which also vetoes a pairing by shape type).
+
+        Returns ``(reparented, remaining_missing, remaining_extra)`` with
+        matched items removed from the remaining pools.
+        """
         reparented: List[Dict] = []
         try:
-            missing_by_leaf: Dict[str, List[str]] = {}
-            for p in remaining_missing:
-                missing_by_leaf.setdefault(p.rsplit("|", 1)[-1], []).append(p)
-
-            extra_by_leaf: Dict[str, List[str]] = {}
-            for p in remaining_extra:
-                extra_by_leaf.setdefault(p.rsplit("|", 1)[-1], []).append(p)
-
-            matched_missing: set = set()
-            matched_extra: set = set()
-            for leaf, m_paths in missing_by_leaf.items():
-                e_paths = extra_by_leaf.get(leaf, [])
-                if len(m_paths) == 1 and len(e_paths) == 1:
-                    reparented.append(
-                        {
-                            "leaf": leaf,
-                            "reference_path": m_paths[0],
-                            "current_path": e_paths[0],
-                        }
-                    )
-                    matched_missing.add(m_paths[0])
-                    matched_extra.add(e_paths[0])
-
-            remaining_missing = [
-                p for p in remaining_missing if p not in matched_missing
-            ]
-            remaining_extra = [p for p in remaining_extra if p not in matched_extra]
-
+            reparented, remaining_missing, remaining_extra = (
+                ptk.HierarchyAnalyzer.detect_reparented(
+                    remaining_missing, remaining_extra
+                )
+            )
             if reparented:
                 self.logger.debug(
                     f"Detected {len(reparented)} reparented items "
@@ -259,62 +243,28 @@ class HierarchySync(ptk.LoggingMixin):
     def _detect_fuzzy_renames(
         self, remaining_missing: List[str], remaining_extra: List[str]
     ) -> Tuple[List[Dict], List[str], List[str]]:
-        """Detect items that were renamed (fuzzy leaf-name matching)."""
+        """Detect items that were renamed (fuzzy leaf-name matching).
+
+        The pass is ``ptk.HierarchyAnalyzer.detect_fuzzy_renames``, shared
+        with the other DCC; off while :attr:`fuzzy_matching` is.
+
+        Returns ``(fuzzy_matches, remaining_missing, remaining_extra)``.
+        """
         fuzzy_matches: List[Dict] = []
         try:
-            if not (remaining_missing and remaining_extra and self.fuzzy_matching):
+            if not self.fuzzy_matching:
                 return fuzzy_matches, remaining_missing, remaining_extra
-
-            missing_leaves = [p.rsplit("|", 1)[-1] for p in remaining_missing]
-            extra_leaves = [p.rsplit("|", 1)[-1] for p in remaining_extra]
-
-            raw_matches = ptk.FuzzyMatcher.find_all_matches(
-                missing_leaves, extra_leaves, score_threshold=0.7
+            fuzzy_matches, remaining_missing, remaining_extra = (
+                ptk.HierarchyAnalyzer.detect_fuzzy_renames(
+                    remaining_missing, remaining_extra
+                )
             )
-
-            matched_fm_missing: set = set()
-            matched_fm_extra: set = set()
-            for query_leaf, (best_leaf, score) in raw_matches.items():
-                if query_leaf == best_leaf:
-                    continue
-                ref_path = next(
-                    (
-                        p
-                        for p in remaining_missing
-                        if p.rsplit("|", 1)[-1] == query_leaf
-                    ),
-                    None,
-                )
-                cur_path = next(
-                    (p for p in remaining_extra if p.rsplit("|", 1)[-1] == best_leaf),
-                    None,
-                )
-                if (
-                    ref_path
-                    and cur_path
-                    and ref_path not in matched_fm_missing
-                    and cur_path not in matched_fm_extra
-                ):
-                    fuzzy_matches.append(
-                        {
-                            "target_name": ref_path,
-                            "current_name": cur_path,
-                            "score": score,
-                        }
-                    )
-                    matched_fm_missing.add(ref_path)
-                    matched_fm_extra.add(cur_path)
-
-            remaining_missing = [
-                p for p in remaining_missing if p not in matched_fm_missing
-            ]
-            remaining_extra = [p for p in remaining_extra if p not in matched_fm_extra]
-
             if fuzzy_matches:
                 self.logger.debug(
                     f"Detected {len(fuzzy_matches)} fuzzy renamed matches "
                     f"(e.g. {fuzzy_matches[0]['target_name']} ↔ "
-                    f"{fuzzy_matches[0]['current_name']} score={fuzzy_matches[0]['score']:.2f})"
+                    f"{fuzzy_matches[0]['current_name']} "
+                    f"score={fuzzy_matches[0]['score']:.2f})"
                 )
         except Exception as e:
             self.logger.debug(f"Fuzzy renamed detection failed: {e}")
@@ -324,70 +274,25 @@ class HierarchySync(ptk.LoggingMixin):
     def _detect_suffix_flattening(
         self, remaining_missing: List[str], remaining_extra: List[str]
     ) -> Tuple[List[Dict], List[str], List[str]]:
-        """Detect FBX-style name-flattening where parent names are prepended to children.
+        """Detect FBX name-flattening where parent names are prepended to children.
 
-        e.g. ``Booster_Off_6_Switch`` → ``Overhead_Console_Boosters_Booster_Off_6_Switch``.
-        Matched pairs share the same parent path, and the shorter name is a ``_``-delimited
-        suffix of the longer name.
+        e.g. ``BOOSTER_OFF_6_SWITCH`` → ``OVERHEAD_CONSOLE_BOOSTERS_BOOSTER_OFF_6_SWITCH``;
+        the pass is ``ptk.HierarchyAnalyzer.detect_suffix_flattening``, shared
+        with the other DCC.
+
+        Returns ``(suffix_matches, remaining_missing, remaining_extra)``.
         """
         suffix_matches: List[Dict] = []
         try:
-            if not (remaining_missing and remaining_extra):
-                return suffix_matches, remaining_missing, remaining_extra
-
-            def _group_by_parent(paths):
-                result: Dict[str, List[Tuple[str, str]]] = {}
-                for p in paths:
-                    if "|" in p:
-                        parent, leaf = p.rsplit("|", 1)
-                    else:
-                        parent, leaf = "", p
-                    result.setdefault(parent, []).append((leaf, p))
-                return result
-
-            missing_by_parent = _group_by_parent(remaining_missing)
-            extra_by_parent = _group_by_parent(remaining_extra)
-
-            matched_missing: set = set()
-            matched_extra: set = set()
-
-            for parent, m_items in missing_by_parent.items():
-                e_items = extra_by_parent.get(parent)
-                if not e_items:
-                    continue
-                for m_leaf, m_path in m_items:
-                    if m_path in matched_missing:
-                        continue
-                    for e_leaf, e_path in e_items:
-                        if e_path in matched_extra or m_leaf == e_leaf:
-                            continue
-                        longer, shorter = (
-                            (m_leaf, e_leaf)
-                            if len(m_leaf) > len(e_leaf)
-                            else (e_leaf, m_leaf)
-                        )
-                        if (
-                            longer.endswith(shorter)
-                            and longer[len(longer) - len(shorter) - 1] == "_"
-                        ):
-                            suffix_matches.append(
-                                {
-                                    "target_name": m_path,
-                                    "current_name": e_path,
-                                    "score": 1.0,
-                                }
-                            )
-                            matched_missing.add(m_path)
-                            matched_extra.add(e_path)
-                            break
-
-            if matched_missing:
-                remaining_missing = [
-                    p for p in remaining_missing if p not in matched_missing
-                ]
-                remaining_extra = [p for p in remaining_extra if p not in matched_extra]
+            suffix_matches, remaining_missing, remaining_extra = (
+                ptk.HierarchyAnalyzer.detect_suffix_flattening(
+                    remaining_missing, remaining_extra
+                )
+            )
+            if suffix_matches:
                 self.logger.debug(
-                    f"Detected {len(matched_missing)} name-flattening matches (suffix matching)"
+                    f"Detected {len(suffix_matches)} FBX name-flattening matches "
+                    "(suffix matching)"
                 )
         except Exception as e:
             self.logger.debug(f"Suffix matching failed: {e}")

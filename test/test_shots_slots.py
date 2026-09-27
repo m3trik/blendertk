@@ -13,7 +13,9 @@ mayatk panel. Run under the workspace ``.venv``::
     .venv\\Scripts\\python.exe blendertk/test/test_shots_slots.py
 
 The functional engine behaviour (move / ripple / gap / reorder / trim, which need a
-real scene) is covered by ``test_shot_sequencer.py`` under the Blender harness.
+real scene) is covered by ``test_shot_sequencer.py`` under the Blender harness. The
+structural guards (boundary-edit routing, the sequencer's hook overrides) need
+neither Qt nor bpy.
 """
 
 import os
@@ -100,7 +102,7 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
         return ctl
 
     def test_a_refusal_does_not_propagate(self):
-        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from pythontk import ShotBoundaryConflict
 
         ctl = self._bind(self._controller())
         store = self._store()
@@ -112,7 +114,7 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
         self.assertFalse(ok, "a refused edit must report False, not raise")
 
     def test_a_refusal_discards_the_restore_point(self):
-        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from pythontk import ShotBoundaryConflict
 
         ctl = self._bind(self._controller())
         store = self._store()
@@ -129,7 +131,7 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
         )
 
     def test_a_refusal_is_reported_to_the_user(self):
-        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from pythontk import ShotBoundaryConflict
 
         ctl = self._bind(self._controller())
 
@@ -184,22 +186,29 @@ class TestNoRawSnapshotPushes(unittest.TestCase):
         stops covering the newest way to be refused.
         """
         import ast
+        import inspect
+
+        import pythontk as ptk
 
         import blendertk.anim_utils.shots.shot_sequencer._shot_sequencer as eng
 
-        tree = ast.parse(Path(eng.__file__).read_text(encoding="utf-8"))
+        # The Blender class extends pythontk's ShotSequencer, which holds the
+        # orchestration that reaches the Blender hooks: one hierarchy, so a
+        # name defined in both (an overridden hook) contributes both bodies.
         graph = {}
-        for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
-            for fn in cls.body:
-                if isinstance(fn, ast.FunctionDef):
-                    graph[fn.name] = {
-                        c.func.attr
-                        for c in ast.walk(fn)
-                        if isinstance(c, ast.Call)
-                        and isinstance(c.func, ast.Attribute)
-                        and isinstance(c.func.value, ast.Name)
-                        and c.func.value.id == "self"
-                    }
+        for path in (eng.__file__, inspect.getsourcefile(ptk.ShotSequencer)):
+            tree = ast.parse(Path(path).read_text(encoding="utf-8"))
+            for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+                for fn in cls.body:
+                    if isinstance(fn, ast.FunctionDef):
+                        graph.setdefault(fn.name, set()).update(
+                            c.func.attr
+                            for c in ast.walk(fn)
+                            if isinstance(c, ast.Call)
+                            and isinstance(c.func, ast.Attribute)
+                            and isinstance(c.func.value, ast.Name)
+                            and c.func.value.id == "self"
+                        )
         reach, changed = {"_reconcile_boundaries"}, True
         while changed:
             changed = False
@@ -269,6 +278,79 @@ class TestNoRawSnapshotPushes(unittest.TestCase):
         )
 
 
+class TestSequencerAdapterHooks(unittest.TestCase):
+    """The Blender ``ShotSequencer`` supplies the scene hooks pythontk leaves empty.
+
+    ``pythontk.ShotSequencer`` reaches the scene only through the hooks on
+    ``_ShotSequencerHooks``, and each default describes an EMPTY scene: no
+    keys, no audio, nothing to hold. A hook this adapter does not override is
+    therefore no error anywhere -- the panel's edits silently move bounds only.
+    Structural, so it needs neither Qt nor bpy; mayatk's twin guard is in its
+    ``test_shots_boundary_guard.py``.
+    """
+
+    #: Hooks inherited on purpose. ``_content_batch``: a VSE strip's position IS
+    #: its keyed state, so there is no audio re-sync to batch (the engine
+    #: module's "Audio = VSE sound strips").
+    INHERITED = frozenset({"_content_batch"})
+
+    @staticmethod
+    def _classes():
+        """``(adapter, pythontk's ShotSequencer, its hook defaults)``."""
+        import pythontk as ptk
+        from pythontk.core_utils.engines.shots.shot_sequencer import (
+            _ShotSequencerHooks,
+        )
+
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            ShotSequencer,
+        )
+
+        return ShotSequencer, ptk.ShotSequencer, _ShotSequencerHooks
+
+    def test_every_hook_default_is_overridden(self):
+        adapter, core, defaults = self._classes()
+        hooks = {
+            n for n in vars(defaults) if not (n.startswith("__") and n.endswith("__"))
+        } - {"STORE_CLASS"}
+        self.assertTrue(hooks, "no hooks read off _ShotSequencerHooks")
+        mro = adapter.__mro__
+        ahead = mro[: mro.index(core)]
+        inherited = {n for n in hooks if not any(n in vars(c) for c in ahead)}
+        self.assertEqual(
+            [],
+            sorted(inherited - self.INHERITED),
+            "these hooks resolve to pythontk's empty-scene default, so every "
+            "operation reaching them edits bounds only",
+        )
+        self.assertEqual(
+            [],
+            sorted(self.INHERITED - inherited),
+            "listed in INHERITED but overridden now (or no longer a hook): "
+            "drop them from INHERITED",
+        )
+
+    def test_no_blender_base_sits_behind_the_hook_defaults(self):
+        """A helper base listed after pythontk's class is shadowed by it: a hook
+        implemented on ``_ShotSequencerInternal`` (the house home for helpers)
+        resolves to the pythontk no-op instead. The bases read
+        ``(_ShotSequencerCore, _ShotSequencerInternal)`` until 2026-09-27."""
+        adapter, core, _ = self._classes()
+        mro = adapter.__mro__
+        behind = [
+            c.__qualname__
+            for c in mro[mro.index(core) :]
+            if c.__module__.partition(".")[0] == "blendertk"
+        ]
+        self.assertEqual(
+            [],
+            behind,
+            "these blendertk bases come after pythontk's ShotSequencer in the "
+            "MRO, so its hook defaults shadow anything they define",
+        )
+
+
+@unittest.skipIf(QtWidgets is None, "Qt not available (Blender headless Python)")
 class TestShotsPanelLoads(unittest.TestCase):
     """The Shots panel loads through the real discovery + compile path."""
 

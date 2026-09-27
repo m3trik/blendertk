@@ -11,9 +11,9 @@ then proves a saved preset's kwargs actually reach — and are accepted by — a
 
 The Slots-layer button handlers (``b007``/``b008`` in ``scene_exporter_slots.py``) are thin
 Qt/OS glue over this same engine API (``fbx_preset_dir``/``fbx_preset_path``, each
-``os.startfile``-ing a real Explorer window) — exercising the engine calls they delegate to is
+opening a real file-manager window through ``ptk.FileUtils.open_explorer``) — exercising the engine calls they delegate to is
 the meaningful, headlessly-testable surface; spinning up real widgets just to click a button
-that calls the same method adds no coverage, and driving ``os.startfile`` in an automated suite
+that calls the same method adds no coverage, and driving the file manager in an automated suite
 would pop OS windows.
 
 ``save_fbx_preset`` / ``delete_fbx_preset`` are covered below as the *programmatic* preset
@@ -72,6 +72,23 @@ try:
 
     tmp = tempfile.mkdtemp(prefix="btk_scnexp_")
 
+    # ---- hide_log_file: a dot-prefixed name off Windows (the attribute on Windows) ---------
+    from unittest.mock import patch as _patch
+
+    _exp = SceneExporter.__new__(SceneExporter)
+    _exp.export_dir = tmp
+    for _os_name, _hide, _want in (
+        ("nt", True, "hero.log"),  # Windows hides it with the file attribute
+        ("posix", True, ".hero.log"),
+        ("posix", False, "hero.log"),
+    ):
+        _exp.hide_log_file = _hide
+        with _patch.object(os, "name", _os_name):
+            _got = os.path.basename(
+                _exp.generate_log_file_path(os.path.join(tmp, "hero.fbx"))
+            )
+        check(f"log name on {_os_name}, hide={_hide}", _got == _want, _got)
+
     # ---- store identity: the FBX tier must NOT be the window-template dir ------------------
     # REGRESSION (2026-08-19): PRESET_NAME was "scene_exporter", which resolved the user
     # tier to the SAME directory the panel's uitk PresetManager stores window templates
@@ -120,6 +137,20 @@ try:
     check(
         "migration clears the cross-store .active pointer",
         not (_legacy / ".active").exists(),
+    )
+    # A pointer to a window template that STAYS is the template store's own, and
+    # the store files a punctuated name under its sanitized stem ("win (A)" is
+    # win _A_.json): looked up by the name as typed, it read as dangling and the
+    # user's active template was cleared.
+    (_legacy / "win _A_.json").write_text(
+        json.dumps({"_meta": {"version": 1}, "chk001": False}), encoding="utf-8"
+    )
+    (_legacy / ".active").write_text(json.dumps({"name": "win (A)"}), encoding="utf-8")
+    SceneExporter._legacy_fbx_presets_migrated = False
+    SceneExporter._preset_store()
+    check(
+        "migration keeps a window template's .active, whatever its name",
+        (_legacy / ".active").is_file(),
     )
     check(
         "migrated preset loads through the store",
@@ -3508,6 +3539,51 @@ try:
         f"{seq_handler.messages}",
     )
 
+    # ---- the whole token vocabulary, not three of six (ptk.TiledPath) ----------------------
+    # Bug: this exporter's private regex listed <udim>|<f>|<uvtile>, so a <frame> or a
+    # <u>_<v> path skipped the representative collapse -- the stand-in kept its token, no
+    # such file exists, and the texture silently left the budget scan. mayatk's exporter
+    # fixed the same gap 2026-08-25; both now ask ptk.TiledPath.
+    frame_word_rep = tb_tm2._tiled_representative(
+        os.path.join(tex_dir, "seq.<frame>.exr")
+    )
+    check(
+        "_tiled_representative: <frame> globs for the first frame on disk, like <f>",
+        os.path.normcase(frame_word_rep or "")
+        == os.path.normcase(os.path.join(tex_dir, "seq.0007.exr")),
+        f"{frame_word_rep}",
+    )
+    uv_pair_rep = tb_tm2._tiled_representative(os.path.join(tex_dir, "tex.<u>_<v>.png"))
+    check(
+        "_tiled_representative: <u>_<v> resolves to its own first tile (u1_v1)",
+        os.path.normcase(uv_pair_rep or "")
+        == os.path.normcase(os.path.join(tex_dir, "tex.u1_v1.png")),
+        f"{uv_pair_rep}",
+    )
+    frame_word_img = bpy.data.images.new("word_seq", 4, 4)
+    frame_word_img.filepath = os.path.join(tex_dir, "word_seq.<frame>.exr")
+    seq_mat.node_tree.nodes.new("ShaderNodeTexImage").image = frame_word_img
+    for frame in ("0020", "0021"):
+        with open(os.path.join(tex_dir, f"word_seq.{frame}.exr"), "wb") as fh:
+            fh.write(b"EXRDATA")
+    tm_word = SceneExporter(log_level="INFO").task_manager
+    tm_word.objects = [seq_cube]
+    word_paths = {
+        os.path.normcase(e["path"])
+        for e in tm_word._export_texture_sources(include_tiled=True).values()
+    }
+    check(
+        "_export_texture_sources: a <frame> image resolves to its first frame on disk",
+        os.path.normcase(os.path.join(tex_dir, "word_seq.0020.exr")) in word_paths,
+        f"{word_paths}",
+    )
+    word_default = tm_word._export_texture_sources()
+    check(
+        "_export_texture_sources: a <frame> image is a set, skipped by the single-file default",
+        all("word_seq" not in e["path"] for e in word_default.values()),
+        f"{[e['path'] for e in word_default.values()]}",
+    )
+
     # The default is part of the parity: off, a scene with shots exports
     # shot_metadata naming clips the file does not contain (mayatk pins the
     # same, test_scene_exporter.test_takes_are_default_on_beside_the_carrier).
@@ -4410,7 +4486,7 @@ try:
     import logging as _logging
     from types import SimpleNamespace as _NS
 
-    from uitk.widgets.mixins.tooltip_mixin import TooltipFormat as _Tip
+    from pythontk import TooltipFormat as _Tip
     from blendertk.env_utils.scene_exporter.scene_exporter_slots import (
         SceneExporterSlots as _Slots,
     )

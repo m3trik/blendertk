@@ -18,7 +18,7 @@ place (Unity opts back out by overriding ``default_output_dir`` to return
 from __future__ import annotations
 
 from uitk.bridge import BridgeSlotsBase
-from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
+from pythontk import HandoffScope, TooltipFormat
 
 from blendertk.core_utils._core_utils import CoreUtils
 
@@ -42,12 +42,14 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         Lives on the shared base so every Blender bridge (Maya / Unity /
         Marmoset / Substance) resolves scope identically; the spec that drives
         it is :meth:`uitk.bridge.Parameters.scope_spec`, shared with mayatk's
-        mirror (``MayaBridgeSlotsBase.resolve_scope_objects``).
+        mirror (``MayaBridgeSlotsBase.resolve_scope_objects``). The precedence
+        (the fallbacks above) is :class:`pythontk.HandoffScope`'s; this supplies
+        only Blender's scene reads.
         """
         import bpy
         import blendertk as btk
 
-        if scope == "all":
+        def scene_hook():
             # The bridge's whole-scene hook (``BlenderExportMixin._scene_objects``:
             # the current SCENE's objects -- not ``bpy.data.objects``, which also
             # sweeps in unlinked/orphaned objects and other scenes' -- UNFILTERED by
@@ -56,24 +58,32 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
             # flattens on the far side). Routed through the hook, not re-derived,
             # so "Entire Scene" and ``save_as``'s whole-scene default can never
             # drift apart. getattr: a panel that has not built its bridge yet has
-            # no ``.bridge`` at all, and bridges without the hook (RPC bakers) fall
-            # back to the scene's geometry. Mirror of mayatk's resolver.
+            # no ``.bridge`` at all, and bridges without the hook (RPC bakers)
+            # answer ``None`` and fall back to the scene's geometry. Mirror of
+            # mayatk's resolver.
             bridge = getattr(self, "bridge", None)
-            scene = bridge._scene_objects() if bridge is not None else None
-            if scene is not None:
-                return scene
-            return [o for o in bpy.context.scene.objects if o.type == "MESH"]
-        if scope == "visible":
-            # The engines' hook, same as "all" above -- but unconditionally,
-            # because it is a STATICMETHOD that consults only the scene. A
-            # bridge without the mixin therefore still gets the real answer
-            # rather than a second, drifting copy of it here (this WAS that
-            # copy; the preview bridge needed the same read and two would have
-            # been three). Mirror of mayatk's resolver.
+            return bridge._scene_objects() if bridge is not None else None
+
+        def visible():
+            # The engines' hook, same as "all" -- but unconditionally, because
+            # it is a STATICMETHOD that consults only the scene. A bridge
+            # without the mixin therefore still gets the real answer rather than
+            # a second, drifting copy of it here (this WAS that copy; the preview
+            # bridge needed the same read and two would have been three). Mirror
+            # of mayatk's resolver.
             from blendertk.env_utils.handoff_export import BlenderExportMixin
 
             return BlenderExportMixin._visible_objects()
-        return btk.selected_objects()
+
+        return HandoffScope.resolve(
+            scope,
+            selected=lambda: btk.selected_objects(),
+            all=(
+                scene_hook,
+                lambda: [o for o in bpy.context.scene.objects if o.type == "MESH"],
+            ),
+            visible=visible,
+        )
 
     def _install_optional_package(self, spec: str) -> None:
         """Install an optional package where Blender will actually import it.

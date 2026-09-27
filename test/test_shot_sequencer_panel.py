@@ -184,7 +184,7 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
     def test_transport_controls_attached_once(self):
         """Footer carries ONE TransportControls row wired to the Blender play controller."""
         from uitk.widgets.sequencer import TransportControls
-        from blendertk.anim_utils.shots.shot_sequencer.shot_sequencer_slots import (
+        from blendertk.anim_utils.shots.shot_sequencer.transport import (
             _BlenderPlayController,
         )
 

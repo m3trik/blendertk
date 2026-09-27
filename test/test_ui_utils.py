@@ -6,7 +6,9 @@ Blender UI (GUI-only; the last is proven live in ``fullscreen_area_gui_check.py`
 the parts that ARE headless-decidable — ``menu_exists``, the early-return guards (unknown menu,
 no 3D viewport, ``--background``), the editor-name map, and surface resolution.
 """
-import sys, os, traceback
+import os
+import sys
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -58,6 +60,15 @@ try:
     # the opens-for-real half is GUI-only -> open_editor_gui_check.py.
     check("open_editor headless-safe -> None", btk.open_editor("UV Editor") is None)
     check("open_editor(unknown) -> None", btk.open_editor("No Such Editor") is None)
+
+    # ---- close_area is headless-safe: ``screen.area_close`` blows the C stack under
+    # --background on 5.1 (any area; the process dies with rc 127, no Python frame to catch),
+    # so the primitive returns False there instead of running it. Reached for real by
+    # tentacle's register -> ScriptConsole.restore -> QtDock.dock in a headless run.
+    _win = btk.main_window()
+    _area = next(a for a in _win.screen.areas if a.type != "VIEW_3D")
+    check("close_area headless-safe -> False (area kept)",
+          btk.close_area(_win, _area) is False and _area in _win.screen.areas[:])
 
     # ---- editor-name map intact (open_editor's contract)
     editors = btk.get_editor_types()
@@ -111,5 +122,5 @@ except Exception:
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
-print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})")
+ok = all(line.startswith("OK") for line in lines) and lines
+print(f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for line in lines if line.startswith('OK'))}/{len(lines)})")

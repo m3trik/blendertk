@@ -178,11 +178,12 @@ class _MatUtilsInternal:
         """``(size, partial-hash)`` identity of the file behind *path* (mirror of
         mayatk's ``_texture_content_id``): first + last 64 KB hashed — enough to tell
         same-named different-content textures apart without reading multi-hundred-MB
-        maps whole. ``<UDIM>`` collapses to the 1001 probe tile. ``None`` when the file
-        doesn't resolve on disk."""
-        if not path:
+        maps whole. A tile/frame token collapses to its representative file
+        (``ptk.TiledPath.representative``, the probe mayatk's uses). ``None`` when
+        the file doesn't resolve on disk."""
+        probe = ptk.TiledPath.representative(path)
+        if not probe:
             return None
-        probe = path.replace("<UDIM>", "1001") if "<UDIM>" in path else path
         try:
             size = os.path.getsize(probe)
             h = hashlib.md5()
@@ -214,7 +215,8 @@ class _MatUtilsInternal:
         (:meth:`_iter_image_nodes`) and each is attributed to the surface-shader
         input(s) it feeds (:meth:`_texture_socket_targets`; ``'_unresolved'`` when the
         walk fails). The non-strict texture id is the lowercased basename stem; strict
-        is the full lowercased path (library-aware via :meth:`_abspath`)."""
+        is the full path, case-folded only where the OS folds case (``normcase``;
+        library-aware via :meth:`_abspath`)."""
         surface = _MatUtilsInternal._surface_shader_node(mat)
         nt = getattr(mat, "node_tree", None)
         slots = {}
@@ -225,7 +227,7 @@ class _MatUtilsInternal:
             if not path:
                 continue
             tex_id = (
-                path.lower()
+                os.path.normcase(path)
                 if strict
                 else os.path.splitext(os.path.basename(path))[0].lower()
             )
@@ -326,10 +328,9 @@ class _MatUtilsInternal:
         except Exception:
             return os.path.normpath(fp)
 
-    #: Tiled-image filename tokens -> the glob that finds their tiles on disk. A
-    #: ``u#_v#`` set is stored as ``<UVTILE>``: Blender rewrites the path when a tile
-    #: of one is loaded TILED (measured, 5.1).
-    _TILE_TOKENS = (("<UDIM>", "[0-9]" * 4), ("<UVTILE>", "u*_v*"))
+    # Tiled-image tokens are ``ptk.TiledPath``'s one table. A ``u#_v#`` set is
+    # stored as ``<UVTILE>``: Blender rewrites the path when a tile of one is
+    # loaded TILED (measured, 5.1).
 
     @staticmethod
     def _udim_first_tile_path(img):
@@ -343,28 +344,18 @@ class _MatUtilsInternal:
             return ap
         tiles = getattr(img, "tiles", None)
         number = tiles[0].number if tiles and len(tiles) else 1001
-        if "<UDIM>" in ap:
-            return ap.replace("<UDIM>", str(number))
-        if "<UVTILE>" in ap:
-            offset = number - 1001
-            return ap.replace("<UVTILE>", f"u{offset % 10 + 1}_v{offset // 10 + 1}")
-        return ap
+        return ptk.TiledPath.spell(ap, number)
 
     @staticmethod
     def _udim_tile_paths(img):
         """Existing on-disk tile files of a TILED image — its ``<UDIM>`` /
-        ``<UVTILE>`` token globbed (:attr:`_TILE_TOKENS`; library-aware via
+        ``<UVTILE>`` token globbed (``ptk.TiledPath.tiles``; library-aware via
         :meth:`_abspath`). A non-tiled path returns itself when it exists. Empty
         list when nothing is on disk."""
-        import glob
-
         ap = _MatUtilsInternal._abspath(img)
         if not ap:
             return []
-        for token, pattern in _MatUtilsInternal._TILE_TOKENS:
-            if token in ap:
-                return sorted(glob.glob(glob.escape(ap).replace(token, pattern)))
-        return [ap] if os.path.isfile(ap) else []
+        return [os.path.normpath(t) for t in ptk.TiledPath.tiles(ap)]
 
     @staticmethod
     def _image_meta(img):

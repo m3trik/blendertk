@@ -75,7 +75,7 @@ def run():
     import bpy
     import numpy as np
 
-    from blendertk.rig_utils.shadow_preview import ShadowPreview
+    from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview
     from blendertk.rig_utils.shadow_rig import ShadowRig
 
     os.makedirs(TEMP, exist_ok=True)

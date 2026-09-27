@@ -969,11 +969,11 @@ class MacroManager:
     def _builtin_presets_dir(cls) -> str:
         """The shipped read-only preset tier — single source for both the
         headless :meth:`_preset_store` and the editor's preset row."""
-        return os.path.join(os.path.dirname(__file__), "macro_manager", "presets")
+        return os.path.join(os.path.dirname(__file__), "presets")
 
     @classmethod
     def _preset_store(cls) -> ptk.PresetStore:
-        """Two-tier store: shipped ``macro_manager/presets`` + a writable user tier.
+        """Two-tier store: shipped ``presets/`` + a writable user tier.
 
         Resolves to the same files the Macro Manager editor's
         ``uitk.PresetManager`` uses (relative

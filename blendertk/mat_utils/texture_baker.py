@@ -834,7 +834,7 @@ class TextureBaker(ptk.LoggingMixin):
         for candidate in (output, output + ".exr"):
             if os.path.isfile(candidate):
                 if candidate != output:
-                    os.replace(candidate, output)
+                    ptk.FileUtils.replace_file(candidate, output)
                 return output
         return None
 

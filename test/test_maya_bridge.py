@@ -137,8 +137,8 @@ try:
     # This is the whole point of the mode: a headless Blender must be able to write a
     # Maya scene, and headless Blender has no Qt -- so params/rendering may not touch
     # uitk here. The mayapy run itself is stubbed (it costs ~6s and needs Maya).
-    from pythontk.core_utils.script_template import ScriptTemplate
-    from pythontk.core_utils import app_handoff as _handoff
+    from pythontk import ScriptTemplate
+    from pythontk import ScriptRunDeliverer
     from blendertk.env_utils.maya_bridge._maya_bridge import DEFAULTS
 
     save_txt = (_TEMPLATE_DIR / "_save_scene.py").read_text()
@@ -265,9 +265,15 @@ try:
         )
 
     sa_dir = tempfile.mkdtemp(prefix="btk_save_as_")
-    sa_orig_run = _handoff.ScriptRunDeliverer.run
+    # The run is faked, but the bridge resolves a mayapy before it: pin a stand-in so
+    # this never depends on a real Maya install (Linux and clean Windows boxes have none).
+    sa_mayapy = os.path.join(sa_dir, "mayapy.exe" if os.name == "nt" else "mayapy")
+    open(sa_mayapy, "w").close()
+    sa_orig_mayapy_env = os.environ.get("MAYAPY_EXE")
+    os.environ["MAYAPY_EXE"] = sa_mayapy
+    sa_orig_run = ScriptRunDeliverer.run
     sa_orig_export = btk.FbxUtils.export_selection_fbx
-    _handoff.ScriptRunDeliverer.run = staticmethod(sa_fake_run)
+    ScriptRunDeliverer.run = staticmethod(sa_fake_run)
     btk.FbxUtils.export_selection_fbx = lambda filepath=None, objects=None, **o: (
         filepath
     )
@@ -295,7 +301,7 @@ try:
         sa_script = sa_runs[0]["script"]
         # mayapy writes a staging sibling; the caller's path is the promotion target,
         # so a failed run can never destroy an existing scene file.
-        sa_staged = _handoff.ScriptRunDeliverer._staging_path(sa_out)
+        sa_staged = ScriptRunDeliverer._staging_path(sa_out)
         check(
             "rendered save script points at the staging sibling + the payload",
             f'OUT_FILE = r"{sa_staged.replace(os.sep, "/")}"' in sa_script
@@ -333,8 +339,12 @@ try:
             sa_bad is None and not sa_runs,
         )
     finally:
-        _handoff.ScriptRunDeliverer.run = staticmethod(sa_orig_run)
+        ScriptRunDeliverer.run = staticmethod(sa_orig_run)
         btk.FbxUtils.export_selection_fbx = sa_orig_export
+        if sa_orig_mayapy_env is None:
+            os.environ.pop("MAYAPY_EXE", None)
+        else:
+            os.environ["MAYAPY_EXE"] = sa_orig_mayapy_env
         shutil.rmtree(sa_dir, ignore_errors=True)
 
     # ---- FBX export via _export_objects (bpy; plain params dict, no Qt) ------

@@ -3,7 +3,7 @@
 """A live viewport preview of a horizon rig: the artist drags the light and
 sees the outline morph, exactly as Unity and the WebXR viewer will show it.
 
-Mirror of mayatk's ``rig_utils/shadow_preview.py`` -- same name, same
+Mirror of mayatk's ``rig_utils/shadow_rig/shadow_preview.py`` -- same name, same
 behaviour, a different mechanism. Maya gets a hardware *material* (a
 ``GLSLShader`` the viewport shades the plane with); Blender's EEVEE nodes have
 no bitwise test and no integer texel fetch, so the map cannot be read in a
@@ -228,7 +228,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
             ValueError: *plane* is not a horizon plane, has no map, or the
                 session cannot draw (headless).
         """
-        from blendertk.rig_utils.shadow_rig import ShadowRig
+        from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig
 
         if ShadowRig.plane_type(plane) != "horizon":
             raise ValueError(f"{plane.name}: not a horizon rig plane.")
@@ -311,7 +311,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         ``ptk.SceneRecords.SHADOWS`` producer (``ShadowRig.export_record``), so
         the record is always produced with the previews detached.
         """
-        from blendertk.rig_utils.shadow_rig import ShadowRig
+        from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig
 
         cls.detach_all()
         ShadowRig.refresh_export_metadata()
@@ -526,7 +526,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         import bpy
         import os
 
-        from blendertk.rig_utils.shadow_rig import ShadowRig
+        from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig
 
         name = ShadowRig._plane_prop(plane, ShadowRig._HORIZON_TEX_PROP, "")
         if not name:
@@ -538,7 +538,7 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         """``(params, image)`` for one plane, ``(None, None)`` when the rig's
         pieces are gone: the frame off the contact's live matrix, the source
         off the light's, the layout off the record's horizon block."""
-        from blendertk.rig_utils.shadow_rig import ShadowRig
+        from blendertk.rig_utils.shadow_rig._shadow_rig import ShadowRig
 
         image = cls._horizon_image(plane)
         contact = ShadowRig._plane_contact(plane)

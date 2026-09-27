@@ -6,7 +6,7 @@ The Blender half of the Maya<->Blender object hand-off (``btk.MayaBridge`` <-> `
 A thin :class:`pythontk.ScriptLaunchBridge` subclass: the shared ``send()`` skeleton, the template
 discovery / ``BRIDGE_MODES`` / ``__KEY__`` substitution machinery, and the
 render-script-then-launch-a-fresh-app deliverer all live upstream in
-:mod:`pythontk.core_utils.app_handoff`. The Blender-side selection + FBX export come from
+:mod:`pythontk.core_utils.handoff.app_handoff`. The Blender-side selection + FBX export come from
 :class:`blendertk.env_utils.handoff_export.BlenderExportMixin` (shared with the Unity bridge). This
 file owns only the Maya-specific bits, declared as a :class:`pythontk.ScriptLaunchSpec` dataclass
 (executable discovery + the ``-command`` MEL wrapper that exec's the rendered Python template) plus
@@ -31,8 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pythontk as ptk
-from pythontk.core_utils import script_template as _templates
-from pythontk.core_utils.script_template import SAVE_AS, SEND_TO
+from pythontk import SAVE_AS, SEND_TO
 
 from blendertk.env_utils.handoff_export import BlenderExportMixin
 
@@ -71,14 +70,19 @@ DEFAULTS: Dict[str, Any] = {
 # Declarative Maya hand-off config (target discovery + the ``-command`` launch args). Launches a
 # FRESH Maya that exec's the rendered Python template (session-safety rule).
 _SPEC = ptk.ScriptLaunchSpec(
-    # ``$MAYA_EXE`` -> ``$MAYA_LOCATION/bin/maya.exe`` -> ``AppLauncher.find_app`` -> a scan of
-    # ``Program Files\\Autodesk\\Maya*\\bin\\maya.exe`` (highest version wins).
+    # ``$MAYA_EXE`` -> ``$MAYA_LOCATION/bin/maya[.exe]`` -> ``AppLauncher.find_app`` -> a
+    # scan of every OS's install root -- Program Files, /usr/autodesk (Linux),
+    # /Applications -- highest version wins.
     app=ptk.AppSpec(
         name="Maya",
         env_vars=("MAYA_EXE",),
-        location_env_vars=(("MAYA_LOCATION", ("bin", "maya.exe")),),
+        location_env_vars=(("MAYA_LOCATION", ("bin", "maya{exe}")),),
         app_names=("maya",),
-        scan_globs=(r"{program_files}\Autodesk\Maya*\bin\maya.exe",),
+        scan_globs=(
+            r"{program_files}\Autodesk\Maya*\bin\maya.exe",
+            "/usr/autodesk/maya*/bin/maya",
+            "/Applications/Autodesk/maya*/Maya.app/Contents/bin/maya",
+        ),
         not_found_msg=(
             "Maya executable not found. Install Maya or set $MAYA_EXE / $MAYA_LOCATION / "
             "MayaBridge.maya_path."
@@ -121,9 +125,13 @@ _RUN_SPEC = ptk.ScriptLaunchSpec(
     app=ptk.AppSpec(
         name="mayapy",
         env_vars=("MAYAPY_EXE",),
-        location_env_vars=(("MAYA_LOCATION", ("bin", "mayapy.exe")),),
+        location_env_vars=(("MAYA_LOCATION", ("bin", "mayapy{exe}")),),
         app_names=("mayapy",),
-        scan_globs=(r"{program_files}\Autodesk\Maya*\bin\mayapy.exe",),
+        scan_globs=(
+            r"{program_files}\Autodesk\Maya*\bin\mayapy.exe",
+            "/usr/autodesk/maya*/bin/mayapy",
+            "/Applications/Autodesk/maya*/Maya.app/Contents/bin/mayapy",
+        ),
         not_found_msg=(
             "mayapy interpreter not found. Install Maya or set $MAYAPY_EXE / "
             "$MAYA_LOCATION / MayaBridge.maya_path."
@@ -138,7 +146,7 @@ _RUN_SPEC = ptk.ScriptLaunchSpec(
 
 
 # Module-level template discovery -- kept so the slots (and tests) can list templates without a
-# live engine. Thin wrappers over the shared :mod:`pythontk.core_utils.script_template` helpers.
+# live engine. Thin wrappers over the shared :mod:`pythontk.core_utils.handoff.script_template` helpers.
 
 
 class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
@@ -565,11 +573,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         the manifest's per-file classification has a tiling concept, and one real
         tile beats an unresolvable token (mirror of the pull collector's rule).
         """
-        import glob as _glob
-
         import bpy
-
-        from blendertk.mat_utils._mat_utils import _MatUtilsInternal
 
         if image is None:
             return None
@@ -580,10 +584,9 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         if not path:
             return None
         path = os.path.abspath(path)
-        for token, pattern in _MatUtilsInternal._TILE_TOKENS:
-            if token in path:
-                tiles = sorted(_glob.glob(_glob.escape(path).replace(token, pattern)))
-                return tiles[0] if tiles else None
+        if ptk.TiledPath.has_token(path):
+            tiles = ptk.TiledPath.tiles(path)
+            return os.path.normpath(tiles[0]) if tiles else None
         return path if os.path.isfile(path) else None
 
     # ------------------------------------------------------------------ launch env
@@ -628,7 +631,7 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     @staticmethod
     def list_templates() -> List[Path]:
         """User-visible templates in ``templates/`` (skips underscore-prefixed)."""
-        return _templates.ScriptTemplate.list_templates(_TEMPLATE_DIR, ".py")
+        return ptk.ScriptTemplate.list_templates(_TEMPLATE_DIR, ".py")
 
     #: Modes a user-visible template may declare — DERIVED from the specs that serve
     #: them, never restated. The helpers filter declarations against this and silently
@@ -645,14 +648,14 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
     @classmethod
     def template_modes(cls, template_path: Path) -> Tuple[str, ...]:
         """Modes a template declares via ``BRIDGE_MODES``; ``("send_to",)`` fallback."""
-        return _templates.ScriptTemplate.template_modes(
+        return ptk.ScriptTemplate.template_modes(
             template_path, cls.template_modes_allowed
         )
 
     @classmethod
     def list_template_modes(cls) -> List[Tuple[str, str]]:
         """``[(stem, mode), ...]`` for every (template, mode) pairing."""
-        return _templates.ScriptTemplate.list_template_modes(
+        return ptk.ScriptTemplate.list_template_modes(
             _TEMPLATE_DIR, ".py", cls.template_modes_allowed
         )
 

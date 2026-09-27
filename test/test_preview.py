@@ -121,6 +121,14 @@ try:
     check("commit button starts disabled in the .ui", not btn.isEnabled())
     pv = btk.Preview(CreatorOp(), chk, btn, message_func=msgs.append)
     check("Preview enables the commit button so Create works", btn.isEnabled())
+    # Regression: the checkbox was a plain field -- Save as Defaults (Shift+Click on the
+    # panel's Reset) captured it ON, so a later Reset turned the preview on and ran the op,
+    # and a session restore reopened the panel previewing. mayatk's Preview tags it too.
+    check(
+        "the preview checkbox is outside reset + restore",
+        getattr(chk, "exclude_from_reset", False) is True
+        and getattr(chk, "restore_state", True) is False,
+    )
 
     # ---- enable creates, refresh doesn't accumulate, disable rolls all back
     chk.setChecked(True)
