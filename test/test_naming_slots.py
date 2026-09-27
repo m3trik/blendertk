@@ -66,10 +66,9 @@ try:
     BlenderUiHandler(switchboard=sb)
     ui = sb.get_ui("naming")
     slots = ui.slots
-    # The offscreen load skips header_init; drive the documented init entry points.
-    slots.header_init(ui.header)
-    for w in ("txt000", "txt001", "tb000", "tb001", "tb002", "tb003"):
-        getattr(slots, f"{w}_init")(getattr(ui, w))
+    # The load runs every *_init itself, header_init included; driving them again here
+    # built each menu twice (two Scope combos, 44 convention labels), so a check could
+    # pass against a widget the user never sees. Mirror of mayatk's test_naming_panel.
     menu = ui.header.menu
 
     # ---- header: scope combo + dry-run toggle -------------------------------------------
@@ -83,6 +82,12 @@ try:
         "dry-run toggle under scope",
         hasattr(menu, "chk_dry_run") and not menu.chk_dry_run.isChecked(),
     )
+    scope_combos = [
+        w
+        for w in menu.findChildren(QtWidgets.QComboBox)
+        if w.objectName() == "cmb_scope"
+    ]
+    check("header menu built once: one Scope combo", len(scope_combos) == 1)
     check("output pane intro", "Dry Run" in ui.txt002.toPlainText())
     check(
         "output pane not persisted", getattr(ui.txt002, "restore_state", True) is False
@@ -96,6 +101,14 @@ try:
         len(fields) == 19 and all(fields.values()),
         str([n for n, w in fields.items() if w is None]),
     )
+    grid = m.gridLayout
+    labels = [i for i in range(grid.count()) if grid.getItemPosition(i)[1] == 1]
+    check(
+        "suffix-by-type menu built once: one label per convention row "
+        "(19 node types + 3 artifact entries)",
+        len(labels) == 22,
+        f"{len(labels)} labels",
+    )
     check(
         "suffix defaults",
         m.tb003_txt003.text() == "_GEO"
@@ -103,7 +116,13 @@ try:
         and m.tb003_txt018.text() == "_SET",
     )
     disabled = {n for n, w in fields.items() if w is not None and not w.isEnabled()}
-    expected_disabled = {slots.SUFFIX_FIELDS[kw] for kw in slots._BLENDER_NA}
+    # CONVENTION_DISABLED is keyed by convention key (the editor's vocabulary);
+    # the fields are named by engine keyword -- join through SUFFIX_BINDINGS.
+    expected_disabled = {
+        slots.SUFFIX_FIELDS[kw]
+        for kw, ck, _tk in slots.SUFFIX_BINDINGS
+        if ck in slots.CONVENTION_DISABLED
+    }
     check(
         "Blender-inapplicable fields disabled",
         disabled == expected_disabled,

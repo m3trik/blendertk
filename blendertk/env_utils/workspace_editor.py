@@ -532,7 +532,7 @@ class WorkspaceEditorSlots(ptk.LoggingMixin):
     # ------------------------------------------------------------------ templates
     def _apply_template(self, rules):
         """PresetManager value applier: load a template's rules into the project."""
-        rules = {str(k): str(v) for k, v in rules.items() if k != "_meta"}
+        rules = ptk.WorkspaceTemplates.rules_from(rules)
         self._populate(rules)
         self._write()
         return len(rules)

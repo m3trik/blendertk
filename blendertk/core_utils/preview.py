@@ -65,6 +65,11 @@ class Preview:
         self._prior_collections = set()
         self._prior_data = set()
 
+        # Previews must start disabled on UI load, and a panel's Reset / Save as Defaults
+        # must never switch one on (that runs the op): uitk's state restore and every
+        # defaults operation skip a widget tagged this way. Mirrors mayatk's Preview.
+        enable_checkbox.exclude_from_reset = True
+        enable_checkbox.restore_state = False
         enable_checkbox.toggled.connect(self._on_toggled)
         commit_button.clicked.connect(self.commit)
         # The co-located ``.ui`` files ship the commit button ``enabled=false`` (the old gated

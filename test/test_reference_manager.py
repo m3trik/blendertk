@@ -75,6 +75,14 @@ try:
     n = btk.link_blend_file(lib_path, link=True)
     check("link_blend_file links a collection", n >= 1, f"count={n}")
     check("is_blend_linked True after link", btk.is_blend_linked(lib_path))
+    # Another spelling of the name is the same file only where the OS folds case.
+    _recased = os.path.join(
+        os.path.dirname(lib_path), os.path.basename(lib_path).upper()
+    )
+    check(
+        "is_blend_linked folds case exactly where the filesystem does",
+        btk.is_blend_linked(_recased) == (os.name == "nt"),
+    )
     check(
         "collection instanced into the scene",
         any(

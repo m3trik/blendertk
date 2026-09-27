@@ -46,7 +46,6 @@ Both ``cmb002`` packing modes are live: "Atlas by Material" (per-material consol
 
 import contextlib
 import os
-import shutil
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -1264,7 +1263,7 @@ class LightmapBaker(ptk.LoggingMixin):
         map's own *owners* read it (that is what re-baking means); a name anything else
         reads (*claims*, :meth:`LightmapRecords.claims`) is left alone, and so is a
         collision *within* one pack -- both take a numeric tail instead
-        (:meth:`ptk.FileUtils.unique_path`). ``shutil`` rather than ``os.replace`` because
+        (:meth:`ptk.FileUtils.unique_path`). A move rather than a bare ``os.replace`` because
         the work dir is routinely on a different volume from the project.
 
         A destination that cannot be replaced takes an adjacent name instead of failing:
@@ -1301,7 +1300,9 @@ class LightmapBaker(ptk.LoggingMixin):
                     owners=owners,
                     avoid=avoid,
                 )
-                shutil.move(src_abs, dst)
+                ptk.FileUtils.move_file(
+                    src_abs, output_dir, new_name=os.path.basename(dst)
+                )
         used.add(dst)
         return dst
 
@@ -1309,28 +1310,18 @@ class LightmapBaker(ptk.LoggingMixin):
     def _move_into_place(source: str, destination: str) -> None:
         """Move *source* onto *destination*, never deleting what is there first.
 
-        Staged beside the destination, then swapped in by one ``os.replace``, so a
-        failure anywhere leaves the destination's old file as it was -- the object
-        keeps its map. Deleting first and moving second lost both when the move
-        failed (a full disk, a folder the user cannot write). A swap that fails puts
-        the source back, for the caller's next name. Mirror of mayatk's.
+        ``ptk.FileUtils.move_file`` stages it beside the destination and swaps it
+        in, so a failure leaves the destination's old file as it was -- the object
+        keeps its map -- and a swap that fails puts the source back, for the
+        caller's next name. Mirror of mayatk's.
 
         Raises:
             OSError: The move or the swap failed; *destination* is untouched.
         """
-        stem, ext = os.path.splitext(os.path.basename(destination))
-        staged = os.path.join(
-            os.path.dirname(destination), f".{stem}.{os.getpid()}.part{ext}"
+        destination = os.path.abspath(destination)
+        ptk.FileUtils.move_file(
+            source, os.path.dirname(destination), new_name=os.path.basename(destination)
         )
-        shutil.move(source, staged)
-        try:
-            os.replace(staged, destination)
-        except OSError:
-            try:
-                shutil.move(staged, source)
-            except OSError:
-                pass
-            raise
 
     def _texture_homes(self, objects) -> Dict[str, str]:
         """``{object_name: folder}`` -- where :attr:`beside_textures` puts each map.

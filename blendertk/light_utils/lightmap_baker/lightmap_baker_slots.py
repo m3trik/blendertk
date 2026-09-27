@@ -281,13 +281,8 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         so a reset leaves it standing. Mirror of mayatk's.
         """
         from uitk.managers.reset_gesture import ResetGesture
-        from uitk.managers.state_manager import StateManager
 
-        self._reset_gesture = ResetGesture(
-            widget,
-            state=lambda: StateManager.for_widget(self.ui),
-            on_performed=self._after_reset,
-        )
+        self._reset_gesture = ResetGesture(widget, on_performed=self._after_reset)
 
     def _after_reset(self, action: str) -> None:
         """Let go of the active preset when a reset moved the dials off it.
@@ -486,16 +481,23 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         -- the baker's own "what counts as a bakeable mesh" -- so a selection
         that also holds the room's lights bakes the geometry, and a lights-only
         selection reads as nothing to bake.
-        """
-        scope = self._scope()
-        if scope == "selected":
-            return TextureBaker.resolve_meshes(CoreUtils.selected_objects())
-        import bpy
 
-        meshes = TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
-        if scope == "visible":
-            return [o for o in meshes if o.visible_get()]
-        return meshes  # scene
+        The words and their precedence are :class:`pythontk.HandoffScope`'s
+        (``scene`` is its synonym for ``all``; anything unknown bakes the
+        selection); this supplies only the scene reads.
+        """
+
+        def scene_meshes():
+            import bpy
+
+            return TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
+
+        return ptk.HandoffScope.resolve(
+            self._scope(),
+            selected=lambda: TextureBaker.resolve_meshes(CoreUtils.selected_objects()),
+            all=scene_meshes,
+            visible=lambda: [o for o in scene_meshes() if o.visible_get()],
+        )
 
     def set_exclusions_init(self, widget) -> None:
         """Hang Select / Clear off the Exclude row, and make its hover live.

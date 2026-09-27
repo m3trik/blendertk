@@ -629,7 +629,7 @@ class FbxUtils(_FbxUtilsInternal):
             "export_record",
         ),
         ptk.SceneRecords.SHADOWS: (
-            "blendertk.rig_utils.shadow_rig",
+            "blendertk.rig_utils.shadow_rig._shadow_rig",
             "ShadowRig",
             "export_record",
         ),

@@ -27,17 +27,23 @@ try:
     from mathutils import Vector
     import pythontk as ptk
     import blendertk as btk
-    from blendertk.edit_utils._curtain_drape import CurtainDrape
+    import warnings
 
-    # ---- surface: engine is class-only (not flat on btk), matching mayatk
+    from blendertk.edit_utils.curtain import CurtainMesh, Rail
+    from blendertk.edit_utils.curtain._curtain_drape import CurtainDrape
+
+    # ---- surface: mayatk's names and shape (Rail + CurtainMesh), unregistered
+    # like mayatk's; CurtainRig is the registered twin
     check(
-        "curtain engine is class-only (not flat on btk)",
-        callable(btk.CurtainUtils.create_curtain)
-        and callable(btk.CurtainUtils.curtain_rail_from_selection)
+        "curtain engine mirrors mayatk's Rail + CurtainMesh",
+        issubclass(Rail, ptk.Polyline)
+        and all(
+            callable(getattr(Rail, n, None)) for n in ("from_selection", "sample_curve")
+        )
+        and issubclass(CurtainMesh, CurtainDrape)
+        and all(callable(getattr(CurtainMesh, n, None)) for n in ("create", "build"))
         and btk.CurtainRig is not None
-        and not any(
-            hasattr(btk, n) for n in ("create_curtain", "curtain_rail_from_selection")
-        ),
+        and not any(hasattr(btk, n) for n in ("Rail", "CurtainMesh")),
     )
 
     def reset():
@@ -53,9 +59,7 @@ try:
     # ---- build matches the engine grid exactly
     reset()
     rail, closed = ptk.Polyline.make(width=6.0)
-    obj = btk.CurtainUtils.create_curtain(
-        rail, height=2.0, gravity=0.4, irregularity=0.0
-    )
+    obj = CurtainMesh.create(rail, height=2.0, gravity=0.4, irregularity=0.0)
     u_segs, v_segs, pts = CurtainDrape(
         rail, height=2.0, gravity=0.4, irregularity=0.0
     ).grid_points()
@@ -80,12 +84,10 @@ try:
 
     # ---- thickness shells, reduce decimates, invert flips
     reset()
-    flat = btk.CurtainUtils.create_curtain(
-        rail, height=1.0, gravity=0.0, irregularity=0.0
-    )
+    flat = CurtainMesh.create(rail, height=1.0, gravity=0.0, irregularity=0.0)
     base_faces = len(flat.data.polygons)
     reset()
-    shelled = btk.CurtainUtils.create_curtain(
+    shelled = CurtainMesh.create(
         rail, height=1.0, gravity=0.0, irregularity=0.0, thickness=0.05
     )
     check(
@@ -94,7 +96,7 @@ try:
         f"{base_faces} -> {len(shelled.data.polygons)}",
     )
     reset()
-    reduced = btk.CurtainUtils.create_curtain(
+    reduced = CurtainMesh.create(
         rail, height=1.0, gravity=0.0, irregularity=0.0, reduce=50.0
     )
     check(
@@ -103,12 +105,10 @@ try:
         f"{base_faces} -> {len(reduced.data.polygons)}",
     )
     reset()
-    normal_obj = btk.CurtainUtils.create_curtain(
-        rail, height=1.0, gravity=0.0, irregularity=0.0
-    )
+    normal_obj = CurtainMesh.create(rail, height=1.0, gravity=0.0, irregularity=0.0)
     n0 = normal_obj.data.polygons[0].normal.copy()
     reset()
-    inverted = btk.CurtainUtils.create_curtain(
+    inverted = CurtainMesh.create(
         rail, height=1.0, gravity=0.0, irregularity=0.0, invert=True
     )
     n1 = inverted.data.polygons[0].normal
@@ -118,7 +118,7 @@ try:
     reset()
     bpy.ops.curve.primitive_bezier_curve_add()
     curve = bpy.context.active_object
-    rail_sel = btk.CurtainUtils.curtain_rail_from_selection([curve])
+    rail_sel = Rail.from_selection([curve])
     check(
         "curve resolves to a rail",
         rail_sel is not None and len(rail_sel[0]) >= 2,
@@ -134,7 +134,7 @@ try:
     b.location = (4, 0, 0)
     for o in (a, b):
         bpy.context.collection.objects.link(o)
-    rail_sel = btk.CurtainUtils.curtain_rail_from_selection([a, b])
+    rail_sel = Rail.from_selection([a, b])
     check(
         "two objects resolve to their positions",
         rail_sel is not None
@@ -146,7 +146,25 @@ try:
     reset()
     check(
         "empty selection -> None",
-        btk.CurtainUtils.curtain_rail_from_selection([]) is None,
+        Rail.from_selection([]) is None,
+    )
+
+    # ---- the retired entry point still builds, and says where it went
+    reset()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        legacy = btk.CurtainUtils.create_curtain(rail, height=1.0, irregularity=0.0)
+        legacy_rail = btk.CurtainUtils.curtain_rail_from_selection([])
+    named = " ".join(str(w.message) for w in caught)
+    check(
+        "btk.CurtainUtils forwards to CurtainMesh / Rail with a DeprecationWarning",
+        legacy is not None
+        and legacy.type == "MESH"
+        and legacy_rail is None
+        and sum(issubclass(w.category, DeprecationWarning) for w in caught) >= 2
+        and "CurtainMesh.create" in named
+        and "Rail.from_selection" in named,
+        named,
     )
 
     # ============================ RIG (control handles + hooks) ============================
@@ -166,9 +184,7 @@ try:
             ev.to_mesh_clear()
 
     reset()
-    cur = btk.CurtainUtils.create_curtain(
-        rail, height=2.0, gravity=0.0, irregularity=0.0
-    )
+    cur = CurtainMesh.create(rail, height=2.0, gravity=0.0, irregularity=0.0)
     n_mods_before = len(cur.modifiers)
     root = CurtainRig.attach(cur, controls=5, dropoff=2.0)
     check("attach returns a root empty", root is not None and root.type == "EMPTY")
@@ -193,9 +209,7 @@ try:
 
     # ---- functional invariant: moving a control LIFTS the curtain (the wire-driver test) ----
     reset()
-    cur = btk.CurtainUtils.create_curtain(
-        rail, height=2.0, gravity=0.0, irregularity=0.0
-    )
+    cur = CurtainMesh.create(rail, height=2.0, gravity=0.0, irregularity=0.0)
     rest = top_y(cur)  # un-rigged rest pose
     root = CurtainRig.attach(
         cur, controls=5, dropoff=10.0
@@ -223,9 +237,7 @@ try:
 
     # ---- rigid root motion translates without deforming (group behavior) ----
     reset()
-    cur = btk.CurtainUtils.create_curtain(
-        rail, height=2.0, gravity=0.0, irregularity=0.0
-    )
+    cur = CurtainMesh.create(rail, height=2.0, gravity=0.0, irregularity=0.0)
     root = CurtainRig.attach(cur, controls=4, dropoff=3.0)
     base_top = top_y(cur)
     root.location.y += 5.0  # move the whole rig
@@ -238,9 +250,7 @@ try:
 
     # ---- controls from a curve object's control points (Maya per-CV parity) ----
     reset()
-    cur = btk.CurtainUtils.create_curtain(
-        rail, height=2.0, gravity=0.0, irregularity=0.0
-    )
+    cur = CurtainMesh.create(rail, height=2.0, gravity=0.0, irregularity=0.0)
     cu = bpy.data.curves.new("Rail", "CURVE")
     sp = cu.splines.new("POLY")
     sp.points.add(2)  # 3 points
@@ -272,7 +282,7 @@ except Exception:
     lines.append("FAIL unhandled exception")
 
 print("\n".join(lines))
-ok = all(l.startswith("OK") for l in lines) and lines
+ok = all(line.startswith("OK") for line in lines) and lines
 print(
-    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for l in lines if l.startswith('OK'))}/{len(lines)})"
+    f"===RESULT: {'PASS' if ok else 'FAIL'}=== ({sum(1 for line in lines if line.startswith('OK'))}/{len(lines)})"
 )

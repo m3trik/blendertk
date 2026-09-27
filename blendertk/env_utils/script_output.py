@@ -418,8 +418,12 @@ class ScriptConsole:
         """
         import logging
 
+        import bpy
+
         log = logging.getLogger(__name__)
         self._capture.install()  # capture precedes UI — also covers standalone (no-restore) use
+        if bpy.app.background:
+            return self  # no window: nothing to dock into, and the user's GUI state stays theirs
         try:
             height = int(self._load_state().get("height") or 0) or self.DEFAULT_HEIGHT
         except (TypeError, ValueError):  # corrupt/foreign state value

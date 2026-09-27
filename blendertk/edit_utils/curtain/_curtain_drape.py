@@ -17,7 +17,8 @@ is a *different displacement over the same primitive*, not a fork of this
 code. :meth:`CurtainDrape.grid_points` yields the full draped grid.
 
 **Vendored twin — keep code-identical.** This file is duplicated in
-``mayatk.edit_utils._curtain_drape`` and ``blendertk.edit_utils._curtain_drape``
+``mayatk.edit_utils.curtain._curtain_drape`` and
+``blendertk.edit_utils.curtain._curtain_drape``
 (the two DCC consumers cannot import each other, and pythontk keeps only the
 general primitives it composes — ``RailSurface``/``Polyline``/``MathUtils``/
 ``BandLimitedNoise`` — not this curtain-specific remainder). Mirror any change
@@ -71,7 +72,7 @@ class CurtainDrape(_CurtainDrapeInternal):
 
     Consumes plain rail points (see :class:`ptk.Polyline`) and emits draped
     vertex positions; building the mesh from them is the DCC adapter's job. See
-    ``mayatk.edit_utils.curtain.CurtainMesh`` for the parameter reference (the
+    ``mayatk.edit_utils.curtain._curtain.CurtainMesh`` for the parameter reference (the
     adapters re-expose this signature unchanged).
 
     Parameters:

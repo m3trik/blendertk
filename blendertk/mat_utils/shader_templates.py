@@ -300,7 +300,7 @@ class ShaderTemplatesSlots(ptk.LoggingMixin):
         self._store.save(self.template_name, data)
         # ONE record for the save, same shape as the Maya twin's engine-side
         # announcement (``GraphSaver.save_graph``): node count plus a clickable
-        # path. Truncate the *label*, not the href — _wrap_text never
+        # path. Truncate the *label*, not the href — TextLayout.wrap_text never
         # hard-wraps a word containing a tag.
         path = str(self._store.path(self.template_name, "user"))
         link = self.logger.log_link(ptk.truncate(path, 60), "open", path=path)

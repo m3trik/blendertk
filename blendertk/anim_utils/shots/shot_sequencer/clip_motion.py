@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+from pythontk import ShotBoundaryConflict
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore

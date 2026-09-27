@@ -1567,7 +1567,7 @@ def _run_sequencer_checks():
     # The planner REFUSES a ripple that would force two shots' disagreeing
     # poses onto one frame; measured in Maya, that refusal came out of the
     # clip handlers as a traceback at the end of a mouse drag.
-    from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+    from pythontk import ShotBoundaryConflict
 
     class _RefusingHost(_KeysHost):
         def __init__(self, widget, sequencer):

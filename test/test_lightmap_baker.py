@@ -1065,11 +1065,13 @@ try:
         "a quoted/padded entry is trimmed before joining",
         _slots('  " lightmaps "  ')._output_dir() == os.path.join(BASE, "lightmaps"),
     )
-    # "/lightmaps" is a separator-spelled SUBDIRECTORY, but os.path.isabs calls it
-    # absolute on Windows and would resolve it to the current drive's root.
+    # "/lightmaps" is a separator-spelled SUBDIRECTORY on Windows, but os.path.isabs
+    # calls it absolute there and would resolve it to the current drive's root. On
+    # POSIX it IS a full path (ptk.FileUtils.resolve_output_dir), and wins.
     check(
-        "a driveless rooted entry stays a subdirectory",
-        _slots("/lightmaps")._output_dir() == os.path.join(BASE, "lightmaps"),
+        "a driveless rooted entry stays a subdirectory (a full path on POSIX)",
+        _slots("/lightmaps")._output_dir()
+        == (os.path.join(BASE, "lightmaps") if os.name == "nt" else "/lightmaps"),
     )
 
     # A UNC share keeps its leading two backslashes: spelled "//nas/..." the
@@ -2539,6 +2541,47 @@ try:
             )
             == (True, True, True, False),
         )
+        # Scope -> the meshes b000 bakes (before the Exclude set), per word: the
+        # selection is resolved to meshes (a selected light never bakes), Scene
+        # takes the scene's meshes, Visible only the ones on screen.
+        bpy.ops.mesh.primitive_cube_add(location=(40, 0, 0))
+        _seen = bpy.context.active_object
+        _seen.name = "scopeProbeSeen"
+        bpy.ops.mesh.primitive_cube_add(location=(44, 0, 0))
+        _hidden = bpy.context.active_object
+        _hidden.name = "scopeProbeHidden"
+        bpy.ops.object.light_add(type="POINT", location=(42, 0, 3))
+        _lamp = bpy.context.active_object
+        _lamp.name = "scopeProbeLamp"
+        _hidden.hide_set(True)
+        bpy.ops.object.select_all(action="DESELECT")
+        _seen.select_set(True)
+        _lamp.select_set(True)
+        try:
+
+            def _names(scope):
+                return {o.name for o in _panel(scope=scope)._scope_objects()}
+
+            _probe = {"scopeProbeSeen", "scopeProbeHidden", "scopeProbeLamp"}
+            _sel, _vis, _all = _names("Selected"), _names("Visible"), _names("Scene")
+            check(
+                "Scope Selected bakes the selected meshes, never the selected light",
+                _sel == {"scopeProbeSeen"},
+                f"{sorted(_sel)}",
+            )
+            check(
+                "Scope Visible bakes the visible meshes only",
+                _vis & _probe == {"scopeProbeSeen"},
+                f"{sorted(_vis & _probe)}",
+            )
+            check(
+                "Scope Scene bakes every scene mesh, hidden ones included",
+                _all & _probe == {"scopeProbeSeen", "scopeProbeHidden"},
+                f"{sorted(_all & _probe)}",
+            )
+        finally:
+            for _o in (_seen, _hidden, _lamp):
+                bpy.data.objects.remove(_o, do_unlink=True)
         tuned = _panel(
             res=2048,
             samples=64,

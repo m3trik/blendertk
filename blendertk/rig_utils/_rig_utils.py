@@ -73,6 +73,263 @@ class RigUtils:
         child.matrix_parent_inverse = parent.matrix_world.inverted()
         return child
 
+    @staticmethod
+    def _take_parent_link(obj, source):
+        """Give *obj* the parent link *source* has: the parent, its type with
+        the bone / vertices it names, and the parent-inverse -- so *obj*, given
+        *source*'s channels, evaluates exactly where *source* does, on a bone or
+        vertex parent too. No parent leaves *obj* in the world.
+
+        Parameters:
+            obj (bpy.types.Object): The object to re-link.
+            source (bpy.types.Object): The object whose link it takes.
+        """
+        obj.parent = source.parent  # every link write resets the inverse: it goes last
+        if source.parent is not None:
+            obj.parent_type = source.parent_type
+            obj.parent_bone = source.parent_bone
+            obj.parent_vertices = source.parent_vertices[:]
+            obj.matrix_parent_inverse = source.matrix_parent_inverse.copy()
+
+    # ----------------------------------------------------------------- locator rigs
+    @staticmethod
+    def create_locator_at_object(
+        objects,
+        loc_scale=1.0,
+        lock_translate=False,
+        lock_rotation=False,
+        lock_scale=False,
+        grp_suffix=None,
+        grp_affix_mode="auto",
+        loc_suffix=None,
+        loc_affix_mode="auto",
+        obj_suffix=None,
+        obj_affix_mode="auto",
+        strip_digits=False,
+        strip_trailing_underscores=True,
+        strip_suffix=True,
+    ):
+        """Rig each object under a locator (Empty) at its origin, under a group Empty.
+
+        Mirror of mayatk's ``RigUtils.create_locator_at_object`` (name + behavior):
+        ``<base><grp>`` -> ``<base><loc>`` -> the object renamed ``<base><obj>``,
+        with the object's channels locked as asked. The three names share one
+        stem, stripped of the affixes in play (and of trailing digits /
+        underscores when asked). Maya's freeze / manip-pivot steps have no
+        Blender counterpart, so nothing is frozen and nothing moves: the group
+        takes the object's place -- its parent link (object, bone or vertices),
+        parent-inverse and channels -- so it sits where the object sat and
+        keeps following a posed bone; the locator sits on the group; and the
+        object keeps its own channels (its animation still plays), re-linked
+        to the locator as a plain OBJECT child through a parent-inverse that
+        cancels them.
+
+        Parameters:
+            objects (obj/list): The objects (or names) to rig; unknown names skip.
+            loc_scale (float): The locator's display size.
+            lock_translate, lock_rotation, lock_scale (bool): Lock (or, False,
+                unlock) the object's location / rotation / scale channels.
+            grp_suffix, loc_suffix (str): Affix for the group / locator. ``None``
+                takes the shared naming convention's ``group`` / ``locator`` entry
+                ("_GRP" / "_LOC" as shipped) -- spelling AND placement.
+            grp_affix_mode, loc_affix_mode (str): Placement of an explicit affix:
+                "auto" (infer from the delimiter), "suffix" or "prefix".
+            obj_suffix (str): Affix for the object. ``None`` resolves it per object
+                from its OWN type (a mesh "_GEO", a camera "_CAM") via
+                ``Naming.affix_for``, and strips whichever convention affix the
+                name already carries; "" leaves the stem unaffixed. A group (an
+                Empty with children) is never renamed -- the group Empty already
+                holds that stem.
+            obj_affix_mode (str): Placement of an explicit *obj_suffix*.
+            strip_digits (bool): Strip trailing digits from the stem.
+            strip_trailing_underscores (bool): Strip trailing underscores from it.
+            strip_suffix (bool): Strip the affixes in play from it first.
+
+        Returns:
+            (list): The created locator Empties, in input order.
+        """
+        import re
+
+        import bpy
+        import pythontk as ptk
+
+        from blendertk.edit_utils.naming._naming import Naming
+
+        def rule(affix, mode, key):
+            if affix is None:
+                return ptk.NamingConvention.get(key)
+            return ptk.AffixRule(affix, mode)
+
+        grp_rule = rule(grp_suffix, grp_affix_mode, "group")
+        loc_rule = rule(loc_suffix, loc_affix_mode, "locator")
+        by_type = obj_suffix is None
+        obj_rule = None if by_type else ptk.AffixRule(obj_suffix, obj_affix_mode)
+        # By type, a name may carry the affix of a type it is not (a camera an
+        # earlier run wrote as "_GEO"), so the whole convention vocabulary is
+        # strippable. Longest first: "_SG" would otherwise eat the tail of "_LSG".
+        strip = {grp_rule.text, loc_rule.text}
+        strip |= set(ptk.NamingConvention.all_affixes()) if by_type else {obj_rule.text}
+        strip = tuple(sorted((a for a in strip if a), key=lambda a: (-len(a), a)))
+
+        def stem(name):
+            base = ptk.format_suffix(
+                name,
+                suffix="",
+                strip=strip if strip_suffix else (),
+                strip_trailing_ints=strip_digits,
+            )
+            if strip_trailing_underscores:
+                base = re.sub(r"_+$", "", base)
+            return base or name  # the affixes consumed the whole name: keep it
+
+        if not isinstance(objects, (list, tuple, set)):
+            objects = [objects]
+        locators = []
+        for o in (RigUtils.resolve_object(x) for x in objects):
+            if o is None:
+                continue
+            coll = (
+                o.users_collection[0]
+                if o.users_collection
+                else bpy.context.scene.collection
+            )
+            base = stem(o.name)
+            is_group = o.type == "EMPTY" and bool(o.children)
+            # Blender's world is parent.world @ matrix_parent_inverse @
+            # matrix_basis. The inverses written below cancel a BASIS:
+            # cancelling the object's WORLD matrix is right only for an
+            # unparented object (world == basis) -- a parented one jumped by
+            # its parent's transform. Nor is a fresh object's ``matrix_world``
+            # read: it is identity until a depsgraph update.
+            channels = o.matrix_basis.copy()
+            loc = bpy.data.objects.new(loc_rule.apply(base), None)
+            loc.empty_display_type = "PLAIN_AXES"
+            loc.empty_display_size = loc_scale
+            loc.matrix_world = o.matrix_world.copy()  # its channels read the world
+            coll.objects.link(loc)
+
+            # The group takes the object's place (link, inverse and channels),
+            # so it evaluates exactly where the object did -- and a
+            # bone-parented prop keeps following its bone.
+            grp = bpy.data.objects.new(grp_rule.apply(base), None)
+            grp.empty_display_type = "PLAIN_AXES"
+            coll.objects.link(grp)
+            RigUtils._take_parent_link(grp, o)
+            grp.matrix_basis = channels
+
+            # The locator sits ON the group: its inverse cancels its own
+            # channels, not the world's (a sheared world matrix does not
+            # decompose into channels exactly).
+            loc.parent = grp
+            loc.matrix_parent_inverse = loc.matrix_basis.inverted_safe()
+            # The object keeps its channels -- its animation still plays -- and
+            # its inverse cancels them against the locator. A bone or vertex
+            # link means nothing under an Empty.
+            o.parent = loc
+            o.parent_type = "OBJECT"
+            o.parent_bone = ""
+            o.matrix_parent_inverse = channels.inverted_safe()
+
+            if not is_group:
+                child_rule = Naming.affix_for(o) if by_type else obj_rule
+                if by_type and not child_rule.text:
+                    # An unmapped type has no entry to follow; keep the mesh
+                    # affix over a bare rename.
+                    child_rule = ptk.NamingConvention.get("mesh")
+                # .apply honours placement and is idempotent.
+                new_name = child_rule.apply(base)
+                if new_name and o.name != new_name:
+                    o.name = new_name
+            o.lock_location = (lock_translate,) * 3
+            o.lock_rotation = (lock_rotation,) * 3
+            o.lock_scale = (lock_scale,) * 3
+            locators.append(loc)
+        return locators
+
+    @staticmethod
+    def remove_locator(objects):
+        """Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
+
+        Mirror of mayatk's ``RigUtils.remove_locator``: each Empty in *objects*
+        is removed after its children -- their channels unlocked -- go back
+        where the rig took them from, world transforms intact (a bare delete
+        pops them back to their raw local matrix). They take the parent link of
+        the locator's group (its parent Empty), landing under the group's
+        parent (mayatk's grandparent) -- on its bone, for a bone-parented prop
+        -- or in the world for a rig at the scene root. The group goes with its
+        locator when that leaves it childless. Anything that is not an Empty is
+        skipped.
+
+        Parameters:
+            objects (obj/list): The locators (or their names).
+
+        Returns:
+            (list): The names of the locators removed (empty when none were
+            Empties -- the caller's cue to say so).
+        """
+        import bpy
+
+        if not isinstance(objects, (list, tuple, set)):
+            objects = [objects]
+        locators = [
+            o
+            for o in (RigUtils.resolve_object(x) for x in objects)
+            if o is not None and o.type == "EMPTY"
+        ]
+        if locators:
+            # The worlds read below must be current: a rig built earlier in the
+            # same script has not been evaluated yet.
+            bpy.context.view_layer.update()
+        for loc in locators:
+            # The link the children take: the locator's group's (its parent
+            # Empty), then on past any LISTED Empty, which is dissolved too --
+            # so no child is handed to an Empty about to be deleted. Only the
+            # locator's own group is skipped: a listed group (the whole rig
+            # box-selected) must not take its parent for a group of its own.
+            host = loc
+            if host.parent is not None and host.parent.type == "EMPTY":
+                host = host.parent
+            while host.parent is not None and host.parent in locators:
+                host = host.parent
+            for child in list(loc.children):
+                if child in locators:
+                    continue  # a listed empty dies anyway -- leave it parented
+                child.lock_location = (False,) * 3
+                child.lock_rotation = (False,) * 3
+                child.lock_scale = (False,) * 3
+                world = child.matrix_world.copy()
+                RigUtils._take_parent_link(child, host)
+                if child.parent is None:
+                    child.matrix_basis = world
+                else:
+                    # The channels that hold *world* under the host's link,
+                    # which carries the host's channels to the host's world
+                    # (the rig's group has no constraints of its own). Solved
+                    # here, not by the matrix_world setter: that cannot place a
+                    # VERTEX parent (the original mesh has no evaluated verts).
+                    child.matrix_basis = (
+                        host.matrix_basis @ host.matrix_world.inverted_safe() @ world
+                    )
+        # Parent groups, collected before the deletes below invalidate the
+        # locators' references.
+        groups = []
+        for loc in locators:
+            grp = loc.parent
+            if (
+                grp is not None
+                and grp.type == "EMPTY"
+                and grp not in groups
+                and grp not in locators
+            ):
+                groups.append(grp)
+        removed = [loc.name for loc in locators]
+        for loc in locators:
+            bpy.data.objects.remove(loc, do_unlink=True)
+        for grp in groups:
+            if not grp.children:  # only a group left childless goes
+                bpy.data.objects.remove(grp, do_unlink=True)
+        return removed
+
     # ----------------------------------------------------------------- armature / bones
     @staticmethod
     @contextmanager

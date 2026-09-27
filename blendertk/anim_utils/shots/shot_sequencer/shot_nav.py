@@ -181,7 +181,7 @@ class ShotNavMixin:
         name / description are plain fields, a new start MOVES the shot
         (keys ride), a new end moves that bound alone (keys stay); start
         before end so both can be typed together (mirror of mayatk's)."""
-        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from pythontk import ShotBoundaryConflict
         from blendertk.core_utils._core_utils import CoreUtils
 
         if self.sequencer is None or self._cmb_mode != "shots":

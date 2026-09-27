@@ -1054,3 +1054,71 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             return
         with bpy.context.temp_override(window=windows[0]):
             yield
+
+    @staticmethod
+    @contextmanager
+    def edit_mode(objects):
+        """Yield with *objects* -- and only them -- in Edit Mode; restore on exit.
+
+        The bracket a component-level operator needs where Maya's command acts on
+        the object directly (``bpy.ops.uv.*``, ``bpy.ops.curve.*`` only poll inside
+        Edit Mode). Since 2.8x ``mode_set(mode="EDIT")`` enters *every selected*
+        object of the active one's type, so the scope is selected alone first and
+        the (multi-object aware) operator runs ONCE across all of them -- a
+        per-object loop would apply it N times to each (Reverse on two curves =
+        double-reverse). On exit, Object Mode is restored first, then the prior
+        selection, the prior active object and ITS prior mode (when it still
+        exists: the body may have removed it). A restore failure never masks the
+        body's own result.
+
+        The whole block runs under :func:`window_context_override`: ``mode_set``
+        and the operators a caller runs inside poll screen context, which is dead
+        in the Qt event-pump state tentacle drives slots from.
+
+        Parameters:
+            objects (list): The objects to edit, all of one editable type; the
+                first becomes the active object. ``None`` entries are dropped.
+
+        Yields:
+            (list): The objects in Edit Mode.
+
+        Raises:
+            RuntimeError: Edit Mode could not be entered (a hidden or linked
+                object); the prior state is restored before it propagates.
+        """
+        import bpy
+
+        objects = [o for o in objects if o is not None]
+        with CoreUtils.window_context_override():
+            # Captured INSIDE the override, as ``_object_mode`` does: without a
+            # window the context's view layer is the scene's default, not the
+            # window's the operators below act on -- so a multi-layer scene
+            # edited the wrong objects and left one in Edit Mode.
+            view_layer = bpy.context.view_layer
+            prior_active = view_layer.objects.active
+            prior_mode = getattr(prior_active, "mode", "OBJECT")
+            prior_selection = [o for o in view_layer.objects if o.select_get()]
+            try:
+                if prior_mode != "OBJECT":
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                # select_set, not object.select_all: that op polls Object Mode
+                # and reads screen context; select_set is mode-independent.
+                for o in view_layer.objects:
+                    o.select_set(o in objects)
+                if objects:
+                    view_layer.objects.active = objects[0]
+                    bpy.ops.object.mode_set(mode="EDIT")
+                yield objects
+            finally:
+                try:
+                    if getattr(view_layer.objects.active, "mode", "OBJECT") != "OBJECT":
+                        bpy.ops.object.mode_set(mode="OBJECT")
+                    alive = set(view_layer.objects)
+                    for o in view_layer.objects:
+                        o.select_set(o in prior_selection)
+                    if prior_active is not None and prior_active in alive:
+                        view_layer.objects.active = prior_active
+                        if prior_mode != "OBJECT":
+                            bpy.ops.object.mode_set(mode=prior_mode)
+                except (RuntimeError, ReferenceError):
+                    pass  # e.g. the body removed the prior active object

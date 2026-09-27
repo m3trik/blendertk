@@ -7,8 +7,8 @@ escape bytes land in the buffer; and past the tee a logging record is just chara
 the level has to be captured here or not at all.
 
 ``_OutputCapture`` is deliberately free of Qt AND bpy (it installs at startup, before any
-UI exists), so this suite needs neither. It runs under the Blender harness like every
-other suite::
+UI exists), so this suite needs neither; the one ``ScriptConsole`` section needs bpy and
+runs only under the Blender harness, like every other suite::
 
     blender --background --factory-startup --python blendertk/test/test_script_output.py
 
@@ -113,6 +113,42 @@ try:
     check("the transcript stays capped", len(transcript(cap)) <= 20 + len("line 49\n"),
           f"len={len(transcript(cap))}")
     check("trimming keeps the newest text", transcript(cap).endswith("line 49\n"), repr(transcript(cap)))
+
+    # -- a headless session restores capture only: no window, no dock, no state ---
+    # tentacle's register calls ScriptConsole.restore(); with the user's console left open
+    # it docked a strip into --background Blender, whose cleanup (screen.area_close) blows
+    # the C stack there, and saved visible=True over the user's own GUI state.
+    try:
+        import bpy
+    except ImportError:
+        bpy = None
+    if bpy is not None:
+        import json
+        import pythontk as ptk
+        from blendertk.env_utils.script_output import ScriptConsole
+
+        store = ptk.TempArtifacts("btk_script_console", policy="scoped")
+        ScriptConsole._state_dir_override = store.dir_path()
+        state = ScriptConsole._state_path()
+        with open(state, "w", encoding="utf-8") as f:
+            json.dump({"visible": True, "height": 180}, f)
+        with open(state, encoding="utf-8") as f:
+            before = f.read()
+        window = bpy.context.window_manager.windows[0]
+        areas = len(window.screen.areas)
+        console = ScriptConsole.restore()
+        try:
+            check("headless restore starts the capture", console._capture.installed)
+            check("headless restore docks nothing",
+                  not console.is_open() and len(window.screen.areas) == areas,
+                  f"open={console.is_open()} areas {areas} -> {len(window.screen.areas)}")
+            with open(state, encoding="utf-8") as f:
+                check("headless restore leaves the persisted state alone", f.read() == before)
+        finally:
+            console._capture.uninstall()
+            ScriptConsole._instance = None
+            ScriptConsole._state_dir_override = None
+            store.cleanup()
 
 except Exception as e:
     traceback.print_exc()

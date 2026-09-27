@@ -989,7 +989,9 @@ try:
     )
 
     # The two spellings of one concept, in one place rather than two files.
-    from pythontk.file_utils.mesh_convert.glb_fades import CHANNELS as _GLTF
+    from pythontk import GlbFades
+
+    _GLTF = GlbFades.CHANNELS
 
     check(
         "blendertk's published stop keys match pythontk's channel table",

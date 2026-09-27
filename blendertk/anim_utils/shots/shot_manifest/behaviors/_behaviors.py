@@ -2,11 +2,12 @@
 """Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
 Mirror of mayatk's ``shot_manifest.behaviors._behaviors`` (name + behavior).
-Template discovery/loading (:func:`load_behavior`, :func:`list_behaviors`,
-:func:`templates`), the schema, and the anchor/offset/duration →
-absolute-keyframe math (:func:`resolve_keys`) live once, DCC-agnostic, in
-``pythontk.core_utils.engines.shots.manifest.behaviors`` (JSON templates,
-shared with mayatk).  This module supplies the **scene-touching** half:
+Template discovery/loading (``Behaviors.load_behavior`` /
+``list_behaviors`` / ``templates``), the schema, and the anchor/offset/duration
+→ absolute-keyframe math (``Behaviors.resolve_keys``) live once, DCC-agnostic,
+in ``pythontk.core_utils.engines.shots.manifest.behaviors`` (JSON templates,
+shared with mayatk); :class:`Behaviors` extends that engine class.  This module
+supplies the **scene-touching** half:
 
 - :meth:`Behaviors.apply_behavior` / :meth:`Behaviors.apply_to_shots` key the
   template's keyframes onto ``bpy`` objects.  Maya's ``opacity`` ↔
@@ -28,17 +29,10 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from pythontk.core_utils.engines.shots.manifest.behaviors._behaviors import (
+from pythontk.core_utils.engines.shots.manifest.behaviors import (  # noqa: F401
     Behaviors as _PyBehaviors,
+    BehaviorSpec,  # published by this package's __init__
 )
-
-# Pure-core staticmethods re-exported under their historical flat names;
-# blendertk's ``Behaviors`` (below) wraps them with the Blender appliers.
-templates = _PyBehaviors.templates  # noqa: F401
-load_behavior = _PyBehaviors.load_behavior  # noqa: F401
-list_behaviors = _PyBehaviors.list_behaviors  # noqa: F401
-resolve_keys = _PyBehaviors.resolve_keys  # noqa: F401
-_compute_duration_pure = _PyBehaviors.compute_duration
 
 # Log under the package name, not this private impl module, so the logger name
 # stays stable across the __init__ -> _behaviors split (mirror of mayatk).
@@ -282,7 +276,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         except ImportError:
             raise RuntimeError("Blender (bpy) is required to apply behaviors")
 
-        template = load_behavior(behavior_name, search_path)
+        template = Behaviors.load_behavior(behavior_name, search_path)
 
         # Audio-clip behaviors delegate to the audio-specific helper.
         verify_mode = (template.get("verify") or {}).get("mode", "")
@@ -322,7 +316,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 elif "anchor" not in block:
                     block = dict(block, anchor="start" if phase == "in" else "end")
 
-                for k in resolve_keys(block, start, end):
+                for k in Behaviors.resolve_keys(block, start, end):
                     interp = _INTERP.get(str(k["tangent"]).lower(), "BEZIER")
                     RenderEffects._set_key(
                         node, target_path, k["time"], k["value"], interp
@@ -382,7 +376,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         Returns:
             ``True`` if every expected keyframe is found.
         """
-        template = load_behavior(behavior_name, search_path)
+        template = Behaviors.load_behavior(behavior_name, search_path)
         verify_mode = (template.get("verify") or {}).get("mode", "exact")
 
         # Audio clip verification — strip exists at the shot start.
@@ -427,7 +421,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                         block = dict(block, anchor=anchor_override)
                     elif "anchor" not in block:
                         block = dict(block, anchor="start" if phase == "in" else "end")
-                    for k in resolve_keys(block, start, end):
+                    for k in Behaviors.resolve_keys(block, start, end):
                         if not keyframe_fn(node, attr_name, k["time"]):
                             return False
         return True
@@ -527,7 +521,7 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 return None
             return _BehaviorsInternal._track_source_path(name) or None
 
-        return _compute_duration_pure(
+        return _PyBehaviors.compute_duration(
             behavior_entries,
             fallback=fallback,
             fps=fps,

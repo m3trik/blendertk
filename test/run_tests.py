@@ -14,7 +14,7 @@ Run with:
     python run_tests.py                       # every suite
     python run_tests.py bevel xform_utils     # named suites only (no badge)
     python run_tests.py --list                # list available suites
-    python run_tests.py --blender <path>      # explicit blender.exe
+    python run_tests.py --blender <path>      # explicit Blender executable
     python run_tests.py --no-badge            # skip the README badge update
     python run_tests.py --suite-timeout 900   # per-suite kill timer (default 600s)
 """
@@ -60,18 +60,27 @@ def find_venv_python() -> Optional[str]:
 
 
 def find_blender(explicit: Optional[str] = None) -> Optional[str]:
-    """Locate blender.exe: arg > BLENDERTK_BLENDER env > newest install > PATH."""
+    """Locate Blender: arg > BLENDERTK_BLENDER env > newest install > PATH.
+
+    Installs are found by the product's own globs
+    (``BlenderConnection._INSTALL_GLOBS``: Windows, macOS and the Linux layouts).
+    """
     if explicit:
         if Path(explicit).exists():
             return explicit
         print(f"[WARNING] --blender path not found: {explicit}")
         return None
+    # This checkout's blendertk, installed or not -- otherwise the ImportError
+    # below would skip BLENDERTK_BLENDER and the install scan along with it.
+    if str(PACKAGE_ROOT) not in sys.path:
+        sys.path.insert(0, str(PACKAGE_ROOT))
     try:
         from pythontk import AppLauncher
+        from blendertk.env_utils.blender_connection import BlenderConnection
 
         found = AppLauncher.resolve_app_path(
             env_vars=("BLENDERTK_BLENDER",),
-            scan_globs=("{program_files}/Blender Foundation/Blender */blender.exe",),
+            scan_globs=BlenderConnection._INSTALL_GLOBS,
         )
         if found:
             return found
@@ -360,7 +369,7 @@ def main() -> int:
     """Main entry point. Returns a process exit code (0 = success)."""
     parser = argparse.ArgumentParser(description="Run the blendertk test suite")
     parser.add_argument("suites", nargs="*", help="Specific suites to run")
-    parser.add_argument("--blender", help="Path to blender.exe")
+    parser.add_argument("--blender", help="Path to the Blender executable")
     parser.add_argument("--list", action="store_true", help="List available suites")
     parser.add_argument(
         "--no-badge", action="store_true", help="Skip the README badge update"

@@ -13,12 +13,12 @@ design rationale, including why Blender's native operator-preset system was cons
 rejected). It is a row of the Settings combo (``cmb008``); its own option box carries
 mayatk's b007/b008 1:1:
 
-* ``b007`` "Open FBX Preset Directory" -- ``os.startfile`` the writable preset directory. Adding
+* ``b007`` "Open FBX Preset Directory" -- open the writable preset directory. Adding
   and deleting presets happens there: a preset is a plain JSON file, so the file browser
   already copies, renames, and deletes them better than a pair of one-shot buttons could
   (the programmatic equivalents, :meth:`SceneExporter.save_fbx_preset` /
   :meth:`~SceneExporter.delete_fbx_preset`, remain on the engine).
-* ``b008`` "Edit FBX Preset" -- ``os.startfile`` the selected preset's JSON file so the user can
+* ``b008`` "Edit FBX Preset" -- open the selected preset's JSON file so the user can
   hand-edit + re-save it (Blender has no per-field editor for an arbitrary FBX-kwargs dict the
   way Maya's native FBX exporter dialog does). A built-in preset is shadowed into the user
   tier first ("duplicate to edit") so this never edits the shipped, read-only file in place.
@@ -890,13 +890,13 @@ class SceneExporterSlots(SceneExporter):
         """Open Output Directory"""
         output_dir = self.ui.txt000.text()
         if os.path.exists(output_dir):
-            os.startfile(output_dir)
+            ptk.FileUtils.open_explorer(output_dir, logger=self.logger)
 
     def b007(self) -> None:
         """Open Preset Directory."""
         preset_dir = self.fbx_preset_dir()
         os.makedirs(preset_dir, exist_ok=True)
-        os.startfile(preset_dir)
+        ptk.FileUtils.open_explorer(preset_dir, logger=self.logger)
 
     def b008(self) -> None:
         """Edit Preset -- open the selected preset's JSON file in the OS's default editor so
@@ -932,7 +932,7 @@ class SceneExporterSlots(SceneExporter):
         if not path or not os.path.isfile(path):
             self.logger.error(f"Preset file does not exist: {name}")
             return
-        os.startfile(path)
+        ptk.FileUtils.open_explorer(path, logger=self.logger)
 
     def save_output_dir(self, output_dir: str) -> None:
         """Record the output directory into the recent values plugin."""

@@ -4,7 +4,7 @@ from pythontk.core_utils.module_resolver import bootstrap_package
 
 
 __package__ = "blendertk"
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 """blendertk — Blender utilities that do for the tentacle Blender slots what mayatk does
 for the Maya slots.
@@ -338,9 +338,10 @@ DEFAULT_INCLUDE = {
     "edit_utils.duplicate_linear": "DuplicateLinear",
     "edit_utils.duplicate_radial": "DuplicateRadial",
     "edit_utils.duplicate_grid": "DuplicateGrid",
-    # Curtain (draped-cloth) generator + its wire-deformer rig. Class-only: reached as
-    # ``btk.CurtainUtils.create_curtain`` / ``.curtain_rail_from_selection`` and ``btk.CurtainRig``.
-    "edit_utils.curtain": [
+    # The curtain's rig (``mtk.CurtainRig`` twin). The drape engine is ``Rail`` +
+    # ``CurtainMesh`` in ``edit_utils.curtain``, unregistered as in mayatk; ``CurtainUtils``
+    # is their retired entry point, served here until 0.14.0.
+    "edit_utils.curtain._curtain": [
         "CurtainUtils",
         "CurtainRig",
     ],
@@ -379,7 +380,7 @@ DEFAULT_INCLUDE = {
     ],
     # Hotkey macros — mirror of mayatk's ``edit_utils.macros`` (``btk.Macros`` ↔ ``mtk.Macros``).
     # Only ``Macros`` is exposed, matching mayatk (``MacroManager`` is the base, not a public symbol).
-    "edit_utils.macros": [
+    "edit_utils.macros._macros": [
         "Macros",
     ],
     # Procedural rigs — mirror of mayatk's ``rig_utils`` (one self-contained module per rig: engine
@@ -393,11 +394,13 @@ DEFAULT_INCLUDE = {
         "Controls",
         "ControlNodes",
     ],
-    "rig_utils.tube_path": [
+    "rig_utils.tube_rig.tube_path": [
         "TubePath",
     ],
-    "rig_utils.tube_rig": [
+    "rig_utils.tube_rig._tube_rig": [
         "TubeRig",
+    ],
+    "rig_utils.tube_rig.strategies": [
         "TubeStrategy",
         "TubeRigBundle",
     ],
@@ -407,7 +410,7 @@ DEFAULT_INCLUDE = {
     "rig_utils.wheel_rig": [
         "WheelRig",
     ],
-    "rig_utils.shadow_rig": [
+    "rig_utils.shadow_rig._shadow_rig": [
         "ShadowRig",
     ],
     # Curve / NURBS-adjacent tools — mirror of mayatk's ``nurbs_utils``. ``NurbsUtils`` is the shared

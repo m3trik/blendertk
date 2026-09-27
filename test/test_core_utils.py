@@ -324,6 +324,139 @@ try:
     finally:
         _cu_mod.ptk.PackageManager = _real_pm
 
+    # --- edit_mode: the Edit-Mode bracket (scope alone, then prior state back) --------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    m1 = bpy.context.view_layer.objects.active
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    m2 = bpy.context.view_layer.objects.active
+    bpy.ops.curve.primitive_bezier_curve_add(location=(6, 0, 0))
+    crv = bpy.context.view_layer.objects.active
+    vl = bpy.context.view_layer
+    for o in (m1, m2, crv):
+        o.select_set(True)
+    vl.objects.active = crv
+    inside = {}
+    with btk.CoreUtils.edit_mode([m1, m2]) as scope:
+        inside["scope"] = list(scope)
+        inside["modes"] = (m1.mode, m2.mode, crv.mode)
+        inside["crv_selected"] = crv.select_get()
+        inside["active"] = vl.objects.active
+    check(
+        "edit_mode: the scope alone enters Edit Mode, the first one active",
+        inside["scope"] == [m1, m2]
+        and inside["modes"] == ("EDIT", "EDIT", "OBJECT")
+        and not inside["crv_selected"]
+        and inside["active"] == m1,
+        f"{inside}",
+    )
+    check(
+        "edit_mode: prior selection, active object and Object Mode come back",
+        (m1.mode, m2.mode) == ("OBJECT", "OBJECT")
+        and all(o.select_get() for o in (m1, m2, crv))
+        and vl.objects.active == crv,
+    )
+    # a prior Edit Mode on another object is re-entered on exit
+    for o in vl.objects:
+        o.select_set(o == m1)
+    vl.objects.active = m1
+    bpy.ops.object.mode_set(mode="EDIT")
+    with btk.CoreUtils.edit_mode([m2]):
+        inside["m1"] = m1.mode
+    check(
+        "edit_mode: the prior active object's own Edit Mode is left, then restored",
+        inside["m1"] == "OBJECT" and m1.mode == "EDIT" and m2.mode == "OBJECT",
+        f"inside={inside['m1']} after={m1.mode}/{m2.mode}",
+    )
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # the body raising still restores, and the error reaches the caller
+    try:
+        with btk.CoreUtils.edit_mode([m2]):
+            raise ValueError("boom")
+    except ValueError:
+        raised = True
+    else:
+        raised = False
+    check(
+        "edit_mode: a raising body restores the state and re-raises",
+        raised and m2.mode == "OBJECT" and vl.objects.active == m1,
+    )
+
+    # the Qt-pump state: bpy.context.window is None, so context.view_layer falls back to the
+    # scene's DEFAULT layer, while window_context_override enters windows[0] -- whose layer
+    # the user may have switched. The prior state must be captured INSIDE the override.
+    # Measured before the fix: the window layer's selected mesh entered Edit Mode beside the
+    # scope (the body's operator would run on it too), that layer's selection came back as
+    # the default layer's, and a curve scope left the mesh in Edit Mode.
+    wins = bpy.context.window_manager.windows
+    check("edit_mode (pump): precondition -- a window to override into", len(wins) > 0)
+    if len(wins):
+        win = wins[0]
+        default_vl = bpy.context.scene.view_layers[0]
+        win_vl = bpy.context.scene.view_layers.new("WindowLayer")
+        prior_win_vl = win.view_layer
+        win.view_layer = win_vl
+        try:
+            def pump_state():
+                for o in default_vl.objects:
+                    o.select_set(o == crv, view_layer=default_vl)
+                default_vl.objects.active = crv
+                for o in win_vl.objects:
+                    o.select_set(o == m1, view_layer=win_vl)
+                win_vl.objects.active = m1
+
+            def win_state():
+                return (
+                    win_vl.objects.active,
+                    [o for o in win_vl.objects if o.select_get(view_layer=win_vl)],
+                )
+
+            pump_state()
+            with bpy.context.temp_override(window=None):
+                outer = bpy.context.view_layer
+                with btk.CoreUtils.window_context_override():
+                    inner = bpy.context.view_layer
+            check(
+                "edit_mode (pump): precondition -- the override switches the view layer",
+                outer == default_vl and inner == win_vl,
+                f"outside={outer.name} inside={inner.name}",
+            )
+            with bpy.context.temp_override(window=None):
+                with btk.CoreUtils.edit_mode([m2]):
+                    inside["pump"] = (m1.mode, m2.mode)
+            check(
+                "edit_mode (pump): only the scope enters Edit Mode",
+                inside["pump"] == ("OBJECT", "EDIT"),
+                f"(m1, m2) = {inside['pump']}",
+            )
+            check(
+                "edit_mode (pump): the window layer's selection + active come back, "
+                "the default layer's are untouched",
+                win_state() == (m1, [m1])
+                and default_vl.objects.active == crv
+                and [o for o in default_vl.objects if o.select_get(view_layer=default_vl)]
+                == [crv]
+                and (m1.mode, m2.mode) == ("OBJECT", "OBJECT"),
+                f"window layer: {win_state()[0].name} {[o.name for o in win_state()[1]]}",
+            )
+            pump_state()
+            with bpy.context.temp_override(window=None):
+                with btk.CoreUtils.edit_mode([crv]):
+                    inside["pump_crv"] = (crv.mode, m1.mode)
+            check(
+                "edit_mode (pump): a curve scope enters Edit Mode, and nothing is left there",
+                inside["pump_crv"] == ("EDIT", "OBJECT")
+                and all(o.mode == "OBJECT" for o in (m1, m2, crv)),
+                f"inside (crv, m1) = {inside['pump_crv']}, after m1={m1.mode}",
+            )
+        finally:
+            # the real window is back in context, still showing the window layer
+            win_vl.objects.active = m1
+            if m1.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            win.view_layer = prior_win_vl
+            bpy.context.scene.view_layers.remove(win_vl)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

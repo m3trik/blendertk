@@ -557,6 +557,23 @@ try:
     check("summary: return_summary defaults off (bare list, backward compatible)",
           isinstance(btk.AutoInstancer.run_once([solo], verbose=False), list))
 
+    # The strategy names bind pythontk's engine; only the triangle count is Blender's.
+    import pythontk as ptk
+    from blendertk.core_utils.auto_instancer.instancing_strategy import (
+        InstancingStrategy, StrategyConfig, StrategyType,
+    )
+    check("InstancingStrategy binds ptk's engine (subclass + re-exported config/enum)",
+          issubclass(InstancingStrategy, ptk.InstancingStrategy)
+          and StrategyConfig is ptk.StrategyConfig and StrategyType is ptk.StrategyType)
+    reset()
+    bpy.ops.mesh.primitive_cube_add()
+    tri_cube = bpy.context.active_object
+    strat = InstancingStrategy(StrategyConfig())
+    check("InstancingStrategy counts the prototype's triangles (cube = 12)",
+          strat._get_triangle_count(tri_cube) == 12, str(strat._get_triangle_count(tri_cube)))
+    check("InstancingStrategy: a node without a mesh counts 0",
+          strat._get_triangle_count(object()) == 0)
+
 except Exception as e:
     lines.append(f"FAIL setup: {e!r}")
     lines.append(traceback.format_exc())

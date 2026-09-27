@@ -1,6 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
-"""``ShadowPreview`` (``rig_utils/shadow_preview.py``), the device-free half.
+"""``ShadowPreview`` (``rig_utils/shadow_rig/shadow_preview.py``), the device-free half.
 
 ``--background`` has no GPU backend, so the overlay's shader can neither
 compile nor draw here. What runs is everything AROUND it: the assembled
@@ -31,7 +31,7 @@ for p in (REPO, os.path.join(MONO, "pythontk")):
 
 import pythontk as ptk  # noqa: E402
 from blendertk.env_utils.fbx_utils import FbxUtils  # noqa: E402
-from blendertk.rig_utils.shadow_preview import ShadowPreview  # noqa: E402
+from blendertk.rig_utils.shadow_rig.shadow_preview import ShadowPreview  # noqa: E402
 from blendertk.rig_utils.shadow_rig import ShadowRig  # noqa: E402
 
 

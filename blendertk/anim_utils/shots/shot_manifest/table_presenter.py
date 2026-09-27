@@ -18,6 +18,8 @@ so the presentation ports 1:1).  DCC swaps versus the Maya original:
 Mixed into :class:`ShotManifestController` via MRO.
 """
 
+import pythontk as ptk
+
 from pythontk import BuilderStep, BuilderObject
 
 from blendertk.anim_utils.shots.shot_manifest.behaviors import Behaviors
@@ -143,19 +145,14 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
         """
         broken: list = []
         status_color = None
-        obj_st = None
-        results = getattr(self, "_last_results", None) or []
-        if step_id is not None:
-            results = [r for r in results if r.step_id == step_id]
-        for r in results:
-            obj_map = {o.name: o for o in r.objects}
-            obj_st = obj_map.get(obj.name)
-            if obj_st is not None:
-                if obj_st.status == "missing_object":
-                    status_color = BEHAVIOR_STATUS_COLORS.get("error")
-                else:
-                    broken = list(obj_st.broken_behaviors or [])
-                break
+        obj_st = ptk.StepStatus.find_object(
+            getattr(self, "_last_results", None) or [], obj.name, step_id
+        )
+        if obj_st is not None:
+            if obj_st.status == "missing_object":
+                status_color = BEHAVIOR_STATUS_COLORS.get("error")
+            else:
+                broken = list(obj_st.broken_behaviors or [])
         label.setText(
             ManifestData.format_behavior_html(
                 obj.behaviors, broken=broken, status_color=status_color
@@ -168,11 +165,11 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
             for b in obj.behaviors:
                 display = ManifestData.fmt_behavior(b)
                 if obj_st.status == "missing_object":
-                    lines.append(f"✖ {display}  (object missing)")
+                    lines.append(f"\u2716 {display}  (object missing)")
                 elif b in broken_set:
-                    lines.append(f"✖ {display}  (not verified)")
+                    lines.append(f"\u2716 {display}  (not verified)")
                 else:
-                    lines.append(f"✔ {display}")
+                    lines.append(f"\u2714 {display}")
             label.setToolTip("\n".join(lines))
         elif obj.behaviors:
             label.setToolTip(
@@ -510,22 +507,18 @@ class ManifestTableMixin(_ManifestTableMixinInternal):
                     item.setToolTip(col, "")
 
             # Second pass: mark collision items
-            for i in range(len(resolved) - 1):
-                curr_id, curr_start, curr_end, _ = resolved[i]
-                next_id, next_start, _, _ = resolved[i + 1]
-                effective_end = curr_end if curr_end is not None else curr_start
-                if effective_end > next_start:
-                    collisions += 1
-                    for sid in (curr_id, next_id):
-                        item = item_map.get(sid)
-                        if item is not None:
-                            for col in (COL_START, COL_END):
-                                item.setForeground(col, collision_fg)
-                                item.setBackground(col, collision_bg)
-                                item.setToolTip(
-                                    col,
-                                    "Range collision: overlaps with adjacent step",
-                                )
+            for curr_id, next_id in ptk.RangeResolver.find_collisions(resolved):
+                collisions += 1
+                for sid in (curr_id, next_id):
+                    item = item_map.get(sid)
+                    if item is not None:
+                        for col in (COL_START, COL_END):
+                            item.setForeground(col, collision_fg)
+                            item.setBackground(col, collision_bg)
+                            item.setToolTip(
+                                col,
+                                "Range collision: overlaps with adjacent step",
+                            )
         finally:
             tree.blockSignals(False)
 

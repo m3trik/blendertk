@@ -59,12 +59,13 @@ class _TaskDefinitionsMixin:
     def task_definitions(self) -> Dict[str, Dict[str, Any]]:
         """Return the task definitions for the UI.
 
-        Tooltips are built with uitk's rich-text DSL (imported lazily so this
-        engine module still imports Qt-free under ``--background``).  Keep the
+        Tooltips are built with pythontk's rich-text DSL (``TooltipFormat``,
+        pure string work, so this engine module imports Qt-free under
+        ``--background``).  Keep the
         ``TooltipFormat.fmt`` call form and literal arguments — that is what
         ``m3trik/scripts/check_tooltips.py`` statically renders and validates.
         """
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
+        from pythontk import TooltipFormat
 
         return {
             "export_visible_objects": {
@@ -774,7 +775,7 @@ class _TaskDefinitionsMixin:
         A failed check aborts the export, so each tooltip below leads with what
         makes it fail.  Tooltip authoring rules: see :attr:`task_definitions`.
         """
-        from uitk.widgets.mixins.tooltip_mixin import TooltipFormat
+        from pythontk import TooltipFormat
 
         return {
             "check_referenced_objects": {

@@ -13,7 +13,7 @@ class BlenderUiHandler(UiHandler):
     The Blender analogue of :class:`mayatk.ui_utils.maya_ui_handler.MayaUiHandler`:
     it scans the **blendertk package** recursively so a tool that ships its own
     Switchboard ``.ui`` + ``<Tool>Slots`` co-located with its logic (e.g.
-    ``edit_utils/curtain.ui`` + ``CurtainSlots``) is auto-discovered and served by
+    ``edit_utils/curtain/curtain.ui`` + ``CurtainSlots``) is auto-discovered and served by
     ``marking_menu.show("<tool>")`` — exactly the way mayatk tools are. This keeps the
     Blender tool panels in blendertk (next to the code that drives them), not in
     tentacle, mirroring the mayatk/tentacle split.
@@ -49,7 +49,9 @@ class BlenderUiHandler(UiHandler):
         if switchboard is None:
             from uitk import Switchboard as _Switchboard
 
-            switchboard = _Switchboard()
+            # As its "ui" handler: a bare Switchboard would register a plain
+            # UiHandler there, and the launcher's rows would run through it.
+            switchboard = _Switchboard(handlers={"ui": self})
 
         super().__init__(
             switchboard=switchboard,
@@ -61,6 +63,12 @@ class BlenderUiHandler(UiHandler):
             source_tags={"blendertk"},
             **kwargs,
         )
+
+        # uitk names no host: the Preset Editor learns this package's app label
+        # from the host (mirror of MayaUiHandler).
+        from uitk import PresetEditor
+
+        PresetEditor.register_app_label("blendertk", "Blender")
 
         # Route the log panel's node actions through uitk's dependency-inverted
         # registry so uitk needn't import blendertk (mirror of MayaUiHandler).

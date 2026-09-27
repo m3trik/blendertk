@@ -120,9 +120,6 @@ class _TaskDataMixin:
             live.append(obj)
         return live
 
-    #: Tiled-texture filename tokens (single-file operations must skip these).
-    _TEXTURE_TOKEN_RE = re.compile(r"<udim>|<f>|<uvtile>", re.IGNORECASE)
-
     def _scene_safe_output_type(self, path, template):
         """The container the optimization pass may write for *path* under
         *template* — clamped to what a scene image can read (mirror of
@@ -279,43 +276,35 @@ class _TaskDataMixin:
             "predicted_name": os.path.basename(result["predicted"].get("path") or path),
         }
 
-    def _tiled_representative(self, resolved: str):
-        """One concrete file standing in for a tiled/sequence texture *resolved*
-        path (mirror of mayatk's).
+    @staticmethod
+    def _is_tiled_path(path: str) -> bool:
+        """Does *path* name a tile/frame SET? The exporter's name for the
+        shared classifier (``ptk.TiledPath.has_token``).
 
-        ``<udim>`` resolves to its first tile, ``1001``; ``<uvtile>`` resolves
-        to ITS OWN first tile, ``u1_v1`` — UDIM and UV-tile numbering are not
-        interchangeable, so collapsing both onto ``"1001"`` silently pointed a
-        Blender-authored ``TILED``/``<uvtile>`` set at a file that was never
-        written (the representative never existed, so the caller's
-        ``os.path.isfile`` gate always failed it). ``<f>`` has no fixed
-        "first" value — frame numbering, padding, and start frame all vary
-        per render — so it globs the token's position for the first frame
-        file that actually exists on disk.
+        It listed ``<udim>|<f>|<uvtile>`` privately, so ``<u>_<v>`` and
+        ``<frame>`` arrived untiled, skipped the representative collapse, and
+        left the budget scan without a word.
+        """
+        return ptk.TiledPath.has_token(os.path.basename(path or ""))
+
+    @staticmethod
+    def _tiled_representative(resolved: str) -> Optional[str]:
+        """One concrete file standing in for a tiled/sequence texture *resolved*
+        path (mirror of mayatk's): ``ptk.TiledPath.representative``.
+
+        ``<udim>`` resolves to its first tile, ``1001``; ``<uvtile>`` /
+        ``<u>_<v>`` to THEIR OWN first tile, ``u1_v1`` -- UDIM and UV-tile
+        numbering are not interchangeable. A frame token (``<f>`` /
+        ``<frame>``) has no fixed "first" value, so it globs for the first
+        frame file actually on disk.
 
         Returns:
-            str | None: The representative path (for ``<udim>``/``<uvtile>``
-            it may not exist — the caller's own ``os.path.isfile`` check is
-            what gates that), or ``None`` when a ``<f>`` token's glob finds no
-            frame file (distinct from the fixed-token miss).
+            str | None: The representative path (for the fixed tokens it may
+            not exist -- the caller's own ``os.path.isfile`` check is what
+            gates that), or ``None`` when a frame token's glob finds no file
+            (distinct from the fixed-token miss).
         """
-        basename = os.path.basename(resolved)
-        directory = os.path.dirname(resolved)
-
-        def _fixed(match):
-            return "1001" if match.group(0).lower() == "<udim>" else "u1_v1"
-
-        if "<f>" in basename.lower():
-            import glob as _glob
-
-            pattern = self._TEXTURE_TOKEN_RE.sub(
-                lambda m: "*" if m.group(0).lower() == "<f>" else _fixed(m),
-                basename,
-            )
-            matches = sorted(_glob.glob(os.path.join(directory, pattern)))
-            return matches[0] if matches else None
-
-        return os.path.join(directory, self._TEXTURE_TOKEN_RE.sub(_fixed, basename))
+        return ptk.TiledPath.representative(resolved)
 
     def _export_texture_sources(
         self, include_tiled: bool = False
@@ -349,21 +338,20 @@ class _TaskDataMixin:
             if getattr(img, "library", None):
                 skipped.setdefault("library-linked", []).append(img.name)
                 continue
-            tiled = getattr(img, "source", "") == "TILED" or bool(
-                self._TEXTURE_TOKEN_RE.search(os.path.basename(img.filepath or ""))
+            tiled = getattr(img, "source", "") == "TILED" or self._is_tiled_path(
+                img.filepath
             )
             if tiled and not include_tiled:
                 skipped.setdefault("tiled (<UDIM>)", []).append(img.name)
                 continue
             resolved = _MatUtilsInternal._abspath(img)
             if tiled and resolved:
-                # <udim>/<uvtile> resolve to their own first tile, <f> globs
-                # for the first frame actually on disk (mirror of mayatk's).
+                # <udim>/<uvtile>/<u>_<v> resolve to their own first tile,
+                # <f>/<frame> glob for the first frame actually on disk
+                # (mirror of mayatk's).
                 representative = self._tiled_representative(resolved)
                 if representative is None:
-                    skipped.setdefault("<f> frame not found on disk", []).append(
-                        img.name
-                    )
+                    skipped.setdefault("frame not found on disk", []).append(img.name)
                     continue
                 resolved = representative
             if not resolved or not os.path.isfile(resolved):

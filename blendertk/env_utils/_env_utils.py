@@ -194,13 +194,21 @@ class EnvUtils(_EnvUtilsInternal):
 
     @staticmethod
     def linked_blend_paths():
-        """Set of normalized absolute paths of the ``.blend`` files currently linked as libraries."""
-        return {r["abspath"].lower() for r in EnvUtils.list_libraries() if r["abspath"]}
+        """Set of normalized absolute paths of the ``.blend`` files currently linked as
+        libraries, case-folded only where the filesystem folds case (``normcase``)."""
+        return {
+            os.path.normcase(r["abspath"])
+            for r in EnvUtils.list_libraries()
+            if r["abspath"]
+        }
 
     @staticmethod
     def is_blend_linked(path):
         """True iff ``path`` is already linked as a library."""
-        return _EnvUtilsInternal._abspath(path).lower() in EnvUtils.linked_blend_paths()
+        return (
+            os.path.normcase(_EnvUtilsInternal._abspath(path))
+            in EnvUtils.linked_blend_paths()
+        )
 
     @staticmethod
     def link_blend_file(path, link=True, instance=True, target_collection=None):

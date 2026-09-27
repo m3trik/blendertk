@@ -1,6 +1,6 @@
 # !/usr/bin/python
 # coding=utf-8
-"""Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.TubePath``.
+"""Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath``.
 
 Pure geometry analysis: given a tube-shaped mesh, produce an ordered list of centerline points
 (ring centers) the rig's bone chain / driver curve follow. Creates **no** scene objects.

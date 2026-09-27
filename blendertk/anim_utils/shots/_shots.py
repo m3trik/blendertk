@@ -437,17 +437,12 @@ class _BlenderShotStoreInternal(object):
                     continue
                 if abs(v1 - v0) / dt > motion_rate:
                     raw.append((t0, t1))
-        if not raw:
-            return []
-        raw.sort()
-        merged: List[Tuple[float, float]] = [raw[0]]
-        for t0, t1 in raw[1:]:
-            last0, last1 = merged[-1]
-            if t0 <= last1:
-                merged[-1] = (last0, max(last1, t1))
-            else:
-                merged.append((t0, t1))
-        return merged
+        return [
+            (run[0][0], max(t1 for _t0, t1 in run))
+            for run in ptk.ShotDetection.cluster_spans(
+                raw, inclusive=True, span=lambda iv: iv
+            )
+        ]
 
     @staticmethod
     def _active_scene(scene=None):

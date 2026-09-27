@@ -147,6 +147,12 @@ try:
 
     sb = Switchboard()
     handler = BlenderUiHandler(switchboard=sb)
+    from uitk import PresetEditor
+
+    check(
+        "handler labels blendertk's preset folder (uitk names no host)",
+        PresetEditor.APP_LABELS.get("blendertk") == "Blender",
+    )
 
     # 0. Constructing the handler must register blendertk's dispatch_log_link into
     #    uitk's dependency-inverted log-link registry (so uitk never imports
@@ -195,6 +201,52 @@ try:
         and ptk.Deprecation.sink is _host_sink,
     )
     ptk.Deprecation.sink = None
+
+    # 0c. A handler that builds its own switchboard (the startup-script path) is
+    #     that switchboard's "ui" handler -- a bare Switchboard() registers a
+    #     plain UiHandler there, and the UI Browser's rows (and their copied
+    #     launch code) ran through the generic base. Construction is stubbed:
+    #     only the wiring is under test, not a second package scan.
+    from unittest import mock
+
+    import uitk
+    from uitk.handlers.ui_handler import UiHandler
+
+    _built = {}
+
+    class _RecordingSwitchboard:
+        def __init__(self, **kwargs):
+            _built.update(kwargs)
+
+    def _bare_init(self, switchboard=None, **_kwargs):
+        self.sb = switchboard
+
+    # The handler above holds the (cls, None) singleton slot; a fresh slot makes
+    # this a first construction instead of returning that initialized handler.
+    _saved_instances = dict(BlenderUiHandler._instances)
+    BlenderUiHandler._instances.clear()
+    try:
+        # The post-init wiring touches the switchboard and global sinks: stubbed.
+        _inert = staticmethod(lambda *a, **k: False)
+        with (
+            mock.patch.object(uitk, "Switchboard", _RecordingSwitchboard),
+            mock.patch.object(UiHandler, "__init__", _bare_init),
+            mock.patch.multiple(
+                BlenderUiHandler,
+                _install_deprecation_sink=_inert,
+                _install_record_path_rebase=_inert,
+                _register_native_menu_proxies=lambda self: None,
+            ),
+        ):
+            _booted = BlenderUiHandler()
+        check(
+            "a self-built switchboard gets this handler as its 'ui' handler",
+            (_built.get("handlers") or {}).get("ui") is _booted,
+            f"handlers={_built.get('handlers')!r}",
+        )
+    finally:
+        BlenderUiHandler._instances.clear()
+        BlenderUiHandler._instances.update(_saved_instances)
 
     # 1. The handler's recursive scan of the blendertk package registers exactly the
     #    co-located tool panels listed in PANELS (and nothing spurious) — the core
@@ -372,8 +424,8 @@ try:
 
     # Gesture-scoped panels opt into the pin + auto-hide-on-key_show-release behavior by declaring a
     # "pin" header button in header_init (overriding BlenderUiHandler's blanket "blendertk"->hide
-    # default). The offscreen load skips header_init (see the channels note below), so drive it
-    # explicitly — the documented init entry point — then assert pin replaced the default hide.
+    # default). The load runs every *_init, header_init included -- re-running it here built a
+    # second header menu -- so assert what the load itself wired: pin replaced the default hide.
     GESTURE_SCOPED = [
         "reference_manager",
         "color_id",
@@ -392,7 +444,6 @@ try:
                 f"{panel} exposes slots for the gesture-scoped check", False, "no slots"
             )
             continue
-        gs_slots.header_init(gs_ui.header)
         gs_buttons = set(getattr(gs_ui.header, "buttons", {}))
         check(
             f"{panel} is gesture-scoped: pin button, no hide button",
@@ -1059,6 +1110,16 @@ try:
         and 'FBX_PATH = r"C:/t/x.fbx"' in rendered
         and "__" not in rendered,
     )
+    # The Rebuild Shader choice is Maya's shader vocabulary (mayatk.GameShader's own
+    # values), owned here by the bridge that targets Maya -- uitk carries no host's.
+    shader = _mb_params.PARAMS["SHADER_TYPE"]
+    check(
+        "maya_bridge Rebuild Shader offers GameShader's own values, Stingray first",
+        [value for _label, value in shader.choices]
+        == ["stingray", "standard_surface", "open_pbr"]
+        and shader.default == "stingray",
+        f"{shader.choices} default={shader.default}",
+    )
 
     # unity_bridge: params_defaults() (Qt path via uitk.bridge.AttributeSpec; needs no bpy, so it
     # belongs here rather than in the headless test_unity_bridge harness which lacks Qt) + the
@@ -1093,6 +1154,14 @@ try:
         and not hasattr(_UBS, "MODE_STUDIO")
         and not hasattr(_UBS, "MODE_EXISTING"),
         f"{_UBS.MODE_LABELS}",
+    )
+    # The combo picks a MODE and template_dir is the package dir, so the template
+    # rows (Refresh / Open Templates Folder) would re-scan nothing and reveal .py
+    # source. Owned by the vendored UnityPanelMixin, shared with mayatk + extapps.
+    check(
+        "unity_bridge combo offers no template management (TEMPLATE_MENU off)",
+        _UBS.TEMPLATE_MENU is False,
+        f"{_UBS.TEMPLATE_MENU!r}",
     )
 
     # Macro Manager: the bespoke panel was retired — the UI is now the unified uitk
@@ -1321,6 +1390,106 @@ try:
             and hslots._add_mode() == "copy",
             f"{mode_items} _add_mode()={hslots._add_mode()}",
         )
+        # The List toggles (2026-09-26: baked lightmaps listed as HDRs) read back through
+        # _list_filter -- untick one and the filter follows the real widget. Signals blocked:
+        # the toggle's re-list reads the live world (bpy), which this harness lacks.
+        before = hslots._list_filter()
+        menu.chk_hide_lightmaps.blockSignals(True)
+        menu.chk_hide_lightmaps.setChecked(False)
+        after = hslots._list_filter()
+        menu.chk_hide_lightmaps.setChecked(True)
+        menu.chk_hide_lightmaps.blockSignals(False)
+        check(
+            "hdr_manager List toggles drive the environment-map filter",
+            before == {"latlong_only": True, "skip_lightmaps": True}
+            and after == {"latlong_only": True, "skip_lightmaps": False},
+            f"before={before} after={after}",
+        )
+        # ...and the filter on disk. _refresh_combo / _folder_hdrs are an os scan (bpy-free), so
+        # the real ones run here over mayatk's fixture set: a 2:1 environment, a square lightmap
+        # tile, a square texture, and a 2:1 lightmap light group only the name filter hides. The
+        # convention is sandboxed -- the name half must not read the developer's own affix.
+        import struct as _hdr_struct
+
+        def _exr(path, width, height):
+            window = _hdr_struct.pack("<iiii", 0, 0, width - 1, height - 1)
+            with open(path, "wb") as f:
+                f.write(
+                    b"\x76\x2f\x31\x01"
+                    + _hdr_struct.pack("<I", 2)
+                    + b"dataWindow\0box2i\0"
+                    + _hdr_struct.pack("<i", 16)
+                    + window
+                    + b"\0"
+                )
+
+        with (
+            ptk.TestSandbox.user_config(),
+            ptk.TempArtifacts("btk_hdr_filter", policy="scoped") as _hdr_store,
+        ):
+            folder = _hdr_store.dir_path()
+            with open(os.path.join(folder, "workshop_8k.hdr"), "wb") as f:
+                f.write(
+                    b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 4 +X 8\n" + b"\x10" * 128
+                )
+            _exr(os.path.join(folder, "ROOM_ENV_Lightmap_12.exr"), 256, 256)
+            _exr(os.path.join(folder, "crate.exr"), 512, 512)
+            _exr(os.path.join(folder, "desk_LightMap.LIGHT_A.exr"), 2048, 1024)
+            prev_folder = hdr_ui.settings.value("hdr_folder")
+            hdr_ui.settings.setValue("hdr_folder", folder)
+            try:
+                hslots._refresh_combo()
+                combo = hdr_ui.cmb000
+                listed = [
+                    os.path.basename(combo.itemData(i))
+                    for i in range(combo.count())
+                    if combo.itemData(i) not in (None, hslots.NONE_TOKEN)
+                ]
+                footer = hdr_ui.footer.statusText()  # text() is the ELIDED display
+                added = [os.path.basename(p) for p in hslots._folder_hdrs(folder)]
+            finally:
+                hdr_ui.settings.setValue("hdr_folder", prev_folder or "")
+        check(
+            "hdr_manager lists only environment maps (dropdown + folder add)",
+            listed == ["workshop_8k.hdr"]
+            and added == ["workshop_8k.hdr"]
+            and "3 other images hidden" in footer,
+            f"listed={listed} added={added} footer={footer!r}",
+        )
+        # The filter plumbing is mayatk's, verbatim (docstrings aside: they name each host's
+        # folder) -- a fix to one copy fails here until the other matches.
+        import ast as _ast
+
+        def _slot_methods(path, names):
+            tree = _ast.parse(open(path, encoding="utf-8").read())
+            cls = next(
+                n
+                for n in tree.body
+                if isinstance(n, _ast.ClassDef) and n.name == "HdrManagerSlots"
+            )
+            found = {}
+            for fn in cls.body:
+                if isinstance(fn, _ast.FunctionDef) and fn.name in names:
+                    if _ast.get_docstring(fn) is not None:
+                        fn.body = fn.body[1:]
+                    found[fn.name] = _ast.dump(fn)
+            return found
+
+        _mirrored = ("_list_filter", "_folder_hdrs")
+        _mtk_hdr = os.path.join(
+            MONO, "mayatk", "mayatk", "light_utils", "hdr_manager.py"
+        )
+        if os.path.isfile(_mtk_hdr):
+            ours = _slot_methods(
+                os.path.join(REPO, "blendertk", "light_utils", "hdr_manager.py"),
+                _mirrored,
+            )
+            theirs = _slot_methods(_mtk_hdr, _mirrored)
+            check(
+                "hdr_manager filter plumbing mirrors mayatk's verbatim",
+                set(ours) == set(_mirrored) and ours == theirs,
+                f"differ: {sorted(k for k in _mirrored if ours.get(k) != theirs.get(k))}",
+            )
         from uitk.widgets.optionBox.options.value import ValueOption
 
         check(
@@ -1337,6 +1506,42 @@ try:
         )
     else:
         check("hdr_manager exposes slots for the option-box check", False, "no slots")
+
+    # naming: every Suffix By Type row names its type in a label to the RIGHT of the field (the
+    # fields ship filled, so their placeholders never show), and the menu carries the convention
+    # preset combo (2026-09-26). The picker wraps each field, so find the grid cell holding it.
+    nm_ui = sb.get_ui("naming")
+    nm = getattr(nm_ui, "slots", None)
+    if nm is not None:
+        nm_menu = nm_ui.tb003.option_box.menu
+        if not (nm_menu.gridLayout and nm_menu.gridLayout.count()):
+            nm.tb003_init(nm_ui.tb003)
+        grid = nm_menu.gridLayout
+        unlabeled = []
+        rows = list(nm._convention_editor.fields())
+        for ck, field in rows:
+            cell = None
+            for i in range(grid.count()):
+                held = grid.itemAt(i).widget()
+                if held is not None and (held is field or held.isAncestorOf(field)):
+                    cell = grid.getItemPosition(i)[:2]
+                    break
+            beside = grid.itemAtPosition(cell[0], 1) if cell and cell[1] == 0 else None
+            text = beside.widget().text() if beside and beside.widget() else None
+            if text != ptk.NamingConvention.label(ck):
+                unlabeled.append((ck, cell, text))
+        check(
+            "naming Suffix By Type labels every convention row to the right of its field",
+            len(rows) == 22 and not unlabeled,
+            f"rows={len(rows)} unlabeled={unlabeled}",
+        )
+        check(
+            "naming Suffix By Type offers convention presets (semantic mode)",
+            nm_menu.add_presets
+            and nm_menu.presets.value_applier == nm._convention_editor.apply_preset,
+        )
+    else:
+        check("naming exposes slots for the Suffix By Type check", False, "no slots")
 
     # workspace_editor: the minimal Project Window — one root field, RULE/LOCATION table with
     # per-row reset/remove action columns, and rule edits that write through to workspace.mel in
@@ -1501,10 +1706,8 @@ try:
             and cslots._wheel_step(Qt.AltModifier, True) == 0
         )
         check("channels wheel-step ladder scales ×10/÷10 per modifier", ladder_ok)
-        # The header menu builds lazily (offscreen load skips it), so drive header_init explicitly
-        # — the documented init entry point — to prove it wires the Compact View checkbox. The
-        # footer single-object button is built in __init__ so it is already present.
-        cslots.header_init(channels_ui.header)
+        # The load ran header_init (every *_init), so the Compact View checkbox is already wired;
+        # the footer single-object button is built in __init__.
         chk = getattr(cslots, "_chk_compact", None)
         check(
             "channels header wires Compact View + footer single-object button",
@@ -1780,6 +1983,60 @@ try:
 except Exception as e:
     traceback.print_exc()
     check("scope parameter wiring raised", False, repr(e))
+
+# ---------------------------------------------------------------------------
+# Scope precedence, against a stand-in bpy: WHICH read answers each Scope word,
+# and what happens when a read cannot answer (pythontk.HandoffScope's rule; the
+# reads themselves are covered headless by test_unity_bridge / the bridge suite).
+# ---------------------------------------------------------------------------
+try:
+    import types as _types
+    from unittest import mock as _mock
+
+    import blendertk as _btk
+    from blendertk.env_utils.handoff_export import BlenderExportMixin
+    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
+
+    _mesh = _types.SimpleNamespace(type="MESH", name="mesh")
+    _empty = _types.SimpleNamespace(type="EMPTY", name="empty")
+    _fake_bpy = _types.SimpleNamespace(
+        context=_types.SimpleNamespace(
+            scene=_types.SimpleNamespace(objects=[_mesh, _empty])
+        )
+    )
+
+    def _scope(scope, owner):
+        return BlenderBridgeSlotsBase.resolve_scope_objects(owner, scope)
+
+    def _owner(scene=_mock.sentinel.no_bridge):
+        if scene is _mock.sentinel.no_bridge:
+            return _types.SimpleNamespace()  # a panel whose bridge is unbuilt
+        return _types.SimpleNamespace(
+            bridge=_types.SimpleNamespace(_scene_objects=lambda: scene)
+        )
+
+    _visible = staticmethod(lambda: ["vis"])
+    with _mock.patch.dict(sys.modules, {"bpy": _fake_bpy}):
+        with _mock.patch.object(_btk, "selected_objects", lambda: ["sel"]):
+            with _mock.patch.object(BlenderExportMixin, "_visible_objects", _visible):
+                _sel = _scope("selected", _owner())
+                _bogus = _scope("bogus", _owner())
+                _hooked = _scope("all", _owner(["root"]))
+                _unanswered = _scope("all", _owner(None)), _scope("all", _owner())
+                _empty = _scope("all", _owner([]))
+                _vis = _scope("visible", _owner())
+    check("scope 'selected' reads the selection", _sel == ["sel"])
+    check("an unknown scope never widens", _bogus == ["sel"])
+    check("scope 'all' prefers the bridge's whole-scene hook", _hooked == ["root"])
+    check(
+        "scope 'all' falls back to the scene's meshes when the hook can't answer",
+        _unanswered == ([_mesh], [_mesh]),
+    )
+    check("an empty scene stays empty", _empty == [])
+    check("scope 'visible' reads the export mixin, bridge or not", _vis == ["vis"])
+except Exception as e:
+    traceback.print_exc()
+    check("scope precedence raised", False, repr(e))
 
 
 passed = sum(1 for line in lines if line.startswith("OK"))

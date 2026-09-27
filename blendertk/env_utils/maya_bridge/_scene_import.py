@@ -39,7 +39,6 @@ from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import pythontk as ptk
-from pythontk.core_utils import script_template as _templates
 
 from blendertk.env_utils.maya_bridge._maya_bridge import (
     _FAST_MAYA_ENV,
@@ -352,7 +351,7 @@ class MayaSceneImport(ptk.LoggingMixin):
             context["OUT_FBX"] = str(out_path).replace("\\", "/")
             context["EMBED_TEXTURES"] = repr(bool(embed_textures))
             context["SMART_BAKE"] = repr(_RIG_MODE_TO_SMART_BAKE[rig_mode])
-        return _templates.ScriptTemplate.render_template(self._template(via), context)
+        return ptk.ScriptTemplate.render_template(self._template(via), context)
 
     def convert(
         self,
@@ -2511,7 +2510,7 @@ class MayaSceneImport(ptk.LoggingMixin):
         an unknown level fails in this process rather than minutes into the child."""
         from blendertk.anim_utils._anim_utils import AnimUtils
 
-        return _templates.ScriptTemplate.render_template(
+        return ptk.ScriptTemplate.render_template(
             _BAKE_TEMPLATE,
             {
                 "SRC_FILE": str(src_path).replace("\\", "/"),

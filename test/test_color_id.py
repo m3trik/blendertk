@@ -182,9 +182,15 @@ try:
     # Registration itself works headless (the handler simply never fires with no GUI); what
     # must hold is that enable/disable are idempotent and stored colors never depend on them.
     first = OutlinerTint.enable()
-    check("text: enable() registers and is idempotent",
-          first == OutlinerTint.enable() and OutlinerTint.is_enabled() is True,
-          f"enable={first} status={OutlinerTint.status()}")
+    if OutlinerTint.is_supported():
+        check("text: enable() registers and is idempotent",
+              first == OutlinerTint.enable() and OutlinerTint.is_enabled() is True,
+              f"enable={first} status={OutlinerTint.status()}")
+    else:  # no memory guard on this OS (Win32-only): enable declines, the same way every time
+        check("text: enable() declines cleanly where the overlay is unsupported",
+              first is False and OutlinerTint.enable() is False
+              and OutlinerTint.is_enabled() is False and OutlinerTint.status() == "unsupported",
+              f"enable={first} status={OutlinerTint.status()}")
     check("text: colors are readable regardless of the overlay",
           (CM.set_outliner_color([a], RED), CM.get_outliner_color(a))[1] is not None)
     OutlinerTint.disable()

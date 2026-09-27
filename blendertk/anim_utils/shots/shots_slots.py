@@ -117,7 +117,7 @@ class ShotsController(ptk.LoggingMixin):
         # Subscribe to class-level invalidation so the UI refreshes when
         # the persistence layer detects a scene change — no duplicate
         # scriptJobs needed.
-        BlenderShotStore.add_invalidation_listener(self._on_store_invalidated)
+        self._store_cls().add_invalidation_listener(self._on_store_invalidated)
         # Tear down on panel close: the invalidation registry is a class-level
         # list holding strong refs, so without this every reopen leaks a
         # controller whose stale listener then fires against destroyed widgets.
@@ -131,59 +131,34 @@ class ShotsController(ptk.LoggingMixin):
     # ---- hide on mouse leave ---------------------------------------------
 
     def _setup_hide_on_leave(self) -> None:
-        """Install a polling timer that hides the window when the cursor leaves."""
-        from qtpy import QtCore
+        """Hide the window once the cursor has visited and left it, unless
+        pinned -- uitk's ``WindowAutoHide``, parented to the window."""
+        from uitk import WindowAutoHide
 
-        self._leave_timer = QtCore.QTimer(self.ui)
-        self._leave_timer.setInterval(100)
-        self._leave_timer.timeout.connect(self._check_cursor_outside)
-        self._mouse_entered = False
-
-        # Patch the window's showEvent to start tracking
-        orig_show = self.ui.showEvent
-
-        def _on_show(event, _orig=orig_show):
-            _orig(event)
-            self._mouse_entered = False
-            self._leave_timer.start()
-
-        self.ui.showEvent = _on_show
-
-    def _check_cursor_outside(self) -> None:
-        """Hide the window if the cursor has left and it isn't pinned."""
-        from qtpy import QtGui, QtWidgets
-
-        if not self.ui.isVisible():
-            self._leave_timer.stop()
-            return
-
-        if getattr(self.ui, "is_pinned", False):
-            return
-
-        cursor_pos = self.ui.mapFromGlobal(QtGui.QCursor.pos())
-        inside = self.ui.rect().contains(cursor_pos)
-
-        if not inside:
-            widget_at = QtWidgets.QApplication.widgetAt(QtGui.QCursor.pos())
-            if widget_at and self.ui.isAncestorOf(widget_at):
-                inside = True
-
-        if inside:
-            self._mouse_entered = True
-        elif self._mouse_entered:
-            self.ui._auto_hiding = True
-            self.ui.hide()
-            self.ui._auto_hiding = False
-            self._leave_timer.stop()
+        self._auto_hide = WindowAutoHide(self.ui)
 
     # ---- store access ----------------------------------------------------
+
+    @staticmethod
+    def _store_cls():
+        """This host's ``ShotStore`` class: the one name the twins spell
+        differently, so every method that reaches the store is shared text."""
+        return BlenderShotStore
+
+    @staticmethod
+    def _sequencer_cls():
+        """This host's ``ShotSequencer`` -- imported on use, like the store
+        edits that need it -- so every edit handler is shared text."""
+        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
+            ShotSequencer,
+        )
+
+        return ShotSequencer
 
     def _active_store(self):
         """Return the active BlenderShotStore, or ``None``."""
         try:
-            from blendertk.anim_utils.shots._shots import BlenderShotStore
-
-            return BlenderShotStore.active()
+            return self._store_cls().active()
         except Exception:
             return None
 
@@ -201,7 +176,7 @@ class ShotsController(ptk.LoggingMixin):
         """Detach from the current store so we can rebind after scene change."""
         if not self._store_listener_bound:
             return
-        store = getattr(self, "_bound_store", None) or BlenderShotStore._active
+        store = getattr(self, "_bound_store", None) or self._store_cls()._active
         if store is not None:
             store.remove_listener(self._on_store_event)
         self._bound_store = None
@@ -210,7 +185,7 @@ class ShotsController(ptk.LoggingMixin):
     def remove_callbacks(self) -> None:
         """Remove store listeners and invalidation subscription (call on teardown)."""
         self._unbind_store_listener()
-        BlenderShotStore.remove_invalidation_listener(self._on_store_invalidated)
+        self._store_cls().remove_invalidation_listener(self._on_store_invalidated)
 
     def _on_store_invalidated(self, event: StoreInvalidated) -> None:
         """Re-sync the UI after the active store is discarded (scene change)."""
@@ -283,7 +258,7 @@ class ShotsController(ptk.LoggingMixin):
         Returns:
             True when the edit ran, False when it was refused.
         """
-        from pythontk.core_utils.engines.shots.shot_plan import ShotBoundaryConflict
+        from pythontk import ShotBoundaryConflict
 
         store.push_boundary_snapshot()
         try:
@@ -305,22 +280,7 @@ class ShotsController(ptk.LoggingMixin):
         if store is None or not store.shots:
             self._set_footer("")
             return
-
-        shots = store.sorted_shots()
-        n = len(shots)
-        objs = {o for s in shots for o in s.objects}
-        total_dur = sum(s.duration for s in shots)
-        first = shots[0].start
-        last = shots[-1].end
-
-        sep = " \u00b7 "
-        parts = [
-            f"{n} shot{'s' if n != 1 else ''}",
-            f"{total_dur:.0f}f",
-            f"{len(objs)} object{'s' if len(objs) != 1 else ''}",
-            f"[{first:.0f}\u2013{last:.0f}]",
-        ]
-        self._set_footer(sep.join(parts))
+        self._set_footer(ptk.ShotReport.summary(store.sorted_shots()))
 
     # ---- state management -------------------------------------------------
 
@@ -343,10 +303,10 @@ class ShotsController(ptk.LoggingMixin):
         # Detection group — disabled when shots already exist OR
         # when auto mode finds no animation in the scene.
         # Only call has_animation() when it can actually affect the
-        # result (auto mode + no shots) to avoid an fcurve walk over
-        # every scene object on every store event.
+        # result (auto mode + no shots) to avoid a scene-wide animation
+        # scan on every store event.
         needs_anim_check = det_relevant and mode == "auto"
-        has_anim = BlenderShotStore.has_animation() if needs_anim_check else True
+        has_anim = self._store_cls().has_animation() if needs_anim_check else True
         auto_no_anim = needs_anim_check and not has_anim
 
         cmb_mode = getattr(self.ui, "cmb_detection_mode", None)
@@ -365,7 +325,7 @@ class ShotsController(ptk.LoggingMixin):
         # raises no store event, so a state judged at the last one goes stale
         # -- the export log's Open Shots link opened the panel with the button
         # greyed out -- and judging it here looked every member and frame up
-        # in the file on every store event (mirror of mayatk's).
+        # in the scene on every store event.
         for name in (
             "spn_gap",
             "spn_shift_all",
@@ -524,7 +484,7 @@ class ShotsController(ptk.LoggingMixin):
                 spn_move.blockSignals(False)
                 spn_move.setToolTip(
                     "Move the selected shot to this position in the timeline "
-                    f"order (1–{max(n_shots, 1)}; option box \u25b8 to apply)."
+                    f"order (1\u2013{max(n_shots, 1)}; option box \u25b8 to apply)."
                 )
 
             if shot is None:
@@ -681,11 +641,7 @@ class ShotsController(ptk.LoggingMixin):
         store.gap = float(value)
         store.mark_dirty()
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         if not self._boundary_edit(
             store,
             "gap",
@@ -767,11 +723,7 @@ class ShotsController(ptk.LoggingMixin):
         if abs(value - shot.start) < 1e-6:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         if not self._boundary_edit(
             store, "shotstart", seq.move_shot, shot.shot_id, value
         ):
@@ -791,11 +743,7 @@ class ShotsController(ptk.LoggingMixin):
         if abs(delta) < 1e-6:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
 
         def _run():
             old_end = shot.end
@@ -996,11 +944,7 @@ class ShotsController(ptk.LoggingMixin):
         if reply != QtWidgets.QMessageBox.Yes:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         captured = {}
 
         def _run():  # undoable via the ledger's re-create
@@ -1102,11 +1046,7 @@ class ShotsController(ptk.LoggingMixin):
 
         target_pos = int(spn.value())
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         if not self._boundary_edit(
             store,
             "reorder",
@@ -1122,15 +1062,11 @@ class ShotsController(ptk.LoggingMixin):
 
     def _report_deltas(self, label: str, deltas: list, store) -> None:
         """Footer + dead-restore-point handling shared by every trim / pad."""
-        if not any(abs(d) > 1e-6 for pair in deltas for d in pair):
+        if not ptk.ShotReport.moved(deltas):
             # Nothing moved: a dead restore point would make the next undo
             # visibly do nothing.
             store.discard_boundary_snapshot()
-            self._set_footer(f"{label}: nothing to do")
-        else:
-            head = sum(abs(pair[0]) for pair in deltas)
-            tail = sum(abs(pair[1]) for pair in deltas)
-            self._set_footer(f"{label}: {head:.0f}f head, {tail:.0f}f tail")
+        self._set_footer(ptk.ShotReport.delta_summary(label, deltas))
         store.notify_settings_changed()
 
     def on_trim_empty(self, edge: str = "both") -> None:
@@ -1144,11 +1080,7 @@ class ShotsController(ptk.LoggingMixin):
         if store is None or store.active_shot_id is None:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         deltas = []
 
         def _run():
@@ -1164,11 +1096,7 @@ class ShotsController(ptk.LoggingMixin):
         if store is None or not store.shots:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         deltas = []
 
         def _run():
@@ -1198,11 +1126,7 @@ class ShotsController(ptk.LoggingMixin):
         if store is None or not store.shots:
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         first = seq.sorted_shots()[0]
         delta = float(start) - first.start
         if abs(delta) < 1e-6:
@@ -1228,11 +1152,7 @@ class ShotsController(ptk.LoggingMixin):
             self._set_footer("Add Space: set a frame count first")
             return
 
-        from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-            ShotSequencer,
-        )
-
-        seq = ShotSequencer(store=store)
+        seq = self._sequencer_cls()(store=store)
         deltas = []
 
         def _run():

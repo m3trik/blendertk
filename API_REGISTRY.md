@@ -26,12 +26,21 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`anim_utils/shots/shot_manifest/shot_manifest_slots.py`](#anim_utils--shots--shot_manifest--shot_manifest_slots) — Switchboard slots for the Shot Manifest UI (Blender).
 - [`anim_utils/shots/shot_manifest/table_presenter.py`](#anim_utils--shots--shot_manifest--table_presenter) — Tree-widget presentation mixin for the Shot Manifest controller.
 - [`anim_utils/shots/shot_sequencer/_shot_sequencer.py`](#anim_utils--shots--shot_sequencer--_shot_sequencer) — Blender shot sequencer engine — ripple editing + key motion over the shared planner.
+- [`anim_utils/shots/shot_sequencer/clip_menu.py`](#anim_utils--shots--shot_sequencer--clip_menu) — Clip context menus and clip-level key operations.
 - [`anim_utils/shots/shot_sequencer/clip_motion.py`](#anim_utils--shots--shot_sequencer--clip_motion) — Clip motion, resize, and key-scaling logic for the shot sequencer (Blender).
 - [`anim_utils/shots/shot_sequencer/gap_manager.py`](#anim_utils--shots--shot_sequencer--gap_manager) — Gap and range-highlight handlers for the shot sequencer controller (Blender).
+- [`anim_utils/shots/shot_sequencer/key_menu.py`](#anim_utils--shots--shot_sequencer--key_menu) — Key context menus and key-selection edits.
 - [`anim_utils/shots/shot_sequencer/marker_manager.py`](#anim_utils--shots--shot_sequencer--marker_manager) — Marker persistence for the shot sequencer controller (Blender).
+- [`anim_utils/shots/shot_sequencer/scene_callbacks.py`](#anim_utils--shots--shot_sequencer--scene_callbacks) — Blender scene handlers for the shot sequencer.
+- [`anim_utils/shots/shot_sequencer/scene_selection.py`](#anim_utils--shots--shot_sequencer--scene_selection) — Tracks and the Blender selection.
 - [`anim_utils/shots/shot_sequencer/segment_collector.py`](#anim_utils--shots--shot_sequencer--segment_collector) — Segment collection and attribute extraction for the shot sequencer (Blender).
+- [`anim_utils/shots/shot_sequencer/shot_lane.py`](#anim_utils--shots--shot_sequencer--shot_lane) — The shot lane: its context menu and the shot structure edits.
 - [`anim_utils/shots/shot_sequencer/shot_nav.py`](#anim_utils--shots--shot_sequencer--shot_nav) — Shot navigation and combobox synchronization (Blender).
+- [`anim_utils/shots/shot_sequencer/shot_sequencer_controller.py`](#anim_utils--shots--shot_sequencer--shot_sequencer_controller) — The Shot Sequencer panel's controller: :class:`ShotSequencerController` (Blender).
 - [`anim_utils/shots/shot_sequencer/shot_sequencer_slots.py`](#anim_utils--shots--shot_sequencer--shot_sequencer_slots) — Switchboard slots for the Shot Sequencer UI (Blender).
+- [`anim_utils/shots/shot_sequencer/transport.py`](#anim_utils--shots--shot_sequencer--transport) — Transport: the playhead, audio scrub and the transport row.
+- [`anim_utils/shots/shot_sequencer/undo_ledger.py`](#anim_utils--shots--shot_sequencer--undo_ledger) — The shot sequencer's undo ledger.
+- [`anim_utils/shots/shot_sequencer/widget_sync.py`](#anim_utils--shots--shot_sequencer--widget_sync) — Widget sync: rebuilding the sequencer from the scene.
 - [`anim_utils/shots/shots_slots.py`](#anim_utils--shots--shots_slots) — Switchboard slots for the Shots settings UI.
 - [`anim_utils/smart_bake/_smart_bake.py`](#anim_utils--smart_bake--_smart_bake) — Smart Bake engine — mirror of mayatk's ``anim_utils.smart_bake._smart_bake`` at the
 - [`anim_utils/smart_bake/bake_session.py`](#anim_utils--smart_bake--bake_session) — Persistence and restore engine for SmartBake's nondestructive manifest — mirror of mayatk's
@@ -46,7 +55,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`core_utils/auto_instancer/_auto_instancer.py`](#core_utils--auto_instancer--_auto_instancer) — Scene auto-instancer: convert geometrically identical meshes to instances.
 - [`core_utils/auto_instancer/assembly_reconstructor.py`](#core_utils--auto_instancer--assembly_reconstructor) — Logic for separating and reassembling mesh assemblies (bpy adapter).
 - [`core_utils/auto_instancer/geometry_matcher.py`](#core_utils--auto_instancer--geometry_matcher) — Geometry analysis and matching logic for AutoInstancer (bpy adapter).
-- [`core_utils/auto_instancer/instancing_strategy.py`](#core_utils--auto_instancer--instancing_strategy) — Instancing strategy logic for AutoInstancer (mirror of mayatk's).
+- [`core_utils/auto_instancer/instancing_strategy.py`](#core_utils--auto_instancer--instancing_strategy) — AutoInstancer's instancing strategy: the Blender binding of the ptk engine.
 - [`core_utils/diagnostics/mesh_diag.py`](#core_utils--diagnostics--mesh_diag) — Mesh diagnostics — the Blender counterpart of mayatk's ``core_utils.diagnostics.mesh_diag``
 - [`core_utils/diagnostics/scene_audit.py`](#core_utils--diagnostics--scene_audit) — Scene audit -- the Blender port of mayatk's ``core_utils.diagnostics.scene_audit``.
 - [`core_utils/diagnostics/transform_diag.py`](#core_utils--diagnostics--transform_diag) — Transform diagnostics — the Blender counterpart of mayatk's
@@ -56,17 +65,18 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`display_utils/color_id.py`](#display_utils--color_id) — Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui``.
 - [`display_utils/exploded_view.py`](#display_utils--exploded_view) — Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
 - [`display_utils/outliner_tint.py`](#display_utils--outliner_tint) — Per-object **outliner text colour** for Blender — the true analogue of Maya's
-- [`edit_utils/_curtain_drape.py`](#edit_utils--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
 - [`edit_utils/_edit_utils.py`](#edit_utils--_edit_utils) — Mesh-editing utilities — reduce/decimate, coplanar dissolve, triangulate / tris-to-quads,
 - [`edit_utils/bevel.py`](#edit_utils--bevel) — Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 - [`edit_utils/bridge.py`](#edit_utils--bridge) — Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui``.
-- [`edit_utils/curtain.py`](#edit_utils--curtain) — Curtain (draped-cloth) generation — the Blender build over the vendored
+- [`edit_utils/curtain/_curtain.py`](#edit_utils--curtain--_curtain) — Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
+- [`edit_utils/curtain/_curtain_drape.py`](#edit_utils--curtain--_curtain_drape) — Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
+- [`edit_utils/curtain/curtain_slots.py`](#edit_utils--curtain--curtain_slots) — Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
 - [`edit_utils/cut_on_axis.py`](#edit_utils--cut_on_axis) — Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
 - [`edit_utils/duplicate_grid.py`](#edit_utils--duplicate_grid) — Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_grid``.
 - [`edit_utils/duplicate_linear.py`](#edit_utils--duplicate_linear) — Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_linear``.
 - [`edit_utils/duplicate_radial.py`](#edit_utils--duplicate_radial) — Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.duplicate_radial``.
 - [`edit_utils/dynamic_pipe.py`](#edit_utils--dynamic_pipe) — Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
-- [`edit_utils/macros.py`](#edit_utils--macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
+- [`edit_utils/macros/_macros.py`](#edit_utils--macros--_macros) — Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 - [`edit_utils/mirror.py`](#edit_utils--mirror) — Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 - [`edit_utils/naming/_naming.py`](#edit_utils--naming--_naming) — Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 - [`edit_utils/naming/naming_slots.py`](#edit_utils--naming--naming_slots) — Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlots``.
@@ -81,7 +91,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/hierarchy_sync/_hierarchy_sync.py`](#env_utils--hierarchy_sync--_hierarchy_sync) — Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hierarchy_sync``.
 - [`env_utils/hierarchy_sync/hierarchy_baseline.py`](#env_utils--hierarchy_sync--hierarchy_baseline) — The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
 - [`env_utils/hierarchy_sync/hierarchy_sync_slots.py`](#env_utils--hierarchy_sync--hierarchy_sync_slots) — Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
-- [`env_utils/hierarchy_sync/scene_data_sidecar.py`](#env_utils--hierarchy_sync--scene_data_sidecar) — Scene-data sidecar manifest management — mirror of mayatk's
+- [`env_utils/hierarchy_sync/scene_data_sidecar.py`](#env_utils--hierarchy_sync--scene_data_sidecar) — Scene-data sidecar -- Blender's scene hook over ``ptk.SceneDataSidecarBase``.
 - [`env_utils/hierarchy_sync/tree_renderer.py`](#env_utils--hierarchy_sync--tree_renderer) — Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 - [`env_utils/hierarchy_sync/tree_utils.py`](#env_utils--hierarchy_sync--tree_utils) — Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 - [`env_utils/maya_bridge/_maya_bridge.py`](#env_utils--maya_bridge--_maya_bridge) — Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
@@ -101,6 +111,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`env_utils/scene_state.py`](#env_utils--scene_state) — Read named sections of live-scene state for transport.
 - [`env_utils/script_output.py`](#env_utils--script_output) — Blender script-output console — the blendertk analogue of mayatk's ``ScriptConsole``.
 - [`env_utils/unity_bridge/_unity_bridge.py`](#env_utils--unity_bridge--_unity_bridge) — Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
+- [`env_utils/unity_bridge/_unity_panel.py`](#env_utils--unity_bridge--_unity_panel) — What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.
 - [`env_utils/unity_bridge/parameters.py`](#env_utils--unity_bridge--parameters) — User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 - [`env_utils/unity_bridge/unity_bridge_slots.py`](#env_utils--unity_bridge--unity_bridge_slots) — Slots for the Unity bridge panel -- mirror of mayatk's
 - [`env_utils/upstream_patches.py`](#env_utils--upstream_patches) — Defects in Blender's own Python that blendertk corrects, each with the probe
@@ -143,6 +154,7 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`mat_utils/render_opacity/render_effects_slots.py`](#mat_utils--render_opacity--render_effects_slots) — Switchboard slots for the Render Effects panel (``render_effects.ui``).
 - [`mat_utils/shader_templates.py`](#mat_utils--shader_templates) — Shader Templates tool panel — Switchboard slot wiring for the co-located
 - [`mat_utils/substance_bridge/_substance_bridge.py`](#mat_utils--substance_bridge--_substance_bridge) — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
+- [`mat_utils/substance_bridge/_substance_engine.py`](#mat_utils--substance_bridge--_substance_engine) — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
 - [`mat_utils/substance_bridge/connection.py`](#mat_utils--substance_bridge--connection) — Substance 3D Painter connection module.
 - [`mat_utils/substance_bridge/parameters.py`](#mat_utils--substance_bridge--parameters) — Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 - [`mat_utils/substance_bridge/substance_bridge_slots.py`](#mat_utils--substance_bridge--substance_bridge_slots) — Slots for the Substance Painter bridge panel -- mirror of mayatk's
@@ -170,11 +182,14 @@ _Auto-generated. Do not edit by hand. Refresh via `m3trik/scripts/generate_api_r
 - [`rig_utils/controls.py`](#rig_utils--controls) — Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Controls``.
 - [`rig_utils/rig_graph_build.py`](#rig_utils--rig_graph_build) — Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
 - [`rig_utils/rig_graph_extract.py`](#rig_utils--rig_graph_extract) — Read a Blender rig into a RigGraph -- the Blender side of phase 2.
-- [`rig_utils/shadow_preview.py`](#rig_utils--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
-- [`rig_utils/shadow_rig.py`](#rig_utils--shadow_rig) — Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
+- [`rig_utils/shadow_rig/_shadow_rig.py`](#rig_utils--shadow_rig--_shadow_rig) — Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
+- [`rig_utils/shadow_rig/shadow_preview.py`](#rig_utils--shadow_rig--shadow_preview) — A live viewport preview of a horizon rig: the artist drags the light and
+- [`rig_utils/shadow_rig/shadow_rig_slots.py`](#rig_utils--shadow_rig--shadow_rig_slots) — Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
 - [`rig_utils/telescope_rig.py`](#rig_utils--telescope_rig) — Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescope_rig.ui``.
-- [`rig_utils/tube_path.py`](#rig_utils--tube_path) — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.TubePath``.
-- [`rig_utils/tube_rig.py`](#rig_utils--tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
+- [`rig_utils/tube_rig/_tube_rig.py`](#rig_utils--tube_rig--_tube_rig) — Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
+- [`rig_utils/tube_rig/strategies.py`](#rig_utils--tube_rig--strategies) — Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
+- [`rig_utils/tube_rig/tube_path.py`](#rig_utils--tube_rig--tube_path) — Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
+- [`rig_utils/tube_rig/tube_rig_slots.py`](#rig_utils--tube_rig--tube_rig_slots) — Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
 - [`rig_utils/wheel_rig.py`](#rig_utils--wheel_rig) — Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 - [`ui_utils/_ui_utils.py`](#ui_utils--_ui_utils) — UI utilities — opening Blender editors (the analogue of Maya's editor-window mel commands).
 - [`ui_utils/blender_bridge_slots_base.py`](#ui_utils--blender_bridge_slots_base) — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
@@ -267,7 +282,7 @@ Animation utilities — key-timing math over ``fcurve.keyframe_points`` (mirror 
 
 Main workflow facade for shape-key morph creation, editing, and export — mirror of mayatk's
 
-- **[`class BlendshapeAnimator(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/_blendshape_animator.py#L41)** — Main workflow facade for shape-key morph animation.
+- **[`class BlendshapeAnimator(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/_blendshape_animator.py#L41)** — Main workflow facade for shape-key morph animation.
   - `BlendshapeAnimator.create(self, base_obj=None, target_obj=None, start_frame: Optional[int] = None, end_frame: Optional[int] = None, name: str = 'morph', test_setup: bool = True) -> bool` — Set up a basic morph animation between two mesh objects.
   - `BlendshapeAnimator.edit_weight_based(self, weights: Optional[List[float]] = None, count: int = 3, weight_range: Tuple[float, float] = (0.0, 1.0)) -> List[Target]` — Create tweens at specific weights or evenly spaced.
   - `BlendshapeAnimator.edit_frame_based(self, frames: Optional[List[int]] = None, target_frame: Optional[int] = None) -> List[Target]` — Create tweens at specific animation frames.
@@ -287,7 +302,7 @@ Main workflow facade for shape-key morph creation, editing, and export — mirro
 Applies tween mesh edits back to the master shape key — mirror of mayatk's
 
 - **[`class ApplyStatus(Enum)`](blendertk/blendertk/anim_utils/blendshape_animator/applicator.py#L79)**
-- **[`class Applicator(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/applicator.py#L85)** — Applies tween mesh edits to the master shape key's corrective in-betweens.
+- **[`class Applicator(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/applicator.py#L85)** — Applies tween mesh edits to the master shape key's corrective in-betweens.
   - `Applicator.validate_topology(self, tweens: List[Target]) -> List[Target]` — Filter ``tweens`` to those matching the base mesh's vertex count.
   - `Applicator.apply_tweens(self, tweens: Optional[List[Target]] = None, skip_duplicates: bool = True, validate_topology: bool = False) -> List[Tuple[Target, ApplyStatus]]` — Apply tween mesh edits to corrective in-between shape keys.
 
@@ -327,7 +342,7 @@ Switchboard slots controller for the co-located ``blendshape_animator.ui`` — B
 
 Creates in-between (tween) target meshes for sculpting a custom morph curve — mirror of
 
-- **[`class Creator(ptk.LoggingMixin, _CreatorInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/creator.py#L72)** — Creates in-between target mesh objects for custom morph curves.
+- **[`class Creator(pythontk.LoggingMixin, _CreatorInternal)`](blendertk/blendertk/anim_utils/blendshape_animator/creator.py#L72)** — Creates in-between target mesh objects for custom morph curves.
   - `Creator.create_weight_based_tweens(self, weights: List[float], group_name: str = Targets.GROUP_NAME, name_prefix: str = 'morph_ib') -> List[Target]` — Create tween meshes at specific weight values.
   - `Creator.create_frame_based_tween(self, target_frame: int) -> Optional[Target]` — Create a tween mesh at a specific animation frame.
   - `Creator.tag_tween_mesh(self, obj, weight: float, target_frame: Optional[int] = None) -> None` — Add metadata custom properties to ``obj``.
@@ -339,7 +354,7 @@ Creates in-between (tween) target meshes for sculpting a custom morph curve — 
 
 Master shape-key value keyframe animation — mirror of mayatk's
 
-- **[`class Keyframes(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/keyframes.py#L22)** — Core shape-key value animation functionality.
+- **[`class Keyframes(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/keyframes.py#L22)** — Core shape-key value animation functionality.
   - `Keyframes.key_id(self)` *(property)* — The mesh's ``Key`` ID datablock (``mesh.shape_keys``) — the animatable owner of
   - `Keyframes.key_block(self)` *(property)*
   - `Keyframes.create_keyframes(self, start_frame: int, end_frame: int) -> bool` — Create linear keyframe animation on the master key's value, 0.0 -> 1.0.
@@ -360,7 +375,7 @@ Tween mesh wrappers and registry — mirror of mayatk's
   - `Target.base_mesh_name(self) -> str` *(property)*
   - `Target.target_frame(self) -> Optional[int]` *(property)*
   - `Target.update_references(self, new_key_block_name: str, new_base_mesh_name: str) -> None` — Update this tween's references to a new master shape key / base mesh.
-- **[`class Targets(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/target.py#L79)** — Manages collections of tween mesh objects.
+- **[`class Targets(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/target.py#L79)** — Manages collections of tween mesh objects.
   - `Targets.find_all_targets(cls, key_block_name: Optional[str] = None, base_mesh_name: Optional[str] = None) -> List[Target]` *(class)* — Find tagged tween mesh objects in the scene (deduplicated).
   - `Targets.group_by_weight(cls, tweens: List[Target]) -> Dict[float, List[Target]]` *(class)* — Group tweens by weight value, handling duplicates.
   - `Targets.update_all_references(cls, new_key_block_name: str, new_base_mesh_name: str, old_key_block_name: Optional[str] = None, old_base_mesh_name: Optional[str] = None) -> int` *(class)* — Update tween mesh references to a new master shape key / base mesh.
@@ -370,7 +385,7 @@ Tween mesh wrappers and registry — mirror of mayatk's
 
 Mesh + shape-key setup validation — mirror of mayatk's
 
-- **[`class Validator(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/validator.py#L10)** — Handles validation of meshes and shape-key setups.
+- **[`class Validator(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/blendshape_animator/validator.py#L10)** — Handles validation of meshes and shape-key setups.
   - `Validator.validate_meshes(cls, obj1, obj2) -> bool` *(class)* — Validate that both objects are compatible mesh objects with matching vertex counts.
   - `Validator.validate_shape_setup(cls, base_obj, key_name: str) -> bool` *(class)* — Validate the master shape key exists (Blender analogue of mayatk's blendShape
 
@@ -379,7 +394,7 @@ Mesh + shape-key setup validation — mirror of mayatk's
 
 Key Stash — park keyframes outside the working animation, retrieve later (Blender).
 
-- **[`class KeyStash(_KeyStashCore, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L214)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
+- **[`class KeyStash(pythontk.core_utils.engines.key_stash.key_stash_model.KeyStash, _KeyStashInternal)`](blendertk/blendertk/anim_utils/key_stash/_key_stash.py#L214)** — :class:`pythontk.KeyStash` with the scene side bound to Blender.
   - `KeyStash.active(cls) -> 'KeyStash'` *(class)* — The active store, auto-installing the Blender backend once.
   - `KeyStash.rescale_to_fps(self, new_fps: float) -> None` — Record the new rate only.
   - `KeyStash.reconcile(self) -> List[int]` — Bring the record in line with the file.
@@ -396,7 +411,7 @@ Key Stash — park keyframes outside the working animation, retrieve later (Blen
 
 Slots for the Key Stash panel (key_stash.ui) — mirror of mayatk's ``KeyStashSlots``.
 
-- **[`class KeyStashSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/key_stash/key_stash_slots.py#L14)** — Controller wiring key_stash.ui to the :class:`KeyStash` store.
+- **[`class KeyStashSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/key_stash/key_stash_slots.py#L14)** — Controller wiring key_stash.ui to the :class:`KeyStash` store.
   - `KeyStashSlots.header_init(self, widget) -> None` — Configure header buttons, the refresh action and the help text.
   - `KeyStashSlots.store(self) -> KeyStash` *(property)* — The active store, (re)bound to this panel's change listener.
   - `KeyStashSlots.refresh(self) -> None` — Repaint the clip list from the store.
@@ -444,7 +459,7 @@ Blender shot-store adapter — the DCC layer over ``pythontk``'s shots engine.
   - `BlenderScenePersistence.save(self, data: Dict[str, Any]) -> None`
   - `BlenderScenePersistence.load(self) -> Optional[Dict[str, Any]]` — The stored document, or ``None`` when the scene holds none.
   - `BlenderScenePersistence.record_changed(self) -> bool` — Whether the channel differs from what this backend last wrote or read.
-- **[`class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L464)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
+- **[`class BlenderShotStore(ShotStore, _BlenderShotStoreInternal)`](blendertk/blendertk/anim_utils/shots/_shots.py#L459)** — :class:`pythontk.ShotStore` with the scene hooks bound to Blender.
   - `BlenderShotStore.active(cls) -> 'BlenderShotStore'` *(class)* — Return the active store, auto-installing the Blender backend once.
   - `BlenderShotStore.has_animation() -> bool` *(static)* — True if any scene object has a moving-or-keyed transform fcurve.
   - `BlenderShotStore.detect_regions(self) -> List[Dict[str, Any]]` — Detect shot candidates using the store's detection settings.
@@ -475,7 +490,7 @@ Blender Shot Manifest adapter — the DCC layer over pythontk's manifest engine.
 
 Behaviors — Blender appliers over the engine's pure keying-recipe core.
 
-- **[`class Behaviors(_PyBehaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L230)** — Behaviors — module namespace.
+- **[`class Behaviors(pythontk.core_utils.engines.shots.manifest.behaviors.Behaviors, _BehaviorsInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/behaviors/_behaviors.py#L224)** — Behaviors — module namespace.
   - `Behaviors.apply_behavior(obj: str, behavior_name: str, start: float, end: float, attrs: Optional[List[str]] = None, search_path: Optional[Path] = None, source_path: str = '', anchor_override: Optional[str] = None) -> None` *(static)* — Apply a named behavior template to an object over a time range.
   - `Behaviors.verify_behavior(obj: str, behavior_name: str, start: float, end: float, search_path: Optional[Path] = None, keyframe_fn: Optional[Any] = None, anchor_override: Optional[Any] = None) -> bool` *(static)* — Check whether expected behavior keyframes exist on an object.
   - `Behaviors.apply_audio_clip(obj: str, start: float, end: float, source_path: str = '') -> None` *(static)* — Place (or re-place) the sound strip *obj* at *start*.
@@ -517,12 +532,12 @@ Range resolution for the Shot Manifest build pipeline (Blender-bound facade).
 
 Switchboard slots for the Shot Manifest UI (Blender).
 
-- **[`class ShotManifestController(ManifestTableMixin, ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L66)** — Business logic for the Shot Manifest UI.
+- **[`class ShotManifestController(ManifestTableMixin, pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L59)** — Business logic for the Shot Manifest UI.
   - `ShotManifestController.detect(self, gap: Optional[float] = None) -> None` — Detect animation regions in the scene and populate the table.
   - `ShotManifestController.remove_callbacks(self) -> None` — Remove store listener and invalidation subscription (call on teardown).
   - `ShotManifestController.build(self) -> None` — Build or update shots in the store from loaded steps.
   - `ShotManifestController.assess(self, skip_key_check: bool = False) -> None` — Compare CSV steps against the live Blender shots and color the tree.
-- **[`class ShotManifestSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L2036)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotManifestSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_manifest/shot_manifest_slots.py#L1936)** — Switchboard slot class — routes UI events to the controller.
   - `ShotManifestSlots.header_init(self, widget)` — Header menu is configured once in controller.__init__.
   - `ShotManifestSlots.btn_expand_missing(self)` — Expand all step rows that have missing objects or behaviors.
   - `ShotManifestSlots.btn_expand_extra(self)` — Expand all step rows that have scene-discovered extra objects.
@@ -535,7 +550,7 @@ Switchboard slots for the Shot Manifest UI (Blender).
 
 Tree-widget presentation mixin for the Shot Manifest controller.
 
-- **[`class ManifestTableMixin(_ManifestTableMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/table_presenter.py#L55)** — Presentation methods for the manifest tree widget.
+- **[`class ManifestTableMixin(_ManifestTableMixinInternal)`](blendertk/blendertk/anim_utils/shots/shot_manifest/table_presenter.py#L57)** — Presentation methods for the manifest tree widget.
   - `ManifestTableMixin.expand_missing(self) -> None` — Expand all step rows that have missing objects, behaviors, or additional objects.
   - `ManifestTableMixin.expand_extra(self) -> None` — Expand all step rows that have scene-discovered extra objects.
 
@@ -544,56 +559,27 @@ Tree-widget presentation mixin for the Shot Manifest controller.
 
 Blender shot sequencer engine — ripple editing + key motion over the shared planner.
 
-- **[`class ShotSequencer(_ShotSequencerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L229)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
-  - `ShotSequencer.shots(self)` *(property)*
-  - `ShotSequencer.hidden_objects(self) -> set` *(property)*
-  - `ShotSequencer.markers(self)` *(property)*
-  - `ShotSequencer.is_object_hidden(self, obj_name: str) -> bool`
-  - `ShotSequencer.set_object_hidden(self, obj_name: str, hidden: bool = True) -> None`
-  - `ShotSequencer.sorted_shots(self)`
-  - `ShotSequencer.shot_by_id(self, shot_id: int)`
-  - `ShotSequencer.shot_by_name(self, name: str)`
+- **[`class ShotSequencer(_ShotSequencerInternal, pythontk.ShotSequencer)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/_shot_sequencer.py#L232)** — Manages a :class:`BlenderShotStore` and provides ripple editing and
+  - `ShotSequencer.slide_shot(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None` — Slide a shot intact to *new_start*, rippling only in *direction*.
+  - `ShotSequencer.split_shot(self, shot_id: int, at_frame: float, name: Optional[str] = None, gap: float = 0.0)` — Cut a shot in two at *at_frame*, leaving its content where it is.
   - `ShotSequencer.reconcile_all_shots(self) -> bool` — No-op in Blender (documented divergence).
-  - `ShotSequencer.define_shot(self, name: str, start: float, end: float, objects: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None, locked: bool = False, description: str = '')` — Define a shot;
   - `ShotSequencer.collect_object_segments(self, shot_id: int, ignore: Optional[str] = None, motion_rate: float = 0.001, ignore_holds: bool = True) -> List[Dict[str, Any]]` — Collect per-object animation segments within a shot's range.
-  - `ShotSequencer.collect_shot_sequences(self, shot_id: int, include_audio: bool = True) -> List[Dict[str, Any]]` — All sequences (anim + audio) inside a shot's range.
-  - `ShotSequencer.sequence_separation(self) -> float` — Room to leave between a moved sequence and what it lands after.
-  - `ShotSequencer.move_sequences_to_shot(self, sequences: List[Dict[str, Any]], dest_shot_id: int) -> None` — Move *sequences* (anim and/or audio) into *dest_shot_id*.
-  - `ShotSequencer.fit_shot_to_content(self, shot_id: int, mode: str = 'fit', edge: str = 'both', reach: Optional[float] = None) -> Tuple[float, float]` — Resize a shot's boundaries to its sequence content, rippling neighbours.
-  - `ShotSequencer.trim_shot_to_content(self, shot_id: int, edge: str = 'both') -> Tuple[float, float]` — Shrink shot boundaries inward so they exactly enclose content.
-  - `ShotSequencer.extend_shot_to_fit(self, shot_id: int, edge: str = 'both', reach: Optional[float] = None) -> Tuple[float, float]` — Expand shot boundaries outward to enclose all of its sequences.
   - `ShotSequencer.detect_shots(self, objects: Optional[List[str]] = None, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001, min_duration: float = 2.0) -> List[Dict[str, Any]]` — Detect shot boundaries from existing animation (delegates to ``Detection``).
-  - `ShotSequencer.detect_next_shot(self, gap_threshold: float = 5.0, ignore: Optional[str] = None, motion_rate: float = 0.001) -> Optional[Dict[str, Any]]` — Detect the first animation cluster not yet covered by a shot.
   - `ShotSequencer.move_curve_keys(cls, crv, times: list, delta: float, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Shift the keys of fcurve *crv* at *times* by *delta* (handles travel too).
   - `ShotSequencer.recreate_curve_keys(cls, crv, pairs: list, plug=None, eps: float = 0.001, ledger=None, ledger_key: str = '') -> None` *(class)* — Move the keys named by ``[(old_time, new_time), ...]`` on *crv*.
-  - `ShotSequencer.move_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float) -> None` — Offset *obj*'s keys in ``[old_start, old_end]`` so the run begins at *new_start*.
   - `ShotSequencer.move_attribute_keys(self, obj: str, attr: Optional[str], delta: float, times: Optional[List[float]] = None, window: Optional[tuple] = None) -> int` — Shift keys of *obj* by *delta* frames -- one attribute's, or all.
   - `ShotSequencer.move_stepped_keys(self, obj: str, old_time: float, new_time: float, attr_name: Optional[str] = None, eps: float = 0.001) -> None` — Move the key(s) at *old_time* to *new_time*.
   - `ShotSequencer.scale_object_keys(self, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys from ``[old_start, old_end]`` into ``[new_start, new_end]``.
-  - `ShotSequencer.move_object_in_shot(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float) -> None` — Move one object's keys within a shot, growing the shot + rippling when it overruns.
-  - `ShotSequencer.move_shot(self, shot_id: int, new_start: float) -> None` — Move an entire shot to *new_start*, rippling downstream (duration preserved).
-  - `ShotSequencer.slide_shot(self, shot_id: int, new_start: float, direction: str = 'downstream', _enforce: bool = True) -> None` — Slide a shot intact to *new_start*, rippling only in *direction*.
-  - `ShotSequencer.ripple_downstream(self, shot_id: int, after_frame: float, delta: float, carry_gap: bool = True) -> None` — Shift every shot starting at/after *after_frame* by *delta* (pivot excluded).
-  - `ShotSequencer.ripple_upstream(self, shot_id: int, before_frame: float, delta: float, carry_gap: bool = True) -> None` — Shift every shot ending at/before *before_frame* by *delta* (pivot excluded).
-  - `ShotSequencer.ledger(self)` *(property)* — The store's :class:`~pythontk.ShotEditLedger` (system-write claims).
-  - `ShotSequencer.reconcile_system_edits(self, follow: bool = True) -> Dict[str, int]` — Release every shot-system write whose boundary has moved on.
-  - `ShotSequencer.delete_shot(self, shot_id: int, delete_contents: bool = True, close_gap: bool = True) -> Dict[str, Any]` — Remove a shot — by default with its keys, and closing up behind it.
-  - `ShotSequencer.merge_shots(self, shot_ids: List[int], name: Optional[str] = None)` — Fuse two or more shots into one spanning all of them.
-  - `ShotSequencer.split_shot(self, shot_id: int, at_frame: float, name: Optional[str] = None, gap: float = 0.0)` — Cut a shot in two at *at_frame*, leaving its content where it is.
-  - `ShotSequencer.add_shot_space(self, shot_id: int, frames: float, edge: str = 'leading') -> Tuple[float, float]` — Insert empty room at a shot's head and/or tail, rippling downstream.
-  - `ShotSequencer.expand_shot(self, shot_id: int, new_end: float) -> float` — Expand a shot's end frame and ripple downstream (never contracts).
-  - `ShotSequencer.resize_object(self, shot_id: int, obj: str, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Scale one object's keys and ripple neighbours by the head/tail deltas.
   - `ShotSequencer.scale_shot_keys(self, old_start: float, old_end: float, new_start: float, new_end: float) -> None` — Retime every key inside ``[old_start, old_end]`` into the new span.
-  - `ShotSequencer.set_shot_duration(self, shot_id: int, new_duration: float) -> None` — Change a shot's duration (start fixed), scaling its keys + rippling downstream.
-  - `ShotSequencer.resize_shot(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True) -> None` — Resize a shot to ``[new_start, new_end]``, scaling all keys and rippling both edges.
-  - `ShotSequencer.resize_shot_bounds(self, shot_id: int, new_start: float, new_end: float, _enforce: bool = True, clamp: bool = True) -> None` — Move a shot's boundaries WITHOUT touching its keyframes.
-  - `ShotSequencer.insert_shot(self, name: str, duration: float, after_shot_id: Optional[int] = None, at_position: Optional[int] = None, gap: Optional[float] = None, objects: Optional[List[str]] = None, description: str = '')` — Create a shot BETWEEN existing shots, pushing later ones downstream.
-  - `ShotSequencer.set_shot_start(self, shot_id: int, new_start: float, ripple: bool = True) -> None` — Move a shot to *new_start*;
-  - `ShotSequencer.move_shot_to_position(self, shot_id: int, target_pos: int) -> None` — Reorder *shot_id* to 1-based timeline position *target_pos*.
-  - `ShotSequencer.respace(self, gap: float = 0, start_frame: float = 1, respect_locks: bool = True) -> None` — Lay all shots out sequentially from *start_frame* with *gap* spacing.
-  - `ShotSequencer.apply_gap(self, gap: float, scope: str = 'all', shot_id: Optional[int] = None, respect_locks: bool = True) -> bool` — Apply *gap* to shots per *scope* (``all`` / ``start`` / ``end`` / ``start_end``).
-  - `ShotSequencer.to_dict(self) -> Dict[str, Any]` — Serialise shots and settings to a plain dict.
-  - `ShotSequencer.from_dict(cls, data: Dict[str, Any]) -> 'ShotSequencer'` *(class)* — Restore from serialised data.
+
+<a id="anim_utils--shots--shot_sequencer--clip_menu"></a>
+### `anim_utils/shots/shot_sequencer/clip_menu.py`
+
+Clip context menus and clip-level key operations.
+
+- **[`class ClipMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/clip_menu.py#L17)** — Clip and gap context menus, and the clip-level key operations they run.
+  - `ClipMenuMixin.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
+  - `ClipMenuMixin.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
 
 <a id="anim_utils--shots--shot_sequencer--clip_motion"></a>
 ### `anim_utils/shots/shot_sequencer/clip_motion.py`
@@ -627,6 +613,16 @@ Gap and range-highlight handlers for the shot sequencer controller (Blender).
   - `GapManagerMixin.on_gap_lock_all(self) -> None` — Lock all gaps so they are preserved during respace.
   - `GapManagerMixin.on_gap_unlock_all(self) -> None` — Unlock all gaps so they follow the global gap value.
 
+<a id="anim_utils--shots--shot_sequencer--key_menu"></a>
+### `anim_utils/shots/shot_sequencer/key_menu.py`
+
+Key context menus and key-selection edits.
+
+- **[`class KeyMenuMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/key_menu.py#L17)** — Key context menus, tangent edits and drags, and the key-selection edits.
+  - `KeyMenuMixin.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
+  - `KeyMenuMixin.place_dragged_handle(kp, side: str, dt: float, dv: float, broken: bool = False) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
+  - `KeyMenuMixin.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
+
 <a id="anim_utils--shots--shot_sequencer--marker_manager"></a>
 ### `anim_utils/shots/shot_sequencer/marker_manager.py`
 
@@ -637,6 +633,32 @@ Marker persistence for the shot sequencer controller (Blender).
   - `MarkerManagerMixin.on_marker_moved(self, marker_id: int, new_time: float) -> None` — Update persisted marker time.
   - `MarkerManagerMixin.on_marker_changed(self, marker_id: int) -> None` — Update persisted marker note/color.
   - `MarkerManagerMixin.on_marker_removed(self, marker_id: int) -> None` — Remove marker from persistent store.
+
+<a id="anim_utils--shots--shot_sequencer--scene_callbacks"></a>
+### `anim_utils/shots/shot_sequencer/scene_callbacks.py`
+
+Blender scene handlers for the shot sequencer.
+
+- **[`class SceneCallbacksMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_callbacks.py#L15)** — Scene event hooks: undo/redo, key edits and time changes refresh the widget.
+  - `SceneCallbacksMixin.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
+
+<a id="anim_utils--shots--shot_sequencer--scene_selection"></a>
+### `anim_utils/shots/shot_sequencer/scene_selection.py`
+
+Tracks and the Blender selection.
+
+- **[`class SceneSelectionMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/scene_selection.py#L16)** — Tracks, and the DCC selection that follows the sequencer's.
+  - `SceneSelectionMixin.hide_track(self, track_names) -> None`
+  - `SceneSelectionMixin.show_track(self, track_name: str) -> None`
+  - `SceneSelectionMixin.delete_track(self, track_names) -> None`
+  - `SceneSelectionMixin.on_selection_changed(self, clip_ids: list) -> None` — Select the clicked clips' objects, and their CHANNEL if they name one.
+  - `SceneSelectionMixin.on_track_selected(self, track_names: list) -> None`
+  - `SceneSelectionMixin.on_sub_track_selected(self, rows: list) -> None` — Select a channel when its sub-row label is clicked in the header.
+  - `SceneSelectionMixin.on_clip_locked(self, clip_id: int, locked: bool) -> None`
+  - `SceneSelectionMixin.on_track_menu(self, menu, track_names) -> None`
+  - `SceneSelectionMixin.on_header_menu(self, menu) -> None` — Header background context menu — no domain actions this phase.
+  - `SceneSelectionMixin.on_clip_renamed(self, clip_id: int, new_label: str) -> None` — Renaming a clip is display-only in Blender (object names own identity).
+  - `SceneSelectionMixin.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
 
 <a id="anim_utils--shots--shot_sequencer--segment_collector"></a>
 ### `anim_utils/shots/shot_sequencer/segment_collector.py`
@@ -653,6 +675,19 @@ Segment collection and attribute extraction for the shot sequencer (Blender).
   - `SegmentCollector.extract_attributes(segments) -> list` *(static)* — Transform-channel labels (``translateX``…) keyed within the segments.
   - `SegmentCollector.build_curve_preview(fcurve, t_start, t_end)` *(static)* — Bézier shape data for one Blender fcurve, clipped to ``[t_start, t_end]``.
 
+<a id="anim_utils--shots--shot_sequencer--shot_lane"></a>
+### `anim_utils/shots/shot_sequencer/shot_lane.py`
+
+The shot lane: its context menu and the shot structure edits.
+
+- **[`class ShotLaneMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_lane.py#L14)** — The shot lane's menus and the shot structure edits they run.
+  - `ShotLaneMixin.on_zone_context_menu(self, zone: str, time: float, global_pos) -> None` — ``"shot_lane"`` is every click on the lane, plus every click over
+  - `ShotLaneMixin.delete_shot(self, shot_id: int) -> None` — Delete *shot_id* with its contents, closing the timeline behind it.
+  - `ShotLaneMixin.delete_stale_shots(self) -> None` — Delete every stale shot, after naming them (``ShotStore.remove_stale_shots``).
+  - `ShotLaneMixin.move_shot_to_position(self, shot_id: int, position: int) -> None` — Re-slot *shot_id* at 1-based *position*, pushing the rest along.
+  - `ShotLaneMixin.merge_shot_with(self, shot_id: int, other_id: int) -> None` — Fuse two neighbouring shots into one spanning both.
+  - `ShotLaneMixin.split_shot_at(self, shot_id: int, time: float) -> None` — Cut *shot_id* in two at *time*, leaving its content where it is.
+
 <a id="anim_utils--shots--shot_sequencer--shot_nav"></a>
 ### `anim_utils/shots/shot_sequencer/shot_nav.py`
 
@@ -662,44 +697,23 @@ Shot navigation and combobox synchronization (Blender).
   - `ShotNavMixin.select_shot(self, shot_id: int) -> None` — Set the view playback range to the shot and select its objects.
   - `ShotNavMixin.on_shot_block_clicked(self, shot_name: str) -> None` — Select a shot by name when its block is clicked in the shot lane.
 
+<a id="anim_utils--shots--shot_sequencer--shot_sequencer_controller"></a>
+### `anim_utils/shots/shot_sequencer/shot_sequencer_controller.py`
+
+The Shot Sequencer panel's controller: :class:`ShotSequencerController` (Blender).
+
+- **[`class ShotSequencerController(SceneCallbacksMixin, UndoLedgerMixin, ShotLaneMixin, ClipMenuMixin, KeyMenuMixin, WidgetSyncMixin, SceneSelectionMixin, TransportMixin, GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, pythontk.LoggingMixin, _ShotSequencerControllerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_controller.py#L85)** — Business logic controller bridging SequencerWidget ↔ ShotSequencer.
+  - `ShotSequencerController.sequencer(self) -> Optional[ShotSequencer]` *(property)*
+  - `ShotSequencerController.active_shot_id(self) -> Optional[int]` *(property)*
+
 <a id="anim_utils--shots--shot_sequencer--shot_sequencer_slots"></a>
 ### `anim_utils/shots/shot_sequencer/shot_sequencer_slots.py`
 
 Switchboard slots for the Shot Sequencer UI (Blender).
 
-- **[`class ShotSequencerController(GapManagerMixin, ClipMotionMixin, ShotNavMixin, MarkerManagerMixin, ptk.LoggingMixin, _ShotSequencerControllerInternal)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L65)** — Business logic controller bridging SequencerWidget ↔ ShotSequencer.
-  - `ShotSequencerController.sequencer(self) -> Optional[ShotSequencer]` *(property)*
-  - `ShotSequencerController.remove_callbacks(self) -> None` — Detach all scene handlers + listeners (call on teardown).
-  - `ShotSequencerController.on_zone_context_menu(self, zone: str, time: float, global_pos) -> None` — ``"shot_lane"`` is every click on the lane, plus every click over
-  - `ShotSequencerController.delete_shot(self, shot_id: int) -> None` — Delete *shot_id* with its contents, closing the timeline behind it.
-  - `ShotSequencerController.delete_stale_shots(self) -> None` — Delete every stale shot, after naming them (``ShotStore.remove_stale_shots``).
-  - `ShotSequencerController.move_shot_to_position(self, shot_id: int, position: int) -> None` — Re-slot *shot_id* at 1-based *position*, pushing the rest along.
-  - `ShotSequencerController.merge_shot_with(self, shot_id: int, other_id: int) -> None` — Fuse two neighbouring shots into one spanning both.
-  - `ShotSequencerController.split_shot_at(self, shot_id: int, time: float) -> None` — Cut *shot_id* in two at *time*, leaving its content where it is.
-  - `ShotSequencerController.active_shot_id(self) -> Optional[int]` *(property)*
-  - `ShotSequencerController.on_undo(self) -> None` — Widget undo_requested — restore the shot snapshot, then Blender undo.
-  - `ShotSequencerController.on_redo(self) -> None` — Widget redo_requested — re-apply the redo-side bounds, then Blender redo.
-  - `ShotSequencerController.refresh(self) -> None`
-  - `ShotSequencerController.hide_track(self, track_names) -> None`
-  - `ShotSequencerController.show_track(self, track_name: str) -> None`
-  - `ShotSequencerController.delete_track(self, track_names) -> None`
-  - `ShotSequencerController.on_selection_changed(self, clip_ids: list) -> None` — Select the clicked clips' objects, and their CHANNEL if they name one.
-  - `ShotSequencerController.on_track_selected(self, track_names: list) -> None`
-  - `ShotSequencerController.on_sub_track_selected(self, rows: list) -> None` — Select a channel when its sub-row label is clicked in the header.
-  - `ShotSequencerController.on_clip_locked(self, clip_id: int, locked: bool) -> None`
-  - `ShotSequencerController.on_track_menu(self, menu, track_names) -> None`
-  - `ShotSequencerController.on_header_menu(self, menu) -> None` — Header background context menu — no domain actions this phase.
-  - `ShotSequencerController.on_clip_renamed(self, clip_id: int, new_label: str) -> None` — Renaming a clip is display-only in Blender (object names own identity).
-  - `ShotSequencerController.on_playhead_moved(self, frame: float) -> None` — Widget playhead drag → set the scene frame (scrub audio via Blender).
-  - `ShotSequencerController.on_clip_menu(self, menu, clip_id: int) -> None` — Add Delete-key + lock actions to a clip's context menu.
-  - `ShotSequencerController.on_key_menu(self, menu, key_groups: list) -> None` — Add the key actions to a key's context menu.
-  - `ShotSequencerController.place_dragged_handle(kp, side: str, dt: float, dv: float, broken: bool = False) -> None` *(static)* — Put one handle of keyframe point *kp* at ``co + (dt, dv)``.
-  - `ShotSequencerController.on_keys_tangent_dragged(self, groups: list, side: str, broken: bool) -> None` — Write the handles a dragged tangent grab point asks for (see
-  - `ShotSequencerController.on_gap_menu(self, menu, gap_start: float, gap_end: float) -> None` — Add domain-specific actions to a gap overlay's context menu (none by default).
-  - `ShotSequencerController.on_key_selection_changed(self, key_groups: list) -> None` — Sync the Graph Editor's key selection to match the sequencer.
-- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3568)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
+- **[`class ShotEditDialog`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L30)** — Lightweight dialog for creating or editing a shot (plain Qt widgets).
   - `ShotEditDialog.show(parent=None, name: str = '', start: float = 1.0, end: float = 100.0, description: str = '', title: str = 'Shot', validate=None)` *(static)* — Show a modal dialog and return the result tuple or ``None``.
-- **[`class ShotSequencerSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L3649)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotSequencerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shot_sequencer/shot_sequencer_slots.py#L111)** — Switchboard slot class — routes UI events to the controller.
   - `ShotSequencerSlots.header_init(self, widget)` — Build the header menu controls (mirror of mayatk's sequencer header).
   - `ShotSequencerSlots.btn_colors(self)` — Open the attribute color configuration dialog.
   - `ShotSequencerSlots.spn_snap(self, value)` — Set the snap interval on the sequencer widget.
@@ -707,12 +721,37 @@ Switchboard slots for the Shot Sequencer UI (Blender).
   - `ShotSequencerSlots.btn_shot_settings(self)` — Open the shared shots settings panel.
   - `ShotSequencerSlots.cmb_shot(self, index)` — Handle direct combobox selection of a shot or marker.
 
+<a id="anim_utils--shots--shot_sequencer--transport"></a>
+### `anim_utils/shots/shot_sequencer/transport.py`
+
+Transport: the playhead, audio scrub and the transport row.
+
+- **[`class TransportMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/transport.py#L81)** — The playhead, audible scrubbing and the transport button row.
+  - `TransportMixin.on_playhead_moved(self, frame: float) -> None` — Widget playhead drag → set the scene frame (scrub audio via Blender).
+
+<a id="anim_utils--shots--shot_sequencer--undo_ledger"></a>
+### `anim_utils/shots/shot_sequencer/undo_ledger.py`
+
+The shot sequencer's undo ledger.
+
+- **[`class UndoLedgerMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/undo_ledger.py#L14)** — Shot-boundary restore points, and how one undo/redo splits between them and the DCC.
+  - `UndoLedgerMixin.on_undo(self) -> None` — Widget undo_requested — restore the shot snapshot, then Blender undo.
+  - `UndoLedgerMixin.on_redo(self) -> None` — Widget redo_requested — re-apply the redo-side bounds, then Blender redo.
+
+<a id="anim_utils--shots--shot_sequencer--widget_sync"></a>
+### `anim_utils/shots/shot_sequencer/widget_sync.py`
+
+Widget sync: rebuilding the sequencer from the scene.
+
+- **[`class WidgetSyncMixin`](blendertk/blendertk/anim_utils/shots/shot_sequencer/widget_sync.py#L21)** — Rebuilding the widget from the scene: tracks, clips, sub-rows, decoration.
+  - `WidgetSyncMixin.refresh(self) -> None` — Clear cached segments and rebuild the sequencer widget.
+
 <a id="anim_utils--shots--shots_slots"></a>
 ### `anim_utils/shots/shots_slots.py`
 
 Switchboard slots for the Shots settings UI.
 
-- **[`class ShotsController(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L31)** — Business logic for the Shots settings panel.
+- **[`class ShotsController(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L31)** — Business logic for the Shots settings panel.
   - `ShotsController.remove_callbacks(self) -> None` — Remove store listeners and invalidation subscription (call on teardown).
   - `ShotsController.refresh_state(self) -> None` — Central enable/disable refresh for all Shots UI widgets.
   - `ShotsController.on_detection_changed(self, value: float) -> None`
@@ -735,7 +774,7 @@ Switchboard slots for the Shots settings UI.
   - `ShotsController.on_trim_all_shots(self, edge: str = 'both') -> None` — Trim empty space from every shot, at *edge*.
   - `ShotsController.on_shift_all_shots(self, start: float) -> None` — Shift every shot so the first one starts on *start*.
   - `ShotsController.on_add_space(self, edge: str = 'leading') -> None` — Pad the active shot with ``spn_space`` frames of room at *edge*.
-- **[`class ShotsSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1246)** — Switchboard slot class — routes UI events to the controller.
+- **[`class ShotsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/shots/shots_slots.py#L1166)** — Switchboard slot class — routes UI events to the controller.
   - `ShotsSlots.header_init(self, widget)` — Configure header help text.
   - `ShotsSlots.spn_detection(self, value)` — Detection threshold changed.
   - `ShotsSlots.cmb_detection_mode(self, index)` — Detection mode combobox changed.
@@ -815,11 +854,10 @@ Persistence and restore engine for SmartBake's nondestructive manifest — mirro
 
 Slots for the Smart Bake tool panel (``smart_bake.ui``) — Blender port of mayatk's
 
-- **[`class SmartBakeSlots(ptk.LoggingMixin)`](blendertk/blendertk/anim_utils/smart_bake/smart_bake_slots.py#L35)** — Controller wiring ``smart_bake.ui`` to the :class:`SmartBake` engine.
+- **[`class SmartBakeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/anim_utils/smart_bake/smart_bake_slots.py#L35)** — Controller wiring ``smart_bake.ui`` to the :class:`SmartBake` engine.
   - `SmartBakeSlots.cmb_scope_init(self, widget) -> None`
   - `SmartBakeSlots.cmb_backup_init(self, widget) -> None`
   - `SmartBakeSlots.header_init(self, widget) -> None` — Configure header menu, refresh button, and help text.
-  - `SmartBakeSlots.reset_defaults(self) -> None` — Header menu: reset every field in this panel to its registry default.
   - `SmartBakeSlots.b000(self, widget) -> None` — Bake.
   - `SmartBakeSlots.b001(self, widget) -> None` — Unbake.
 
@@ -828,7 +866,7 @@ Slots for the Smart Bake tool panel (``smart_bake.ui``) — Blender port of maya
 
 Dedicated stagger-keys module to keep AnimUtils lean and testable (mirror of mayatk's
 
-- **[`class StaggerKeys(_StaggerKeysInternal)`](blendertk/blendertk/anim_utils/stagger_keys.py#L33)** — Namespace mirror of mayatk's ``StaggerKeys`` (``stagger_keys`` also exposed module-level).
+- **[`class StaggerKeys(_StaggerKeysInternal)`](blendertk/blendertk/anim_utils/stagger_keys.py#L25)** — Namespace mirror of mayatk's ``StaggerKeys`` (``stagger_keys`` also exposed module-level).
   - `StaggerKeys.stagger_keys(objects, start_frame=None, spacing=5, use_intervals=False, invert=False, group_overlapping=False, merge_touching=False, smooth_tangents=False)` *(static)* — Re-time selected objects so their animations play one after another (mirror of ``mtk``
 
 <a id="audio_utils--_audio_utils"></a>
@@ -838,7 +876,7 @@ Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 
 - [`DEFAULT_CHANNEL`](blendertk/blendertk/audio_utils/_audio_utils.py#L59) — constant
 - [`MAX_CHANNEL_SEARCH`](blendertk/blendertk/audio_utils/_audio_utils.py#L62) — constant
-- **[`class AudioUtils(ptk.LoggingMixin)`](blendertk/blendertk/audio_utils/_audio_utils.py#L73)** — Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
+- **[`class AudioUtils(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/_audio_utils.py#L73)** — Scene-wide audio-clip CRUD over Blender's Video Sequence Editor.
   - `AudioUtils.ensure_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, creating it if this is the first strip.
   - `AudioUtils.get_sequence_editor(scene=None)` *(static)* — Return *scene*'s sequence editor, or ``None`` when it doesn't exist yet.
   - `AudioUtils.list_clips(cls, scene=None) -> List[Dict]` *(class)* — Return every sound strip in *scene* as a plain dict, sorted by visible start frame.
@@ -862,7 +900,7 @@ Scene-wide audio-clip utilities over Blender's Video Sequence Editor (VSE).
 
 Audio Clips — scene-wide sound-strip management over Blender's Video Sequence Editor (VSE).
 
-- **[`class AudioClipsSlots(ptk.LoggingMixin)`](blendertk/blendertk/audio_utils/audio_clips.py#L46)** — Switchboard slots for the Audio Clips panel.
+- **[`class AudioClipsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/audio_utils/audio_clips.py#L46)** — Switchboard slots for the Audio Clips panel.
   - `AudioClipsSlots.header_init(self, widget)` — Help text only — no header menu items apply (see module docstring).
   - `AudioClipsSlots.cmb000_init(self, widget)` — Browse option box + clip-management menu;
   - `AudioClipsSlots.cmb000(self, index, widget)` — Selection only informs Move/Trim/the option-box actions — no side effect.
@@ -921,7 +959,7 @@ Per-camera visibility sets — rolled infrastructure for Maya's camera-sets isol
 
 Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 
-- **[`class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L323)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
+- **[`class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`](blendertk/blendertk/core_utils/_core_utils.py#L323)** — Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
   - `CoreUtils.strip_dup_suffix(name: str) -> str` *(static)* — Strip Blender's ``.NNN`` name-collision suffix (``Cube.001`` -> ``Cube``).
   - `CoreUtils.all_ids(library=None) -> list` *(static)* — Every datablock in the file, across every ID collection -- or only
   - `CoreUtils.undo_chunk(name: str = '')` *(static)* — Collapse every change made inside the block into ONE Blender undo step.
@@ -945,17 +983,18 @@ Core blendertk utilities — DCC-environment info + cross-cutting decorators.
   - `CoreUtils.tag_redraw(cls, area_type=None) -> int` *(class)* — Queue a redraw of every area of ``area_type`` (all areas when None);
   - `CoreUtils.get_view3d_context()` *(static)* — Context-override dict targeting the first VIEW_3D area/region, or ``None`` if there is no
   - `CoreUtils.window_context_override()` *(static)* — Yield with a valid ``window`` in context when ``bpy.context.window`` is ``None``.
+  - `CoreUtils.edit_mode(objects)` *(static)* — Yield with *objects* -- and only them -- in Edit Mode;
 
 <a id="core_utils--auto_instancer--_auto_instancer"></a>
 ### `core_utils/auto_instancer/_auto_instancer.py`
 
 Scene auto-instancer: convert geometrically identical meshes to instances.
 
-- **[`class InstanceCandidate`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L55)** — Holds information about an object candidate for instancing.
+- **[`class InstanceCandidate`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L54)** — Holds information about an object candidate for instancing.
   - `InstanceCandidate.obj(self)` *(property)*
   - `InstanceCandidate.exists(self) -> bool`
-- **[`class InstanceGroup`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L91)** — A group of objects that are geometrically identical.
-- **[`class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal)`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L166)** — Convert matching meshes into instances (shared mesh datablocks).
+- **[`class InstanceGroup`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L90)** — A group of objects that are geometrically identical.
+- **[`class AutoInstancer(pythontk.LoggingMixin, _AutoInstancerInternal)`](blendertk/blendertk/core_utils/auto_instancer/_auto_instancer.py#L157)** — Convert matching meshes into instances (shared mesh datablocks).
   - `AutoInstancer.default_summary() -> Dict[str, object]` *(static)* — A zeroed run-summary — the shape of :attr:`last_run_summary`.
   - `AutoInstancer.format_summary(summary: Dict[str, object], output_count: int) -> str` *(static)* — Human-readable, DCC-agnostic description of a run *summary*.
   - `AutoInstancer.tolerance(self)` *(property)*
@@ -1005,12 +1044,9 @@ Geometry analysis and matching logic for AutoInstancer (bpy adapter).
 <a id="core_utils--auto_instancer--instancing_strategy"></a>
 ### `core_utils/auto_instancer/instancing_strategy.py`
 
-Instancing strategy logic for AutoInstancer (mirror of mayatk's).
+AutoInstancer's instancing strategy: the Blender binding of the ptk engine.
 
-- **[`class StrategyType(Enum)`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L17)**
-- **[`class StrategyConfig`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L25)**
-- **[`class InstancingStrategy`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L32)** — Determines the best instancing strategy for a group of objects.
-  - `InstancingStrategy.evaluate(self, group_size: int, mesh_node: Optional[object] = None, triangle_count: Optional[int] = None) -> StrategyType` — Evaluate the strategy for a given group.
+- **[`class InstancingStrategy(pythontk.InstancingStrategy)`](blendertk/blendertk/core_utils/auto_instancer/instancing_strategy.py#L20)** — :class:`pythontk.InstancingStrategy` counting triangles on a Blender object.
 
 <a id="core_utils--diagnostics--mesh_diag"></a>
 ### `core_utils/diagnostics/mesh_diag.py`
@@ -1110,7 +1146,7 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
   - `ColorId.get_objects_by_color(cls, target_color: Color, threshold: float = 0.1, check_material: bool = False, check_object: bool = False, check_vertex: bool = False, check_outliner: bool = False, check_set: bool = False) -> List` *(class)* — View-layer mesh objects whose color (on any enabled channel) is within ``threshold``.
   - `ColorId.reset_colors(cls, objects: Sequence, reset_material: bool = True, reset_object: bool = True, reset_vertex: bool = True, reset_outliner: bool = True, reset_sets: bool = True) -> None` *(class)* — Clear color assignments on ``objects`` for the chosen channels.
   - `ColorId.reset_vertex_colors(obj) -> None` *(static)* — Remove every color attribute from a mesh object.
-- **[`class ColorIdSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L528)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
+- **[`class ColorIdSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/color_id.py#L528)** — Switchboard slot wiring for the Color ID panel (swatch palette + channels + presets).
   - `ColorIdSlots.header_init(self, widget)` — Configure header help text and preset combobox.
   - `ColorIdSlots.selected_objects(self) -> List` *(property)* — Return the currently selected objects, or an empty list if none are selected.
   - `ColorIdSlots.selected_button(self)` *(property)* — Return the currently checked swatch button in the palette group.
@@ -1125,7 +1161,7 @@ Color ID tool panel — Switchboard slot wiring for the co-located ``color_id.ui
 
 Exploded View — Switchboard slot wiring for the co-located ``exploded_view.ui``.
 
-- **[`class ExplodedViewSlots(ptk.LoggingMixin)`](blendertk/blendertk/display_utils/exploded_view.py#L27)** — Switchboard slot wiring for the Exploded View panel (mirror of mayatk's ``ExplodedViewSlots``).
+- **[`class ExplodedViewSlots(pythontk.LoggingMixin)`](blendertk/blendertk/display_utils/exploded_view.py#L27)** — Switchboard slot wiring for the Exploded View panel (mirror of mayatk's ``ExplodedViewSlots``).
   - `ExplodedViewSlots.header_init(self, widget)` — Configure header help text.
   - `ExplodedViewSlots.b000(self)` — Explode.
   - `ExplodedViewSlots.b001(self)` — Un-Explode (selected).
@@ -1148,16 +1184,6 @@ Per-object **outliner text colour** for Blender — the true analogue of Maya's
   - `OutlinerTint.is_enabled(cls) -> bool` *(class)*
   - `OutlinerTint.enable(cls) -> bool` *(class)* — Register the outliner overlay (idempotent).
   - `OutlinerTint.disable(cls) -> None` *(class)* — Remove the overlay;
-
-<a id="edit_utils--_curtain_drape"></a>
-### `edit_utils/_curtain_drape.py`
-
-Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
-
-- **[`class CurtainDrape(_CurtainDrapeInternal)`](blendertk/blendertk/edit_utils/_curtain_drape.py#L69)** — Drape a grid into a pleated, gravity-sagged curtain — pure math.
-  - `CurtainDrape.prepare(self) -> Tuple[int, int, List[Tuple[Vec, Vec, Vec]]]` — Precompute the per-build state and return ``(u_segs, v_segs, frames)``.
-  - `CurtainDrape.grid_points(self) -> Tuple[int, int, List[Vec]]` — The full draped grid: ``(u_segs, v_segs, points)``.
-  - `CurtainDrape.drape(self, u, v, pos, tan, normal) -> Vec` — Place one cloth vertex.
 
 <a id="edit_utils--_edit_utils"></a>
 ### `edit_utils/_edit_utils.py`
@@ -1213,7 +1239,7 @@ Bevel tool — engine + Switchboard slot wiring for the co-located ``bevel.ui``.
 
 - **[`class Bevel`](blendertk/blendertk/edit_utils/bevel.py#L26)** — Native ``bmesh.ops.bevel`` engine (mirror of mayatk's ``Bevel``).
   - `Bevel.bevel(objects=None, width=0.1, segments=1, profile=0.5, clamp_overlap=True, affect='EDGES', offset_type='OFFSET')` *(static)* — Bevel the selected edges (or vertices) of the given mesh objects.
-- **[`class BevelSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/bevel.py#L98)** — Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same
+- **[`class BevelSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/bevel.py#L98)** — Switchboard slot wiring for the bevel UI — 1:1 mirror of mayatk's ``BevelSlots`` (same
   - `BevelSlots.header_init(self, widget)` — Configure header help text.
   - `BevelSlots.perform_operation(self, objects)`
 
@@ -1224,24 +1250,46 @@ Bridge tool — engine + Switchboard slot wiring for the co-located ``bridge.ui`
 
 - **[`class Bridge`](blendertk/blendertk/edit_utils/bridge.py#L46)** — Native ``bmesh.ops.bridge_loops`` engine (mirror of mayatk's ``Bridge``).
   - `Bridge.bridge(objects=None, divisions=0, smoothing_angle=None, offset=0, merge=False)` *(static)* — Bridge the two selected open edge loops of each given mesh with new faces.
-- **[`class BridgeSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/bridge.py#L120)** — Switchboard slot wiring for the bridge UI — 1:1 mirror of mayatk's ``BridgeSlots`` (same
+- **[`class BridgeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/bridge.py#L120)** — Switchboard slot wiring for the bridge UI — 1:1 mirror of mayatk's ``BridgeSlots`` (same
   - `BridgeSlots.header_init(self, widget)` — Configure header help text.
   - `BridgeSlots.perform_operation(self, objects)`
 
-<a id="edit_utils--curtain"></a>
-### `edit_utils/curtain.py`
+<a id="edit_utils--curtain--_curtain"></a>
+### `edit_utils/curtain/_curtain.py`
 
-Curtain (draped-cloth) generation — the Blender build over the vendored
+Procedural draped-cloth (curtain) generator for Blender -- mirror of mayatk's
 
-- **[`class CurtainUtils`](blendertk/blendertk/edit_utils/curtain.py#L42)** — Curtain (draped-cloth) generation engine — mirror of mayatk's ``edit_utils.curtain``.
-  - `CurtainUtils.curtain_rail_from_selection(objects)` *(static)* — Resolve a rail polyline from a Blender selection.
-  - `CurtainUtils.create_curtain(rail, name='curtain', **options)` *(static)* — Create a pleated, gravity-draped curtain mesh from a rail polyline.
-- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain.py#L168)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
+- **[`class Rail(pythontk.Polyline)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L39)** — Rail-polyline geometry -- the line a curtain hangs from.
+  - `Rail.from_selection(objects) -> Optional[Tuple[List[Vec], bool]]` *(static)* — Resolve a rail polyline from a Blender selection.
+  - `Rail.sample_curve(curve) -> Tuple[List[Vec], bool]` *(static)* — Sample a curve object into a dense world-space polyline.
+- **[`class CurtainMesh(CurtainDrape)`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L115)** — Generate a pleated, gravity-draped curtain mesh from a rail polyline.
+  - `CurtainMesh.create(cls, rail: Sequence[Vec], **opts)` *(class)*
+  - `CurtainMesh.build(self)` — Create the curtain mesh object and return it.
+- **[`class CurtainUtils`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L186)** — Retired entry point: :class:`Rail` and :class:`CurtainMesh`, mayatk's names.
+  - `CurtainUtils.curtain_rail_from_selection(objects)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`Rail.from_selection`.
+  - `CurtainUtils.create_curtain(rail, name='curtain', **options)` *(static)* **DEPRECATED (remove in 0.14.0)** — Moved to :meth:`CurtainMesh.create`.
+- **[`class CurtainRig`](blendertk/blendertk/edit_utils/curtain/_curtain.py#L211)** — Make grabbable control handles drive a finished curtain — Blender mirror of mayatk's
   - `CurtainRig.attach(curtain, controls=5, dropoff=2.0, name=None)` *(static)* — Rig *curtain* with control-empty handles that pull the cloth via hooks.
-- **[`class CurtainSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/curtain.py#L326)** — Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).
+
+<a id="edit_utils--curtain--_curtain_drape"></a>
+### `edit_utils/curtain/_curtain_drape.py`
+
+Procedural draped-cloth (curtain) drape engine — pure geometry, no DCC.
+
+- **[`class CurtainDrape(_CurtainDrapeInternal)`](blendertk/blendertk/edit_utils/curtain/_curtain_drape.py#L70)** — Drape a grid into a pleated, gravity-sagged curtain — pure math.
+  - `CurtainDrape.prepare(self) -> Tuple[int, int, List[Tuple[Vec, Vec, Vec]]]` — Precompute the per-build state and return ``(u_segs, v_segs, frames)``.
+  - `CurtainDrape.grid_points(self) -> Tuple[int, int, List[Vec]]` — The full draped grid: ``(u_segs, v_segs, points)``.
+  - `CurtainDrape.drape(self, u, v, pos, tan, normal) -> Vec` — Place one cloth vertex.
+
+<a id="edit_utils--curtain--curtain_slots"></a>
+### `edit_utils/curtain/curtain_slots.py`
+
+Curtain panel — the Switchboard slots for ``curtain.ui`` (Blender).
+
+- **[`class CurtainSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/curtain/curtain_slots.py#L27)** — Switchboard slot wiring for the curtain UI (live preview + rail resolution + presets).
   - `CurtainSlots.header_init(self, widget)` — Configure header help text (the preset combo lives in the panel).
   - `CurtainSlots.cmb000_init(self, widget)` — Wire the in-panel preset selector (built-in + user tiers) — mirror of the Maya panel.
-  - `CurtainSlots.b001(self)` — Reset to Defaults.
+  - `CurtainSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `CurtainSlots.b002(self)` — Set Position to the bounding-box center of the selected object(s).
   - `CurtainSlots.perform_operation(self, objects)` — Build the curtain from the resolved rail (Preview entry point).
 
@@ -1250,7 +1298,7 @@ Curtain (draped-cloth) generation — the Blender build over the vendored
 
 Cut-On-Axis tool panel — Switchboard slot wiring for the co-located ``cut_on_axis.ui``.
 
-- **[`class CutOnAxisSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/cut_on_axis.py#L22)** — Switchboard slot wiring for the cut-on-axis UI (live preview).
+- **[`class CutOnAxisSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/cut_on_axis.py#L22)** — Switchboard slot wiring for the cut-on-axis UI (live preview).
   - `CutOnAxisSlots.header_init(self, widget)` — Configure header help text.
   - `CutOnAxisSlots.toggle_weight_ui(self)` — Enable the weight fields only for the modes that consume them.
   - `CutOnAxisSlots.perform_operation(self, objects)`
@@ -1263,9 +1311,9 @@ Grid array duplication + its tool panel — mirror of mayatk's ``edit_utils.dupl
 - [`GRID_MAX_COPIES`](blendertk/blendertk/edit_utils/duplicate_grid.py#L26) — constant
 - **[`class DuplicateGrid`](blendertk/blendertk/edit_utils/duplicate_grid.py#L29)** — Grid-array duplication engine — mirror of mayatk's ``DuplicateGrid``.
   - `DuplicateGrid.duplicate_grid(objects, dimensions=(2, 2, 1), spacing=0.0, mode='instance')` *(static)* — Duplicate object(s) into a 3D grid — mirror of mayatk's ``DuplicateGrid.duplicate_grid``.
-- **[`class DuplicateGridSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_grid.py#L106)** — Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of
+- **[`class DuplicateGridSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_grid.py#L106)** — Switchboard slot wiring for the Duplicate-Grid panel — 1:1 objectName mirror of
   - `DuplicateGridSlots.header_init(self, widget)` — Configure header help text.
-  - `DuplicateGridSlots.b001(self)` — Reset to Defaults: Resets all UI widgets to their default values.
+  - `DuplicateGridSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `DuplicateGridSlots.perform_operation(self, objects)`
 
 <a id="edit_utils--duplicate_linear"></a>
@@ -1275,10 +1323,10 @@ Linear array duplication + its tool panel — mirror of mayatk's ``edit_utils.du
 
 - **[`class DuplicateLinear`](blendertk/blendertk/edit_utils/duplicate_linear.py#L24)** — Linear-array duplication engine — mirror of mayatk's ``DuplicateLinear``.
   - `DuplicateLinear.duplicate_linear(objects, num_copies, translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), weight_bias=0.5, weight_curve=4, pivot='object', calculation_mode='weighted', instance=True)` *(static)* — Duplicate object(s) along a linear path — mirror of mayatk's
-- **[`class DuplicateLinearSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_linear.py#L106)** — Switchboard slot wiring for the Duplicate-Linear panel — 1:1 objectName mirror of
+- **[`class DuplicateLinearSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_linear.py#L106)** — Switchboard slot wiring for the Duplicate-Linear panel — 1:1 objectName mirror of
   - `DuplicateLinearSlots.header_init(self, widget)` — Configure header help text.
   - `DuplicateLinearSlots.toggle_weight_ui(self)` — Disable weight UI components if the current calculation mode doesn't use them.
-  - `DuplicateLinearSlots.b001(self)` — Reset to Defaults: Resets all UI widgets to their default values.
+  - `DuplicateLinearSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `DuplicateLinearSlots.perform_operation(self, objects)` — Perform the linear duplication operation.
 
 <a id="edit_utils--duplicate_radial"></a>
@@ -1288,11 +1336,11 @@ Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.du
 
 - **[`class DuplicateRadial(_DuplicateRadialInternal)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L39)** — Radial-array duplication engine — mirror of mayatk's ``DuplicateRadial``.
   - `DuplicateRadial.duplicate_radial(objects, num_copies, start_angle=0.0, end_angle=360.0, weight_bias=0.5, weight_curve=0.5, rotate_axis='y', offset=(0, 0, 0), translate=(0, 0, 0), rotate=(0, 0, 0), scale=(1, 1, 1), pivot='object', keep_original=False, instance=False, combine=False, suffix=True)` *(static)* — Duplicate object(s) in a radial pattern — mirror of mayatk's
-- **[`class DuplicateRadialSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L158)** — Switchboard slot wiring for the Duplicate-Radial panel.
+- **[`class DuplicateRadialSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/duplicate_radial.py#L158)** — Switchboard slot wiring for the Duplicate-Radial panel.
   - `DuplicateRadialSlots.header_init(self, widget)` — Configure header help text.
   - `DuplicateRadialSlots.s015_init(self, widget)` — Initialize Weight Bias.
   - `DuplicateRadialSlots.s016_init(self, widget)` — Initialize Weight Curve.
-  - `DuplicateRadialSlots.b001(self)` — Reset to Defaults: Resets all UI widgets to their default values.
+  - `DuplicateRadialSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `DuplicateRadialSlots.perform_operation(self, objects)`
 
 <a id="edit_utils--dynamic_pipe"></a>
@@ -1300,17 +1348,17 @@ Radial array duplication + its tool panel — mirror of mayatk's ``edit_utils.du
 
 Dynamic Pipe tool — Blender port of mayatk's ``edit_utils.dynamic_pipe``.
 
-- **[`class DynamicPipe(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L37)** — Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender
-- **[`class DynamicPipeSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L141)** — Switchboard slot wiring for the co-located ``dynamic_pipe.ui`` (mirror of mayatk's
+- **[`class DynamicPipe(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L37)** — Build a pipe-style mesh driven by a chain of handle objects (Empties/locators) — Blender
+- **[`class DynamicPipeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/dynamic_pipe.py#L141)** — Switchboard slot wiring for the co-located ``dynamic_pipe.ui`` (mirror of mayatk's
   - `DynamicPipeSlots.header_init(self, widget)` — Configure header help text.
   - `DynamicPipeSlots.b000(self)` — Initialize Pipe — build pipe from the current selection (name-ordered).
 
-<a id="edit_utils--macros"></a>
-### `edit_utils/macros.py`
+<a id="edit_utils--macros--_macros"></a>
+### `edit_utils/macros/_macros.py`
 
 Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
 
-- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L91)**
+- **[`class DisplayMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros/_macros.py#L91)**
   - `DisplayMacros.m_back_face_culling(cls)` *(class)* — Toggle Back-Face Culling in the viewport.
   - `DisplayMacros.m_isolate_selected(cls)` *(class)* — Isolate the current selection (toggle Local View).
   - `DisplayMacros.m_wireframe(cls)` *(class)* — Cycle the wireframe-on-shaded overlay: Off -> Full -> Reduced (mirrors Maya's
@@ -1322,25 +1370,25 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `DisplayMacros.m_cycle_display_state(cls)` *(class)* — Cycle the selected objects' draw type: Textured -> Wireframe -> Bounds (driven by the
   - `DisplayMacros.m_smooth_preview(cls)` *(class)* — Toggle a live Subdivision-Surface preview on the selected meshes.
   - `DisplayMacros.m_frame(cls, steps: int = 2, adjust_clipping: bool = True) -> None` *(class)* — Frame the selection at the ideal working distance;
-- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L398)**
+- **[`class EditMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros/_macros.py#L398)**
   - `EditMacros.m_multi_component()` *(static)* — Multi-component selection — enable vertex+edge+face select together (edit mode).
   - `EditMacros.m_paste_and_rename(cls)` *(class)* — Paste objects (Blender's paste adds no 'pasted__' prefix, so no rename needed).
   - `EditMacros.m_merge_vertices(tolerance=0.0001)` *(static)* — Merge vertices by distance — on the active mesh in Edit Mode, or across every selected
   - `EditMacros.m_group()` *(static)* — Group the selected objects under an Empty at the selection's center, keeping their
   - `EditMacros.m_ungroup()` *(static)* — Ungroup the selected group Empties — children keep their world transforms
-- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros.py#L451)**
+- **[`class SelectionMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L451)**
   - `SelectionMacros.m_object_selection()` *(static)* — Object selection mask — leave edit mode (object mode).
   - `SelectionMacros.m_vertex_selection(cls)` *(class)* — Vertex selection mask (edit mode).
   - `SelectionMacros.m_edge_selection(cls)` *(class)* — Edge selection mask (edit mode).
   - `SelectionMacros.m_face_selection(cls)` *(class)* — Face selection mask (edit mode).
   - `SelectionMacros.m_invert_selection()` *(static)* — Invert the current selection (component-aware).
   - `SelectionMacros.m_toggle_UV_select_type()` *(static)* — Toggle UV select mode between Vertex and Face (Blender's ``uv_select_mode`` enum is
-- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros.py#L504)**
+- **[`class UiMacros(_ViewportMixin)`](blendertk/blendertk/edit_utils/macros/_macros.py#L504)**
   - `UiMacros.m_toggle_panels(cls, toggle_menu: bool = True, toggle_panels: bool = True)` *(class)* — Toggle the main window's bars (topbar + statusbar) and the 3D viewport's header,
-- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros.py#L547)**
+- **[`class AnimationMacros`](blendertk/blendertk/edit_utils/macros/_macros.py#L547)**
   - `AnimationMacros.m_set_selected_keys(cls)` *(class)* — Set keys on the selected objects' transform channels at the current frame.
   - `AnimationMacros.m_unset_selected_keys(cls)` *(class)* — Remove keys on the selected objects' transform channels at the current frame.
-- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros.py#L573)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
+- **[`class MacroManager`](blendertk/blendertk/edit_utils/macros/_macros.py#L573)** — Register ``m_*`` macros to Blender hotkeys from the same string spec Maya uses.
   - `MacroManager.set_macros(cls, *args)` *(class)* — Register a macro per spec string (``"m_name, key=1, cat=Display"``).
   - `MacroManager.call_with_input(func, input_string)` *(static)* — Parse ``"arg, key=val, ..."`` into positional/keyword args and call ``func``.
   - `MacroManager.set_macro(cls, name, key=None, cat=None, ann=None)` *(class)* — Bind macro ``name`` to ``key`` (e.g.
@@ -1369,14 +1417,14 @@ Hotkey macros — the Blender counterpart of ``mayatk.edit_utils.macros``.
   - `MacroManager.export_bindings(cls) -> Dict[str, dict]` *(class)* — The persist-worthy subset of the live bindings — every macro with a
   - `MacroManager.import_bindings(cls, data: Optional[Dict[str, dict]]) -> int` *(class)* — Apply a loaded binding set (the preset ``value_applier``): release
   - `MacroManager.show_editor(cls, parent=None)` *(class)* — Open the Macro Manager — the unified uitk ``ShortcutEditor`` over
-- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros.py#L1258)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
+- **[`class Macros(MacroManager, DisplayMacros, EditMacros, SelectionMacros, AnimationMacros, UiMacros)`](blendertk/blendertk/edit_utils/macros/_macros.py#L1258)** — Concrete macro holder — combines every macro mixin with the manager (mirror of mayatk).
 
 <a id="edit_utils--mirror"></a>
 ### `edit_utils/mirror.py`
 
 Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 
-- **[`class MirrorSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/mirror.py#L29)** — Switchboard slot wiring for the mirror UI (live preview + axis/pivot/merge combos).
+- **[`class MirrorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/mirror.py#L29)** — Switchboard slot wiring for the mirror UI (live preview + axis/pivot/merge combos).
   - `MirrorSlots.header_init(self, widget)` — Configure header help text.
   - `MirrorSlots.prepare_operation(self, objects)` — Break linked-data sharing once, before the preview snapshots are taken.
   - `MirrorSlots.perform_operation(self, objects)`
@@ -1386,7 +1434,7 @@ Mirror tool panel — Switchboard slot wiring for the co-located ``mirror.ui``.
 
 Batch object naming — Blender port of mayatk's ``edit_utils.naming.Naming``.
 
-- **[`class Naming(ptk.HelpMixin, ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L28)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
+- **[`class Naming(pythontk.HelpMixin, pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/naming/_naming.py#L28)** — Batch find / rename / suffix scene objects (mirror of mayatk's ``Naming``).
   - `Naming.SUFFIX_TYPES(cls) -> Tuple[Tuple[str, str, str, str], ...]` — ``(keyword, affix, label, type key)`` -- the live convention, joined
   - `Naming.affix_rules(cls, overrides=None, modes=None)` *(class)* — ``{Blender type key: AffixRule}`` -- the shared convention bound to
   - `Naming.scene_objects(cls) -> List` *(class)* — Every object in the current scene — the naming tools' "Scene" scope.
@@ -1422,7 +1470,7 @@ Switchboard slots for the Naming panel — Blender port of mayatk's ``NamingSlot
   - `NamingSlots.tb001(self, widget)` — Suffix By Location
   - `NamingSlots.tb002_init(self, widget)` — Initialize Strip Chars
   - `NamingSlots.tb002(self, widget)` — Strip Chars: remove a number of leading/trailing characters from the names in scope.
-  - `NamingSlots.tb003_init(self, widget)` — Initialize Suffix By Type
+  - `NamingSlots.tb003_init(self, widget)` — Initialize Suffix By Type — the editor for the shared naming convention.
   - `NamingSlots.tb003(self, widget)` — Suffix By Type
 
 <a id="edit_utils--selection"></a>
@@ -1461,7 +1509,7 @@ Category-driven select-by-type — mirror of mayatk's ``edit_utils.selection.Sel
 
 Snap tool — Switchboard slot wiring for the co-located ``snap.ui``.
 
-- **[`class SnapSlots(ptk.LoggingMixin)`](blendertk/blendertk/edit_utils/snap.py#L25)** — Switchboard slot wiring for the Snap panel (mirror of mayatk's ``SnapSlots``).
+- **[`class SnapSlots(pythontk.LoggingMixin)`](blendertk/blendertk/edit_utils/snap.py#L25)** — Switchboard slot wiring for the Snap panel (mirror of mayatk's ``SnapSlots``).
   - `SnapSlots.header_init(self, widget)` — Configure header help text.
   - `SnapSlots.b000_init(self, widget)` — Initialize Snap to Surface button option box.
   - `SnapSlots.b000(self)` — Snap to Surface button.
@@ -1501,7 +1549,7 @@ blendertk environment / scene-library utilities — the engine behind the Refere
 - **[`class EnvUtils(_EnvUtilsInternal)`](blendertk/blendertk/env_utils/_env_utils.py#L135)** — Namespace mirror of mayatk's ``EnvUtils`` (helpers also exposed module-level).
   - `EnvUtils.find_blend_files(root_dir, recursive=True, filter_text='')` *(static)* — Every ``.blend`` file under ``root_dir`` (recursively by default), optionally name-filtered.
   - `EnvUtils.list_libraries()` *(static)* — Every linked library as a record: ``{name, library, filepath, abspath, exists}``.
-  - `EnvUtils.linked_blend_paths()` *(static)* — Set of normalized absolute paths of the ``.blend`` files currently linked as libraries.
+  - `EnvUtils.linked_blend_paths()` *(static)* — Set of normalized absolute paths of the ``.blend`` files currently linked as
   - `EnvUtils.is_blend_linked(path)` *(static)* — True iff ``path`` is already linked as a library.
   - `EnvUtils.link_blend_file(path, link=True, instance=True, target_collection=None)` *(static)* — Link (or append, ``link=False``) every collection from ``path`` and instance them into the
   - `EnvUtils.reload_library(library)` *(static)* — Reload a library from disk (``library`` is a datablock or its name).
@@ -1542,9 +1590,9 @@ blendertk environment / scene-library utilities — the engine behind the Refere
 
 Launch a FRESH headless Blender to run a script / code string and capture its output — the
 
-- [`RESULT_PASS`](blendertk/blendertk/env_utils/blender_connection.py#L27) — constant
-- **[`class BlenderConnection`](blendertk/blendertk/env_utils/blender_connection.py#L30)** — Run scripts in fresh headless Blender instances (mirror of ``MayaConnection``'s role).
-  - `BlenderConnection.find_blender(cls) -> Optional[str]` *(class)* — Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` → common install
+- [`RESULT_PASS`](blendertk/blendertk/env_utils/blender_connection.py#L24) — constant
+- **[`class BlenderConnection`](blendertk/blendertk/env_utils/blender_connection.py#L27)** — Run scripts in fresh headless Blender instances (mirror of ``MayaConnection``'s role).
+  - `BlenderConnection.find_blender(cls) -> Optional[str]` *(class)* — Locate a Blender executable: ``$BLENDER_EXE`` / ``$BLENDER`` → ``PATH`` (and the
   - `BlenderConnection.run_script(self, script_path: str, script_args=None, *, blend_file: Optional[str] = None, extra_args=None, timeout: Optional[float] = 600, output_file: Optional[str] = None, env: Optional[dict] = None)` — Run *script_path* in a fresh headless Blender;
   - `BlenderConnection.run_code(self, code: str, **kwargs)` — Run a Python *code* string in a fresh headless Blender (via a temp script).
   - `BlenderConnection.run_result(self, script_path: Optional[str] = None, *, code: Optional[str] = None, **kwargs)` — Run a script / code string that prints a ``===RESULT: PASS===`` sentinel and report
@@ -1602,7 +1650,7 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
 
 - **[`class HierarchyMapBuilder`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L54)** — Builds hierarchy path maps for Blender objects (mirror of mayatk's ``HierarchyMapBuilder``).
   - `HierarchyMapBuilder.build_path_map(objects) -> Dict[str, Any]` *(static)* — Map every object in ``objects`` to its hierarchy path (see :func:`build_path`).
-- **[`class HierarchySync(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L69)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
+- **[`class HierarchySync(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L69)** — Core hierarchy analysis and repair manager (mirror of mayatk's ``HierarchySync``).
   - `HierarchySync.analyze_hierarchies(self, current_objects, reference_objects, filter_meshes: bool = True, filter_cameras: bool = False, filter_lights: bool = False) -> Dict[str, Any]` — Analyze differences between the current scene and a reference object set.
   - `HierarchySync.create_stubs(self, paths: Optional[List[str]] = None) -> List[str]` — Create empty placeholder Empties for missing hierarchy paths.
   - `HierarchySync.quarantine_extras(self, group: str = '_QUARANTINE', paths: Optional[List[str]] = None, skip_animated: bool = True) -> List[str]` — Move extra (scene-only) items to a root-level quarantine Empty.
@@ -1613,7 +1661,7 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
   - `HierarchySync.build_path(obj) -> str` *(static)* — Pipe-joined hierarchy path from the root down to ``obj`` (e.g.
   - `HierarchySync.delete_objects(objects) -> List[str]` *(static)* — Delete *objects* AND all their descendants from the blend data;
   - `HierarchySync.should_keep_node_by_type(obj, node_types: List[str], exclude: bool = True) -> bool` *(static)* — Filter by Blender object type — mirror of mayatk's shape-type filter.
-- **[`class ObjectSwapper(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L1083)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
+- **[`class ObjectSwapper(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/_hierarchy_sync.py#L988)** — Pull matched reference objects into the current scene (mirror of mayatk's ``ObjectSwapper``).
   - `ObjectSwapper.pull_objects_from_reference(self, target_paths: List[str], source_file, reference_path_map: Dict[str, Any]) -> bool` — Append the reference objects at *target_paths* into the current scene.
 
 <a id="env_utils--hierarchy_sync--hierarchy_baseline"></a>
@@ -1621,13 +1669,7 @@ Hierarchy Sync core engine — mirror of mayatk's ``env_utils.hierarchy_sync._hi
 
 The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
 
-- **[`class HierarchyBaseline`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_baseline.py#L46)** — Read, compare and roll forward the file's hierarchy baseline.
-  - `HierarchyBaseline.read(cls) -> Set[str]` *(class)* — Every path the file has recorded, across all scopes.
-  - `HierarchyBaseline.inherited_from(cls) -> Optional[str]` *(class)* — Who recorded the baseline this file holds but does not own.
-  - `HierarchyBaseline.is_unreadable(cls) -> bool` *(class)* — The channel holds something, but no baseline could be read from it.
-  - `HierarchyBaseline.compare(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> Tuple[bool, List[str], List[str], bool]` *(class)* — Diff *current_paths* against the baseline, scoped to what is exporting.
-  - `HierarchyBaseline.write(cls, current_paths: Set[str], roots: Optional[Sequence[str]] = None) -> bool` *(class)* — Roll the exported scope forward, leaving every other scope intact.
-  - `HierarchyBaseline.adopt_sidecar(cls, export_path: str, *, base_stem: bool = False) -> bool` *(class)* — Give the file what *export_path* last shipped, where its own
+- **[`class HierarchyBaseline(pythontk.HierarchyBaselineStore)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_baseline.py#L45)** — Read, compare and roll forward the file's hierarchy baseline.
   - `HierarchyBaseline.migrate_from_sidecar(cls, export_dir: str) -> int` *(class)* **DEPRECATED (remove in 0.13.0)** — Adopt every on-disk baseline in *export_dir* into the file, once.
 
 <a id="env_utils--hierarchy_sync--hierarchy_sync_slots"></a>
@@ -1635,7 +1677,7 @@ The scene's hierarchy baseline, stored in the .blend (mirror of mayatk).
 
 Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hierarchy_sync``.
 
-- **[`class HierarchySyncController(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L73)** — Controller for hierarchy management operations.
+- **[`class HierarchySyncController(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L72)** — Controller for hierarchy management operations.
   - `HierarchySyncController.workspace(self)` *(property)*
   - `HierarchySyncController.reference_path(self) -> str` *(property)* — The current reference scene path.
   - `HierarchySyncController.analyze_hierarchies(self, reference_path: str, fuzzy_matching: bool = True, dry_run: bool = True, filter_meshes: bool = False, filter_cameras: bool = False, filter_lights: bool = False) -> bool` — Link the reference file (or reuse the cached link) and diff it against the scene.
@@ -1649,7 +1691,7 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
   - `HierarchySyncController.log_diff_results(self)` — Log detailed hierarchy difference analysis results using rich formatting.
   - `HierarchySyncController.get_recent_reference_scenes(self) -> List[str]` — Get recent reference scenes from settings.
   - `HierarchySyncController.save_recent_reference_scene(self, scene_path: str)` — Save reference scene to recent list.
-- **[`class HierarchySyncSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L1005)** — Slots class for hierarchy management UI operations.
+- **[`class HierarchySyncSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/hierarchy_sync_slots.py#L929)** — Slots class for hierarchy management UI operations.
   - `HierarchySyncSlots.header_init(self, widget)` — Initialize the header widget.
   - `HierarchySyncSlots.tree000_init(self, widget)` — Initialize the reference/linked hierarchy tree widget.
   - `HierarchySyncSlots.tree001_init(self, widget)` — Initialize the current scene hierarchy tree widget.
@@ -1679,34 +1721,17 @@ Slots for the Hierarchy Sync panel -- Blender port of mayatk's ``env_utils.hiera
 <a id="env_utils--hierarchy_sync--scene_data_sidecar"></a>
 ### `env_utils/hierarchy_sync/scene_data_sidecar.py`
 
-Scene-data sidecar manifest management — mirror of mayatk's
+Scene-data sidecar -- Blender's scene hook over ``ptk.SceneDataSidecarBase``.
 
-- **[`class SceneDataSidecar`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L80)** — Manages the scene-data sidecar file stored alongside export files.
-  - `SceneDataSidecar.base_stem(cls, export_path: str) -> str` *(class)* — Return the export stem with any trailing ``_vNN`` suffix stripped.
-  - `SceneDataSidecar.manifest_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the sidecar manifest path for an export file.
-  - `SceneDataSidecar.diff_report_path_for(cls, export_path: str, *, base_stem: bool = False) -> str` *(class)* — Return the v2-era on-disk diff report path for an export file.
-  - `SceneDataSidecar.find_legacy_manifest(cls, export_path: str) -> Optional[str]` *(class)* — Return the path of a legacy per-version sidecar to migrate from.
-  - `SceneDataSidecar.ensure_base_name(cls, export_path: str) -> Optional[str]` *(class)* — Migrate a legacy per-version manifest to the base-stem name.
-  - `SceneDataSidecar.migrate_legacy(cls, export_path: str, *, base_stem: bool = False) -> Optional[str]` *(class)* — Idempotently bring on-disk sidecars up to the current naming.
-  - `SceneDataSidecar.build_clean_path_set(paths) -> set` *(static)* — Dedup a set of hierarchy path strings.
+- **[`class SceneDataSidecar(pythontk.SceneDataSidecarBase)`](blendertk/blendertk/env_utils/hierarchy_sync/scene_data_sidecar.py#L23)** — The scene-data sidecar stored alongside Blender exports.
   - `SceneDataSidecar.expand_to_descendants(objects) -> list` *(static)* — Return hierarchy paths for *objects* plus all their descendants.
-  - `SceneDataSidecar.get_top_level(paths) -> list` *(static)* — Return only paths whose ancestor is *not* also in the set.
-  - `SceneDataSidecar.detect_reparenting(missing: list, extra: list) -> list` *(static)* — Detect nodes that were reparented rather than added/removed.
-  - `SceneDataSidecar.write_manifest(cls, export_path: str, paths, *, data: Optional[dict] = None, last_diff: Optional[dict] = None, base_stem: bool = False) -> Optional[str]` *(class)* — Write the sidecar manifest for *export_path*.
-  - `SceneDataSidecar.read_manifest(cls, export_path: str, *, base_stem: bool = False) -> Optional[Set[str]]` *(class)* — Read the hierarchy paths from the manifest for *export_path*.
-  - `SceneDataSidecar.read_data(cls, export_path: str, *, base_stem: bool = False) -> Optional[dict]` *(class)* — Read the ``data_export`` snapshot from the manifest for *export_path*.
-  - `SceneDataSidecar.count_descendants(top_path: str, all_paths) -> int` *(static)* — Count *top_path* plus its descendants in *all_paths*.
-  - `SceneDataSidecar.format_diff_report(cls, missing: list, extra: list, reparented: list = None) -> str` *(class)* — Return the human-readable hierarchy diff report as text.
-  - `SceneDataSidecar.clean_stale_diff(cls, export_path: str, *, base_stem: bool = False) -> None` *(class)* — Remove a leftover v2-era on-disk diff report.
-  - `SceneDataSidecar.build_full_path_set(cls, objects) -> set` *(class)* — Expand *objects* to descendants, then dedup.
-  - `SceneDataSidecar.compare(cls, export_path: str, current_paths: set, *, base_stem: bool = False) -> Tuple[bool, list, list]` *(class)* — Compare *current_paths* against the stored hierarchy baseline.
 
 <a id="env_utils--hierarchy_sync--tree_renderer"></a>
 ### `env_utils/hierarchy_sync/tree_renderer.py`
 
 Tree rendering, formatting, and selection management for the hierarchy sync UI — mirror of
 
-- **[`class HierarchyTreeRenderer(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_renderer.py#L24)** — Owns all QTreeWidget population, diff-colour formatting, ignore styling, selection
+- **[`class HierarchyTreeRenderer(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_renderer.py#L24)** — Owns all QTreeWidget population, diff-colour formatting, ignore styling, selection
   - `HierarchyTreeRenderer.populate_current_scene_tree(self, tree_widget)` — Populate the current scene hierarchy tree (objects not linked from the reference
   - `HierarchyTreeRenderer.populate_reference_tree(self, tree_widget, objects, reference_name='Reference Scene')` — Populate the reference hierarchy tree with pre-fetched objects.
   - `HierarchyTreeRenderer.show_reference_placeholder(self, tree_widget, reference_name='Reference Scene')` — Show a 'Browse for Reference Scene' placeholder in an empty tree.
@@ -1726,7 +1751,7 @@ Tree rendering, formatting, and selection management for the hierarchy sync UI �
 
 Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 
-- **[`class TreePathMatcher(ptk.LoggingMixin, _TreePathMatcherInternal)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L60)** — Tree path matching functionality for UI tree widgets.
+- **[`class TreePathMatcher(pythontk.LoggingMixin, _TreePathMatcherInternal)`](blendertk/blendertk/env_utils/hierarchy_sync/tree_utils.py#L60)** — Tree path matching functionality for UI tree widgets.
   - `TreePathMatcher.build_tree_index(self, widget)` — Build tree indices for fast item lookup: full hierarchy path, and last component.
   - `TreePathMatcher.find_path_matches(self, target_path: str, by_full: dict, by_last: dict, strict: bool = False)` — Find tree items matching a target path — exact full-path match, falling back to
   - `TreePathMatcher.log_matching_debug(self, path, candidates, strategy, prefix='')` — Log debug information about path matching.
@@ -1741,8 +1766,8 @@ Tree widget utilities for hierarchy sync UI operations — mirror of mayatk's
 
 Maya bridge engine -- export the Blender selection and run a chosen import template in Maya.
 
-- [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L49) — constant
-- **[`class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L144)** — Export the Blender selection and run a chosen Maya import template.
+- [`DEFAULTS`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L48) — constant
+- **[`class MayaBridge(BlenderExportMixin, pythontk.ScriptLaunchBridge)`](blendertk/blendertk/env_utils/maya_bridge/_maya_bridge.py#L152)** — Export the Blender selection and run a chosen Maya import template.
   - `MayaBridge.maya_path(self) -> Optional[str]` *(property)*
   - `MayaBridge.headless_app_path(self) -> Optional[str]` *(property)* — The ``mayapy`` interpreter for the blocking ``save_as`` run.
   - `MayaBridge.mayapy_from_maya_exe(maya_exe: str) -> Optional[str]` *(static)* — Return the ``mayapy`` interpreter beside *maya_exe*, or ``None`` if absent.
@@ -1757,14 +1782,14 @@ Maya bridge engine -- export the Blender selection and run a chosen import templ
 
 Import a Maya scene (.ma/.mb) into Blender via a headless-Maya round-trip
 
-- [`SUPPORTED_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L74) — constant
-- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L78) — constant
-- [`BAKE_SOURCE_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L86) — constant
-- [`BAKE_SOURCE_SUFFIX`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L92) — constant
-- [`MAYA_GROUP_EMPTY_DISPLAY_SIZE`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L108) — constant
-- [`FBX_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L139) — constant
-- [`REDUCE_KEYS_DEFAULT`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L151) — constant
-- **[`class MayaSceneImport(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L240)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
+- [`SUPPORTED_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L73) — constant
+- [`USD_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L77) — constant
+- [`BAKE_SOURCE_EXTENSIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L85) — constant
+- [`BAKE_SOURCE_SUFFIX`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L91) — constant
+- [`MAYA_GROUP_EMPTY_DISPLAY_SIZE`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L107) — constant
+- [`FBX_IMPORT_OPTIONS`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L138) — constant
+- [`REDUCE_KEYS_DEFAULT`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L150) — constant
+- **[`class MayaSceneImport(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/maya_bridge/_scene_import.py#L239)** — Engine: convert a Maya scene to FBX via headless Maya, then import it.
   - `MayaSceneImport.maya_path(self) -> Optional[str]` *(property)* — The Maya GUI executable (explicit, or discovered via the bridge's AppSpec).
   - `MayaSceneImport.mayapy_path(self) -> Optional[str]` *(property)* — The headless ``mayapy`` interpreter derived from :attr:`maya_path`.
   - `MayaSceneImport.require_mayapy(self) -> str` — Return :attr:`mayapy_path` or raise an error naming what's missing.
@@ -1800,11 +1825,8 @@ Slots for the Maya bridge panel.
 
 Registry of user-tunable Maya-bridge parameters exposed to the panel.
 
-- [`PARAMS`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L38) — constant
-- **[`class Parameters`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L134)** — Parameters — module namespace.
-  - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
-  - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
-  - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
+- [`PARAMS`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L32) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/env_utils/maya_bridge/parameters.py#L149)** — Parameters — module namespace.
 
 <a id="env_utils--maya_bridge--templates--_bake_scene"></a>
 ### `env_utils/maya_bridge/templates/_bake_scene.py`
@@ -1925,7 +1947,7 @@ Shadow doctor for embedded-DCC installs (companion of package-manager.bat).
 
 Reference Manager tool panel — Switchboard slot wiring for the co-located ``reference_manager.ui``.
 
-- **[`class ReferenceManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/reference_manager.py#L71)** — Switchboard slot wiring for the Reference Manager panel.
+- **[`class ReferenceManagerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/reference_manager.py#L71)** — Switchboard slot wiring for the Reference Manager panel.
   - `ReferenceManagerSlots.header_init(self, widget)` — Header refresh button, Naming presets, Filter/Display toggles, bulk Operations, help text.
   - `ReferenceManagerSlots.txt000_init(self, widget)` — Root Directory — browse + recent-dir history + Open / Set-To-Current actions (mirror of Maya).
   - `ReferenceManagerSlots.cmb000_init(self, widget)` — Workspace combo — project folders under the root (replaces Maya's workspace combo).
@@ -1950,18 +1972,12 @@ Reference Manager tool panel — Switchboard slot wiring for the co-located ``re
 
 Scene Exporter engine -- Blender port of mayatk's ``env_utils.scene_exporter``.
 
-- **[`class SceneExporter(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L126)**
-  - `SceneExporter.confirm(self, question: str) -> bool` — Yes/no consent for an export-time side effect (a tool download).
-  - `SceneExporter.confirm_check_override(self) -> bool` — Ask, at the failure point, whether to export despite failed checks.
-  - `SceneExporter.run_config_from_values(self, values: Dict[str, Any], override_checks: bool = False, ignore_groups_case_sensitive: bool = False) -> Dict[str, Any]` — Widget values -> the inputs :meth:`perform_export` takes.
+- **[`class SceneExporter(pythontk.SceneExporterBase)`](blendertk/blendertk/env_utils/scene_exporter/_scene_exporter.py#L126)** — Blender's Scene Exporter: the export write, its scope and its FBX
   - `SceneExporter.perform_export(self, export_dir: str, objects: Optional[Union[List, Callable]] = None, preset_name: Optional[str] = None, output_name: Optional[str] = None, export_visible: bool = True, create_log_file: bool = False, timestamp: bool = False, name_regex: Optional[str] = None, log_level: Optional[str] = None, hide_log_file: Optional[bool] = None, log_handler: Optional[object] = None, tasks: Optional[Dict[str, Any]] = None, usd_options: Optional[Dict[str, Any]] = None, progress_callback: Optional[Callable[[int, int, Optional[str]], Any]] = None) -> bool` — Perform the export operation, including initialization and task management.
   - `SceneExporter.name_context(self, name_regex: Optional[str] = None) -> Dict[str, str]` — Live value for every token in :attr:`NAME_TOKENS` but the counter.
   - `SceneExporter.resolve_export_path(self, pattern: Optional[str] = None, export_dir: Optional[str] = None, output_format: str = 'fbx', name_regex: Optional[str] = None, report: bool = True, version_format: str = '', timestamp: bool = False) -> Dict[str, Any]` — Resolve the Output Filename field into the file(s) an export writes.
   - `SceneExporter.generate_export_path(self, version_format: str = '', extension: str = '.fbx', output_format: Optional[str] = None) -> str` — The full export path, from the fields :meth:`perform_export` stamps.
   - `SceneExporter.format_export_name(self, name: str, name_regex: Optional[str] = None) -> str` **DEPRECATED (remove in 0.12.0)** — *name* reshaped by the retired free-standing RegEx field.
-  - `SceneExporter.generate_log_file_path(self, export_path: str) -> str` — Generate the log file path based on the export path.
-  - `SceneExporter.setup_file_logging(self, log_file_path: str)` — Setup file logging to log actions during export.
-  - `SceneExporter.close_file_handlers(self)` — Close and remove file handlers after logging is complete.
   - `SceneExporter.list_fbx_presets(cls) -> List[str]` *(class)* — All FBX export-option preset names (built-in + user;
   - `SceneExporter.fbx_preset_dir(cls) -> str` *(class)* — Writable directory FBX export-option presets are saved to (the "Open Preset
   - `SceneExporter.fbx_preset_path(cls, name: str) -> Optional[str]` *(class)* — Filesystem path *name* resolves to (built-in or user tier), or ``None`` if it
@@ -2080,33 +2096,37 @@ Blender script-output console — the blendertk analogue of mayatk's ``ScriptCon
 
 Unity bridge engine -- export the Blender selection into a Unity project's Assets/.
 
-- **[`class UnityBridge(BlenderExportMixin, ptk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L44)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
+- **[`class UnityBridge(BlenderExportMixin, pythontk.HandoffBridge)`](blendertk/blendertk/env_utils/unity_bridge/_unity_bridge.py#L44)** — Export the Blender selection and copy it into a Unity project's ``Assets/``.
   - `UnityBridge.list_template_modes(self)`
   - `UnityBridge.params_defaults(self)`
   - `UnityBridge.list_delivery_modes(cls) -> List[Tuple[str, str]]` *(class)* — ``[(mode_stem, ""), ...]`` for the panel's delivery combo.
+
+<a id="env_utils--unity_bridge--_unity_panel"></a>
+### `env_utils/unity_bridge/_unity_panel.py`
+
+What every Unity panel shares: the 'Unity Project' row, the Editor combo, script management.
+
+- **[`class UnityPanelMixin`](blendertk/blendertk/env_utils/unity_bridge/_unity_panel.py#L34)** — Unity-panel behavior shared by the three Unity Slots classes.
+  - `UnityPanelMixin.template_dir(self) -> Path` *(property)*
+  - `UnityPanelMixin.list_template_modes(self)`
+  - `UnityPanelMixin.default_output_dir(self) -> str`
 
 <a id="env_utils--unity_bridge--parameters"></a>
 ### `env_utils/unity_bridge/parameters.py`
 
 User-tunable parameters for the Blender->Unity bridge panel -- mirror of mayatk's
 
-- [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L27) — constant
-- **[`class Parameters`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L165)** — Parameters — module namespace.
-  - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
-  - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
-  - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for substitution (kept for API parity;
+- [`PARAMS`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L22) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/env_utils/unity_bridge/parameters.py#L160)** — Parameters — module namespace.
 
 <a id="env_utils--unity_bridge--unity_bridge_slots"></a>
 ### `env_utils/unity_bridge/unity_bridge_slots.py`
 
 Slots for the Unity bridge panel -- mirror of mayatk's
 
-- **[`class UnityBridgeSlots(BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L44)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
+- **[`class UnityBridgeSlots(UnityPanelMixin, BlenderBridgeSlotsBase)`](blendertk/blendertk/env_utils/unity_bridge/unity_bridge_slots.py#L38)** — Slots wired to ``unity_bridge.ui`` via :class:`BlenderBridgeSlotsBase`.
   - `UnityBridgeSlots.params_module(self)` *(property)*
-  - `UnityBridgeSlots.template_dir(self) -> Path` *(property)*
   - `UnityBridgeSlots.make_bridge(self)` — Build the engine, or ``None`` when the optional unitytk is absent.
-  - `UnityBridgeSlots.list_template_modes(self)`
-  - `UnityBridgeSlots.default_output_dir(self) -> str`
   - `UnityBridgeSlots.b000(self)` — Run the selected template: export-and-copy, or script management.
 
 <a id="env_utils--upstream_patches"></a>
@@ -2152,14 +2172,14 @@ USD import / export helpers — the Blender counterpart of mayatk's ``env_utils.
 
 Push the Blender selection to a live browser / WebXR preview.
 
-- **[`class WebXrPreview(BlenderExportMixin, ptk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L41)** — Live browser / WebXR preview of the Blender selection.
+- **[`class WebXrPreview(BlenderExportMixin, pythontk.PreviewBridge)`](blendertk/blendertk/env_utils/webxr_preview.py#L41)** — Live browser / WebXR preview of the Blender selection.
 
 <a id="env_utils--workspace_editor"></a>
 ### `env_utils/workspace_editor.py`
 
 blendertk Workspace Editor — the minimal take on Maya's File ▸ Project Window: one
 
-- **[`class WorkspaceEditorSlots(ptk.LoggingMixin)`](blendertk/blendertk/env_utils/workspace_editor.py#L46)** — Switchboard slot wiring for the Workspace Editor (Project Window) panel.
+- **[`class WorkspaceEditorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/env_utils/workspace_editor.py#L46)** — Switchboard slot wiring for the Workspace Editor (Project Window) panel.
   - `WorkspaceEditorSlots.header_init(self, widget)` — Rule add, view toggle, reset/clear, template combo, help text.
   - `WorkspaceEditorSlots.txt000_init(self, widget)` — Project Root — one full path (browse + open-folder option-box actions).
   - `WorkspaceEditorSlots.tbl000_init(self, widget)`
@@ -2197,7 +2217,7 @@ Light utilities — the world-environment (HDRI) helpers behind the HDR Manager 
 
 Blender world-HDRI environment manager.
 
-- **[`class HdrManagerSlots(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/hdr_manager.py#L54)** — Switchboard slots for the HDR Manager UI.
+- **[`class HdrManagerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/hdr_manager.py#L54)** — Switchboard slots for the HDR Manager UI.
   - `HdrManagerSlots.header_init(self, widget) -> None` — Configure header menu and refresh button.
   - `HdrManagerSlots.cmb000_init(self, widget) -> None` — Wire the HDR dropdown: option-box plugins, context menu, auto-refresh.
   - `HdrManagerSlots.set_hdr_folder(self) -> None` — Header-menu action — choose the folder scanned for HDR maps.
@@ -2220,10 +2240,10 @@ Blender world-HDRI environment manager.
 
 High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
-- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L63)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
+- **[`class LightmapBakeResult`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L62)** — What one :meth:`LightmapBaker.bake` did -- the same shape in mayatk and blendertk.
   - `LightmapBakeResult.files(self) -> List[str]` *(property)* — The distinct map files, sorted: an atlas 40 objects share counts once.
   - `LightmapBakeResult.folders(self) -> List[str]` *(property)* — The distinct folders the maps landed in, compared the way the disk does.
-- **[`class LightmapBaker(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L114)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
+- **[`class LightmapBaker(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker.py#L113)** — Orchestrate the Blender lightmap workflow: UV2 -> Cycles bake -> engine export prep.
   - `LightmapBaker.resolution(self) -> int` *(property)*
   - `LightmapBaker.samples(self) -> int` *(property)*
   - `LightmapBaker.denoise(self) -> bool` *(property)*
@@ -2261,7 +2281,7 @@ High-level lightmap baking workflow for Blender -> game engines (Unity-first).
 
 The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 
-- **[`class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L24)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
+- **[`class LightmapBakerSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_baker_slots.py#L24)** — Switchboard slots for the co-located ``lightmap_baker.ui`` panel.
   - `LightmapBakerSlots.header_init(self, widget) -> None` — Configure the header chrome (menu / collapse / hide), menu, help text.
   - `LightmapBakerSlots.cmb000_init(self, widget) -> None` — Wire the Preset combo: uitk's preset template over the shared store.
   - `LightmapBakerSlots.btn_reset_defaults_init(self, widget) -> None` — Wire Reset to Defaults to uitk's shared reset grammar.
@@ -2285,7 +2305,7 @@ The Lightmap Baker panel: Switchboard slots for ``lightmap_baker.ui`` (Blender).
 
 The scene record a lightmap bake leaves in Blender: markers, manifest, and the files they name.
 
-- **[`class LightmapRecords(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L37)** — Blender's lightmap markers and manifest, and the files they name.
+- **[`class LightmapRecords(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/lightmap_records.py#L37)** — Blender's lightmap markers and manifest, and the files they name.
   - `LightmapRecords.baked_objects(cls, objects=None) -> List[str]` *(class)* — The objects :meth:`revert` would take the lightmap from (names).
   - `LightmapRecords.commit(cls, mapping: Dict[str, str], scale_offsets: Optional[Dict[str, List[float]]] = None, intensity: float = 1.0) -> Dict[str, str]` *(class)* — Record a lighting-only bake (changes nothing about the material/UVs).
   - `LightmapRecords.revert(cls, objects=None) -> List[str]` *(class)* — Undo :meth:`commit` -- restore any legacy UV remap, drop the markers, republish.
@@ -2307,7 +2327,7 @@ The scene record a lightmap bake leaves in Blender: markers, manifest, and the f
 
 Ship a committed lightmap bake in a web (GLB) deliverable.
 
-- **[`class LightmapWebExport(ptk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L56)** — Ship a scene's committed lightmaps in a natively-exported GLB.
+- **[`class LightmapWebExport(pythontk.LoggingMixin)`](blendertk/blendertk/light_utils/lightmap_baker/web_export.py#L56)** — Ship a scene's committed lightmaps in a natively-exported GLB.
   - `LightmapWebExport.encode_for_web(cls, mapping: Dict[str, str], output_dir: Optional[str] = None, percentile: Optional[float] = None, suffix: str = '') -> Dict[str, Tuple[str, float]]` *(class)* — Encode linear HDR lightmap EXRs as sRGB PNGs the browser can load.
   - `LightmapWebExport.wire_lightmaps(self, encoded: Dict[str, Tuple[str, float]], carrier: str = 'occlusion', uv_set: Optional[str] = None, rects: Optional[Dict[str, List[float]]] = None) -> Dict[str, Any]` — Wire each lightmap into a real glTF texture slot on the lightmap UV.
   - `LightmapWebExport.unwire_lightmaps(token: Dict[str, Any]) -> List[str]` *(static)* — Undo :meth:`wire_lightmaps`: restore the slots, drop the clones, unwire the rest.
@@ -2320,10 +2340,10 @@ Ship a committed lightmap bake in a web (GLB) deliverable.
 
 Material utilities — mirror of mayatk's ``MatUtils`` public names where the concepts align:
 
-- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L662) — constant
-- **[`class MatUpdater(ptk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L738)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
+- [`SHADER_TEMPLATES`](blendertk/blendertk/mat_utils/_mat_utils.py#L653) — constant
+- **[`class MatUpdater(pythontk.LoggingMixin, _MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L729)** — Batch texture reprocessor for scene materials — Blender mirror of mayatk's ``MatUpdater``.
   - `MatUpdater.update_materials(cls, materials=None, config=None, verbose=False, progress_callback=None)` *(class)* — Reprocess the textures of ``materials`` and repath their image nodes to the results.
-- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L1004)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
+- **[`class MatUtils(_MatUtilsInternal)`](blendertk/blendertk/mat_utils/_mat_utils.py#L995)** — Namespace mirror of mayatk's ``MatUtils`` (helpers also exposed module-level).
   - `MatUtils.get_mats(objects)` *(static)* — Unique materials assigned to the given object(s), in slot order.
   - `MatUtils.create_mat(mat_type='standard', name='')` *(static)* — Create a new material (mirror of ``mtk.MatUtils.create_mat``).
   - `MatUtils.assign_mat(objects, material)` *(static)* — Assign ``material`` to the given object(s) — whole-object assignment (all slots).
@@ -2373,7 +2393,7 @@ Material utilities — mirror of mayatk's ``MatUtils`` public names where the co
 
 Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_bridge``.
 
-- **[`class ArnoldBridge(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L35)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
+- **[`class ArnoldBridge(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L35)** — Structural mirror of mayatk's ``ArnoldBridge`` -- no-op on Blender (see module docstring).
   - `ArnoldBridge.unrenderable_materials(cls) -> List[str]` *(class)* — No material needs a bridge before a Blender render: always ``[]``.
   - `ArnoldBridge.add(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None, force: bool = False) -> List[str]`
   - `ArnoldBridge.remove(self, materials: Optional[Union[str, List[str]]] = None, objects: Optional[Union[str, List[str]]] = None) -> List[str]`
@@ -2381,7 +2401,7 @@ Arnold render-bridge management -- Blender port of mayatk's ``mat_utils.arnold_b
   - `ArnoldBridge.temporary(self, materials) -> Iterator[List[str]]` — Bridge nothing for the block: there is no Arnold graph to add (see
   - `ArnoldBridge.get_bridge(self, material) -> Optional[str]`
   - `ArnoldBridge.has_bridge(self, material) -> bool`
-- **[`class ArnoldBridgeSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L88)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
+- **[`class ArnoldBridgeSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/arnold_bridge.py#L88)** — Switchboard slots for the ``arnold_bridge.ui`` panel -- every control disabled.
   - `ArnoldBridgeSlots.header_init(self, widget) -> None` — Configure the help text (no menu actions -- the panel is inert).
   - `ArnoldBridgeSlots.cmb000_init(self, widget) -> None` — Populate with mayatk's scope labels for visual parity (the combo itself stays
 
@@ -2404,7 +2424,7 @@ Scene-stored bake sets: named object sets the bake tools read (Blender).
 
 Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 
-- **[`class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L258)** — Author, bake, and export named emissive face-groups (see module doc).
+- **[`class EmissiveGroups(_EmissiveGroupsInternal, pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L258)** — Author, bake, and export named emissive face-groups (see module doc).
   - `EmissiveGroups.add_group(cls, name: str, faces=None, default: float = 1.0) -> str` *(class)* — Create a group from faces (or the selection), or extend an existing one.
   - `EmissiveGroups.remove_group(cls, name: str) -> None` *(class)* — Delete a group's membership, registry entry, and any keyable
   - `EmissiveGroups.list_groups(cls) -> Dict[str, dict]` *(class)* — ``{name: {"slot", "default", "faces"(count), "missing", "attr"
@@ -2423,7 +2443,7 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
   - `EmissiveGroups.transfer_in(cls, payload: dict, ctx: 'ptk.TransferContext') -> None` *(class)* — Land a received ``emissive_groups`` payload (:meth:`transfer_out`'s
   - `EmissiveGroups.export_record(cls, ctx: 'ptk.ExportContext') -> Optional['ptk.Record']` *(class)* — The ``emissive_groups`` manifest record, or ``None`` when no group
   - `EmissiveGroups.refresh_export_metadata(cls) -> Optional[str]` *(class)* — Republish the ``emissive_groups`` channel on the ``data_export``
-- **[`class EmissiveGroupsSlots(ptk.LoggingMixin, ptk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L930)** — Switchboard slots for the ``emissive_groups.ui`` panel.
+- **[`class EmissiveGroupsSlots(pythontk.LoggingMixin, pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/emissive_groups.py#L930)** — Switchboard slots for the ``emissive_groups.ui`` panel.
   - `EmissiveGroupsSlots.header_init(self, widget) -> None`
   - `EmissiveGroupsSlots.txt000_init(self, widget) -> None` — Group-name field — clearable back to the auto-derived name.
   - `EmissiveGroupsSlots.tbl000_init(self, widget) -> None` — Table setup: one-time construction, then (re)wire signals and populate.
@@ -2448,7 +2468,7 @@ Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
 
 Game Shader — auto-build a Principled-BSDF material from a set of PBR textures.
 
-- **[`class GameShader(ptk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L118)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
+- **[`class GameShader(pythontk.LoggingMixin, _GameShaderInternal)`](blendertk/blendertk/mat_utils/game_shader.py#L118)** — Build Principled-BSDF texture networks from PBR map sets (Blender mirror of mayatk's ``GameShader``…
   - `GameShader.create_network(self, textures: List[str], name: str = '', prefix: str = '', suffix: str = '', config: Union[str, Dict[str, Any]] = None, progress_callback: Callable = None, **kwargs) -> Union[Optional[object], List[Optional[object]]]` — Create a PBR shader network with textures.
 - **[`class GameShaderSlots(GameShader)`](blendertk/blendertk/mat_utils/game_shader.py#L443)** — Switchboard slot wiring for the Game Shader panel.
   - `GameShaderSlots.workspace_dir(self) -> str` *(property)*
@@ -2472,7 +2492,7 @@ Game Shader — auto-build a Principled-BSDF material from a set of PBR textures
 
 Map image files to textured planes in Blender — port of mayatk's ``mat_utils.image_to_plane``.
 
-- **[`class ImageToPlane(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/_image_to_plane.py#L21)** — Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
+- **[`class ImageToPlane(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/_image_to_plane.py#L21)** — Create textured planes from image files (mirror of mayatk's ``ImageToPlane``).
   - `ImageToPlane.create(cls, image_paths, mat_type='standard', suffix=None, prefix='', plane_height=10.0, group=False, group_name='imagePlanes_GRP', roughness=0.0)` *(class)* — Create textured planes for one or more images.
   - `ImageToPlane.remove(cls, objects=None)` *(class)* — Remove planes and their auto-created materials/images (orphans only) — mirror of
 
@@ -2481,7 +2501,7 @@ Map image files to textured planes in Blender — port of mayatk's ``mat_utils.i
 
 Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneSlots``.
 
-- **[`class ImageToPlaneSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/image_to_plane_slots.py#L33)** — Switchboard slots for the Image to Plane panel.
+- **[`class ImageToPlaneSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/image_to_plane/image_to_plane_slots.py#L33)** — Switchboard slots for the Image to Plane panel.
   - `ImageToPlaneSlots.header_init(self, widget)` — Configure header menu.
   - `ImageToPlaneSlots.txt_suffix_init(self, widget)` — Add a prefix/suffix/auto-mode picker to the affix field.
 
@@ -2490,7 +2510,7 @@ Switchboard slots for the Image to Plane UI — port of mayatk's ``ImageToPlaneS
 
 Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
-- **[`class MarmosetBridge(ptk.HandoffBridge, _MarmosetBridgeInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_bridge.py#L108)** — Export the Blender selection to Marmoset Toolbag with templated automation.
+- **[`class MarmosetBridge(pythontk.HandoffBridge, _MarmosetBridgeInternal)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_bridge.py#L108)** — Export the Blender selection to Marmoset Toolbag with templated automation.
   - `MarmosetBridge.toolbag_path(self) -> Optional[str]` *(property)*
   - `MarmosetBridge.params_defaults(self) -> Dict[str, Any]`
   - `MarmosetBridge.render_template(self, *args, **kwargs) -> Optional[str]` — Render a Toolbag script body (delegates to the engine deliverer).
@@ -2502,10 +2522,10 @@ Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 
 Drive Marmoset Toolbag from the outside -- launch + templated automation.
 
-- [`APP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L45) — constant
-- [`SEND_TO`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L64) — constant
-- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L65) — constant
-- **[`class MarmosetEngine(ptk.Deliverer, ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L76)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
+- [`APP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L44) — constant
+- [`SEND_TO`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L63) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L64) — constant
+- **[`class MarmosetEngine(pythontk.Deliverer, pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/marmoset_bridge/_marmoset_engine.py#L75)** — Export-agnostic Marmoset Toolbag automation -- a hand-off :class:`pythontk.Deliverer`.
   - `MarmosetEngine.toolbag_path(self) -> Optional[str]` *(property)* — Resolve the Toolbag executable path.
   - `MarmosetEngine.toolbag_log_path(self) -> Optional[str]` *(property)* — Resolve Toolbag's application log file (script prints + tracebacks).
   - `MarmosetEngine.preflight(self, bridge, request) -> bool` — Validate the (template, mode) before the bridge produces its payload.
@@ -2632,12 +2652,9 @@ Toolbag-specific system ops.
 
 Registry of user-tunable Marmoset Toolbag parameters exposed to the bridge UI.
 
-- [`PARAMS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L32) — constant
-- [`SUPERSESSIONS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L390) — constant
-- **[`class Parameters`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L409)** — Parameters — module namespace.
-  - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
-  - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
-  - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``StrUtils.replace_delimited`` using Python literals.
+- [`PARAMS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L24) — constant
+- [`SUPERSESSIONS`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L382) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/mat_utils/marmoset_bridge/parameters.py#L401)** — Parameters — module namespace.
 
 <a id="mat_utils--marmoset_bridge--template_params"></a>
 ### `mat_utils/marmoset_bridge/template_params.py`
@@ -2738,7 +2755,7 @@ Marmoset Toolbag log-file resolution, classification, and live tailing.
 
 Material-to-texture manifest for bridge workflows -- mirror of mayatk's ``mat_utils.mat_manifest``.
 
-- **[`class MatManifest(ptk.HelpMixin)`](blendertk/blendertk/mat_utils/mat_manifest.py#L32)** — Builds and restores a material-to-texture manifest for bridge workflows.
+- **[`class MatManifest(pythontk.HelpMixin)`](blendertk/blendertk/mat_utils/mat_manifest.py#L32)** — Builds and restores a material-to-texture manifest for bridge workflows.
   - `MatManifest.build(cls, objects: List) -> Dict[str, Any]` *(class)* — Build a manifest from the materials assigned to *objects*.
   - `MatManifest.restore(cls, mat_name: str, manifest: Dict[str, Any], source_mat_name: Optional[str] = None) -> int` *(class)* — Reconnect image textures to the material named *mat_name* from a manifest.
 
@@ -2759,7 +2776,7 @@ Material Updater tool panel — Switchboard slot wiring for the co-located ``mat
 
 Render Effects — Blender per-object render-effect channels for engine-ready control (mirror of
 
-- **[`class RenderEffects(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L33)** — Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
+- **[`class RenderEffects(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects.py#L33)** — Per-object render-effect channels: the keyable ``opacity`` prop (mirrored
   - `RenderEffects.channel_records(cls, objects=None) -> dict` *(class)* — ``{object name: {label: {"value", "keys"}}}`` -- every render-effect
   - `RenderEffects.apply_channel_records(cls, obj_name, records: dict) -> int` *(class)* — Land :meth:`channel_records` records on the object;
   - `RenderEffects.objects_with_visibility_keys(cls, objects) -> list` *(class)* — The subset of *objects* that already have keyframes on render visibility.
@@ -2787,7 +2804,7 @@ Render Effects — Blender per-object render-effect channels for engine-ready co
 
 Switchboard slots for the Render Effects panel (``render_effects.ui``).
 
-- **[`class RenderEffectsSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects_slots.py#L41)** — Switchboard slots for the Render Effects UI.
+- **[`class RenderEffectsSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/render_opacity/render_effects_slots.py#L41)** — Switchboard slots for the Render Effects UI.
   - `RenderEffectsSlots.header_init(self, widget)` — Configure header menu.
   - `RenderEffectsSlots.tb000_init(self, widget)` — Key Opacity Fade Init — configure option-box menu.
   - `RenderEffectsSlots.tb000(self, widget)` — Key Opacity Fade — key a fade on the opacity property (created if missing).
@@ -2799,7 +2816,7 @@ Switchboard slots for the Render Effects panel (``render_effects.ui``).
 
 Shader Templates tool panel — Switchboard slot wiring for the co-located
 
-- **[`class ShaderTemplatesSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/shader_templates.py#L51)** — Switchboard slot wiring for the Shader Templates panel.
+- **[`class ShaderTemplatesSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/shader_templates.py#L51)** — Switchboard slot wiring for the Shader Templates panel.
   - `ShaderTemplatesSlots.workspace_dir(self) -> str` *(property)*
   - `ShaderTemplatesSlots.source_images_dir(self) -> str` *(property)*
   - `ShaderTemplatesSlots.template_name(self)` *(property)*
@@ -2821,33 +2838,45 @@ Shader Templates tool panel — Switchboard slot wiring for the co-located
 
 Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 
-- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L56) — constant
-- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L57) — constant
-- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L69) — constant
-- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L70) — constant
-- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L71) — constant
-- **[`class HighPolySet(BakeSet)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L162)** — The scene's high-poly bake source, stored as a stamped Collection.
-- **[`class SubstanceBridge(ptk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L188)** — Export Blender selection to Substance Painter via a chosen template.
-  - `SubstanceBridge.painter_path(self) -> Optional[str]` *(property)* — Resolve the Painter executable path via :func:`find_painter_exe`.
-  - `SubstanceBridge.painter_log_path(self) -> Optional[str]` *(property)* — Path to Painter's application ``log.txt``, or *None* if absent.
-  - `SubstanceBridge.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
-  - `SubstanceBridge.find_live_managed(self) -> Optional[SubstanceConnection]` — Return the most-recently-launched managed instance whose RPC pings.
+- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L54) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L55) — constant
+- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L56) — constant
+- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L57) — constant
+- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L58) — constant
+- **[`class HighPolySet(BakeSet)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L89)** — The scene's high-poly bake source, stored as a stamped Collection.
+- **[`class SubstanceBridge(SubstanceEngine)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_bridge.py#L112)** — Export Blender selection to Substance Painter via a chosen template.
   - `SubstanceBridge.send(self, objects: Optional[List[str]] = None, output_dir: Optional[str] = None, output_name: Optional[str] = None, painter_exe: Optional[str] = None, fbx_options: Optional[Dict[str, Any]] = None, template: str = 'import', mode: str = SEND_TO, target: Union[str, int] = TARGET_AUTO, params: Optional[Dict[str, Any]] = None, **legacy_kwargs: Any) -> Optional[Dict[str, Any]]` — Export *objects*, render *template* in *mode*, hand off to Painter.
-  - `SubstanceBridge.ensure_rpc_plugin(self) -> None` — Install -- or refresh -- the Painter-side substance_rpc plugin.
   - `SubstanceBridge.high_poly_path_for(cls, fbx_path: str) -> str` *(class)* — ``.../asset.fbx`` -> ``.../asset_high.fbx``.
-  - `SubstanceBridge.mesh_map_files(cls, paths: List[str]) -> List[str]` *(class)* — The subset of *paths* Painter can actually use as mesh maps.
-  - `SubstanceBridge.list_templates() -> List[Path]` *(static)* — Return user-visible templates in ``templates/`` (skips underscore-prefixed).
-  - `SubstanceBridge.parse_template(template_path: Path) -> Dict[str, Any]` *(static)* — Read a template's metadata constants without executing the file.
-  - `SubstanceBridge.list_template_modes() -> List[Tuple[str, str]]` *(static)* — Return ``[(stem, mode), ...]`` for every (template, mode) pairing.
-  - `SubstanceBridge.resolve_painter_log_path(painter_exe: Optional[str] = None) -> Optional[str]` *(static)* — Return the path to Painter's application log.
+
+<a id="mat_utils--substance_bridge--_substance_engine"></a>
+### `mat_utils/substance_bridge/_substance_engine.py`
+
+Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
+
+- [`SEND_TO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L61) — constant
+- [`ROUND_TRIP`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L62) — constant
+- [`TARGET_AUTO`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L74) — constant
+- [`TARGET_NEW`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L75) — constant
+- [`TARGET_CURRENT`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L76) — constant
+- **[`class SubstanceEngine(pythontk.HandoffBridge)`](blendertk/blendertk/mat_utils/substance_bridge/_substance_engine.py#L143)** — The DCC-free Substance Painter hand-off;
+  - `SubstanceEngine.painter_path(self) -> Optional[str]` *(property)* — Resolve the Painter executable path via :func:`find_painter_exe`.
+  - `SubstanceEngine.painter_log_path(self) -> Optional[str]` *(property)* — Path to Painter's application ``log.txt``, or *None* if absent.
+  - `SubstanceEngine.instances(self) -> List[SubstanceConnection]` *(property)* — Live snapshot of managed connections (oldest -> newest, dead pruned).
+  - `SubstanceEngine.find_live_managed(self) -> Optional[SubstanceConnection]` — Return the most-recently-launched managed instance whose RPC pings.
+  - `SubstanceEngine.ensure_rpc_plugin(self) -> None` — Install -- or refresh -- the Painter-side substance_rpc plugin.
+  - `SubstanceEngine.mesh_map_files(cls, paths: List[str]) -> List[str]` *(class)* — The subset of *paths* Painter can actually use as mesh maps.
+  - `SubstanceEngine.list_templates() -> List[Path]` *(static)* — Return user-visible templates in ``templates/`` (skips underscore-prefixed).
+  - `SubstanceEngine.parse_template(template_path: Path) -> Dict[str, Any]` *(static)* — Read a template's metadata constants without executing the file.
+  - `SubstanceEngine.list_template_modes() -> List[Tuple[str, str]]` *(static)* — Return ``[(stem, mode), ...]`` for every (template, mode) pairing.
+  - `SubstanceEngine.resolve_painter_log_path(painter_exe: Optional[str] = None) -> Optional[str]` *(static)* — Return the path to Painter's application log.
 
 <a id="mat_utils--substance_bridge--connection"></a>
 ### `mat_utils/substance_bridge/connection.py`
 
 Substance 3D Painter connection module.
 
-- [`APP`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L50) — constant
-- **[`class SubstanceConnection(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L64)** — Launch Painter and expose its stdio, log, and RPC under one object.
+- [`APP`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L55) — constant
+- **[`class SubstanceConnection(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/substance_bridge/connection.py#L75)** — Launch Painter and expose its stdio, log, and RPC under one object.
   - `SubstanceConnection.open(self) -> 'SubstanceConnection'` — Launch Painter and start readers, tailer, and RPC client.
   - `SubstanceConnection.close(self, terminate: bool = False, timeout: float = 5.0) -> None` — Stop readers and tailer;
   - `SubstanceConnection.is_alive(self) -> bool` — True if Painter is reachable through this connection.
@@ -2860,13 +2889,10 @@ Substance 3D Painter connection module.
 
 Registry of user-tunable Substance Painter parameters exposed to the bridge UI.
 
-- [`PARAMS`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L75) — constant
-- **[`class Parameters`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L255)** — Parameters — module namespace.
-  - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
-  - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
-  - `Parameters.affix_parts(value: 'Any', *, default: str = 'prefix') -> 'tuple[str, str]'` *(static)* — ``(prefix, suffix)`` for an ``affix`` param value (delegates to uitk).
-  - `Parameters.render_cli_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``LAUNCH_ARGS`` -- raw, no quoting.
-  - `Parameters.render_js_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for ``RPC_SCRIPT`` -- JS-literal quoting/escaping.
+- [`PARAMS`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L86) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/mat_utils/substance_bridge/parameters.py#L266)** — Parameters — module namespace.
+  - `Parameters.render_cli_context(cls, values: 'dict[str, Any]') -> 'dict[str, str]'` *(class)* — Format *values* for ``LAUNCH_ARGS`` -- raw, no quoting.
+  - `Parameters.render_js_context(cls, values: 'dict[str, Any]') -> 'dict[str, str]'` *(class)* — Format *values* for ``RPC_SCRIPT`` -- JS-literal quoting/escaping.
 
 <a id="mat_utils--substance_bridge--substance_bridge_slots"></a>
 ### `mat_utils/substance_bridge/substance_bridge_slots.py`
@@ -2886,8 +2912,8 @@ Slots for the Substance Painter bridge panel -- mirror of mayatk's
 
 HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 
-- [`DEFAULT_RPC_PORT`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L32) — constant
-- **[`class PainterRpcClient(RpcClient)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L35)** — RPC client bound to the substance_rpc plugin's defaults.
+- [`DEFAULT_RPC_PORT`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L37) — constant
+- **[`class PainterRpcClient(RpcClient)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/client.py#L40)** — RPC client bound to the substance_rpc plugin's defaults.
   - `PainterRpcClient.wait_until_ready(self, timeout: float = 60.0, poll_interval: float = 0.5) -> bool` — Poll ``/health`` until the plugin answers, or *timeout* expires.
   - `PainterRpcClient.invoke(self, op: str, timeout: Optional[float] = None, **kwargs: Any) -> Any` — :meth:`RpcClient.invoke` with this client's default timeout.
   - `PainterRpcClient.eval_js(self, script: str) -> Any` — Evaluate *script* in Painter's JS engine (``alg.*`` API surface).
@@ -2901,8 +2927,8 @@ HTTP RPC client for the Painter-side ``substance_rpc`` plugin.
 
 Install the substance_rpc plugin into Painter's user plugin folder.
 
-- [`PLUGIN_NAME`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L27) — constant
-- **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L87)** — Installer — module namespace.
+- [`PLUGIN_NAME`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L33) — constant
+- **[`class Installer(_InstallerInternal)`](blendertk/blendertk/mat_utils/substance_bridge/substance_rpc/installer.py#L110)** — Installer — module namespace.
   - `Installer.user_plugin_dir() -> Optional[Path]` *(static)* — Resolve Painter's Python plugins folder.
   - `Installer.is_installed() -> bool` *(static)* — True if the plugin is present at the resolved user plugin dir.
   - `Installer.is_current() -> bool` *(static)* — True if the installed plugin matches the one this package ships.
@@ -3031,7 +3057,7 @@ Render the current Painter project via Iray (JS body unverified).
 
 Bake an object's shaded surface (material under scene lighting) to a texture — the Blender
 
-- **[`class TextureBaker(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L41)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
+- **[`class TextureBaker(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_baker.py#L41)** — Generic Cycles bake-to-texture primitive (mirror of mayatk's ``TextureBaker``).
   - `TextureBaker.bake(self, objects=None, *, bake_type: str = 'COMBINED', pass_filter: Optional[set] = None, use_pass_color: bool = True, output_dir: Optional[str] = None, prefix: str = '', suffix: str = '', margin: Optional[int] = None, uv_set=None, stem: Optional[Any] = None, size: Optional[Any] = None, on_progress: Optional[Callable[[int, int, str], bool]] = None, colorspace: str = 'Non-Color', claims: Optional[Any] = None) -> Dict[str, str]` — Bake each object's shaded surface to a per-object EXR.
   - `TextureBaker.denoise_image(cls, path: str, output: Optional[str] = None, gpu: Optional[bool] = None) -> Optional[str]` *(class)* — Denoise a baked EXR in place (or to *output*) with OpenImageDenoise.
   - `TextureBaker.denoise_images(cls, paths: Iterable[str], outputs: Optional[Iterable[Optional[str]]] = None, gpu: Optional[bool] = None) -> Dict[str, str]` *(class)* — Denoise several baked EXRs through ONE compositor build and ONE engine flip.
@@ -3046,7 +3072,7 @@ Bake an object's shaded surface (material under scene lighting) to a texture —
 
 Texture Path Editor tool panel — Switchboard slot wiring for the co-located
 
-- **[`class TexturePathEditorSlots(ptk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L41)** — Switchboard slot wiring for the Texture Path Editor panel.
+- **[`class TexturePathEditorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/mat_utils/texture_path_editor.py#L41)** — Switchboard slot wiring for the Texture Path Editor panel.
   - `TexturePathEditorSlots.header_init(self, widget)` — Build the header menu (General / Path Management / Selection) + help text.
   - `TexturePathEditorSlots.tb_set_texture_directory_init(self, widget)` — Populate the Set Directory option-box with the relocate-mode combobox.
   - `TexturePathEditorSlots.tb_normalize_paths_init(self, widget)` — Populate the Normalize Paths option-box with the external-mode combobox.
@@ -3141,7 +3167,7 @@ UI slots for the Channels panel (``channels.ui``).
 
 The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 
-- **[`class DataNodes(ptk.SceneStoreBase)`](blendertk/blendertk/node_utils/data_nodes.py#L42)** — Blender's scene store: the ``data_internal`` scene property group and
+- **[`class DataNodes(pythontk.SceneStoreBase)`](blendertk/blendertk/node_utils/data_nodes.py#L42)** — Blender's scene store: the ``data_internal`` scene property group and
   - `DataNodes.get_internal_node(cls, create: bool = True)` *(class)* — The ``data_internal`` scene property group (created when *create*).
   - `DataNodes.ensure_internal(cls)` *(class)* — Get or create the ``data_internal`` property group (folding an
   - `DataNodes.get_export_node(cls, create: bool = True)` *(class)* — The ``data_export`` Empty (created + linked to the scene when *create*).
@@ -3163,7 +3189,7 @@ The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 
 Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 
-- **[`class NurbsUtils(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L17)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
+- **[`class NurbsUtils(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/_nurbs_utils.py#L17)** — Shared Blender curve primitives (mirror of mayatk's ``NurbsUtils``).
   - `NurbsUtils.add_spline(curve, points, cyclic=False, kind='POLY')` *(static)* — Append a spline of ``points`` (each an ``(x, y, z)``) to an existing curve.
   - `NurbsUtils.create_curve(cls, points, name='curve', cyclic=False, kind='POLY', dimensions='3D', link=True, collection=None)` *(class)* — Build a curve object from a point list — mirror of mayatk's ``cmds.curve`` usage.
   - `NurbsUtils.duplicate_curve(curve_obj, name=None, link=True)` *(static)* — A curve-data duplicate of ``curve_obj``, linked into the same collection(s) — the
@@ -3181,11 +3207,11 @@ Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` n
 
 Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 
-- **[`class CurveToTube(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L46)** — Sweep a circular profile along curve(s) to build a tube — Blender mirror of mayatk's
+- **[`class CurveToTube(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L46)** — Sweep a circular profile along curve(s) to build a tube — Blender mirror of mayatk's
   - `CurveToTube.create(cls, curves, output_type='nurbs', radius=1.0, sections=8, path_divisions=1, degree=3, caps=True, quads=True, live=False, name='tube')` *(class)* — Build a tube along each given curve.
-- **[`class CurveToTubeSlots(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L201)** — Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's
+- **[`class CurveToTubeSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/curve_to_tube.py#L201)** — Switchboard slot wiring for the Curve to Tube panel — structural mirror of mayatk's
   - `CurveToTubeSlots.header_init(self, widget)` — Configure header help text.
-  - `CurveToTubeSlots.b001(self)` — Reset to Defaults.
+  - `CurveToTubeSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `CurveToTubeSlots.perform_operation(self, objects)` — Build the tube(s) from the selected curves (Preview entry point).
 
 <a id="nurbs_utils--image_tracer"></a>
@@ -3193,12 +3219,12 @@ Curve to Tube tool — Blender port of mayatk's ``nurbs_utils.curve_to_tube``.
 
 Image Tracer tool — Blender port of mayatk's ``nurbs_utils.image_tracer``.
 
-- **[`class ImageTracer(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L49)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
+- **[`class ImageTracer(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L49)** — Trace a raster image into curves / filled meshes — Blender mirror of mayatk's ``ImageTracer``.
   - `ImageTracer.trace_curves(self, name='traced_curve')` — Trace the image into ONE curve object — one cyclic POLY spline per contour (so nested
   - `ImageTracer.create_mesh(self, curve=None, name='traced_mesh')` — Fill the traced contours into a mesh (positive space;
   - `ImageTracer.create_negative_space_mesh(self, curve=None, margin_scale=0.1, name='negative_space_mesh')` — Fill the **inverse**: a boundary rectangle (margin-padded bbox) around the contours, with
   - `ImageTracer.project_on_plane(self, curve=None, name='projected_curves')` — Project the traced curves onto a construction plane — Blender analogue of Maya's
-- **[`class ImageTracerSlots(ptk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L191)** — Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
+- **[`class ImageTracerSlots(pythontk.LoggingMixin)`](blendertk/blendertk/nurbs_utils/image_tracer.py#L191)** — Switchboard slot wiring for the co-located ``image_tracer.ui`` (structural mirror of
   - `ImageTracerSlots.header_init(self, widget)` — Initialize the header widget.
   - `ImageTracerSlots.txt000_init(self, widget)` — Configure the path field's option box (▸) as an image file browser.
   - `ImageTracerSlots.browse_image(self)` — Kept for structural parity with mayatk (unused in practice — txt000's option-box
@@ -3218,6 +3244,8 @@ Shared procedural-rig primitives — Blender port of mayatk's ``rig_utils.RigUti
   - `RigUtils.create_locator(name='locator', location=(0, 0, 0), display_type='PLAIN_AXES', size=1.0, collection=None)` *(static)* — Create an Empty — Blender's analogue of Maya's spaceLocator (a rig handle).
   - `RigUtils.create_group(name='rig_grp', location=(0, 0, 0), children=None)` *(static)* — Create an Empty used as a transform group, parenting ``children`` under it (keeping
   - `RigUtils.parent_keep_transform(child, parent)` *(static)* — Parent ``child`` to ``parent`` without moving it in world space (Maya ``parent`` default).
+  - `RigUtils.create_locator_at_object(objects, loc_scale=1.0, lock_translate=False, lock_rotation=False, lock_scale=False, grp_suffix=None, grp_affix_mode='auto', loc_suffix=None, loc_affix_mode='auto', obj_suffix=None, obj_affix_mode='auto', strip_digits=False, strip_trailing_underscores=True, strip_suffix=True)` *(static)* — Rig each object under a locator (Empty) at its origin, under a group Empty.
+  - `RigUtils.remove_locator(objects)` *(static)* — Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
   - `RigUtils.create_armature(name='armature', location=(0, 0, 0), collection=None)` *(static)* — Create an empty Armature object (Maya's joint-chain container).
   - `RigUtils.add_bone_chain(armature, points, prefix='bone', connect=True, radius=None)` *(static)* — Build a connected bone chain through world-space *points* — Maya's ``generate_joint_chain``
   - `RigUtils.add_bone(armature, name, head, tail, parent=None, connect=False, radius=None, deform=True)` *(static)* — Add ONE bone to an existing armature at world-space *head*/*tail* — the single-bone
@@ -3259,7 +3287,7 @@ Rig control-shape factory — Blender port of mayatk's ``rig_utils.controls.Cont
 
 Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
 
-- **[`class RigGraphBuilder(_RigGraphBuilderInternal, ptk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_build.py#L557)** — Plan a RigGraph against Blender and build what the plan allows.
+- **[`class RigGraphBuilder(_RigGraphBuilderInternal, pythontk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_build.py#L557)** — Plan a RigGraph against Blender and build what the plan allows.
   - `RigGraphBuilder.capability(cls) -> Dict[str, Any]` *(class)* — What this target can build, as data the planner reads (section 9.2).
   - `RigGraphBuilder.scope(self)` — Yield with every touched object evaluable AND the scene's frame
   - `RigGraphBuilder.linear_unit() -> str` *(static)* — Blender's scene unit is always metres for our purposes.
@@ -3275,36 +3303,15 @@ Build a RigGraph in Blender -- phase 3 of the rig-transfer stack.
 
 Read a Blender rig into a RigGraph -- the Blender side of phase 2.
 
-- **[`class RigGraphExtractor(_RigGraphExtractorInternal, ptk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_extract.py#L484)** — Extract a Blender scene's rig logic into a RigGraph document (plain dict).
+- **[`class RigGraphExtractor(_RigGraphExtractorInternal, pythontk.HelpMixin)`](blendertk/blendertk/rig_utils/rig_graph_extract.py#L484)** — Extract a Blender scene's rig logic into a RigGraph document (plain dict).
   - `RigGraphExtractor.extract(self, objects: Optional[Sequence[Any]] = None) -> Dict[str, Any]` — Read the scene's constraints and drivers into a RigGraph envelope.
 
-<a id="rig_utils--shadow_preview"></a>
-### `rig_utils/shadow_preview.py`
+<a id="rig_utils--shadow_rig--_shadow_rig"></a>
+### `rig_utils/shadow_rig/_shadow_rig.py`
 
-A live viewport preview of a horizon rig: the artist drags the light and
+Shadow Rig engine — the panel (``shadow_rig_slots.py``) drives the co-located ``shadow_rig.ui``.
 
-- **[`class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_preview.py#L162)** — Enable / disable the live horizon overlay on shadow planes (module doc).
-  - `ShadowPreview.refusal(cls) -> str` *(class)* — Why the overlay cannot run in this session (empty when it can).
-  - `ShadowPreview.is_enabled(cls) -> bool` *(class)*
-  - `ShadowPreview.status(cls) -> str` *(class)* — ``"ok"``, or the reason the overlay stood down.
-  - `ShadowPreview.is_attached(cls, plane) -> bool` *(class)* — Whether *plane* stands behind the overlay: registered, its
-  - `ShadowPreview.attached_planes(cls) -> List` *(class)*
-  - `ShadowPreview.attach(cls, plane) -> None` *(class)* — Show the live preview on *plane* (a horizon rig's plane).
-  - `ShadowPreview.detach(cls, plane) -> bool` *(class)* — Give the plane its visibility back;
-  - `ShadowPreview.toggle(cls, planes: Sequence, on: bool) -> Tuple[List, List[str]]` *(class)* — Attach (*on*) or detach the preview on *planes*;
-  - `ShadowPreview.detach_all(cls) -> List` *(class)*
-  - `ShadowPreview.prepare_for_export(cls) -> None` *(class)* — Stand every preview down, then republish the shadow record: every
-  - `ShadowPreview.fragment_source(cls) -> str` *(class)* — The fragment shader: the texel hook, the shared body, ``main``.
-  - `ShadowPreview.vertex_source() -> str` *(static)*
-  - `ShadowPreview.params_struct() -> str` *(static)*
-  - `ShadowPreview.frame_params(contact_matrix, ground_height: float, local_a, local_b, local_up) -> Tuple[List[float], List[float], List[float], List[float], float]` *(static)* — ``(origin, A, B, up, ground)`` in world space from the contact's
-
-<a id="rig_utils--shadow_rig"></a>
-### `rig_utils/shadow_rig.py`
-
-Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.ui``.
-
-- **[`class ShadowRig(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L78)** — Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``).
+- **[`class ShadowRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/_shadow_rig.py#L78)** — Projected-shadow rig for engine export (mirror of mayatk's ``ShadowRig``).
   - `ShadowRig.has_mesh_geometry(obj, recursive=True)` *(static)* — Does *obj* carry (or, with *recursive*, contain) mesh geometry a
   - `ShadowRig.create_contact_locator(self)` — Empty at the footprint's lowest point (min-Z), parented to the first target so it tracks.
   - `ShadowRig.ensure_source(cls, source_name=DEFAULT_SOURCE_NAME, position=(5.0, 5.0, 10.0))` *(class)* — The object named *source_name*, created as an Empty if absent.
@@ -3352,14 +3359,41 @@ Shadow Rig — engine + Switchboard slot wiring for the co-located ``shadow_rig.
   - `ShadowRig.create_for_sources(cls, targets, sources, **kwargs)` *(class)* — One shadow rig per source — N lights cast N shadows (mirror of mayatk's).
   - `ShadowRig.create_horizon_for_sources(cls, targets, sources, **kwargs)` *(class)* — :meth:`create_for_sources` for the ``horizon`` rig type.
   - `ShadowRig.create_per_object(cls, targets, sources, **kwargs)` *(class)* — One rig per target per source — the panel's *Per object* planes.
-- **[`class ShadowRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig.py#L2702)** — Switchboard slot wiring for the Shadow Rig panel.
+
+<a id="rig_utils--shadow_rig--shadow_preview"></a>
+### `rig_utils/shadow_rig/shadow_preview.py`
+
+A live viewport preview of a horizon rig: the artist drags the light and
+
+- **[`class ShadowPreview(_ShadowPreviewInternal, pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/shadow_preview.py#L162)** — Enable / disable the live horizon overlay on shadow planes (module doc).
+  - `ShadowPreview.refusal(cls) -> str` *(class)* — Why the overlay cannot run in this session (empty when it can).
+  - `ShadowPreview.is_enabled(cls) -> bool` *(class)*
+  - `ShadowPreview.status(cls) -> str` *(class)* — ``"ok"``, or the reason the overlay stood down.
+  - `ShadowPreview.is_attached(cls, plane) -> bool` *(class)* — Whether *plane* stands behind the overlay: registered, its
+  - `ShadowPreview.attached_planes(cls) -> List` *(class)*
+  - `ShadowPreview.attach(cls, plane) -> None` *(class)* — Show the live preview on *plane* (a horizon rig's plane).
+  - `ShadowPreview.detach(cls, plane) -> bool` *(class)* — Give the plane its visibility back;
+  - `ShadowPreview.toggle(cls, planes: Sequence, on: bool) -> Tuple[List, List[str]]` *(class)* — Attach (*on*) or detach the preview on *planes*;
+  - `ShadowPreview.detach_all(cls) -> List` *(class)*
+  - `ShadowPreview.prepare_for_export(cls) -> None` *(class)* — Stand every preview down, then republish the shadow record: every
+  - `ShadowPreview.fragment_source(cls) -> str` *(class)* — The fragment shader: the texel hook, the shared body, ``main``.
+  - `ShadowPreview.vertex_source() -> str` *(static)*
+  - `ShadowPreview.params_struct() -> str` *(static)*
+  - `ShadowPreview.frame_params(contact_matrix, ground_height: float, local_a, local_b, local_up) -> Tuple[List[float], List[float], List[float], List[float], float]` *(static)* — ``(origin, A, B, up, ground)`` in world space from the contact's
+
+<a id="rig_utils--shadow_rig--shadow_rig_slots"></a>
+### `rig_utils/shadow_rig/shadow_rig_slots.py`
+
+Shadow Rig panel (Blender) — the Switchboard slots for ``shadow_rig.ui``.
+
+- **[`class ShadowRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/shadow_rig/shadow_rig_slots.py#L17)** — Switchboard slot wiring for the Shadow Rig panel.
   - `ShadowRigSlots.header_init(self, widget)` — Configure header help text.
   - `ShadowRigSlots.cmb_type_init(self, widget)` — A rig type the panel only plans for is listed but not selectable.
   - `ShadowRigSlots.txt_source_init(self, widget)` — Source Name's option box: the two actions about the source --
   - `ShadowRigSlots.b003_init(self, widget)` — Recalculate Silhouette's option box: the deeper updates of an
   - `ShadowRigSlots.b002_init(self, widget)` — Bake to Keyframes' option box: Restore Expression, its inverse.
   - `ShadowRigSlots.prepare_operation(self, objects)` — Preview's one-shot precondition, run at enable outside the datablock snapshot:
-  - `ShadowRigSlots.b001(self)` — Reset to Defaults — restore all UI widgets to their default values.
+  - `ShadowRigSlots.b001_init(self, widget)` — Reset to Defaults, on uitk's shared reset grammar (Shift+Click saves the
   - `ShadowRigSlots.chk_follow_init(self, widget)` — Follow Source arms the engine's watcher from the box's (saved)
   - `ShadowRigSlots.chk_follow(self, checked)` — Follow Source: re-render a silhouette as soon as its source -- or
   - `ShadowRigSlots.s001_init(self, widget)` — Softness shows the file's value for the first Source Name -- its
@@ -3385,45 +3419,22 @@ Telescope Rig — engine + Switchboard slot wiring for the co-located ``telescop
 - **[`class TelescopeRigBundle`](blendertk/blendertk/rig_utils/telescope_rig.py#L49)** — Record of everything one ``setup_telescope_rig`` build created — mirror of mayatk's
   - `TelescopeRigBundle.to_json(self) -> str`
   - `TelescopeRigBundle.from_json(cls, payload: str) -> 'TelescopeRigBundle'` *(class)* — Rebuild a bundle from :meth:`to_json` output, ignoring unknown keys (a scene stamped by
-- **[`class TelescopeRig(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L84)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
+- **[`class TelescopeRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L84)** — Constraint + driver telescoping-segment rig (mirror of mayatk's ``TelescopeRig``).
   - `TelescopeRig.setup_telescope_rig(self, base_locator=None, end_locator=None, segments=None, collapsed_distance=None, aim_axis='y', lock_attributes=True, name='telescope')` — Wire a telescoping rig between two handles.
   - `TelescopeRig.scene_bundles(cls)` *(class)* — Every telescope-rig bundle stamped into the current .blend.
   - `TelescopeRig.find_bundles(cls, objects)` *(class)* — Bundles whose handles or segments intersect *objects*.
   - `TelescopeRig.teardown(self, bundle=None)` — Remove a telescope rig built by this class.
-- **[`class TelescopeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L677)** — Switchboard slot wiring for the Telescope Rig panel.
+- **[`class TelescopeRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/telescope_rig.py#L677)** — Switchboard slot wiring for the Telescope Rig panel.
   - `TelescopeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TelescopeRigSlots.build_rig(self)`
   - `TelescopeRigSlots.remove_rig(self)`
 
-<a id="rig_utils--tube_path"></a>
-### `rig_utils/tube_path.py`
-
-Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.TubePath``.
-
-- **[`class TubePath`](blendertk/blendertk/rig_utils/tube_path.py#L23)** — Extract centerline paths from tube meshes (static helpers;
-  - `TubePath.get_centerline(mesh, num_joints=10, precision=None, edges=None)` *(static)* — Unified centerline dispatcher — mirror of mayatk's ``TubePath.get_centerline``.
-  - `TubePath.get_selected_edges(mesh)` *(static)* — The mesh's selected EDIT-mode edges — mirror of mayatk's optional
-  - `TubePath.get_centerline_using_edges(mesh, edges)` *(static)* — Centerline from an explicit edge selection — mirror of mayatk's
-
-<a id="rig_utils--tube_rig"></a>
-### `rig_utils/tube_rig.py`
+<a id="rig_utils--tube_rig--_tube_rig"></a>
+### `rig_utils/tube_rig/_tube_rig.py`
 
 Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strategies + panel).
 
-- [`TUBE_STRATEGIES`](blendertk/blendertk/rig_utils/tube_rig.py#L304) — constant
-- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig.py#L62)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
-- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig.py#L77)** — Base tube-rig strategy.
-  - `TubeStrategy.register(cls)` *(static)* — Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension
-  - `TubeStrategy.defaults(self) -> dict`
-  - `TubeStrategy.resolve(self, opts: Optional[dict]) -> dict` — Merge caller *opts* over the declared defaults (``None`` values fall back to default).
-  - `TubeStrategy.build(self, rig: 'TubeRig', **opts) -> TubeRigBundle`
-- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L108)**
-  - `SplineIKStrategy.build(self, rig, **opts)`
-- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L203)**
-  - `AnchorStrategy.build(self, rig, **opts)`
-- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig.py#L259)**
-  - `FKChainStrategy.build(self, rig, **opts)`
-- **[`class TubeRig(ptk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig.py#L365)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
+- **[`class TubeRig(pythontk.LoggingMixin, _TubeRigInternal)`](blendertk/blendertk/rig_utils/tube_rig/_tube_rig.py#L123)** — Rig a tube mesh via a named strategy — Blender mirror of mayatk's ``TubeRig``.
   - `TubeRig.collection(self)` *(property)*
   - `TubeRig.resolve_centerline(self, num_joints, precision=None, edges=None)` — The tube's centerline (world points) for *num_joints*, raising if the mesh isn't a
   - `TubeRig.create_root(self)`
@@ -3436,7 +3447,42 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
   - `TubeRig.hook_curve_controls(self, curve, radius, root)` — One control per curve control-point, each Hook-bound to its point (the live-reshape
   - `TubeRig.constrain_end_with_falloff(self, armature, bones, anchor, mesh, falloff=5.0, bone_index=-1, control=None)` — Constrain one end of a BOUND tube rig to an external *anchor* object with a distance-falloff
   - `TubeRig.build(self, strategy='spline', progress: Optional[Callable] = None, **opts) -> TubeRigBundle` — Build the rig with the named *strategy* (``"spline"`` / ``"anchor"`` / ``"fk"`` or a
-- **[`class TubeRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig.py#L868)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
+
+<a id="rig_utils--tube_rig--strategies"></a>
+### `rig_utils/tube_rig/strategies.py`
+
+Tube Rig build strategies (Blender) — mirror of mayatk's ``tube_rig/strategies.py``.
+
+- [`TUBE_STRATEGIES`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L263) — constant
+- **[`class TubeRigBundle`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L21)** — Result of a strategy build — mirror of mayatk's ``TubeRigBundle``.
+- **[`class TubeStrategy(ABC)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L36)** — Base tube-rig strategy.
+  - `TubeStrategy.register(cls)` *(static)* — Register a custom :class:`TubeStrategy` subclass (keyed by ``cls.name``) — the extension
+  - `TubeStrategy.defaults(self) -> dict`
+  - `TubeStrategy.resolve(self, opts: Optional[dict]) -> dict` — Merge caller *opts* over the declared defaults (``None`` values fall back to default).
+  - `TubeStrategy.build(self, rig: 'TubeRig', **opts) -> TubeRigBundle`
+- **[`class SplineIKStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L67)**
+  - `SplineIKStrategy.build(self, rig, **opts)`
+- **[`class AnchorStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L162)**
+  - `AnchorStrategy.build(self, rig, **opts)`
+- **[`class FKChainStrategy(TubeStrategy)`](blendertk/blendertk/rig_utils/tube_rig/strategies.py#L218)**
+  - `FKChainStrategy.build(self, rig, **opts)`
+
+<a id="rig_utils--tube_rig--tube_path"></a>
+### `rig_utils/tube_rig/tube_path.py`
+
+Tube-mesh centerline extraction — Blender port of mayatk's ``rig_utils.tube_rig.tube_path.TubePath`…
+
+- **[`class TubePath`](blendertk/blendertk/rig_utils/tube_rig/tube_path.py#L23)** — Extract centerline paths from tube meshes (static helpers;
+  - `TubePath.get_centerline(mesh, num_joints=10, precision=None, edges=None)` *(static)* — Unified centerline dispatcher — mirror of mayatk's ``TubePath.get_centerline``.
+  - `TubePath.get_selected_edges(mesh)` *(static)* — The mesh's selected EDIT-mode edges — mirror of mayatk's optional
+  - `TubePath.get_centerline_using_edges(mesh, edges)` *(static)* — Centerline from an explicit edge selection — mirror of mayatk's
+
+<a id="rig_utils--tube_rig--tube_rig_slots"></a>
+### `rig_utils/tube_rig/tube_rig_slots.py`
+
+Tube Rig panel (Blender) — the Switchboard slots for ``tube_rig.ui``.
+
+- **[`class TubeRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/tube_rig/tube_rig_slots.py#L23)** — Switchboard slot wiring for the co-located ``tube_rig.ui`` — the **HYBRID** panel.
   - `TubeRigSlots.txt000_init(self, widget)` — Rig-name field — optional, so clearing back to auto-naming is a state.
   - `TubeRigSlots.header_init(self, widget)` — Configure header help text.
   - `TubeRigSlots.b000(self)` — Build Rig — run the selected strategy on the selected tube mesh.
@@ -3450,12 +3496,12 @@ Tube Rig — Blender port of mayatk's ``rig_utils.tube_rig`` (the engine + strat
 
 Wheel Rig — engine + Switchboard slot wiring for the co-located ``wheel_rig.ui``.
 
-- **[`class WheelRig(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L30)** — Handles basic wheel rigging by linking rotation to linear control movement.
+- **[`class WheelRig(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L30)** — Handles basic wheel rigging by linking rotation to linear control movement.
   - `WheelRig.rig_name(self) -> str` *(property)*
   - `WheelRig.get_drivers(self)` — Return every rotation driver fcurve currently attached to this rig's wheels.
   - `WheelRig.delete_drivers(self) -> None` — Remove this rig's rotation drivers from its wheels.
   - `WheelRig.rig_rotation(self, movement_axis: str = 'LOC_Z', rotation_index: int = None, wheel_height: float = 1.0, wheels: list = None, use_world_space: bool = False) -> list` — Rig wheels to rotate based on control movement.
-- **[`class WheelRigSlots(ptk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L273)** — Switchboard slot wiring for the Wheel Rig panel.
+- **[`class WheelRigSlots(pythontk.LoggingMixin)`](blendertk/blendertk/rig_utils/wheel_rig.py#L273)** — Switchboard slot wiring for the Wheel Rig panel.
   - `WheelRigSlots.header_init(self, widget)` — Configure header menu with mode toggle and instructions.
   - `WheelRigSlots.rig_name(self) -> str` *(property)* — Get the rig name from the text box.
   - `WheelRigSlots.movement_axis(self) -> str` *(property)* — Get the control travel channel from the axis combo box.
@@ -3510,7 +3556,7 @@ Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 
 Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 
-- **[`class BlenderNativeMenus(ptk.LoggingMixin)`](blendertk/blendertk/ui_utils/blender_native_menus.py#L22)** — Resolve the chord menu's symbolic node names to Blender ``*_MT_*`` menu idnames.
+- **[`class BlenderNativeMenus(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/blender_native_menus.py#L22)** — Resolve the chord menu's symbolic node names to Blender ``*_MT_*`` menu idnames.
   - `BlenderNativeMenus.names(cls)` *(class)* — Every symbolic node name this handler resolves (mapping + mode-adaptive keys).
   - `BlenderNativeMenus.resolve(cls, name)` *(class)* — The Blender menu idname for symbolic ``name`` (mode-aware for Select / Rig), or
   - `BlenderNativeMenus.get_menu(self, name)` — Build (or refresh) the Qt clone of native menu ``name``;
@@ -3555,7 +3601,7 @@ Calculator tool panel — Switchboard slot wiring for the co-located ``calculato
   - `CalculatorController.get_current_time()` *(static)* — Current frame as a string.
   - `CalculatorController.frames_to_sec(cls, frames)` *(class)*
   - `CalculatorController.sec_to_frames(cls, seconds)` *(class)*
-- **[`class CalculatorSlots(ptk.LoggingMixin)`](blendertk/blendertk/ui_utils/calculator.py#L79)** — Switchboard slot wiring for the Calculator panel.
+- **[`class CalculatorSlots(pythontk.LoggingMixin)`](blendertk/blendertk/ui_utils/calculator.py#L79)** — Switchboard slot wiring for the Calculator panel.
   - `CalculatorSlots.header_init(self, widget)` — Configure header help text.
   - `CalculatorSlots.on_input(self, text)`
   - `CalculatorSlots.on_clear(self)`
@@ -3605,7 +3651,7 @@ Resolve per-object-type icons for Blender objects (mirror of ``mtk.NodeIcons``).
 Dock any Qt widget into a native Blender area — a true child window, not an overlay.
 
 - **[`class QtDock`](blendertk/blendertk/ui_utils/qt_dock.py#L69)** — Host a Qt widget as the body of a true docked Blender area.
-  - `QtDock.supported(cls) -> bool` *(class)* — True when embedding can work here: Windows + a live QApplication.
+  - `QtDock.supported(cls) -> bool` *(class)* — True when embedding can work here: Windows, a live QApplication, and a real
   - `QtDock.docked(self) -> bool` *(property)* — True while the widget is embedded over a LIVE docked area — a user closing/
   - `QtDock.widget(self)` *(property)* — The hosted widget (or None) — for callers/tests.
   - `QtDock.area(self)` *(property)* — Our docked ``bpy.types.Area`` (or None).
@@ -3702,7 +3748,7 @@ UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk'
 RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 
 - [`APP`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L68) — constant
-- **[`class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L110)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
+- **[`class RizomUVBridge(pythontk.LoggingMixin, _RizomUVBridgeInternal)`](blendertk/blendertk/uv_utils/rizom_bridge/_rizom_bridge.py#L110)** — Engine: discover the RizomUV exe, export the selection, run RizomUV (send or round-trip).
   - `RizomUVBridge.rizom_path(self)` *(property)* — Resolved RizomUV executable path (cached), or None.
   - `RizomUVBridge.rizom_version(self) -> 'tuple[int, ...]'` *(property)* — The installed Rizom version, parsed from the install-dir name (mirror of mayatk).
   - `RizomUVBridge.export_path(self)` *(property)* — Lazy temp FBX path for the round-trip (POSIX string).
@@ -3720,15 +3766,14 @@ Registry of user-tunable RizomUV parameters exposed to the bridge UI.
 - [`PARAMS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L47) — constant
 - [`DERIVED_KEYS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L481) — constant
 - [`HOST_TOKEN_DEFAULTS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L488) — constant
-- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L684) — constant
-- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L694) — constant
-- **[`class Parameters`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L497)** — Parameters — module namespace.
+- [`MIN_VERSIONS`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L689) — constant
+- [`FBX_USE_UV_SET_NAMES_MIN_VERSION`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L699) — constant
+- **[`class Parameters(ParamRegistry)`](blendertk/blendertk/uv_utils/rizom_bridge/parameters.py#L497)** — Parameters — module namespace.
   - `Parameters.expand_includes(script_text: str) -> str` *(static)* — Expand ``__PACK_BLOCK__``-style include tokens to their partial's text.
   - `Parameters.preset_min_version(script_text: str) -> 'tuple[int, ...] | None'` *(static)* — Minimum Rizom version a preset declares, or ``None`` if ungated.
-  - `Parameters.referenced_keys(script_text: str) -> 'set[str]'` *(static)* — Registered keys present in *script_text* (delegates to uitk.bridge).
-  - `Parameters.defaults() -> 'dict[str, Any]'` *(static)* — Return ``{key: default}`` for every registered parameter.
+  - `Parameters.referenced_keys(cls, script_text: str) -> 'set[str]'` *(class)* — Registered keys present in *script_text* (delegates to uitk.bridge).
   - `Parameters.derived_values(values: 'dict[str, Any]') -> 'dict[str, float]'` *(static)* — Return the computed pack-gutter tokens (see :data:`DERIVED_KEYS`).
-  - `Parameters.render_context(values: 'dict[str, Any]') -> 'dict[str, str]'` *(static)* — Format *values* for placeholder substitution using Lua literals.
+  - `Parameters.render_context(cls, values: 'dict[str, Any]') -> 'dict[str, str]'` *(class)* — Format *values* for placeholder substitution using Lua literals.
   - `Parameters.strip_unsupported(script_text: str, version: 'tuple[int, ...]') -> str` *(static)* — Drop every line that references a placeholder requiring a newer Rizom.
 
 <a id="uv_utils--rizom_bridge--rizom_bridge_slots"></a>
@@ -3749,7 +3794,7 @@ Slots for the RizomUV bridge panel.
 
 Dedicated UV shell-transform panel (Blender).
 
-- **[`class ShellXformSlots(ptk.LoggingMixin)`](blendertk/blendertk/uv_utils/shell_xform.py#L29)** — Switchboard slots for the Shell Xform panel (``shell_xform.ui``).
+- **[`class ShellXformSlots(pythontk.LoggingMixin)`](blendertk/blendertk/uv_utils/shell_xform.py#L29)** — Switchboard slots for the Shell Xform panel (``shell_xform.ui``).
   - `ShellXformSlots.header_init(self, widget)` — Header menu — Open UV Editor + panel help.
   - `ShellXformSlots.cmb_move_scope_init(self, widget)` — Move scope — how far one arrow press travels, plus the snap button.
   - `ShellXformSlots.b023(self)` — Move To UV Space: Left
@@ -3786,7 +3831,7 @@ Dedicated UV shell-transform panel (Blender).
 
 Transfer a mesh's textures from one UV layout to another -- no rays, no bake.
 
-- **[`class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L305)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
+- **[`class TextureTransfer(pythontk.LoggingMixin, _TextureTransferInternal)`](blendertk/blendertk/uv_utils/texture_transfer.py#L305)** — Move textures between UV layouts of the same mesh(es) -- see module doc.
   - `TextureTransfer.transfer(self, targets, source=None, *, source_uv_set: Optional[str] = None, target_uv_set: Optional[str] = None, channels: Optional[Sequence[str]] = None, size: Optional[int] = None, supersample: int = 2, padding: int = -1, output_dir: Optional[str] = None, name_format: str = '{material}_{channel}', output_name: Optional[str] = None, normal_convention: Optional[str] = None, source_mask_from_uvs: bool = True, assign: bool = False, assign_prefix: str = '', assign_suffix: Optional[str] = None) -> Dict[str, Dict[str, str]]` — Transfer the source material(s)' maps onto the target UV layout.
   - `TextureTransfer.default_output_dir(cls) -> str` *(class)* — Where the maps go when the caller names no directory.
   - `TextureTransfer.output_base_dir() -> Optional[str]` *(static)* — The directory a RELATIVE output entry is resolved against.
