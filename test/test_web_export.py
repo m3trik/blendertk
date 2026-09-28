@@ -667,8 +667,19 @@ try:
         json.dumps(split_manifest.get("materials", {})),
     )
     split_glb = os.path.join(tmp_dir, "split.glb")
+    # The export selects what it ships (use_selection); the artist's selection and
+    # active object come back after, as FbxUtils.export / UsdUtils.export restore
+    # theirs. It left *bodies* selected. Added: 2026-09-27
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = twin
     web.export_glb(
         split_glb, objects=bodies, manifest=split_manifest, texture_max_size=None
+    )
+    check(
+        "a GLB export of objects puts the selection and active object back",
+        not [o.name for o in bpy.context.view_layer.objects if o.select_get()]
+        and bpy.context.view_layer.objects.active == twin,
+        str([o.name for o in bpy.context.view_layer.objects if o.select_get()]),
     )
     web.unwire_lightmaps(split_token)
     sgltf = glb_json(split_glb)

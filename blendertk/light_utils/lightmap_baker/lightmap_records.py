@@ -8,7 +8,8 @@ the maps; :class:`LightmapRecords` records them and answers for them afterwards:
 * **Markers** -- a JSON ``lightmapInfo`` custom property on each baked object:
   :meth:`LightmapRecords.commit`, :meth:`LightmapRecords.revert`,
   :meth:`LightmapRecords.baked_objects`,
-  :meth:`LightmapRecords.superseding` (what a re-bake leaves behind, deleted),
+  :meth:`LightmapRecords.superseding` (what a re-bake leaves behind, set
+  aside),
   and :meth:`LightmapRecords.migrate_legacy` for markers older than the
   rect-binding contract.
 * **The manifest** -- the ``lightmap_metadata`` record that rides the FBX on the
@@ -113,7 +114,8 @@ class LightmapRecords(ptk.LoggingMixin):
 
         The private ``ptk.SceneRecords.LIGHTMAP_DIRS`` record, not the marker: a
         marker is an object property and rides every FBX, so a folder on it put
-        build-setup data on the deliverable. Mirror of mayatk's.
+        build-setup data on the deliverable. A LINKED library's maps are read
+        from its own record as well (:meth:`_folder_hint`). Mirror of mayatk's.
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
@@ -130,11 +132,81 @@ class LightmapRecords(ptk.LoggingMixin):
         ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, dict(sorted(hints.items())))
 
     @classmethod
-    def _folder_hint(cls, info: Dict[str, Any], hints: Dict[str, str]) -> str:
-        """The stored folder of the map *info* names: the record's, else a
-        LEGACY marker's own ``dir`` (read until :meth:`migrate_folder_hints`
-        lifts it)."""
-        return str(hints.get(cls._hint_key(info.get("map"))) or info.get("dir") or "")
+    def _library_folder_hints(cls, library) -> Dict[str, str]:
+        """The folder record a linked *library* keeps in ITS scene data -- where
+        a library baked in its own file records its maps -- resolved ABSOLUTE:
+        spelled from the LIBRARY's project, which this file does not share
+        (mirror of mayatk's ``_module_folder_hints``). ``{}`` when it has none.
+        One linked read per library file and mtime
+        (``DataNodes._library_scene_values``), which leaves nothing behind."""
+        import bpy
+
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        spec = ptk.SceneRecords.LIGHTMAP_DIRS
+        try:
+            raw = DataNodes._library_scene_values(library).get(spec.key)
+        except Exception:  # noqa: BLE001 - an unreadable library resolves as none
+            cls.logger.debug("No folder record read from %s.", library, exc_info=True)
+            return {}
+        data = spec.decode(raw, {}) if isinstance(raw, str) else {}
+        if not isinstance(data, dict):
+            return {}
+        # From THIS file, a library linked through another included: Blender
+        # re-spells an indirect library's path from the host (measured 5.1),
+        # so ``library=library.parent`` would name a file that is not there.
+        library_file = bpy.path.abspath(library.filepath)
+        base = DataNodes.project_root_of(library_file)
+        hints: Dict[str, str] = {}
+        for key, folder in data.items():
+            folder = str(folder or "")
+            if not folder:
+                continue
+            if folder.startswith("//"):  # before the rule: the library's own folder
+                folder = os.path.dirname(
+                    bpy.path.abspath(folder.rstrip("/") + "/_", library=library)
+                )
+            hints[str(key)] = ptk.FileUtils.resolve_portable_path(folder, base)
+        return hints
+
+    @staticmethod
+    def _library_of(obj):
+        """The library *obj* comes from: its own when linked, its reference's
+        when it is a library override; else ``None``."""
+        library = getattr(obj, "library", None)
+        if library is None:
+            override = getattr(obj, "override_library", None)
+            reference = getattr(override, "reference", None) if override else None
+            library = getattr(reference, "library", None)
+        return library
+
+    @classmethod
+    def _folder_hint(
+        cls,
+        info: Dict[str, Any],
+        hints: Dict[str, str],
+        obj=None,
+        libraries: Optional[Dict[int, Dict[str, str]]] = None,
+    ) -> str:
+        """The stored folder of the map *info* names.
+
+        This file's record first (a repath here speaks for every reader of the
+        map), then the record of the library *obj* comes from -- the library
+        first, then the one that linked it (``parent``); *libraries* caches
+        them across one pass -- then a LEGACY marker's own ``dir``, read until
+        :meth:`migrate_folder_hints` lifts it. Mirror of mayatk's.
+        """
+        key = cls._hint_key(info.get("map"))
+        folder = hints.get(key)
+        library = cls._library_of(obj) if obj is not None else None
+        libraries = {} if libraries is None else libraries
+        while not folder and library is not None:
+            uid = library.session_uid
+            if uid not in libraries:
+                libraries[uid] = cls._library_folder_hints(library)
+            folder = libraries[uid].get(key)
+            library = library.parent
+        return str(folder or info.get("dir") or "")
 
     @classmethod
     def _prune_folder_hints(cls) -> None:
@@ -160,9 +232,9 @@ class LightmapRecords(ptk.LoggingMixin):
 
         The ``ptk.SceneRecords.LIGHTMAP_WRITERS`` record, stamped by
         :meth:`commit` (mirror of mayatk's). ``""`` is a map committed while
-        the file was unsaved -- its own only while it still is (a Save As
-        copy carries the same ``""``); a map with no entry is nobody's to
-        delete.
+        the file was unsaved -- its own while it still is; the first save
+        stamps it with the file written (``DataNodes.install_path_rebase``).
+        A map with no entry is nobody's to set aside.
         """
         from blendertk.node_utils.data_nodes import DataNodes
 
@@ -233,7 +305,7 @@ class LightmapRecords(ptk.LoggingMixin):
         Per object stamps the marker and records the map's folder and writer
         (this file) in the private records, then republishes the scene-wide
         manifest onto the shared ``data_export`` carrier so it rides the FBX.
-        Files are never touched: a re-bake deletes the maps it superseded
+        Files are never touched: a re-bake sets aside the maps it superseded
         around its commit (:meth:`superseding`). Mirror of mayatk's.
 
         Parameters:
@@ -333,15 +405,16 @@ class LightmapRecords(ptk.LoggingMixin):
     @classmethod
     @contextlib.contextmanager
     def superseding(cls, objects) -> Iterator[List[str]]:
-        """Around a re-bake's :meth:`commit`: delete the maps *objects* stop reading.
+        """Around a re-bake's :meth:`commit`: set aside the maps *objects* stop reading.
 
         Mirror of mayatk's. A re-bake that changes where or how its maps are
         written -- another output folder, Beside Material Textures, another
         name affix, per-object maps folded into an atlas or back -- leaves the
         old files behind, read by nobody; the maps *objects* read on entry are
-        deleted on a clean exit once no marker in the file reads them
-        (:meth:`ptk.FileDependencies.remove_superseded`). A block that raises
-        deletes nothing.
+        set aside on a clean exit once no marker in the file reads them
+        (:meth:`ptk.FileDependencies.remove_superseded`): to the Recycle Bin
+        or trash, else a ``_superseded`` folder beside them -- never deleted.
+        A block that raises moves nothing.
 
         Only this file's own maps are candidates: recorded in its folder record
         AND written by it (``DataNodes.written_here``) -- never a map another .blend
@@ -352,7 +425,7 @@ class LightmapRecords(ptk.LoggingMixin):
             objects: The objects (names) the block commits new maps for.
 
         Yields:
-            A list, filled with the deleted paths on exit.
+            A list, filled with the set-aside paths on exit.
         """
         retired: List[str] = []
         before = cls._written_reads(objects)
@@ -362,15 +435,16 @@ class LightmapRecords(ptk.LoggingMixin):
         retired.extend(ptk.FileDependencies.remove_superseded(before, cls._reads()))
         if retired:
             cls.logger.info(
-                "Deleted %d superseded lightmap(s) nothing reads any more: %s",
+                "Set aside %d superseded lightmap(s) nothing reads any more -- "
+                "in the Recycle Bin, or a _superseded folder beside them: %s",
                 len(retired),
                 ", ".join(os.path.basename(p) for p in retired),
             )
 
     @classmethod
     def _written_reads(cls, objects) -> List[str]:
-        """The map files *objects* read now that are this file's to delete once
-        superseded (:meth:`superseding`)."""
+        """The map files *objects* read now that are this file's to set aside
+        once superseded (:meth:`superseding`)."""
         if not objects:
             return []
         from blendertk.node_utils.data_nodes import DataNodes
@@ -403,11 +477,12 @@ class LightmapRecords(ptk.LoggingMixin):
         without the walk), else ``None``.
         """
         hints = cls._folder_hints()
+        libraries: Dict[int, Dict[str, str]] = {}
         found = {d["name"].lower(): d["path"] for d in cls._resolve(walk=False)}
         reads: List[Tuple[str, str, Optional[str]]] = []
         for obj, info in cls._marker_records():
             name = os.path.basename(str(info.get("map") or ""))
-            folder = cls._folder_hint(info, hints)
+            folder = cls._folder_hint(info, hints, obj, libraries)
             path = os.path.join(cls._resolved_dir(folder, name), name) if folder else ""
             if not os.path.isfile(path):
                 path = found.get(name.lower())
@@ -734,8 +809,13 @@ class LightmapRecords(ptk.LoggingMixin):
     ) -> List[Dict[str, Any]]:
         """The markers' maps through :meth:`ptk.FileDependencies.resolve`, Blender's way."""
         hints = cls._folder_hints()
+        libraries: Dict[int, Dict[str, str]] = {}
         refs = [
-            (obj.name, str(info.get("map") or ""), cls._folder_hint(info, hints))
+            (
+                obj.name,
+                str(info.get("map") or ""),
+                cls._folder_hint(info, hints, obj, libraries),
+            )
             for obj, info in cls._marker_records(objects)
         ]
         if not refs:
@@ -835,9 +915,12 @@ class LightmapRecords(ptk.LoggingMixin):
         """
         dirs_by_map: Dict[str, str] = {}
         hints = cls._folder_hints()
-        for _obj, info in cls._marker_records(objects):
+        libraries: Dict[int, Dict[str, str]] = {}
+        for obj, info in cls._marker_records(objects):
             basename = os.path.basename(str(info.get("map") or ""))
-            folder = cls._resolved_dir(cls._folder_hint(info, hints), basename)
+            folder = cls._resolved_dir(
+                cls._folder_hint(info, hints, obj, libraries), basename
+            )
             if folder:
                 dirs_by_map[basename.lower()] = folder
         if not dirs_by_map:
@@ -990,6 +1073,7 @@ class LightmapRecords(ptk.LoggingMixin):
         """
         hints = cls._folder_hints()
         before = dict(hints)
+        libraries: Dict[int, Dict[str, str]] = {}
         count = 0
         for obj, info in cls._marker_records(objects):
             basename = os.path.basename(str(info.get("map") or ""))
@@ -1000,7 +1084,8 @@ class LightmapRecords(ptk.LoggingMixin):
                 spelling = cls._portable_dir(os.path.join(new_dir, basename))
             else:
                 spelling = ptk.FileUtils.format_path(os.path.abspath(new_dir))
-            if ptk.FileUtils.format_path(cls._folder_hint(info, hints)) != spelling:
+            current = cls._folder_hint(info, hints, obj, libraries)
+            if ptk.FileUtils.format_path(current) != spelling:
                 count += 1
             hints[cls._hint_key(basename)] = spelling
             if "dir" in info:

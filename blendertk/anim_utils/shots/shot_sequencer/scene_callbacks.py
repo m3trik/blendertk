@@ -237,13 +237,16 @@ class SceneCallbacksMixin:
         if shot is None:
             return False
         try:
-            import bpy
+            import bpy  # noqa: F401 -- probe: no selection to read outside Blender
         except ImportError:
             return False
         candidates = set(self._edited_objects)
         self._edited_objects.clear()
         if not candidates:
-            candidates = {o.name for o in bpy.context.selected_objects}
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            # not bpy.context.selected_objects: absent windowless (the Qt pump)
+            candidates = {o.name for o in CoreUtils.selected_objects()}
         if not candidates:
             return False
         existing = set(shot.objects)

@@ -21,6 +21,7 @@ The actual RizomUV invocation + every Lua preset is covered by ``mayatk/test/riz
 and verified separately under the workspace venv.
 """
 import os
+import re
 import sys
 import traceback
 
@@ -204,6 +205,421 @@ try:
           len(cube.data.loops) == loops_before, f"{len(cube.data.loops)} vs {loops_before}")
     check("modifier: base UVs transferred exactly (fast path, not spatial fallback)",
           max_uv_diff(before, uv_snapshot(cube)) < 1e-4)
+
+    # -----------------------------------------------------------------------------
+    # 5b) pack_into_existing: select_objects' faces carry the subset tag, the rest none.
+    #     (Its old island-GROUP-name selection was a silent no-op on 2020.1; the tag is
+    #     what the preset's Materials selection turns into the islands that move.)
+    # -----------------------------------------------------------------------------
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    existing = bpy.context.active_object
+    existing.name = "RZ_Existing"
+    bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
+    new = bpy.context.active_object
+    new.name = "RZ_New"
+    layout_mat = bpy.data.materials.new("RZ_Layout")
+    for o in (existing, new):
+        seed_unique_uvs(o)
+        o.data.materials.append(layout_mat)
+    slots_before = {o.name: [s.material for s in o.material_slots] for o in (existing, new)}
+    seen = {}
+
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+
+    def inspect_payload():
+        """Stand in for RizomUV: read which faces of each exported copy carry the tag."""
+        seen["token"] = bridge._params.get("PACK_SELECT_NAMES")
+        mats_before = set(bpy.data.materials)
+        objs = FbxUtils.import_fbx(bridge.export_path)
+        for o in objs:
+            if getattr(o, "type", None) != "MESH":
+                continue
+            names = [s.material.name if s.material else None for s in o.material_slots]
+            seen[o.name] = sorted({names[p.material_index] for p in o.data.polygons})
+        for o in objs:
+            m = o.data if getattr(o, "type", None) == "MESH" else None
+            bpy.data.objects.remove(o, do_unlink=True)
+            if m is not None and m.users == 0:
+                bpy.data.meshes.remove(m)
+        for mat in set(bpy.data.materials) - mats_before:  # this stub's own import
+            if mat.users == 0:
+                bpy.data.materials.remove(mat)
+
+    bridge._execute_uv_script = inspect_payload
+    bridge.process_with_rizomuv(
+        [existing, new], preset="pack_into_existing", select_objects=[new]
+    )
+    tag = (seen.get("token") or "").strip('{}"')
+    by_src = {  # imported names carry Blender's .NNN clash suffix
+        k.split("_")[1]: [re.sub(r"\.\d{3}$", "", n) for n in v]
+        for k, v in seen.items()
+        if k != "token"
+    }
+    check("pack_into_existing: the preset receives one subset tag",
+          tag.startswith("rizomSubset"), str(seen.get("token")))
+    check("pack_into_existing: every face of the selected object carries it",
+          by_src.get("New") == [tag], str(by_src))
+    check("pack_into_existing: the rest of the layout carries none of it",
+          by_src.get("Existing") == ["RZ_Layout"], str(by_src))
+    check("pack_into_existing: the tag never reaches the originals or outlives the run",
+          {o.name: [s.material for s in o.material_slots] for o in (existing, new)} == slots_before
+          and not [m.name for m in bpy.data.materials if m.name.startswith("rizomSubset")],
+          str([m.name for m in bpy.data.materials]))
+    check("pack_into_existing: no __RZTMP temp objects leaked",
+          not temp_leftovers(), str(temp_leftovers()))
+
+    for select, expect in (([existing, new], "no existing layout"), ([], "select_objects")):
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+        bridge._execute_uv_script = lambda: None
+        stray = None
+        if not select:
+            bpy.ops.mesh.primitive_cube_add(location=(8, 0, 0))
+            stray = bpy.context.active_object
+            select = [stray]
+        try:
+            bridge.process_with_rizomuv(
+                [existing, new] if stray else select,
+                preset="pack_into_existing",
+                select_objects=select,
+            )
+            check(f"pack_into_existing refuses: {expect}", False)
+        except ValueError as error:
+            check(f"pack_into_existing refuses: {expect}", expect in str(error), str(error))
+        bridge._release_temp_payloads()
+
+    # -----------------------------------------------------------------------------
+    # 5c) A GROUP handed straight to the engine API (not through the panel's scope
+    #     closure) names its meshes, as mayatk's does (Components.get_mesh_transforms /
+    #     export-selection): the round-trip found "No valid mesh objects" and the send
+    #     shipped the Empty alone (measured 2026-09-27, Blender 5.1).
+    # -----------------------------------------------------------------------------
+    reset()
+    bpy.ops.object.empty_add(location=(0, 0, 0))
+    grp = bpy.context.active_object
+    grp.name = "RZ_Grp"
+    bpy.ops.object.empty_add(location=(0, 0, 0))
+    sub = bpy.context.active_object
+    sub.name = "RZ_SubGrp"
+    sub.parent = grp
+    kids = []
+    for i, parent in enumerate((grp, sub)):
+        bpy.ops.mesh.primitive_cube_add(location=(3 * i, 0, 0))
+        kid = bpy.context.active_object
+        kid.name = f"RZ_Kid{i}"
+        kid.parent = parent
+        seed_unique_uvs(kid)
+        kids.append(kid)
+    kids_before = [uv_snapshot(k) for k in kids]
+
+    bridge = RizomUVBridge(rizom_path="not-used.exe")
+    bridge._execute_uv_script = lambda: None
+    try:
+        bridge.process_with_rizomuv([grp], preset="pack")
+        sent = sorted(o.name for o in bridge._export_name_map.values())
+        check("group: the round-trip processes the group's meshes",
+              sent == ["RZ_Kid0", "RZ_Kid1"], str(sent))
+        check("group: their UVs come back onto them",
+              all(max_uv_diff(b, uv_snapshot(k)) < 1e-4 for b, k in zip(kids_before, kids)))
+    except ValueError as error:
+        check("group: the round-trip processes the group's meshes", False, str(error))
+    check("group: no __RZTMP temp objects leaked", not temp_leftovers(), str(temp_leftovers()))
+
+    import pythontk as ptk
+
+    class _Launched:
+        pid = 0
+
+    launched = {}
+
+    def fake_launch(exe, args=None, detached=False, **kwargs):
+        launched["script"] = args[1]
+        return _Launched()
+
+    real_launch = ptk.AppLauncher.launch
+    ptk.AppLauncher.launch = staticmethod(fake_launch)
+    try:
+        script = RizomUVBridge(rizom_path="not-used.exe").send([grp], load_textures=False)
+    finally:
+        ptk.AppLauncher.launch = real_launch
+    fbx = re.search(r'Path="([^"]+)"', open(script, encoding="utf-8").read()).group(1)
+    before_import = set(bpy.data.objects)
+    shipped = FbxUtils.import_fbx(fbx)
+    shipped_meshes = sorted(
+        re.sub(r"\.\d{3}$", "", o.name) for o in shipped if o.type == "MESH"
+    )
+    for o in shipped:
+        m = o.data if o.type == "MESH" else None
+        bpy.data.objects.remove(o, do_unlink=True)
+        if m is not None and m.users == 0:
+            bpy.data.meshes.remove(m)
+    for path in (fbx, script):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    check("group: a send ships the group's meshes, not the Empty alone",
+          shipped_meshes == ["RZ_Kid0", "RZ_Kid1"], str(shipped_meshes))
+    check("group: the send left the scene as it found it",
+          set(bpy.data.objects) == before_import)
+
+    # -----------------------------------------------------------------------------
+    # 5d) Payloads under a folder whose name is not plain ASCII (a user profile, so
+    #     %TEMP%, named "José" or "Жук"). RizomUV 2020.1 reads the -cfi argument in the
+    #     ANSI code page and the UTF-8 bytes of the paths INSIDE its Lua as ANSI: a -cfi
+    #     script under a Cyrillic folder hangs to the timeout, ZomLoad/ZomSave under a
+    #     cp1252 folder too; the 8.3 forms pass (serial runs, 2026-09-27). Mirror of
+    #     mayatk's TestRizomBridgeNonAsciiPaths.
+    # -----------------------------------------------------------------------------
+    import base64
+    import shutil
+
+    import pythontk as ptk
+
+    paths_root = os.path.join(HERE, "temp_tests", f"rizom_paths_{os.getpid()}")
+    folders = {}
+    for name in ("Jos\u00e9", "\u0416\u0443\u043a"):
+        folders[name] = os.path.join(paths_root, f"{name} payloads")
+        os.makedirs(folders[name], exist_ok=True)
+    cyr, latin = folders["\u0416\u0443\u043a"], folders["Jos\u00e9"]
+
+    def in_folder(path, folder):
+        return path.isascii() and os.path.samefile(os.path.dirname(path), folder)
+
+    def bridge_in(folder, **kwargs):
+        br = RizomUVBridge(**kwargs)
+        br._temp = ptk.TempArtifacts("rizom_roundtrip", policy="scoped", dir=folder)
+        return br
+
+    try:
+        # A volume with 8.3 names off answers the LONG name, not None.
+        if not (ptk.AppLauncher._short_name(cyr) or "").isascii():
+            check("non-ASCII payloads: SKIP (no 8.3 short names on this volume)", True)
+        else:
+            for name, folder in folders.items():
+                br = bridge_in(folder, rizom_path="not-used.exe")
+                lua_paths = re.findall(r'Path="([^"]+)"', br._construct_full_script("-- probe"))
+                check(f"non-ASCII payloads: the Lua names the FBX in ASCII ({ascii(name)})",
+                      len(lua_paths) == 2 and all(in_folder(q, folder) for q in lua_paths),
+                      ascii(lua_paths))
+                br._release_temp_payloads()
+
+            br = bridge_in(cyr, rizom_path="not-used.exe")
+            br.script_path = "-- probe"
+            seen = {}
+
+            def capture(exe, args=None, timeout=None, **kwargs):
+                seen["args"] = args
+                raise RuntimeError("stop before RizomUV")
+
+            real_run = ptk.AppLauncher.run
+            ptk.AppLauncher.run = staticmethod(capture)
+            try:
+                br._execute_uv_script()
+            except RuntimeError:
+                pass
+            finally:
+                ptk.AppLauncher.run = real_run
+            arg = (seen.get("args") or [None, ""])[1]
+            try:
+                arg.encode(ptk.AppLauncher._ansi_codec())
+                held = True
+            except UnicodeEncodeError:
+                held = False
+            check("non-ASCII payloads: -cfi names the script in the ANSI code page",
+                  held and os.path.samefile(arg, br.script_path), ascii(arg))
+            br._release_temp_payloads()
+
+            png = os.path.join(latin, "albedo.png")
+            with open(png, "wb") as fh:
+                fh.write(base64.b64decode(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+            reset()
+            bpy.ops.mesh.primitive_cube_add()
+            textured = bpy.context.active_object
+            tex_mat = bpy.data.materials.new("RZ_Tex")
+            tex_mat.use_nodes = True
+            node = tex_mat.node_tree.nodes.new("ShaderNodeTexImage")
+            node.image = bpy.data.images.load(png)
+            textured.data.materials.append(tex_mat)
+            send_paths = re.findall(
+                r'Path="([^"]+)"',
+                RizomUVBridge(rizom_path="not-used.exe").build_send_script(
+                    os.path.join(cyr, "send.fbx"), objects=[textured]
+                ),
+            )
+            check("non-ASCII payloads: a send names its FBX and texture in ASCII",
+                  len(send_paths) == 2 and in_folder(send_paths[0], cyr)
+                  and in_folder(send_paths[1], latin), ascii(send_paths))
+            bpy.data.images.remove(node.image)
+
+            if RizomUVBridge.APP.path:
+                for name, folder in folders.items():
+                    reset()
+                    bpy.ops.mesh.primitive_cube_add()
+                    cube = bpy.context.active_object
+                    seed_unique_uvs(cube)
+                    for d in cube.data.uv_layers.active.data:
+                        d.uv = (d.uv[0] + 1.5, d.uv[1] + 0.25)  # out of the tile
+                    try:
+                        bridge_in(folder, timeout=120).process_with_rizomuv([cube], preset="pack")
+                        us = [d.uv[0] for d in cube.data.uv_layers.active.data]
+                        check(f"non-ASCII payloads: a real round-trip lands ({ascii(name)})",
+                              max(us) <= 1.0, f"u max {max(us):.3f}")
+                    except RuntimeError as error:
+                        check(f"non-ASCII payloads: a real round-trip lands ({ascii(name)})",
+                              False, str(error).splitlines()[0])
+    finally:
+        shutil.rmtree(paths_root, ignore_errors=True)
+
+    # -----------------------------------------------------------------------------
+    # 5e) An Edit Mode face selection names UV SHELLS (mirror of mayatk's component
+    #     selection): `pack` tags only the shells the selected faces touch, an object in
+    #     Object Mode packs whole, and the round-trip itself -- which raised from Edit Mode
+    #     (the export's select_all poll-failed) and could not write UVs there -- runs in
+    #     Object Mode and hands the mesh back in Edit Mode with its selection.
+    # -----------------------------------------------------------------------------
+    import bmesh
+
+    def edit_select(obj, faces):
+        """*obj* alone into Edit Mode with exactly *faces* selected."""
+        with CoreUtils.window_context_override():
+            if bpy.context.object and bpy.context.object.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            for o in bpy.context.view_layer.objects:
+                o.select_set(False)
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode="EDIT")
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        for f in bm.faces:
+            f.select_set(f.index in faces)
+        bmesh.update_edit_mesh(obj.data)
+
+    def leave_edit_mode():
+        with CoreUtils.window_context_override():
+            if bpy.context.object and bpy.context.object.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+
+    def tag_reader(bridge, seen, token="PACK_SUBSET"):
+        """A RizomUV stand-in recording, per exported copy, the faces carrying the tag."""
+
+        def inspect():
+            seen["token"] = bridge._params.get(token)
+            tag = re.sub(r"\.\d{3}$", "", (seen["token"] or "").strip('{}"'))
+            mats_before = set(bpy.data.materials)
+            objs = FbxUtils.import_fbx(bridge.export_path)
+            for o in objs:
+                if o.type != "MESH":
+                    continue
+                names = [s.material.name if s.material else "" for s in o.material_slots]
+                seen[o.name.split("_")[1]] = sorted(
+                    p.index for p in o.data.polygons
+                    if tag and p.material_index < len(names)
+                    and re.sub(r"\.\d{3}$", "", names[p.material_index]) == tag
+                )
+            for o in objs:
+                m = o.data if o.type == "MESH" else None
+                bpy.data.objects.remove(o, do_unlink=True)
+                if m is not None and m.users == 0:
+                    bpy.data.meshes.remove(m)
+            for mat in set(bpy.data.materials) - mats_before:
+                if mat.users == 0:
+                    bpy.data.materials.remove(mat)
+
+        return inspect
+
+    try:
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        reset()
+        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+        shells = bpy.context.active_object
+        shells.name = "RZ_Shells"
+        bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
+        whole = bpy.context.active_object
+        whole.name = "RZ_Whole"
+        for o in (shells, whole):
+            seed_unique_uvs(o)  # every face its own UV shell
+        edit_select(shells, {1, 2})
+        seen = {}
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+        bridge._execute_uv_script = tag_reader(bridge, seen)
+        bridge.process_with_rizomuv([shells, whole], preset="pack")
+        check("shells: the preset receives the subset tag",
+              (seen.get("token") or "").startswith('{"rizomSubset'), str(seen.get("token")))
+        check("shells: only the selected shells of the Edit Mode mesh are tagged",
+              seen.get("Shells") == [1, 2], str(seen))
+        check("shells: the mesh in Object Mode packs whole",
+              seen.get("Whole") == list(range(6)), str(seen))
+        check("shells: the Edit Mode mesh is handed back in Edit Mode", shells.mode == "EDIT",
+              shells.mode)
+        bm = bmesh.from_edit_mesh(shells.data)
+        check("shells: its face selection survives the run",
+              sorted(f.index for f in bm.faces if f.select) == [1, 2])
+        check("shells: no subset tag outlives the run",
+              not [m.name for m in bpy.data.materials
+                   if m.name.startswith(("rizomSubset", "rizomFixed"))],
+              str([m.name for m in bpy.data.materials]))
+
+        # The round-trip lands from Edit Mode (it raised before) and the edit mesh shows it.
+        before = [tuple(loop[bm.loops.layers.uv.active].uv) for f in bm.faces for loop in f.loops]
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+
+        def shift_all():
+            mats_before = set(bpy.data.materials)
+            objs = FbxUtils.import_fbx(bridge.export_path)
+            meshes = [o for o in objs if o.type == "MESH"]
+            for o in meshes:
+                for d in o.data.uv_layers.active.data:
+                    d.uv = (d.uv[0] + 0.3, d.uv[1] + 0.15)
+            FbxUtils.export(filepath=bridge.export_path, objects=meshes, selection_only=True)
+            for o in meshes:
+                m = o.data
+                bpy.data.objects.remove(o, do_unlink=True)
+                if m.users == 0:
+                    bpy.data.meshes.remove(m)
+            for mat in set(bpy.data.materials) - mats_before:
+                if mat.users == 0:
+                    bpy.data.materials.remove(mat)
+
+        bridge._execute_uv_script = shift_all
+        try:
+            bridge.process_with_rizomuv([shells], preset="pack")
+            raised = None
+        except Exception as error:  # noqa: BLE001
+            raised = error
+        check("shells: a round-trip from Edit Mode runs", raised is None, repr(raised))
+        bm = bmesh.from_edit_mesh(shells.data)
+        after = [tuple(loop[bm.loops.layers.uv.active].uv) for f in bm.faces for loop in f.loops]
+        shift = max(abs(a[0] - b[0] - 0.3) for a, b in zip(after, before))
+        check("shells: its UVs reach the edit mesh", shift < 1e-4, f"off by {shift:.4f}")
+
+        # A preset that cannot take a subset says so and processes the whole object.
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+        bridge._execute_uv_script = lambda: None
+        warned = []
+        real_warning = bridge.logger.warning
+        bridge.logger.warning = lambda msg, *a, **k: (warned.append(str(msg)), real_warning(msg, *a, **k))
+        bridge.process_with_rizomuv([shells], preset="optimize")
+        check("shells: a whole-object preset says it processed whole objects",
+              any("works on whole objects" in w for w in warned), str(warned))
+
+        # pack_into_existing: select_objects in Edit Mode names its selected shells.
+        seen = {}
+        bridge = RizomUVBridge(rizom_path="not-used.exe")
+        bridge._execute_uv_script = tag_reader(bridge, seen, token="PACK_SELECT_NAMES")
+        bridge.process_with_rizomuv(
+            [shells, whole], preset="pack_into_existing", select_objects=[shells]
+        )
+        check("shells: pack_into_existing moves only the selected shells",
+              seen.get("Shells") == [1, 2] and seen.get("Whole") == [], str(seen))
+    except Exception as error:  # noqa: BLE001
+        check("shells: setup", False, repr(error))
+        lines.append(traceback.format_exc())
+    finally:
+        leave_edit_mode()
 
     # -----------------------------------------------------------------------------
     # 6) Guard: empty / non-mesh input raises rather than silently doing nothing.

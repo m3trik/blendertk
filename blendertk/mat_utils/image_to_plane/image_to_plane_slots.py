@@ -225,12 +225,17 @@ class ImageToPlaneSlots(ptk.LoggingMixin):
         self.ui.footer.setText(f"Created {len(planes)} plane(s): {label}")
 
         # Select the group (if created) or the individual planes
-        bpy.ops.object.select_all(action="DESELECT")
-        select = [results["__group__"]] if group and "__group__" in results else planes
-        for o in select:
-            o.select_set(True)
-        if select:
-            bpy.context.view_layer.objects.active = select[0]
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            select = (
+                [results["__group__"]] if group and "__group__" in results else planes
+            )
+            for o in select:
+                o.select_set(True)
+            if select:
+                bpy.context.view_layer.objects.active = select[0]
 
     # ------------------------------------------------------------------
     # Manage

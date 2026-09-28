@@ -438,10 +438,10 @@ class ColorId:
         Iterates ``view_layer.objects`` (not ``scene.objects``) so every match is selectable —
         an object in a view-layer-excluded collection can't be selected, so the caller's
         ``select_set`` would otherwise raise on it."""
-        import bpy
 
         out = []
-        for obj in bpy.context.view_layer.objects:
+        # the window's layer: the one the caller's select_set acts in
+        for obj in CoreUtils._active_view_layer().objects:
             if obj.type != "MESH":
                 continue
             matched = False
@@ -779,9 +779,11 @@ class ColorIdSlots(ptk.LoggingMixin):
         )
         # Direct select_set (not bpy.ops.object.select_all) so Select-By-Color works in any
         # mode — the object operator poll-fails in edit mode (Maya's selects anywhere).
-        for obj in bpy.context.view_layer.objects:
-            obj.select_set(obj in found)
-        bpy.context.view_layer.objects.active = found[0] if found else None
+        # the window's view layer (windowless, select_set addresses the scene default)
+        with CoreUtils.window_context_override():
+            for obj in list(bpy.context.view_layer.objects):
+                obj.select_set(obj in found)
+            bpy.context.view_layer.objects.active = found[0] if found else None
         CoreUtils.tag_redraw()  # selection highlights in the outliner too
 
     def b003(self) -> None:
@@ -791,12 +793,11 @@ class ColorIdSlots(ptk.LoggingMixin):
         the outliner stamp first since it round-trips the exact applied color).
         (Mayatk's b003 is a fixed wireframe-color eyedropper; here every enabled channel can
         answer, so they're read in order.)"""
-        import bpy
 
         ch = self._channels_or_warn()
         if ch is None:
             return
-        obj = bpy.context.view_layer.objects.active
+        obj = CoreUtils.active_object()
         button = self.selected_button
         if obj is None or button is None:
             self.sb.message_box("Select an object and a swatch first.")

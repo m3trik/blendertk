@@ -875,7 +875,7 @@ class TelescopeRigSlots(ptk.LoggingMixin):
 
         sel = CoreUtils.selected_objects()
         bpy.context.view_layer.update()
-        active = bpy.context.view_layer.objects.active
+        active = CoreUtils.active_object()  # the window's layer, not the default
         base, segments, end = (
             self._partition_selection(sel, active if active in sel else None)
             if sel

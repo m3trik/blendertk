@@ -14,7 +14,9 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 MONO = os.path.dirname(REPO)
-for p in (REPO, os.path.join(MONO, "pythontk")):
+# uitk: a full ``send()`` reads the bridge's parameter registry (uitk.bridge's
+# Qt-free AttributeSpec), which the Marmoset bake-source checks drive.
+for p in (REPO, os.path.join(MONO, "pythontk"), os.path.join(MONO, "uitk")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -620,10 +622,20 @@ try:
     # too -- until it became render-neutral (``bake_sets.BakeSet``); the export
     # reveals its members for the write alone and puts every flag back.
     import pythontk as _hp_ptk
+    from blendertk.mat_utils.bake_sets import BakeSourceSet
     from blendertk.mat_utils.substance_bridge._substance_bridge import (
-        HighPolySet,
         SubstanceBridge,
     )
+
+    def _fbx_models(path):
+        """The Model names an FBX on disk carries (empty when there is no file)."""
+        found = set()
+        if path and os.path.isfile(path):
+            for _rec in _hp_ptk.FbxFile.load(path, raw_payloads=False).iter_objects():
+                _props = _rec["props"]
+                if _rec["name"] == "Model" and _props and isinstance(_props[0], int):
+                    found.add(_hp_ptk.FbxFile._display_name(_props[1]))
+        return found
 
     reset()
     hp_home = bpy.data.collections.new("hp_hidden_home")
@@ -641,23 +653,27 @@ try:
     hp_home.objects.link(hp_in_hidden)
     hp_home.hide_viewport = True
     hp_home.hide_render = True
-    HighPolySet.define(hp_objs)
+    BakeSourceSet.define(hp_objs)
     hp_written = SubstanceBridge()._export_bake_source(
         os.path.join(tmp, "hp_asset.fbx"),
         dict(_SUB_FBX),
         {"BAKE_SOURCE_SET"},
         _hp_ptk.HandoffRequest(),
     )
-    hp_models = set()
-    if hp_written and os.path.isfile(hp_written):
-        for _rec in _hp_ptk.FbxFile.load(hp_written, raw_payloads=False).iter_objects():
-            _props = _rec["props"]
-            if _rec["name"] == "Model" and _props and isinstance(_props[0], int):
-                hp_models.add(_hp_ptk.FbxFile._display_name(_props[1]))
+    hp_models = _fbx_models(hp_written)
     check(
         "the Substance bake source ships its hidden members too",
         {"hp_shown", "hp_flagged", "hp_in_hidden"} <= hp_models,
         f"{hp_written} -> {sorted(hp_models)}",
+    )
+    # One companion name across both bridges and both DCCs (mayatk's
+    # ``BakeSourceSet.companion_path``); Blender's Substance send used to write
+    # ``<stem>_high.fbx`` while every other one wrote ``<stem>_source.fbx``.
+    check(
+        "the Substance bake source lands at <stem>_source.fbx",
+        os.path.normcase(str(hp_written))
+        == os.path.normcase(os.path.join(tmp, "hp_asset_source.fbx")),
+        str(hp_written),
     )
     check(
         "...and the export leaves every hide flag as it found it",
@@ -668,7 +684,659 @@ try:
         and not hp_in_hidden.visible_get()
         and hp_in_hidden.name not in bpy.context.scene.collection.objects,
     )
-    HighPolySet.clear()
+    BakeSourceSet.clear()
+
+    # A member that GROUPS the source ships what is under it. Blender's FBX
+    # writes exactly the objects it is handed, never a subtree, so the bare
+    # member list sent an Empty to Painter and none of its meshes (Maya's
+    # exporter writes the subtree, which is what mayatk's twin relies on).
+    reset()
+    hp_grp = bpy.data.objects.new("hp_grp", None)
+    bpy.context.scene.collection.objects.link(hp_grp)
+    bpy.ops.mesh.primitive_cube_add()
+    hp_grp_child = bpy.context.active_object
+    hp_grp_child.name = "hp_grp_child"
+    hp_grp_child.parent = hp_grp
+    BakeSourceSet.define([hp_grp])
+    hp_grp_models = _fbx_models(
+        SubstanceBridge()._export_bake_source(
+            os.path.join(tmp, "hp_grp.fbx"),
+            dict(_SUB_FBX),
+            {"BAKE_SOURCE_SET"},
+            _hp_ptk.HandoffRequest(),
+        )
+    )
+    check(
+        "a grouping member ships the meshes under it to Painter",
+        "hp_grp_child" in hp_grp_models,
+        str(sorted(hp_grp_models)),
+    )
+    BakeSourceSet.clear()
+
+    # ---- BakeSourceSet: one bake-source set, legacy files adopted -----------
+    # Mirror of mayatk's ``bake_sets.BakeSourceSet`` (canonical
+    # ``bakeBridge_source``). A .blend saved while the set was the Substance
+    # bridge's ``HighPolySet`` carries a collection stamped
+    # ``btk_substance_high_poly``: it must read transparently, migrate on the
+    # next define, and go on a clear -- a file never keeps two competing sets.
+    # Added: 2026-09-27
+    try:
+        import warnings as _bs_warnings
+
+        reset()
+        bpy.ops.mesh.primitive_cube_add()
+        bs_a = bpy.context.active_object
+        bs_a.name = "bs_a"
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        bs_b = bpy.context.active_object
+        bs_b.name = "bs_b"
+
+        def _legacy_set(members):
+            col = bpy.data.collections.new("substanceBridge_highPoly")
+            col["btk_substance_high_poly"] = True
+            bpy.context.scene.collection.children.link(col)
+            for obj in members:
+                col.objects.link(obj)
+            return col
+
+        def _stamped():
+            return [
+                c
+                for c in bpy.data.collections
+                if "btk_substance_high_poly" in c or BakeSourceSet.STAMP in c
+            ]
+
+        _legacy_set([bs_a])
+        check(
+            "a legacy HighPolySet collection reads as the bake source",
+            BakeSourceSet.exists()
+            and [o.name for o in BakeSourceSet.members()] == ["bs_a"],
+            str([o.name for o in BakeSourceSet.members()]),
+        )
+        BakeSourceSet.define([bs_b])
+        _cols = _stamped()
+        check(
+            "define migrates the legacy collection to the canonical set",
+            len(_cols) == 1
+            and _cols[0].name == BakeSourceSet.SET_NAME == "bakeBridge_source"
+            and BakeSourceSet.STAMP in _cols[0]
+            and "btk_substance_high_poly" not in _cols[0]
+            and [o.name for o in BakeSourceSet.members()] == ["bs_b"],
+            str([(c.name, list(c.keys())) for c in _cols]),
+        )
+        _legacy_set([bs_a])  # a stray legacy beside the canonical one
+        BakeSourceSet.clear()
+        check(
+            "clear removes the canonical AND a stray legacy set; members stay",
+            not BakeSourceSet.exists()
+            and not _stamped()
+            and bs_a.name in bpy.context.scene.objects
+            and bs_b.name in bpy.context.scene.objects,
+            str([c.name for c in _stamped()]),
+        )
+        # The class name is public API: kept one release as a warned alias.
+        with _bs_warnings.catch_warnings(record=True) as _caught:
+            _bs_warnings.simplefilter("always")
+            from blendertk.mat_utils.substance_bridge._substance_bridge import (
+                HighPolySet as _HighPolySet,
+            )
+        check(
+            "HighPolySet is a deprecated alias of BakeSourceSet",
+            _HighPolySet is BakeSourceSet
+            and any(issubclass(w.category, DeprecationWarning) for w in _caught),
+            str([str(w.message) for w in _caught]),
+        )
+    except Exception as e:  # noqa: BLE001
+        check("BakeSourceSet storage + legacy adoption", False, repr(e))
+        lines.append(traceback.format_exc())
+
+    # ---- the Marmoset bake send ships the Bake Source set --------------------
+    # Set From Selection stored the set and told the artist the next send would
+    # ship it, while ``_produce`` exported the scope alone and paired by name
+    # suffix only: the set did nothing (measured: a set + a selected target
+    # wrote scene.fbx with the target, no companion, SOURCE_MODEL_FILE = "").
+    # Mirror of mayatk's test_split_bake_objects_routes_high_set_members /
+    # test_bake_produce_exports_high_companion. Added: 2026-09-27
+    try:
+        from unittest import mock as _mm_mock
+
+        from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
+            MarmosetBridge as _MmBridge,
+            SEND_TO as _MM_SEND_TO,
+        )
+
+        reset()
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        mm_tgt = bpy.context.active_object
+        mm_tgt.name = "mm_tgt"
+        # A plain member the artist has hidden -- the usual state of a bake
+        # source while the target is being worked on.
+        bpy.ops.mesh.primitive_cube_add(size=2.4)
+        mm_src = bpy.context.active_object
+        mm_src.name = "mm_src"
+        # A member that only GROUPS source geometry.
+        mm_grp = bpy.data.objects.new("mm_src_grp", None)
+        bpy.context.scene.collection.objects.link(mm_grp)
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=1.3)
+        mm_child = bpy.context.active_object
+        mm_child.name = "mm_src_child"
+        mm_child.parent = mm_grp
+        # The source's textured material: the surface-transfer bake samples it,
+        # so it has to reach the manifest.
+        _mm_img = os.path.join(tmp, "MmSrc_BaseColor.png")
+        _gen = bpy.data.images.new("_mm", 4, 4)
+        _gen.filepath_raw = _mm_img
+        _gen.file_format = "PNG"
+        _gen.save()
+        bpy.data.images.remove(_gen)
+        mm_mat = btk.create_mat("standard", name="MM_SRC_MAT")
+        _nt = mm_mat.node_tree
+        _tex = _nt.nodes.new("ShaderNodeTexImage")
+        _tex.image = bpy.data.images.load(_mm_img)
+        _bsdf = next(n for n in _nt.nodes if n.type == "BSDF_PRINCIPLED")
+        _nt.links.new(_tex.outputs["Color"], _bsdf.inputs["Base Color"])
+        btk.assign_mat([mm_src], mm_mat)
+        mm_src.hide_viewport = True
+        mm_src.hide_set(True)
+        BakeSourceSet.define([mm_src, mm_grp])
+
+        mm_out = os.path.join(tmp, "mm_out")
+
+        class _MmErrors(__import__("logging").Handler):
+            """Collects the bridge's ERROR records (its logger is the panel's log)."""
+
+            def __init__(self):
+                super().__init__(level=40)
+                self.messages = []
+
+            def emit(self, record):
+                self.messages.append(record.getMessage())
+
+        def _mm_send(objects, template="bake"):
+            """One send_to, launch stubbed; returns ({file: path}, [error messages]).
+
+            The launch stub answers ``None``, so every send ends on the engine's
+            "Could not launch" error -- AFTER ``_produce`` has written what it
+            writes, which is all these checks read.
+            """
+            __import__("shutil").rmtree(mm_out, ignore_errors=True)
+            errors = _MmErrors()
+            with _mm_mock.patch(
+                "blendertk.mat_utils.marmoset_bridge._marmoset_engine"
+                ".AppLauncher.launch",
+                return_value=None,
+            ):
+                bridge = _MmBridge(toolbag_path="not-used.exe")
+                bridge.logger.setLevel("ERROR")
+                bridge.logger.addHandler(errors)
+                try:
+                    bridge.send(
+                        objects=objects,
+                        output_dir=mm_out,
+                        output_name="scene",
+                        template=template,
+                        mode=_MM_SEND_TO,
+                    )
+                finally:
+                    bridge.logger.removeHandler(errors)
+            files = (
+                {f: os.path.join(mm_out, f) for f in os.listdir(mm_out)}
+                if os.path.isdir(mm_out)
+                else {}
+            )
+            return files, errors.messages
+
+        bpy.ops.object.select_all(action="DESELECT")
+        mm_tgt.select_set(True)
+        _files, _errs = _mm_send([mm_tgt])
+        _primary = _fbx_models(_files.get("scene.fbx"))
+        _companion = _fbx_models(_files.get("scene_source.fbx"))
+        check(
+            "a bake send ships the Bake Source set as <base>_source.fbx",
+            {"mm_src", "mm_src_child"} <= _companion and "mm_tgt" not in _companion,
+            f"{sorted(_files)} -> {sorted(_companion)}",
+        )
+        check(
+            "...and the scoped target alone as <base>.fbx",
+            "mm_tgt" in _primary and not {"mm_src", "mm_src_child"} & _primary,
+            str(sorted(_primary)),
+        )
+        _script = _files.get("scene_bake_send_to.py")
+        _script_txt = (
+            open(_script, encoding="utf-8").read() if _script else ""
+        ).replace("\\", "/")
+        check(
+            "the rendered bake script imports the companion into the High side",
+            'SOURCE_MODEL_FILE = r"' in _script_txt
+            and "scene_source.fbx" in _script_txt,
+            next(
+                (ln for ln in _script_txt.splitlines() if "SOURCE_MODEL_FILE =" in ln),
+                "",
+            ),
+        )
+        check(
+            "the two-file flow writes no name-suffix pairs sidecar",
+            "scene.bake_pairs.json" not in _files,
+            str(sorted(_files)),
+        )
+        import json as _mm_json
+
+        _manifest = {}
+        if "scene.materials.json" in _files:
+            with open(_files["scene.materials.json"], encoding="utf-8") as fh:
+                _manifest = _mm_json.load(fh)
+        check(
+            "the manifest carries the source's material (the transfer samples it)",
+            "MM_SRC_MAT" in (_manifest.get("materials") or {}),
+            str(sorted(_manifest.get("materials") or {})),
+        )
+        # The auto cage is measured source -> target, keyed by source mesh.
+        check(
+            "the auto cage is measured from the set's meshes to the target",
+            "mm_src_child"
+            in _script_txt.split("CAGE_STANDOFFS =", 1)[-1].split("\n", 1)[0],
+            next(
+                (ln for ln in _script_txt.splitlines() if "CAGE_STANDOFFS =" in ln),
+                "",
+            ),
+        )
+        check(
+            "the companion export leaves hide flags and selection as it found them",
+            mm_src.hide_viewport
+            and mm_src.hide_get()
+            and [o.name for o in btk.selected_objects()] == ["mm_tgt"],
+            str([o.name for o in btk.selected_objects()]),
+        )
+
+        # "Entire Scene" hands the set's members in with the target.
+        _files, _errs = _mm_send([mm_tgt, mm_src, mm_grp, mm_child])
+        _primary = _fbx_models(_files.get("scene.fbx"))
+        check(
+            "a scope holding the source too never ships it on the target side",
+            "mm_tgt" in _primary
+            and not {"mm_src", "mm_src_child", "mm_src_grp"} & _primary
+            and {"mm_src", "mm_src_child"}
+            <= _fbx_models(_files.get("scene_source.fbx")),
+            str(sorted(_primary)),
+        )
+
+        _files, _errs = _mm_send([mm_src])
+        check(
+            "a scope of set members only is refused (there is no bake target)",
+            "scene.fbx" not in _files and any("no bake target" in m for m in _errs),
+            f"{sorted(_files)} {_errs}",
+        )
+        # A member under an unrelated group Empty: the scope closure adds that
+        # Empty as an ancestor and it stays on the target side, but an Empty is
+        # no bake target -- the send shipped it alone as scene.fbx. mayatk drops
+        # a member's ancestors, so its scope was refused. Added: 2026-09-27
+        mm_holder = bpy.data.objects.new("mm_holder", None)
+        bpy.context.scene.collection.objects.link(mm_holder)
+        mm_src.parent = mm_holder
+        try:
+            _files, _errs = _mm_send([mm_src])
+        finally:
+            mm_src.parent = None
+            bpy.data.objects.remove(mm_holder, do_unlink=True)
+        check(
+            "...and so is a member under a group Empty (an Empty is no bake target)",
+            "scene.fbx" not in _files and any("no bake target" in m for m in _errs),
+            f"{sorted(_files)} {_errs}",
+        )
+
+        # Only the bake splits: lookdev ships its scope as it always has.
+        _files, _errs = _mm_send([mm_tgt], template="lookdev")
+        check(
+            "a non-bake send ignores the Bake Source set",
+            "scene_source.fbx" not in _files and "scene.fbx" in _files,
+            str(sorted(_files)),
+        )
+        BakeSourceSet.clear()
+    except Exception as e:  # noqa: BLE001
+        check("Marmoset bake send ships the Bake Source set", False, repr(e))
+        lines.append(traceback.format_exc())
+
+    # ---- a scoped GROUP ships the subtree it names ----------------------------
+    # Blender's FBX writes exactly the objects it is handed, never their
+    # children, so a send of a selected Empty shipped the Empty alone (measured:
+    # Marmoset bake + lookdev, Substance import and the RizomUV send each wrote
+    # only `grp` for a group of two meshes). Maya's export-selection writes the
+    # subtree; the texture bridges now close the scope over the hierarchy the
+    # way the export-mixin bridges already did. Added: 2026-09-27
+    try:
+        import json as _gs_json
+
+        from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
+            MarmosetBridge as _GsMarmoset,
+        )
+
+        reset()
+        gs_grp = bpy.data.objects.new("gs_grp", None)
+        bpy.context.scene.collection.objects.link(gs_grp)
+        gs_sub = bpy.data.objects.new("gs_sub", None)
+        bpy.context.scene.collection.objects.link(gs_sub)
+        gs_sub.parent = gs_grp
+        for _name, _parent, _x in (("gs_a", gs_grp, 0), ("gs_b", gs_sub, 3)):
+            bpy.ops.mesh.primitive_cube_add(location=(_x, 0, 0))
+            _obj = bpy.context.active_object
+            _obj.name = _name
+            _obj.parent = _parent
+        # A textured material on the NESTED mesh: the manifest must reach it too.
+        _gs_img = os.path.join(tmp, "GsMat_BaseColor.png")
+        _gen = bpy.data.images.new("_gs", 4, 4)
+        _gen.filepath_raw = _gs_img
+        _gen.file_format = "PNG"
+        _gen.save()
+        bpy.data.images.remove(_gen)
+        gs_mat = btk.create_mat("standard", name="GS_MAT")
+        _nt = gs_mat.node_tree
+        _tex = _nt.nodes.new("ShaderNodeTexImage")
+        _tex.image = bpy.data.images.load(_gs_img)
+        _bsdf = next(n for n in _nt.nodes if n.type == "BSDF_PRINCIPLED")
+        _nt.links.new(_tex.outputs["Color"], _bsdf.inputs["Base Color"])
+        btk.assign_mat([bpy.data.objects["gs_b"]], gs_mat)
+        _gs_tree = {"gs_grp", "gs_sub", "gs_a", "gs_b"}
+
+        def _gs_read(folder):
+            manifest = {}
+            path = os.path.join(folder, "scene.materials.json")
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as fh:
+                    manifest = _gs_json.load(fh)
+            return (
+                _fbx_models(os.path.join(folder, "scene.fbx")),
+                sorted(manifest.get("materials") or {}),
+            )
+
+        for _template in ("bake", "lookdev"):
+            _dir = os.path.join(tmp, f"gs_mar_{_template}")
+            _bridge = _GsMarmoset(toolbag_path="not-used.exe")
+            _bridge.logger.setLevel("CRITICAL")
+            _bridge._produce(
+                [gs_grp],
+                _hp_ptk.HandoffRequest(
+                    template=_template,
+                    mode="send_to",
+                    params=_bridge.merge_params({}),
+                    extras={"output_dir": _dir, "output_name": "scene"},
+                ),
+            )
+            _models, _mats = _gs_read(_dir)
+            check(
+                f"a Marmoset {_template} send of a group ships its subtree",
+                _gs_tree <= _models and "GS_MAT" in _mats,
+                f"{sorted(_models)} mats={_mats}",
+            )
+
+        _sub_bridge = SubstanceBridge()
+        _sub_bridge.logger.setLevel("CRITICAL")
+        _dir = os.path.join(tmp, "gs_sub")
+        _req = _hp_ptk.HandoffRequest(
+            template="import",
+            mode="send_to",
+            params={},
+            extras={"output_dir": _dir, "output_name": "scene", "target": "new"},
+        )
+        if _sub_bridge._preflight([gs_grp], _req):
+            _sub_bridge._produce([gs_grp], _req)
+        _models, _mats = _gs_read(_dir)
+        check(
+            "a Substance send of a group ships its subtree",
+            _gs_tree <= _models and "GS_MAT" in _mats,
+            f"{sorted(_models)} mats={_mats}",
+        )
+
+        # Visible Only ships no hidden child, and the pairs sidecar must agree
+        # with the file: it classified the group's HIDDEN `_source` child (which
+        # never shipped) while the export left it out.
+        _hid = bpy.data.objects["gs_b"]
+        _hid.name = "gs_hidden_source"
+        _hid.hide_set(True)
+        _dir = os.path.join(tmp, "gs_visible")
+        _bridge = _GsMarmoset(toolbag_path="not-used.exe")
+        _bridge.logger.setLevel("CRITICAL")
+        _bridge._produce(
+            [gs_grp, gs_sub, bpy.data.objects["gs_a"]],
+            _hp_ptk.HandoffRequest(
+                template="bake",
+                mode="send_to",
+                params=_bridge.merge_params({"SCOPE": "visible"}),
+                extras={"output_dir": _dir, "output_name": "scene"},
+            ),
+        )
+        _pairs = {}
+        _pairs_path = os.path.join(_dir, "scene.bake_pairs.json")
+        if os.path.isfile(_pairs_path):
+            with open(_pairs_path, encoding="utf-8") as fh:
+                _pairs = _gs_json.load(fh)
+        check(
+            "Visible Only: the pairs sidecar classifies only what shipped",
+            "gs_hidden_source" not in _fbx_models(os.path.join(_dir, "scene.fbx"))
+            and "gs_hidden_source" not in _pairs,
+            str(_pairs),
+        )
+    except Exception as e:  # noqa: BLE001
+        check("a scoped group ships its subtree", False, repr(e))
+        lines.append(traceback.format_exc())
+
+    # ---- a Marmoset bake roundtrip puts the baked maps back ---------------------
+    # The panel's Assign Material row did nothing in Blender: the bridge had no
+    # ``_deliver``, so a roundtrip left the maps on disk and the scene as it was.
+    # Mirror of mayatk's delivery half (``_assign_baked_materials``, the
+    # re-bake-stable names, the filing aliases, the packed-map staging); the
+    # Toolbag leg is stubbed here and proven live. Added: 2026-09-27
+    try:
+        import json as _bk_json
+        from unittest import mock as _bk_mock
+
+        from blendertk.mat_utils.game_shader import GameShader as _BkGameShader
+        from blendertk.mat_utils.marmoset_bridge._marmoset_bridge import (
+            MarmosetBridge as _BkBridge,
+            ROUND_TRIP as _BK_RT,
+        )
+
+        reset()
+        bk_maps = os.path.join(tmp, "bk_maps")
+        os.makedirs(bk_maps, exist_ok=True)
+
+        def _bk_png(name, rgb):
+            path = os.path.join(bk_maps, name)
+            img = bpy.data.images.new("_bk", 4, 4)
+            img.pixels[:] = [c / 255.0 for c in rgb + (255,)] * 16
+            img.filepath_raw = path
+            img.file_format = "PNG"
+            img.save()
+            bpy.data.images.remove(img)
+            return path
+
+        bk_outputs = [
+            _bk_png("BK_A_Base_Color.png", (200, 40, 40)),
+            _bk_png("BK_A_Normal_OpenGL.png", (128, 128, 255)),
+            _bk_png("BK_B_Base_Color.png", (40, 200, 40)),
+        ]
+        bpy.ops.mesh.primitive_cube_add()
+        bk_tgt = bpy.context.active_object
+        bk_tgt.name = "bk_tgt"
+        for _mname in ("BK_A", "BK_B"):
+            bk_tgt.data.materials.append(btk.create_mat("standard", name=_mname))
+        for _i, _poly in enumerate(bk_tgt.data.polygons):
+            _poly.material_index = 0 if _i < 3 else 1
+
+        def _bk_slots(obj):
+            return [s.material.name if s.material else None for s in obj.material_slots]
+
+        def _bk_images(mat):
+            return sorted(
+                os.path.basename(n.image.filepath)
+                for n in (mat.node_tree.nodes if mat and mat.node_tree else [])
+                if n.type == "TEX_IMAGE" and n.image
+            )
+
+        def _bk_deliver(assignments, aliases=None, packing=None, assign=True):
+            """``_deliver`` of a bake roundtrip whose Toolbag leg returns *bk_outputs*."""
+            bridge = _BkBridge(toolbag_path="not-used.exe")
+            bridge.logger.setLevel("CRITICAL")
+            warnings_seen = []
+            bridge.logger.warning = lambda msg, *a, **k: warnings_seen.append(
+                str(msg) % a if a else str(msg)
+            )
+            bridge.deliverer.deliver = lambda b, p, r: {
+                "outputs": list(bk_outputs),
+                "texture_dir": bk_maps,
+            }
+            request = _hp_ptk.HandoffRequest(
+                template="bake",
+                mode=_BK_RT,
+                params={"ASSIGN_MATERIAL": assign},
+                extras={
+                    "output_name": "scene",
+                    "bake_assignments": assignments,
+                    "texture_set_aliases": aliases or {},
+                    "source_packing": packing or {},
+                },
+            )
+            return bridge._deliver(_hp_ptk.Payload(primary="unused.fbx"), request), (
+                warnings_seen
+            )
+
+        bk_assign = _BkBridge._material_assignments([bk_tgt])
+        check(
+            "the export records which target meshes wore which material",
+            bk_assign == {"BK_A": ["bk_tgt"], "BK_B": ["bk_tgt"]},
+            str(bk_assign),
+        )
+
+        _res, _ = _bk_deliver(bk_assign, assign=False)
+        check(
+            "Assign Material off leaves the scene alone",
+            "materials" not in (_res or {}) and _bk_slots(bk_tgt) == ["BK_A", "BK_B"],
+            str(_bk_slots(bk_tgt)),
+        )
+
+        _calls = []
+        _real_create = _BkGameShader.create_network
+
+        def _spy_create(self, textures, *a, **kw):
+            _calls.append((kw.get("name"), kw))
+            return _real_create(self, textures, *a, **kw)
+
+        with _bk_mock.patch.object(_BkGameShader, "create_network", _spy_create):
+            _res, _ = _bk_deliver(bk_assign, packing={"BK_A": "MSAO", "BK_B": "ORM"})
+        first_a = bpy.data.materials.get("BK_A_BAKED")
+        check(
+            "a bake roundtrip builds <mat>_BAKED per texture set, slot by slot",
+            (_res or {}).get("materials")
+            == {"BK_A": "BK_A_BAKED", "BK_B": "BK_B_BAKED"}
+            and _bk_slots(bk_tgt) == ["BK_A_BAKED", "BK_B_BAKED"],
+            f"{(_res or {}).get('materials')} {_bk_slots(bk_tgt)}",
+        )
+        check(
+            "...each wired from its own set's maps",
+            "BK_A_Base_Color.png" in _bk_images(first_a)
+            and "BK_B_Base_Color.png"
+            in _bk_images(bpy.data.materials.get("BK_B_BAKED"))
+            and "BK_B_Base_Color.png" not in _bk_images(first_a),
+            f"{_bk_images(first_a)}",
+        )
+        check(
+            "...restoring each source's packed layout (MSAO / ORM)",
+            any(n == "BK_A_BAKED" and kw.get("mask_map") for n, kw in _calls)
+            and any(n == "BK_B_BAKED" and kw.get("orm_map") for n, kw in _calls)
+            and not any(n == "BK_B_BAKED" and kw.get("mask_map") for n, kw in _calls),
+            str(
+                [(n, sorted(k for k, v in kw.items() if v is True)) for n, kw in _calls]
+            ),
+        )
+
+        # A re-bake: the meshes now wear <mat>_BAKED, the maps are filed under
+        # the source name (the aliases), and the rebuild REPLACES the material.
+        first_ptr = first_a.as_pointer()
+        _again = _BkBridge._material_assignments([bk_tgt])
+        _aliases = _BkBridge.texture_set_aliases(_again)
+        _res, _ = _bk_deliver(_again, aliases=_aliases)
+        _now = bpy.data.materials.get("BK_A_BAKED")
+        check(
+            "a re-bake replaces <mat>_BAKED instead of stacking a .001",
+            _aliases == {"BK_A_BAKED": "BK_A", "BK_B_BAKED": "BK_B"}
+            and _bk_slots(bk_tgt) == ["BK_A_BAKED", "BK_B_BAKED"]
+            and _now is not None
+            and _now.as_pointer() != first_ptr
+            and not [
+                m.name for m in bpy.data.materials if m.name.startswith("BK_A_BAKED.")
+            ],
+            f"{_bk_slots(bk_tgt)} {[m.name for m in bpy.data.materials]}",
+        )
+
+        # A partial re-bake: another mesh still wears the earlier BK_B_BAKED,
+        # so it stays (Blender would strip that mesh) and the rebuild says so.
+        bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+        bk_other = bpy.context.active_object
+        bk_other.name = "bk_other"
+        bk_other.data.materials.append(bpy.data.materials["BK_B_BAKED"])
+        _again = _BkBridge._material_assignments([bk_tgt])
+        _res, _warned = _bk_deliver(
+            _again, aliases=_BkBridge.texture_set_aliases(_again)
+        )
+        check(
+            "a partial re-bake keeps the earlier material another mesh still wears",
+            _bk_slots(bk_other) == ["BK_B_BAKED"]
+            and _bk_slots(bk_tgt)[1] not in (None, "BK_B_BAKED")
+            and any("still worn" in w for w in _warned),
+            f"other={_bk_slots(bk_other)} tgt={_bk_slots(bk_tgt)} {_warned}",
+        )
+
+        # The export half: a source reading a PACKED map gets it unpacked for
+        # Toolbag (which samples whole images per field), and the layout is
+        # recorded for the rewire above.
+        reset()
+        _orm = _bk_png("BkSrc_ORM.png", (255, 128, 0))
+        bpy.ops.mesh.primitive_cube_add(size=2.2)
+        bk_src = bpy.context.active_object
+        bk_src.name = "bk_src_source"
+        _src_mat = btk.create_mat("standard", name="BK_SRC")
+        _nt = _src_mat.node_tree
+        _tex = _nt.nodes.new("ShaderNodeTexImage")
+        _tex.image = bpy.data.images.load(_orm)
+        _bsdf = next(n for n in _nt.nodes if n.type == "BSDF_PRINCIPLED")
+        _nt.links.new(_tex.outputs["Color"], _bsdf.inputs["Roughness"])
+        btk.assign_mat([bk_src], _src_mat)
+        bpy.ops.mesh.primitive_cube_add(size=2.0)
+        bk_low = bpy.context.active_object
+        bk_low.name = "bk_low"
+        btk.assign_mat([bk_low], btk.create_mat("standard", name="BK_LOW_BAKED"))
+        _dir = os.path.join(tmp, "bk_produce")
+        _bridge = _BkBridge(toolbag_path="not-used.exe")
+        _bridge.logger.setLevel("CRITICAL")
+        _req = _hp_ptk.HandoffRequest(
+            template="bake",
+            mode=_BK_RT,
+            params=_bridge.merge_params({"AUTO_CAGE": False}),
+            extras={"output_dir": _dir, "output_name": "scene"},
+        )
+        _bridge._produce([bk_low, bk_src], _req)
+        with open(os.path.join(_dir, "scene.materials.json"), encoding="utf-8") as fh:
+            _rough = (
+                (_bk_json.load(fh).get("materials") or {}).get("BK_SRC") or {}
+            ).get("roughness", "")
+        check(
+            "a packed source map is unpacked for Toolbag and its layout recorded",
+            _req.extras.get("source_packing") == {"BK_SRC": "ORM"}
+            and _rough
+            and "_staging" in _rough.replace("\\", "/")
+            and not _rough.endswith("BkSrc_ORM.png"),
+            f"{_req.extras.get('source_packing')} roughness={_rough}",
+        )
+        check(
+            "...and the export records the assignments and the filing aliases",
+            _req.extras.get("bake_assignments")
+            == {"BK_LOW_BAKED": ["bk_low"], "BK_SRC": ["bk_src_source"]}
+            and _req.extras.get("texture_set_aliases") == {"BK_LOW_BAKED": "BK_LOW"},
+            f"{_req.extras.get('bake_assignments')} {_req.extras.get('texture_set_aliases')}",
+        )
+        _bridge._discard_scratch(_req, {})
+    except Exception as e:  # noqa: BLE001
+        check("a Marmoset bake roundtrip puts the baked maps back", False, repr(e))
+        lines.append(traceback.format_exc())
 
     import shutil
 

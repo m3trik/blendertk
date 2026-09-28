@@ -142,9 +142,9 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
                     "collects textures from the materials, then launches RizomUV detached. Save "
                     "manually inside RizomUV when done.",
                     "<b>pack_into_existing</b> -- packs the selection's shells into the empty space "
-                    "of the layout shared by every mesh using the selection's material(s); the "
-                    "existing shells don't move. Requires RizomUV 2022.2+ (hidden from the dropdown "
-                    "on older installs).",
+                    "of the layout shared by every mesh using the selection's material(s), at that "
+                    "layout's texel density (shrunk only if they don't fit); the existing shells "
+                    "don't move.",
                 ],
             ),
             (
@@ -160,6 +160,10 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
             ),
         ],
         "notes": [
+            "<b>pack</b> and <b>pack_into_existing</b> honour an Edit Mode face "
+            "selection: only the UV shells the selected faces touch move (any face of a "
+            "shell picks all of it); every other shell stays exactly where it is and is "
+            "packed around. The other presets work on whole objects.",
             "RizomUV (Rizom Lab) must be installed -- auto-discovered under "
             "<code>Program Files\\Rizom Lab</code>. Windows only.",
         ],
@@ -186,7 +190,7 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
     # Preset that packs the SELECTION's islands into the empty space of the existing layout: the
     # processed object set expands to every mesh sharing the selection's materials (the material
     # defines "the map"), and the selection becomes select_objects= so only its islands move.
-    # Version-gated >= 2022.2 via its @min_rizom header. Mirror of mayatk.
+    # Mirror of mayatk.
     PACK_INTO_EXISTING_PRESET = "pack_into_existing"
 
     def list_template_modes(self):
@@ -247,18 +251,22 @@ class RizomBridgeSlots(BlenderBridgeSlotsBase):
                         load_uvw_props=params.get("LOAD_UVW_PROPS", True),
                         import_groups=params.get("IMPORT_GROUPS", True),
                         load_textures=params.get("LOAD_TEXTURES", True),
+                        params=params,
                     )
                 elif preset == self.PACK_INTO_EXISTING_PRESET:
                     all_objs, new_objs = RizomUVBridge.expand_by_materials(selection)
-                    if len(all_objs) <= len(new_objs):
+                    # An Edit Mode face selection leaves its meshes' other shells in the
+                    # layout; the bridge refuses one that leaves none.
+                    partial = bool(RizomUVBridge._shell_subset(selection)[0])
+                    if len(all_objs) <= len(new_objs) and not partial:
                         self.bridge.logger.warning(
                             "No other meshes share the selection's material(s) -- there is no "
                             "existing layout to pack into. Use the 'pack' preset instead."
                         )
                         return
                     self.bridge.logger.info(
-                        f"Packing {len(new_objs)} object(s) into the layout of "
-                        f"{len(all_objs) - len(new_objs)} other mesh(es) sharing their material(s)."
+                        "Packing the selection into the layout of the "
+                        f"{len(all_objs)} mesh(es) sharing its material(s)."
                     )
                     self.bridge.process_with_rizomuv(
                         all_objs,

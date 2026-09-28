@@ -333,10 +333,12 @@ class CurtainSlots(ptk.LoggingMixin):
             self._discard_driver()
         points, closed = self._field_rail()
         self._driver = self._build_driver(points, closed)
-        bpy.ops.object.select_all(action="DESELECT")
-        obj = bpy.data.objects[self._driver]
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
+        # the window's view layer + context (see _finalize)
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            obj = bpy.data.objects[self._driver]
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
 
     def _discard_driver(self) -> None:
         """Delete the generated driver curve we own (orphan-rail cleanup), if it exists."""
@@ -508,9 +510,12 @@ class CurtainSlots(ptk.LoggingMixin):
         obj = self.last_curtain and bpy.data.objects.get(self.last_curtain)
         if obj is None or not self.ui.chk005.isChecked():
             return
-        bpy.ops.object.select_all(action="DESELECT")
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
 
 
 # -----------------------------------------------------------------------------

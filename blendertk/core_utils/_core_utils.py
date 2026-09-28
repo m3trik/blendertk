@@ -28,6 +28,14 @@ _DUP_SUFFIX_RE = re.compile(r"\.\d{3}$")
 class _CoreUtilsInternal(object):
     """Internal helpers for CoreUtils."""
 
+    #: ``{import_name: module}`` that PROVES an ensured package imports, for a package
+    #: whose top level imports fine while its compiled core does not. Pillow's
+    #: ``PIL/__init__`` is pure Python and ``PIL.Image`` loads ``_imaging``: a wheel
+    #: built for another CPython (a 4.x profile carried to 5.1 by *Load Previous
+    #: Settings*) imports ``PIL`` and fails ``PIL.Image``. Every other name is proven
+    #: by importing it: ``cv2`` / ``numpy`` load their binaries in ``__init__``.
+    _IMPORT_PROBES = {"PIL": "PIL.Image"}
+
     @staticmethod
     def _object_mode(fn):
         """Run ``fn`` in OBJECT mode, restoring the caller's prior mode afterward.
@@ -120,20 +128,37 @@ class _CoreUtilsInternal(object):
         :meth:`CoreUtils.ensure_image_deps`.
         """
         import os
+        import re
         import sys
+        import shutil
         import logging
         import importlib
         import importlib.util
 
+        def _importable(imp):
+            # Proven by IMPORTING, not ``find_spec``: a package can be found and still
+            # not import (see ``_IMPORT_PROBES``), which read as available and so was
+            # never provisioned.
+            try:
+                importlib.import_module(_CoreUtilsInternal._IMPORT_PROBES.get(imp, imp))
+                return True
+            except Exception:
+                return False
+
         def _available():
-            names = []
-            for imp in pkgs.values():
-                try:
-                    if importlib.util.find_spec(imp) is not None:
-                        names.append(imp)
-                except (ImportError, ValueError):
-                    pass
-            return names
+            return [imp for imp in pkgs.values() if _importable(imp)]
+
+        def _found_at(imp):
+            """Where the top-level package is found, or None."""
+            try:
+                spec = importlib.util.find_spec(imp.split(".")[0])
+            except (ImportError, ValueError):
+                return None
+            if spec is None:
+                return None
+            return spec.origin or next(
+                iter(spec.submodule_search_locations or []), None
+            )
 
         available = _available()
         missing = [spec for spec, imp in pkgs.items() if imp not in available]
@@ -159,6 +184,43 @@ class _CoreUtilsInternal(object):
         except OSError:
             pass
 
+        # Found but not importable: while its dist-info sits in the install dir, pip's
+        # plan reads it as satisfied and installs nothing. Drop that dist-info so the
+        # plan installs this interpreter's build, whose --upgrade apply replaces the
+        # package folder. Only in OUR dir: a copy elsewhere is reported, not touched.
+        broken = {}
+        root = os.path.normcase(os.path.normpath(install_dir))
+        for spec, imp in pkgs.items():
+            where = _found_at(imp) if spec in missing else None
+            if not where:
+                continue
+            broken[spec] = imp
+            if not os.path.normcase(os.path.normpath(where)).startswith(root + os.sep):
+                log.warning(
+                    f"[ensure_packages] {imp!r} is found at {where!r} but does not "
+                    "import (built for another Python?); it lies outside "
+                    f"{install_dir!r}, so it is left for you to remove."
+                )
+                continue
+            dist = re.sub(
+                r"[-_.]+", "_", re.match(r"\s*([\w.-]+)", spec).group(1)
+            ).lower()
+            try:
+                entries = os.listdir(install_dir)
+            except OSError:
+                entries = []
+            for entry in entries:
+                name = entry[: -len(".dist-info")].rpartition("-")[0]
+                if (
+                    entry.endswith(".dist-info")
+                    and re.sub(r"[-_.]+", "_", name).lower() == dist
+                ):
+                    log.info(
+                        f"[ensure_packages] {imp!r} does not import; reinstalling "
+                        f"({entry} dropped)."
+                    )
+                    shutil.rmtree(os.path.join(install_dir, entry), ignore_errors=True)
+
         pm = ptk.PackageManager(python_path=_CoreUtilsInternal._blender_python_exe())
         try:
             pm.install_targeted(missing, install_dir)
@@ -176,6 +238,11 @@ class _CoreUtilsInternal(object):
             seen = {os.path.normcase(os.path.normpath(q)) for q in sys.path}
             if os.path.normcase(install_dir) not in seen:
                 sys.path.append(install_dir)
+        # The failed import left the broken package half-imported; a stale module
+        # (its version stamp, say) would fail the fresh build's own checks.
+        for top in {imp.split(".")[0] for imp in broken.values()}:
+            for name in [n for n in sys.modules if n == top or n.startswith(top + ".")]:
+                del sys.modules[name]
         importlib.invalidate_caches()
         return _available()
 
@@ -271,15 +338,39 @@ class _CoreUtilsInternal(object):
         with ``window=None`` those members return ``[]`` / ``None`` while a cube is selected). The view
         layer is window-independent, so reading selection through ``view_layer.objects`` is correct from
         that context. Falls back to the scene's first view layer if even ``context.view_layer`` is unset.
+
+        Resolved under :func:`CoreUtils.window_context_override`, so it is BY CONSTRUCTION the layer
+        every operator run under that override acts on. Without a window, ``context.view_layer`` is
+        the scene's *default* layer, not the one the window shows (measured: a two-layer scene read
+        the default layer's selection while the override's operators acted on the window's). The
+        override is a no-op when a window is in context, so this is ``context.view_layer`` there.
         """
         import bpy
 
-        vl = getattr(bpy.context, "view_layer", None)
+        with CoreUtils.window_context_override():
+            vl = getattr(bpy.context, "view_layer", None)
         if vl is not None:
             return vl
         scene = getattr(bpy.context, "scene", None)
         view_layers = getattr(scene, "view_layers", None) if scene else None
         return view_layers[0] if view_layers else None
+
+    @staticmethod
+    def _evaluated_depsgraph():
+        """The evaluated depsgraph of the view layer the window shows (see
+        :func:`_active_view_layer`).
+
+        Windowless, ``bpy.context.evaluated_depsgraph_get()`` is the scene's DEFAULT
+        layer's depsgraph, and a collection excluded there is never evaluated in it:
+        ``evaluated_get`` then returns the ORIGINAL object, so a modifier stack reads as
+        its base mesh (measured: a subdivided cube counted 12 triangles, not 48). Taken
+        under :func:`CoreUtils.window_context_override`, the same override every
+        operator runs under; the depsgraph outlives the override (the scene owns it).
+        """
+        import bpy
+
+        with CoreUtils.window_context_override():
+            return bpy.context.evaluated_depsgraph_get()
 
     @staticmethod
     def _mesh_face_counts(mesh) -> tuple[int, int]:
@@ -452,14 +543,24 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
 
         restore = []
         linked = []
-        view_layer = getattr(bpy.context, "view_layer", None)
+        # The eye is per VIEW LAYER, and the caller's operator may evaluate either of
+        # two: windowless, ``context.view_layer`` is the scene's default layer while
+        # an operator run under window_context_override evaluates the window's. So
+        # both are cleared (one layer when they coincide, as they do with a window).
+        view_layers = []
+        for layer in (
+            getattr(bpy.context, "view_layer", None),
+            _CoreUtilsInternal._active_view_layer(),
+        ):
+            if layer is not None and layer not in view_layers:
+                view_layers.append(layer)
         master = getattr(getattr(bpy.context, "scene", None), "collection", None)
         for obj in ptk.make_iterable(objects):
             if obj is None:
                 continue
             for flag in ("hide_viewport", "hide_render", "hide_select"):
                 if getattr(obj, flag, False):
-                    restore.append((obj, flag, True))
+                    restore.append((obj, flag, None))
                     setattr(obj, flag, False)
             # A visible path to the object, without touching what else its
             # collections hold. Unconditional rather than conditional on a
@@ -478,11 +579,11 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             # The view-layer "eye" is a separate axis from hide_viewport and is
             # the one FBX/USD imports usually set. Cleared AFTER the link, so it
             # also covers the layer-collection entry the link just created.
-            if view_layer is not None:
+            for layer in view_layers:
                 try:
-                    if obj.hide_get(view_layer=view_layer):
-                        restore.append((obj, "hide_get", True))
-                        obj.hide_set(False, view_layer=view_layer)
+                    if obj.hide_get(view_layer=layer):
+                        restore.append((obj, "hide_get", layer))
+                        obj.hide_set(False, view_layer=layer)
                 except (RuntimeError, ReferenceError):
                     pass
         try:
@@ -493,12 +594,12 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                     master.objects.unlink(obj)
                 except (RuntimeError, ReferenceError):
                     pass
-            for holder, flag, value in reversed(restore):
+            for holder, flag, layer in reversed(restore):
                 try:
                     if flag == "hide_get":
-                        holder.hide_set(value, view_layer=view_layer)
+                        holder.hide_set(True, view_layer=layer)
                     else:
-                        setattr(holder, flag, value)
+                        setattr(holder, flag, True)
                 except (RuntimeError, ReferenceError, AttributeError):
                     pass
 
@@ -881,6 +982,66 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         return vl.objects.active if vl is not None else None
 
     @staticmethod
+    @contextmanager
+    def preserved_selection():
+        """Restore the viewport selection after a scene-mutating block — mirror of
+        ``mtk.CoreUtils.preserved_selection``.
+
+        Selecting what an operator acts on (``join``, an exporter's ``use_selection``,
+        ``data_transfer``) or creating objects leaves the block's objects selected, so a
+        tool that runs it mid-operation hands the user's next action the wrong scope.
+        Blender keeps an ACTIVE object apart from the selection, and it comes back too.
+        Objects the block removed are dropped from the restore; an empty selection comes
+        back empty. Captured and restored on the window's view layer
+        (:func:`_active_view_layer`), whatever the context of the block. The restore is
+        guarded -- logged, never raised (``ptk.CoreUtils.teardown_guard``): it runs in a
+        ``finally``, where a raise would mask the body's own result.
+
+        Yields:
+            (list): The captured selection.
+
+        Example:
+            >>> with CoreUtils.preserved_selection():
+            ...     bpy.ops.object.join()
+        """
+        import logging
+
+        def layer_objects(vl):
+            # Reading the active object resyncs the layer; iterating ``objects`` does
+            # not. Measured: an object whose collection links changed (visible_override's
+            # temporary master link) was missing from the iteration, and a stale entry
+            # can read None.
+            if vl is None:
+                return []
+            _ = vl.objects.active  # the resync
+            return [o for o in vl.objects if o is not None]
+
+        def alive(obj):
+            try:
+                return obj is not None and obj.name is not None
+            except ReferenceError:  # removed by the block
+                return False
+
+        vl = _CoreUtilsInternal._active_view_layer()
+        selection = [o for o in layer_objects(vl) if o.select_get(view_layer=vl)]
+        active = vl.objects.active if vl else None
+        try:
+            yield selection
+        finally:
+            with ptk.CoreUtils.teardown_guard(logging.getLogger(__name__), "selection"):
+                keep = {o.as_pointer() for o in selection if alive(o)}
+                for obj in layer_objects(vl):
+                    try:
+                        obj.select_set(obj.as_pointer() in keep, view_layer=vl)
+                    except RuntimeError:  # no longer selectable in the layer
+                        continue
+                if vl is not None and (active is None or alive(active)):
+                    try:
+                        vl.objects.active = active
+                    except RuntimeError:  # left the layer inside the block
+                        pass
+
+    @staticmethod
     def reorder_objects(objects=None, method="name", reverse=False):
         """Reorder a set of objects by a sorting method — mirror of ``mtk.reorder_objects``
         (``name`` / ``hierarchy`` / ``x``/``y``/``z`` / ``distance`` / ``volume`` /
@@ -1041,6 +1202,14 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
 
         A no-op (plain ``yield``) when a window is already active — so it's harmless to wrap
         unconditionally — or when no window exists at all (leaves the caller to fail as it would have).
+
+        It also switches the VIEW LAYER: windowless, ``context.view_layer`` is the scene's default
+        layer; inside, it is the one the window shows. ``_active_view_layer`` (behind
+        :func:`selected_objects` / :func:`active_object`) resolves through this override, so the
+        readers and the operators agree on one layer. Raw ``context.view_layer`` access and
+        ``select_set`` / ``select_get`` / ``hide_set`` (which default to the context's layer) belong
+        inside it. Like any ``@contextmanager``, a call doubles as a decorator:
+        ``@CoreUtils.window_context_override()`` runs a whole function under it.
         """
         import bpy
 
@@ -1103,7 +1272,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                     bpy.ops.object.mode_set(mode="OBJECT")
                 # select_set, not object.select_all: that op polls Object Mode
                 # and reads screen context; select_set is mode-independent.
-                for o in view_layer.objects:
+                for o in list(view_layer.objects):
                     o.select_set(o in objects)
                 if objects:
                     view_layer.objects.active = objects[0]
@@ -1114,7 +1283,7 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
                     if getattr(view_layer.objects.active, "mode", "OBJECT") != "OBJECT":
                         bpy.ops.object.mode_set(mode="OBJECT")
                     alive = set(view_layer.objects)
-                    for o in view_layer.objects:
+                    for o in list(view_layer.objects):
                         o.select_set(o in prior_selection)
                     if prior_active is not None and prior_active in alive:
                         view_layer.objects.active = prior_active

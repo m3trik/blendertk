@@ -145,25 +145,29 @@ class _EditUtilsInternal(object):
         import bpy
         import bmesh
 
-        active = bpy.context.view_layer.objects.active
-        prev_mode = active.mode if active else "OBJECT"
-        if prev_mode != "EDIT":
-            bpy.ops.object.select_all(action="DESELECT")
-            for o in meshes:
-                o.select_set(True)
-            bpy.context.view_layer.objects.active = meshes[0]
-            bpy.ops.object.mode_set(mode="EDIT")
-        try:
-            total = 0
-            for o in meshes:
-                n = fn(bmesh.from_edit_mesh(o.data), o)
-                if n:
-                    bmesh.update_edit_mesh(o.data)
-                    total += n
-            return total
-        finally:
+        # The window's view layer + context: windowless, mode_set poll-fails and
+        # select_all / select_set / the active write address the scene's default
+        # layer, not the one the window shows.
+        with CoreUtils.window_context_override():
+            active = bpy.context.view_layer.objects.active
+            prev_mode = active.mode if active else "OBJECT"
             if prev_mode != "EDIT":
-                bpy.ops.object.mode_set(mode="OBJECT")
+                bpy.ops.object.select_all(action="DESELECT")
+                for o in meshes:
+                    o.select_set(True)
+                bpy.context.view_layer.objects.active = meshes[0]
+                bpy.ops.object.mode_set(mode="EDIT")
+            try:
+                total = 0
+                for o in meshes:
+                    n = fn(bmesh.from_edit_mesh(o.data), o)
+                    if n:
+                        bmesh.update_edit_mesh(o.data)
+                        total += n
+                return total
+            finally:
+                if prev_mode != "EDIT":
+                    bpy.ops.object.mode_set(mode="OBJECT")
 
     @staticmethod
     def _apply_modifier(obj, mod_name):
@@ -1607,7 +1611,7 @@ class EditUtils(_EditUtilsInternal):
                 [round(c / grid_size) * grid_size if m else c for c, m in zip(co, mask)]
             )
 
-        active = bpy.context.view_layer.objects.active
+        active = CoreUtils.active_object()
         if active and active.type == "MESH" and active.mode == "EDIT":
             import bmesh
 
@@ -1774,9 +1778,8 @@ class EditUtils(_EditUtilsInternal):
         would size the cage for a mesh that is not the one being baked -- a
         Subsurf or Solidify source would come out short.
         """
-        import bpy
 
-        depsgraph = bpy.context.evaluated_depsgraph_get()
+        depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
 
         def _evaluated(nodes):
             return [
@@ -1871,22 +1874,26 @@ class EditUtils(_EditUtilsInternal):
         ref_metrics = [_EditUtilsInternal._mesh_metrics(r, flags) for r in refs]
         # Pool + selection must stay within the active view layer — select_set() raises on objects
         # that aren't in it (other scenes / excluded collections), and they're not valid matches anyway.
-        view_objects = list(bpy.context.view_layer.objects)
-        matched = []
-        for o in (m for m in view_objects if m.type == "MESH"):
-            if o in refs or o in matched:
-                continue
-            om = _EditUtilsInternal._mesh_metrics(o, flags)
-            if any(ptk.are_similar(rm, om, tolerance=tolerance) for rm in ref_metrics):
-                matched.append(o)
-        result = matched + (refs if inc_orig else [])
-        if select:
-            for o in view_objects:
-                o.select_set(False)
-            for o in result:
-                o.select_set(True)
-            if result:
-                bpy.context.view_layer.objects.active = result[0]
+        # the window's view layer (windowless: the scene's default)
+        with CoreUtils.window_context_override():
+            view_objects = list(bpy.context.view_layer.objects)
+            matched = []
+            for o in (m for m in view_objects if m.type == "MESH"):
+                if o in refs or o in matched:
+                    continue
+                om = _EditUtilsInternal._mesh_metrics(o, flags)
+                if any(
+                    ptk.are_similar(rm, om, tolerance=tolerance) for rm in ref_metrics
+                ):
+                    matched.append(o)
+            result = matched + (refs if inc_orig else [])
+            if select:
+                for o in view_objects:
+                    o.select_set(False)
+                for o in result:
+                    o.select_set(True)
+                if result:
+                    bpy.context.view_layer.objects.active = result[0]
         return result
 
     @staticmethod
@@ -1937,12 +1944,14 @@ class EditUtils(_EditUtilsInternal):
 
         # select_set() raises on objects outside the active view layer (other scenes /
         # excluded collections) — those simply can't be selected.
-        view_objects = set(bpy.context.view_layer.objects)
-        selectable = [o for o in freed if o in view_objects]
-        for obj in selectable:
-            obj.select_set(True)
-        if selectable:
-            bpy.context.view_layer.objects.active = selectable[0]
+        # the window's view layer (windowless: the scene's default)
+        with CoreUtils.window_context_override():
+            view_objects = set(bpy.context.view_layer.objects)
+            selectable = [o for o in freed if o in view_objects]
+            for obj in selectable:
+                obj.select_set(True)
+            if selectable:
+                bpy.context.view_layer.objects.active = selectable[0]
         return freed
 
     @staticmethod
@@ -2096,59 +2105,65 @@ class EditUtils(_EditUtilsInternal):
         """
         import bpy
 
-        active = bpy.context.view_layer.objects.active
-        if not (active and active.type == "MESH" and active.mode == "EDIT"):
-            return []
+        # The window's view layer + context: the mesh.* ops poll the edit object from
+        # screen context (windowless, mesh.separate refused 'Selection not supported in
+        # object mode'), and select_set / the active write address the scene's default
+        # layer.
+        with CoreUtils.window_context_override():
+            active = bpy.context.view_layer.objects.active
+            if not (active and active.type == "MESH" and active.mode == "EDIT"):
+                return []
 
-        def _centered(objs):
-            # Center each result's origin separately (BOUNDS = Maya's centerPivots), so the
-            # detached piece(s) don't keep the source's off-in-the-corner origin. The shared
-            # helper is @_object_mode-guarded (headless-safe) and restores edit mode after.
-            if center_pivot and objs:
-                from blendertk.xform_utils._xform_utils import XformUtils
+            def _centered(objs):
+                # Center each result's origin separately (BOUNDS = Maya's centerPivots), so the
+                # detached piece(s) don't keep the source's off-in-the-corner origin. The shared
+                # helper is @_object_mode-guarded (headless-safe) and restores edit mode after.
+                if center_pivot and objs:
+                    from blendertk.xform_utils._xform_utils import XformUtils
 
-                XformUtils.center_pivot(objs, mode="object")
-            return objs
+                    XformUtils.center_pivot(objs, mode="object")
+                return objs
 
-        if duplicate:  # extract a copy: duplicate the selection in place first
-            bpy.ops.mesh.duplicate()
-        if not separate:  # detach in place — keep the geometry within the same object
-            # edge_split disconnects along EVERY selected edge, so the faces come apart from
-            # each other as well as from the body — mayatk's keepFacesTogether=False in place.
-            if separate_each:
-                bpy.ops.mesh.edge_split()
-            else:
-                bpy.ops.mesh.split()
-            return []
+            if duplicate:  # extract a copy: duplicate the selection in place first
+                bpy.ops.mesh.duplicate()
+            # detach in place — keep the geometry within the same object
+            if not separate:
+                # edge_split disconnects along EVERY selected edge, so the faces come apart from
+                # each other as well as from the body — mayatk's keepFacesTogether=False in place.
+                if separate_each:
+                    bpy.ops.mesh.edge_split()
+                else:
+                    bpy.ops.mesh.split()
+                return []
 
-        before = set(bpy.data.objects)
-        bpy.ops.mesh.separate(type="SELECTED")
-        new = [o for o in bpy.data.objects if o not in before]
-        if not (separate_each and new):
-            return _centered(new)
+            before = set(bpy.data.objects)
+            bpy.ops.mesh.separate(type="SELECTED")
+            new = [o for o in bpy.data.objects if o not in before]
+            if not (separate_each and new):
+                return _centered(new)
 
-        # explode each extract into one object per face: with everything selected, edge-split
-        # turns every face into its own loose island, then LOOSE separate gives one object each.
-        bpy.ops.object.mode_set(mode="OBJECT")
-        # ONE snapshot for the whole explode: the loop only ever ADDS objects (LOOSE
-        # separate leaves the source in place and nothing is removed), so the single
-        # post-loop difference is exactly the union of the per-iteration differences --
-        # without re-walking the whole bpy.data.objects RNA collection twice per source.
-        before_explode = set(bpy.data.objects)
-        for obj in new:
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
-            bpy.ops.object.mode_set(mode="EDIT")
-            bpy.ops.mesh.select_all(action="SELECT")
-            bpy.ops.mesh.edge_split()
-            try:
-                bpy.ops.mesh.separate(type="LOOSE")
-            except RuntimeError:
-                pass
+            # explode each extract into one object per face: with everything selected, edge-split
+            # turns every face into its own loose island, then LOOSE separate gives one object each.
             bpy.ops.object.mode_set(mode="OBJECT")
-        exploded = [o for o in bpy.data.objects if o not in before_explode]
-        return _centered(new + exploded)
+            # ONE snapshot for the whole explode: the loop only ever ADDS objects (LOOSE
+            # separate leaves the source in place and nothing is removed), so the single
+            # post-loop difference is exactly the union of the per-iteration differences --
+            # without re-walking the whole bpy.data.objects RNA collection twice per source.
+            before_explode = set(bpy.data.objects)
+            for obj in new:
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.mesh.edge_split()
+                try:
+                    bpy.ops.mesh.separate(type="LOOSE")
+                except RuntimeError:
+                    pass
+                bpy.ops.object.mode_set(mode="OBJECT")
+            exploded = [o for o in bpy.data.objects if o not in before_explode]
+            return _centered(new + exploded)
 
     @staticmethod
     @CoreUtils._object_mode
@@ -2309,7 +2324,7 @@ class EditUtils(_EditUtilsInternal):
             if objects is not None
             else CoreUtils.selected_objects()
         )
-        depsgraph = bpy.context.evaluated_depsgraph_get()
+        depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
         profiles = []
         for o in pool:
             if o.type not in ("CURVE", "MESH"):

@@ -650,6 +650,11 @@ class SmartBake(_SmartBakeInternal):
             logger.warning(f"SmartBake: failed to save backup: {e}")
             return None
 
+    #: The bake in progress, ``(result, session)``, from the moment its manifest
+    #: exists until :meth:`bake` returns: what :meth:`_roll_back` reverses when a
+    #: phase raises (mirror of mayatk's).
+    _in_flight: Optional[Tuple[BakeResult, Optional[Dict[str, Any]]]] = None
+
     @CoreUtils.undoable
     def bake(
         self,
@@ -657,6 +662,15 @@ class SmartBake(_SmartBakeInternal):
         time_range: Optional[Tuple[int, int]] = None,
     ) -> BakeResult:
         """Bake every driven source :func:`analyze` found.
+
+        Transactional (mirror of mayatk's): each phase records what it changes in
+        the session manifest BEFORE changing it, so a phase that raises is reversed
+        from that manifest (:meth:`_roll_back`) and its error re-raised -- the
+        scene is handed back as the bake found it: the pre-bake Actions and their
+        ``use_fake_user``, the sources' mute state, the shape-key snapshots. A
+        non-restorable bake (``restorable=False``, or ``delete_sources``) records
+        nothing it could reverse, so its partial state is left and named in a
+        warning.
 
         Transform sources (``"constraint"``/``"ik"``/``"driver"``) are baked together per
         object/armature via ``AnimUtils.bake_keys(..., use_current_action=False)`` — this creates
@@ -691,7 +705,68 @@ class SmartBake(_SmartBakeInternal):
         Returns:
             BakeResult with ``baked``/``skipped``/``time_range``/``muted_constraints``/
             ``muted_drivers``/``session_id``/``backup_path`` populated.
+
+        Raises:
+            Whatever a phase raised, after the rollback.
         """
+        self._in_flight = None
+        try:
+            return self._bake(analysis, time_range)
+        except BaseException:
+            if self._in_flight is not None:
+                self._roll_back(*self._in_flight)
+            raise
+        finally:
+            self._in_flight = None
+
+    @staticmethod
+    def _roll_back(result: BakeResult, session: Optional[Dict[str, Any]]) -> None:
+        """Reverse a bake that raised part-way, from the manifest it had built.
+
+        Every phase records its change before making it, so the session holds
+        whatever ran, and :meth:`BakeSessionStore.restore_session` reverses it --
+        including an object ``nla.bake`` gave a fresh Action before the raise:
+        its entry, written ahead of the bake, names only the original, and the
+        restore takes the Action the object holds now for the baked one.
+
+        Never raises: the caller re-raises the bake's own error, which a rollback
+        failure must not mask. A session it could not reverse is persisted
+        instead, so ``SmartBake.restore('<id>')`` can finish it.
+        """
+        from blendertk.anim_utils.smart_bake.bake_session import BakeSessionStore
+
+        if session is None or not session.get("restorable", True):
+            logger.warning(
+                "SmartBake: a bake that raised part-way was not rolled back -- it "
+                "recorded no restorable session (restorable=False or "
+                f"delete_sources). Baked so far: {sorted(result.baked) or 'nothing'}."
+            )
+            return
+        try:
+            restored = BakeSessionStore.restore_session(session)
+            for warning in restored.warnings:
+                logger.warning(f"SmartBake rollback: {warning}")
+        except Exception as error:  # noqa: BLE001 -- never masks the bake's error
+            try:
+                BakeSessionStore.push(session)
+            except Exception as push_error:  # noqa: BLE001 -- see above
+                logger.warning(
+                    f"SmartBake: rolling back a failed bake failed ({error}), and "
+                    f"its session could not be saved either ({push_error})."
+                )
+                return
+            logger.warning(
+                f"SmartBake: rolling back a failed bake failed ({error}); its "
+                f"session is saved -- finish it with "
+                f"SmartBake.restore('{session['id']}')."
+            )
+
+    def _bake(
+        self,
+        analysis: Optional[Dict[str, BakeAnalysis]],
+        time_range: Optional[Tuple[int, int]],
+    ) -> BakeResult:
+        """:meth:`bake`'s phases, run under its rollback."""
         if analysis is None:
             analysis = self.analyze()
         if time_range is None:
@@ -732,7 +807,13 @@ class SmartBake(_SmartBakeInternal):
                 "muted_drivers": [],
                 "blend_shape_drivers": [],
                 "blend_shape_actions": [],
+                "blend_shape_key_actions": [],
             }
+
+        # Nothing is mutated above this line; from here on a raise is reversed
+        # from `session` (bake's rollback), which every phase below writes
+        # BEFORE it changes the scene.
+        self._in_flight = (result, session)
 
         # ---- Phase 1: transform bake (constraints/IK/drivers) ----
         objects_to_bake = []
@@ -749,15 +830,48 @@ class SmartBake(_SmartBakeInternal):
             pre_bake_actions = {}
             pre_bake_slots = {}
             prior_fake_user = {}
+            # use_fake_user before the FIRST flip, per Action: objects sharing one
+            # would otherwise record the value an earlier object's flip just set,
+            # and the restore (walking the records in order) left it pinned.
+            unflipped: Dict[int, bool] = {}
+            entries: Dict[str, Dict[str, Any]] = {}
             for obj in objects_to_bake:
                 ad = getattr(obj, "animation_data", None)
                 original_action = ad.action if ad is not None else None
+                if original_action is not None:
+                    unflipped.setdefault(
+                        original_action.as_pointer(), original_action.use_fake_user
+                    )
+                if session is not None:
+                    # Joined BEFORE this object's first mutation (the keep-alive
+                    # flip below, then the fresh Action nla.bake assigns): a raise
+                    # from here on finds it in the session (bake's rollback), whose
+                    # restore takes the object's current Action for the baked one
+                    # until ``baked_action`` is recorded. An object the bake then
+                    # skips is taken back out.
+                    entry = {
+                        "object": bake_session.BakeSessionStore.node_ref(obj),
+                        "original_action": bake_session.BakeSessionStore.node_ref(
+                            original_action
+                        ),
+                    }
+                    if original_action is not None:
+                        entry["original_action_prior_fake_user"] = unflipped[
+                            original_action.as_pointer()
+                        ]
+                        # The slot it animated through: restore re-selects it
+                        # rather than trust Blender's last-used pick.
+                        entry["original_slot"] = bake_session.BakeSessionStore._slot_id(
+                            ad
+                        )
+                    session["baked_objects"].append(entry)
+                    entries[obj.name] = entry
                 if original_action is not None and session is not None:
                     # The keep-alive flip exists solely so restore() can swap the
                     # original action back in — only flip it when a session will
                     # record the prior value (a non-restorable bake has no restore
                     # path, so pinning the action against orphans_purge would leak).
-                    prior_fake_user[obj.name] = original_action.use_fake_user
+                    prior_fake_user[obj.name] = unflipped[original_action.as_pointer()]
                     original_action.use_fake_user = True
                 pre_bake_actions[obj.name] = original_action
                 pre_bake_slots[obj.name] = (
@@ -781,13 +895,21 @@ class SmartBake(_SmartBakeInternal):
                 ad = getattr(obj, "animation_data", None)
                 baked_action = ad.action if ad is not None else None
                 original_action = pre_bake_actions.get(obj.name)
+                entry = entries.get(obj.name)
                 if baked_action is None or baked_action is original_action:
-                    # Skipped: the bake produced no new action, so no session entry
-                    # will record the keep-alive flip — undo it here or the prior
-                    # use_fake_user value is silently lost.
+                    # Skipped: the bake produced no new action, so its session
+                    # entry records nothing to reverse -- undo the keep-alive flip
+                    # here and drop the entry, or the prior use_fake_user value is
+                    # silently lost (and a no-op bake would leave a record).
                     if original_action is not None and obj.name in prior_fake_user:
                         original_action.use_fake_user = prior_fake_user[obj.name]
+                    if entry is not None:
+                        session["baked_objects"].remove(entry)
                     continue
+                if entry is not None:
+                    entry["baked_action"] = bake_session.BakeSessionStore.node_ref(
+                        baked_action
+                    )
                 baked_names.add(obj.name)
                 baked_objects_actual.append(obj)
                 if self.preserve_outside_keys and original_action is not None:
@@ -798,21 +920,6 @@ class SmartBake(_SmartBakeInternal):
                         getattr(ad, "action_slot", None),
                         time_range,
                     )
-                if session is not None:
-                    baked_entry = {
-                        "object": bake_session.BakeSessionStore.node_ref(obj),
-                        "original_action": bake_session.BakeSessionStore.node_ref(
-                            original_action
-                        ),
-                        "baked_action": bake_session.BakeSessionStore.node_ref(
-                            baked_action
-                        ),
-                    }
-                    if original_action is not None:
-                        baked_entry["original_action_prior_fake_user"] = (
-                            prior_fake_user.get(obj.name, False)
-                        )
-                    session["baked_objects"].append(baked_entry)
 
         # ---- Mute (or delete) every identified constraint/IK/driver source ----
         muted_constraints: List[str] = []
@@ -892,6 +999,13 @@ class SmartBake(_SmartBakeInternal):
                     ad = getattr(sk, "animation_data", None) if sk is not None else None
                     if ad is None:
                         continue
+                    # What the Key's animation_data holds before the bake keys
+                    # its driven weights: the Action (none, for a driver-only
+                    # Key -- the bake then creates one), its slot, and its
+                    # fcurves, so restore puts exactly that back.
+                    session["blend_shape_key_actions"].append(
+                        bake_session.BakeSessionStore._snapshot_key_action(obj, ad)
+                    )
                     # Independent ifs, NOT if/elif — a datablock can carry drivers AND
                     # an action at once (drivers on some keys, hand-keys on others),
                     # and bake_blend_shapes() touches both, so restore needs BOTH

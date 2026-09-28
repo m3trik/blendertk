@@ -91,7 +91,9 @@ class Creator(ptk.LoggingMixin, _CreatorInternal):
         kb.value = weight
 
         with _CreatorInternal._suppressed_modifiers(base_obj):
-            depsgraph = bpy.context.evaluated_depsgraph_get()
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
             depsgraph.update()
             obj_eval = base_obj.evaluated_get(depsgraph)
             mesh_eval = obj_eval.to_mesh()

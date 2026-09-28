@@ -49,6 +49,10 @@ class DataNodes(ptk.SceneStoreBase):
     #: ``{(library path, mtime): its private records}`` -- one linked read per
     #: file (:meth:`_library_scene_values`).
     _LIBRARY_SCENE_VALUES: Dict[tuple, Dict[str, Any]] = {}
+    #: The path records as ``save_pre`` found them, until ``save_post`` /
+    #: ``save_post_fail`` says whether the open file moved
+    #: (:meth:`_rebase_before_save`).
+    _PENDING: Optional[Dict[tuple, Optional[str]]] = None
 
     #: Record keys readers used to spell here; the declarations are
     #: ``ptk.SceneRecords`` and these are the same strings, not copies.
@@ -267,7 +271,11 @@ class DataNodes(ptk.SceneStoreBase):
 
     @classmethod
     def _carrier(cls, scope: ptk.Scope, create: bool = False):
+        """The carrier of *scope*. The private one's first touch in a session
+        installs the path hook (:meth:`ensure_path_rebase`): its records are
+        what the hook keeps spelled for where the file is written."""
         if _Scope(scope) is _Scope.PRIVATE:
+            cls.ensure_path_rebase()
             return cls._private_group(create=create)
         try:
             import bpy  # noqa: F401
@@ -618,32 +626,37 @@ class DataNodes(ptk.SceneStoreBase):
         return bpy.data.filepath
 
     @classmethod
-    def writer_stamp(cls) -> str:
-        """The base's stamp (``ptk.SceneStoreBase.writer_stamp``), except a UNC
-        share keeps its leading backslashes: a forward-slash ``//`` reads as
-        Blender's own file-relative prefix."""
-        stamp = super().writer_stamp()
+    def writer_stamp_of(cls, scene_path: Optional[str]) -> str:
+        """The base's stamp (``ptk.SceneStoreBase.writer_stamp_of``), except a
+        UNC share keeps its leading backslashes: a forward-slash ``//`` reads
+        as Blender's own file-relative prefix."""
+        stamp = super().writer_stamp_of(scene_path)
         return (
-            ptk.FileUtils.format_path(cls.scene_path())
-            if stamp.startswith("//")
-            else stamp
+            ptk.FileUtils.format_path(scene_path) if stamp.startswith("//") else stamp
         )
 
     @classmethod
     def install_path_rebase(cls) -> bool:
-        """Keep the path records spelled from the file's own project across a
-        save into another one (mirror of mayatk's): just before a save they
-        are re-spelled from the project of the file open now to the project
-        of the file being written (:meth:`rebase_paths`; ``save_pre`` gets
-        the target while ``bpy.data.filepath`` is still the old one). A Save
-        COPY, and a save that fails, leave the open file where it was, so
-        ``save_post`` / ``save_post_fail`` spell them back. A plain save
-        normalizes.
+        """Keep the path records spelled from the project of whichever file
+        is written (mirror of mayatk's; :meth:`respell_for_write`): just
+        before a save they are re-spelled from the project of the file open
+        now to the project of the file being written (``save_pre`` gets the
+        target while ``bpy.data.filepath`` is still the old one), and a
+        file's FIRST save stamps every writer stamp still ``""`` with the
+        file written (``ptk.SceneRecords.stamp_unsaved``) -- else whatever
+        was baked before it was nobody's once saved. A Save COPY, and a save
+        that fails, leave the open file where it was, so ``save_post`` /
+        ``save_post_fail`` put its records back exactly. Blender cannot tell
+        a Save Copy from a Save As before the write (``save_pre`` gets the
+        same arguments; measured 5.1), so an UNSAVED file's copy is stamped
+        as its own writer, unlike mayatk's exports. A plain save normalizes.
 
         Persistent handlers (they survive a file load), idempotent and
         reload-proof: a reinstall first removes any copy of them by name.
-        Installed at the UI handler's runtime init point
-        (``BlenderUiHandler``), never on import.
+        The UI handler installs them at its runtime init point
+        (``BlenderUiHandler``); any other session -- ``blender --background``
+        -- at its first touch of the private carrier
+        (:meth:`ensure_path_rebase`); never on import.
         """
         import bpy
 
@@ -653,6 +666,28 @@ class DataNodes(ptk.SceneStoreBase):
         for handler_list in cls._restore_handler_lists():
             handler_list.append(handlers.persistent(cls._restore_after_copy))
         return True
+
+    @classmethod
+    def ensure_path_rebase(cls) -> bool:
+        """:meth:`install_path_rebase` unless a copy of it already is: what
+        the private carrier's first touch calls (:meth:`_carrier`), so a
+        ``blender --background`` session that reads or writes a record keeps
+        the path records spelled for where its saves go (mirror of mayatk's).
+        """
+        try:
+            import bpy
+        except ImportError:
+            return False
+        if any(cls._is_rebase_handler(fn) for fn in bpy.app.handlers.save_pre):
+            return True
+        return cls.install_path_rebase()
+
+    @staticmethod
+    def _is_rebase_handler(fn) -> bool:
+        """Whether *fn* is a copy of the re-base hook's ``save_pre`` handler."""
+        return getattr(fn, "__name__", "") == "_rebase_before_save" and (
+            "DataNodes" in getattr(fn, "__qualname__", "")
+        )
 
     @staticmethod
     def _restore_handler_lists() -> list:
@@ -678,15 +713,22 @@ class DataNodes(ptk.SceneStoreBase):
 
     @staticmethod
     def _rebase_before_save(filepath=None, *_args) -> None:
-        """Re-spell the path records for the file about to be written. Never
-        raises: a record left spelled from the old project must not cost the
-        save."""
+        """Ready the path records for the file about to be written
+        (:meth:`respell_for_write`) -- re-spelled for its project, and on the
+        file's first save (``bpy.data.filepath`` still empty) every ``""``
+        writer stamp given the file written -- and hold them as they were
+        until ``save_post`` says whether the open file moved. Never raises: a
+        record left spelled from the old project must not cost the save."""
         import bpy
 
+        DataNodes._PENDING = None
         try:
-            new_base = DataNodes.project_root_of(filepath or bpy.data.filepath)
-            if new_base is not None:
-                DataNodes.rebase_paths(DataNodes.project_root(), new_base)
+            target = filepath or bpy.data.filepath
+            if not target:
+                return  # the startup file
+            DataNodes._PENDING = DataNodes.respell_for_write(
+                target, DataNodes.project_root(), first_save=not bpy.data.filepath
+            )
         except Exception:  # noqa: BLE001 - a save never fails on this
             logger.warning(
                 "Scene-record paths were not re-spelled for the save.", exc_info=True
@@ -695,10 +737,11 @@ class DataNodes(ptk.SceneStoreBase):
     @staticmethod
     def _restore_after_copy(filepath=None, *_args) -> None:
         """After a Save Copy, or a save that failed, the open file is still the
-        one it was -- unsaved, perhaps: spell the records back from the
-        target's project to its own (none while unsaved: absolute)."""
+        one it was -- unsaved, perhaps: its path records back exactly as
+        ``save_pre`` found them (:meth:`restore_path_records`)."""
         import bpy
 
+        pending, DataNodes._PENDING = DataNodes._PENDING, None
         try:
             current = bpy.data.filepath
             if not filepath or (
@@ -707,9 +750,8 @@ class DataNodes(ptk.SceneStoreBase):
                 == os.path.normcase(os.path.abspath(current))
             ):
                 return  # the open file is the one written
-            DataNodes.rebase_paths(
-                DataNodes.project_root_of(filepath), DataNodes.project_root()
-            )
+            if pending is not None:
+                DataNodes.restore_path_records(pending)
         except Exception:  # noqa: BLE001 - a save never fails on this
             logger.warning(
                 "Scene-record paths were not restored after a copy.", exc_info=True

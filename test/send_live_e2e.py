@@ -282,11 +282,15 @@ def run_gui_leg(bridge, ptk, seeds):
     with open(script_path, "w", encoding="utf-8") as fh:
         fh.write(script)
 
+    # The MEL names no path: it reads the script from the env, as the deliverer sets.
+    _, e2e_env = ptk.AppLauncher.python_args_via_env(
+        [script_path], MayaBridge._launch_env()
+    )
     proc = ptk.AppLauncher.launch(
         bridge.maya_path,
-        args=["-log", maya_log, "-command", MayaBridge._build_mel_command(script_path)],
+        args=["-log", maya_log, "-command", MayaBridge._build_mel_command()],
         detached=True,
-        env=MayaBridge._launch_env(),
+        env=e2e_env,
     )
     deadline = time.time() + 420
     while time.time() < deadline and not os.path.isfile(sentinel):

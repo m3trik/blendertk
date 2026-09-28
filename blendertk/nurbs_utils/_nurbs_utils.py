@@ -166,7 +166,9 @@ class NurbsUtils(ptk.LoggingMixin):
             if curve_obj.users_collection
             else bpy.context.collection
         )
-        deps = bpy.context.evaluated_depsgraph_get()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        deps = CoreUtils._evaluated_depsgraph()  # the window layer's
         me = bpy.data.meshes.new_from_object(curve_obj.evaluated_get(deps))
         me.name = name
         mesh_obj = bpy.data.objects.new(name, me)

@@ -100,9 +100,14 @@ class Preview:
         after ``_run`` would re-create the hazard on the next rollback."""
         import bpy
 
-        active = bpy.context.view_layer.objects.active
-        if active and active.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's view layer + context (windowless: the scene's default layer,
+        # and mode_set's poll fails)
+        with CoreUtils.window_context_override():
+            active = bpy.context.view_layer.objects.active
+            if active and active.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
 
     def _prepared_selection(self, hint=""):
         """Object-mode selection with the precondition applied, or None to abort.
@@ -142,6 +147,8 @@ class Preview:
     def enable(self):
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         objects = self._prepared_selection(
             "<br>Select object(s) before enabling the preview."
         )
@@ -152,7 +159,7 @@ class Preview:
             return
 
         self._captured = [o.name for o in objects]
-        active = bpy.context.view_layer.objects.active
+        active = CoreUtils.active_object()  # the window's layer, not the default
         self._active = active.name if active else None
         self._prior_objects = {o.name for o in bpy.data.objects}
         self._prior_collections = {c.name for c in bpy.data.collections}
@@ -270,6 +277,8 @@ class Preview:
     def _rollback(self):
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         self._ensure_object_mode()
         # 1. anything created since enable goes (objects, then collections, then orphans)
         for o in [o for o in bpy.data.objects if o.name not in self._prior_objects]:
@@ -303,13 +312,16 @@ class Preview:
             obj.matrix_world = snap["matrix"]
         bpy.context.view_layer.update()
         # 3. restore selection + active
-        bpy.ops.object.select_all(action="DESELECT")
-        for n in self._captured:
-            o = bpy.data.objects.get(n)
-            if o:
-                o.select_set(True)
-        if self._active and self._active in bpy.data.objects:
-            bpy.context.view_layer.objects.active = bpy.data.objects[self._active]
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            for n in self._captured:
+                o = bpy.data.objects.get(n)
+                if o:
+                    o.select_set(True)
+            if self._active and self._active in bpy.data.objects:
+                bpy.context.view_layer.objects.active = bpy.data.objects[self._active]
 
     @staticmethod
     def _fresh_copy(data):

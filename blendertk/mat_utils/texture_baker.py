@@ -210,39 +210,44 @@ class TextureBaker(ptk.LoggingMixin):
         # panel's Revert to Source reverts "the selection", i.e. one object of
         # the N just baked (or, when it lands empty, every baked object in the
         # scene).
-        prev_selection = self._selection_state()
-        used: set = set()
-        result: Dict[str, str] = {}
-        total = len(meshes)
-        try:
-            for i, obj in enumerate(meshes):
-                if on_progress and on_progress(i, total, obj.name) is False:
-                    break
-                try:
-                    path = self._bake_one(
-                        obj,
-                        output_dir,
-                        prefix,
-                        suffix,
-                        stem,
-                        used,
-                        claims=claims,
-                        bake_type=bake_type,
-                        pass_filter=pass_filter,
-                        uv_set=uv_set,
-                        colorspace=colorspace,
-                        size=self._resolve_size(obj, size),
-                        margin=margin,
-                    )
-                    if path:
-                        result[obj.name] = path
-                except Exception as e:  # one bad mesh must not abort the batch
-                    self.logger.warning("Bake skipped for %s: %s", obj.name, e)
-            if on_progress:
-                on_progress(total, total, "")
-        finally:
-            self._restore_bake_scene(prev_state)
-            self._restore_selection(prev_selection)
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # The capture, every bake and the restore in ONE view layer, the window's:
+        # windowless, the bare select_set / active writes and the bake address the
+        # scene's default layer. preserved_selection puts the selection and the
+        # active object back after the batch (after the bake scene's own restore).
+        with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
+            used: set = set()
+            result: Dict[str, str] = {}
+            total = len(meshes)
+            try:
+                for i, obj in enumerate(meshes):
+                    if on_progress and on_progress(i, total, obj.name) is False:
+                        break
+                    try:
+                        path = self._bake_one(
+                            obj,
+                            output_dir,
+                            prefix,
+                            suffix,
+                            stem,
+                            used,
+                            claims=claims,
+                            bake_type=bake_type,
+                            pass_filter=pass_filter,
+                            uv_set=uv_set,
+                            colorspace=colorspace,
+                            size=self._resolve_size(obj, size),
+                            margin=margin,
+                        )
+                        if path:
+                            result[obj.name] = path
+                    except Exception as e:  # one bad mesh must not abort the batch
+                        self.logger.warning("Bake skipped for %s: %s", obj.name, e)
+                if on_progress:
+                    on_progress(total, total, "")
+            finally:
+                self._restore_bake_scene(prev_state)
         # ONE compositor build and ONE engine flip for the whole batch, after
         # the bake loop rather than inside it: the per-map work is a render, and
         # the graph build, the engine swing and the format pinning around it are
@@ -255,44 +260,6 @@ class TextureBaker(ptk.LoggingMixin):
                 result.values(), gpu=True if self._gpu_devices else None
             )
         return result
-
-    @staticmethod
-    def _selection_state():
-        """``(selected objects, active object)`` -- the bake's restore point."""
-        import bpy
-        from blendertk.core_utils._core_utils import CoreUtils
-
-        return (
-            list(CoreUtils.selected_objects()),
-            bpy.context.view_layer.objects.active,
-        )
-
-    @staticmethod
-    def _restore_selection(state) -> None:
-        """Put back the selection + active object captured by :meth:`_selection_state`.
-
-        Deleted objects are skipped (a bake cannot delete one, but a caller's
-        progress callback can), and every access is guarded: a restore failure
-        must never mask the bake's own result.
-        """
-        import bpy
-        from blendertk.core_utils._core_utils import CoreUtils
-
-        objects, active = state
-        try:
-            for obj in CoreUtils.selected_objects():
-                obj.select_set(False)
-            for obj in objects:
-                try:
-                    obj.select_set(True)
-                except (ReferenceError, RuntimeError):
-                    continue  # deleted, or no longer in the view layer
-            try:
-                bpy.context.view_layer.objects.active = active
-            except (ReferenceError, RuntimeError):
-                pass
-        except Exception as error:  # noqa: BLE001
-            _logger.debug("Selection restore skipped: %s", error)
 
     def _bake_one(
         self,
@@ -949,7 +916,10 @@ class TextureBaker(ptk.LoggingMixin):
             if not obj.data.polygons:
                 if not obj.modifiers:
                     continue
-                depsgraph = depsgraph or bpy.context.evaluated_depsgraph_get()
+                if depsgraph is None:  # the window layer's (see _evaluated_depsgraph)
+                    from blendertk.core_utils._core_utils import CoreUtils
+
+                    depsgraph = CoreUtils._evaluated_depsgraph()
                 if not obj.evaluated_get(depsgraph).data.polygons:
                     continue
             pool.setdefault(obj, None)

@@ -597,11 +597,16 @@ class NamingSlots(Naming):
         )
         found = [o for o, name in zip(objects, obj_names) if name in found_names]
 
-        bpy.ops.object.select_all(action="DESELECT")
-        for o in found:
-            o.select_set(True)
-        if found:
-            bpy.context.view_layer.objects.active = found[0]
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            for o in found:
+                o.select_set(True)
+            if found:
+                bpy.context.view_layer.objects.active = found[0]
         self._report_found(
             "Find",
             "Empty" if empties_only else "object",

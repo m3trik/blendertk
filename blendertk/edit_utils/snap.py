@@ -37,10 +37,9 @@ class SnapSlots(ptk.LoggingMixin):
     def _source_target(self):
         """((sources), target) using the active object as the target (= Maya's last-ordered
         selection); both restricted to meshes. Returns ([], None) when under-selected."""
-        import bpy
 
         meshes = [o for o in CoreUtils.selected_objects() if o.type == "MESH"]
-        target = bpy.context.view_layer.objects.active
+        target = CoreUtils.active_object()
         if (
             len(meshes) < 2
             or target is None

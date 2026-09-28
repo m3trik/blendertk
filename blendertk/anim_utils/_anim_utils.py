@@ -71,24 +71,59 @@ class _AnimUtilsInternal(object):
         return out
 
     @staticmethod
-    def _actions(objects):
-        """Unique ``(action, slot)`` pairs across the given objects' animation data."""
-        seen = []
+    def _animating(ad):
+        """``(action, slot)`` that animates the ID owning *ad*, or ``(None, None)``.
+
+        A slotted action (Blender 4.4+) animates an ID only through the slot
+        assigned to it. Assigning an action whose slots all belong to other
+        IDs leaves the new holder with NO slot, and Blender does not animate
+        it -- so reading "no slot" as "every channelbag" (what
+        :meth:`_slot_fcurves` does for an action-wide read) reached other
+        IDs' channels: key edits through the holder moved the owner's keys.
+        A legacy action has no slots and animates as before.
+        """
+        action = getattr(ad, "action", None) if ad is not None else None
+        if action is None:
+            return None, None
+        slot = getattr(ad, "action_slot", None)
+        if slot is None and len(getattr(action, "slots", None) or ()):
+            return None, None
+        return action, slot
+
+    @staticmethod
+    def _owned_actions(objects):
+        """``(object, action, slot)`` once per unique ``(action, slot)`` pair.
+
+        The object is the first in *objects* animated through that pair --
+        the one a per-curve write (a static curve's held value) lands on.
+        Uniqueness is per (action, slot): one slotted action can drive several
+        objects, through different slots or through ONE, and a slot two
+        objects share is one set of curves, edited once. The action compares
+        by identity (IDs are instance-cached), the slot with ``==`` -- slots
+        are non-ID RNA structs Blender does not wrapper-cache, so ``is``
+        spuriously fails for the same slot; ``bpy_struct.__eq__`` matches by
+        data pointer. An object its action does not animate (see
+        :meth:`_animating`) is skipped.
+        """
+        seen, owned = [], []
         for o in ptk.make_iterable(objects):
-            ad = getattr(o, "animation_data", None)
-            action = ad.action if ad else None
+            action, slot = _AnimUtilsInternal._animating(
+                getattr(o, "animation_data", None)
+            )
             if action is None:
                 continue
-            # Uniqueness is per (action, slot): one slotted action can drive several
-            # objects through different slots (Blender 4.4+/5.x). Compare the action
-            # by identity (IDs are instance-cached) but the slot with ``==`` —
-            # slots are non-ID RNA structs Blender does not wrapper-cache, so ``is``
-            # spuriously fails for the same slot; ``bpy_struct.__eq__`` matches by
-            # data pointer.
-            slot = getattr(ad, "action_slot", None)
             if all(not (action is a and slot == s) for a, s in seen):
                 seen.append((action, slot))
-        return seen
+                owned.append((o, action, slot))
+        return owned
+
+    @staticmethod
+    def _actions(objects):
+        """Unique ``(action, slot)`` pairs animating the given objects."""
+        return [
+            (action, slot)
+            for _o, action, slot in _AnimUtilsInternal._owned_actions(objects)
+        ]
 
     @staticmethod
     def _fcurves(objects):  # internal alias -> AnimUtils.get_fcurves (call-time lookup)
@@ -831,6 +866,10 @@ class AnimUtils(_AnimUtilsInternal):
     def get_fcurves(objects):
         """All fcurves across the given objects' actions (slot-aware; public for slot code/tests).
 
+        Each object contributes the curves of the slot that animates it, once
+        per slot however many objects share it; an object holding a slotted
+        action with no slot assigned is not animated by it and contributes none.
+
         An FCURVE passed in comes straight back out, so a caller that already
         holds the channels it means -- a sub-row's ``curves_for_attr`` -- can
         hand them to any helper here and have the edit stop at those channels.
@@ -869,12 +908,10 @@ class AnimUtils(_AnimUtilsInternal):
         frames = []
         for o in ptk.make_iterable(objects):
             for _level, ad in _AnimUtilsInternal._animation_data_owners(o):
-                action = getattr(ad, "action", None)
+                action, slot = _AnimUtilsInternal._animating(ad)
                 if action is not None:
                     rng = _AnimUtilsInternal._key_range(
-                        _AnimUtilsInternal._slot_fcurves(
-                            action, getattr(ad, "action_slot", None)
-                        )
+                        _AnimUtilsInternal._slot_fcurves(action, slot)
                     )
                     if rng is not None:
                         frames.extend(rng)
@@ -1832,17 +1869,16 @@ class AnimUtils(_AnimUtilsInternal):
             else list(bpy.data.objects)
         )
         reduced, removed, worst_error = [], 0, 0.0
-        for o in pool:
-            for action, slot in _AnimUtilsInternal._actions([o]):
-                for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
-                    result = _AnimUtilsInternal._reduce_fcurve_to_extremes(
-                        fc, value_tolerance, max_error
-                    )
-                    if result is None:
-                        continue
-                    reduced.append(fc)
-                    removed += result[0]
-                    worst_error = max(worst_error, result[1])
+        for _o, action, slot in _AnimUtilsInternal._owned_actions(pool):
+            for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
+                result = _AnimUtilsInternal._reduce_fcurve_to_extremes(
+                    fc, value_tolerance, max_error
+                )
+                if result is None:
+                    continue
+                reduced.append(fc)
+                removed += result[0]
+                worst_error = max(worst_error, result[1])
         if stats is not None:
             stats.update(
                 {
@@ -2020,40 +2056,39 @@ class AnimUtils(_AnimUtilsInternal):
         s = {"curves_before": 0, "curves_after": 0, "keys_before": 0, "keys_after": 0}
         if extremes:
             s.update({"reduced": 0, "reduce_keys_removed": 0, "reduce_max_error": 0.0})
-        for o in pool:
-            for action, slot in _AnimUtilsInternal._actions([o]):
-                for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
-                    pts = fc.keyframe_points
-                    s["curves_before"] += 1
-                    s["keys_before"] += len(pts)
-                    if remove_static_curves and len(pts):
-                        vals = AnimUtils.key_arrays(fc)[1]
-                        if max(vals) - min(
-                            vals
-                        ) <= value_tolerance and _AnimUtilsInternal._set_fcurve_value(
-                            o, fc, vals[0]
-                        ):
-                            _AnimUtilsInternal._remove_fcurve(action, slot, fc)
-                            continue
-                    reduced = (
-                        _AnimUtilsInternal._reduce_fcurve_to_extremes(
-                            fc, value_tolerance, max_error
-                        )
-                        if extremes
-                        else None
+        for o, action, slot in _AnimUtilsInternal._owned_actions(pool):
+            for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
+                pts = fc.keyframe_points
+                s["curves_before"] += 1
+                s["keys_before"] += len(pts)
+                if remove_static_curves and len(pts):
+                    vals = AnimUtils.key_arrays(fc)[1]
+                    if max(vals) - min(
+                        vals
+                    ) <= value_tolerance and _AnimUtilsInternal._set_fcurve_value(
+                        o, fc, vals[0]
+                    ):
+                        _AnimUtilsInternal._remove_fcurve(action, slot, fc)
+                        continue
+                reduced = (
+                    _AnimUtilsInternal._reduce_fcurve_to_extremes(
+                        fc, value_tolerance, max_error
                     )
-                    if reduced is not None:
-                        s["reduced"] += 1
-                        s["reduce_keys_removed"] += reduced[0]
-                        s["reduce_max_error"] = max(s["reduce_max_error"], reduced[1])
-                    else:
-                        if remove_flat_keys:
-                            _AnimUtilsInternal._remove_flat_keys(fc, value_tolerance)
-                        if simplify_keys and not extremes:
-                            _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance)
-                    fc.update()
-                    s["curves_after"] += 1
-                    s["keys_after"] += len(fc.keyframe_points)
+                    if extremes
+                    else None
+                )
+                if reduced is not None:
+                    s["reduced"] += 1
+                    s["reduce_keys_removed"] += reduced[0]
+                    s["reduce_max_error"] = max(s["reduce_max_error"], reduced[1])
+                else:
+                    if remove_flat_keys:
+                        _AnimUtilsInternal._remove_flat_keys(fc, value_tolerance)
+                    if simplify_keys and not extremes:
+                        _AnimUtilsInternal._simplify_fcurve(fc, value_tolerance)
+                fc.update()
+                s["curves_after"] += 1
+                s["keys_after"] += len(fc.keyframe_points)
         if stats is not None:
             stats.update(s)
         return s
@@ -2108,43 +2143,41 @@ class AnimUtils(_AnimUtilsInternal):
             "keys_fixed": 0,
             "details": [],
         }
-        for o in pool:
-            for action, slot in _AnimUtilsInternal._actions([o]):
-                for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
-                    if not any(
-                        _bad_value(k.co.y) or _bad_time(k.co.x)
-                        for k in fc.keyframe_points
-                    ):
-                        continue
-                    result["corrupted_found"] += 1
-                    path = f"{fc.data_path}[{fc.array_index}]"
-                    # Remove corrupted keys one at a time: removing a keyframe_point invalidates the
-                    # other references, so re-fetch the next bad key each pass rather than batch-remove.
-                    while True:
-                        bad = next(
-                            (
-                                k
-                                for k in fc.keyframe_points
-                                if _bad_value(k.co.y) or _bad_time(k.co.x)
-                            ),
-                            None,
-                        )
-                        if bad is None:
-                            break
-                        fc.keyframe_points.remove(bad)
-                        result["keys_fixed"] += 1
-                    if len(fc.keyframe_points) == 0 and delete_unfixable:
-                        _AnimUtilsInternal._remove_fcurve(action, slot, fc)
-                        result["curves_deleted"] += 1
-                        result["details"].append(
-                            f"{path}: deleted (no valid keys remained)"
-                        )
-                    else:
-                        fc.update()
-                        result["curves_repaired"] += 1
-                        result["details"].append(
-                            f"{path}: {'emptied' if not fc.keyframe_points else 'removed corrupt key(s)'}"
-                        )
+        for _o, action, slot in _AnimUtilsInternal._owned_actions(pool):
+            for fc in list(_AnimUtilsInternal._slot_fcurves(action, slot)):
+                if not any(
+                    _bad_value(k.co.y) or _bad_time(k.co.x) for k in fc.keyframe_points
+                ):
+                    continue
+                result["corrupted_found"] += 1
+                path = f"{fc.data_path}[{fc.array_index}]"
+                # Remove corrupted keys one at a time: removing a keyframe_point invalidates the
+                # other references, so re-fetch the next bad key each pass rather than batch-remove.
+                while True:
+                    bad = next(
+                        (
+                            k
+                            for k in fc.keyframe_points
+                            if _bad_value(k.co.y) or _bad_time(k.co.x)
+                        ),
+                        None,
+                    )
+                    if bad is None:
+                        break
+                    fc.keyframe_points.remove(bad)
+                    result["keys_fixed"] += 1
+                if len(fc.keyframe_points) == 0 and delete_unfixable:
+                    _AnimUtilsInternal._remove_fcurve(action, slot, fc)
+                    result["curves_deleted"] += 1
+                    result["details"].append(
+                        f"{path}: deleted (no valid keys remained)"
+                    )
+                else:
+                    fc.update()
+                    result["curves_repaired"] += 1
+                    result["details"].append(
+                        f"{path}: {'emptied' if not fc.keyframe_points else 'removed corrupt key(s)'}"
+                    )
         return result
 
     @staticmethod
@@ -2179,30 +2212,25 @@ class AnimUtils(_AnimUtilsInternal):
         else:
             lo, hi = scene.frame_start, scene.frame_end
         changed = 0
-        for o in pool:
-            for action, slot in _AnimUtilsInternal._actions([o]):
-                for fc in _AnimUtilsInternal._slot_fcurves(action, slot):
-                    pts = fc.keyframe_points
-                    if not len(pts):
-                        continue
-                    if untie:
-                        for bound in (hi, lo):
-                            for i in reversed(
-                                [
-                                    i
-                                    for i, k in enumerate(pts)
-                                    if abs(k.co.x - bound) < 1e-6
-                                ]
-                            ):
-                                if len(pts) > 1:
-                                    pts.remove(pts[i], fast=True)
-                                    changed += 1
-                    else:
-                        for bound in (lo, hi):
-                            if not any(abs(k.co.x - bound) < 1e-6 for k in pts):
-                                pts.insert(bound, fc.evaluate(bound))
+        for _o, action, slot in _AnimUtilsInternal._owned_actions(pool):
+            for fc in _AnimUtilsInternal._slot_fcurves(action, slot):
+                pts = fc.keyframe_points
+                if not len(pts):
+                    continue
+                if untie:
+                    for bound in (hi, lo):
+                        for i in reversed(
+                            [i for i, k in enumerate(pts) if abs(k.co.x - bound) < 1e-6]
+                        ):
+                            if len(pts) > 1:
+                                pts.remove(pts[i], fast=True)
                                 changed += 1
-                    fc.update()
+                else:
+                    for bound in (lo, hi):
+                        if not any(abs(k.co.x - bound) < 1e-6 for k in pts):
+                            pts.insert(bound, fc.evaluate(bound))
+                            changed += 1
+                fc.update()
         return changed
 
     @staticmethod
@@ -2254,24 +2282,28 @@ class AnimUtils(_AnimUtilsInternal):
                 if any(o.type == "ARMATURE" for o in pool)
                 else {"OBJECT"}
             )
-        view_layer = bpy.context.view_layer
-        for o in list(CoreUtils.selected_objects()):
-            o.select_set(False)
-        for o in pool:
-            o.select_set(True)
-        view_layer.objects.active = pool[0]
-        bpy.ops.nla.bake(
-            frame_start=int(start),
-            frame_end=int(end),
-            step=step,
-            only_selected=only_selected,
-            visual_keying=visual_keying,
-            clear_constraints=clear_constraints,
-            clear_parents=clear_parents,
-            use_current_action=use_current_action,
-            bake_types=bake_types,
-        )
-        return pool
+        # The window's view layer and context: windowless, select_set / the active
+        # write address the scene's default layer, and nla.bake reads its targets
+        # from screen context.
+        with CoreUtils.window_context_override():
+            view_layer = bpy.context.view_layer
+            for o in list(CoreUtils.selected_objects()):
+                o.select_set(False)
+            for o in pool:
+                o.select_set(True)
+            view_layer.objects.active = pool[0]
+            bpy.ops.nla.bake(
+                frame_start=int(start),
+                frame_end=int(end),
+                step=step,
+                only_selected=only_selected,
+                visual_keying=visual_keying,
+                clear_constraints=clear_constraints,
+                clear_parents=clear_parents,
+                use_current_action=use_current_action,
+                bake_types=bake_types,
+            )
+            return pool
 
     @staticmethod
     def bake_blend_shapes(objects=None, frame_range=None, step=1):
@@ -2321,7 +2353,7 @@ class AnimUtils(_AnimUtilsInternal):
         orig_frame = scene.frame_current
         for f in frames:
             scene.frame_set(f)
-            depsgraph = bpy.context.evaluated_depsgraph_get()
+            depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
             for o, sk in targets:
                 sk_eval = o.evaluated_get(depsgraph).data.shape_keys
                 if sk_eval is None:
@@ -2372,13 +2404,12 @@ class AnimUtils(_AnimUtilsInternal):
         )
         records = []
         for o in pool:
-            ad = getattr(o, "animation_data", None)
-            action = ad.action if ad else None
+            action, slot = _AnimUtilsInternal._animating(
+                getattr(o, "animation_data", None)
+            )
             if action is None:
                 continue
-            fcurves = _AnimUtilsInternal._slot_fcurves(
-                action, getattr(ad, "action_slot", None)
-            )
+            fcurves = _AnimUtilsInternal._slot_fcurves(action, slot)
             rng = (
                 _AnimUtilsInternal._active_range(fcurves)
                 if ignore_holds

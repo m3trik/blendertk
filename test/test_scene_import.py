@@ -195,6 +195,38 @@ try:
     except SyntaxError as e:
         check("render: compiles as valid Python", False, repr(e))
 
+    # Maya opens and saves through the ANSI code page: under a folder that page
+    # cannot hold (Cyrillic on cp1252) cmds.file said "File not found". The source
+    # scene and the payload reach the mayapy template in their 8.3 form.
+    if os.name == "nt":
+        import re
+        import shutil
+
+        ansi_root = os.path.join(HERE, "temp_tests", f"ansi {os.getpid()}")
+        ansi_dir = os.path.join(ansi_root, "José Жук")
+        os.makedirs(ansi_dir, exist_ok=True)
+        ansi_src = os.path.join(ansi_dir, "scene.ma")
+        with open(ansi_src, "w") as fh:
+            fh.write("//Maya ASCII\n")
+        if (ptk.AppLauncher._short_name(ansi_dir) or "").isascii():
+            for via, token in (("fbx", "OUT_FBX"), ("usd", "OUT_USD")):
+                ansi_out = os.path.join(ansi_dir, f"out.{via}")
+                s = eng.render_script(ansi_src, ansi_out, via=via)
+                got_src = re.search(r'SRC_PATH = r"(.*)"', s).group(1)
+                got_out = re.search(token + r' = r"(.*)"', s).group(1)
+                # "José Жук" is one component, so its 8.3 name makes the path ASCII.
+                # (Not an mbcs check: Blender's code page is UTF-8, Maya's is not.)
+                ok = got_src.isascii() and got_out.isascii()
+                check(
+                    f"render ({via}): paths reach mayapy in a form Maya can open",
+                    ok
+                    and os.path.samefile(got_src, ansi_src)
+                    and os.path.samefile(os.path.dirname(got_out), ansi_dir)
+                    and os.path.basename(got_out) == f"out.{via}",
+                    ascii((got_src, got_out)),
+                )
+        shutil.rmtree(ansi_root, ignore_errors=True)
+
     # ---- smart_bake: optional SmartBake pre-pass (template + wiring) ----------
     from blendertk.env_utils.maya_bridge._scene_import import _mayatk_syspath
 

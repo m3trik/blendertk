@@ -28,8 +28,6 @@ Divergence from mayatk (by design):
   simpler math.
 """
 
-import pythontk as ptk
-
 
 class _ScaleKeysInternal(object):
     """Internal helpers for ScaleKeys."""
@@ -155,21 +153,12 @@ class ScaleKeys(_ScaleKeysInternal):
         if factor is None or factor <= 0:
             return 0
 
-        # One unit per unique ``(action, slot)`` pair across the given objects (dedupes
-        # objects that share a slot — one slotted action can drive several objects through
-        # different slots, the same idiom as ``_AnimUtilsInternal._actions``), each carrying
+        # One unit per unique ``(action, slot)`` pair across the given objects
+        # (``_AnimUtilsInternal._owned_actions``: a slot two objects share is scaled
+        # once, and an object its action does not animate is skipped), each carrying
         # a representative object for speed-mode motion sampling.
         units = []
-        seen = []
-        for o in ptk.make_iterable(objects):
-            ad = getattr(o, "animation_data", None)
-            action = ad.action if ad else None
-            if action is None:
-                continue
-            slot = getattr(ad, "action_slot", None)
-            if any(action is a and slot == s for a, s in seen):
-                continue
-            seen.append((action, slot))
+        for o, action, slot in AnimUtils._owned_actions(objects):
             fcurves = AnimUtils._slot_fcurves(action, slot)
             times = [k.co.x for fc in fcurves for k in fc.keyframe_points]
             if times:

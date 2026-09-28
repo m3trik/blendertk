@@ -311,14 +311,46 @@ try:
         "saving after the rename doesn't resurrect the old name",
         not os.path.exists(open_path),
     )
-    btk.delete_scene_file(moved)
+    btk.delete_scene_file(moved, permanent=True)
 
-    # 15. delete_scene_file — removes it.
-    check(
-        "delete_scene_file removes the .blend",
-        btk.delete_scene_file(renamed) and not os.path.exists(renamed),
-    )
+    # 15. delete_scene_file — to the trash (2026-09-27: Delete was permanent, no Recycle Bin),
+    # its .blend1 backup along; permanently only when asked (a drive with no trash, confirmed
+    # as such); and a trash that will not take it leaves it where it was. The trash is a
+    # scratch folder here -- never this machine's.
+    from unittest import mock as _rm_mock
+
+    import pythontk as ptk
+
+    _rm_bin = os.path.join(tmp, "rm_bin")
+    os.makedirs(_rm_bin, exist_ok=True)
+
+    def _to_bin(path):
+        target = os.path.join(_rm_bin, os.path.basename(path))
+        os.replace(path, target)
+        return target
+
+    open(renamed + "1", "w").close()
+    with _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin):
+        check(
+            "delete_scene_file moves the .blend and its backup to the trash",
+            btk.delete_scene_file(renamed)
+            and not os.path.exists(renamed)
+            and sorted(os.listdir(_rm_bin))
+            == sorted([os.path.basename(renamed), os.path.basename(renamed) + "1"]),
+            str(os.listdir(_rm_bin)),
+        )
     check("delete_scene_file(missing) → False", not btk.delete_scene_file(renamed))
+    _kept = os.path.join(tmp, "no_trash.blend")
+    open(_kept, "w").close()
+    with _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None):
+        check(
+            "a trash that will not take it leaves the file (False)",
+            not btk.delete_scene_file(_kept) and os.path.isfile(_kept),
+        )
+    check(
+        "permanent=True deletes outright",
+        btk.delete_scene_file(_kept, permanent=True) and not os.path.exists(_kept),
+    )
 
     # 16. set/get_reference_display_mode — tri-state on a linked library's instance objects.
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -641,11 +673,14 @@ try:
     )
 
     # Delete confirmation must NAME the file(s): the row label can hide the suffix/extension,
-    # so a bare count gave no way to confirm which file was about to be removed (permanent).
+    # so a bare count gave no way to confirm which file was about to be removed -- and it
+    # says where they go: the trash, or (a drive with none) permanently.
+    _trash_name = ptk.FileUtils.trash_name()
+    _one = ReferenceManagerSlots._delete_prompt(["C:/proj/scenes/hero_lod0.blend"])
     check(
-        "delete prompt names a single file in full",
-        "hero_lod0.blend"
-        in ReferenceManagerSlots._delete_prompt(["C:/proj/scenes/hero_lod0.blend"]),
+        "delete prompt names a single file in full, and the trash it goes to",
+        "hero_lod0.blend" in _one and _trash_name in _one and "permanent" not in _one,
+        _one,
     )
     _multi = ReferenceManagerSlots._delete_prompt(
         ["C:/proj/a.blend", "C:/proj/b.blend"]
@@ -654,6 +689,22 @@ try:
         "delete prompt lists every file in a multi-selection",
         "2 file(s)" in _multi and "a.blend" in _multi and "b.blend" in _multi,
         _multi,
+    )
+    _gone = ReferenceManagerSlots._delete_prompt(
+        ["C:/proj/a.blend"], permanent=["C:/proj/a.blend"]
+    )
+    check(
+        "a drive with no trash: the prompt says the delete is permanent",
+        "permanently" in _gone and "cannot be undone" in _gone,
+        _gone,
+    )
+    _mixed = ReferenceManagerSlots._delete_prompt(
+        ["C:/proj/a.blend", "D:/share/b.blend"], permanent=["D:/share/b.blend"]
+    )
+    check(
+        "a mixed selection marks the file that goes for good",
+        "b.blend (permanently" in _mixed and "a.blend (permanently" not in _mixed,
+        _mixed,
     )
     _cap = ReferenceManagerSlots.DELETE_PROMPT_MAX_NAMES
     _long = ReferenceManagerSlots._delete_prompt(
@@ -675,6 +726,65 @@ try:
     check(
         "delete_selected shows the file name and honors 'No'",
         os.path.exists(_victim) and any("victim_lod0.blend" in m for m in sb.messages),
+        str(sb.messages),
+    )
+    # 'Yes' sends it to the trash; a drive with no trash is asked about as permanent; a
+    # trash that then refuses asks again, as permanent, before anything is lost.
+    _bin2 = os.path.join(tmp, "rm_bin2")
+    os.makedirs(_bin2, exist_ok=True)
+
+    def _to_bin2(path):
+        target = os.path.join(_bin2, os.path.basename(path))
+        os.replace(path, target)
+        return target
+
+    s, sb = make_slots("Yes")
+    s._notes = {}  # no notes to carry
+    s._selected_paths = lambda: [_victim]
+    with (
+        _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
+        _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin2),
+    ):
+        s.delete_selected()
+    check(
+        "delete_selected sends the file to the trash",
+        not os.path.exists(_victim)
+        and os.path.isfile(os.path.join(_bin2, "victim_lod0.blend"))
+        and _trash_name in sb.messages[0],
+        str(sb.messages),
+    )
+    open(_victim, "w").close()
+    s, sb = make_slots("Yes")
+    s._notes = {}  # no notes to carry
+    s._selected_paths = lambda: [_victim]
+    with (
+        _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=False),
+        _rm_mock.patch.object(ptk.FileUtils, "move_to_trash") as _never,
+    ):
+        s.delete_selected()
+    check(
+        "no trash: asked as permanent, then deleted outright",
+        not os.path.exists(_victim)
+        and "permanently" in sb.messages[0]
+        and not _never.called,
+        str(sb.messages),
+    )
+    open(_victim, "w").close()
+    s, sb = make_slots("Yes")
+    s._notes = {}  # no notes to carry
+    _answers = iter(["Yes", "No"])
+    sb.message_box = lambda msg, *b: (sb.messages.append(msg), next(_answers, None))[1]
+    s._selected_paths = lambda: [_victim]
+    with (
+        _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
+        _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None),
+    ):
+        s.delete_selected()
+    check(
+        "a trash that refuses asks again as permanent; 'No' keeps the file",
+        os.path.isfile(_victim)
+        and len(sb.messages) >= 2
+        and "permanently" in sb.messages[1],
         str(sb.messages),
     )
 

@@ -32,6 +32,7 @@ from blendertk.anim_utils.blendshape_animator.creator import Creator
 from blendertk.anim_utils.blendshape_animator.keyframes import Keyframes
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
 from blendertk.anim_utils.blendshape_animator.validator import Validator
+from blendertk.core_utils._core_utils import CoreUtils
 from pythontk import Weights
 
 _TARGET_PROP = "blendshape_animator_target"
@@ -83,8 +84,6 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             end_frame = self.DEFAULT_END_FRAME
 
         if base_obj is None or target_obj is None:
-            from blendertk.core_utils._core_utils import CoreUtils
-
             sel = CoreUtils.selected_objects()
             if len(sel) != 2:
                 self.logger.error(
@@ -95,7 +94,7 @@ class BlendshapeAnimator(ptk.LoggingMixin):
             # Active object receives the new shape key (mirrors bpy.ops.object.join_shapes'
             # own "active = destination" selection convention) -- the Blender analogue of
             # Maya's base_mesh (the one that gets the blendShape node).
-            active = bpy.context.view_layer.objects.active
+            active = CoreUtils.active_object()
             if active in sel:
                 base_obj = active
                 target_obj = next(o for o in sel if o is not active)
@@ -123,11 +122,14 @@ class BlendshapeAnimator(ptk.LoggingMixin):
                 if shape_keys is None or not shape_keys.key_blocks:
                     base_obj.shape_key_add(name="Basis", from_mix=False)
 
-                bpy.ops.object.select_all(action="DESELECT")
-                target_obj.select_set(True)
-                base_obj.select_set(True)
-                bpy.context.view_layer.objects.active = base_obj
-                bpy.ops.object.join_shapes()
+                # the window's view layer + context: windowless, select_set / the active
+                # write address the scene's default layer and join_shapes polls screen context
+                with CoreUtils.window_context_override():
+                    bpy.ops.object.select_all(action="DESELECT")
+                    target_obj.select_set(True)
+                    base_obj.select_set(True)
+                    bpy.context.view_layer.objects.active = base_obj
+                    bpy.ops.object.join_shapes()
 
                 new_kb = base_obj.data.shape_keys.key_blocks[-1]
                 new_kb.name = name

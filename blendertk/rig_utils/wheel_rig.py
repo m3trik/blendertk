@@ -446,7 +446,6 @@ class WheelRigSlots(ptk.LoggingMixin):
         Raises:
             ValueError: if selection is invalid.
         """
-        import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
 
@@ -456,7 +455,7 @@ class WheelRigSlots(ptk.LoggingMixin):
                 "Select one or more wheel objects, then the driver (active last)."
             )
 
-        control = bpy.context.view_layer.objects.active
+        control = CoreUtils.active_object()  # the window's layer, not the default
         if control is None or control not in sel:
             raise ValueError(
                 "Invalid selection. Make sure the driver/control object is the active object."
@@ -467,7 +466,6 @@ class WheelRigSlots(ptk.LoggingMixin):
 
     def set_wheel_height(self):
         """Get the wheel height from the selected object's bounding box."""
-        import bpy
 
         from blendertk.core_utils._core_utils import CoreUtils
 
@@ -475,7 +473,7 @@ class WheelRigSlots(ptk.LoggingMixin):
         if not sel:
             self.sb.message_box("Select a single object to determine wheel height.")
             return
-        active = bpy.context.view_layer.objects.active
+        active = CoreUtils.active_object()
         obj = active if active in sel else sel[0]
 
         # Determine dimension based on the inferred rotation axis
@@ -525,13 +523,13 @@ class WheelRigSlots(ptk.LoggingMixin):
     def update_rig_name_placeholder(self):
         """Update the rig name placeholder based on the driver (active object)."""
         try:
-            import bpy
+            import bpy  # noqa: F401 -- probe: absent in the Qt-only harness
         except (
             ImportError
         ):  # Qt-only harness — no selection to reflect (bpy-free load contract)
             return
 
-        control = bpy.context.view_layer.objects.active
+        control = CoreUtils.active_object()  # the window's layer, not the default
         if control is None:
             return
 

@@ -469,6 +469,41 @@ try:
     bpy.ops.object.mode_set(mode="OBJECT")
     check("get_similar_uv_shells is edit-mode only", btk.get_similar_uv_shells([o]) == {})
 
+    # get_uv_shell_sets (mirror of mtk): the selected faces in Edit Mode, all of them in
+    # Object Mode, grouped by UV shell; whole_shells widens each touched shell.
+    reset()
+    o = quads_object([(0.0, 0.0, 0.2, 0.1), (0.5, 0.5, 0.7, 0.6), (0.0, 0.5, 0.2, 0.6)])
+    check("get_uv_shell_sets in Object Mode: every face, one shell per island",
+          sorted(f for _o, f in btk.get_uv_shell_sets([o])) == [[0], [1], [2]],
+          str(btk.get_uv_shell_sets([o])))
+    bpy.ops.object.mode_set(mode="EDIT")
+    bm = bmesh.from_edit_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        f.select = f.index == 2
+    bmesh.update_edit_mesh(o.data)
+    got = btk.get_uv_shell_sets([o])
+    check("get_uv_shell_sets in Edit Mode: only the selected faces",
+          [(x is o, f) for x, f in got] == [(True, [2])], str(got))
+    bpy.ops.object.mode_set(mode="OBJECT")
+    reset()
+    bpy.ops.mesh.primitive_plane_add()
+    plane = bpy.context.active_object
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.subdivide(number_cuts=1)  # four faces, ONE UV shell
+    bm = bmesh.from_edit_mesh(plane.data)
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        f.select = f.index == 0
+    bmesh.update_edit_mesh(plane.data)
+    part = btk.get_uv_shell_sets([plane])
+    whole = btk.get_uv_shell_sets([plane], whole_shells=True)
+    check("get_uv_shell_sets: a face names only itself by default",
+          [f for _o, f in part] == [[0]], str(part))
+    check("get_uv_shell_sets: whole_shells widens it to its whole shell",
+          [f for _o, f in whole] == [[0, 1, 2, 3]], str(whole))
+    bpy.ops.object.mode_set(mode="OBJECT")
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

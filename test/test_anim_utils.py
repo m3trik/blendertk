@@ -103,6 +103,76 @@ try:
         "retired AnimUtils.unbake_keys alias stays removed (2026-09-21)",
         not hasattr(AnimUtils, "unbake_keys"),
     )
+
+    # ---- a slotted action animates an ID only through its ASSIGNED slot.
+    # Assigning an action whose one slot is already another object's leaves
+    # the new holder with no slot, and Blender does not animate it -- but the
+    # object-scoped readers took "no slot" as "every channelbag", so snap /
+    # tie / optimize on the holder edited the OWNER's keys (measured
+    # 2026-09-27: optimize counted a 4-curve action on two objects as 7).
+    # Added: 2026-09-27
+    import blendertk as btk
+
+    owner = empty("slot_owner")
+    for f, x in ((1.5, 0.0), (10, 2.0)):
+        owner.location = (x, 0, 0)
+        owner.keyframe_insert("location", index=0, frame=f)
+    shared = owner.animation_data.action
+    holder = empty("slotless_holder")
+    holder.animation_data_create()
+    holder.animation_data.action = shared
+    check(
+        "precondition: the second holder gets no slot",
+        holder.animation_data.action_slot is None,
+        f"slot={holder.animation_data.action_slot}",
+    )
+    bpy.context.scene.frame_set(10)
+    check(
+        "precondition: Blender does not animate a slotless holder",
+        abs(holder.location[0]) < 1e-6 and abs(owner.location[0] - 2.0) < 1e-6,
+        f"holder={tuple(holder.location)} owner={tuple(owner.location)}",
+    )
+    check(
+        "get_fcurves: a slotless holder has no fcurves",
+        AnimUtils.get_fcurves([holder]) == [],
+        f"{[fc.data_path for fc in AnimUtils.get_fcurves([holder])]}",
+    )
+    check(
+        "get_animated_extent: a slotless holder has no animated extent",
+        AnimUtils.get_animated_extent([holder]) is None,
+        f"{AnimUtils.get_animated_extent([holder])}",
+    )
+    check(
+        "get_animation_info: a slotless holder is not reported",
+        AnimUtils.get_animation_info([holder]) == [],
+        f"{AnimUtils.get_animation_info([holder])}",
+    )
+    snapped = AnimUtils.snap_keys([holder])
+    btk.scale_keys([holder], factor=2.0)
+    AnimUtils.tie_keyframes([holder], frame_range=(0, 20))
+    check(
+        "snap / scale / tie through a slotless holder leave the owner's keys alone",
+        snapped == 0
+        and AnimUtils.key_times(AnimUtils.get_fcurves([owner])[0]) == [1.5, 10.0],
+        f"snapped={snapped} "
+        f"owner={AnimUtils.key_times(AnimUtils.get_fcurves([owner])[0])}",
+    )
+
+    # ---- two objects on ONE slot are one set of curves: a per-object pass
+    # visited them twice (optimize's stats doubled; a lossy level would thin
+    # the same curve twice). Added: 2026-09-27
+    twin = empty("slot_twin")
+    twin.animation_data_create()
+    twin.animation_data.action = shared
+    twin.animation_data.action_slot = owner.animation_data.action_slot
+    stats = AnimUtils.optimize_keys(
+        [owner, twin], remove_static_curves=False, remove_flat_keys=False
+    )
+    check(
+        "optimize_keys: a slot shared by two objects is counted once",
+        stats["curves_before"] == 1 and stats["keys_before"] == 2,
+        f"{stats}",
+    )
 except Exception as e:  # noqa: BLE001
     traceback.print_exc()
     lines.append("FAIL test raised | " + repr(e))

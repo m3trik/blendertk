@@ -70,7 +70,7 @@ class _AutoUnwrapInternal:
         import bpy
 
         with CoreUtils.window_context_override():
-            for other in bpy.context.view_layer.objects:
+            for other in list(bpy.context.view_layer.objects):
                 other.select_set(False)
             obj.select_set(True)
             bpy.context.view_layer.objects.active = obj
@@ -145,29 +145,35 @@ class _AutoUnwrapInternal:
         layout = cls._layout_mode(engine, pack)
 
         result = AutoUnwrapResult(engine=engine)
-        prior_active = bpy.context.view_layer.objects.active
-        prior_mode = (
-            getattr(prior_active, "mode", "OBJECT") if prior_active else "OBJECT"
-        )
-        prior_selection = [o for o in bpy.context.view_layer.objects if o.select_get()]
-        try:
-            with CoreUtils.undo_chunk(f"Auto Unwrap ({engine})"):
-                cls._ensure_object_mode()
-                with ptk.TempArtifacts("uv_unwrap", policy="scoped") as tmp:
-                    for mesh in meshes:
-                        cls._unwrap_one(
-                            uv_utils,
-                            mesh,
-                            engine,
-                            params,
-                            map_size,
-                            layout,
-                            orient,
-                            tmp,
-                            result,
-                        )
-        finally:
-            cls._restore_context(prior_active, prior_mode, prior_selection)
+        # The capture, the unwrap and the restore in the window's view layer + context:
+        # windowless, the capture and restore read the scene's default layer while
+        # _export_obj selects in the window's, which was left holding the last mesh.
+        with CoreUtils.window_context_override():
+            prior_active = bpy.context.view_layer.objects.active
+            prior_mode = (
+                getattr(prior_active, "mode", "OBJECT") if prior_active else "OBJECT"
+            )
+            try:
+                with (
+                    CoreUtils.preserved_selection(),
+                    CoreUtils.undo_chunk(f"Auto Unwrap ({engine})"),
+                ):
+                    cls._ensure_object_mode()
+                    with ptk.TempArtifacts("uv_unwrap", policy="scoped") as tmp:
+                        for mesh in meshes:
+                            cls._unwrap_one(
+                                uv_utils,
+                                mesh,
+                                engine,
+                                params,
+                                map_size,
+                                layout,
+                                orient,
+                                tmp,
+                                result,
+                            )
+            finally:
+                cls._restore_mode(prior_active, prior_mode)
         return result
 
     @staticmethod
@@ -188,29 +194,24 @@ class _AutoUnwrapInternal:
         import bpy
 
         try:
-            if bpy.context.object and bpy.context.object.mode != "OBJECT":
+            active = CoreUtils.active_object()  # bpy.context.object: absent windowless
+            if active and active.mode != "OBJECT":
                 with CoreUtils.window_context_override():
                     bpy.ops.object.mode_set(mode="OBJECT")
         except RuntimeError:
             pass
 
     @staticmethod
-    def _restore_context(prior_active, prior_mode, prior_selection) -> None:
+    def _restore_mode(prior_active, prior_mode) -> None:
+        """Re-enter *prior_active*'s mode; ``preserved_selection`` has already put
+        the selection and the active object back."""
         import bpy
 
         try:
-            for obj in bpy.context.view_layer.objects:
-                obj.select_set(False)
-            for obj in prior_selection:
-                try:
-                    obj.select_set(True)
-                except ReferenceError:
-                    pass
-            if prior_active is not None:
+            if prior_active is not None and prior_mode != "OBJECT":
                 bpy.context.view_layer.objects.active = prior_active
-                if prior_mode != "OBJECT":
-                    with CoreUtils.window_context_override():
-                        bpy.ops.object.mode_set(mode=prior_mode)
+                with CoreUtils.window_context_override():
+                    bpy.ops.object.mode_set(mode=prior_mode)
         except (ReferenceError, RuntimeError):
             pass
 

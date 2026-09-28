@@ -1260,8 +1260,10 @@ class FbxUtils(_FbxUtilsInternal):
         # event-pump timer (``bpy.context.window is None``). The operators run under
         # ``window_context_override`` because ``export_scene.fbx``'s io_scene_fbx handler *itself*
         # reads ``context.selected_objects`` internally, so a window must be in context for it.
-        prior = list(CoreUtils.selected_objects()) if objects is not None else None
-        with CoreUtils.window_context_override():
+        # ``preserved_selection`` puts the caller's selection (and active object) back
+        # after a write that selected *objects* -- even when the write raises -- the
+        # scope mayatk's export takes.
+        with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
             dropped = []
             if objects is not None:
                 bpy.ops.object.select_all(action="DESELECT")
@@ -1282,46 +1284,28 @@ class FbxUtils(_FbxUtilsInternal):
                     if not selected:
                         dropped.append(obj.name)
 
-            # Guard is inside the try so the finally restores the caller's selection even when it
-            # raises (e.g. ``objects`` given but all names resolved to nothing — the DESELECT above
-            # already cleared the real selection).
-            try:
-                if dropped:
-                    shown = ", ".join(dropped[:10]) + (
-                        " …" if len(dropped) > 10 else ""
-                    )
-                    msg = (
-                        f"{len(dropped)} requested object(s) cannot be selected and "
-                        f"will be DROPPED from the FBX (hidden, selection-locked, or "
-                        f"outside the active view layer): {shown}"
-                    )
-                    if strict:
-                        raise RuntimeError(msg)
-                    logger.warning(msg)
-                if selection_only and not CoreUtils.selected_objects():
-                    raise RuntimeError("Nothing selected to export.")
-                bpy.ops.export_scene.fbx(filepath=filepath, **opts)
-                # Armed takes are consumed by every write until reset_takes —
-                # the Maya-parity sticky-state semantics (see apply_takes). A
-                # failing split raises: the promised per-shot clips are the
-                # write's contract, and the single-take file on disk saying
-                # otherwise must not pass as success.
-                if FbxUtils._pending_takes:
-                    _FbxUtilsInternal._split_animation_takes(
-                        filepath, FbxUtils._pending_takes
-                    )
-            finally:
-                if prior is not None:  # restore the user's selection
-                    bpy.ops.object.select_all(action="DESELECT")
-                    for o in prior:
-                        try:
-                            o.select_set(True)
-                        except (ReferenceError, RuntimeError):
-                            # deleted since capture, or no longer selectable
-                            # (e.g. its collection was view-layer-excluded) —
-                            # a best-effort restore must not fail the export
-                            # that already succeeded.
-                            pass
+            if dropped:
+                shown = ", ".join(dropped[:10]) + (" …" if len(dropped) > 10 else "")
+                msg = (
+                    f"{len(dropped)} requested object(s) cannot be selected and "
+                    f"will be DROPPED from the FBX (hidden, selection-locked, or "
+                    f"outside the active view layer): {shown}"
+                )
+                if strict:
+                    raise RuntimeError(msg)
+                logger.warning(msg)
+            if selection_only and not CoreUtils.selected_objects():
+                raise RuntimeError("Nothing selected to export.")
+            bpy.ops.export_scene.fbx(filepath=filepath, **opts)
+            # Armed takes are consumed by every write until reset_takes —
+            # the Maya-parity sticky-state semantics (see apply_takes). A
+            # failing split raises: the promised per-shot clips are the
+            # write's contract, and the single-take file on disk saying
+            # otherwise must not pass as success.
+            if FbxUtils._pending_takes:
+                _FbxUtilsInternal._split_animation_takes(
+                    filepath, FbxUtils._pending_takes
+                )
         return filepath
 
     @staticmethod

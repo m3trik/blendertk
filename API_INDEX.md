@@ -214,7 +214,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `core_utils/_core_utils.py` — Core blendertk utilities — DCC-environment info + cross-cutting decorators.
 - `class CoreUtils(pythontk.CoreUtils, _CoreUtilsInternal)`
-  - methods: strip_dup_suffix, all_ids, undo_chunk, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
+  - methods: strip_dup_suffix, all_ids, undo_chunk, visible_override, undoable, undo_checkpoint, get_env_info, ensure_packages, ensure_image_deps, user_config_path, get_recent_files, get_recent_autosave, get_scene_info, format_scene_info_html, analyze_scene, cleanup_scene, selected_objects, active_object, preserved_selection, reorder_objects, get_areas, tag_redraw, get_view3d_context, window_context_override, edit_mode
 
 ### `core_utils/auto_instancer/_auto_instancer.py` — Scene auto-instancer: convert geometrically identical meshes to instances.
 - `class InstanceCandidate`
@@ -395,7 +395,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `env_utils/handoff_export.py` — Blender-side selection + export hooks shared by the hand-off bridge engines.
 - `class BlenderExportMixin`
-  - methods: lightmap_search_dirs
+  - methods: lightmap_search_dirs, scope_closure
 
 ### `env_utils/hierarchy_sync/_fbx_stage_worker.py` — Convert an FBX reference to a standalone ``.blend`` inside a FRESH headless Blender.
 - `main() -> int`
@@ -599,6 +599,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `mat_utils/bake_sets.py` — Scene-stored bake sets: named object sets the bake tools read (Blender).
 - `class BakeSet`
   - methods: collection, exists, members, meshes, define, clear
+- `class BakeSourceSet(BakeSet)`
+  - methods: companion_path
 - `class LightmapExcludeSet(BakeSet)`
 
 ### `mat_utils/emissive_groups.py` — Emissive groups — mirror of mayatk's ``mat_utils.emissive_groups``.
@@ -623,7 +625,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/marmoset_bridge/_marmoset_bridge.py` — Blender-side glue for the Marmoset Toolbag engine -- mirror of mayatk's
 - `class MarmosetBridge(pythontk.HandoffBridge, _MarmosetBridgeInternal)`
-  - methods: toolbag_path, params_defaults, render_template, baked_texture_dir, build_bake_pairs_manifest
+  - methods: toolbag_path, params_defaults, render_template, baked_texture_dir, source_model_path_for, source_material_name, baked_material_name, texture_set_aliases, build_bake_pairs_manifest
 
 ### `mat_utils/marmoset_bridge/_marmoset_engine.py` — Drive Marmoset Toolbag from the outside -- launch + templated automation.
 - constants: APP, SEND_TO, ROUND_TRIP
@@ -720,9 +722,8 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `mat_utils/substance_bridge/_substance_bridge.py` — Substance 3D Painter bridge -- export Blender selection and hand off to Painter.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
-- `class HighPolySet(BakeSet)`
 - `class SubstanceBridge(SubstanceEngine)`
-  - methods: send, high_poly_path_for
+  - methods: send, source_model_path_for, high_poly_path_for
 
 ### `mat_utils/substance_bridge/_substance_engine.py` — Drive Substance 3D Painter from the outside -- the DCC-free half of the bridge.
 - constants: SEND_TO, ROUND_TRIP, TARGET_AUTO, TARGET_NEW, TARGET_CURRENT
@@ -821,7 +822,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `node_utils/data_nodes.py` — The Blender scene store -- mirror of mayatk's ``node_utils.data_nodes``.
 - `class DataNodes(pythontk.SceneStoreBase)`
-  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, carriers_in, library_renames, scene_path, writer_stamp, install_path_rebase, remove_path_rebase
+  - methods: get_internal_node, ensure_internal, get_export_node, get_export_nodes, ensure_export, read, write, values, dump_export_nodes, carriers_in, library_renames, scene_path, writer_stamp_of, install_path_rebase, ensure_path_rebase, remove_path_rebase
 
 ### `nurbs_utils/_nurbs_utils.py` — Shared curve helpers — Blender mirror of mayatk's ``nurbs_utils.NurbsUtils`` namespace.
 - `class NurbsUtils(pythontk.LoggingMixin)`
@@ -913,7 +914,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 
 ### `ui_utils/blender_bridge_slots_base.py` — Blender-flavored :class:`BridgeSlotsBase` -- adds Blender-side defaults.
 - `class BlenderBridgeSlotsBase(BridgeSlotsBase)`
-  - methods: default_output_dir, resolve_scope_objects, live_param_tooltip_blocks, set_bake_source_from_selection, select_bake_source, clear_bake_source
+  - methods: default_output_dir, resolve_scope_objects, scoped_objects, live_param_tooltip_blocks, set_bake_source_from_selection, select_bake_source, clear_bake_source
 
 ### `ui_utils/blender_native_menus.py` — Symbolic-name -> Blender native-menu resolution + Qt wrapping for the both-button chord menu.
 - `class BlenderNativeMenus(pythontk.LoggingMixin)`
@@ -965,7 +966,7 @@ _Auto-generated. Do not edit by hand. Compact symbol index — grep this for a n
 ### `uv_utils/_uv_utils.py` — UV utilities — UV-coordinate translation and UV-set cleanup (mirror of mayatk's ``UvUtils``
 - constants: DEFAULT_UV_SET, LIGHTMAP_UV_SET
 - `class UvUtils(_UvUtilsInternal)`
-  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
+  - methods: calculate_uv_padding, move_uvs, get_uv_bounds, get_neighbor_shell_bounds, transfer_uvs_to_similar, scale_uvs, transform_uvs, mirror_uvs, pin_uvs, get_texel_density, set_texel_density, delete_extra_uv_sets, cleanup_uv_sets, find_lightmap_uv_set, export_uv_layout, create_lightmap_uvs, auto_unwrap, transfer_uvs, get_uv_shell_sets, get_uv_coords, set_uv_coords, get_similar_uv_shells, stack_uv_shells, straighten_uv_shells, derive_auto_seams, distribute_uv_shells, straighten_uvs, align_uvs, gather_uv_shells, gather_to_udim, orient_uv_shells, randomize_uv_shells
 
 ### `uv_utils/rizom_bridge/_rizom_bridge.py` — RizomUV bridge engine — Blender mirror of mayatk's ``RizomUVBridge``.
 - constants: APP

@@ -89,10 +89,9 @@ _SPEC = ptk.ScriptLaunchSpec(
         ),
     ),
     template_dir=_TEMPLATE_DIR,
-    launch_args=lambda script_path: [
-        "-command",
-        MayaBridge._build_mel_command(script_path),
-    ],
+    # The MEL names no path: the deliverer carries it in the child env (see
+    # ``MayaBridge._build_mel_command``).
+    launch_args=lambda _script_path: ["-command", MayaBridge._build_mel_command()],
     # The spec default, stated because it is load-bearing rather than incidental:
     # ``template_modes_allowed`` derives from it, and its FIRST entry is what an
     # unrecognized declaration falls back to.
@@ -138,8 +137,8 @@ _RUN_SPEC = ptk.ScriptLaunchSpec(
         ),
     ),
     template_dir=_TEMPLATE_DIR,
-    # Interpreter style: mayapy runs the script file directly.
-    launch_args=lambda script_path: [script_path],
+    # No launch_args: mayapy is a Python interpreter, so the runner's default runs the
+    # script with its path in the env -- never on mayapy's ANSI-decoded command line.
     modes=(SAVE_AS,),
     launch_env=lambda: MayaBridge._headless_env(),
 )
@@ -348,16 +347,24 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
                 files, image_nodes = self._material_files(mat)
                 if image_nodes == 0:
                     continue  # flat colors ride the FBX fine
+                # Maya opens files through the SYSTEM ANSI code page: an image in a
+                # folder it cannot hold (Cyrillic on cp1252) became a file node
+                # reading "???" with outSize 0. Hand Maya the 8.3 form; names the
+                # code page holds (the filename classification) are kept.
+                maya_path = ptk.AppLauncher.ansi_safe_path
                 entry = {
                     "name": mat.name,
                     "shader_type": "principled_bsdf",
                     "fbx_material": mat.name,
                     "objects": [obj.name],
-                    "files": files,
+                    "files": [maya_path(path) for path in files],
                     # Rides ALONGSIDE files: the Maya side classifies by filename
                     # first (only a filename reveals packing) and falls back to
                     # these for images that classify to nothing.
-                    "slots": self._material_slots(mat),
+                    "slots": {
+                        channel: maya_path(path)
+                        for channel, path in self._material_slots(mat).items()
+                    },
                 }
                 by_material[mat.name] = entry
                 # File-less entries are written too: a textured material whose
@@ -616,17 +623,24 @@ class MayaBridge(BlenderExportMixin, ptk.ScriptLaunchBridge):
         env.update(_FAST_MAYA_ENV)
         return env
 
-    # Back-compat alias for tests that referenced the bound helper.
     @staticmethod
-    def _build_mel_command(script_path: str) -> str:
+    def _build_mel_command() -> str:
         """Return the MEL passed to ``maya -command`` that exec's the rendered import script.
 
-        ``-command`` runs MEL on startup; have it exec our rendered Python template. The arg is a
-        single list element (AppLauncher uses no shell), so only MEL-level quoting matters: the MEL
-        string uses ``"``, the inner Python uses ``'`` + a raw string -> nothing to escape.
+        ``-command`` runs MEL on startup; have it exec our rendered Python template in
+        Maya's ``__main__``. It names no path: maya.exe decodes its command line in the
+        ANSI code page (measured on Maya 2025: "Жук" arrived as "???"), and the script
+        sits beside the payload under %TEMP%, which holds the user's name. The deliverer
+        always carries the path in the child env (``ptk.AppLauncher.PYTHON_ARGV_VAR``,
+        item 0), and the MEL reads it from there. The file is compiled from BYTES:
+        ``open().read()`` decoded it with Maya's locale (cp1252), which turned a UTF-8
+        payload path inside the script into a different path. Only ``'`` inside the
+        MEL ``"..."`` and no backslash -> nothing to escape.
         """
-        script_posix = str(script_path).replace("\\", "/")
-        return f"python(\"exec(open(r'{script_posix}').read())\")"
+        var = ptk.AppLauncher.PYTHON_ARGV_VAR
+        path = f"__import__('json').loads(__import__('os').environ.pop('{var}'))[0]"
+        run = "(lambda p: exec(compile(open(p, 'rb').read(), p, 'exec'), globals()))"
+        return f'python("{run}({path})")'
 
     @staticmethod
     def list_templates() -> List[Path]:

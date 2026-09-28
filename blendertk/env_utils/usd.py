@@ -330,24 +330,27 @@ class UsdUtils(_UsdUtilsInternal):
                 for o in ptk.make_iterable(objects)
             ]
             wanted = [o for o in wanted if o is not None]
-        # The hidden set travels: every hide flag on the export pool cleared
-        # for the exporter (which would otherwise skip the object), the
-        # viewport-hidden ones stamped invisible in the layer afterwards,
-        # the flags restored regardless.
-        hidden, revealed = [], []
-        if include_hidden:
-            pool = wanted
-            if pool is None:  # the selection (hidden objects cannot be in it)
-                pool = CoreUtils.selected_objects() if selection_only else None
-            hidden = UsdUtils.hidden_objects(pool)
-            revealed = _UsdUtilsInternal._reveal(
-                bpy.data.objects if pool is None else pool
-            )
-
-        prior = list(CoreUtils.selected_objects()) if objects is not None else None
         scene = bpy.context.scene
         prior_range = (scene.frame_start, scene.frame_end)
-        with CoreUtils.window_context_override():
+        # preserved_selection: the caller's selection (and active object) come back
+        # after a write that selected *objects* (mayatk's export takes the same scope)
+        with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
+            # The hidden set travels: every hide flag on the export pool cleared
+            # for the exporter (which would otherwise skip the object), the
+            # viewport-hidden ones stamped invisible in the layer afterwards,
+            # the flags restored regardless. Inside the override: the eye
+            # (``hide_get``/``hide_set``) is per VIEW LAYER, and the exporter
+            # reads the window's -- read and cleared windowless, the scene
+            # default layer's eye was revealed and the window's re-hidden.
+            hidden, revealed = [], []
+            if include_hidden:
+                pool = wanted
+                if pool is None:  # the selection (hidden objects cannot be in it)
+                    pool = CoreUtils.selected_objects() if selection_only else None
+                hidden = UsdUtils.hidden_objects(pool)
+                revealed = _UsdUtilsInternal._reveal(
+                    bpy.data.objects if pool is None else pool
+                )
             if wanted is not None:
                 bpy.ops.object.select_all(action="DESELECT")
                 for obj in wanted:
@@ -394,13 +397,6 @@ class UsdUtils(_UsdUtilsInternal):
                 _UsdUtilsInternal._restore_hidden(revealed)
                 if frame_range:
                     scene.frame_start, scene.frame_end = prior_range
-                if prior is not None:  # restore the user's selection
-                    bpy.ops.object.select_all(action="DESELECT")
-                    for o in prior:
-                        try:
-                            o.select_set(True)
-                        except ReferenceError:
-                            pass
         return filepath
 
     @staticmethod

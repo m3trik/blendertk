@@ -15,6 +15,7 @@ survives a save/reload.
 
 import pythontk as ptk
 
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.xform_utils._xform_utils import XformUtils
 
 _ORIG_LOCATION = "btk_explode_orig"  # custom-prop key holding the pre-explode location
@@ -131,7 +132,7 @@ class DisplayUtils(_DisplayUtilsInternal):
         ``objects=None`` scans the current view layer (the default); pass an explicit list to
         restrict the scan.
         """
-        import bpy
-
-        pool = objects if objects is not None else bpy.context.view_layer.objects
-        return [o for o in pool if o.type == "MESH" and o.visible_get()]
+        # the window's layer (windowless, ``context.view_layer`` is the scene default)
+        vl = CoreUtils._active_view_layer()
+        pool = objects if objects is not None else vl.objects
+        return [o for o in pool if o.type == "MESH" and o.visible_get(view_layer=vl)]

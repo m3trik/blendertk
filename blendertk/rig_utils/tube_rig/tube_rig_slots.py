@@ -222,12 +222,13 @@ class TubeRigSlots(ptk.LoggingMixin):
     def b002(self):
         """Step 2 — add the curve + Spline IK + hooked controls onto the selected armature's EXISTING
         bone chain (Maya's ``b002`` for Spline mode). Reads the deform toggles from the mode options."""
-        import bpy
 
-        arm = bpy.context.view_layer.objects.active
+        # window-independent reads: windowless, ``bpy.context.selected_objects`` is
+        # absent and ``context.view_layer`` is the scene's default layer
+        arm = CoreUtils.active_object()
         if arm is None or arm.type != "ARMATURE":
             arm = next(
-                (o for o in bpy.context.selected_objects if o.type == "ARMATURE"), None
+                (o for o in CoreUtils.selected_objects() if o.type == "ARMATURE"), None
             )
         if arm is None:
             self.sb.message_box("Select the joint chain (armature) created in Step 1.")
@@ -267,9 +268,8 @@ class TubeRigSlots(ptk.LoggingMixin):
     def b003(self):
         """Step 3 — bind the selected tube mesh to the selected armature (Armature modifier + automatic
         weights). Mirror of Maya's ``b003`` bind_joint_chain."""
-        import bpy
 
-        sel = bpy.context.selected_objects
+        sel = CoreUtils.selected_objects()  # not bpy.context's: absent windowless
         mesh = next((o for o in sel if o.type == "MESH"), None)
         arm = next((o for o in sel if o.type == "ARMATURE"), None)
         if mesh is None or arm is None:
@@ -302,7 +302,7 @@ class TubeRigSlots(ptk.LoggingMixin):
         the reason. Requires the mesh already bound (Step 3)."""
         import bpy
 
-        sel = list(bpy.context.selected_objects)
+        sel = list(CoreUtils.selected_objects())  # not bpy.context's: absent windowless
         arm = next((o for o in sel if o.type == "ARMATURE"), None)
         # anchors are transforms/Empties, never a mesh — so the bound tube being selected too
         # (the common case) isn't mistaken for an anchor.

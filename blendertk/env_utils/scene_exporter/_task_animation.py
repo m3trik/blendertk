@@ -44,6 +44,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
         # The session manifest (SmartBake.restore swaps the actions back and
         # unmutes the sources) -- undone by _restore_bake_session, staged
         # HERE, after every earlier task's restore, so it unwinds FIRST.
+        # Nothing is staged for a bake that raised: bake() rolled it back
+        # before the error reached here, in write-back mode too (a partial
+        # bake is never a kept edit). Mirror of mayatk.
         if result.session_id:
             self._bake_session_id = result.session_id
             self.stage_deferred_restore("smart_bake", self._restore_bake_session)
@@ -80,14 +83,11 @@ class _AnimationTasksMixin(_TaskDataMixin):
             self.logger.debug("No keyframes found. Skipping optimization.")
             return
 
+        # The Animation Output gate: the copies are swapped in before any edit.
+        self._protect_scene_animation()
         resolved = AnimUtils.normalize_optimize_level(level)
         self.logger.info(f"Optimizing baked animation keys ({resolved})...")
         stats = AnimUtils.optimize_keys(self.objects, **kwargs)
-        if (stats["curves_before"], stats["keys_before"]) != (
-            stats["curves_after"],
-            stats["keys_after"],
-        ):
-            self.record_kept_edit("key edits")
         self.logger.info(
             f"Optimization completed: {stats['curves_before']} -> {stats['curves_after']} "
             f"curve(s), {stats['keys_before']} -> {stats['keys_after']} key(s)."
@@ -101,10 +101,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         from blendertk.anim_utils._anim_utils import AnimUtils
 
+        self._protect_scene_animation()
         self.logger.info("Tying keyframes for all objects.")
         changed = AnimUtils.tie_keyframes(self.objects, absolute=True)
-        if changed:
-            self.record_kept_edit("key edits")
         self.logger.info(f"Tied {changed} keyframe(s).")
 
     def snap_keys_to_frame(self):
@@ -115,10 +114,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
 
         from blendertk.anim_utils._anim_utils import AnimUtils
 
+        self._protect_scene_animation()
         self.logger.info("Snapping keyframes to nearest whole frame.")
         snapped = AnimUtils.snap_keys(self.objects)
-        if snapped:
-            self.record_kept_edit("key edits")
         self.logger.info(f"Snapped {snapped} keyframe(s).")
 
     #: Bake Range sources, in the order the combo offers them. Mirrors mayatk's
@@ -333,18 +331,21 @@ class _AnimationTasksMixin(_TaskDataMixin):
         # drop the metadata, so clear any hide state before including it, and
         # put it back after the write: a deferred restore runs AFTER it (the
         # task reverts that ran before the write were retired 2026-09-13, and
-        # the carrier was left visible for good until 2026-09-24).
+        # the carrier was left visible for good until 2026-09-24). The eye is
+        # per view layer: the window's, the one the FBX funnel selects in
+        # (windowless, the bare calls read the scene's default layer).
+        vl = CoreUtils._active_view_layer()
         try:
-            layer_hidden = carrier.hide_get()
+            layer_hidden = carrier.hide_get(view_layer=vl)
         except RuntimeError:  # not in the active view layer
             layer_hidden = False
         hide_state = (carrier.hide_select, carrier.hide_viewport, layer_hidden)
 
-        def _rehide(carrier=carrier, state=hide_state):
+        def _rehide(carrier=carrier, state=hide_state, vl=vl):
             try:
                 carrier.hide_select, carrier.hide_viewport = state[0], state[1]
                 if state[2]:
-                    carrier.hide_set(True)
+                    carrier.hide_set(True, view_layer=vl)
             except (RuntimeError, ReferenceError):
                 pass  # unlinked from the layer since, or freed
 
@@ -354,9 +355,9 @@ class _AnimationTasksMixin(_TaskDataMixin):
         carrier.hide_select = False
         carrier.hide_viewport = False
         try:
-            if not carrier.visible_get():
+            if not carrier.visible_get(view_layer=vl):
                 was_hidden = True
-                carrier.hide_set(False)
+                carrier.hide_set(False, view_layer=vl)
         except RuntimeError:  # not in the active view layer
             was_hidden = True
         if was_hidden:
@@ -369,7 +370,7 @@ class _AnimationTasksMixin(_TaskDataMixin):
         # scene root collection for the duration of the write and unlink it
         # right after (deferred restore: task reverts fire BEFORE the write).
         try:
-            still_hidden = not carrier.visible_get()
+            still_hidden = not carrier.visible_get(view_layer=vl)
         except RuntimeError:  # not in the active view layer at all
             still_hidden = True
         if still_hidden:
@@ -384,11 +385,10 @@ class _AnimationTasksMixin(_TaskDataMixin):
                         pass
 
                 self.stage_deferred_restore("data_export_root_link", _unlink_carrier)
-                vl = CoreUtils._active_view_layer()
                 if vl is not None:
                     vl.update()  # visible_get/select_set read the evaluated layer
                 try:  # now reachable through the root — re-clear per-view-layer hiding
-                    carrier.hide_set(False)
+                    carrier.hide_set(False, view_layer=vl)
                 except RuntimeError:
                     pass
                 self.logger.info(

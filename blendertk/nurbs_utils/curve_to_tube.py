@@ -332,10 +332,15 @@ class CurveToTubeSlots(ptk.LoggingMixin):
         # chk004 via select_result_checkbox/result_provider) — hand-wired here so it (de)selects
         # on every preview build and on commit, matching mayatk's user-visible behavior.
         if self.ui.chk004.isChecked() and self.last_tubes:
-            bpy.ops.object.select_all(action="DESELECT")
-            for t in self.last_tubes:
-                t.select_set(True)
-            bpy.context.view_layer.objects.active = self.last_tubes[0]
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            # the window's view layer: windowless, select_all / select_set / the active
+            # write address the scene's default layer, not the one the window shows
+            with CoreUtils.window_context_override():
+                bpy.ops.object.select_all(action="DESELECT")
+                for t in self.last_tubes:
+                    t.select_set(True)
+                bpy.context.view_layer.objects.active = self.last_tubes[0]
         self._update_footer()
 
     def _update_footer(self):

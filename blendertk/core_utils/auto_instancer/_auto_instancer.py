@@ -542,7 +542,11 @@ class AutoInstancer(ptk.LoggingMixin, _AutoInstancerInternal):
         # Objects outside the active view layer (excluded collections) can
         # be instanced by the datablock swap but cannot be select_set/joined
         # — feeding one to combine_objects would abort the run mid-scene.
-        view_layer_uids = {o.session_uid for o in bpy.context.view_layer.objects}
+        # The window's layer -- the one combine_objects' _object_mode override joins in
+        # (windowless, ``context.view_layer`` is the scene's default).
+        view_layer_uids = {
+            o.session_uid for o in CoreUtils._active_view_layer().objects
+        }
 
         candidates = [
             o

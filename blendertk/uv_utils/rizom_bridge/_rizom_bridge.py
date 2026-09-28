@@ -268,9 +268,12 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         if not existing:
             return ""
         self.logger.info(f"Binding {len(existing)} texture(s) in RizomUV.")
+        # ASCII inside the Lua, as for the FBX (see build_send_script).
         return "\n".join(
             'pcall(function() ZomLoadTexture({{File={{Path="{0}"}}}}) end)'.format(
-                p.replace("\\", "/")
+                str(ptk.AppLauncher.ansi_safe_path(p, ascii_only=True)).replace(
+                    "\\", "/"
+                )
             )
             for p in existing
         )
@@ -291,7 +294,11 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
             'ZomLoad({{File={{Path="{path}", ImportGroups={groups}, '
             "XYZUVW={uvs}, UVWProps={props}}}}})"
         ).format(
-            path=str(fbx_path).replace("\\", "/"),
+            # RizomUV 2020.1 reads a Lua path's UTF-8 bytes as ANSI: any non-ASCII
+            # component made ZomLoad hang to the timeout (mirror of mayatk).
+            path=str(ptk.AppLauncher.ansi_safe_path(fbx_path, ascii_only=True)).replace(
+                "\\", "/"
+            ),
             groups=self._lua_bool(import_groups),
             uvs=self._lua_bool(load_uvs),
             props=self._lua_bool(load_uvw_props),
@@ -306,6 +313,7 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         import_groups=True,
         load_uvw_props=True,
         load_textures=True,
+        params=None,
     ):
         """Export ``objects`` to FBX and open them in a fresh RizomUV session (one-way).
 
@@ -315,9 +323,18 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         completion, so nothing may delete these; allocation age-sweeps the same prefix instead,
         which is what keeps a send-per-click habit from filling the temp dir forever. (The
         round-trip uses the same primitive with ``scoped`` — see :meth:`_temp_store`.) Returns the
-        written Lua script path."""
+        written Lua script path.
+
+        A group ships its subtree, as mayatk's export-selection does: *objects* go through
+        :meth:`blendertk.BlenderExportMixin.scope_closure` under *params*' Scope (only ``SCOPE`` is
+        read; Visible Only keeps hidden children out). Blender's FBX exporter writes exactly the
+        objects it is given, so a group handed straight to this API used to ship the Empty alone.
+        The panel's scope has already closed its list; closing it again is a no-op."""
         if not objects:
             raise ValueError("No objects specified for sending.")
+        from blendertk.env_utils.handoff_export import BlenderExportMixin
+
+        objects = BlenderExportMixin.scope_closure(ptk.make_iterable(objects), params)
         exe = self.rizom_path
         if not exe:
             raise RuntimeError(self.APP.not_found_message)
@@ -340,7 +357,11 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script)
 
-        proc = ptk.AppLauncher.launch(exe, args=["-cfi", script_path], detached=True)
+        proc = ptk.AppLauncher.launch(
+            exe,
+            args=["-cfi", ptk.AppLauncher.ansi_safe_path(script_path)],
+            detached=True,
+        )
         if proc is None:
             raise RuntimeError(f"Failed to launch RizomUV: {exe}")
         self.logger.info(
@@ -368,7 +389,13 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         only. Mirror of mayatk's ``process_with_rizomuv``.
 
         Parameters:
-            objects: bpy mesh objects (or names) to process.
+            objects: bpy mesh objects (or names) to process; a group names its meshes. In Edit
+                Mode the face selection names UV SHELLS (mirror of mayatk's component
+                selection): a preset that can act on a subset (``pack``) moves only the shells
+                the selected faces touch and packs them around every other shell sent, which
+                stays exactly where it is -- an Edit Mode mesh with no face selected included;
+                any other preset processes whole objects and logs that it did. The round-trip
+                itself runs in Object Mode, and the caller's mode is restored after it.
             uv_script: Raw Lua string **or** path to a ``.lua`` file. Mutually exclusive with
                 *preset*.
             preset: Name of a built-in preset (``"pack"``, ``"unwrap_hard"``, ``"unwrap_organic"``,
@@ -376,15 +403,17 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 ``scripts/<preset>.lua``. Mutually exclusive with *uv_script*.
             params: Optional dict of placeholder overrides (e.g. ``{"ITERATIONS": 25}``). Keys map
                 to ``__KEY__`` tokens in the script (see ``parameters.PARAMS``).
-            select_objects: Subset of *objects* whose islands the script should select in Rizom
-                (rendered into the ``PACK_SELECT_NAMES`` token as a Lua table of exported group
-                names). Required by presets operating on a sub-selection -- e.g.
-                ``pack_into_existing`` packs these objects' islands into the gaps left by the rest.
+            select_objects: What moves, for a preset that packs a subset of *objects* INTO the
+                layout the rest of them form (``pack_into_existing``, which requires it): objects
+                move whole, and one in Edit Mode moves the shells its selected faces touch. Their
+                faces carry the subset material tag the preset's ``PACK_SELECT_NAMES`` token
+                receives; every other shell of *objects* stays exactly where it is and is packed
+                around. Mirror of mayatk.
             skip_instances: When True (default), collapse linked duplicates (objects sharing one
                 mesh datablock) to a single representative before export -- the Blender analogue of
                 mayatk's shared-shape instances. RizomUV would otherwise unwrap each independently
-                and the UV transfer back onto the shared datablock is last-write-wins. Ignored when
-                a preset selects a sub-set of islands (its mapping needs every named object).
+                and the UV transfer back onto the shared datablock is last-write-wins. The subset
+                tag is keyed by datablock, so it survives whichever duplicate stays.
         """
         from blendertk.uv_utils.rizom_bridge import parameters as _params
 
@@ -399,9 +428,9 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         if resolved is not None:
             self.script_path = resolved
 
-        # Preset-level version gate (e.g. pack_into_existing needs the ZomPack WorkingSet field,
-        # absent below 2022.2). Fails loudly instead of letting an unsupported field no-op or
-        # crash Rizom. Mirror of mayatk.
+        # Preset-level version gate (e.g. unwrap_hybrid's segmenter pair access-violates 2020.1).
+        # Fails loudly instead of letting an unsupported field no-op or crash Rizom. Mirror of
+        # mayatk.
         required = _params.Parameters.preset_min_version(resolved or "")
         if required and self.rizom_version < required:
             raise RuntimeError(
@@ -410,8 +439,9 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 f"{'.'.join(map(str, self.rizom_version))} ({self.rizom_path})."
             )
 
-        # Presets that select a sub-set of islands need to know which objects that is -- refuse to
-        # render a script whose selection token would otherwise survive as a Lua syntax error.
+        # Presets that pack a sub-set of islands INTO the rest need to know which objects that is --
+        # refuse to render a script whose selection token would otherwise survive as a Lua syntax
+        # error.
         needs_selection = bool(resolved) and "__PACK_SELECT_NAMES__" in resolved
         if needs_selection and not select_objects:
             raise ValueError(
@@ -419,10 +449,31 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 "with the mesh objects whose islands should be packed."
             )
 
+        # An Edit Mode face selection names SHELLS. A preset that can act on a subset opts in by
+        # referencing the subset token (pack.lua); for anything else, say that the whole object
+        # is processed rather than widen the selection silently. select_objects names the subset
+        # instead when the preset takes it. Read now, from the live edit meshes: the round-trip
+        # below runs in Object Mode. Mirror of mayatk.
+        shell_subset, picked = {}, 0
+        if not needs_selection:
+            shell_subset, picked = self._shell_subset(originals)
+        if shell_subset and not (resolved and "__PACK_SUBSET__" in resolved):
+            self.logger.warning(
+                f"'{preset or 'script'}' works on whole objects: every shell of the "
+                f"{len(shell_subset)} object(s) in Edit Mode was processed. Use the 'pack' "
+                "preset to move only the selected shells."
+            )
+            shell_subset = {}
+        elif shell_subset:
+            self.logger.info(
+                f"Packing the {picked} selected shell(s) only; every other shell of the "
+                f"{len(shell_subset)} object(s) in Edit Mode stays where it is and is packed "
+                "around."
+            )
+
         # Collapse linked duplicates (shared mesh datablock) to one representative per datablock --
-        # the Blender twin of mayatk's shared-shape instance dedupe. Unless a preset needs every
-        # named object for its island-group selection.
-        if skip_instances and not needs_selection and len(originals) > 1:
+        # the Blender twin of mayatk's shared-shape instance dedupe.
+        if skip_instances and len(originals) > 1:
             seen, deduped = set(), []
             for obj in originals:
                 if obj.data not in seen:
@@ -435,18 +486,35 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 )
                 originals = deduped
 
+        # What may move, per mesh datablock (see _moving_shells); empty = a plain run.
+        if needs_selection:
+            moving = self._moving_shells(select_objects)
+            self._check_pack_into(moving, originals)
+        elif shell_subset:
+            moving = self._moving_shells(originals, shell_subset)
+        else:
+            moving = {}
+
         self._params = params or {}
 
-        with CoreUtils.undo_chunk(f"RizomUV: {preset or 'script'}"):
-            self._export_objects(originals)
-            if needs_selection:
+        def round_trip():
+            subset_tag = self._export_objects(originals, moving)
+            if subset_tag:
+                token = "PACK_SELECT_NAMES" if needs_selection else "PACK_SUBSET"
                 self._params = dict(self._params)
-                self._params.setdefault(
-                    "PACK_SELECT_NAMES", self._select_names_lua(select_objects)
-                )
+                self._params[token] = f'{{"{subset_tag}"}}'
             self._execute_uv_script()
             imported = self._import_objects()
             self._transfer_uvs_and_cleanup(imported, originals)
+
+        with CoreUtils.undo_chunk(f"RizomUV: {preset or 'script'}"):
+            # Object Mode for the whole trip: from Edit Mode the export's selection operators
+            # poll-failed (measured: the run raised and nothing moved), and a UV write into a
+            # mesh in Edit Mode is overwritten by its edit mesh on the way out.
+            if any(obj.mode == "EDIT" for obj in originals):
+                CoreUtils._object_mode(round_trip)()
+            else:
+                round_trip()
 
         self._announce_handoff(preset or "script", len(originals))
 
@@ -455,30 +523,86 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         # debuggable -- the no-save error tells the user to open that very script in RizomUV.
         self._release_temp_payloads()
 
-    def _select_names_lua(self, select_objects) -> str:
-        """Render *select_objects* as a Lua table of exported group names.
+    @staticmethod
+    def _check_pack_into(moving, originals) -> None:
+        """Refuse a pack INTO a layout that *moving* leaves no part of. Mirror of mayatk.
 
-        Must run after :meth:`_export_objects` -- it resolves each object through
-        ``_export_name_map`` to the suffixed copy name the FBX (and therefore Rizom's imported
-        island groups) actually carries. Mirror of mayatk.
+        Raises:
+            ValueError: *moving* names no shell of *originals* (select_objects outside the
+                objects sent), or every shell of them (no layout to pack into: its density is
+                undefined, and a plain pack is what that would be).
         """
-        sel = set(self._as_mesh_objects(select_objects))
-        names = [dup for dup, orig in self._export_name_map.items() if orig in sel]
-        if not names:
+        states = [moving.get(obj.data, False) for obj in originals]
+        if not any(state is None or state for state in states):
             raise ValueError(
                 "select_objects did not match any exported object -- they must be a subset of "
                 "the objects passed for processing."
             )
-        return "{" + ", ".join(f'"{n}"' for n in names) + "}"
+        if all(state is None for state in states):
+            raise ValueError(
+                "Every shell sent is selected to move: there is no existing layout to pack "
+                "into. Send the meshes that form the layout too, or use the 'pack' preset."
+            )
+
+    @classmethod
+    def _shell_subset(cls, objects) -> "tuple[dict, int]":
+        """The UV shells an Edit Mode face selection names, per mesh it covers partly.
+
+        Mirror of mayatk's ``_shell_subset``: the selected faces name every UV shell (active
+        layer) they touch, whole -- a pack cannot move part of a shell. Only meshes in Edit
+        Mode have a component selection; once any of them has one, an Edit Mode mesh with NO
+        face selected moves nothing (empty set), the way a mesh left out of a Maya component
+        selection stays put. A mesh whose every shell is picked, or one in Object Mode, packs
+        whole and is left out.
+
+        Returns:
+            ``({mesh datablock: face indices}, shells picked)``; ``({}, 0)`` when no face is
+            selected anywhere.
+        """
+        from blendertk.uv_utils._uv_utils import UvUtils
+
+        edit = [obj for obj in cls._as_mesh_objects(objects) if obj.mode == "EDIT"]
+        shells = UvUtils.get_uv_shell_sets(edit, whole_shells=True) if edit else []
+        if not shells:
+            return {}, 0
+        by_data = {}
+        for obj, faces in shells:
+            by_data.setdefault(obj.data, set()).add(frozenset(faces))
+        subset, picked = {}, 0
+        for obj in edit:
+            if obj.data in subset:
+                continue  # a linked duplicate of a mesh already read
+            picks = by_data.get(obj.data, set())
+            faces = set().union(*picks) if picks else set()
+            if len(faces) >= len(obj.data.polygons):
+                continue  # every shell picked: it packs whole
+            subset[obj.data] = faces
+            picked += len(picks)
+        return subset, picked
+
+    @classmethod
+    def _moving_shells(cls, objects, shell_subset=None) -> dict:
+        """What a subset pack may move: ``{mesh datablock: face indices | None}``.
+
+        Every mesh *objects* names moves whole (``None``), except the ones *shell_subset*
+        covers (see :meth:`_shell_subset`; read from *objects* when omitted), which move only
+        those faces -- none, for an empty set. A datablock absent from the result stays FIXED.
+        Mirror of mayatk.
+        """
+        if shell_subset is None:
+            shell_subset = cls._shell_subset(objects)[0]
+        moving = {obj.data: None for obj in cls._as_mesh_objects(objects)}
+        moving.update(shell_subset)
+        return moving
 
     @staticmethod
     def expand_by_materials(objects) -> "tuple[list, list]":
         """Expand *objects* to every mesh object sharing their assigned materials.
 
         Companion to the ``pack_into_existing`` preset: the caller selects only the NEW meshes;
-        the full set Rizom needs (so the existing layout is present as the locked forbidden area)
-        is every mesh using the same material(s) -- the material defines "the map". Mirror of
-        mayatk (bpy refs instead of DAG-path strings).
+        the full set Rizom needs (so the existing layout is present as the fixed, packed-around
+        area) is every mesh using the same material(s) -- the material defines "the map". Mirror
+        of mayatk (bpy refs instead of DAG-path strings).
 
         Returns ``(all_objects, selected_objects)`` where *selected_objects* is the normalized
         input (the pack subset).
@@ -503,28 +627,48 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
     @staticmethod
     def _as_mesh_objects(objects):
-        """Coerce *objects* (bpy objects or names) to a list of existing bpy MESH objects."""
+        """The MESH objects *objects* (bpy objects or names) name, descendants included.
+
+        Mirror of mayatk's ``Components.get_mesh_transforms``: a group (an Empty) or any other
+        non-mesh object names the meshes below it, never itself -- so a group handed straight to
+        the engine API processes its content instead of raising "No valid mesh objects".
+        Order-preserving; each mesh once.
+        """
         import bpy
 
-        out = []
+        out, seen = [], set()
         for o in ptk.make_iterable(objects):
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o
-            if obj is not None and getattr(obj, "type", None) == "MESH":
-                out.append(obj)
+            if obj is None:
+                continue
+            for member in (obj, *getattr(obj, "children_recursive", ())):
+                if getattr(member, "type", None) == "MESH" and member not in seen:
+                    seen.add(member)
+                    out.append(member)
         return out
 
-    def _export_objects(self, originals):
+    def _export_objects(self, originals, moving=None):
         """Export unique-suffixed *copies* of *originals* to :attr:`export_path`.
 
         Copies (not the originals) are exported so the FBX carries ``__RZTMP`` names the re-import
         maps back to originals; the user's objects are never renamed. Each copy is linked into its
         original's collections (so it's in the export set / view layer), exported, then removed
         along with its copied mesh data. Populates :attr:`_export_name_map`.
+
+        With *moving* (see :meth:`_moving_shells`), the faces that may move carry one throwaway
+        material on the copies: the FBX writes it per polygon and the preset's ``Materials``
+        selection turns it back into Rizom's island selection (mirror of mayatk's subset tag).
+        A copy whose original's datablock is absent from *moving* is left as it is -- every
+        island of it stays fixed.
+
+        Returns:
+            The tag material's name (as the FBX carries it), or None without *moving*.
         """
         import bpy
 
         self._export_name_map = {}
         copies = []
+        tag = keep = None
         for i, orig in enumerate(originals):
             copy = orig.copy()
             copy.data = (
@@ -544,6 +688,38 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         if not copies:
             raise RuntimeError("Failed to create any export copies.")
 
+        if moving:
+            tag = bpy.data.materials.new(f"rizomSubset{self._TEMP_SUFFIX}")
+            for copy in copies:
+                faces = moving.get(self._export_name_map[copy.name].data, set())
+                if faces is not None and not faces:
+                    continue  # fixed
+                # The copy owns its mesh data (copied above), so the slots and the per-face
+                # material index never reach the original. A face that stays must name a REAL
+                # material: the FBX exporter drops an empty slot and renumbers the rest, so a
+                # slotless cube's fixed faces came back carrying the tag (measured).
+                if faces is not None:
+                    slots = copy.data.materials
+                    for i, mat in enumerate(list(slots)):
+                        if mat is None:
+                            keep = keep or bpy.data.materials.new(
+                                f"rizomFixed{self._TEMP_SUFFIX}"
+                            )
+                            slots[i] = keep
+                    if not len(slots):
+                        keep = keep or bpy.data.materials.new(
+                            f"rizomFixed{self._TEMP_SUFFIX}"
+                        )
+                        slots.append(keep)
+                copy.data.materials.append(tag)
+                index = len(copy.data.materials) - 1
+                polygons = copy.data.polygons
+                indices = [0] * len(polygons)
+                polygons.foreach_get("material_index", indices)
+                for face in range(len(polygons)) if faces is None else faces:
+                    indices[face] = index
+                polygons.foreach_set("material_index", indices)
+
         Path(self.export_path).parent.mkdir(parents=True, exist_ok=True)
         self.logger.info(
             f"Exporting {len(copies)} object(s) to "
@@ -562,6 +738,8 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                 use_mesh_modifiers=False,
             )
             self.logger.debug("FBX export completed successfully")
+            # Read before the finally removes the datablock.
+            tag_name = tag.name if tag is not None else None
         finally:
             # Remove the copies (and their orphaned mesh data) before re-import so the re-imported
             # objects come back under the exact __RZTMP names (nothing to collide with -> no .001).
@@ -577,6 +755,10 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
                         bpy.data.meshes.remove(mesh)
                     except Exception:  # noqa: BLE001
                         pass
+            for mat in (tag, keep):
+                if mat is not None and mat.users == 0:
+                    bpy.data.materials.remove(mat)
+        return tag_name
 
     def _execute_uv_script(self):
         """Wrap the resolved script, run RizomUV headlessly, and verify it rewrote the FBX.
@@ -611,9 +793,10 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
 
         self.logger.debug(f"Executing command: {exe} -cfi {self.script_path}")
         try:
+            # RizomUV reads its command line in the ANSI code page (mirror of mayatk).
             result = ptk.AppLauncher.run(
                 exe,
-                args=["-cfi", self.script_path],
+                args=["-cfi", ptk.AppLauncher.ansi_safe_path(self.script_path)],
                 timeout=self.timeout,
             )
         except subprocess.TimeoutExpired as e:
@@ -866,7 +1049,11 @@ class RizomUVBridge(ptk.LoggingMixin, _RizomUVBridgeInternal):
         ``_construct_full_script``."""
         from blendertk.uv_utils.rizom_bridge import parameters as _params
 
-        export_path_normalized = str(self.export_path).replace("\\", "/")
+        # ASCII inside the Lua: RizomUV reads its paths' UTF-8 bytes as ANSI
+        # (mirror of mayatk).
+        export_path_normalized = str(
+            ptk.AppLauncher.ansi_safe_path(self.export_path, ascii_only=True)
+        ).replace("\\", "/")
         is_fbx = Path(self.export_path).suffix.lower() == ".fbx"
         version = self.rizom_version
 

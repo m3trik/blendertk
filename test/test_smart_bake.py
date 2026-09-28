@@ -560,6 +560,35 @@ def _run_engine_round_trip_checks():
             SmartBake.list_sessions() == [],
             f"{SmartBake.list_sessions()}",
         )
+
+        # ==================== a SHARED original Action's keep-alive flip ====================
+        # Two constrained objects holding one Action: the bake pins it (use_fake_user) once
+        # per object, and the second object's record read the value the FIRST flip had
+        # just set -- so restore, walking the records in order, left it pinned for good.
+        # Added: 2026-09-27
+        reset()
+        sh_target = spawn_empty("ShTarget")
+        key_loc(sh_target, 1, (0.0, 0.0, 0.0))
+        key_loc(sh_target, 10, (5.0, 0.0, 0.0))
+        sh_objs = []
+        for sh_name in ("ShA", "ShB"):
+            sh_obj = spawn_empty(sh_name)
+            sh_obj.constraints.new("COPY_ROTATION").target = sh_target
+            sh_objs.append(sh_obj)
+        sh_objs[0].keyframe_insert(data_path="scale", frame=1)
+        sh_action = sh_objs[0].animation_data.action
+        sh_objs[1].animation_data_create()
+        sh_objs[1].animation_data.action = sh_action
+        sh_objs[1].animation_data.action_slot = sh_objs[0].animation_data.action_slot
+        sh_result = SmartBake.run(objects=sh_objs, bake_blend_shapes=False)
+        SmartBake.restore(sh_result.session_id)
+        check(
+            "restore() unpins an original Action two baked objects shared",
+            sorted(sh_result.baked) == ["ShA", "ShB"]
+            and all(o.animation_data.action == sh_action for o in sh_objs)
+            and sh_action.use_fake_user is False,
+            f"baked={sorted(sh_result.baked)} fake_user={sh_action.use_fake_user}",
+        )
     except Exception as e:  # pragma: no cover - failure path prints its own traceback
         import traceback
 
@@ -2452,6 +2481,434 @@ def _run_session_fidelity_checks():
     return lines
 
 
+def _run_failed_bake_rollback_checks():
+    """A bake that raises part-way hands the scene back as it found it (mirror of
+    mayatk's transactional ``bake``): each phase records its change in the
+    session BEFORE making it, and ``bake`` reverses that session and re-raises.
+    Before the fix (measured 2026-09-27) the session was pushed only at the end
+    and the transform entries were written only after ``nla.bake`` returned, so
+    a raise left the fresh baked Actions assigned, the keep-alive
+    ``use_fake_user`` flips set and the sources muted, with no session to undo
+    any of it. Returns ``"OK ..."``/``"FAIL ..."`` lines, same convention as
+    :func:`_run_data_internal_export_exclusion_checks`. Added: 2026-09-27
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
+
+    try:
+        import logging
+
+        import bpy
+
+        from blendertk.anim_utils import _anim_utils
+        from blendertk.anim_utils.smart_bake import bake_session
+        from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
+
+        def reset():
+            for session_id in list(SmartBake.list_sessions()):
+                SmartBake.restore(session_id)
+            _reset_smart_bake_regression_scene()
+
+        def rig():
+            """A keyed target; a cube with its own action AND a constraint on it; an
+            empty whose location.x is driven by the target. Both need a bake."""
+            bpy.ops.object.empty_add()
+            target = bpy.context.active_object
+            target.name = "RbTarget"
+            for frame, x in ((1, 0.0), (10, 10.0)):
+                target.location.x = x
+                target.keyframe_insert(data_path="location", index=0, frame=frame)
+            bpy.ops.mesh.primitive_cube_add()
+            cube = bpy.context.active_object
+            cube.name = "RbCube"
+            cube.rotation_euler.z = 0.5
+            cube.keyframe_insert(data_path="rotation_euler", index=2, frame=1)
+            con = cube.constraints.new("COPY_LOCATION")
+            con.target = target
+            bpy.ops.object.empty_add()
+            follower = bpy.context.active_object
+            follower.name = "RbDriven"
+            drv = follower.driver_add("location", 0).driver
+            drv.type = "SCRIPTED"
+            drv.expression = "x"
+            var = drv.variables.new()
+            var.name = "x"
+            var.type = "SINGLE_PROP"
+            var.targets[0].id_type = "OBJECT"
+            var.targets[0].id = target
+            var.targets[0].data_path = "location.x"
+            return target, cube, con, follower
+
+        def state(cube, con, follower):
+            """What a bake changes and a rollback must hand back."""
+            ad = cube.animation_data
+            fad = follower.animation_data
+            return {
+                "cube_action": ad.action.as_pointer() if ad and ad.action else None,
+                "cube_fake_user": ad.action.use_fake_user if ad and ad.action else None,
+                "follower_action": (
+                    fad.action.as_pointer() if fad and fad.action else None
+                ),
+                "constraint_mute": con.mute,
+                "driver_mute": [fc.mute for fc in fad.drivers] if fad else None,
+                "actions": sorted(a.name for a in bpy.data.actions),
+                "sessions": list(SmartBake.list_sessions()),
+            }
+
+        def bake_raising(patch_name, raise_after=True, **kwargs):
+            """Run a bake with ``AnimUtils.<patch_name>`` raising; return
+            ``(raised, boom)``: the exception that left ``bake`` and the one raised."""
+            boom = RuntimeError(f"boom in {patch_name}")
+            original = _anim_utils.AnimUtils.__dict__[patch_name]
+
+            def patched(*args, **kw):
+                if raise_after:
+                    original.__func__(*args, **kw)
+                raise boom
+
+            setattr(_anim_utils.AnimUtils, patch_name, staticmethod(patched))
+            raised = None
+            try:
+                SmartBake(bake_blend_shapes=False, **kwargs).bake()
+            except RuntimeError as error:
+                raised = error
+            finally:
+                setattr(_anim_utils.AnimUtils, patch_name, original)
+            return raised, boom
+
+        # ---- (1) nla.bake ran, then raised: the fresh Actions are assigned ----
+        for label, patch_name, raise_after, extra in (
+            ("inside nla.bake, after it keyed", "bake_keys", True, {}),
+            ("inside nla.bake, before it keyed", "bake_keys", False, {}),
+            (
+                "after the sources were muted",
+                "optimize_keys",
+                True,
+                {"optimize_keys": "flat"},
+            ),
+        ):
+            reset()
+            target, cube, con, follower = rig()
+            before = state(cube, con, follower)
+            raised, boom = bake_raising(
+                patch_name,
+                raise_after=raise_after,
+                objects=[target, cube, follower],
+                **extra,
+            )
+            after = state(cube, con, follower)
+            check(
+                f"a bake raising {label} re-raises its own error",
+                raised is boom,
+                f"raised={raised!r}",
+            )
+            check(
+                f"...and hands the scene back as it found it ({label})",
+                after == before,
+                f"before={before} after={after}",
+            )
+
+        # ---- (2) the rollback itself fails: the session is kept, restorable ----
+        reset()
+        target, cube, con, follower = rig()
+        before = state(cube, con, follower)
+        messages = []
+
+        class _Grab(logging.Handler):
+            def emit(self, record):
+                messages.append(record.getMessage())
+
+        grab = _Grab(level=logging.WARNING)
+        sb_logger = logging.getLogger("blendertk.anim_utils.smart_bake._smart_bake")
+        sb_logger.addHandler(grab)
+        store = bake_session.BakeSessionStore
+        real_restore = store.__dict__["restore_session"]
+
+        def failing_restore(session):
+            raise RuntimeError("rollback exploded")
+
+        store.restore_session = staticmethod(failing_restore)
+        try:
+            raised, boom = bake_raising(
+                "optimize_keys",
+                objects=[target, cube, follower],
+                optimize_keys="flat",
+            )
+        finally:
+            store.restore_session = real_restore
+            sb_logger.removeHandler(grab)
+        kept = list(SmartBake.list_sessions())
+        check(
+            "a failed rollback still re-raises the bake's own error",
+            raised is boom,
+            f"raised={raised!r}",
+        )
+        check(
+            "...keeps the session, and says how to finish it",
+            len(kept) == 1
+            and any(f"SmartBake.restore('{kept[0]}')" in m for m in messages),
+            f"sessions={kept} messages={messages}",
+        )
+        restored = SmartBake.restore(kept[0]) if kept else None
+        check(
+            "...and SmartBake.restore(id) then hands the scene back",
+            restored is not None
+            and restored.success
+            and state(cube, con, follower) == before,
+            f"before={before} after={state(cube, con, follower)} "
+            f"warnings={getattr(restored, 'warnings', None)}",
+        )
+
+        # ---- (3) a bake that keyed nothing leaves nothing behind ----
+        reset()
+        target, cube, con, follower = rig()
+        before = state(cube, con, follower)
+        original = _anim_utils.AnimUtils.__dict__["bake_keys"]
+        _anim_utils.AnimUtils.bake_keys = staticmethod(lambda *a, **k: None)
+        try:
+            noop = SmartBake(
+                objects=[target, cube, follower], bake_blend_shapes=False
+            ).bake()
+        finally:
+            _anim_utils.AnimUtils.bake_keys = original
+        check(
+            "a bake that keyed nothing leaves the scene and the session store as found",
+            not noop.baked
+            and not noop.session_id
+            and state(cube, con, follower) == before,
+            f"before={before} after={state(cube, con, follower)}",
+        )
+    except Exception as e:  # pragma: no cover - failure path prints its own traceback
+        import traceback
+
+        traceback.print_exc()
+        check("failed-bake rollback harness raised", False, repr(e))
+
+    return lines
+
+
+def _run_restore_exactness_checks():
+    """Restore (and a failed bake's rollback) puts back exactly what the bake
+    replaced: (1) the Action a shape-key datablock held -- ``bake_blend_shapes``
+    keys a driver-only weight into an Action (a new one when the Key had none),
+    which the rebuilt driver did not take away; (2) the SLOT an object used on
+    its original Action, which was left to Blender's last-used pick. Returns
+    ``"OK ..."``/``"FAIL ..."`` lines. Added: 2026-09-27
+    """
+    lines = []
+
+    def check(name, cond, detail=""):
+        lines.append(
+            f"{'OK  ' if cond else 'FAIL'} {name}{(' | ' + detail) if detail else ''}"
+        )
+
+    try:
+        import bpy
+
+        from blendertk.anim_utils import _anim_utils
+        from blendertk.anim_utils.smart_bake._smart_bake import SmartBake
+
+        def reset():
+            for session_id in list(SmartBake.list_sessions()):
+                SmartBake.restore(session_id)
+            _reset_smart_bake_regression_scene()
+
+        def keyed_target(name):
+            bpy.ops.object.empty_add()
+            t = bpy.context.active_object
+            t.name = name
+            for frame, x in ((1, 0.0), (10, 10.0)):
+                t.location.x = x
+                t.keyframe_insert(data_path="location", index=0, frame=frame)
+            return t
+
+        def driven_key_mesh(name, target):
+            bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+            mesh = bpy.context.active_object
+            mesh.name = name
+            mesh.shape_key_add(name="Basis")
+            kb = mesh.shape_key_add(name="KeyA")
+            drv = kb.driver_add("value").driver
+            drv.type = "SCRIPTED"
+            drv.expression = "x / 10.0"
+            var = drv.variables.new()
+            var.name = "x"
+            var.type = "SINGLE_PROP"
+            var.targets[0].id_type = "OBJECT"
+            var.targets[0].id = target
+            var.targets[0].data_path = "location.x"
+            return mesh
+
+        def key_value(mesh, frame):
+            bpy.context.scene.frame_set(frame)
+            deps = bpy.context.evaluated_depsgraph_get()
+            sk = mesh.evaluated_get(deps).data.shape_keys
+            return round(sk.key_blocks["KeyA"].value, 4)
+
+        def key_state(mesh):
+            ad = mesh.data.shape_keys.animation_data
+            return {
+                "action": ad.action.as_pointer() if ad and ad.action else None,
+                "fcurves": sorted(
+                    (fc.data_path, fc.array_index)
+                    for fc in (
+                        _anim_utils.AnimUtils._slot_fcurves(ad.action, ad.action_slot)
+                        if ad and ad.action
+                        else []
+                    )
+                ),
+                "drivers": sorted(fc.driver.expression for fc in ad.drivers)
+                if ad
+                else [],
+                "actions": sorted(a.name for a in bpy.data.actions),
+            }
+
+        # ---- (1) a driver-only shape key: restore and rollback drop the bake's Action ----
+        for mode in ("restore", "rollback"):
+            reset()
+            target = keyed_target("SkTarget")
+            mesh = driven_key_mesh("SkMesh", target)
+            before = key_state(mesh)
+            if mode == "restore":
+                result = SmartBake(
+                    objects=[mesh, target], bake_blend_shapes=True
+                ).bake()
+                baked = key_state(mesh)
+                check(
+                    "fixture: the bake keyed the driver-only weight into an Action",
+                    baked["action"] is not None,
+                    f"{baked}",
+                )
+                SmartBake.restore(result.session_id)
+            else:
+                real = _anim_utils.AnimUtils.__dict__["bake_blend_shapes"]
+
+                def _bake_then_raise(*args, **kwargs):
+                    real.__func__(*args, **kwargs)
+                    raise RuntimeError("bake_blend_shapes exploded")
+
+                _anim_utils.AnimUtils.bake_blend_shapes = staticmethod(_bake_then_raise)
+                try:
+                    SmartBake(objects=[mesh, target], bake_blend_shapes=True).bake()
+                except RuntimeError:
+                    pass
+                finally:
+                    _anim_utils.AnimUtils.bake_blend_shapes = real
+            after = key_state(mesh)
+            target.location.x = 7.0
+            target.keyframe_insert(data_path="location", index=0, frame=5)
+            live_after = key_value(mesh, 5)
+            check(
+                f"a driver-only shape key after the {mode}: no Action, the driver back",
+                after == before,
+                f"before={before} after={after}",
+            )
+            check(
+                f"...and the weight follows its driver again, not baked keys ({mode})",
+                live_after == 0.7,
+                f"value={live_after} (the target moved to x=7 at frame 5)",
+            )
+
+        # ---- (1c) drivers + an action on ONE Key: the bake's extra fcurve goes ----
+        reset()
+        target = keyed_target("MixTarget")
+        mesh = driven_key_mesh("MixMesh", target)
+        kb_b = mesh.shape_key_add(name="KeyB")
+        kb_b.value = 0.0
+        kb_b.keyframe_insert(data_path="value", frame=1)
+        kb_b.value = 1.0
+        kb_b.keyframe_insert(data_path="value", frame=20)
+        before = key_state(mesh)
+        result = SmartBake(objects=[mesh, target], bake_blend_shapes=True).bake()
+        SmartBake.restore(result.session_id)
+        after = key_state(mesh)
+        check(
+            "a Key with drivers AND its own Action: the same Action, with only its own "
+            "fcurves",
+            after == before,
+            f"before={before} after={after}",
+        )
+
+        # ---- (2) the object's slot on its original Action is re-selected ----
+        # Blender picks a slot by the ID's last-used identifier when an Action is
+        # assigned, and nla.bake's fresh Action inherits that identifier, so a
+        # plain restore lands on the right slot by luck of that inheritance;
+        # another Action assigned in between (the user browsing Actions) moves
+        # the last-used identifier, and the pick finds no slot at all (measured:
+        # ``action_slot`` None -- the object stops animating).
+        for mode in ("restore", "restore after the last-used slot moved", "rollback"):
+            reset()
+            target = keyed_target("SlotTarget")
+            bpy.ops.mesh.primitive_cube_add()
+            cube = bpy.context.active_object
+            cube.name = "SlotCube"
+            action = bpy.data.actions.new("TwoSlotAction")
+            first = action.slots.new("OBJECT", "First")
+            custom = action.slots.new("OBJECT", "Custom")
+            ad = cube.animation_data_create()
+            ad.action = action
+            ad.action_slot = first
+            cube.location.z = 5.0
+            cube.keyframe_insert(data_path="location", index=2, frame=1)
+            ad.action_slot = custom
+            cube.rotation_euler.z = 0.5
+            cube.keyframe_insert(data_path="rotation_euler", index=2, frame=1)
+            con = cube.constraints.new("COPY_LOCATION")
+            con.target = target
+            used = ad.action_slot.identifier
+            if mode.startswith("restore"):
+                result = SmartBake(
+                    objects=[cube, target], bake_blend_shapes=False
+                ).bake()
+                baked_slot = cube.animation_data.action_slot
+                check(
+                    f"fixture: nla.bake's Action inherits the used identifier ({mode})",
+                    baked_slot is not None and baked_slot.identifier == used,
+                    f"baked={baked_slot.identifier if baked_slot else None}",
+                )
+                if mode != "restore":
+                    # The user browses another Action on the object before the
+                    # restore: unassigning it records ITS slot as the last used.
+                    browsed = bpy.data.actions.new("BrowsedAction")
+                    browsed_slot = browsed.slots.new("OBJECT", "Browsed")
+                    cube.animation_data.action = browsed
+                    cube.animation_data.action_slot = browsed_slot
+                SmartBake.restore(result.session_id)
+            else:
+                real = _anim_utils.AnimUtils.__dict__["bake_keys"]
+
+                def _keys_then_raise(*args, **kwargs):
+                    real.__func__(*args, **kwargs)
+                    raise RuntimeError("nla.bake exploded")
+
+                _anim_utils.AnimUtils.bake_keys = staticmethod(_keys_then_raise)
+                try:
+                    SmartBake(objects=[cube, target], bake_blend_shapes=False).bake()
+                except RuntimeError:
+                    pass
+                finally:
+                    _anim_utils.AnimUtils.bake_keys = real
+            now = cube.animation_data.action_slot
+            check(
+                f"the object is back on the slot it used, not Blender's pick ({mode})",
+                cube.animation_data.action == action
+                and now is not None
+                and now.identifier == used,
+                f"used={used} now={now.identifier if now else None}",
+            )
+    except Exception as e:  # pragma: no cover - failure path prints its own traceback
+        import traceback
+
+        traceback.print_exc()
+        check("restore-exactness harness raised", False, repr(e))
+
+    return lines
+
+
 if __name__ == "__main__":
     import importlib
 
@@ -2471,6 +2928,8 @@ if __name__ == "__main__":
         result_lines += _run_exporter_bake_restore_checks()
         result_lines += _run_blend_shape_driver_restore_checks()
         result_lines += _run_session_fidelity_checks()
+        result_lines += _run_failed_bake_rollback_checks()
+        result_lines += _run_restore_exactness_checks()
         result_lines += _run_skip_reason_checks()
         # Saves a REAL .blend under temp_tests/ — run last so its bpy.data.filepath side
         # effect (persists for the rest of this process) can't affect any earlier check.

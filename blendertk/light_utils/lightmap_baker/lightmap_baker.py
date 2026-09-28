@@ -74,8 +74,9 @@ class LightmapBakeResult:
             one that has to leave them out.
         unbaked: Objects the bake was asked for and produced nothing for (a
             cancel, a failed render). They keep any map they already had.
-        retired: Map files the bake superseded and deleted -- what its
-            objects read before, that nothing reads now
+        retired: Map files the bake superseded and set aside (the Recycle
+            Bin, or a ``_superseded`` folder beside them) -- what its objects
+            read before, that nothing reads now
             (:meth:`LightmapRecords.superseding`).
         refused: Why nothing was baked, as a sentence for the artist, or
             ``None``.
@@ -406,14 +407,14 @@ class LightmapBaker(ptk.LoggingMixin):
            wrote -- once, so re-recording them can never apply it twice.
         5. :meth:`LightmapRecords.commit` records each map with its rect, and
            the maps the baked objects read before -- when this file wrote
-           them and nothing reads them now -- are deleted
+           them and nothing reads them now -- are set aside
            (:meth:`LightmapRecords.superseding`).
         6. :meth:`bake_verdict` reads the finished maps' level.
 
         Nothing is reverted first. An object the bake does not finish keeps the
         map it had, and that map is intact: a bake never writes a file another
         object reads (:meth:`LightmapRecords.claims`), and the only files it
-        deletes are ones no object reads any more.
+        sets aside are ones no object reads any more.
 
         Parameters:
             objects: Mesh objects; ``None`` for the selection. Anything without
@@ -527,12 +528,17 @@ class LightmapBaker(ptk.LoggingMixin):
         try:
             import bpy
 
+            from blendertk.core_utils._core_utils import CoreUtils
+
             scene = bpy.context.scene
             lights = [o for o in scene.objects if o.type == "LIGHT"] if scene else []
             world_lights = self.include_environment and LightUtils.world_emits(
                 getattr(scene, "world", None)
             )
-            rendered = self._render_collections(bpy.context.view_layer)
+            # the layer the bake renders: the window's (windowless, the context's is
+            # the scene's default layer -- measured, a light the window's layer
+            # excludes passed the check there)
+            rendered = self._render_collections(CoreUtils._active_view_layer())
         except Exception:  # no runtime / unreadable scene -- nothing to refuse
             return None
         lit = [
@@ -669,6 +675,9 @@ class LightmapBaker(ptk.LoggingMixin):
         Each light is read under its own guard, so a single unreadable one costs its row
         rather than the whole table.
         """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        vl = CoreUtils._active_view_layer()  # the window's (windowless: the default)
         rows: List[str] = []
         for obj in scene.objects:
             if obj.type != "LIGHT":
@@ -689,7 +698,7 @@ class LightmapBaker(ptk.LoggingMixin):
                     # hide_render is what the BAKE obeys; hide_viewport is not enough to
                     # explain a black bake on its own, so report both separately.
                     f"render_visible={not obj.hide_render}",
-                    f"viewport_visible={obj.visible_get()}",
+                    f"viewport_visible={obj.visible_get(view_layer=vl)}",
                 ]
                 if data.type == "AREA":
                     bits.append(f"size={data.size:g}")
