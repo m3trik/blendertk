@@ -565,6 +565,10 @@ class UvUtils(_UvUtilsInternal):
         return boxes
 
     @classmethod
+    # The whole body in the window's view layer + context: windowless, the
+    # capture/restore read and wrote the scene's default layer while the
+    # transfer's selection landed in the window's.
+    @CoreUtils.window_context_override()
     def transfer_uvs_to_similar(cls, source, candidates=None, tolerance=0.9):
         """Transfer UVs from one source mesh to every geometrically similar mesh — mirror of
         mayatk's ``transfer_uvs_to_similar`` (fan one source out to look-alike targets matched
@@ -609,36 +613,21 @@ class UvUtils(_UvUtilsInternal):
                 targets.append(t)
 
         if targets:
-            saved_active = bpy.context.view_layer.objects.active
-            saved_sel = list(CoreUtils.selected_objects())
-
-            def _deselect_all():
+            with CoreUtils.preserved_selection():
                 # Mode-/window-independent deselect: ``object.select_all`` poll-fails from
                 # the Qt-pump context (same convention as the slots' view-layer loops).
-                for o in bpy.context.view_layer.objects:
+                for o in list(bpy.context.view_layer.objects):
                     o.select_set(False)
-
-            try:
-                with CoreUtils.window_context_override():
-                    _deselect_all()
-                    src.select_set(True)
-                    for t in targets:
-                        t.select_set(True)
-                    bpy.context.view_layer.objects.active = src
-                    bpy.ops.object.data_transfer(
-                        data_type="UV",
-                        loop_mapping="TOPOLOGY",
-                        layers_select_src="ACTIVE",
-                        layers_select_dst="ACTIVE",
-                    )
-            finally:
-                _deselect_all()
-                for o in saved_sel:
-                    try:
-                        o.select_set(True)
-                    except (RuntimeError, ReferenceError):
-                        pass
-                bpy.context.view_layer.objects.active = saved_active
+                src.select_set(True)
+                for t in targets:
+                    t.select_set(True)
+                bpy.context.view_layer.objects.active = src
+                bpy.ops.object.data_transfer(
+                    data_type="UV",
+                    loop_mapping="TOPOLOGY",
+                    layers_select_src="ACTIVE",
+                    layers_select_dst="ACTIVE",
+                )
         return sorted(targets, key=lambda o: o.name)
 
     @staticmethod
@@ -1091,6 +1080,10 @@ class UvUtils(_UvUtilsInternal):
         return out
 
     @staticmethod
+    # The whole body in the window's view layer + context: windowless, the
+    # mode_set / smart_project poll-fail and the selection writes address the
+    # scene's default layer, not the one the window shows.
+    @CoreUtils.window_context_override()
     def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True):
         """Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).
 
@@ -1114,7 +1107,6 @@ class UvUtils(_UvUtilsInternal):
         from blendertk.core_utils._core_utils import CoreUtils
 
         prior_active = bpy.context.view_layer.objects.active
-        prior_selection = list(CoreUtils.selected_objects())
         prior_mode = getattr(prior_active, "mode", "OBJECT")
         if prior_mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
@@ -1122,62 +1114,58 @@ class UvUtils(_UvUtilsInternal):
         done = []
         seen_data = set()
         try:
-            for o in EditUtils._meshes(objects):
-                me = o.data
-                name = UvUtils.find_lightmap_uv_set(o)
-                if name is None:
-                    if len(me.uv_layers) == 0:
-                        # A lightmap is the *second* channel — keep an empty base (texture) layer
-                        # so the lightmap lands on index 1 (Unity uv2), matching the manifest.
-                        me.uv_layers.new(name="UVMap")
-                    layer = me.uv_layers.new(name=uv_set)
-                    if layer is None:
-                        raise RuntimeError(
-                            f"{o.name!r} already has the maximum 8 UV layers; "
-                            "cannot add a lightmap layer"
-                        )
-                    name = layer.name
-                me.uv_layers[name].active = True
+            with CoreUtils.preserved_selection():
+                for o in EditUtils._meshes(objects):
+                    me = o.data
+                    name = UvUtils.find_lightmap_uv_set(o)
+                    if name is None:
+                        if len(me.uv_layers) == 0:
+                            # A lightmap is the *second* channel — keep an empty base (texture) layer
+                            # so the lightmap lands on index 1 (Unity uv2), matching the manifest.
+                            me.uv_layers.new(name="UVMap")
+                        layer = me.uv_layers.new(name=uv_set)
+                        if layer is None:
+                            raise RuntimeError(
+                                f"{o.name!r} already has the maximum 8 UV layers; "
+                                "cannot add a lightmap layer"
+                            )
+                        name = layer.name
+                    me.uv_layers[name].active = True
 
-                # Linked duplicates share one mesh datablock and therefore ONE
-                # lightmap layer -- unwrap it once per call, not once per instance
-                # (identical result, N-1 redundant smart_projects saved).
-                if me.name_full in seen_data:
+                    # Linked duplicates share one mesh datablock and therefore ONE
+                    # lightmap layer -- unwrap it once per call, not once per instance
+                    # (identical result, N-1 redundant smart_projects saved).
+                    if me.name_full in seen_data:
+                        done.append(o.name)
+                        continue
+                    seen_data.add(me.name_full)
+
+                    for x in CoreUtils.selected_objects():
+                        x.select_set(False)
+                    # Hidden is not a reason to refuse an unwrap: mode_set's poll
+                    # rejects a hidden object outright, so one hidden mesh in the
+                    # batch used to abort the whole call (and, through the bake, the
+                    # whole lightmap job) rather than costing only itself.
+                    with CoreUtils.visible_override(o):
+                        o.select_set(True)
+                        bpy.context.view_layer.objects.active = o
+                        bpy.ops.object.mode_set(mode="EDIT")
+                        bpy.ops.mesh.select_all(action="SELECT")
+                        try:
+                            bpy.ops.uv.smart_project(
+                                angle_limit=1.15,
+                                island_margin=margin,
+                                scale_to_bounds=True,
+                            )
+                        finally:
+                            bpy.ops.object.mode_set(mode="OBJECT")
                     done.append(o.name)
-                    continue
-                seen_data.add(me.name_full)
-
-                for x in CoreUtils.selected_objects():
-                    x.select_set(False)
-                # Hidden is not a reason to refuse an unwrap: mode_set's poll
-                # rejects a hidden object outright, so one hidden mesh in the
-                # batch used to abort the whole call (and, through the bake, the
-                # whole lightmap job) rather than costing only itself.
-                with CoreUtils.visible_override(o):
-                    o.select_set(True)
-                    bpy.context.view_layer.objects.active = o
-                    bpy.ops.object.mode_set(mode="EDIT")
-                    bpy.ops.mesh.select_all(action="SELECT")
-                    try:
-                        bpy.ops.uv.smart_project(
-                            angle_limit=1.15, island_margin=margin, scale_to_bounds=True
-                        )
-                    finally:
-                        bpy.ops.object.mode_set(mode="OBJECT")
-                done.append(o.name)
         finally:
-            for x in CoreUtils.selected_objects():
-                x.select_set(False)
-            for x in prior_selection:
-                try:
-                    x.select_set(True)
-                except ReferenceError:
-                    pass
-            if prior_active is not None:
+            # preserved_selection has put the active object back: re-enter its mode
+            if prior_active is not None and prior_mode != "OBJECT":
                 try:
                     bpy.context.view_layer.objects.active = prior_active
-                    if prior_mode != "OBJECT":
-                        bpy.ops.object.mode_set(mode=prior_mode)
+                    bpy.ops.object.mode_set(mode=prior_mode)
                 except (RuntimeError, ReferenceError):
                     pass
         return done
@@ -1252,7 +1240,7 @@ class UvUtils(_UvUtilsInternal):
 
         margin = cls.calculate_uv_padding(map_size, normalize=True)
         with CoreUtils.window_context_override():
-            for other in bpy.context.view_layer.objects:
+            for other in list(bpy.context.view_layer.objects):
                 other.select_set(False)
             obj.select_set(True)
             bpy.context.view_layer.objects.active = obj
@@ -1383,6 +1371,47 @@ class UvUtils(_UvUtilsInternal):
                 layers_select_src="ACTIVE",
                 layers_select_dst="ACTIVE",
             )
+
+    @staticmethod
+    def get_uv_shell_sets(objects=None, whole_shells=False):
+        """The UV shells of *objects*' faces, as ``[(object, [face indices]), ...]``.
+
+        Mirror of ``mtk.UvUtils.get_uv_shell_sets`` (bpy objects and face indices
+        instead of component strings). The faces are an object's SELECTED faces in
+        Edit Mode -- the component selection, read from the live edit mesh -- and
+        all of them in Object Mode. Each shell is one UV island of the active UV
+        layer (faces joined across UV-continuous edges; a seam splits it), in face
+        order; an object with no active layer, or no faces to report, adds none.
+
+        Parameters:
+            objects: Mesh objects (or names); None = the selected ones.
+            whole_shells (bool): Widen each shell the faces touch to all of its
+                faces, instead of returning only those faces grouped by shell. A
+                shell-level op (a pack, a gather) needs this -- moving part of a
+                shell tears it -- while a face-level op wants the default.
+
+        Returns:
+            list: One ``(object, sorted face indices)`` per shell.
+        """
+        shells = []
+        for obj in EditUtils._meshes(
+            CoreUtils.selected_objects() if objects is None else objects
+        ):
+
+            def _read(bm, obj=obj):
+                uvl = bm.loops.layers.uv.active
+                if uvl is None:
+                    return
+                bm.faces.index_update()  # an edit mesh's indices can be stale
+                picked = obj.mode != "EDIT"
+                for island in _UvUtilsInternal._uv_islands(bm, uvl):
+                    faces = [f.index for f in island if picked or f.select]
+                    if faces:
+                        faces = [f.index for f in island] if whole_shells else faces
+                        shells.append((obj, sorted(faces)))
+
+            _UvUtilsInternal._uv_read(obj, _read)
+        return shells
 
     @staticmethod
     def get_uv_coords(objects, pins=False):
@@ -1576,6 +1605,9 @@ class UvUtils(_UvUtilsInternal):
         return moved
 
     @staticmethod
+    # The whole body in the window's context: follow_active_quads polls the edit
+    # object from screen context, and the active write addresses the context's layer.
+    @CoreUtils.window_context_override()
     def straighten_uv_shells(objects, mode="LENGTH_AVERAGE"):
         """Rectangularize the targeted UV shell(s) — mirror of Maya's ``texStraightenShell`` — via
         Blender's native Follow Active Quads operator: each island is isolated (selection scoped to

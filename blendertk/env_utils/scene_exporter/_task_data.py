@@ -377,6 +377,137 @@ class _TaskDataMixin:
             return False
         return any(fc.keyframe_points for fc in AnimUtils.get_fcurves(objects))
 
+    def _protect_scene_animation(self, keeps_edits: bool = True) -> bool:
+        """Swap copies of the export set's actions in so the write can edit them.
+
+        The Animation Output gate's whole mechanism (mirror of mayatk's): every
+        task that edits keys calls this FIRST, the edits land on the copies and
+        the write reads them, and one deferred restore (post-write, so the FBX
+        and any GLB conversion both see the edited curves) hands the scene its
+        own animation back.
+
+        The mechanism is the mirror image of mayatk's. A Maya curve's identity
+        is a UUID a stash can take back, so mayatk edits the live curves and
+        swaps a duplicate back in afterwards. A Blender action's identity is
+        the ID itself -- what NLA strips, other objects on the same slot and
+        every Python reference hold -- so here the ORIGINAL is never edited:
+        each export object's active action is swapped for ``action.copy()``
+        (one copy per action, on the same slot identifier), the key tasks edit
+        the copy, and the restore assigns the original and its slot back and
+        deletes the copy. Measured 2026-09-27: the action and every fcurve come
+        back as the same pointers, and a Smart Bake session (staged before
+        this, so unwound after it) composes with it.
+
+        Idempotent by construction rather than by a flag: staging is keyed and
+        first-wins (:meth:`stage_deferred_restore`), so every key task calling
+        this takes ONE swap, before the first of them edits anything.
+
+        An object in NLA tweak mode keeps its action (the tweaked strip's
+        action cannot be reassigned), so its key edits stay in the scene: they
+        are recorded as kept and named in a warning.
+
+        Parameters:
+            keeps_edits: Whether the caller's key edits stay in the scene in
+                write-back mode, and so are recorded as kept there
+                (``TaskFactory.record_kept_edit``).
+
+        Returns:
+            True when the animation is protected -- either because this call
+            staged the swap or because an earlier task already did. False in
+            write-back mode, where the edits are the point.
+        """
+        if self.run.animation_write_back:
+            if keeps_edits:
+                self.record_kept_edit("key edits")
+            return False
+        if "animation" in self._deferred_restores:
+            return True  # an earlier task already swapped the copies in
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        swaps, copies, locked = [], {}, []
+        for obj in self._live_objects():
+            ad = getattr(obj, "animation_data", None)
+            action, slot = AnimUtils._animating(ad)
+            if action is None:
+                continue  # nothing animates it: the key tasks never see it
+            if ad.use_tweak_mode:
+                locked.append(obj.name)
+                continue
+            key = action.as_pointer()
+            if key not in copies:
+                copies[key] = action.copy()
+            identifier = slot.identifier if slot is not None else None
+            self._assign_action(ad, copies[key], identifier)
+            swaps.append((obj, action, identifier))
+        if locked:
+            self.record_kept_edit("key edits")
+            self.logger.warning(
+                f"Animation Output: {len(locked)} object(s) in NLA tweak mode keep "
+                f"the export's key edits (their action cannot be swapped): "
+                f"{', '.join(sorted(locked))}."
+            )
+        self.stage_deferred_restore(
+            "animation",
+            lambda: self._restore_animation(swaps, list(copies.values())),
+        )
+        self.logger.debug(
+            f"Animation Output: {len(copies)} action(s) copied for the write; the "
+            "scene's own are handed back after it."
+        )
+        return True
+
+    @staticmethod
+    def _assign_action(ad, action, identifier) -> None:
+        """Make *action* active on *ad* through the slot named *identifier*."""
+        ad.action = action
+        if identifier is None:
+            return
+        for slot in getattr(action, "slots", None) or ():
+            if slot.identifier == identifier:
+                ad.action_slot = slot
+                return
+
+    def _restore_animation(self, swaps, copies) -> None:
+        """Hand every swapped object its own action back, then drop the copies.
+
+        A copy whose object could not take its action back stays (it is that
+        object's animation now) and is named, rather than deleted from under it.
+        """
+        import bpy
+
+        restored, stranded = 0, set()
+        for obj, action, identifier in swaps:
+            try:
+                ad = obj.animation_data
+            except ReferenceError:
+                continue  # deleted since: its copy goes with the rest
+            if ad is None:
+                continue  # its animation data was cleared since
+            current = None  # the copy it holds, once read
+            try:
+                current = ad.action
+                self._assign_action(ad, action, identifier)
+                restored += 1
+            except (ReferenceError, RuntimeError, AttributeError) as error:
+                if current is not None:
+                    stranded.add(current.as_pointer())
+                self.logger.warning(
+                    f"Animation Output: could not hand '{obj.name}' its own action "
+                    f"back: {error}"
+                )
+        for copy in copies:
+            try:
+                if copy.as_pointer() not in stranded:
+                    bpy.data.actions.remove(copy)
+            except ReferenceError:
+                continue  # already removed
+        if restored:
+            self.logger.info(
+                f"Restored the animation of {restored} object(s) — the export's key "
+                "edits were made on copies for the write only (Animation Output: "
+                "Export Copies)."
+            )
+
     def _get_all_materials(self) -> List:
         """Materials assigned to ``self.objects`` (cached; invalidated on ``objects`` reassign)."""
         from blendertk.mat_utils._mat_utils import MatUtils

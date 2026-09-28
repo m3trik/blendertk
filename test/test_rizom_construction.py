@@ -236,6 +236,32 @@ try:
                  if not filecmp.cmp(_maya_rb / f, _SCRIPT_DIR.parent / f, shallow=False)]
         check("pack-side Lua stays byte-identical to mayatk's", not stale, str(stale))
 
+    # ---- pack_into_existing: ungated, subset-tag driven, ignored knobs hidden -------
+    # Rebuilt 2026-09-27 on the shell-subset path: its old island-GROUP-name selection
+    # was a silent no-op on 2020.1 (0 of 19 islands moved), hidden behind a >= 2022.2 gate.
+    into = (_SCRIPT_DIR / "pack_into_existing.lua").read_text(encoding="utf-8")
+    check("pack_into_existing carries no version gate",
+          P.Parameters.preset_min_version(into) is None)
+    into_keys = P.Parameters.referenced_keys(into)
+    check("pack_into_existing hides the knobs its match-density branch overrides",
+          not into_keys & {"SCALING_MODE", "LAYOUT_SCALING_MODE", "UV_AREA", "PACK_TRANSLATE"},
+          str(sorted(into_keys)))
+    check("pack_into_existing still offers the knobs it honours",
+          {"TARGET_UDIM", "PACK_ROTATE_ENABLE", "ROTATE_STEP", "PACK_RESOLUTION",
+           "PACK_KEEP_STACKED"} <= into_keys, str(sorted(into_keys)))
+    old = RizomUVBridge(rizom_path=V2020)
+    old.export_path = "C:/tmp/x.fbx"
+    old._params = {"PACK_SELECT_NAMES": '{"tag"}'}
+    into_full = old._construct_full_script(into)
+    into_left = re.findall(r"__[A-Z][A-Z0-9_]*__", into_full)
+    check("pack_into_existing resolves fully on 2020.1", not into_left, str(into_left))
+    check("pack_into_existing hands the tag to the subset path",
+          'PACK_SUBSET = {"tag"}' in into_full and "PACK_MATCH_DENSITY = true" in into_full)
+    _margin = P.Parameters.derived_values({"PACK_RESOLUTION": 1024})["PACK_MARGIN"]
+    check("the subset fit keeps the tile margin",
+          f"local fit = 1.0 - {_margin}" in into_full)
+    old._params = {}
+
     # ---- a script that carries its own ZomLoad/ZomSave bypasses the wrapper -------
     custom = 'ZomLoad({File={Path="p"}})\nZomSave({File={Path="p"}})\n'
     passthru = b._construct_full_script(custom)

@@ -44,6 +44,15 @@ try:
     from blendertk.light_utils.lightmap_baker.lightmap_baker import LightmapBaker
     from blendertk.light_utils.lightmap_baker.lightmap_records import LightmapRecords
     from blendertk.mat_utils.texture_baker import TextureBaker
+    from unittest import mock as _mock
+
+    # A re-bake sets the maps it superseded aside -- into this machine's
+    # Recycle Bin wherever the volume has one. Pinned for the whole script to a
+    # volume with none, so every bake here sets its leftovers beside them in
+    # ``_superseded`` inside the scratch folder, never into the user's bin
+    # (``ptk.FileUtils.move_to_trash`` has its own tests in pythontk).
+    _no_trash = _mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None)
+    _no_trash.start()
 
     # --- presets -----------------------------------------------------------
     store = LightmapBaker.preset_store()
@@ -1764,8 +1773,11 @@ try:
     from types import SimpleNamespace
 
     from blendertk.core_utils._core_utils import CoreUtils
-    from blendertk.mat_utils.bake_sets import BakeSet, LightmapExcludeSet
-    from blendertk.mat_utils.substance_bridge._substance_bridge import HighPolySet
+    from blendertk.mat_utils.bake_sets import (
+        BakeSet,
+        BakeSourceSet,
+        LightmapExcludeSet,
+    )
     from blendertk.light_utils.lightmap_baker import lightmap_baker_slots as slots_mod
 
     LightmapBaker().revert()
@@ -1921,9 +1933,9 @@ try:
         bpy.data.meshes.remove(mesh)
     bpy.data.node_groups.remove(gn_tree)
     check(
-        "HighPolySet stores its set the same way (BakeSet)",
-        issubclass(HighPolySet, BakeSet)
-        and HighPolySet.STAMP != LightmapExcludeSet.STAMP,
+        "BakeSourceSet stores its set the same way (BakeSet)",
+        issubclass(BakeSourceSet, BakeSet)
+        and BakeSourceSet.STAMP != LightmapExcludeSet.STAMP,
     )
 
     # Measured, not assumed: an excluded object gets no map but stays in the
@@ -3164,11 +3176,45 @@ try:
         [sup_cube], packing="per_object", output_dir=sup_dir, suffix="_LM"
     )
     check(
-        "a re-bake under another affix deletes the old map",
+        "a re-bake under another affix retires the old map",
         os.path.isfile(second.maps.get(sup_cube.name, ""))
         and not os.path.isfile(old)
         and [_norm(p) for p in second.retired] == [_norm(old)],
         f"{first.maps} {second.maps} {second.retired}",
+    )
+    # BACKLOG 2026-09-23, decided 2026-09-27: no file can see another's reads
+    # (a Save As source, an Explorer copy), so a retired map stays one restore
+    # away -- the Recycle Bin, else a _superseded folder beside it (pinned).
+    _aside = os.path.join(
+        os.path.dirname(old), ptk.FileDependencies.SUPERSEDED_DIR, os.path.basename(old)
+    )
+    check(
+        "...set aside beside it, never deleted",
+        os.path.isfile(_aside),
+        _aside,
+    )
+    check(
+        "...where no walk finds it again",
+        ptk.FileDependencies.find_files([os.path.basename(old)], sup_dir) == [],
+    )
+    _bin = os.path.join(tmp_dir, "bin")
+    os.makedirs(_bin, exist_ok=True)
+
+    def _to_bin(path):
+        target = os.path.join(_bin, os.path.basename(path))
+        os.replace(path, target)
+        return target
+
+    with _mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin):
+        third = sup_baker.bake(
+            [sup_cube], packing="per_object", output_dir=sup_dir, suffix="_L3"
+        )
+    _was = second.maps.get(sup_cube.name, "")
+    check(
+        "a volume with a trash takes the retired map instead",
+        os.path.isfile(os.path.join(_bin, os.path.basename(_was)))
+        and [_norm(p) for p in third.retired] == [_norm(_was)],
+        f"{third.retired}",
     )
 
     bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
@@ -3188,7 +3234,31 @@ try:
     check("...and deleted once nothing does", not os.path.isfile(shared))
 
     source = os.path.join(sup_dir, "source.blend")
+    check(
+        "a map baked while unsaved is stamped unsaved",
+        LightmapRecords._writers().get("moved_lightmap.exr") == "",
+        f"{LightmapRecords._writers()}",
+    )
     bpy.ops.wm.save_as_mainfile(filepath=source)
+    # BACKLOG 2026-09-23: "" is the file's own only while it is unsaved, so a
+    # map baked before the first save was never retired once saved (measured:
+    # the old map stayed). The first save stamps it with the file written.
+    check(
+        "the first save stamps the maps baked before it with the file",
+        LightmapRecords._writers().get("moved_lightmap.exr") == "source.blend",
+        f"{LightmapRecords._writers()}",
+    )
+    _pre_save = LightmapRecords._marker_info(sup_cube)["map"]
+    with LightmapRecords.superseding([sup_cube.name]) as _gone:
+        LightmapRecords.commit(
+            {sup_cube.name: _exr(os.path.join(sup_dir, "FirstSave_Lightmap.exr"))}
+        )
+    check(
+        "...so a re-bake after it retires a map baked before it",
+        not os.path.isfile(os.path.join(sup_dir, _pre_save))
+        and [os.path.basename(p) for p in _gone] == [_pre_save],
+        f"{_pre_save} {_gone}",
+    )
     written = _exr(os.path.join(sup_dir, "Source_Lightmap.exr"))
     LightmapRecords.commit({sup_cube.name: written})
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(sup_dir, "copy.blend"))
@@ -3246,15 +3316,140 @@ try:
     except RuntimeError:
         pass
     check(
-        "a block that raises deletes nothing",
+        "a block that raises moves nothing",
         os.path.isfile(os.path.join(sup_dir, raised)),
     )
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # --- a LINKED library's maps resolve by ITS folder record (2026-09-23) -----
+    # Mirror of mayatk's referenced-module record: a library baked in its own
+    # file keeps its folders in ITS scene group, and the markers carry none, so
+    # a host linking it found its maps by the texture folders only (measured:
+    # found_by None) -- a GLB build shipped them unlit, or bound a same-named
+    # stale map.
+    import time as _time
+
+    from blendertk.node_utils.data_nodes import DataNodes as _DN
+
+    def _project(root):
+        os.makedirs(os.path.join(root, "scenes"), exist_ok=True)
+        with open(os.path.join(root, "workspace.mel"), "w") as fh:
+            fh.write("//Maya 2025 Project Definition\n")
+        return root
+
+    lib_proj = _project(os.path.join(tmp_dir, "linked", "library"))
+    host_proj = _project(os.path.join(tmp_dir, "linked", "host"))
+    lib_file = os.path.join(lib_proj, "scenes", "props.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=lib_file)
+    bpy.ops.mesh.primitive_cube_add()
+    lib_cube = bpy.context.active_object
+    lib_cube.name = "lib_crate"
+    lib_map = _exr(os.path.join(lib_proj, "sourceimages", "lm", "lib_crate_LM.exr"))
+    LightmapRecords.commit({lib_cube.name: lib_map})
+    check(
+        "the library records its folder spelled from ITS project",
+        LightmapRecords._folder_hints() == {"lib_crate_lm.exr": "sourceimages/lm"},
+        f"{LightmapRecords._folder_hints()}",
+    )
+    bpy.ops.wm.save_mainfile()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(host_proj, "scenes", "set.blend"))
+    with bpy.data.libraries.load(lib_file, link=True) as (_src, _dst):
+        _dst.objects = ["lib_crate"]
+    _linked = bpy.data.objects.get("lib_crate")
+    check(
+        "the host links the marked object",
+        _linked is not None
+        and _linked.library is not None
+        and LightmapBaker.LIGHTMAP_INFO_PROP in _linked,
+    )
+    _DN._LIBRARY_SCENE_VALUES.clear()  # measure a cold read
+    _t0 = _time.perf_counter()
+    _deps = LightmapRecords.lightmap_dependencies(search_dirs=[], walk=False)
+    _cold = _time.perf_counter() - _t0
+    _t0 = _time.perf_counter()
+    _dirs = LightmapRecords.search_dirs()
+    _warm = _time.perf_counter() - _t0
+    check(
+        "a linked library's map resolves by the library's own folder record",
+        [(d["map"], d["found_by"]) for d in _deps]
+        == [("lib_crate_LM.exr", LightmapBaker.FOUND_BY_HINT)]
+        and _same_dir(
+            os.path.dirname(_deps[0]["path"] or ""), os.path.dirname(lib_map)
+        ),
+        f"{_deps}",
+    )
+    check(
+        "...and leads the folders a GLB build searches",
+        bool(_dirs) and _same_dir(_dirs[0], os.path.dirname(lib_map)),
+        f"{_dirs}",
+    )
+    check(
+        "...read, not copied: the host's own record stays empty",
+        LightmapRecords._folder_hints() == {},
+        f"{LightmapRecords._folder_hints()}",
+    )
+    check(
+        "...and the library's scenes leave nothing linked behind",
+        [s.name for s in bpy.data.scenes] == [bpy.context.scene.name],
+        f"{[s.name for s in bpy.data.scenes]}",
+    )
+    print(
+        f"linked-library folder read: cold {_cold * 1000:.1f} ms, warm {_warm * 1000:.1f} ms"
+    )
+
+    # Two levels: the host links an assembly that links the library. Blender
+    # re-spells the INDIRECT library's path from the HOST's file (measured 5.1:
+    # the assembly stores "//../../library/...", the host shows it from its own
+    # folder, fresh and reopened alike), so it resolves as a direct one does --
+    # read from the assembly's folder (``library=parent``) it named a file that
+    # is not there.
+    asm_proj = _project(os.path.join(tmp_dir, "linked", "assembly"))
+    asm_file = os.path.join(asm_proj, "scenes", "set_dressing.blend")
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=asm_file)
+    with bpy.data.libraries.load(lib_file, link=True, relative=True) as (_src, _dst):
+        _dst.objects = ["lib_crate"]
+    _asm = bpy.data.collections.new("ASM_PROPS")
+    bpy.context.scene.collection.children.link(_asm)
+    _asm.objects.link(bpy.data.objects["lib_crate"])
+    bpy.ops.wm.save_mainfile()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # A level deeper than the assembly, so the two spellings differ.
+    nested_host = os.path.join(host_proj, "scenes", "shots", "nested.blend")
+    os.makedirs(os.path.dirname(nested_host), exist_ok=True)
+    bpy.ops.wm.save_as_mainfile(filepath=nested_host)
+    with bpy.data.libraries.load(asm_file, link=True, relative=True) as (_src, _dst):
+        _dst.collections = ["ASM_PROPS"]
+    bpy.context.scene.collection.children.link(bpy.data.collections["ASM_PROPS"])
+    for _when in ("linked", "reopened"):
+        if _when == "reopened":
+            bpy.ops.wm.save_mainfile()
+            bpy.ops.wm.open_mainfile(filepath=nested_host)
+        _DN._LIBRARY_SCENE_VALUES.clear()
+        _deps = LightmapRecords.lightmap_dependencies(search_dirs=[], walk=False)
+        _crate = bpy.data.objects.get("lib_crate")
+        check(
+            f"a library linked through another resolves by its own record ({_when})",
+            _crate is not None
+            and _crate.library is not None
+            and [(d["map"], d["found_by"]) for d in _deps]
+            == [("lib_crate_LM.exr", LightmapBaker.FOUND_BY_HINT)]
+            and _same_dir(
+                os.path.dirname(_deps[0]["path"] or ""), os.path.dirname(lib_map)
+            ),
+            f"{[(lib.name, lib.filepath) for lib in bpy.data.libraries]} {_deps}",
+        )
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")
 finally:
+    try:
+        _no_trash.stop()
+    except (NameError, RuntimeError):
+        pass  # never started
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
 print("\n".join(lines))

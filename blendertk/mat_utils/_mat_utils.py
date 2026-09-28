@@ -1089,16 +1089,17 @@ class MatUtils(_MatUtilsInternal):
         ``view_layer.objects`` — not ``bpy.data.objects`` — and users outside the view layer are
         reported but left unselected rather than crashing the loop mid-way.
         """
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
-        view_layer = bpy.context.view_layer
+        # the window's layer: windowless, ``context.view_layer`` is the scene's default
+        view_layer = CoreUtils._active_view_layer()
         if not add:
-            for o in view_layer.objects:
-                o.select_set(False)
+            for o in list(view_layer.objects):
+                o.select_set(False, view_layer=view_layer)
         users = MatUtils.find_by_mat_id(material)
         selectable = [o for o in users if o.name in view_layer.objects]
         for o in selectable:
-            o.select_set(True)
+            o.select_set(True, view_layer=view_layer)
         if selectable:
             view_layer.objects.active = selectable[0]
         return users
@@ -1484,7 +1485,7 @@ class MatUtils(_MatUtilsInternal):
         Returns:
             int: Number of nodes selected.
         """
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
         hits = MatUtils.image_texture_nodes(images)
         if not hits:
@@ -1509,7 +1510,7 @@ class MatUtils(_MatUtilsInternal):
             users = MatUtils.find_by_mat_id(mat)
             if users:
                 obj = users[0]
-                bpy.context.view_layer.objects.active = obj
+                CoreUtils._active_view_layer().objects.active = obj  # the window's
                 for idx, slot in enumerate(obj.material_slots):
                     if slot.material is mat:
                         obj.active_material_index = idx
@@ -1522,8 +1523,7 @@ class MatUtils(_MatUtilsInternal):
         ``graph_materials`` (Hypershade). Activates an object using the first material (with that
         material as the active slot) so the editor shows its node graph, then opens a Shader Editor
         window. GUI-only. ``mode`` is accepted for signature parity (no Blender analogue)."""
-        import bpy
-
+        from blendertk.core_utils._core_utils import CoreUtils
         from blendertk.ui_utils._ui_utils import UiUtils
 
         mats = _MatUtilsInternal._resolve_materials(materials=materials)
@@ -1533,7 +1533,7 @@ class MatUtils(_MatUtilsInternal):
         users = MatUtils.find_by_mat_id(mat)
         if users:
             obj = users[0]
-            bpy.context.view_layer.objects.active = obj
+            CoreUtils._active_view_layer().objects.active = obj  # the window's layer
             for idx, slot in enumerate(obj.material_slots):
                 if slot.material is mat:
                     obj.active_material_index = idx
@@ -1719,7 +1719,9 @@ class MatUtils(_MatUtilsInternal):
         stem_index = {}  # lowercase stem (no ext) -> [paths] (for the stem + fuzzy tiers)
         orig_stems = {}  # lowercase stem -> original-case stem (for case-sensitive map-type resolve)
         walker = (
-            os.walk(search_dir)
+            # Never into a folder of stale copies (a sync cache, the Recycle Bin,
+            # _superseded): the one pruning every texture walk shares with mayatk's.
+            ptk.FileDependencies.walk(search_dir)
             if recursive
             else [
                 (
@@ -2038,7 +2040,7 @@ class MatUtils(_MatUtilsInternal):
             # walk routinely turns up versioned / archived / cloud-conflict copies of the same
             # filename, and taking whichever the walk reached first binds to an arbitrary stale one.
             found = {}
-            for root, _dirs, files in os.walk(search_dir):
+            for root, _dirs, files in ptk.FileDependencies.walk(search_dir):
                 for f in files:
                     key = f.lower()
                     if key not in unresolved:

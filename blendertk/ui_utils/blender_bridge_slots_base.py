@@ -85,6 +85,26 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
             visible=visible,
         )
 
+    def scoped_objects(self, params, warn: bool = True):
+        """The Scope's objects closed over their hierarchy -- what the send ships.
+
+        Every Blender bridge panel resolves its scope here, so this is where a
+        scoped GROUP becomes the group. Blender's FBX writes exactly the objects
+        it is handed, never their children, and Maya's export-selection writes
+        the subtree: a panel send of a selected Empty used to ship the Empty
+        alone (measured on the RizomUV send, whose engine does not close the
+        scope itself). The rule is ``BlenderExportMixin.scope_closure``'s,
+        Visible Only included; the export-mixin and texture bridges apply it
+        again in their own produce step for callers that bypass the panel,
+        which is idempotent.
+        """
+        objects = super().scoped_objects(params, warn=warn)
+        if not objects:
+            return objects
+        from blendertk.env_utils.handoff_export import BlenderExportMixin
+
+        return BlenderExportMixin.scope_closure(objects, params)
+
     def _install_optional_package(self, spec: str) -> None:
         """Install an optional package where Blender will actually import it.
 
@@ -106,19 +126,28 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
     #: ``MayaBridgeSlotsBase.BAKE_SOURCE_KEY``).
     BAKE_SOURCE_KEY = "BAKE_SOURCE_SET"
 
+    #: What defining the set changes for THIS bridge's sends, appended to the
+    #: Set From Selection log line. Per bridge because the answer is: the
+    #: Substance send ships the set with every send whose template claims the
+    #: row, the Marmoset one only with a bake (and it retires the suffix
+    #: fallback) -- a shared sentence promised one bridge's behaviour of the
+    #: other. The wording is mayatk's, per bridge.
+    BAKE_SOURCE_DEFINED_NOTE = "Sends now ship it as the companion bake source."
+    #: What clearing the set falls back to for this bridge ("" = nothing to say).
+    BAKE_SOURCE_CLEARED_NOTE = ""
+
     @staticmethod
     def _bake_source_set():
         """The stamped-Collection bake-source set the actions below operate on.
 
-        A hook, not a module-level import: ``ui_utils`` is the base every
-        bridge's slots inherit from, so importing one bridge's package here
-        would make a UI base depend on a specific bridge -- and, because that
-        bridge's slots import THIS module, risk a cycle. A bridge that stamps
-        its set differently overrides this one method.
+        :class:`blendertk.mat_utils.bake_sets.BakeSourceSet` -- the one set
+        every bridge reads. A hook, imported lazily, so the Qt-side base stays
+        importable without ``bpy`` and a bridge that stamps its set differently
+        overrides this one method.
         """
-        from blendertk.mat_utils.substance_bridge._substance_bridge import HighPolySet
+        from blendertk.mat_utils.bake_sets import BakeSourceSet
 
-        return HighPolySet
+        return BakeSourceSet
 
     def live_param_tooltip_blocks(self):
         """Make the Bake Source row report the file's CURRENT members.
@@ -164,13 +193,17 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
     def set_bake_source_from_selection(self) -> None:
         """Store the current selection as this file's bake source.
 
-        Defining the set IS the opt-in: every send from here on exports it as
-        the companion bake-source FBX. There is no second checkbox to tick --
-        the pairing this replaced could be silently half-on (a set defined, the
+        Defining the set IS the opt-in: the sends that read it (see
+        :attr:`BAKE_SOURCE_DEFINED_NOTE`) export it as the companion
+        ``<name>_source.fbx``. There is no second checkbox to tick -- the
+        pairing this replaced could be silently half-on (a set defined, the
         box left clear), which reads as the tool ignoring you.
         """
         bake_set = self._bake_source_set()
         members = bake_set.define()
+        # Rows that key off the set (the Marmoset suffix fallback) re-grey now,
+        # not on the next panel show.
+        self._refresh_param_enablement()
         if not members:
             self.bridge.logger.warning(
                 "Nothing selected; the bake-source set was cleared."
@@ -178,11 +211,11 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
             return
         self.bridge.logger.info(
             f"Bake Source set: {len(members)} object(s) -> {bake_set.SET_NAME}. "
-            f"Sends now ship it as the companion bake source."
+            f"{self.BAKE_SOURCE_DEFINED_NOTE}"
         )
 
     def select_bake_source(self) -> None:
-        """Select the high-poly set's members.
+        """Select the bake-source set's members.
 
         Members outside the active view layer (an excluded collection) can't
         be selected at all -- ``select_set`` raises there -- and one whose
@@ -194,23 +227,28 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         import bpy
 
         members = self._bake_source_set().members()
+        # Also resyncs the suffix rows if the set was removed outside the panel.
+        self._refresh_param_enablement()
         if not members:
-            self.bridge.logger.warning("This file has no high-poly set.")
+            self.bridge.logger.warning("This file has no bake-source set.")
             return
-        bpy.ops.object.select_all(action="DESELECT")
-        selected = []
-        for obj in members:
-            try:
-                obj.select_set(True)
-            except RuntimeError:  # not in the active view layer
-                continue
-            if obj.select_get():
-                selected.append(obj)
-        if selected:
-            bpy.context.view_layer.objects.active = selected[0]
+        # the window's view layer: windowless, select_all / select_set / select_get and
+        # the active write address the scene's default layer, not the one on screen
+        with CoreUtils.window_context_override():
+            bpy.ops.object.select_all(action="DESELECT")
+            selected = []
+            for obj in members:
+                try:
+                    obj.select_set(True)
+                except RuntimeError:  # not in the active view layer
+                    continue
+                if obj.select_get():
+                    selected.append(obj)
+            if selected:
+                bpy.context.view_layer.objects.active = selected[0]
         unreachable = len(members) - len(selected)
         self.bridge.logger.info(
-            f"Selected {len(selected)} high-poly object(s)."
+            f"Selected {len(selected)} bake-source object(s)."
             + (
                 f" {unreachable} could not be selected (hidden from selection "
                 "or outside the active view layer); they still export."
@@ -220,10 +258,17 @@ class BlenderBridgeSlotsBase(BridgeSlotsBase):
         )
 
     def clear_bake_source(self) -> None:
-        """Remove the high-poly collection; its objects are left alone."""
+        """Remove the bake-source collection; its objects are left alone."""
         bake_set = self._bake_source_set()
         if not bake_set.exists():
-            self.bridge.logger.warning("This file has no high-poly set.")
+            self.bridge.logger.warning("This file has no bake-source set.")
             return
         bake_set.clear()
-        self.bridge.logger.info("High-poly set cleared.")
+        self._refresh_param_enablement()
+        self.bridge.logger.info(
+            " ".join(
+                s
+                for s in ("Bake-source set cleared.", self.BAKE_SOURCE_CLEARED_NOTE)
+                if s
+            )
+        )

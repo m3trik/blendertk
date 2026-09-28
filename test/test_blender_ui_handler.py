@@ -2038,6 +2038,160 @@ except Exception as e:
     traceback.print_exc()
     check("scope precedence raised", False, repr(e))
 
+# ---------------------------------------------------------------------------
+# The Bake Source row says what THIS bridge does with the set. The shared base
+# told every bridge's artist "Sends now ship it as the companion bake source",
+# while the Marmoset send never read the set at all. Now each bridge carries
+# its own sentence (mayatk's wording per bridge), both read the ONE
+# bake_sets.BakeSourceSet, and the Marmoset panel greys the suffix fallback
+# while a set exists (mirror of mayatk's _refresh_param_enablement).
+# Added: 2026-09-27
+# ---------------------------------------------------------------------------
+try:
+    import types as _types
+
+    from blendertk.mat_utils.bake_sets import BakeSourceSet
+    from blendertk.mat_utils.marmoset_bridge import parameters as _mar_params
+    from blendertk.mat_utils.marmoset_bridge.marmoset_bridge_slots import (
+        MarmosetBridgeSlots,
+    )
+    from blendertk.mat_utils.substance_bridge.substance_bridge_slots import (
+        SubstanceBridgeSlots,
+    )
+    from blendertk.ui_utils.blender_bridge_slots_base import BlenderBridgeSlotsBase
+
+    check(
+        "the Bake Source row acts on bake_sets.BakeSourceSet",
+        BlenderBridgeSlotsBase._bake_source_set() is BakeSourceSet
+        and MarmosetBridgeSlots._bake_source_set() is BakeSourceSet
+        and SubstanceBridgeSlots._bake_source_set() is BakeSourceSet,
+    )
+
+    class _Log:
+        def __init__(self):
+            self.records = []
+
+        def info(self, msg):
+            self.records.append(("info", msg))
+
+        def warning(self, msg):
+            self.records.append(("warning", msg))
+
+    def _bare_slots(cls, has_set):
+        """A panel-less slots instance whose set reports *has_set*."""
+        inst = object.__new__(cls)
+        inst._bridge = _types.SimpleNamespace(logger=_Log())
+        inst._param_widgets = {}  # no supersession triggers wired
+        inst.enabled = {}
+        inst.set_param_enabled = lambda key, on, reason="": inst.enabled.__setitem__(
+            key, (on, reason)
+        )
+        fake_set = _types.SimpleNamespace(
+            SET_NAME=BakeSourceSet.SET_NAME,
+            define=lambda: ["obj"],
+            exists=lambda: has_set,
+        )
+        inst._bake_source_set = lambda: fake_set
+        return inst
+
+    _mar = _bare_slots(MarmosetBridgeSlots, has_set=True)
+    _mar.set_bake_source_from_selection()
+    _sub = _bare_slots(SubstanceBridgeSlots, has_set=True)
+    _sub.set_bake_source_from_selection()
+    _mar_msg = " ".join(m for _k, m in _mar._bridge.logger.records)
+    _sub_msg = " ".join(m for _k, m in _sub._bridge.logger.records)
+    check(
+        "Marmoset's Set From Selection names what ITS bake send does",
+        "Bake sends now export it as the bake source" in _mar_msg
+        and "Suffix fallback is inactive" in _mar_msg,
+        _mar_msg,
+    )
+    check(
+        "Substance's keeps its own sentence",
+        "Sends now ship it as the companion bake source" in _sub_msg
+        and "Suffix" not in _sub_msg,
+        _sub_msg,
+    )
+    check(
+        "defining the set greys Marmoset's suffix-fallback rows at once",
+        set(MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS)
+        <= set(_mar_params.Parameters.PARAMS)
+        and all(
+            _mar.enabled.get(k, (True, ""))[0] is False and _mar.enabled[k][1]
+            for k in MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS
+        ),
+        str(_mar.enabled),
+    )
+    _clear = _bare_slots(MarmosetBridgeSlots, has_set=False)
+    _clear._refresh_param_enablement()
+    check(
+        "...and without a set they are live again",
+        all(
+            _clear.enabled.get(k) == (True, "")
+            for k in MarmosetBridgeSlots.SUFFIX_FALLBACK_KEYS
+        ),
+        str(_clear.enabled),
+    )
+except Exception as e:
+    traceback.print_exc()
+    check("bake-source row wiring raised", False, repr(e))
+
+# ---------------------------------------------------------------------------
+# A panel's scope ships the subtree it names. Every Blender bridge panel
+# resolves its Scope through BlenderBridgeSlotsBase.scoped_objects, so a group
+# selected there reached the RizomUV send (whose engine does not close the
+# scope itself) as the Empty alone. Against a stand-in bpy: the closure reads
+# only parent / children_recursive. Added: 2026-09-27
+# ---------------------------------------------------------------------------
+try:
+    import types as _types
+    from unittest import mock as _mock
+
+    from blendertk.uv_utils.rizom_bridge.rizom_bridge_slots import RizomBridgeSlots
+
+    class _Node:
+        def __init__(self, name, parent=None):
+            self.name, self.parent, self._kids = name, parent, []
+            if parent is not None:
+                parent._kids.append(self)
+
+        @property
+        def children_recursive(self):
+            out = []
+            for kid in self._kids:
+                out += [kid] + kid.children_recursive
+            return out
+
+    _g = _Node("g")
+    _s = _Node("s", _g)
+    _Node("a", _g)
+    _Node("b", _s)
+    _scoped = object.__new__(RizomBridgeSlots)
+    _scoped._bridge = _types.SimpleNamespace(
+        logger=_types.SimpleNamespace(warning=lambda *_a, **_k: None)
+    )
+    # Selected answers the group; Visible Only answers the objects on screen.
+    _scoped.resolve_scope_objects = lambda scope: (
+        [_g] if scope == "selected" else [_g, _s]
+    )
+    _stand_in = _types.SimpleNamespace(data=_types.SimpleNamespace(objects={}))
+    with _mock.patch.dict(sys.modules, {"bpy": _stand_in}):
+        _sel = {o.name for o in _scoped.scoped_objects({"SCOPE": "selected"})}
+        _vis = {o.name for o in _scoped.scoped_objects({"SCOPE": "visible"})}
+    check(
+        "a panel's Selected scope ships the group's whole subtree",
+        _sel == {"g", "s", "a", "b"},
+        str(sorted(_sel)),
+    )
+    check(
+        "...while Visible Only re-adds no child it left out",
+        _vis == {"g", "s"},
+        str(sorted(_vis)),
+    )
+except Exception as e:
+    traceback.print_exc()
+    check("scope closure raised", False, repr(e))
+
 
 passed = sum(1 for line in lines if line.startswith("OK"))
 for line in lines:

@@ -1319,10 +1319,15 @@ class TexturePathEditorSlots(ptk.LoggingMixin):
             # A lightmap row selects the objects carrying its bake markers.
             names = self._lightmap_objects(lightmaps)
             objects = [o for o in (bpy.data.objects.get(n) for n in names) if o]
-            for obj in objects:
-                obj.select_set(True)
-            if objects and bpy.context.view_layer:
-                bpy.context.view_layer.objects.active = objects[0]
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            # the window's view layer: windowless, select_all / select_set / the active
+            # write address the scene's default layer, not the one the window shows
+            with CoreUtils.window_context_override():
+                for obj in objects:
+                    obj.select_set(True)
+                if objects and bpy.context.view_layer:
+                    bpy.context.view_layer.objects.active = objects[0]
             self.sb.message_box(
                 f"Selected <hl>{len(objects)}</hl> lightmapped object(s)."
                 if objects

@@ -106,6 +106,8 @@ class Channels:
         """
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         if self._pinned_targets is not None:
             names = {o.name for o in bpy.data.objects}
             # Tolerate a deleted pinned object per element: reading ``.name`` on a dead
@@ -119,11 +121,10 @@ class Channels:
                 except (ReferenceError, AttributeError):
                     continue
         else:
-            objs = [
-                o for o in (getattr(bpy.context, "selected_objects", None) or []) if o
-            ]
+            # not bpy.context's screen members: absent windowless (the Qt pump)
+            objs = list(CoreUtils.selected_objects())
         if self._single_object_mode and len(objs) > 1:
-            active = getattr(bpy.context, "active_object", None)
+            active = CoreUtils.active_object()
             return [active] if active in objs else [objs[-1]]
         return objs
 
@@ -738,19 +739,24 @@ class Channels:
                     targets.append(tid)
         if not targets:
             return False
-        try:
-            bpy.ops.object.select_all(action="DESELECT")
-        except RuntimeError:
-            pass
-        for tid in targets:
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's view layer: windowless, select_all / select_set / the active
+        # write address the scene's default layer, not the one the window shows
+        with CoreUtils.window_context_override():
             try:
-                tid.select_set(True)
-            except (AttributeError, RuntimeError):
+                bpy.ops.object.select_all(action="DESELECT")
+            except RuntimeError:
                 pass
-        try:
-            bpy.context.view_layer.objects.active = targets[0]
-        except (AttributeError, TypeError):
-            pass
+            for tid in targets:
+                try:
+                    tid.select_set(True)
+                except (AttributeError, RuntimeError):
+                    pass
+            try:
+                bpy.context.view_layer.objects.active = targets[0]
+            except (AttributeError, TypeError):
+                pass
         return True
 
     # Map UI-friendly type names → (python default, is_float).

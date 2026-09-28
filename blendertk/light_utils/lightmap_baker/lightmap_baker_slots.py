@@ -492,11 +492,17 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
 
             return TextureBaker.resolve_meshes(list(bpy.context.scene.objects))
 
+        def visible_meshes():
+            # the window's layer (windowless, a bare visible_get reads the default),
+            # resolved once: each resolve enters a context override
+            vl = CoreUtils._active_view_layer()
+            return [o for o in scene_meshes() if o.visible_get(view_layer=vl)]
+
         return ptk.HandoffScope.resolve(
             self._scope(),
             selected=lambda: TextureBaker.resolve_meshes(CoreUtils.selected_objects()),
             all=scene_meshes,
-            visible=lambda: [o for o in scene_meshes() if o.visible_get()],
+            visible=visible_meshes,
         )
 
     def set_exclusions_init(self, widget) -> None:
@@ -592,15 +598,17 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             self.ui.footer.setText("Nothing is excluded in this file.")
             return
         # The selection menu's own replace, which skips what cannot be selected;
-        # a hidden member refuses without raising, so read back what landed.
-        Selection._apply_selection_mode(members, "replace")
-        selected = []
-        for obj in members:
-            try:
-                if obj.select_get():
-                    selected.append(obj)
-            except RuntimeError:  # outside the active view layer
-                continue
+        # a hidden member refuses without raising, so read back what landed. Both
+        # in the window's view layer (windowless, the context's is the default).
+        with CoreUtils.window_context_override():
+            Selection._apply_selection_mode(members, "replace")
+            selected = []
+            for obj in members:
+                try:
+                    if obj.select_get():
+                        selected.append(obj)
+                except RuntimeError:  # outside the active view layer
+                    continue
         unreachable = len(members) - len(selected)
         self.ui.footer.setText(
             f"Selected {len(selected)} excluded object"
@@ -894,8 +902,8 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
         if result.retired:
             n = len(result.retired)
             notes.append(
-                f" Deleted {n} superseded map{'s' if n != 1 else ''} "
-                "nothing reads any more."
+                f" Moved {n} superseded map{'s' if n != 1 else ''} nothing reads "
+                "any more to the Recycle Bin (or a _superseded folder beside them)."
             )
         if result.unbaked:
             notes.append(

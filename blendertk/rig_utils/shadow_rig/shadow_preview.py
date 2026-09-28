@@ -242,9 +242,14 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         if plane.name not in cls._planes:
             # Borrow the visibility only once it can actually be taken: a
             # plane outside the active view layer raises here, and must not
-            # be left stamped as borrowed.
-            was_hidden = bool(plane.hide_get())
-            plane.hide_set(True)
+            # be left stamped as borrowed. The eye is per view layer: the
+            # window's, the one on screen (windowless, the bare calls address
+            # the scene's default layer).
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            vl = CoreUtils._active_view_layer()
+            was_hidden = bool(plane.hide_get(view_layer=vl))
+            plane.hide_set(True, view_layer=vl)
             plane[cls.HIDDEN_PROP] = was_hidden
             cls._planes.append(plane.name)
         cls._register_export_preparer()
@@ -259,8 +264,13 @@ class ShadowPreview(_ShadowPreviewInternal, ptk.LoggingMixin):
         if attached:
             cls._planes.remove(plane.name)
         if cls.HIDDEN_PROP in plane:
+            from blendertk.core_utils._core_utils import CoreUtils
+
             try:
-                plane.hide_set(bool(plane[cls.HIDDEN_PROP]))
+                plane.hide_set(
+                    bool(plane[cls.HIDDEN_PROP]),
+                    view_layer=CoreUtils._active_view_layer(),  # as attach borrowed it
+                )
             except RuntimeError:  # not in this view layer
                 pass
             del plane[cls.HIDDEN_PROP]

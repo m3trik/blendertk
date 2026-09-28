@@ -2080,41 +2080,85 @@ class ReferenceManagerSlots(ptk.LoggingMixin):
         self._refresh()
 
     @classmethod
-    def _delete_prompt(cls, paths) -> str:
+    def _delete_prompt(cls, paths, permanent=()) -> str:
         """Confirmation text for deleting *paths* (mirror of mayatk's).
 
         Names each file in full: the row label can hide the suffix/extension, so a
         count alone ("Delete 1 file(s)?") gives no way to confirm WHICH file is about
-        to be removed -- and deletion is permanent (no trash).
+        to be removed. And it says where each goes: the platform's trash
+        (``ptk.FileUtils.trash_name``), or, for *permanent* -- the ones no trash would
+        take -- gone for good, which it says cannot be undone.
 
         Parameters:
             paths (list): Full paths of the files queued for deletion.
+            permanent (list): Those of *paths* that would be deleted for good.
 
         Returns:
             str: HTML prompt naming the file(s).
         """
+        trash = ptk.FileUtils.trash_name()
+        gone = {os.path.normcase(os.path.abspath(p)) for p in permanent}
+        marks = [os.path.normcase(os.path.abspath(p)) in gone for p in paths]
         names = [os.path.basename(p) for p in paths]
         if len(names) == 1:
-            return f"Delete <hl>{names[0]}</hl> from disk?"
-        shown = names[: cls.DELETE_PROMPT_MAX_NAMES]
-        listed = "<br>".join(f"&bull; {n}" for n in shown)
+            if marks[0]:
+                return (
+                    f"Delete <hl>{names[0]}</hl> permanently?<br>The {trash} "
+                    "will not take it, so this cannot be undone."
+                )
+            return f"Move <hl>{names[0]}</hl> to the {trash}?"
+        mixed = any(marks) and not all(marks)
+        shown = list(zip(names, marks))[: cls.DELETE_PROMPT_MAX_NAMES]
+        listed = "<br>".join(
+            f"&bull; {n}" + (f" (permanently: no {trash})" if mark and mixed else "")
+            for n, mark in shown
+        )
         if len(names) > len(shown):
             listed += f"<br>&bull; ...and {len(names) - len(shown)} more"
-        return f"Delete {len(names)} file(s) from disk?<br>{listed}"
+        if all(marks):
+            return (
+                f"Delete {len(names)} file(s) permanently?<br>{listed}<br>The "
+                f"{trash} will not take them, so this cannot be undone."
+            )
+        if mixed:
+            return (
+                f"Delete {len(names)} file(s)?<br>{listed}<br>The rest go to the "
+                f"{trash}; the marked ones cannot be undone."
+            )
+        return f"Move {len(names)} file(s) to the {trash}?<br>{listed}"
 
     def delete_selected(self):
-        """Delete the selected .blend file(s) from disk (confirmed)."""
+        """Delete the selected .blend file(s) (confirmed): to the trash, or -- a drive
+        with none, confirmed as permanent -- for good. A trash that refuses one after
+        all asks again, as permanent, before anything is lost (mirror of mayatk's)."""
         paths = [p for p in self._selected_paths() if os.path.isfile(p)]
         if not paths:
             self.sb.message_box("Select a file to delete.")
             return
-        if self.sb.message_box(self._delete_prompt(paths), "Yes", "No") != "Yes":
+        permanent = [p for p in paths if not ptk.FileUtils.can_trash(p)]
+        prompt = self._delete_prompt(paths, permanent)
+        if self.sb.message_box(prompt, "Yes", "No") != "Yes":
             return
         done = 0
+        refused = []
         for p in paths:
-            if btk.delete_scene_file(p):
+            if btk.delete_scene_file(p, permanent=p in permanent):
                 self._carry_note(p)
                 done += 1
+            elif p not in permanent and os.path.isfile(p):
+                refused.append(p)  # the trash would not take it: untouched
+        declined = 0
+        if refused:
+            again = self._delete_prompt(refused, refused)
+            if self.sb.message_box(again, "Yes", "No") == "Yes":
+                for p in refused:
+                    if btk.delete_scene_file(p, permanent=True):
+                        self._carry_note(p)
+                        done += 1
+            else:
+                declined = len(refused)  # kept on purpose, not a failure
+        if declined:
+            paths = [p for p in paths if p not in refused]
         self.logger.info(f"Deleted {done} of {len(paths)} file(s).")
         if done < len(paths):
             self.sb.message_box(

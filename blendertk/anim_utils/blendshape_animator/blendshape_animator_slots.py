@@ -26,6 +26,7 @@ from blendertk.anim_utils.blendshape_animator._blendshape_animator import (
 )
 from blendertk.anim_utils.blendshape_animator.applicator import ApplyStatus, Applicator
 from blendertk.anim_utils.blendshape_animator.target import Target, Targets
+from blendertk.core_utils._core_utils import CoreUtils
 from pythontk import Weights
 
 
@@ -799,11 +800,14 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
 
         self._syncing_selection = True
         try:
-            for o in bpy.context.view_layer.objects:
-                o.select_set(False)
-            for o in objs:
-                o.select_set(True)
-            bpy.context.view_layer.objects.active = objs[0]
+            # the window's view layer: windowless, select_set / the active write
+            # address the scene's default layer, not the one the user sees
+            with CoreUtils.window_context_override():
+                for o in list(bpy.context.view_layer.objects):
+                    o.select_set(False)
+                for o in objs:
+                    o.select_set(True)
+                bpy.context.view_layer.objects.active = objs[0]
         finally:
             self._syncing_selection = False
 
@@ -863,11 +867,13 @@ class BlendshapeAnimatorSlots(BlendshapeAnimator, _BlendshapeAnimatorSlotsIntern
                 except ReferenceError:
                     continue
             if objs:
-                for o in bpy.context.view_layer.objects:
-                    o.select_set(False)
-                for o in objs:
-                    o.select_set(True)
-                bpy.context.view_layer.objects.active = objs[0]
+                # the window's view layer (windowless: the scene default)
+                with CoreUtils.window_context_override():
+                    for o in list(bpy.context.view_layer.objects):
+                        o.select_set(False)
+                    for o in objs:
+                        o.select_set(True)
+                    bpy.context.view_layer.objects.active = objs[0]
                 self._set_status(f"Selected {len(objs)} mesh(es)")
         elif chosen is act_jump:
             bpy.context.scene.frame_set(single.target_frame)

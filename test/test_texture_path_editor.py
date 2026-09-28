@@ -268,6 +268,32 @@ try:
           abs(os.path.getmtime(picked) - os.path.getmtime(deep)) < 1.0,
           f"picked={os.path.getmtime(picked)} deep={os.path.getmtime(deep)} shallow={os.path.getmtime(shallow)}")
 
+    # 7f2. Neither walk enters a folder of stale copies (ptk.FileDependencies.walk; 2026-09-27):
+    # sync caches, the Recycle Bin, a _superseded folder, version control. Both walked everything,
+    # so a texture whose only same-named file sat in one bound to that stale copy -- mayatk's walk
+    # pruned them already.
+    stale_root = os.path.join(tmp, "stale")
+    for folder in (".dropbox.cache", "$Recycle.Bin", "_superseded", ".git"):
+        reset()
+        copy = write_png(os.path.join(stale_root, folder, "stale_DIFF.png"))
+        img_s = bpy.data.images.load(write_png(os.path.join(tmp, "stalesrc", "stale_DIFF.png")))
+        img_s.filepath = os.path.join(tmp, "gone", "stale_DIFF.png")  # missing
+        n_stale = btk.resolve_missing_textures(stale_root, stem=True)
+        planned_s = btk.plan_find_and_copy_textures(
+            [img_s], stale_root, os.path.join(tmp, "stale_dest")
+        )
+        check(
+            f"a copy in {folder} is never bound by Resolve Missing",
+            n_stale == 0 and "gone" in _abspath(img_s),
+            f"n={n_stale} path={_abspath(img_s)}",
+        )
+        check(
+            "...nor found by Find & Copy",
+            not planned_s,
+            f"{planned_s}",
+        )
+        os.remove(copy)
+
     # 7g. Find & Copy sources a VALID path directly: an image whose filepath resolves is its own
     # source, so no search dir is needed at all (the panel skips that dialog on the same rule).
     reset()

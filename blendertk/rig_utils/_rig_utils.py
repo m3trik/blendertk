@@ -92,6 +92,60 @@ class RigUtils:
             obj.matrix_parent_inverse = source.matrix_parent_inverse.copy()
 
     # ----------------------------------------------------------------- locator rigs
+    #: The custom property :meth:`create_locator_at_object` stamps on the two Empties it
+    #: builds ("locator" / "group"). Blender has no locator shape, so this -- not "is an
+    #: Empty" -- is what :meth:`remove_locator` dissolves. The Scene Exporter exports
+    #: custom properties, so it rides along as an FBX user property, which unitytk's
+    #: importers skip (they look up the keys they own).
+    LOCATOR_RIG_PROP = "btk_locator_rig"
+
+    @staticmethod
+    def _locator_rig_role(obj):
+        """``"locator"`` / ``"group"`` for an Empty of a locator rig, else ``None``.
+
+        A rig is known by the stamp :meth:`create_locator_at_object` writes; one
+        built before the stamp, by its names -- a ``<stem><locator>`` Empty under
+        the ``<stem><group>`` Empty, in the naming convention's affixes (Blender's
+        ``.001`` clash suffix ignored).
+
+        Parameters:
+            obj (bpy.types.Object/None): The object to classify.
+
+        Returns:
+            (str/None): ``"locator"``, ``"group"`` or ``None``.
+        """
+        import re
+
+        import pythontk as ptk
+
+        if obj is None or obj.type != "EMPTY":
+            return None
+        stamp = obj.get(RigUtils.LOCATOR_RIG_PROP)
+        if stamp in ("locator", "group"):
+            return stamp
+        loc_rule = ptk.NamingConvention.get("locator")
+        grp_rule = ptk.NamingConvention.get("group")
+
+        def stem(o, rule):
+            name = re.sub(r"\.\d{3}$", "", o.name)
+            if not rule.text or not rule.matches(name):
+                return None
+            prefix, suffix = rule.parts()
+            return name[len(prefix) : len(name) - len(suffix)].casefold()
+
+        def legacy_locator(o):
+            grp = o.parent
+            if grp is None or grp.type != "EMPTY":
+                return False
+            loc_stem = stem(o, loc_rule)
+            return loc_stem is not None and loc_stem == stem(grp, grp_rule)
+
+        if legacy_locator(obj):
+            return "locator"
+        if any(c.type == "EMPTY" and legacy_locator(c) for c in obj.children):
+            return "group"
+        return None
+
     @staticmethod
     def create_locator_at_object(
         objects,
@@ -122,7 +176,8 @@ class RigUtils:
         keeps following a posed bone; the locator sits on the group; and the
         object keeps its own channels (its animation still plays), re-linked
         to the locator as a plain OBJECT child through a parent-inverse that
-        cancels them.
+        cancels them. The locator and group carry :attr:`LOCATOR_RIG_PROP`, which
+        is how :meth:`remove_locator` knows them from the user's own Empties.
 
         Parameters:
             objects (obj/list): The objects (or names) to rig; unknown names skip.
@@ -206,6 +261,7 @@ class RigUtils:
             loc.empty_display_type = "PLAIN_AXES"
             loc.empty_display_size = loc_scale
             loc.matrix_world = o.matrix_world.copy()  # its channels read the world
+            loc[RigUtils.LOCATOR_RIG_PROP] = "locator"
             coll.objects.link(loc)
 
             # The group takes the object's place (link, inverse and channels),
@@ -213,6 +269,7 @@ class RigUtils:
             # bone-parented prop keeps following its bone.
             grp = bpy.data.objects.new(grp_rule.apply(base), None)
             grp.empty_display_type = "PLAIN_AXES"
+            grp[RigUtils.LOCATOR_RIG_PROP] = "group"
             coll.objects.link(grp)
             RigUtils._take_parent_link(grp, o)
             grp.matrix_basis = channels
@@ -250,50 +307,65 @@ class RigUtils:
     def remove_locator(objects):
         """Dissolve locator rigs: the inverse of :meth:`create_locator_at_object`.
 
-        Mirror of mayatk's ``RigUtils.remove_locator``: each Empty in *objects*
-        is removed after its children -- their channels unlocked -- go back
-        where the rig took them from, world transforms intact (a bare delete
-        pops them back to their raw local matrix). They take the parent link of
-        the locator's group (its parent Empty), landing under the group's
-        parent (mayatk's grandparent) -- on its bone, for a bone-parented prop
-        -- or in the world for a rig at the scene root. The group goes with its
-        locator when that leaves it childless. Anything that is not an Empty is
-        skipped.
+        Mirror of mayatk's ``RigUtils.remove_locator``: each locator in *objects*
+        is removed after its children -- their channels unlocked -- go back where
+        the rig took them from, world transforms intact (a bare delete pops them
+        back to their raw local matrix). They take the parent link of the
+        locator's group, landing under the group's parent (mayatk's grandparent)
+        -- on its bone, for a bone-parented prop -- or in the world for a rig at
+        the scene root. The group goes with its locator when that leaves it
+        childless.
+
+        Blender has no locator shape, so a locator is an Empty of a locator RIG
+        (:meth:`_locator_rig_role`); any other Empty -- a user's own group -- is
+        skipped, as mayatk skips anything that is not a locator. A rig's group
+        names its rig: it draws the same cross as the locator, so selecting
+        either dissolves the rig. Only a rig's own group is ever skipped over or
+        deleted -- a locator the user moved under their own Empty hands its
+        children to that Empty.
 
         Parameters:
-            objects (obj/list): The locators (or their names).
+            objects (obj/list): The locators or their groups (or their names).
 
         Returns:
-            (list): The names of the locators removed (empty when none were
-            Empties -- the caller's cue to say so).
+            (list): The names of the locators removed (empty when no locator rig
+            was given -- the caller's cue to say so).
         """
         import bpy
 
+        role = RigUtils._locator_rig_role
         if not isinstance(objects, (list, tuple, set)):
             objects = [objects]
-        locators = [
-            o
-            for o in (RigUtils.resolve_object(x) for x in objects)
-            if o is not None and o.type == "EMPTY"
-        ]
+        locators = []
+        for o in (RigUtils.resolve_object(x) for x in objects):
+            kind = role(o)
+            if kind == "locator":
+                found = [o]
+            elif kind == "group":
+                found = [c for c in o.children if role(c) == "locator"]
+            else:
+                found = []
+            locators.extend(loc for loc in found if loc not in locators)
+
+        def group_of(loc):
+            """The rig's own group, while the locator still sits in one."""
+            return loc.parent if role(loc.parent) == "group" else None
+
         if locators:
             # The worlds read below must be current: a rig built earlier in the
             # same script has not been evaluated yet.
             bpy.context.view_layer.update()
         for loc in locators:
-            # The link the children take: the locator's group's (its parent
-            # Empty), then on past any LISTED Empty, which is dissolved too --
-            # so no child is handed to an Empty about to be deleted. Only the
-            # locator's own group is skipped: a listed group (the whole rig
-            # box-selected) must not take its parent for a group of its own.
-            host = loc
-            if host.parent is not None and host.parent.type == "EMPTY":
-                host = host.parent
+            # The link the children take: the rig's group's (or the locator's own,
+            # when its group is gone), then on past any LISTED locator and its
+            # group, dissolved too -- so no child is handed to an Empty about to
+            # be deleted.
+            host = group_of(loc) or loc
             while host.parent is not None and host.parent in locators:
-                host = host.parent
+                host = group_of(host.parent) or host.parent
             for child in list(loc.children):
                 if child in locators:
-                    continue  # a listed empty dies anyway -- leave it parented
+                    continue  # a listed locator dies anyway -- leave it parented
                 child.lock_location = (False,) * 3
                 child.lock_rotation = (False,) * 3
                 child.lock_scale = (False,) * 3
@@ -304,23 +376,19 @@ class RigUtils:
                 else:
                     # The channels that hold *world* under the host's link,
                     # which carries the host's channels to the host's world
-                    # (the rig's group has no constraints of its own). Solved
-                    # here, not by the matrix_world setter: that cannot place a
-                    # VERTEX parent (the original mesh has no evaluated verts).
+                    # (the rig's Empties have no constraints of their own).
+                    # Solved here, not by the matrix_world setter: that cannot
+                    # place a VERTEX parent (the original mesh has no evaluated
+                    # verts).
                     child.matrix_basis = (
                         host.matrix_basis @ host.matrix_world.inverted_safe() @ world
                     )
-        # Parent groups, collected before the deletes below invalidate the
+        # The rigs' groups, collected before the deletes below invalidate the
         # locators' references.
         groups = []
         for loc in locators:
-            grp = loc.parent
-            if (
-                grp is not None
-                and grp.type == "EMPTY"
-                and grp not in groups
-                and grp not in locators
-            ):
+            grp = group_of(loc)
+            if grp is not None and grp not in groups:
                 groups.append(grp)
         removed = [loc.name for loc in locators]
         for loc in locators:
@@ -343,27 +411,31 @@ class RigUtils:
 
         from blendertk.core_utils._core_utils import CoreUtils
 
-        view_layer = bpy.context.view_layer
-        prev_active = view_layer.objects.active
-        # Operators need to start from OBJECT mode; settle whatever was active first.
-        if (
-            prev_active is not None
-            and getattr(prev_active, "mode", "OBJECT") != "OBJECT"
-        ):
-            bpy.ops.object.mode_set(mode="OBJECT")
-        # ``mode_set`` refuses a hidden object outright ("Cannot edit hidden object"),
-        # and hiding is not an opinion a rig edit should have: a Maya pull imports a
-        # skeleton whose visibility is ANIMATED, so at the import frame its armature
-        # is routinely hidden and every edit-mode primitive here would fail on it.
-        with CoreUtils.visible_override(obj):
-            view_layer.objects.active = obj
-            obj.select_set(True)
-            bpy.ops.object.mode_set(mode=mode)
-            try:
-                yield
-            finally:
+        # The window's view layer + context for the whole scope, the caller's body
+        # included: windowless, mode_set poll-fails and the active / select_set
+        # writes address the scene's default layer, not the one the window shows.
+        with CoreUtils.window_context_override():
+            view_layer = bpy.context.view_layer
+            prev_active = view_layer.objects.active
+            # Operators need to start from OBJECT mode; settle whatever was active first.
+            if (
+                prev_active is not None
+                and getattr(prev_active, "mode", "OBJECT") != "OBJECT"
+            ):
                 bpy.ops.object.mode_set(mode="OBJECT")
-                view_layer.objects.active = prev_active
+            # ``mode_set`` refuses a hidden object outright ("Cannot edit hidden object"),
+            # and hiding is not an opinion a rig edit should have: a Maya pull imports a
+            # skeleton whose visibility is ANIMATED, so at the import frame its armature
+            # is routinely hidden and every edit-mode primitive here would fail on it.
+            with CoreUtils.visible_override(obj):
+                view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode=mode)
+                try:
+                    yield
+                finally:
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    view_layer.objects.active = prev_active
 
     @staticmethod
     def create_armature(name="armature", location=(0, 0, 0), collection=None):

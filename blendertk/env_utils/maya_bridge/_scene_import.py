@@ -334,21 +334,23 @@ class MayaSceneImport(ptk.LoggingMixin):
             from blendertk.rig_utils.rig_graph_build import RigGraphBuilder
 
             capability = json.dumps(RigGraphBuilder.capability(), sort_keys=True)
+        # child_path: forward slashes, and the 8.3 form of any folder the ANSI code
+        # page cannot hold -- mayapy opens files through it ("File not found").
         context = {
-            "SRC_PATH": str(src_path).replace("\\", "/"),
+            "SRC_PATH": ptk.ScriptTemplate.child_path(src_path),
             "INCLUDE_ANIMATION": repr(bool(include_animation)),
             "RIG_MODE": repr(rig_mode),
             "RIG_CAPABILITY": repr(capability),
         }
         if via == "usd":
-            context["OUT_USD"] = str(out_path).replace("\\", "/")
+            context["OUT_USD"] = ptk.ScriptTemplate.child_path(out_path)
             if embed_textures:
                 self.logger.info(
                     "embed_textures has no USD-route equivalent (textures are "
                     "referenced on disk); ignored."
                 )
         else:
-            context["OUT_FBX"] = str(out_path).replace("\\", "/")
+            context["OUT_FBX"] = ptk.ScriptTemplate.child_path(out_path)
             context["EMBED_TEXTURES"] = repr(bool(embed_textures))
             context["SMART_BAKE"] = repr(_RIG_MODE_TO_SMART_BAKE[rig_mode])
         return ptk.ScriptTemplate.render_template(self._template(via), context)

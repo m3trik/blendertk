@@ -619,36 +619,31 @@ class XformUtils(_XformUtilsInternal):
 
         scene = bpy.context.scene
         saved_cursor = tuple(scene.cursor.location)
-        saved_active = bpy.context.view_layer.objects.active
-        saved_sel = list(
-            CoreUtils.selected_objects()
-        )  # view-layer read: bpy.context.selected_objects is empty from the Qt-pump context
         try:
-            if translate:
-                pos = list(source.matrix_world.translation)
-                axis = str(mirror).strip().lower()
-                if axis in ("x", "y", "z"):
-                    idx = "xyz".index(axis)
-                    pos[idx] = -pos[idx]
-                scene.cursor.location = pos
-                for t in targets:
-                    bpy.ops.object.select_all(action="DESELECT")
-                    t.select_set(True)
-                    bpy.context.view_layer.objects.active = t
-                    bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
+            with CoreUtils.preserved_selection():
+                if translate:
+                    pos = list(source.matrix_world.translation)
+                    axis = str(mirror).strip().lower()
+                    if axis in ("x", "y", "z"):
+                        idx = "xyz".index(axis)
+                        pos[idx] = -pos[idx]
+                    scene.cursor.location = pos
+                    for t in targets:
+                        bpy.ops.object.select_all(action="DESELECT")
+                        t.select_set(True)
+                        bpy.context.view_layer.objects.active = t
+                        bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
         finally:
             scene.cursor.location = saved_cursor
+        if select_targets_after_transfer:
             bpy.ops.object.select_all(action="DESELECT")
-            restore = targets if select_targets_after_transfer else saved_sel
-            for o in restore:
+            for o in targets:
                 try:
                     o.select_set(True)
                 except (RuntimeError, ReferenceError):
                     pass
-            bpy.context.view_layer.objects.active = (
-                targets[0] if select_targets_after_transfer else saved_active
-            )
-            bpy.context.view_layer.update()
+            bpy.context.view_layer.objects.active = targets[0]
+        bpy.context.view_layer.update()
         return targets
 
     @staticmethod

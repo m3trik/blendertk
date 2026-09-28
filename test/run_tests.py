@@ -92,6 +92,23 @@ def find_blender(explicit: Optional[str] = None) -> Optional[str]:
 class BlenderTestRunner:
     """Runs each blendertk suite in its own fresh headless Blender."""
 
+    #: Run in each child before its suite: the temp root, named outright. Pure
+    #: stdlib, since it runs before a suite puts pythontk on the path.
+    _PIN_TEMP = (
+        "import os, tempfile; os.makedirs({0!r}, exist_ok=True); "
+        "tempfile.tempdir = {0!r}"
+    )
+    #: Then, in a plain interpreter, the suite as ``python <suite>`` would run it.
+    _RUN_AS_MAIN = "\n".join(
+        (
+            "import os, runpy, sys",
+            "sys.argv[:] = sys.argv[1:]",
+            "if sys.path[0] == '':  # -c puts the cwd first, a script its own dir",
+            "    sys.path[0] = os.path.dirname(os.path.abspath(sys.argv[0]))",
+            "runpy.run_path(sys.argv[0], run_name='__main__')",
+        )
+    )
+
     def __init__(
         self, blender: str, test_dir: Path = TEST_DIR, suite_timeout: int = 600
     ):
@@ -99,6 +116,8 @@ class BlenderTestRunner:
         self.test_dir = test_dir
         self.suite_timeout = suite_timeout
         self.venv_python = find_venv_python()
+        #: The run's throwaway temp root (:meth:`_isolate_temp`); None = real TEMP.
+        self.temp_root: Optional[str] = None
 
     def discover(self, patterns: Optional[List[str]] = None) -> List[Path]:
         """Suites are ``test_*.py`` + the smoke test + the ``*_slot_check.py``
@@ -131,13 +150,16 @@ class BlenderTestRunner:
         Maya run to earn back. Cached conversions are exactly what lives there.
 
         Activated in the RUNNER rather than in each suite's bootstrap, which is
-        both smaller and safer than it sounds: :meth:`TestSandbox.temp` sets
-        ``TMPDIR``/``TEMP``/``TMP`` precisely so a child process inherits the
-        same root, and every suite here IS a child (a fresh headless Blender, or
-        the ``.venv`` interpreter). The root is released at THIS process's exit,
-        so a bridge artifact handed to a detached app still outlives the call
-        that made it -- the case ``test_bridges`` asserts -- where per-suite
-        activation would have torn it down with the suite.
+        both smaller and safer than it sounds: every suite here IS a child (a
+        fresh headless Blender, or the ``.venv`` interpreter), and each is
+        handed the root -- in ``TMPDIR``/``TEMP``/``TMP``, which
+        :meth:`TestSandbox.temp` sets for tools that read them, and pinned
+        outright by :meth:`_child_command`, since a Python child that derives
+        its temp dir from those can fall past them to the real one. The root is
+        released at THIS process's exit, so a bridge artifact handed to a
+        detached app still outlives the call that made it -- the case
+        ``test_bridges`` asserts -- where per-suite activation would have torn
+        it down with the suite.
 
         Best-effort by design: an unimportable pythontk is already a failing
         run, and it must fail on its own suites rather than here.
@@ -157,6 +179,39 @@ class BlenderTestRunner:
         print(f"Temp:    {root}")
         return root
 
+    def _child_command(self, suite: Path, python: Optional[str] = None) -> List[str]:
+        """The command line for one suite's child.
+
+        With a temp root, the child is told it before the suite's first line
+        (:attr:`_PIN_TEMP`) rather than left to derive it from the inherited
+        ``TMPDIR``/``TEMP``/``TMP``. Deriving is how the root was lost: a fresh
+        interpreter's ``tempfile`` probes each variable with a throwaway write
+        and, on any failure but ``FileExistsError``, moves past all three --
+        they name the same root -- to ``~\\AppData\\Local\\Temp``, silently. A
+        root that had gone, an ``OSError`` on three probes or a refused create
+        each did it (measured, Blender 5.1 and the venv); one full run under a
+        concurrent unitytk run did it for real (2026-09-26). A pinned temp dir
+        is never probed. If the pin itself fails, the child stops before the
+        suite -- Blender through ``--python-exit-code``, a plain interpreter
+        through the uncaught error -- so an unpinned suite never runs.
+
+        Parameters:
+            suite: The suite file to run.
+            python: Run it under this interpreter instead of a headless Blender.
+
+        Returns:
+            The argument list for ``subprocess.run``.
+        """
+        pin = self._PIN_TEMP.format(self.temp_root) if self.temp_root else None
+        if python:
+            if not pin:
+                return [python, str(suite)]
+            return [python, "-c", f"{pin}\n{self._RUN_AS_MAIN}", str(suite)]
+        cmd = [self.blender, "--background", "--factory-startup"]
+        if pin:
+            cmd += ["--python-exit-code", "1", "--python-expr", pin]
+        return cmd + ["--python", str(suite)]
+
     def run_suite(
         self, suite: Path, python: Optional[str] = None
     ) -> Tuple[bool, int, int, bool]:
@@ -172,17 +227,7 @@ class BlenderTestRunner:
         Returns:
             Tuple of (passed, ok_checks, failed_checks, skipped).
         """
-        cmd = (
-            [python, str(suite)]
-            if python
-            else [
-                self.blender,
-                "--background",
-                "--factory-startup",
-                "--python",
-                str(suite),
-            ]
-        )
+        cmd = self._child_command(suite, python)
         # UTF-8 on both ends of the pipe: a child Python picks its stdout codec
         # from the locale when stdout is a pipe (cp1252 here), so a suite that
         # prints one glyph outside it died with UnicodeEncodeError and read as
@@ -274,7 +319,7 @@ class BlenderTestRunner:
 
     def run(self, patterns: Optional[List[str]] = None) -> dict:
         """Run the selected suites and return aggregate counts."""
-        self._isolate_temp()
+        self.temp_root = self._isolate_temp()
         suites = self.discover(patterns)
         if not suites:
             print("No suites matched.")

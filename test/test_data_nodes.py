@@ -700,6 +700,69 @@ try:
         == {"lib.exr": "../../library/lm"},
         str(ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)),
     )
+    # BACKLOG 2026-09-23: a writer stamp made while the file was unsaved
+    # (``""``) is its own only while it still is, so everything stamped before
+    # the first save -- a bake's maps, a baseline -- was nobody's after it.
+    # The first save stamps the file it writes.
+    _writers = ptk.SceneRecords.LIGHTMAP_WRITERS
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _writers.save(DataNodes, {"a.exr": ""})
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "first.blend"))
+    check(
+        "a first save stamps what was made unsaved with the file written",
+        _writers.load(DataNodes) == {"a.exr": "scenes/first.blend"}
+        and DataNodes.written_here("scenes/first.blend"),
+        str(_writers.load(DataNodes)),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "later.blend"))
+    check(
+        "...and a later Save As copy names its source",
+        _writers.load(DataNodes) == {"a.exr": "scenes/first.blend"}
+        and not DataNodes.written_here("scenes/first.blend"),
+        str(_writers.load(DataNodes)),
+    )
+    # A Save COPY of a file never saved: the open file stays unsaved, so its
+    # stamps stay ``""`` -- put back exactly once the copy is written. Blender
+    # cannot tell a Save Copy from a Save As before the write (``save_pre`` gets
+    # the same arguments, ``bpy.data.filepath`` unchanged in both; measured
+    # 5.1), so the copy on disk is stamped as its own writer.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    _writers.save(DataNodes, {"a.exr": ""})
+    _stamped_copy = os.path.join(_proj_a, "scenes", "stamped_copy.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=_stamped_copy, copy=True)
+    check(
+        "a Save Copy of an unsaved file leaves its stamps unsaved",
+        not bpy.data.filepath and _writers.load(DataNodes) == {"a.exr": ""},
+        str(_writers.load(DataNodes)),
+    )
+    bpy.ops.wm.open_mainfile(filepath=_stamped_copy)
+    check(
+        "...and the copy on disk names itself",
+        _writers.load(DataNodes) == {"a.exr": "scenes/stamped_copy.blend"},
+        str(_writers.load(DataNodes)),
+    )
+    # BACKLOG 2026-09-23: only the UI handler installed the hook, so a
+    # ``blender --background`` script saving into another project left every
+    # entry spelled from the old one. The private carrier's first touch
+    # installs it now.
+    DataNodes.remove_path_rebase()
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_a, "scenes", "bg.blend"))
+    ptk.SceneRecords.LIGHTMAP_DIRS.save(DataNodes, {"in.exr": "sourceimages/lm"})
+    check(
+        "a headless session's first record installs the hook",
+        any(
+            getattr(f, "__name__", "") == "_rebase_before_save"
+            for f in bpy.app.handlers.save_pre
+        ),
+    )
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(_proj_b, "scenes", "bg.blend"))
+    _bg = ptk.SceneRecords.LIGHTMAP_DIRS.load(DataNodes)
+    check(
+        "...so its Save As into another project re-spells the entry",
+        _abs(_proj_b, _bg["in.exr"]) == os.path.normcase(_maps),
+        str(_bg),
+    )
     DataNodes.remove_path_rebase()
     check(
         "remove takes the pair out",

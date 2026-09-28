@@ -375,7 +375,15 @@ class SceneExporter(ptk.SceneExporterBase):
         try:
             self._progress_note("Preparing export…")
             if tasks:
-                checks_passed = self.task_manager.run_tasks(tasks)
+                try:
+                    checks_passed = self.task_manager.run_tasks(tasks)
+                except Exception as e:
+                    # A raising task stops the run before its write, as a failed
+                    # check does: the staged edits unwind in the finally below,
+                    # and what the tasks kept is named before the error goes on.
+                    # Mirror of mayatk.
+                    self._warn_stopped_before_write(f"Export stopped by an error: {e}.")
+                    raise
                 if not checks_passed:
                     # Offer the escape hatch HERE, while the staged scene the
                     # write needs is still standing, rather than leaving the
@@ -460,10 +468,17 @@ class SceneExporter(ptk.SceneExporterBase):
         naming what was dropped) rather than silent. ``check_hidden_geometry`` is
         what *fails* an export over hidden meshes; this filter keeps the write
         honest when that check is off or the members aren't meshes."""
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's layer -- the one FbxUtils.export selects in (windowless, a
+        # bare visible_get reads the scene's default layer)
+        vl = CoreUtils._active_view_layer()
         exportable, dropped = [], []
         for o in objects:
             try:
-                ok = (not getattr(o, "hide_select", False)) and o.visible_get()
+                ok = (not getattr(o, "hide_select", False)) and o.visible_get(
+                    view_layer=vl
+                )
             except RuntimeError:  # not in the active view layer
                 ok = False
             (exportable if ok else dropped).append(o)

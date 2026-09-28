@@ -34,6 +34,9 @@ class _TaskDefinitionsMixin:
         k: v for k, v in ptk.insert_into_dict(_LINEAR_UNIT_VALUES, "OFF", None).items()
     }
     _texture_output_options: Dict[str, Any] = ptk.ExportProfile.TEXTURE_OUTPUT_OPTIONS
+    _animation_output_options: Dict[str, Any] = (
+        ptk.ExportProfile.ANIMATION_OUTPUT_OPTIONS
+    )
     _optimize_textures_options: Dict[str, Any] = (
         ptk.ExportProfile.optimize_textures_options()
     )
@@ -493,6 +496,39 @@ class _TaskDefinitionsMixin:
                     ptk.ExportProfile.baked_reflections_default()
                 ),
             },
+            # -- Animation group: the Animation Output gate FIRST, then the
+            # rows it governs, the same way the Textures group reads. Mirrors
+            # mayatk.
+            "animation_write_back": {
+                "widget_type": "ComboBox",
+                "group": "Animation",
+                "set_row_label": "Animation Output",
+                "setToolTip": TooltipFormat.fmt(
+                    title="Animation Output",
+                    body="Whether the key-editing rows below — <b>Smart Bake</b>, "
+                    "<b>Optimize Keys</b>, <b>Tie All Keyframes</b> and "
+                    "<b>Snap Keys To Frame</b> — change the scene's animation, "
+                    "or leave the scene as it was.",
+                    bullets=[
+                        "<b>Export Copies (Scene Untouched)</b> — "
+                        "non-destructive: each exported object's Action is "
+                        "copied first, the edits are made on the copy and "
+                        "written into the deliverable, and the object gets its "
+                        "own Action back afterwards.",
+                        "<b>Scene Keys (In Place)</b> — permanent: the "
+                        "optimized, snapped, tied and baked curves stay in the "
+                        "scene. Not reverted after export.",
+                    ],
+                    notes=[
+                        "Inert unless one of those four rows is on.",
+                        "Hands back the Action itself, so NLA strips, shared "
+                        "slots, drivers and constraints are untouched.",
+                        "An object in NLA tweak mode keeps the edits either "
+                        "way: its Action cannot be swapped.",
+                    ],
+                ),
+                "add": self._animation_output_options,
+            },
             "smart_bake": {
                 "widget_type": "QCheckBox",
                 "group": "Animation",
@@ -506,8 +542,9 @@ class _TaskDefinitionsMixin:
                     notes=[
                         "The time range is detected from the driving animation itself.",
                         "Bakes into a fresh Action while muting the identified "
-                        "sources; the pre-bake state is restorable afterward via "
-                        "SmartBake.restore.",
+                        "sources; whether the scene keeps the bake is "
+                        "<b>Animation Output</b>'s call, and by default the "
+                        "pre-bake state is restored after the write.",
                     ],
                 ),
                 "setChecked": True,
@@ -545,7 +582,8 @@ class _TaskDefinitionsMixin:
                     ],
                     notes=[
                         "Boundary keys are always kept.",
-                        "Permanent scene change — not reverted after export.",
+                        "Whether the scene keeps this is <b>Animation Output</b>'s "
+                        "call; by default the curves are restored after the write.",
                     ],
                 ),
                 "add": self._optimize_keys_options,
@@ -599,7 +637,8 @@ class _TaskDefinitionsMixin:
                     "both range boundaries.",
                     notes=[
                         "Fixes what <b>Check For Untied Keyframes</b> reports.",
-                        "Permanent scene change — not reverted after export.",
+                        "Whether the scene keeps this is <b>Animation Output</b>'s "
+                        "call; by default the curves are restored after the write.",
                     ],
                 ),
                 "setChecked": True,
@@ -616,7 +655,8 @@ class _TaskDefinitionsMixin:
                         "Fixes what <b>Check For Floating Point Keys</b> reports — "
                         "fractional key times left behind by retiming, scaling, or "
                         "an import at a different rate.",
-                        "Permanent scene change — not reverted after export.",
+                        "Whether the scene keeps this is <b>Animation Output</b>'s "
+                        "call; by default the curves are restored after the write.",
                     ],
                 ),
                 "setChecked": False,

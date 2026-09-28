@@ -439,10 +439,11 @@ class ShadowRig(ptk.LoggingMixin):
         bbox is post-deformation and the silhouette gather already reads evaluated meshes, so a
         modifier (array/mirror/subsurf) must widen the footprint and contact the same way it
         widens the silhouette."""
-        import bpy
         from mathutils import Vector
 
-        deps = bpy.context.evaluated_depsgraph_get()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        deps = CoreUtils._evaluated_depsgraph()  # the window layer's
         objs = []
         for o in self.targets:
             objs.append(o)
@@ -729,9 +730,10 @@ class ShadowRig(ptk.LoggingMixin):
     def _gather_world_meshes(self, recursive):
         """``[(points, tris)]`` world-space arrays for every target mesh (evaluated depsgraph)."""
         import numpy as np
-        import bpy
 
-        deps = bpy.context.evaluated_depsgraph_get()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        deps = CoreUtils._evaluated_depsgraph()  # the window layer's
         objs = []
         for t in self.targets:
             objs.append(t)
@@ -1275,6 +1277,8 @@ class ShadowRig(ptk.LoggingMixin):
         then key the samples — a context-free visual bake (no ``bpy.ops.nla.bake``)."""
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         scene = bpy.context.scene
         start = int(scene.frame_start if start is None else start)
         end = int(scene.frame_end if end is None else end)
@@ -1293,7 +1297,7 @@ class ShadowRig(ptk.LoggingMixin):
         prev_rz = None
         for f in range(start, end + 1):
             scene.frame_set(f)
-            ev = plane.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            ev = plane.evaluated_get(CoreUtils._evaluated_depsgraph())
             rot = list(ev.rotation_euler)
             # Unroll Z: atan2 wraps at ±pi when the light crosses behind the target, and a
             # keyed -179 -> +179 pair would interpolate as a spin.

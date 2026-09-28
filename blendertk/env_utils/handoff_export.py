@@ -194,6 +194,33 @@ class BlenderExportMixin:
 
         return [o for o in closure if o.name != DataNodes.INTERNAL]
 
+    @classmethod
+    def scope_closure(
+        cls, objects, params: Optional[Dict[str, Any]] = None
+    ) -> List[Any]:
+        """What a send of *objects* under *params*' Scope ships: their hierarchy closure.
+
+        The one rule every Blender bridge exports by -- this mixin's own
+        :meth:`_produce`, the texture bridges' produce steps (Marmoset and
+        Substance are not export-mixin bridges) and the panels' scope
+        resolution (``BlenderBridgeSlotsBase.scoped_objects``) alike. A scoped
+        group ships the subtree it names, as Maya's export-selection does,
+        except under Visible Only, which must not re-add a hidden child (see
+        :meth:`_hierarchy_closure`).
+
+        Parameters:
+            objects: Objects or names the scope resolved to.
+            params: The send's parameters; only ``SCOPE`` is read (an absent or
+                unknown one is Selected, per :meth:`pythontk.HandoffScope.word`).
+
+        Returns:
+            The closed object list (*objects* unchanged outside Blender).
+        """
+        scope = ptk.HandoffScope.word((params or {}).get(ptk.HandoffScope.PARAM))
+        return cls._hierarchy_closure(
+            objects, descend=scope != ptk.HandoffScope.VISIBLE
+        )
+
     def _scene_objects(self) -> List[Any]:
         """Every object in the CURRENT scene (the whole-scene hand-off).
 
@@ -227,7 +254,12 @@ class BlenderExportMixin:
         """
         import bpy
 
-        return [o for o in bpy.context.scene.objects if o.visible_get()]
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the layer on screen: the window's (windowless, a bare visible_get reads
+        # the scene's default layer)
+        vl = CoreUtils._active_view_layer()
+        return [o for o in bpy.context.scene.objects if o.visible_get(view_layer=vl)]
 
     def _produce(self, objects, request) -> Payload:
         """Export the hierarchy closure of *objects* to a temp FBX :class:`pythontk.Payload`.
@@ -240,9 +272,7 @@ class BlenderExportMixin:
         was exported -- a group-Empty send must manifest the DESCENDANT
         meshes' materials, not just the selected Empty.
         """
-        objects = self._hierarchy_closure(
-            objects, descend=request.params.get("SCOPE") != "visible"
-        )
+        objects = self.scope_closure(objects, request.params)
         path = self._make_payload_path(self.payload_extension(request))
         self._export_payload(objects, path, request.params)
         return Payload(primary=path, extras={"export_set": objects})

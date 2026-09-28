@@ -515,7 +515,9 @@ class SceneAnalyzer:
 
         tick(1, "Resolving targets...")
         scene = bpy.context.scene
-        depsgraph = bpy.context.evaluated_depsgraph_get()
+        # the window layer's: windowless, the context's never evaluates a collection
+        # excluded from the scene's default layer (its objects read un-modified)
+        depsgraph = _CoreUtilsInternal._evaluated_depsgraph()
         to_cm = scene.unit_settings.scale_length * 100.0
         objects = list(scene.objects) if pool is None else cls._resolve_pool(pool)
         owners = {o.as_pointer() for o in objects}

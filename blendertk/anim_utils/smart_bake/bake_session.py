@@ -77,6 +77,115 @@ class _BakeSessionStoreInternal(object):
     """Internal helpers for BakeSessionStore."""
 
     @staticmethod
+    def _unrecorded_bake(ad, original_action):
+        """The Action a part-way bake left on *ad*, or ``None``.
+
+        For a ``baked_objects`` entry with no ``baked_action`` -- joined before
+        ``nla.bake`` ran, by a bake that then raised. ``nla.bake``'s fresh Action
+        is the object's alone, so an Action that is still the original, or that
+        anything else also uses, is never taken for it.
+        """
+        current = getattr(ad, "action", None) if ad is not None else None
+        if current is None or current == original_action:
+            return None
+        if current.users - int(current.use_fake_user) > 1:
+            return None
+        return current
+
+    @staticmethod
+    def _slot_id(ad) -> Optional[str]:
+        """The identifier of the slot *ad* animates through, or ``None``."""
+        slot = getattr(ad, "action_slot", None) if ad is not None else None
+        return slot.identifier if slot is not None else None
+
+    @staticmethod
+    def _select_slot(ad, action, identifier: Optional[str]) -> None:
+        """Put *ad* back on *action*'s slot named *identifier*.
+
+        Assigning an Action lets Blender pick the slot by the ID's last-used
+        identifier, which anything assigned in between moves: measured, an
+        object that browsed another Action before the restore came back with NO
+        slot and stopped animating. A slot no longer on the Action is left to
+        that pick.
+        """
+        if ad is None or action is None or not identifier:
+            return
+        for slot in getattr(action, "slots", None) or ():
+            if slot.identifier == identifier:
+                if ad.action_slot != slot:
+                    ad.action_slot = slot
+                return
+
+    @staticmethod
+    def _snapshot_key_action(obj, ad) -> Dict[str, Any]:
+        """Record what a shape-key datablock's *ad* holds before a blend-shape bake.
+
+        ``bake_blend_shapes`` keys each driven weight into the Key's Action --
+        creating one when the Key has only drivers -- and the driver rebuilt on
+        restore does not take those keys away. So the Action (or ``None``), its
+        slot, its fcurves and the driven paths are recorded, and
+        :meth:`_restore_key_action` puts exactly that back.
+        """
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        action = getattr(ad, "action", None)
+        slot = getattr(ad, "action_slot", None)
+        return {
+            "object": BakeSessionStore.node_ref(obj),
+            "action": BakeSessionStore.node_ref(action),
+            "slot": _BakeSessionStoreInternal._slot_id(ad),
+            "fcurves": [
+                [fc.data_path, fc.array_index]
+                for fc in (AnimUtils._slot_fcurves(action, slot) if action else [])
+            ],
+            "driven_paths": sorted({fc.data_path for fc in ad.drivers}),
+        }
+
+    @staticmethod
+    def _restore_key_action(entry: dict, warnings: List[str]) -> None:
+        """Put back what :meth:`_snapshot_key_action` recorded on a Key.
+
+        The bake's Action is unassigned (and deleted when nothing else uses it,
+        as the transform restore deletes its baked Action); the original, if
+        any, is reassigned on its slot, and the fcurves the bake added to it for
+        driven weights are removed.
+        """
+        import bpy
+
+        from blendertk.anim_utils._anim_utils import AnimUtils
+
+        object_ref = entry.get("object") or {}
+        obj = BakeSessionStore.resolve_ref(object_ref)
+        if obj is None:
+            warnings.append(f"Blend-shape object '{object_ref.get('name')}' not found.")
+            return
+        shape_keys = getattr(obj.data, "shape_keys", None)
+        ad = getattr(shape_keys, "animation_data", None) if shape_keys else None
+        if ad is None:
+            return  # nothing is animating the Key: nothing of the bake is left
+        original = BakeSessionStore.resolve_ref(entry.get("action"))
+        if entry.get("action") and original is None:
+            warnings.append(
+                f"'{obj.name}' shape keys' original action "
+                f"'{entry['action'].get('name')}' not found."
+            )
+            return
+        current = ad.action
+        if current is not None and current != original:
+            ad.action = original
+            if current.users - int(current.use_fake_user) <= 0:
+                bpy.data.actions.remove(current)
+        if original is None:
+            return
+        _BakeSessionStoreInternal._select_slot(ad, original, entry.get("slot"))
+        before = {(path, index) for path, index in entry.get("fcurves", [])}
+        driven = set(entry.get("driven_paths", []))
+        slot = getattr(ad, "action_slot", None)
+        for fc in list(AnimUtils._slot_fcurves(original, slot)):
+            if fc.data_path in driven and (fc.data_path, fc.array_index) not in before:
+                AnimUtils._remove_fcurve(original, slot, fc)
+
+    @staticmethod
     def _restore_blend_shape_driver(entry: dict, warnings: List[str]) -> Optional[str]:
         """Best-effort rebuild of one :func:`snapshot_blend_shape_driver` record.
 
@@ -469,10 +578,22 @@ class BakeSessionStore(_BakeSessionStoreInternal):
                 )
                 continue
             ad = getattr(obj, "animation_data", None)
-            baked_action = BakeSessionStore.resolve_ref(entry.get("baked_action"))
             original_action = BakeSessionStore.resolve_ref(entry.get("original_action"))
+            if "baked_action" in entry:
+                baked_action = BakeSessionStore.resolve_ref(entry["baked_action"])
+            else:
+                # Recorded before nla.bake ran (bake() joins each object ahead of
+                # its first mutation), so a bake that raised part-way names no
+                # baked action: the one the object holds now is it, unless it is
+                # still the original or something else also uses it.
+                baked_action = _BakeSessionStoreInternal._unrecorded_bake(
+                    ad, original_action
+                )
             if ad is not None:
                 ad.action = original_action
+                _BakeSessionStoreInternal._select_slot(
+                    ad, original_action, entry.get("original_slot")
+                )
                 result.restored_actions.append(obj.name)
             else:
                 # Nothing was reassigned — the object lost its animation_data since
@@ -539,6 +660,12 @@ class BakeSessionStore(_BakeSessionStoreInternal):
             )
             if restored:
                 result.blend_shapes_restored.append(restored)
+
+        # 6. Put back what each shape-key datablock's animation held: the bake keyed
+        # every driven weight into its Action (a new one for a driver-only Key),
+        # and the drivers rebuilt in step 4 do not take those keys away.
+        for entry in session.get("blend_shape_key_actions", []):
+            _BakeSessionStoreInternal._restore_key_action(entry, result.warnings)
 
         result.success = True
         return result

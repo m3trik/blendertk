@@ -49,23 +49,28 @@ class ShotNavMixin:
             import bpy
         except ImportError:
             return
-        for o in list(bpy.context.selected_objects):
-            o.select_set(False)
-        active = None
-        # Selection state is a view-layer concept: ``select_set`` raises on objects
-        # outside the active view layer (excluded collection, another scene — the
-        # ``bpy.data.objects`` lookup is scene-wide), so skip those instead of
-        # letting one abort the loop mid-way.
-        view_layer = bpy.context.view_layer
-        for name in shot.objects:
-            o = bpy.data.objects.get(name)
-            if o is not None and o.name in view_layer.objects:
-                o.select_set(True)
-                active = o
-        try:
-            bpy.context.view_layer.objects.active = active
-        except Exception:
-            pass
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # The window's view layer: windowless, bpy.context.selected_objects is absent
+        # and context.view_layer / select_set address the scene's default layer.
+        with CoreUtils.window_context_override():
+            for o in list(bpy.context.selected_objects):
+                o.select_set(False)
+            active = None
+            # Selection state is a view-layer concept: ``select_set`` raises on objects
+            # outside the active view layer (excluded collection, another scene — the
+            # ``bpy.data.objects`` lookup is scene-wide), so skip those instead of
+            # letting one abort the loop mid-way.
+            view_layer = bpy.context.view_layer
+            for name in shot.objects:
+                o = bpy.data.objects.get(name)
+                if o is not None and o.name in view_layer.objects:
+                    o.select_set(True)
+                    active = o
+            try:
+                bpy.context.view_layer.objects.active = active
+            except Exception:
+                pass
 
     def _apply_view_playback_range(self, shot=None) -> None:
         """Set the scene frame range per the current playback-range mode.

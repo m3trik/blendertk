@@ -234,9 +234,7 @@ class RenderEffectsSlots(ptk.LoggingMixin):
         """
         objects = CoreUtils.selected_objects()
         if objects and self.ui.header.menu.chk_last_selected.isChecked():
-            import bpy
-
-            active = bpy.context.view_layer.objects.active
+            active = CoreUtils.active_object()
             return [active] if active in objects else objects[-1:]
         return objects
 

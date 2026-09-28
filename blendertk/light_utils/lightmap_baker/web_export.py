@@ -629,6 +629,8 @@ class LightmapWebExport(ptk.LoggingMixin):
         """
         import bpy
 
+        from blendertk.core_utils._core_utils import CoreUtils
+
         path = path if path.lower().endswith(".glb") else path + ".glb"
         os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
 
@@ -637,37 +639,42 @@ class LightmapWebExport(ptk.LoggingMixin):
         if manifest is not None:
             scene[self.EXTRAS_KEY] = json.dumps(manifest)
 
-        use_selection = objects is not None
-        if use_selection:
-            bpy.ops.object.select_all(action="DESELECT")
-            for obj in ptk.make_iterable(objects):
-                obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
-                if obj is not None:
-                    obj.select_set(True)
+        # The window's view layer + context: windowless, select_all / select_set address
+        # the scene's default layer, and the glTF exporter raised outright (measured,
+        # use_selection on 5.1). The selection and active object come back after, as
+        # FbxUtils.export / UsdUtils.export put theirs back.
+        with CoreUtils.window_context_override(), CoreUtils.preserved_selection():
+            use_selection = objects is not None
+            if use_selection:
+                bpy.ops.object.select_all(action="DESELECT")
+                for obj in ptk.make_iterable(objects):
+                    obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+                    if obj is not None:
+                        obj.select_set(True)
 
-        resized = self._downsize_images(texture_max_size)
-        try:
-            bpy.ops.export_scene.gltf(
-                filepath=path,
-                export_format="GLB",
-                use_selection=use_selection,
-                export_extras=True,
-                export_apply=False,
-                export_yup=True,
-                export_image_format=image_format,
-                export_image_quality=image_quality,
-            )
-        finally:
-            for image in resized:
-                try:  # the scale was destructive; disk is the only way back
-                    image.reload()
-                except RuntimeError:
-                    pass
-            if manifest is not None:
-                if prior is None:
-                    del scene[self.EXTRAS_KEY]
-                else:
-                    scene[self.EXTRAS_KEY] = prior
+            resized = self._downsize_images(texture_max_size)
+            try:
+                bpy.ops.export_scene.gltf(
+                    filepath=path,
+                    export_format="GLB",
+                    use_selection=use_selection,
+                    export_extras=True,
+                    export_apply=False,
+                    export_yup=True,
+                    export_image_format=image_format,
+                    export_image_quality=image_quality,
+                )
+            finally:
+                for image in resized:
+                    try:  # the scale was destructive; disk is the only way back
+                        image.reload()
+                    except RuntimeError:
+                        pass
+                if manifest is not None:
+                    if prior is None:
+                        del scene[self.EXTRAS_KEY]
+                    else:
+                        scene[self.EXTRAS_KEY] = prior
         # The markers (and any manifest) ride out as the scene holds them -- the
         # EXR at 1.0 beside its authoring folder -- so the file is told what it
         # ships. A no-op on an unbaked scene.
@@ -762,6 +769,7 @@ class LightmapWebExport(ptk.LoggingMixin):
             if dep.get("path")
         }
         hints = LightmapRecords._folder_hints()
+        libraries: Dict[int, Dict[str, str]] = {}  # a linked library's own record
         for obj in objects or bpy.data.objects:
             obj = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
             if obj is None or LightmapBaker.LIGHTMAP_INFO_PROP not in obj:
@@ -780,7 +788,7 @@ class LightmapWebExport(ptk.LoggingMixin):
             # first; the map's recorded folder through _resolved_dir otherwise.
             path = located.get(str(basename).lower()) or os.path.join(
                 LightmapRecords._resolved_dir(
-                    LightmapRecords._folder_hint(info, hints), basename
+                    LightmapRecords._folder_hint(info, hints, obj, libraries), basename
                 ),
                 basename,
             )

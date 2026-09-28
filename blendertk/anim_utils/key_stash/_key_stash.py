@@ -466,7 +466,7 @@ class KeyStash(_KeyStashCore, _KeyStashInternal):
             objs = (
                 [self._as_object(o) for o in objects]
                 if objects
-                else list(bpy.context.selected_objects)
+                else list(CoreUtils.selected_objects())  # absent windowless
             )
             objs = [o for o in objs if o is not None]
             if not objs:

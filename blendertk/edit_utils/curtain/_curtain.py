@@ -58,7 +58,7 @@ class Rail(ptk.Polyline):
 
         objects = [o for o in ptk.make_iterable(objects) if o]
 
-        active = bpy.context.view_layer.objects.active
+        active = CoreUtils.active_object()
         if active and active.type == "MESH" and active.mode == "EDIT":
             bm = bmesh.from_edit_mesh(active.data)
             verts = {v for e in bm.edges if e.select for v in e.verts}
@@ -85,10 +85,9 @@ class Rail(ptk.Polyline):
         Reads the evaluated tessellation (``closed`` from any spline's cyclic
         flag); an un-tessellatable curve falls back to its control points.
         """
-        import bpy
 
         closed = any(s.use_cyclic_u for s in curve.data.splines)
-        evaluated = curve.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        evaluated = curve.evaluated_get(CoreUtils._evaluated_depsgraph())
         me = evaluated.to_mesh()
         pts = [tuple(curve.matrix_world @ v.co) for v in me.vertices]
         evaluated.to_mesh_clear()

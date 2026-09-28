@@ -8,8 +8,9 @@ of the split, mirroring :mod:`blendertk.mat_utils.marmoset_bridge`:
 * :class:`SubstanceBridge` (this module) -- a
   :class:`._substance_engine.SubstanceEngine` that supplies only the scene I/O the
   engine's produce step is written against: the FBX / USD writers, the selection, the
-  material manifest, the textures assigned to the selection, the :class:`HighPolySet`
-  export and the scene custom-property record of the last export.
+  material manifest, the textures assigned to the selection, the
+  :class:`~blendertk.mat_utils.bake_sets.BakeSourceSet` export and the scene
+  custom-property record of the last export.
 * :mod:`_substance_engine` -- ``SubstanceEngine``, the DCC-free Painter half (template
   parsing, the launch line and RPC ops, Painter launch / attach and the managed-instance
   registry, the RPC plugin install, texture staging). Vendored byte-identical from mayatk.
@@ -27,8 +28,9 @@ import pythontk as ptk
 
 from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.env_utils.fbx_utils import FbxUtils
+from blendertk.env_utils.handoff_export import BlenderExportMixin
 from blendertk.env_utils.usd import UsdUtils
-from blendertk.mat_utils.bake_sets import BakeSet
+from blendertk.mat_utils.bake_sets import BakeSourceSet
 from blendertk.mat_utils.mat_manifest import MatManifest
 
 # The DCC-free engine, plus the names the slots and tests import from this module.
@@ -83,27 +85,17 @@ _DEFAULT_USD_OPTIONS: Dict[str, Any] = dict(
 )
 
 
-# -- High-poly membership --------------------------------------------------
-
-
-class HighPolySet(BakeSet):
-    """The scene's high-poly bake source, stored as a stamped Collection.
-
-    Mirror of mayatk's ``BakeSourceSet`` (its ``HighPolySet`` until mayatk
-    moved it into ``bake_sets``; an ``objectSet`` there). Painter bakes from a
-    *separate* mesh file, so the high-poly geometry is not part of the export
-    scope -- it is its own set, defined once and reused across sends no matter
-    what the Scope combo resolves to. The storage is
-    :class:`~blendertk.mat_utils.bake_sets.BakeSet`'s: a stamped collection
-    that saves with the .blend and never changes what renders. Hidden members
-    ship too: Blender's FBX export drops what it cannot select, so
-    :meth:`SubstanceBridge._export_bake_source` reveals each member for the
-    write alone and puts every flag back.
-    """
-
-    SET_NAME = "substanceBridge_highPoly"
-    #: Custom-property stamp identifying our collection (see :class:`BakeSet`).
-    STAMP = "btk_substance_high_poly"
+# The bake source was this module's ``HighPolySet`` until it became the
+# cross-bridge ``bake_sets.BakeSourceSet`` (mayatk's name). A .blend saved
+# under the old class still resolves -- ``BakeSourceSet.LEGACY_STAMPS`` adopts
+# its collection -- and the Python name is served as a warned alias until
+# ``remove_in`` -- a release after the one this notice first ships in.
+ptk.Deprecation.attributes(
+    globals(),
+    {"HighPolySet": "blendertk.mat_utils.bake_sets.BakeSourceSet"},
+    remove_in="0.15.0",
+    since="2026-09-27",
+)
 
 
 # -- Bridge ----------------------------------------------------------------
@@ -117,7 +109,7 @@ class SubstanceBridge(SubstanceEngine):
     skeleton, template parsing, the launch line and RPC ops, Painter launch / attach
     and the managed-instance registry, texture staging. This class supplies the scene
     I/O the engine calls: the FBX / USD writers, the selection, the material manifest,
-    the textures assigned to the selection, the :class:`HighPolySet` export and the
+    the textures assigned to the selection, the :class:`BakeSourceSet` export and the
     scene custom-property record of the last export.
 
     Two operating modes per template (declared via ``BRIDGE_MODES``):
@@ -143,7 +135,9 @@ class SubstanceBridge(SubstanceEngine):
     DEFAULT_FBX_OPTIONS = _DEFAULT_FBX_OPTIONS
 
     #: Suffix appended to the export stem for the companion high-poly file.
-    HIGH_POLY_SUFFIX = "_high"
+    #: Sourced from the shared set class so every bridge derives the same
+    #: companion filename (see :meth:`BakeSourceSet.companion_path`).
+    HIGH_POLY_SUFFIX = BakeSourceSet.FILE_SUFFIX
 
     # -- Public API -------------------------------------------------------
 
@@ -214,6 +208,23 @@ class SubstanceBridge(SubstanceEngine):
 
     # -- Scene I/O (the engine's DCC hooks) -------------------------------
 
+    def _produce(self, objects, request) -> Optional[ptk.Payload]:
+        """The engine's produce step over the scope's hierarchy closure.
+
+        Blender's FBX writes exactly the objects it is handed, so a send of a
+        selected group shipped the Empty alone -- no mesh for Painter, no
+        material in the manifest (Maya's export-selection writes the subtree,
+        which the vendored engine assumes). Closed here, before the export,
+        the texture staging and the manifest all read the same list, by the
+        rule every Blender bridge exports by
+        (:meth:`BlenderExportMixin.scope_closure`). The engine reads the
+        selection lazily; the closure needs it now.
+        """
+        if objects is None:
+            objects = self._selected_objects()
+        objects = BlenderExportMixin.scope_closure(objects, request.params)
+        return super()._produce(objects, request)
+
     def _export_model_usd(self, path, objects, request, fbx_options) -> None:
         options = dict(_DEFAULT_USD_OPTIONS)
         options.update(request.get("usd_options") or {})
@@ -261,15 +272,24 @@ class SubstanceBridge(SubstanceEngine):
             logger.debug("Could not record export path on the scene: %s", e)
 
     @classmethod
-    def high_poly_path_for(cls, fbx_path: str) -> str:
-        """``.../asset.fbx`` -> ``.../asset_high.fbx``.
+    def source_model_path_for(cls, fbx_path: str) -> str:
+        """``.../asset.fbx`` -> ``.../asset_source.fbx``.
 
         Derived from the main export rather than re-resolved, so a
         ``REUSE_RECORDED_EXPORT`` template's high-poly file lands beside
-        the exact mesh the open Painter project was built from.
+        the exact mesh the open Painter project was built from. Delegates
+        to the shared convention on :class:`BakeSourceSet` (mirror of
+        mayatk's).
         """
-        stem, ext = os.path.splitext(fbx_path)
-        return f"{stem}{cls.HIGH_POLY_SUFFIX}{ext}"
+        return BakeSourceSet.companion_path(fbx_path)
+
+    @classmethod
+    @ptk.Deprecation.symbol(
+        "SubstanceBridge.source_model_path_for", remove_in="0.15.0", since="2026-09-27"
+    )
+    def high_poly_path_for(cls, fbx_path: str) -> str:
+        """Renamed :meth:`source_model_path_for` (mayatk's name)."""
+        return cls.source_model_path_for(fbx_path)
 
     def _export_bake_source(
         self,
@@ -278,7 +298,7 @@ class SubstanceBridge(SubstanceEngine):
         referenced: set,
         request: ptk.HandoffRequest,
     ) -> Optional[str]:
-        """Export :class:`HighPolySet`'s members to ``<stem>_high.fbx``.
+        """Export :class:`BakeSourceSet`'s meshes to ``<stem>_source.fbx``.
 
         Returns the written path, or ``None`` when the template doesn't claim
         the Bake Source row, the file has no set, or the export failed. A
@@ -301,18 +321,28 @@ class SubstanceBridge(SubstanceEngine):
         flag and link back); a high-poly mesh hidden by its own flags or by
         its collection otherwise left the bake source without it. Reading the
         set rather than the selection is also why this can't disturb a
-        "Visible Only" scope.
+        "Visible Only" scope. What ships is the set's MESHES
+        (:meth:`BakeSourceSet.meshes`): the FBX writes exactly the objects it
+        is handed, so a member that groups the source would otherwise send an
+        Empty and none of the geometry under it.
         """
         if "BAKE_SOURCE_SET" not in referenced:
             return None
 
-        members = HighPolySet.members()
-        if not members:
+        if not BakeSourceSet.exists():
             # Not a warning: no bake source is the ordinary case for a plain
             # texturing hand-off, and a file-state note per send would be noise.
             self.logger.debug(
                 "No bake source defined in this file; nothing to export. "
                 "Define one with the panel's 'Set From Selection'."
+            )
+            return None
+        members = BakeSourceSet.meshes()
+        if not members:
+            # A defined set that resolves to no geometry is the artist's
+            # intent going unmet -- say so, rather than ship nothing quietly.
+            self.logger.warning(
+                "The Bake Source set holds no mesh; no bake source was exported."
             )
             return None
 
@@ -321,8 +351,8 @@ class SubstanceBridge(SubstanceEngine):
         options = dict(fbx_options)
         options["embed_textures"] = False
 
-        high_path = self.high_poly_path_for(fbx_path)
-        self.logger.info(f"Exporting bake source ({len(members)} object(s)) ...")
+        high_path = self.source_model_path_for(fbx_path)
+        self.logger.info(f"Exporting bake source ({len(members)} mesh(es)) ...")
         try:
             with CoreUtils.visible_override(members):
                 self._export_model(high_path, members, request, options)

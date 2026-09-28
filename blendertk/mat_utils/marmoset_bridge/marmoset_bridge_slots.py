@@ -71,17 +71,74 @@ class MarmosetBridgeSlots(BlenderBridgeSlotsBase):
                     "<b>send_to</b> — opens Toolbag for interactive work.",
                     "<b>roundtrip</b> — runs Toolbag headless, then "
                     "re-surfaces generated maps as clickable links in the "
-                    "log panel below. The Blender scene is left untouched.",
+                    "log panel below. Only a bake with <b>Assign Material</b> "
+                    "on changes the scene (see below).",
                 ],
             ),
         ],
         "notes": [
+            "For the <b>bake</b> template: select the bake <i>source</i> "
+            "geometry once and use the <b>Bake Source</b> row's <b>Set From "
+            "Selection</b> (the set saves with the .blend and is shared "
+            "with the Substance bridge). Then select the bake <i>target</i> "
+            "meshes and Send -- the source rides along automatically, hidden "
+            "or not, and pairs explicitly, no name suffixes required. The "
+            "Suffix rows grey out while the set exists; clear it to fall back "
+            "to naming (with <b>Include Children</b> on, one suffixed parent "
+            "tags every mesh under it).",
+            "A <b>bake (roundtrip)</b> with <b>Assign Material</b> on wires "
+            "the baked maps into one material per texture set -- restoring "
+            "the source's packed-map layout -- and puts it in the slots where "
+            "the source material was on the bake-target meshes. Re-baking "
+            "<i>replaces</i> that material and its maps rather than stacking a "
+            "new one beside it.",
             "Add custom templates by dropping new files into the "
             "templates folder (use <code>__KEY__</code> tokens from "
             "<i>parameters.py</i> for tunable values), then click "
             "<b>Refresh Templates</b> in the header menu.",
         ],
     }
+
+    # ------------------------------------------------------------------
+    # Bake Source set (the actions live on the shared base; this bridge adds
+    # what the set means for ITS send -- mirror of mayatk's slots)
+    # ------------------------------------------------------------------
+
+    BAKE_SOURCE_DEFINED_NOTE = (
+        "Bake sends now export it as the bake source "
+        "(the Source/Target Suffix fallback is inactive while it exists)."
+    )
+    BAKE_SOURCE_CLEARED_NOTE = (
+        "Pairing falls back to the Source/Target Suffix convention."
+    )
+
+    #: Rows that only apply when the file has NO Bake Source set -- the
+    #: name-suffix pairing fallback. An explicit set classifies both sides
+    #: outright, so these are greyed while one exists rather than sitting
+    #: there implying they still steer the bake.
+    SUFFIX_FALLBACK_KEYS = ("HIGH_SUFFIX", "LOW_SUFFIX", "SUFFIX_INCLUDE_CHILDREN")
+
+    _SUFFIX_DISABLED_REASON = (
+        "Inactive: this file has a Bake Source set, which pairs the two "
+        "sides explicitly.\nThe name-suffix fallback applies only without "
+        "one -- use the Bake Source row's Clear to fall back to it."
+    )
+
+    def _refresh_param_enablement(self) -> None:
+        """Grey the suffix-fallback rows while a Bake Source set exists.
+
+        The registry's own supersessions (Auto Maps / Auto cage) are applied by
+        the base; this adds the one that keys off LIVE file state.
+        """
+        super()._refresh_param_enablement()
+        try:
+            has_set = self._bake_source_set().exists()
+        except ImportError:  # no bpy: the panel is being built outside Blender
+            has_set = False
+        for key in self.SUFFIX_FALLBACK_KEYS:
+            self.set_param_enabled(
+                key, not has_set, self._SUFFIX_DISABLED_REASON if has_set else ""
+            )
 
     # ------------------------------------------------------------------
     # Required base-class hooks

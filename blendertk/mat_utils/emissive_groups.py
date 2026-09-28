@@ -345,8 +345,10 @@ class EmissiveGroups(_EmissiveGroupsInternal, ptk.LoggingMixin, ptk.HelpMixin):
             raise ValueError(f"Group {name!r} has no members.")
         # View layer, not bpy.context.scene / view_layer — see _mesh_objects.
         vl = CoreUtils._active_view_layer()
-        for obj in vl.objects if vl else []:
-            obj.select_set(obj.name in members)
+        for obj in list(vl.objects) if vl else []:
+            # on vl: a bare select_set addresses the CONTEXT's layer, which
+            # windowless is the scene's default, not the window's vl is
+            obj.select_set(obj.name in members, view_layer=vl)
         for obj_name, indices in members.items():
             obj = bpy.data.objects[obj_name]
             wanted = set(indices)

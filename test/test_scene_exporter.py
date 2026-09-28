@@ -646,10 +646,236 @@ try:
         f"{_sg_data!r}",
     )
 
-    # A run that stops before its write names what its tasks KEPT, and only that.
-    # Blender's key tasks keep their edits (no Animation Output gate yet), so a run
-    # blocked after a snap names them -- and not the material cleanup and texture
-    # rewrites a fixed list claimed. Added: 2026-09-15
+    # ---- Animation Output: the key tasks edit a COPY for the write -----------------------
+    # Mirror of mayatk's gate. Before it (measured 2026-09-27), an export with
+    # optimize / snap / tie on left the scene's curves edited for good: 4 curves
+    # and 10 keys came back as 3 and 9 -- the 1.5 key snapped to 2, bookends
+    # tied in, the flat run thinned, the static rot.z curve deleted -- and tie
+    # and optimize are on by default. Export Copies (the default) now swaps a
+    # copy of each action in for the write and hands the original back.
+    # Added: 2026-09-27
+    from blendertk.env_utils.fbx_utils import FbxUtils as _ao_fbx
+    from blendertk.anim_utils._anim_utils import AnimUtils as _ao_anim
+
+    _AO_TASKS = {
+        "optimize_keys": "flat",
+        "snap_keys_to_frame": True,
+        "tie_all_keyframes": True,
+    }
+
+    def _ao_cube(name):
+        bpy.ops.mesh.primitive_cube_add()
+        c = bpy.context.active_object
+        c.name = name
+        c.location = (0.0, 0.0, 0.0)
+        c.keyframe_insert("location", index=0, frame=1.5)  # snap: 1.5 -> 2
+        c.location = (2.0, 0.0, 0.0)
+        c.keyframe_insert("location", index=0, frame=10)
+        c.location = (0.0, 0.0, 0.0)
+        c.keyframe_insert("location", index=1, frame=1)  # ends at 5: untied
+        c.location = (0.0, 1.0, 0.0)
+        c.keyframe_insert("location", index=1, frame=5)
+        for _f, _v in ((1, 0.0), (4, 0.0), (7, 0.0), (10, 3.0)):  # flat run: 4 goes
+            c.location = (0.0, 0.0, _v)
+            c.keyframe_insert("location", index=2, frame=_f)
+        for _f in (1, 10):  # static: the whole curve goes
+            c.rotation_euler = (0.0, 0.0, 0.5)
+            c.keyframe_insert("rotation_euler", index=2, frame=_f)
+        return c
+
+    def _ao_keys(obj):
+        """Every key of every curve -- time, value, both handles, interpolation."""
+        return {
+            f"{fc.data_path}[{fc.array_index}]": [
+                (
+                    round(k.co.x, 5),
+                    round(k.co.y, 5),
+                    round(k.handle_left.x, 5),
+                    round(k.handle_left.y, 5),
+                    round(k.handle_right.x, 5),
+                    round(k.handle_right.y, 5),
+                    k.interpolation,
+                )
+                for k in fc.keyframe_points
+            ]
+            for fc in _ao_anim.get_fcurves([obj])
+        }
+
+    def _ao_times(obj):
+        return {p: [k[0] for k in keys] for p, keys in _ao_keys(obj).items()}
+
+    def _ao_ids(obj):
+        """The action and each fcurve by pointer: what 'handed back' has to keep."""
+        return (
+            obj.animation_data.action.as_pointer(),
+            sorted(fc.as_pointer() for fc in _ao_anim.get_fcurves([obj])),
+        )
+
+    def _ao_export(label, objects, **extra):
+        exp = SceneExporter()
+        exp.confirm = lambda question: False
+        return exp.perform_export(
+            export_dir=out_dir,
+            objects=objects,
+            output_name=label,
+            export_visible=True,
+            tasks=dict(_AO_TASKS, **extra),
+        )
+
+    _AO_EDITED = {
+        "location[0]": [1.0, 2.0, 10.0],
+        "location[1]": [1.0, 5.0, 10.0],
+        "location[2]": [1.0, 7.0, 10.0],
+    }
+
+    # (a) Export Copies is the default: every key is handed back, by identity.
+    reset_scene()
+    _ao_c = _ao_cube("GateDefaultCube")
+    _ao_before, _ao_ids0 = _ao_keys(_ao_c), _ao_ids(_ao_c)
+    _ao_times0 = _ao_times(_ao_c)
+    _ao_actions0 = sorted(a.name for a in bpy.data.actions)
+    _ao_ok = _ao_export("gate_default", [_ao_c])
+    check(
+        "Animation Output default: an export hands the scene's keys back",
+        _ao_ok is True and _ao_keys(_ao_c) == _ao_before,
+        f"ok={_ao_ok} before={_ao_times0} after={_ao_times(_ao_c)}",
+    )
+    check(
+        "...the same action and fcurves, and no copy left behind",
+        _ao_ids(_ao_c) == _ao_ids0
+        and sorted(a.name for a in bpy.data.actions) == _ao_actions0,
+        f"actions={sorted(a.name for a in bpy.data.actions)}",
+    )
+
+    # (b) Non-destructive is not inert: the WRITE sees the edited curves.
+    reset_scene()
+    _ao_c = _ao_cube("GateWriteCube")
+    _ao_at_write = {}
+    _ao_orig_write = _ao_fbx.export_selection_fbx
+
+    def _ao_spy(*args, **kwargs):
+        _ao_at_write.update(_ao_times(_ao_c))
+        return _ao_orig_write(*args, **kwargs)
+
+    _ao_fbx.export_selection_fbx = _ao_spy
+    try:
+        _ao_ok = _ao_export("gate_write", [_ao_c])
+    finally:
+        _ao_fbx.export_selection_fbx = _ao_orig_write
+    check(
+        "...while the write gets the snapped, tied and optimized curves",
+        _ao_ok is True and _ao_at_write == _AO_EDITED,
+        f"at_write={_ao_at_write}",
+    )
+    check(
+        "...and the scene gets its own back after it",
+        _ao_times(_ao_c).get("location[0]") == [1.5, 10.0]
+        and "rotation_euler[2]" in _ao_times(_ao_c),
+        f"{_ao_times(_ao_c)}",
+    )
+
+    # (c) Scene Keys (In Place) is the other half: the edits stay.
+    reset_scene()
+    _ao_c = _ao_cube("GateInPlaceCube")
+    _ao_ok = _ao_export("gate_in_place", [_ao_c], animation_write_back=True)
+    check(
+        "Animation Output in place: the scene keeps the key edits",
+        _ao_ok is True and _ao_times(_ao_c) == _AO_EDITED,
+        f"{_ao_times(_ao_c)}",
+    )
+
+    # (d) The gate is a deferred restore: a manager driven directly hands the
+    # keys back from run_deferred_restores, and only there.
+    reset_scene()
+    _ao_c = _ao_cube("GateManagerCube")
+    _ao_tm = SceneExporter().task_manager
+    _ao_tm.objects = [_ao_c]
+    _ao_tm.run_tasks({"snap_keys_to_frame": True})
+    _ao_mid = _ao_times(_ao_c).get("location[0]")
+    _ao_tm.run_deferred_restores()
+    check(
+        "snap edits the keys for the write; run_deferred_restores hands them back",
+        _ao_mid == [2.0, 10.0] and _ao_times(_ao_c).get("location[0]") == [1.5, 10.0],
+        f"mid={_ao_mid} after={_ao_times(_ao_c).get('location[0]')}",
+    )
+
+    # (d2) An export object deleted before the restore costs only itself: the
+    # restore still runs to the end and drops the copy it held.
+    reset_scene()
+    _ao_c = _ao_cube("GateDeletedCube")
+    _ao_keep = _ao_cube("GateKeptCube")
+    _ao_actions0 = sorted(a.name for a in bpy.data.actions)
+    _ao_tm = SceneExporter().task_manager
+    _ao_tm.objects = [_ao_c, _ao_keep]
+    _ao_tm.run_tasks({"snap_keys_to_frame": True})
+    _ao_warned = []
+    _ao_tm.logger.warning = lambda message, *a, **k: _ao_warned.append(message)
+    bpy.data.objects.remove(_ao_c, do_unlink=True)
+    try:
+        _ao_tm.run_deferred_restores()
+    finally:
+        del _ao_tm.logger.warning
+    _ao_actions1 = sorted(
+        a.name for a in bpy.data.actions if a.name != "GateDeletedCubeAction"
+    )
+    check(
+        "a deleted export object: the rest are handed back and no copy is left",
+        not _ao_warned
+        and _ao_times(_ao_keep).get("location[0]") == [1.5, 10.0]
+        and _ao_actions1 == [n for n in _ao_actions0 if n != "GateDeletedCubeAction"],
+        f"warned={_ao_warned} kept={_ao_times(_ao_keep).get('location[0]')} "
+        f"actions={sorted(a.name for a in bpy.data.actions)}",
+    )
+
+    # (e) One action on two objects through ONE slot, plus a constrained object
+    # Smart Bake swaps onto a fresh action: the restores unwind LIFO -- the
+    # bake's session first, then the copies -- and every object is back on its
+    # original action and slot, with no copy left.
+    reset_scene()
+    _ao_c = _ao_cube("GateSharedCube")
+    bpy.ops.mesh.primitive_cube_add()
+    _ao_twin = bpy.context.active_object
+    _ao_twin.name = "GateSharedTwin"
+    _ao_twin.animation_data_create()
+    _ao_twin.animation_data.action = _ao_c.animation_data.action
+    _ao_twin.animation_data.action_slot = _ao_c.animation_data.action_slot
+    bpy.ops.object.empty_add()
+    _ao_follow = bpy.context.active_object
+    _ao_follow.name = "GateFollower"
+    _ao_con = _ao_follow.constraints.new("COPY_LOCATION")
+    _ao_con.target = _ao_c
+    _ao_follow.rotation_euler = (0.0, 0.0, 0.0)
+    _ao_follow.keyframe_insert("rotation_euler", index=0, frame=1.5)
+    _ao_follow.rotation_euler = (1.0, 0.0, 0.0)
+    _ao_follow.keyframe_insert("rotation_euler", index=0, frame=10)
+    _ao_before = (_ao_keys(_ao_c), _ao_keys(_ao_follow))
+    _ao_action, _ao_slot = _ao_c.animation_data.action, _ao_c.animation_data.action_slot
+    _ao_follow_action = _ao_follow.animation_data.action
+    _ao_actions0 = sorted(a.name for a in bpy.data.actions)
+    _ao_ok = _ao_export("gate_shared", [_ao_c, _ao_twin, _ao_follow], smart_bake=True)
+    check(
+        "a shared slot and a Smart Bake unwind together: every key handed back",
+        _ao_ok is True
+        and (_ao_keys(_ao_c), _ao_keys(_ao_follow)) == _ao_before
+        and not _ao_con.mute,
+        f"ok={_ao_ok} cube={_ao_times(_ao_c)} follower={_ao_times(_ao_follow)} "
+        f"mute={_ao_con.mute}",
+    )
+    check(
+        "...on the original actions and slot, with no copy left",
+        _ao_twin.animation_data.action == _ao_action
+        and _ao_twin.animation_data.action_slot == _ao_slot
+        and _ao_follow.animation_data.action == _ao_follow_action
+        and sorted(a.name for a in bpy.data.actions) == _ao_actions0,
+        f"twin={_ao_twin.animation_data.action and _ao_twin.animation_data.action.name} "
+        f"actions={sorted(a.name for a in bpy.data.actions)}",
+    )
+
+    # (f) A run that stops before its write names what its tasks KEPT, and only
+    # that: at Export Copies the snap kept nothing (its copy is dropped with the
+    # run), at Scene Keys (In Place) it kept the key edits -- and never the
+    # material cleanup and texture rewrites a fixed list claimed.
+    # Added: 2026-09-15; the default half 2026-09-27.
     import logging as _bk_logging
 
     class _BlockedLog(_bk_logging.Handler):
@@ -660,39 +886,55 @@ try:
         def emit(self, record):
             self.messages.append(record.getMessage())
 
-    reset_scene()
-    bpy.ops.mesh.primitive_cube_add()
-    _bk_cube = bpy.context.active_object
-    _bk_cube.name = "BlockedKeysCube"
-    _bk_cube.location = (0.0, 0.0, 0.0)
-    _bk_cube.keyframe_insert("location", index=0, frame=1.5)  # the snap moves it
-    _bk_cube.keyframe_insert("location", index=1, frame=1)  # ends at 1: untied
-    _bk_cube.location = (2.0, 0.0, 0.0)
-    _bk_cube.keyframe_insert("location", index=0, frame=10)
-    _bk_exp = SceneExporter()
-    _bk_exp.confirm = lambda question: False
-    _bk_log = _BlockedLog()
-    _bk_exp.logger.addHandler(_bk_log)
-    try:
-        _bk_result = _bk_exp.perform_export(
-            export_dir=out_dir,
-            objects=[_bk_cube],
-            output_name="blocked_keys",
-            export_visible=True,
-            tasks={"snap_keys_to_frame": True, "check_untied_keyframes": True},
-        )
-    finally:
-        _bk_exp.logger.removeHandler(_bk_log)
-    _bk_blocked = [m for m in _bk_log.messages if "Export blocked" in m]
+    def _bk_blocked_run(**extra):
+        reset_scene()
+        bpy.ops.mesh.primitive_cube_add()
+        cube = bpy.context.active_object
+        cube.name = "BlockedKeysCube"
+        cube.location = (0.0, 0.0, 0.0)
+        cube.keyframe_insert("location", index=0, frame=1.5)  # the snap moves it
+        cube.keyframe_insert("location", index=1, frame=1)  # ends at 1: untied
+        cube.location = (2.0, 0.0, 0.0)
+        cube.keyframe_insert("location", index=0, frame=10)
+        exp = SceneExporter()
+        exp.confirm = lambda question: False
+        log = _BlockedLog()
+        exp.logger.addHandler(log)
+        try:
+            result = exp.perform_export(
+                export_dir=out_dir,
+                objects=[cube],
+                output_name="blocked_keys",
+                export_visible=True,
+                tasks=dict(
+                    {"snap_keys_to_frame": True, "check_untied_keyframes": True},
+                    **extra,
+                ),
+            )
+        finally:
+            exp.logger.removeHandler(log)
+        blocked = [m for m in log.messages if "Export blocked" in m]
+        return result, blocked, log.messages, _ao_times(cube).get("location[0]")
+
+    _bk_result, _bk_blocked, _bk_all, _bk_x = _bk_blocked_run()
     check(
         "a blocked export returns False and says so once",
         _bk_result is False and len(_bk_blocked) == 1,
-        f"{_bk_result} {_bk_log.messages}",
+        f"{_bk_result} {_bk_all}",
     )
     check(
-        "...naming the key edits the snap kept",
-        bool(_bk_blocked) and "key edits" in _bk_blocked[0],
-        f"{_bk_blocked}",
+        "...and at Export Copies claims no kept edit, handing the keys back",
+        bool(_bk_blocked) and "Kept in" not in _bk_blocked[0] and _bk_x == [1.5, 10.0],
+        f"{_bk_blocked} x={_bk_x}",
+    )
+    _bk_result, _bk_blocked, _bk_all, _bk_x = _bk_blocked_run(animation_write_back=True)
+    check(
+        "...at Scene Keys (In Place) it names the key edits the snap kept",
+        _bk_result is False
+        and bool(_bk_blocked)
+        and "key edits" in _bk_blocked[0]
+        and _bk_x == [2.0, 10.0],
+        f"{_bk_blocked} x={_bk_x}",
     )
     check(
         "...and no material or texture edit that never happened",
@@ -701,6 +943,122 @@ try:
         and "texture" not in _bk_blocked[0],
         f"{_bk_blocked}",
     )
+
+    # (g) A task that RAISES stops the run before its write too (mirror of
+    # mayatk): the staged edits unwind, what the tasks kept is named, and the
+    # error goes on to the caller. It used to leave the run silently -- no
+    # word of the key edits a write-back snap had already kept.
+    # Added: 2026-09-27
+    from blendertk.env_utils.scene_exporter.task_manager import TaskManager as _rt_TM
+
+    def _rt_raising_run(**extra):
+        reset_scene()
+        cube = _ao_cube("RaisingTaskCube")
+        exp = SceneExporter()
+        exp.confirm = lambda question: False
+        log = _BlockedLog()
+        exp.logger.addHandler(log)
+        boom = RuntimeError("tie exploded")
+
+        def _explode(self):
+            raise boom
+
+        real_tie = _rt_TM.__dict__.get("tie_all_keyframes")
+        _rt_TM.tie_all_keyframes = _explode
+        raised = None
+        try:
+            exp.perform_export(
+                export_dir=out_dir,
+                objects=[cube],
+                output_name="raising_task",
+                export_visible=True,
+                tasks=dict(_AO_TASKS, **extra),
+            )
+        except RuntimeError as error:
+            raised = error
+        finally:
+            if real_tie is None:
+                del _rt_TM.tie_all_keyframes
+            else:
+                _rt_TM.tie_all_keyframes = real_tie
+            exp.logger.removeHandler(log)
+        stopped = [m for m in log.messages if "Export stopped by an error" in m]
+        return raised is boom, stopped, _ao_times(cube).get("location[0]")
+
+    _rt_ok, _rt_stopped, _rt_x = _rt_raising_run(animation_write_back=True)
+    check(
+        "a raising task re-raises and names the key edits the run kept",
+        _rt_ok
+        and len(_rt_stopped) == 1
+        and "tie exploded" in _rt_stopped[0]
+        and "key edits" in _rt_stopped[0]
+        and _rt_x == [2.0, 10.0],
+        f"reraised={_rt_ok} {_rt_stopped} x={_rt_x}",
+    )
+    _rt_ok, _rt_stopped, _rt_x = _rt_raising_run()
+    check(
+        "...and at Export Copies it claims nothing kept and hands the keys back",
+        _rt_ok
+        and len(_rt_stopped) == 1
+        and "Kept in" not in _rt_stopped[0]
+        and _rt_x == [1.5, 10.0],
+        f"reraised={_rt_ok} {_rt_stopped} x={_rt_x}",
+    )
+
+    # (h) A Smart Bake that raises inside an export stages nothing: bake()
+    # rolled itself back before the error reached the task, in write-back
+    # mode too (a partial bake is never a kept edit).
+    from blendertk.anim_utils.smart_bake._smart_bake import SmartBake as _rb_SB
+
+    for _rb_extra in ({}, {"animation_write_back": True}):
+        reset_scene()
+        for _rb_sid in list(_rb_SB.list_sessions()):
+            _rb_SB.restore(_rb_sid)
+        _rb_target = bpy.data.objects.new("RbExportTarget", None)
+        bpy.context.collection.objects.link(_rb_target)
+        for _f, _x in ((1, 0.0), (10, 10.0)):
+            _rb_target.location.x = _x
+            _rb_target.keyframe_insert("location", index=0, frame=_f)
+        _rb_cube = _ao_cube("RbExportCube")
+        _rb_con = _rb_cube.constraints.new("COPY_LOCATION")
+        _rb_con.target = _rb_target
+        _rb_action = _rb_cube.animation_data.action
+        _rb_actions0 = sorted(a.name for a in bpy.data.actions)
+        _rb_real = _ao_anim.__dict__["bake_keys"]
+
+        def _rb_bake_then_raise(*args, **kwargs):
+            _rb_real.__func__(*args, **kwargs)
+            raise RuntimeError("nla.bake exploded")
+
+        _ao_anim.bake_keys = staticmethod(_rb_bake_then_raise)
+        _rb_raised = None
+        try:
+            SceneExporter().perform_export(
+                export_dir=out_dir,
+                objects=[_rb_cube, _rb_target],
+                output_name="raising_bake",
+                export_visible=True,
+                tasks=dict({"smart_bake": True}, **_rb_extra),
+            )
+        except RuntimeError as error:
+            _rb_raised = error
+        finally:
+            _ao_anim.bake_keys = _rb_real
+        check(
+            "a Smart Bake raising mid-export re-raises and leaves the scene as found "
+            f"({'in place' if _rb_extra else 'export copies'})",
+            _rb_raised is not None
+            and "nla.bake exploded" in str(_rb_raised)
+            and _rb_cube.animation_data.action == _rb_action
+            and not _rb_con.mute
+            and not _rb_action.use_fake_user
+            and sorted(a.name for a in bpy.data.actions) == _rb_actions0
+            and not list(_rb_SB.list_sessions()),
+            f"raised={_rb_raised!r} action={_rb_cube.animation_data.action.name} "
+            f"mute={_rb_con.mute} fake={_rb_action.use_fake_user} "
+            f"actions={sorted(a.name for a in bpy.data.actions)} "
+            f"sessions={list(_rb_SB.list_sessions())}",
+        )
 
     # ---- keyed-weight curve proxies: staged through the write, gone after --------------------
     # The Blender transport for Emissive Groups' keyable weights: export_data_node

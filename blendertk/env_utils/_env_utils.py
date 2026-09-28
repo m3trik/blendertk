@@ -969,19 +969,42 @@ class EnvUtils(_EnvUtilsInternal):
         return new_path
 
     @staticmethod
-    def delete_scene_file(path):
-        """Delete a .blend (and its ``.blend1`` backup) — mirror of mayatk's ``delete_scene``. True on
-        success."""
+    def delete_scene_file(path, permanent: bool = False):
+        """Move a .blend (and its ``.blend1`` backup) to the trash — mirror of mayatk's
+        ``delete_scene``. True once it is gone.
+
+        To the Recycle Bin / Trash (``ptk.FileUtils.move_to_trash``), where it can be
+        restored; False, the file untouched, when no trash would take it (a network
+        share, a removable drive) -- deleting it for good is the caller's to ask about
+        (``ptk.FileUtils.can_trash`` answers first), then *permanent* does it.
+
+        Parameters:
+            path (str): The .blend to remove.
+            permanent (bool): Delete outright instead: the confirmed choice where
+                there is no trash.
+
+        Returns:
+            bool: True when the file is gone; False when it was missing, could not
+            be removed, or (not *permanent*) no trash took it.
+        """
         if not (path and os.path.isfile(path)):
             return False
+
+        def discard(file_path):
+            if permanent:
+                os.remove(file_path)
+                return True
+            return ptk.FileUtils.move_to_trash(file_path) is not None
+
         try:
-            os.remove(path)
+            if not discard(path):
+                return False
         except OSError:
             return False
         backup = path + "1"
         if os.path.isfile(backup):
             try:
-                os.remove(backup)
+                discard(backup)  # a refused backup stays: never lost unasked
             except OSError:
                 pass
         return True

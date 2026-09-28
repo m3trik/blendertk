@@ -301,7 +301,7 @@ class HierarchySyncController(ptk.LoggingMixin):
     @staticmethod
     def _exclude_layer_collection(collection) -> None:
         """Set the view-layer ``exclude`` flag on *collection* so it disappears from the outliner."""
-        import bpy
+        from blendertk.core_utils._core_utils import CoreUtils
 
         def _find(layer_coll):
             if layer_coll.collection == collection:
@@ -312,7 +312,9 @@ class HierarchySyncController(ptk.LoggingMixin):
                     return found
             return None
 
-        lc = _find(bpy.context.view_layer.layer_collection)
+        # the window's layer -- the one the outliner shows (windowless,
+        # ``context.view_layer`` is the scene's default)
+        lc = _find(CoreUtils._active_view_layer().layer_collection)
         if lc is not None:
             lc.exclude = True
 
@@ -600,12 +602,16 @@ class HierarchySyncController(ptk.LoggingMixin):
 
         local_by_name = {o.name: o for o in bpy.data.objects if o.library is None}
         valid = [local_by_name[n] for n in object_names if n in local_by_name]
-        for o in bpy.context.view_layer.objects:
-            o.select_set(False)
-        for o in valid:
-            o.select_set(True)
-        if valid:
-            bpy.context.view_layer.objects.active = valid[0]
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        # the window's view layer (windowless: the scene's default)
+        with CoreUtils.window_context_override():
+            for o in list(bpy.context.view_layer.objects):
+                o.select_set(False)
+            for o in valid:
+                o.select_set(True)
+            if valid:
+                bpy.context.view_layer.objects.active = valid[0]
         return len(valid)
 
     # ----------------------------- Tree orchestration ----------------------------- #

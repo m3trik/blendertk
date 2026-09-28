@@ -183,6 +183,10 @@ class Selection:
     }
 
     @staticmethod
+    # The whole body in the window's context: the handlers' hide/visibility reads,
+    # the UV-overlap operators and the select_set writes all resolve the context's
+    # view layer, which windowless is the scene's default, not the window's.
+    @CoreUtils.window_context_override()
     def select_by_type(selection_type, objects=None, mode="replace"):
         """Select objects by category or leaf type (mirror of ``mtk.Selection.select_by_type``).
 
@@ -375,41 +379,36 @@ class Selection:
         result = []
         ts = bpy.context.scene.tool_settings
         prev_sync = ts.use_uv_select_sync
-        prev_active = bpy.context.view_layer.objects.active
-        prev_selected = list(CoreUtils.selected_objects())
         ts.use_uv_select_sync = True
         try:
-            for o in candidates:
-                for other in prev_selected:
-                    Selection._safe_select_set(other, False)
-                # A candidate outside the active view layer (e.g. an excluded collection)
-                # can't be made active/edited -- skip it rather than crash the whole sweep.
-                if not Selection._safe_select_set(o, True):
-                    continue
-                bpy.context.view_layer.objects.active = o
-                has_overlap = False
-                try:
-                    bpy.ops.object.mode_set(mode="EDIT")
-                    bpy.ops.mesh.select_all(action="SELECT")
-                    bpy.ops.uv.select_all(action="SELECT")
-                    bpy.ops.uv.select_overlap()
-                    import bmesh
-
-                    bm = bmesh.from_edit_mesh(o.data)
-                    has_overlap = any(f.select for f in bm.faces)
-                except RuntimeError:
+            with CoreUtils.preserved_selection() as prev_selected:
+                for o in candidates:
+                    for other in prev_selected:
+                        Selection._safe_select_set(other, False)
+                    # A candidate outside the active view layer (e.g. an excluded collection)
+                    # can't be made active/edited -- skip it rather than crash the whole sweep.
+                    if not Selection._safe_select_set(o, True):
+                        continue
+                    bpy.context.view_layer.objects.active = o
                     has_overlap = False
-                finally:
-                    bpy.ops.object.mode_set(mode="OBJECT")
-                    Selection._safe_select_set(o, False)
-                if has_overlap == want_overlap:
-                    result.append(o)
+                    try:
+                        bpy.ops.object.mode_set(mode="EDIT")
+                        bpy.ops.mesh.select_all(action="SELECT")
+                        bpy.ops.uv.select_all(action="SELECT")
+                        bpy.ops.uv.select_overlap()
+                        import bmesh
+
+                        bm = bmesh.from_edit_mesh(o.data)
+                        has_overlap = any(f.select for f in bm.faces)
+                    except RuntimeError:
+                        has_overlap = False
+                    finally:
+                        bpy.ops.object.mode_set(mode="OBJECT")
+                        Selection._safe_select_set(o, False)
+                    if has_overlap == want_overlap:
+                        result.append(o)
         finally:
             ts.use_uv_select_sync = prev_sync
-            for o in prev_selected:
-                Selection._safe_select_set(o, True)
-            if prev_active:
-                bpy.context.view_layer.objects.active = prev_active
         return result
 
     @staticmethod
@@ -849,10 +848,15 @@ class SelectionOrder:
     def _on_depsgraph(cls, scene, depsgraph=None):
         import bpy
 
-        view_layer = bpy.context.view_layer
-        if view_layer is None:  # render/undefined handler context — nothing to diff
+        # a render/undefined handler context -- nothing to diff
+        if bpy.context.view_layer is None:
             return
-        selected = [o.name for o in view_layer.objects if o.select_get()]
+        # The window's layer, as ``selected_objects`` reads it: a depsgraph handler runs
+        # windowless, where ``context.view_layer`` is the scene's default layer.
+        view_layer = CoreUtils._active_view_layer()
+        selected = [
+            o.name for o in view_layer.objects if o.select_get(view_layer=view_layer)
+        ]
         selected_set = set(selected)
         order = [n for n in cls._order if n in selected_set]
         known = set(order)

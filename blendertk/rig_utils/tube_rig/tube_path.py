@@ -53,9 +53,10 @@ class TubePath:
     def _world_vertices(mesh):
         """World-space vertex positions of *mesh* (read from the evaluated mesh so modifiers /
         shape keys are included — the deformed tube, like Maya reads the live shape)."""
-        import bpy
 
-        depsgraph = bpy.context.evaluated_depsgraph_get()
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        depsgraph = CoreUtils._evaluated_depsgraph()  # the window layer's
         evaluated = mesh.evaluated_get(depsgraph)
         me = evaluated.to_mesh()
         try:

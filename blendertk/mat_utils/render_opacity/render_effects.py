@@ -66,9 +66,10 @@ class RenderEffects(ptk.LoggingMixin):
         import bpy
 
         if objects is None:
-            return [
-                o for o in (getattr(bpy.context, "selected_objects", None) or []) if o
-            ]
+            from blendertk.core_utils._core_utils import CoreUtils
+
+            # not bpy.context.selected_objects: absent windowless (the Qt pump)
+            return list(CoreUtils.selected_objects())
         out = []
         for o in objects:
             obj = bpy.data.objects.get(o) if isinstance(o, str) else o

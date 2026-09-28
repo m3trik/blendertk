@@ -358,6 +358,13 @@ def export_usd(cmds, frame_range=None):
     the FBX template's per-flag MEL tolerance. ``defaultMeshScheme='none'`` is
     load-bearing: the exporter defaults to catmullClark, which Blender would
     then subdivide-smooth meshes Maya displayed as plain polys.
+
+    mayatk's ``UsdUtils.export`` writes it when mayatk is importable (the bridge
+    puts it on ``PYTHONPATH``, as for the skin pre-pass): the same layer one pass
+    writes, without paying at every sampled frame for the prims that never move
+    -- the blendshape and visibility checks, and with ``prune_static`` (this scene
+    is a throwaway copy) the static subtrees' writers themselves. Its docstrings
+    hold the measurements. Without mayatk the one plain pass runs.
     """
     # These flags ARE ``UsdUtils.INTERCHANGE_EXPORT_OPTIONS`` -- the shared hand-off
     # set mayatk adopted FROM this route, reason by measured reason. Drift-guarded
@@ -414,6 +421,25 @@ def export_usd(cmds, frame_range=None):
         print("USD export: sampling frames {}-{}".format(*frame_range))
     else:
         print("USD export: no animation to sample -- static export (no frameRange)")
+    try:
+        import logging
+
+        from mayatk.env_utils.usd import UsdUtils
+    except Exception as error:  # noqa: BLE001 -- degrade to the plain pass
+        print("USD export: mayatk unavailable ({}); one plain pass.".format(error))
+    else:
+        log = logging.getLogger("mayatk.env_utils.usd")  # its split/fallback lines
+        log.setLevel(logging.INFO)
+        if not log.handlers:
+            log.addHandler(logging.StreamHandler(sys.stdout))
+        UsdUtils.export(
+            OUT_USD,
+            options={k: v for k, v in kwargs.items() if k != "file"},
+            selection_only=False,
+            material_names="shading_group",
+            prune_static=True,
+        )
+        return
     while True:
         try:
             cmds.mayaUSDExport(**kwargs)

@@ -126,12 +126,62 @@ try:
     )
 
     # ---- MEL command builder (Qt-free) --------------------------------------
-    mel = MayaBridge._build_mel_command(r"C:\tmp\btk_to_maya.py")
+    # maya.exe decodes its command line in the ANSI code page (measured on Maya 2025:
+    # "Жук" arrived as "???"), and the script sits under %TEMP%, which holds the
+    # user's name -- so the MEL names no path: it reads the script from the env var
+    # the deliverer always sets. And Maya's open() decodes with the locale (cp1252),
+    # which turned a UTF-8 payload path INSIDE the script into another path.
+    import json
+    import subprocess
+    import glob
+    import pythontk as ptk
+
+    mel = MayaBridge._build_mel_command()
     check(
-        "mel command wraps python(exec(open(...)))",
-        mel == "python(\"exec(open(r'C:/tmp/btk_to_maya.py').read())\")",
+        "mel command names no path and is plain ASCII MEL",
+        mel.startswith('python("')
+        and mel.endswith('")')
+        and mel.isascii()
+        and ptk.AppLauncher.PYTHON_ARGV_VAR in mel
+        and '"' not in mel[len('python("') : -len('")')]
+        and "\\" not in mel,
         mel,
     )
+    mel_dir = os.path.join(
+        HERE, "temp_tests", f"mel Jos\u00e9 \u0416\u0443\u043a {os.getpid()}"
+    )
+    os.makedirs(mel_dir, exist_ok=True)
+    mel_script = os.path.join(mel_dir, "btk_to_maya.py")
+    mel_out = os.path.join(mel_dir, "out.json")
+    with open(mel_script, "w", encoding="utf-8") as fh:
+        fh.write(
+            "import json\n"
+            "WORD = 'Jos\u00e9 \u0416\u0443\u043a'\n"
+            "def _word():\n"
+            "    return WORD\n"
+            f"json.dump([_word(), __name__], open({mel_out!r}, 'w', encoding='utf-8'))\n"
+        )
+    mayapys = sorted(glob.glob(r"C:\Program Files\Autodesk\Maya20*\bin\mayapy.exe"))
+    if mayapys:
+        # Maya's python() runs code in __main__; ``mayapy -c`` is that same frame.
+        _, mel_env = ptk.AppLauncher.python_args_via_env([mel_script])
+        mel_run = subprocess.run(
+            [mayapys[-1], "-c", mel[len('python("') : -len('")')]],
+            env=mel_env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        mel_seen = None
+        if os.path.isfile(mel_out):
+            with open(mel_out, encoding="utf-8") as fh:
+                mel_seen = json.load(fh)
+        check(
+            "mel body runs a non-ASCII script, decoded as UTF-8, in __main__ (mayapy)",
+            mel_seen == ["Jos\u00e9 \u0416\u0443\u043a", "__main__"],
+            ascii((mel_seen, mel_run.returncode, mel_run.stderr[-400:])),
+        )
+    shutil.rmtree(mel_dir, ignore_errors=True)
 
     # ---- save_as: the blocking route to a native .ma (Qt-FREE by design) -----
     # This is the whole point of the mode: a headless Blender must be able to write a
@@ -254,7 +304,7 @@ try:
                 "app": app_exe,
                 "script": script_text,
                 "artifact": artifact,
-                "args": list(launch_args("S.py")),
+                "args": list(launch_args("S.py")) if launch_args else None,
                 "env": env,
             }
         )
@@ -287,9 +337,11 @@ try:
         sa_result = sa_bridge.save_as(sa_out)
         check("save_as returns the written artifact", bool(sa_result), f"{sa_result}")
         # NOTE: never echo the run record itself -- it carries the child env.
+        # No launch_args: the runner's interpreter default, which carries the script
+        # path in the env -- mayapy decodes its command line in the ANSI code page.
         check(
-            "save_as ran ONE headless mayapy, interpreter-style argv",
-            len(sa_runs) == 1 and sa_runs[0]["args"] == ["S.py"],
+            "save_as ran ONE headless mayapy, interpreter default (path off argv)",
+            len(sa_runs) == 1 and sa_runs[0]["args"] is None,
             f"{len(sa_runs)} run(s), argv={sa_runs[0]['args'] if sa_runs else None}",
         )
         check(
@@ -691,6 +743,49 @@ try:
         f"{manifest['scene_materials']}",
     )
     os.remove(manifest_path)
+
+    # Maya opens files through the SYSTEM ANSI code page: an image in a project
+    # folder it cannot hold (Cyrillic on cp1252) came back from the send as a file
+    # node reading "proj ???/..." with outSize 0 (measured, real mayapy). The
+    # manifest hands Maya its 8.3 form; names the code page holds are kept.
+    if os.name == "nt":
+        cyr_root = os.path.join(HERE, "temp_tests", f"mbtex {os.getpid()}")
+        cyr_dir = os.path.join(cyr_root, "proj \u0416\u0443\u043a")
+        os.makedirs(cyr_dir, exist_ok=True)
+        if (ptk.AppLauncher._short_name(cyr_dir) or "").isascii():
+            cyr_tex = os.path.join(cyr_dir, "crate_BaseColor.png")
+            shutil.copyfile(tex_path, cyr_tex)
+            cyr_mat = bpy.data.materials.new("MB_cyrillic")
+            cyr_mat.use_nodes = True
+            cyr_bsdf = next(
+                n for n in cyr_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED"
+            )
+            cyr_node = cyr_mat.node_tree.nodes.new("ShaderNodeTexImage")
+            cyr_node.image = bpy.data.images.load(cyr_tex)
+            cyr_mat.node_tree.links.new(
+                cyr_node.outputs["Color"], cyr_bsdf.inputs["Base Color"]
+            )
+            bpy.ops.mesh.primitive_cube_add()
+            cube_c = bpy.context.active_object
+            cube_c.data.materials.append(cyr_mat)
+            MayaBridge(maya_path="C:/fake/maya.exe")._write_manifest(
+                [cube_c], manifest_fbx
+            )
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                cyr_entry = json.load(fh)["materials"][0]
+            cyr_paths = list(cyr_entry["files"]) + list(cyr_entry["slots"].values())
+            check(
+                "manifest: texture paths reach Maya in a form it can open",
+                len(cyr_paths) == 2
+                and all(p.isascii() and os.path.samefile(p, cyr_tex) for p in cyr_paths)
+                and all(
+                    os.path.basename(p) == "crate_BaseColor.png" for p in cyr_paths
+                ),
+                ascii(cyr_paths),
+            )
+            os.remove(manifest_path)
+            bpy.data.objects.remove(cube_c)
+        shutil.rmtree(cyr_root, ignore_errors=True)
 
     # ---- shots sidecar (the send half of the shot transfer) -------------------
     from blendertk.anim_utils.shots._shots import BlenderShotStore

@@ -846,6 +846,98 @@ try:
         f"moved {_delta(_vkid.matrix_world, _vw):.4f}",
     )
 
+    # ---- remove_locator dissolves locator RIGS only (backlog 2026-09-27) ----------------
+    # Blender has no locator shape, so "an Empty" read as "a locator": measured before the
+    # fix, selecting a user's own group dissolved it AND deleted its childless parent Empty,
+    # and selecting a rig's group alone left the rig half-built.
+    def _tree():
+        return {o.name: getattr(o.parent, "name", None) for o in bpy.data.objects}
+
+    # E: a user's own group, under a user's own Empty -- not a rig, so nothing happens.
+    reset()
+    _props_e = _empty("Props", Matrix.Translation((10, 0, 0)))
+    _table = _empty("Table_group", parent=_props_e)
+    for _n in ("Leg1", "Leg2"):
+        cube(_n).parent = _table
+    bpy.context.view_layer.update()
+    _before = _tree()
+    check(
+        "remove_locator: a user's own group Empty is not a locator rig -- nothing removed",
+        RigUtils.remove_locator([_table]) == [] and _tree() == _before,
+        f"{_tree()}",
+    )
+
+    # F: only a rig's GROUP selected -- in Blender it draws the same cross as the locator,
+    # so it names the rig: the whole rig dissolves, not the group alone.
+    reset()
+    _crate_f = cube("Crate")
+    bpy.context.view_layer.update()
+    _fw = [list(r) for r in _crate_f.matrix_world]
+    _floc = RigUtils.create_locator_at_object(_crate_f)[0]
+    _floc_name, _fgrp = _floc.name, _floc.parent
+    _fremoved = RigUtils.remove_locator([_fgrp])
+    bpy.context.view_layer.update()
+    check(
+        "remove_locator: a rig's group alone selected dissolves its whole rig",
+        _fremoved == [_floc_name]
+        and set(bpy.data.objects.keys()) == {_crate_f.name}
+        and _crate_f.parent is None
+        and _close(_crate_f.matrix_world, _fw),
+        f"{_fremoved} / {_tree()}",
+    )
+
+    # I: a rig whose group the user took apart -- its locator re-parented under the user's
+    # own Empty. The children stay under that Empty, and the Empty survives: only a rig's
+    # own group is ever skipped over or deleted.
+    reset()
+    _tray = _empty("Tray", Matrix.Translation((0, 3, 0)))
+    _mug = cube("Mug")
+    bpy.context.view_layer.update()
+    _iloc = RigUtils.create_locator_at_object(_mug)[0]
+    bpy.context.view_layer.update()
+    _igrp = _iloc.parent
+    _iw = _iloc.matrix_world.copy()
+    _iloc.parent = _tray
+    _iloc.matrix_world = _iw
+    bpy.data.objects.remove(_igrp, do_unlink=True)
+    bpy.context.view_layer.update()
+    _mw = [list(r) for r in _mug.matrix_world]
+    RigUtils.remove_locator(_iloc)
+    bpy.context.view_layer.update()
+    check(
+        "remove_locator: a locator under a user's Empty hands its child to that Empty, "
+        "which survives",
+        "Tray" in bpy.data.objects
+        and _mug.parent == bpy.data.objects.get("Tray")
+        and _close(_mug.matrix_world, _mw),
+        f"{_tree()}",
+    )
+
+    # G: a rig built before the stamp is still a rig -- recognised by its convention names,
+    # Blender's ".001" clash suffix included; and a fresh rig carries the stamp.
+    reset()
+    _vase = cube("Vase")
+    bpy.context.view_layer.update()
+    _gloc = RigUtils.create_locator_at_object(_vase)[0]
+    _ggrp = _gloc.parent
+    check(
+        "create_locator_at_object: the locator and its group carry the rig stamp",
+        _gloc.get(RigUtils.LOCATOR_RIG_PROP) == "locator"
+        and _ggrp.get(RigUtils.LOCATOR_RIG_PROP) == "group",
+        f"{_gloc.get(RigUtils.LOCATOR_RIG_PROP)!r} / {_ggrp.get(RigUtils.LOCATOR_RIG_PROP)!r}",
+    )
+    for _o in (_gloc, _ggrp):
+        del _o[RigUtils.LOCATOR_RIG_PROP]
+        _o.name = _o.name + ".001"
+    _gloc_name = _gloc.name
+    check(
+        "remove_locator: an unstamped rig with the convention's names still dissolves",
+        RigUtils.remove_locator([_gloc]) == [_gloc_name]
+        and set(bpy.data.objects.keys()) == {_vase.name}
+        and _vase.parent is None,
+        f"{_tree()}",
+    )
+
 except Exception:
     traceback.print_exc()
     lines.append("FAIL unhandled exception")

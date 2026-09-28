@@ -226,8 +226,13 @@ class _TaskChecksMixin(_TaskDataMixin):
     def check_hidden_geometry(self, enabled) -> tuple:
         if not enabled or not self.objects:
             return True, []
+        # the window's layer -- the one the FBX funnel selects in (windowless, a
+        # bare visible_get reads the scene's default layer)
+        vl = CoreUtils._active_view_layer()
         hidden = [
-            o.name for o in self.objects if o.type == "MESH" and not o.visible_get()
+            o.name
+            for o in self.objects
+            if o.type == "MESH" and not o.visible_get(view_layer=vl)
         ]
         if hidden:
             shown = ", ".join(hidden[:10]) + (" …" if len(hidden) > 10 else "")

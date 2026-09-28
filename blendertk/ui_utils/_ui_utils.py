@@ -635,9 +635,12 @@ class UiUtils(_UiUtilsInternal):
             return False
 
         if action in ("select", "reveal"):
-            bpy.ops.object.select_all(action="DESELECT")
-            obj.select_set(True)
-            bpy.context.view_layer.objects.active = obj
+            # the window's view layer: windowless, select_all / select_set / the active
+            # write address the scene's default layer, not the one the window shows
+            with CoreUtils.window_context_override():
+                bpy.ops.object.select_all(action="DESELECT")
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active = obj
             if action == "reveal":
                 import blendertk as btk
 

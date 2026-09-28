@@ -8,6 +8,7 @@ import pythontk as ptk
 
 from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.key_stash._key_stash import KeyStash
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.core_utils.script_job_manager import ScriptJobManager
 
 
@@ -205,11 +206,14 @@ class KeyStashSlots(ptk.LoggingMixin):
         if not present:
             self._footer("None of the clip's objects exist in the file.", "warning")
             return
-        for obj in bpy.context.selected_objects:
-            obj.select_set(False)
-        for obj in present:
-            obj.select_set(True)
-        bpy.context.view_layer.objects.active = present[0]
+        # the window's view layer: windowless, bpy.context.selected_objects is absent
+        # and select_set / the active write address the scene's default layer
+        with CoreUtils.window_context_override():
+            for obj in bpy.context.selected_objects:
+                obj.select_set(False)
+            for obj in present:
+                obj.select_set(True)
+            bpy.context.view_layer.objects.active = present[0]
         self._footer(f"Selected {len(present)} object(s) of '{clip.label}'.")
 
     # ---- slots -----------------------------------------------------------
@@ -224,7 +228,7 @@ class KeyStashSlots(ptk.LoggingMixin):
             if source == "Selected Keys":
                 clip = store.stash(selected_keys=True)
             else:
-                objects = list(bpy.context.selected_objects)
+                objects = list(CoreUtils.selected_objects())  # absent windowless
                 if not objects:
                     self._footer("Select the object(s) whose keys to store.", "warning")
                     return
