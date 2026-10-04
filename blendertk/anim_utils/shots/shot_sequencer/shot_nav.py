@@ -102,8 +102,13 @@ class ShotNavMixin:
             return
         scene = bpy.context.scene
         if scene is not None:
-            scene.frame_start = int(round(rng_start))
-            scene.frame_end = int(round(rng_end))
+            # The PREVIEW range: Blender's inner range is Maya's playback range
+            # (``playbackOptions -min/-max``), and the scene range it used to
+            # write is also the render range -- every shot switch rewrote the
+            # file's output frames.
+            scene.use_preview_range = True
+            scene.frame_preview_start = int(round(rng_start))
+            scene.frame_preview_end = int(round(rng_end))
 
     def _sync_combobox(self) -> None:
         """Populate the shot combobox and update prev/next action state."""
@@ -187,7 +192,6 @@ class ShotNavMixin:
         (keys ride), a new end moves that bound alone (keys stay); start
         before end so both can be typed together (mirror of mayatk's)."""
         from pythontk import ShotBoundaryConflict
-        from blendertk.core_utils._core_utils import CoreUtils
 
         if self.sequencer is None or self._cmb_mode != "shots":
             return
@@ -212,9 +216,8 @@ class ShotNavMixin:
             fields["description"] = str(cells["description"])
         was_syncing = self._syncing
         self._syncing = True
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Edit Shot"):
                 if fields:
                     store.update_shot(shot.shot_id, **fields)
                 if "start" in cells and abs(float(cells["start"]) - shot.start) > 1e-6:

@@ -324,12 +324,20 @@ class ShotSequencerController(
             return self.sequencer.sorted_shots()[0].shot_id
         return None
 
+    @staticmethod
+    def _scene_playback_range(scene) -> tuple:
+        """*scene*'s playback range: the preview range when it is on (Blender's
+        twin of Maya's playback range), else the scene range."""
+        if scene.use_preview_range:
+            return float(scene.frame_preview_start), float(scene.frame_preview_end)
+        return float(scene.frame_start), float(scene.frame_end)
+
     def _current_time(self):
         """The playhead's frame, or ``None`` when there is no scene to ask."""
         try:
             import bpy
 
-            return float(bpy.context.scene.frame_current)
+            return float(bpy.context.scene.frame_current_final)
         except Exception:
             return None
 

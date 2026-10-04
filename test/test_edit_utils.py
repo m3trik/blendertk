@@ -1332,6 +1332,45 @@ try:
         f"objs={len(bpy.data.objects)}",
     )
 
+    # combine_objects: a differently named UV map joins the first object's map by index.
+    # Bug: join merges UV maps BY NAME, so CombB's "UVChannel_1" stayed a separate map
+    # and the primary map held only CombA's UVs. Fixed: 2026-10-02.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    a = bpy.context.active_object
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    b = bpy.context.active_object
+    b.data.uv_layers[0].name = "UVChannel_1"
+    primary = a.data.uv_layers[0].name
+    res = btk.combine_objects([a, b])
+    layers = res.data.uv_layers if res is not None else []
+    mapped = [sum(1 for d in uv.data if d.uv.length > 1e-6) for uv in layers]
+    check(
+        "combine_objects aligns differently named UV maps by index",
+        [uv.name for uv in layers] == [primary] and mapped == [48],
+        f"maps={[uv.name for uv in layers]} mapped={mapped}",
+    )
+
+    # ...but a map already named like one of the first object's maps (at another
+    # index) stays put: index alignment must not steal it from the by-name merge.
+    reset()
+    bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
+    a = bpy.context.active_object
+    primary = a.data.uv_layers[0].name
+    a.data.uv_layers.new(name="lightmap")
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    b = bpy.context.active_object
+    b.data.uv_layers[0].name = "UVChannel_1"
+    b.data.uv_layers.new(name=primary)
+    res = btk.combine_objects([a, b])
+    uv = res.data.uv_layers.get(primary) if res is not None else None
+    mapped = sum(1 for d in uv.data if d.uv.length > 1e-6) if uv else 0
+    check(
+        "combine_objects keeps a map already paired by name",
+        mapped == 48,
+        f"maps={[m.name for m in res.data.uv_layers] if res else res} mapped={mapped}",
+    )
+
     # combine_objects fewer than 2 meshes -> None (no-op)
     reset()
     bpy.ops.mesh.primitive_cube_add()

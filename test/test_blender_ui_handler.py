@@ -991,6 +991,13 @@ try:
                 # bpy once _has_bpy() is stubbed True above; the foreign row is not the open scene
                 # in this fixture, so stub it out (no bpy under the .venv).
                 rm._current_scene_path = lambda: ""
+                # A linked Maya bake hides the viewports' Relationship Lines, which
+                # walks bpy.data.screens -- recorded here instead (no bpy under the .venv).
+                _rm_hid = []
+                _rm_orig_hide = _rm_si.MayaSceneImport.hide_relationship_lines
+                _rm_si.MayaSceneImport.hide_relationship_lines = staticmethod(
+                    lambda: _rm_hid.append(True) or 1
+                )
                 try:
                     rm._toggle_reference_at_row(_fr, rm.COL_REF)
                     check(
@@ -999,8 +1006,14 @@ try:
                         and _rm_linked == [_fpath + ".baked.blend"],
                         f"baked={_rm_baked} linked={_rm_linked}",
                     )
+                    check(
+                        "reference_manager hides Relationship Lines once a bake is linked",
+                        _rm_hid == [True],
+                        f"{_rm_hid}",
+                    )
                 finally:
                     _rm_si.MayaSceneImport.bake_scene = _rm_orig_bake
+                    _rm_si.MayaSceneImport.hide_relationship_lines = _rm_orig_hide
                     _rm_btk.link_blend_file = _rm_orig_link
                     del rm._library_for_path, rm._current_scene_path
             finally:
@@ -1020,7 +1033,9 @@ try:
             rm.sb.input_dialog = lambda *a, **k: "villain"
             rm.sb.message_box = lambda *a, **k: "Yes"
             rm._refresh = lambda: None
-            rm._selected_paths = lambda: [_new]
+            # The row the menu was opened on (it was _selected_paths before the
+            # row menu acted on the right-clicked row alone).
+            rm._context_paths = lambda: [_new]
             try:
                 rm._rename_path(_old)
                 _moved = rm._notes.get(rm._path_key(_new))
@@ -1040,7 +1055,7 @@ try:
                 rm._notes.update(_saved_notes)
                 rm.ui.settings.setValue("reference_notes", rm._notes)
                 del rm.sb.input_dialog, rm.sb.message_box, rm._refresh
-                del rm._selected_paths
+                del rm._context_paths
 
             # Save appends the suffix, so one typed into its dialog must come off
             # first (mirror of mayatk). The file name alone never doubled here
@@ -1333,17 +1348,21 @@ try:
         )
 
         lb_store = _LightmapBaker.preset_store()
-        lb._apply_preset_values(lb_store.load("preview"))
+        # The tiers' own numbers (tuned in the preset files, not here).
+        lb_want_preview, lb_want = lb_store.load("preview"), lb_store.load("desktop")
+        lb._apply_preset_values(lb_want_preview)
         lb_preview = lb._resolution()
-        lb._apply_preset_values(lb_store.load("desktop"))
+        lb._apply_preset_values(lb_want)
         check(
             "lightmap_baker a preset snaps Resolution, Samples and Bounces",
-            lb_preview == 256
-            and lb._resolution() == 2048
-            and lb_ui.spn_samples.value() == 512
-            and lb_ui.spn_bounces.value() == 4,
+            lb_want_preview["resolution"] != lb_want["resolution"]
+            and lb_preview == lb_want_preview["resolution"]
+            and lb._resolution() == lb_want["resolution"]
+            and lb_ui.spn_samples.value() == lb_want["samples"]
+            and lb_ui.spn_bounces.value() == lb_want["bounces"],
             f"preview={lb_preview} desktop={lb._resolution()} "
-            f"samples={lb_ui.spn_samples.value()} bounces={lb_ui.spn_bounces.value()}",
+            f"samples={lb_ui.spn_samples.value()} bounces={lb_ui.spn_bounces.value()} "
+            f"want={lb_want}",
         )
         lb_switches = {key: lb._toggle(key) for key in lb._TOGGLES}
         check(

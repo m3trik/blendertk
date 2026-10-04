@@ -8,8 +8,6 @@ deleting, moving, merging, splitting, padding and trimming shots, growing a
 shot over new keys, and the timeline / shot-lane context menus that offer them.
 """
 
-from blendertk.core_utils._core_utils import CoreUtils
-
 
 class ShotLaneMixin:
     """The shot lane's menus and the shot structure edits they run."""
@@ -209,9 +207,8 @@ class ShotLaneMixin:
         if reply != QtWidgets.QMessageBox.Yes:
             return
         store = self.sequencer.store
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Delete Shot"):
                 result = self.sequencer.delete_shot(shot_id)
         except Exception:
             self._discard_shot_state()
@@ -248,9 +245,8 @@ class ShotLaneMixin:
         parent = self._get_sequencer_widget() or self.ui
         if not ShotsController.confirm_stale_removal(stale, parent):
             return
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Delete Stale Shots"):
                 removed = store.remove_stale_shots()
         except Exception:
             self._discard_shot_state()
@@ -269,9 +265,8 @@ class ShotLaneMixin:
         """
         if self.sequencer is None:
             return
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk("Reorder Shot"):
+            with self.sequencer.store.scene_edit("Reorder Shot"):
                 self.sequencer.move_shot_to_position(shot_id, position)
         except Exception:
             self._discard_shot_state()
@@ -289,9 +284,8 @@ class ShotLaneMixin:
         if self.sequencer is None:
             return
         store = self.sequencer.store
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Merge Shots"):
                 merged = self.sequencer.merge_shots([shot_id, other_id])
         except Exception:
             self._discard_shot_state()
@@ -307,9 +301,8 @@ class ShotLaneMixin:
         if self.sequencer is None:
             return
         store = self.sequencer.store
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Split Shot"):
                 tail = self.sequencer.split_shot(shot_id, time)
         except ValueError as exc:
             self._discard_shot_state()
@@ -366,10 +359,13 @@ class ShotLaneMixin:
 
         if self.sequencer is None:
             return
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Add Space") as edit:
                 head, tail = self.sequencer.add_shot_space(shot_id, frames, edge=edge)
+                if abs(head) < 1e-6 and abs(tail) < 1e-6:
+                    # Nothing moved: a restore point would make the next undo
+                    # visibly do nothing.
+                    edit.cancel()
         except ShotBoundaryConflict as exc:
             # Declined before writing anything, so the restore point goes too
             # (mirrors mayatk): a refusal is an answer, not a crash.
@@ -377,15 +373,15 @@ class ShotLaneMixin:
             self.logger.warning(str(exc))
             self._set_footer(str(exc))
             return
-        if abs(head) < 1e-6 and abs(tail) < 1e-6:
+        except Exception:
             self._discard_shot_state()
+            raise
+        if abs(head) < 1e-6 and abs(tail) < 1e-6:
             self._set_footer(f"Add {edge} space: nothing to do")
             return
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._sync_to_widget()
-        self._sync_combobox()
-        self._apply_view_playback_range()
+        # The padded shot, which in the adjacent / all views need not be the
+        # active one (mayatk's ``_after_shot_change(shot_id)``).
+        self._after_shot_change(shot_id)
         self._set_footer(f"Added {tail - head:.0f}f of {edge} space")
 
     def _trim_shot(self, shot_id: int, edge: str = "both") -> None:
@@ -396,16 +392,12 @@ class ShotLaneMixin:
         """
         if self.sequencer is None:
             return
-        self._save_shot_state()
-        with CoreUtils.undo_chunk():
+        with self.sequencer.store.scene_edit("Trim Shot") as edit:
             head, tail = self.sequencer.trim_shot_to_content(shot_id, edge=edge)
+            if abs(head) < 1e-6 and abs(tail) < 1e-6:
+                # Nothing moved: no restore point and no empty undo step.
+                edit.cancel()
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
-            # Nothing moved: drop the snapshot and skip the rebuild.  (The
-            # chunk above still deposited one empty native undo step —
-            # CoreUtils.undo_chunk pushes unconditionally; a dry-probe
-            # would duplicate the engine's whole content-bounds scan here,
-            # so the snapshot discard is the load-bearing half.)
-            self._discard_shot_state()
             self._set_footer("Nothing to trim — the shot already fits its content.")
             return
         self._segment_cache.clear()
@@ -464,17 +456,21 @@ class ShotLaneMixin:
 
         if self.sequencer is None:
             return False
-        self._save_shot_state()
         was_syncing = self._syncing
         # Only the WRITES: re-sampling a bound edits keys, and on the automatic
         # path that would re-arm the very debounce that called us.  The rebuild
         # below stays outside, as it does for every other edit here.
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Extend Shot") as edit:
                 head, tail = self.sequencer.extend_shot_to_fit(
                     shot_id, edge=edge, reach=self._extend_reach_arg
                 )
+                if abs(head) < 1e-6 and abs(tail) < 1e-6:
+                    # The automatic path runs on every keying burst, where
+                    # "nothing to extend to" is the normal answer: it must not
+                    # leave an empty step in the user's history each time.
+                    edit.cancel()
         except ShotBoundaryConflict as exc:
             self._discard_shot_state()
             self.logger.warning(str(exc))
@@ -487,7 +483,6 @@ class ShotLaneMixin:
         finally:
             self._syncing = was_syncing
         if abs(head) < 1e-6 and abs(tail) < 1e-6:
-            self._discard_shot_state()
             if not quiet:
                 reach = self._extend_reach_arg
                 self._set_footer(
@@ -527,9 +522,8 @@ class ShotLaneMixin:
         from pythontk.core_utils.engines.shots.manifest.behaviors import Behaviors
 
         duration = Behaviors.compute_duration([], fallback=100.0)
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk():
+            with store.scene_edit("Insert Shot"):
                 shot = seq.insert_shot(
                     name=name,
                     duration=duration,
@@ -566,10 +560,12 @@ class ShotLaneMixin:
         # Sequencer-level append (insert_shot, no anchor): probes the last
         # shot's trailing envelope content so the new shot is never built
         # over fade tails / trailing strips; snapshot makes it undoable via
-        # the ledger's membership diff.
-        self._save_shot_state()
+        # the ledger's membership diff, and its own undo step pairs with that
+        # restore point -- without one, the panel's undo also popped the
+        # user's previous, unrelated Blender step.
         try:
-            shot = self.sequencer.insert_shot(name=name, duration=duration, gap=gap)
+            with store.scene_edit("New Shot"):
+                shot = self.sequencer.insert_shot(name=name, duration=duration, gap=gap)
         except Exception:
             self._discard_shot_state()
             raise

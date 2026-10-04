@@ -989,6 +989,21 @@ try:
         n_mix == 1,
         f"mix_nodes={n_mix}",
     )
+    # A path-traced bake traces the occlusion an AO map approximates: the bridge's
+    # lightmap template builds without the multiply (ambient_occlusion=False), loose
+    # or packed, or every bounce darkens twice (production office ceilings: 0.77x
+    # Arnold with it, 0.95x without). Mirror of mayatk's ArnoldBridge(ambient_occlusion=).
+    for ao_files in ([gs_png("BaseColor"), gs_png("AO")], pfiles):
+        nao = btk.create_pbr_material(ao_files, name="GSNoAO", ambient_occlusion=False)
+        check(
+            f"ambient_occlusion=False leaves AO unwired ({len(ao_files)} maps)",
+            not any(n.type == "MIX_RGB" for n in nao.node_tree.nodes)
+            and not any(
+                n.type == "TEX_IMAGE" and "_AO" in n.image.name
+                for n in nao.node_tree.nodes
+            ),
+            f"{[n.bl_idname for n in nao.node_tree.nodes]}",
+        )
 
     # Batch: a set of files spanning two texture sets -> two materials
     def gs_set_png(setname, mapname):

@@ -29,7 +29,7 @@ either, so the Qt-only ``fmt`` import is deferred alongside it).
 
 import os
 import html
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 import pythontk as ptk
 
@@ -155,6 +155,25 @@ class SceneExporterSlots(SceneExporter):
         """
         body = html.escape(question).replace("\n", "<br>")
         return self.sb.message_box(body, "Yes", "No") == "Yes"
+
+    def decide_check_failure(
+        self, check: str, messages: List[str], remaining: List[str]
+    ) -> str:
+        """The engine's check-failure seam as the panel's three-button dialog.
+
+        Asked the moment *check* fails: the failure, what it reported and the
+        checks still to run (``check_failure_html``, shared with mayatk), over
+        Override All / Override / Cancel. Enter is Cancel -- the answer that
+        cannot ship a file past a check -- and so is Esc. Mirror of mayatk's.
+        """
+        choices = self.CHECK_FAILURE_CHOICES
+        answer = self.sb.message_box(
+            self.check_failure_html(check, messages, remaining),
+            *choices,
+            default="Cancel",
+            timeout=None,
+        )
+        return choices.get(answer, ptk.TaskFactory.CHECK_ABORT)
 
     def _on_log_link_clicked(self, url) -> None:
         """Dispatch clickable ``action://`` links from the log panel (mirror of

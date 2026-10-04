@@ -626,7 +626,7 @@ def _run_shots_adapter_checks():
     check(
         "export_transfer: the objects scope keeps the shot, drops the rest",
         scoped["store"]["shots"][0]["objects"] == ["XferMate"]
-        and scoped["ledger"] == {"steps": {}, "keys": {}},
+        and scoped["ledger"] == {"steps": {}, "keys": {}, "authored": {}},
         str(scoped),
     )
     check(

@@ -14,13 +14,25 @@ Two forms, one code path:
 
 * **mesh -> mesh** -- a source mesh and a target mesh of identical topology
   (the same model re-unwrapped / re-packed, a material consolidation). Pairing
-  is by matching object name, else by order.
+  is by matching object name, else by order. A target JOINED from several
+  sources (Object > Join, then re-unwrapped) reads them all: the sources join
+  end to end in the order the join left them (:meth:`pair_sources`).
 * **UV map -> UV map** on ONE mesh (``source=None``, ``source_uv_set=...``).
 
-Outputs are written per TARGET material -- one image per channel, sampled
-from whichever source material each triangle wears; a source with no map for
-a channel contributes its Principled BSDF constant. Normal maps are
-re-encoded into the target island's tangent frame.
+Outputs are written per target LAYOUT -- the targets' faces grouped by
+overlap (:meth:`pythontk.UvTransfer.layout_jobs`), whatever their UV maps are
+called or the targets wear -- one image per channel, sampled from whichever
+source material each triangle wears; a source with no map for a channel
+contributes its Principled BSDF constant. Every map is the same resample; a
+normal map's XY also turn with any island the target layout rotates or
+mirrors, read off the two layouts alone -- where a target stands never enters
+it, and this is never a normal-map BAKE (mirror of mayatk).
+
+A committed LIGHTMAP is not a material map and travels on its own pass,
+:meth:`LightmapRecords.transfer_lightmaps` (built on this module's pairing):
+rebound to the same map when the target's lightmap layout is the source's,
+resampled into the target's layout otherwise, and committed on the target
+either way.
 
 Deliberately NOT part of the Marmoset bridge (a high->low ray-cast bake); the
 bridge only warns when its source and target are coincident, because that job
@@ -86,36 +98,53 @@ class _TextureTransferInternal:
             layer.data.foreach_get("uv", buf)
         return buf.reshape(-1, 2).astype(float)
 
+    @staticmethod
+    def _parts(mesh) -> list:
+        """*mesh* as its parts: a tuple / list is several meshes that together
+        form ONE mesh, in concatenation order (see :meth:`pair_sources`)."""
+        return list(mesh) if isinstance(mesh, (list, tuple)) else [mesh]
+
+    @classmethod
+    def _topology(cls, mesh) -> Tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+        """``(counts, verts, world points)`` of *mesh* -- or of its parts joined
+        end to end, the way Join joins them (vertex indices offset)."""
+        counts, verts, points = [], [], []
+        for part in cls._parts(mesh):
+            o = cls._mesh(part)
+            m = o.data
+            c = np.empty(len(m.polygons), dtype=np.int32)
+            m.polygons.foreach_get("loop_total", c)
+            v = np.empty(len(m.loops), dtype=np.int32)
+            m.loops.foreach_get("vertex_index", v)
+            counts.append(c.astype(np.int64))
+            verts.append(v.astype(np.int64) + sum(map(len, points)))
+            points.append(cls._world_points(o))
+        return np.concatenate(counts), np.concatenate(verts), np.concatenate(points)
+
     @classmethod
     def topology_matches(cls, a, b) -> Tuple[bool, str]:
-        """``(ok, why)`` -- same polygon loop lists on both meshes."""
-        ma, mb = cls._mesh(a).data, cls._mesh(b).data
-        if len(ma.polygons) != len(mb.polygons) or len(ma.vertices) != len(mb.vertices):
+        """``(ok, why)`` -- same polygon loop lists on both meshes.
+
+        Either side may be a tuple of meshes: their parts joined in order.
+        """
+        ca, va, pa = cls._topology(a)
+        cb, vb, pb = cls._topology(b)
+        if len(ca) != len(cb) or len(pa) != len(pb):
             return False, (
-                f"{len(ma.polygons)} faces / {len(ma.vertices)} verts vs "
-                f"{len(mb.polygons)} / {len(mb.vertices)}"
+                f"{len(ca)} faces / {len(pa)} verts vs {len(cb)} / {len(pb)}"
             )
-        if len(ma.loops) != len(mb.loops):
+        if len(va) != len(vb):
             return False, "face-corner counts differ"
-        ta = np.empty(len(ma.polygons), dtype=np.int32)
-        tb = np.empty(len(mb.polygons), dtype=np.int32)
-        ma.polygons.foreach_get("loop_total", ta)
-        mb.polygons.foreach_get("loop_total", tb)
-        if not np.array_equal(ta, tb):
+        if not np.array_equal(ca, cb):
             return False, "per-face vertex counts differ"
-        va = np.empty(len(ma.loops), dtype=np.int32)
-        vb = np.empty(len(mb.loops), dtype=np.int32)
-        ma.loops.foreach_get("vertex_index", va)
-        mb.loops.foreach_get("vertex_index", vb)
         if not np.array_equal(va, vb):
             return False, "face vertex order differs"
         return True, ""
 
     @classmethod
     def positions_match(cls, a, b, tolerance: float = 1e-4) -> bool:
-        oa, ob = cls._mesh(a), cls._mesh(b)
-        pa = cls._world_points(oa)
-        pb = cls._world_points(ob)
+        """World-space vertices coincide (either side may be a tuple of parts)."""
+        pa, pb = cls._topology(a)[2], cls._topology(b)[2]
         if pa.shape != pb.shape:
             return False
         return float(np.abs(pa - pb).max()) <= tolerance
@@ -180,16 +209,26 @@ class _TextureTransferInternal:
         both layouts through it, so seams are honoured and the two arrays
         correspond row for row.
 
+        *source* may be a tuple of meshes the target was joined from, in join
+        order (:meth:`pair_sources`): their face corners join end to end
+        exactly as the target's do, each read through its own UV map.
+
         Returns:
             ``{"src_tris", "dst_tris", "faces", "dropped"}`` as the mayatk twin.
         """
         tgt = cls._mesh(target)
-        src = cls._mesh(source) if source is not None else tgt
-        tm, sm = tgt.data, src.data
+        tm = tgt.data
+        srcs = (
+            [cls._mesh(p).data for p in cls._parts(source)]
+            if source is not None
+            else [tm]
+        )
         if source is not None:
-            src_set = source_uv_set or (
-                sm.uv_layers.active.name if sm.uv_layers.active else None
-            )
+            src_sets = [
+                source_uv_set
+                or (sm.uv_layers.active.name if sm.uv_layers.active else None)
+                for sm in srcs
+            ]
             dst_set = target_uv_set or (
                 tm.uv_layers.active.name if tm.uv_layers.active else None
             )
@@ -200,13 +239,17 @@ class _TextureTransferInternal:
             dst_set = target_uv_set or next(
                 (uv.name for uv in tm.uv_layers if uv.name != src_set), src_set
             )
-        if not dst_set or not src_set:
+            src_sets = [src_set]
+            if src_set == dst_set:
+                raise ValueError(
+                    "UV map -> UV map transfer needs two different maps "
+                    f"(both are {dst_set!r})"
+                )
+        if not dst_set:
             raise ValueError(f"target {tgt.name!r} has no UV map")
-        if source is None and src_set == dst_set:
-            raise ValueError(
-                f"UV map -> UV map transfer needs two different maps (both are {dst_set!r})"
-            )
-        if len(sm.loops) != len(tm.loops):
+        if not all(src_sets):
+            raise ValueError("a source mesh has no UV map")
+        if sum(len(sm.loops) for sm in srcs) != len(tm.loops):
             raise ValueError("source and target face-corner counts differ")
 
         tm.calc_loop_triangles()
@@ -218,7 +261,9 @@ class _TextureTransferInternal:
         loops = loops.reshape(-1, 3)
 
         d_uv = cls._uv_layer_vectors(tm, dst_set)
-        s_uv = cls._uv_layer_vectors(sm, src_set)
+        s_uv = np.concatenate(
+            [cls._uv_layer_vectors(sm, s) for sm, s in zip(srcs, src_sets)]
+        )
         return {
             "src_tris": s_uv[loops],
             "dst_tris": d_uv[loops],
@@ -230,26 +275,32 @@ class _TextureTransferInternal:
     # --------------------------------------------------------- materials
     @classmethod
     def face_materials(cls, obj) -> Tuple[List[Any], "np.ndarray"]:
-        """``(materials, per-face index into materials)`` for *obj*."""
-        o = cls._mesh(obj)
-        mesh = o.data
-        idx = np.empty(len(mesh.polygons), dtype=np.int32)
-        mesh.polygons.foreach_get("material_index", idx)
-        slots = [s.material for s in o.material_slots]
+        """``(materials, per-face index into materials)`` for *obj*.
+
+        *obj* may be a tuple of parts (see :meth:`_parts`): their faces join
+        end to end, and a material two parts share is listed once.
+        """
         mats: List[Any] = []
-        remap = np.full(max(len(slots), 1), -1, dtype=np.int64)
-        for i, m in enumerate(slots):
-            if m is None:
-                continue
-            if m not in mats:
-                mats.append(m)
-            remap[i] = mats.index(m)
-        per_face = (
-            remap[np.clip(idx, 0, len(remap) - 1)]
-            if slots
-            else np.full(len(mesh.polygons), -1, dtype=np.int64)
-        )
-        return mats, per_face
+        per_face = []
+        for part in cls._parts(obj):
+            o = cls._mesh(part)
+            mesh = o.data
+            idx = np.empty(len(mesh.polygons), dtype=np.int32)
+            mesh.polygons.foreach_get("material_index", idx)
+            slots = [s.material for s in o.material_slots]
+            remap = np.full(max(len(slots), 1), -1, dtype=np.int64)
+            for i, m in enumerate(slots):
+                if m is None:
+                    continue
+                if m not in mats:
+                    mats.append(m)
+                remap[i] = mats.index(m)
+            per_face.append(
+                remap[np.clip(idx, 0, len(remap) - 1)]
+                if slots
+                else np.full(len(mesh.polygons), -1, dtype=np.int64)
+            )
+        return mats, np.concatenate(per_face)
 
     @staticmethod
     def material_maps(material) -> Dict[str, str]:
@@ -301,6 +352,63 @@ class _TextureTransferInternal:
         pairs.update(zip(rest_t, rest_s))
         return pairs
 
+    @classmethod
+    def pair_sources(cls, targets: Sequence, sources: Sequence) -> Dict[Any, Any]:
+        """Target -> its source: one mesh, or the TUPLE it was joined from.
+
+        Mirror of :meth:`mayatk.TextureTransfer.pair_sources`: one source feeds
+        every target; otherwise one to one by :meth:`pair_by_name` unless there
+        are more sources than targets; then
+        each target takes the sources whose topologies, joined in some order,
+        are exactly its own (Object > Join), as a tuple in that order.
+
+        Raises:
+            ValueError: A target no ordering of the remaining sources builds.
+        """
+        if len(sources) == 1:
+            return {t: sources[0] for t in targets}
+        if len(sources) <= len(targets):
+            return cls.pair_by_name(targets, sources)
+        topo = [cls._topology(s) for s in sources]
+        free = list(range(len(sources)))
+        pairs: Dict[Any, Any] = {}
+        for t in targets:
+            order = ptk.UvTransfer.concatenation_order(
+                cls._topology(t), [topo[i] for i in free]
+            )
+            if order is None:
+                raise ValueError(
+                    f"{cls._obj(t).name}: no combination of the {len(free)} "
+                    "source(s) has its topology -- a joined target must be its "
+                    "sources joined, faces unedited"
+                )
+            picked = [free[i] for i in order]
+            pairs[t] = (
+                sources[picked[0]]
+                if len(picked) == 1
+                else tuple(sources[i] for i in picked)
+            )
+            free = [i for i in free if i not in picked]
+        return pairs
+
+    @classmethod
+    def find_combined(cls, meshes: Sequence) -> Optional[Tuple[Any, Tuple]]:
+        """The mesh among *meshes* joined from ALL the others, if any.
+
+        Mirror of :meth:`mayatk.TextureTransfer.find_combined`: ``(target,
+        sources in join order)``, or ``None`` (fewer than three meshes, or no
+        mesh is exactly the others joined).
+        """
+        meshes = list(meshes)
+        found = ptk.UvTransfer.find_combined(
+            [len(cls._mesh(m).data.polygons) for m in meshes],
+            lambda i: cls._topology(meshes[i]),
+        )
+        if found is None:
+            return None
+        i, order = found
+        return meshes[i], tuple(meshes[j] for j in order)
+
 
 class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
     """Move textures between UV layouts of the same mesh(es) -- see module doc."""
@@ -328,13 +436,15 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         assign: bool = False,
         assign_prefix: str = "",
         assign_suffix: Optional[str] = None,
+        assign_from: str = "target",
     ) -> Dict[str, Dict[str, str]]:
         """Transfer the source material(s)' maps onto the target UV layout.
 
         Same contract as :meth:`mayatk.TextureTransfer.transfer` -- *targets* /
         *source* are Blender objects (or names); *source_uv_set* /
         *target_uv_set* are UV map names. Returns ``{target material name:
-        {channel: written path}}``.
+        {channel: written path}}``. More sources than targets means targets
+        joined from them (:meth:`pair_sources`).
 
         *output_name* names the whole result -- the assigned material AND every
         map wired to it (``<output_name>_<Channel>.png``) -- instead of deriving
@@ -353,9 +463,18 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
 
         *output_dir* is absolute (``//`` accepted) or relative to the .blend's
         ``textures`` folder -- see :meth:`resolve_output_dir`.
+
+        *assign_from* picks what the assigned material is a copy of:
+        ``"target"`` (default -- the target's own) or ``"source"``, the source
+        material covering the most of each output layout, so the result keeps
+        the look being transferred (see :meth:`assign_results`).
         """
         if np is None:
             raise RuntimeError("numpy is required")
+        if assign_from not in ("target", "source"):
+            raise ValueError(
+                f"assign_from must be 'target' or 'source', not {assign_from!r}"
+            )
         # Blender bundles numpy but not Pillow, which the pythontk map IO needs;
         # provision it the way every other image tool here does (idempotent).
         from blendertk.core_utils._core_utils import CoreUtils
@@ -370,29 +489,35 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             else []
         )
         pairs = (
-            self.pair_by_name(targets, sources)
+            self.pair_sources(targets, sources)
             if sources
             else {t: None for t in targets}
         )
+        read = {
+            s.name
+            for src in pairs.values()
+            if src is not None
+            for s in self._parts(src)
+        }
+        unused = sorted(s.name for s in sources if s.name not in read)
+        if unused:
+            self.logger.warning(
+                f"{len(unused)} source(s) are part of no target and were not "
+                "read: " + ", ".join(unused)
+            )
         out_dir = self.resolve_output_dir(output_dir)
 
-        # Bucketed by target UV map then material: the unit of a transfer is
-        # a LAYOUT (see ptk.UvTransfer.merge_layouts). Mirror of mayatk.
-        by_set: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        # What each target contributes, per target material, grouped into
+        # LAYOUTS by overlap (ptk.UvTransfer.layout_jobs). Mirror of mayatk,
+        # where the target stands included: it never enters the transfer.
+        parts: List[Dict[str, Any]] = []
         registry: List[Any] = []
         for tgt, src in pairs.items():
             if src is not None:
                 ok, why = self.topology_matches(tgt, src)
                 if not ok:
-                    raise ValueError(
-                        f"{tgt.name} / {src.name}: topology differs ({why})"
-                    )
-                if not self.positions_match(tgt, src):
-                    self.logger.warning(
-                        f"{tgt.name}: source and target vertex positions differ; "
-                        "colour maps transfer fine, but the normal-map tangent "
-                        "frames are only exact for coincident geometry."
-                    )
+                    names = " + ".join(s.name for s in self._parts(src))
+                    raise ValueError(f"{tgt.name} / {names}: topology differs ({why})")
             corr = self.correspondence(
                 tgt, src, source_uv_set=source_uv_set, target_uv_set=target_uv_set
             )
@@ -409,22 +534,32 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
                 else np.full(len(faces), -1, dtype=np.int64)
             )
             tri_tgt = t_face[faces]
-            for ti, t_mat in enumerate(t_mats):
+            # -1: faces that wear nothing (an empty slot, or none) -- still
+            # part of the layout, so transferred like any other. Mirror of mayatk.
+            for ti in np.unique(tri_tgt).tolist():
                 pick = (tri_tgt == ti) & (tri_src >= 0)
                 if not pick.any():
                     continue
-                bucket = by_set.setdefault(corr["target_uv_set"], {}).setdefault(
-                    t_mat.name, {"src": [], "dst": [], "ids": [], "members": []}
+                t_mat = t_mats[ti] if ti >= 0 else None
+                parts.append(
+                    {
+                        "material": t_mat.name if t_mat is not None else None,
+                        "uv_set": corr["target_uv_set"],
+                        "src": corr["src_tris"][pick],
+                        "dst": corr["dst_tris"][pick],
+                        "ids": tri_src[pick],
+                        "members": [(tgt, t_mat)],
+                    }
                 )
-                bucket["src"].append(corr["src_tris"][pick])
-                bucket["dst"].append(corr["dst_tris"][pick])
-                bucket["ids"].append(tri_src[pick])
-                bucket["members"].append((tgt, t_mat))
-        if not by_set:
-            raise ValueError("nothing to transfer: no shaded, UV-mapped faces found")
+        if not parts:
+            raise ValueError(
+                "nothing to transfer: no UV-mapped target face reads a shaded "
+                "source face"
+            )
 
         source_specs = [
             {
+                "name": m.name,
                 "maps": self.material_maps(m),
                 "constants": {
                     ch: const
@@ -437,31 +572,7 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         ]
         if not any(spec["maps"] for spec in source_specs):
             raise ValueError("no source material carries a texture map to transfer")
-        jobs: Dict[str, Dict[str, Any]] = {}
-        for uv_set, per_mat in by_set.items():
-            per_mat_jobs = {
-                name: {
-                    "src": np.concatenate(b["src"]),
-                    "dst": np.concatenate(b["dst"]),
-                    "ids": np.concatenate(b["ids"]).astype(np.int32),
-                    "sources": source_specs,
-                    "members": list(b["members"]),
-                }
-                for name, b in per_mat.items()
-            }
-            merged = ptk.UvTransfer.merge_layouts(per_mat_jobs, uv_set)
-            if len(per_mat) > 1:
-                self.logger.info(
-                    f"UV map {uv_set!r}: {len(per_mat)} target material(s) -> "
-                    + (
-                        f"one layout ({uv_set})"
-                        if len(merged) == 1
-                        else f"{len(merged)} overlapping layouts, kept apart"
-                    )
-                )
-            for key, job in merged.items():
-                label = key if key not in jobs else f"{uv_set}_{key}"
-                jobs[label] = job
+        jobs = ptk.UvTransfer.layout_jobs(parts, source_specs, log=self.logger.info)
         # Mirror of mayatk: an explicit output name renames BOTH halves of
         # the result -- the maps and the material assigned from them.
         stem = (
@@ -469,6 +580,21 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             if output_name
             else ""
         )
+        # Mirror of mayatk: Auto (None) drops the `_TRANSFER` tag when
+        # output_name already keeps the new material apart from the one it
+        # was derived from; an affix the caller asked for is a naming
+        # convention and applies either way.
+        suffix = assign_suffix
+        if suffix is None:
+            suffix = "" if stem else "_TRANSFER"
+        if stem and len(jobs) > 1:
+            # Mirror of mayatk: a layout is labelled by its target material,
+            # on a re-run this run's own previous result -- name by what it was
+            # derived from, or every run stacks another `<stem>_`.
+            relabel = ptk.UvTransfer.output_labels(
+                list(jobs), stem, prefix=assign_prefix, suffix=suffix
+            )
+            jobs = {relabel[label]: job for label, job in jobs.items()}
         if stem:
             name_format = (
                 f"{stem}_{{channel}}"
@@ -488,19 +614,19 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
             log=self.logger.info,
         )
         if assign:
-            # Mirror of mayatk: Auto (None) drops the `_TRANSFER` tag when
-            # output_name already keeps the new material apart from the one it
-            # was derived from; an affix the caller asked for is a naming
-            # convention and applies either way.
-            suffix = assign_suffix
-            if suffix is None:
-                suffix = "" if stem else "_TRANSFER"
             self.assign_results(
                 results,
                 jobs,
                 prefix=assign_prefix,
                 suffix=suffix,
                 base_name=stem or None,
+                assign_from=assign_from,
+                sources=[
+                    s
+                    for src in pairs.values()
+                    if src is not None
+                    for s in self._parts(src)
+                ],
             )
         return results
 
@@ -551,6 +677,37 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         resolved = ptk.FileUtils.resolve_output_dir(text, cls.output_base_dir())
         return resolved or cls.default_output_dir()
 
+    @staticmethod
+    def _source_name(job: Dict[str, Any]) -> Optional[str]:
+        """Name of the source material covering the most of *job*'s layout
+        (:meth:`pythontk.UvTransfer.dominant_source`), or None."""
+        idx = ptk.UvTransfer.dominant_source(job)
+        return None if idx is None else job["sources"][idx].get("name")
+
+    def _member_faces(self, members: Sequence[Tuple[Any, Any]]) -> List[Any]:
+        """``[(object, face ids, vacated slot)]`` for *members*' faces.
+
+        Each ``(object, target material)`` pair's faces wearing that material
+        (``None``: wearing nothing), with the slot index it held -- a re-run
+        refills that slot instead of appending an empty one per pass. Resolved
+        before any material is freed (see :meth:`assign_results`).
+        """
+        out: List[Any] = []
+        for obj, t_mat in dict.fromkeys(members):
+            mats, per_face = self.face_materials(obj)
+            if t_mat is not None and t_mat not in mats:
+                continue
+            index = mats.index(t_mat) if t_mat is not None else -1
+            face_ids = np.nonzero(per_face == index)[0]
+            if not len(face_ids):
+                continue
+            vacated = next(
+                (i for i, sl in enumerate(obj.material_slots) if sl.material == t_mat),
+                None,
+            )
+            out.append((obj, face_ids, vacated))
+        return out
+
     def assign_results(
         self,
         results: Dict[str, Dict[str, str]],
@@ -558,6 +715,8 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         suffix: str = "_TRANSFER",
         base_name: Optional[str] = None,
         prefix: str = "",
+        assign_from: str = "target",
+        sources: Sequence[Any] = (),
     ) -> Dict[str, str]:
         """One ``<prefix><layout><suffix>`` material per output, on its faces.
 
@@ -568,9 +727,16 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         (``ptk.StrUtils.apply_affix``).
 
         Mirror of mayatk: *jobs* carries each output's ``members`` --
-        ``(object, target material)`` pairs -- so every face transferred INTO
-        the layout lands on the one new material, copied from the first
-        member's material and wired to the outputs. Originals are untouched.
+        ``(object, target material)`` pairs, ``None`` for faces that wore
+        nothing -- so every face transferred INTO the layout lands on the one
+        new material, copied from the first member's material -- or, with
+        *assign_from* ``"source"`` (or no member wearing one), from the source
+        material covering the most of the layout -- and wired to the outputs.
+        Originals are untouched.
+
+        A material already holding the result's name is a previous run's and
+        is replaced -- unless one of the run's *sources* wears it: the run is
+        reading that material. The new one is then named beside it.
 
         Returns ``{output label: new material name}``.
         """
@@ -578,47 +744,39 @@ class TextureTransfer(ptk.LoggingMixin, _TextureTransferInternal):
         from blendertk.mat_utils._mat_utils import _MatUtilsInternal
         from blendertk.mat_utils.mat_manifest import MatManifest
 
-        created: Dict[str, str] = {}
+        # Mirror of mayatk: resolve EVERY output's faces and make every copy --
+        # neither touches a slot -- before anything is freed. A replaced
+        # material can be one another output's targets wear (or copy from), and
+        # once it is removed their `t_mat` is a dangling StructRNA.
+        planned: List[Any] = []
         for label, channels in results.items():
             members = jobs.get(label, {}).get("members") or []
             if not channels or not members:
                 continue
-            base_mat = members[0][1]
+            base_mat = next((m for _obj, m in members if m is not None), None)
+            if assign_from == "source" or base_mat is None:
+                named = self._source_name(jobs[label])
+                base_mat = bpy.data.materials.get(named or "") or base_mat
             if base_name:
                 new_name = base_name if len(jobs) == 1 else f"{base_name}_{label}"
             else:
                 new_name = label
             new_name = ptk.StrUtils.apply_affix(new_name, prefix=prefix, suffix=suffix)
-            # Resolve which faces each member contributes BEFORE the datablock
-            # below is freed. With an explicit output_name a second run's target
-            # material IS the one the previous run assigned, so `remove` frees
-            # the very Material these members hold: touching `t_mat` afterwards
-            # is a dangling StructRNA, and re-querying finds nothing to match.
-            # The vacated slot index rides along so the re-run reuses it instead
-            # of appending an empty slot per pass. Mirror of mayatk's ordering.
-            per_object: List[Any] = []
-            for obj, t_mat in dict.fromkeys(members):
-                mats, per_face = self.face_materials(obj)
-                if t_mat not in mats:
-                    continue
-                face_ids = np.nonzero(per_face == mats.index(t_mat))[0]
-                if not len(face_ids):
-                    continue
-                vacated = next(
-                    (
-                        i
-                        for i, sl in enumerate(obj.material_slots)
-                        if sl.material == t_mat
-                    ),
-                    None,
-                )
-                per_object.append((obj, face_ids, vacated))
-            # Copy BEFORE removing, for the same reason: removing by name first
-            # frees the very datablock being copied.
-            new_mat = base_mat.copy()
+            per_object = self._member_faces(members)
+            planned.append((label, channels, new_name, per_object, base_mat.copy()))
+        fresh = [new_mat for *_rest, new_mat in planned]
+        created: Dict[str, str] = {}
+        for label, channels, new_name, per_object, new_mat in planned:
             old = bpy.data.materials.get(new_name)
-            if old is not None and old is not new_mat:
-                bpy.data.materials.remove(old)
+            # Another output's copy is no previous run's result.
+            if old is not None and not any(old == m for m in fresh):
+                if any(sl.material == old for s in sources for sl in s.material_slots):
+                    self.logger.warning(
+                        f"{old.name} is worn by a source of this run, so it is "
+                        "kept; the result is named beside it."
+                    )
+                else:
+                    bpy.data.materials.remove(old)
             new_mat.name = new_name
             # Drop the copied Principled input links so the restore wires only
             # the outputs (a transferred channel must not keep the source's

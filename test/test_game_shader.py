@@ -263,6 +263,28 @@ try:
         f"{[(i.name, i.source) for i in lone_images]}",
     )
 
+    # The panel's Assign to Selection step: one material -> assigned; several ->
+    # skipped (the user merges them by setting a Material Name).
+    from blendertk.mat_utils.game_shader import GameShaderSlots
+
+    slots = GameShaderSlots.__new__(GameShaderSlots)  # no switchboard needed
+    target = bpy.data.objects.new("gs_assign_target", bpy.data.meshes.new("gs_assign"))
+    bpy.context.scene.collection.objects.link(target)
+    mat_a = bpy.data.materials.new("gs_assign_a")
+    mat_b = bpy.data.materials.new("gs_assign_b")
+    slots._assign_to_selection([mat_a, mat_b], [target])
+    check(
+        "assign to selection skips several materials",
+        len(target.data.materials) == 0,
+        f"{[m.name for m in target.data.materials if m]}",
+    )
+    slots._assign_to_selection([mat_a], [target])
+    check(
+        "assign to selection assigns the one material",
+        list(target.data.materials) == [mat_a],
+        f"{[m.name for m in target.data.materials if m]}",
+    )
+
 except Exception as e:
     traceback.print_exc()
     check("game shader masked build raised", False, repr(e))

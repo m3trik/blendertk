@@ -16,12 +16,14 @@ the shot system's claims travel with the keys.
 
 from __future__ import annotations
 
+import math
+
 from typing import Optional
 
 from pythontk import ShotBoundaryConflict
 
-from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils.shots._shots import BlenderShotStore
+from blendertk.core_utils._core_utils import CoreUtils
 from blendertk.anim_utils._anim_utils import AnimUtils
 
 # Near-zero guard for floating-point comparisons.
@@ -62,11 +64,20 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
 
     Expects the host controller to provide ``sequencer``, ``_get_sequencer_widget()``,
     ``_shifted_out_keys``, ``_segment_cache`` / ``_sub_row_cache``,
-    ``_audio_segments_cache``, ``_syncing``, ``_save_shot_state()`` /
-    ``_discard_shot_state()``, ``_sync_to_widget()`` / ``_sync_combobox()``,
-    ``_gap_edit_epilogue()``,
+    ``_audio_segments_cache``, ``_syncing``, ``_discard_shot_state()`` (edits
+    bracket through ``sequencer.store.scene_edit()``, which records the restore
+    point), ``_sync_to_widget()`` / ``_sync_combobox()``, ``_gap_edit_epilogue()``,
     ``_set_footer()``, and ``logger``.
     """
+
+    def _edit_bracket(self, label: str):
+        """The undo bracket for a key edit: the store's ``scene_edit`` (restore
+        point + paired, named step), or a plain named step when no sequencer
+        is bound -- a key move needs no shots.  Either yields a handle whose
+        ``cancel()`` drops the step of an edit that changed nothing."""
+        if self.sequencer is not None:
+            return self.sequencer.store.scene_edit(label)
+        return CoreUtils.undo_chunk(label)
 
     def on_clip_resized(
         self, clip_id: int, new_start: float, new_duration: float
@@ -135,7 +146,6 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if widget is None or not resizes:
             return
 
-        self._save_shot_state()
         # _syncing up while our own fcurve edits run: the controller's
         # depsgraph/keyframe callbacks fire on them and would arm the
         # debounce into a SECOND full rebuild after the epilogue's own sync
@@ -146,7 +156,7 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         was_syncing = self._syncing
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Resize Clip") as edit:
                 for clip_id, new_start, new_duration in resizes:
                     label = self._resize_one_clip(
                         widget, clip_id, new_start, new_duration
@@ -155,10 +165,11 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                         continue
                     labels.append(label)
                     spans.append((new_start, new_start + new_duration))
+                if not labels:
+                    edit.cancel()
         finally:
             self._syncing = was_syncing
         if not labels:
-            self._discard_shot_state()
             return
         self._gap_edit_epilogue()
         lo = min(a for a, _b in spans)
@@ -195,8 +206,11 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 orig_end,
                 delta,
                 None,
-                lambda lo, hi, d: AudioUtils.shift_clips_in_range(
-                    lo, hi, d, names=[track_id]
+                # By NAME alone (the track id is the strip's name): a strip
+                # lands on whole frames, so a window test at the unrounded
+                # parked position could miss it and leave it parked.
+                lambda _lo, _hi, d: AudioUtils.shift_clips_in_range(
+                    -1e9, 1e9, d, names=[track_id]
                 ),
                 shown_from=clip.data.get("vis_start"),
             )
@@ -345,7 +359,10 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         floors = (
             [lo] + [s.start for s in shots] + ([lowest] if lowest is not None else [])
         )
-        park = (min(floors) - head_growth - 1000.0) - hi
+        # Whole frames: the content's net move is *delta* whatever the park,
+        # and a VSE strip can only sit on a whole frame -- a fractional park
+        # rounded twice could land it a frame off.
+        park = float(math.floor((min(floors) - head_growth - 1000.0) - hi))
         move(lo, hi, park)
         try:
             self._expand_shot_for_clip(clip, grow_lo + delta, hi + delta)
@@ -437,8 +454,9 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         clip = widget.get_clip(clip_id) if widget else None
         shot_id = clip.data.get("shot_id") if clip else None
         obj_name = clip.data.get("obj", "") if clip else ""
+        if self.sequencer is None:
+            return
 
-        self._save_shot_state()
         # Guarded commit (see on_clip_resized); the rebuild runs after the
         # guard is released — _rebuild_content resets _syncing in its own
         # finally, so a guard spanning it would be silently dropped.
@@ -446,8 +464,10 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         self._syncing = True
         refused = None
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Move Clip") as edit:
                 applied = self._apply_clip_move(clip_id, new_start)
+                if not applied:
+                    edit.cancel()
         except ShotBoundaryConflict as exc:
             applied, refused = True, exc  # a ripple may have run (see the report)
         finally:
@@ -455,7 +475,6 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if refused is not None:
             self._report_boundary_refusal(refused)
         if not applied:
-            self._discard_shot_state()
             return
         self._sync_to_widget(shot_id=shot_id)
         self._sync_combobox()
@@ -499,16 +518,19 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 if clip is not None and clip.data.get("shot_id") is not None:
                     shot_id = clip.data.get("shot_id")
                     break
-        self._save_shot_state()
+        if self.sequencer is None:
+            return
         was_syncing = self._syncing
         self._syncing = True  # see on_clip_resized — own edits must not
         needs_sync = False
         refused = None
         try:  # arm the debounce into a second rebuild
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Move Clips") as edit:
                 for clip_id, new_start in moves:
                     if self._apply_clip_move(clip_id, new_start):
                         needs_sync = True
+                if not needs_sync:
+                    edit.cancel()
         except ShotBoundaryConflict as exc:
             # Whatever landed before the refusal stands and must be drawn.
             needs_sync, refused = True, exc
@@ -517,7 +539,6 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if refused is not None:
             self._report_boundary_refusal(refused)
         if not needs_sync:
-            self._discard_shot_state()
             return
         self._sync_to_widget(shot_id=shot_id)
         self._sync_combobox()
@@ -694,15 +715,13 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         if not curve_moves:
             return
 
-        # Snapshot BEFORE any mutation — a snapshot taken after the
-        # boundary expansion records the post-edit bounds, so undo would
-        # re-apply the very expansion it should reverse.
-        self._save_shot_state()
-
+        # The restore point is pushed BEFORE any mutation (``scene_edit``) --
+        # one taken after the boundary expansion records the post-edit
+        # bounds, so undo would re-apply the very expansion it should reverse.
         was_syncing = self._syncing
         self._syncing = True  # own fcurve edits must not arm the debounce
         try:  # into a second full rebuild (issue-7 storm)
-            with CoreUtils.undo_chunk():
+            with self._edit_bracket("Move Keys"):
                 self._expand_and_compensate(curve_moves, shot_extents)
                 seq = self.sequencer
                 self._commit_curve_moves(
@@ -740,10 +759,9 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
             return
 
         deleted = False
-        # The restore point BEFORE the edit (mirror of mayatk's scene_edit):
-        # the reconcile below releases the deleted keys' claims, so a point
-        # taken after it handed undo a ledger without them.
-        self._save_shot_state()
+        # The restore point is pushed BEFORE the edit (``scene_edit``): the
+        # reconcile below releases the deleted keys' claims, so a point taken
+        # after it handed undo a ledger without them.
         # Guarded like every other edit path here: removing a keyframe point
         # tags its Action and the depsgraph handler reacts to exactly that.
         # Whether Blender delivers that synchronously is NOT measured (mayatk's
@@ -752,7 +770,7 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         was_syncing = self._syncing
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self._edit_bracket("Delete Keys") as edit:
                 for t in times:
                     for fc in curves:
                         i0, i1 = AnimUtils.window_indices(
@@ -766,11 +784,13 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
                 if deleted:
                     # A key edit like any other (``_key_scene_edit``): the claims
                     # on the deleted keys go with them and the gap holds re-settle.
-                    self.sequencer.reconcile_system_edits()
+                    if self.sequencer is not None:
+                        self.sequencer.reconcile_system_edits()
+                else:
+                    edit.cancel()  # nothing happened -- no dead restore point
         finally:
             self._syncing = was_syncing
         if not deleted:
-            self._discard_shot_state()  # nothing happened -- no dead restore point
             return
 
         shot_id = clip.data.get("shot_id")
@@ -789,8 +809,18 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         with the label the user sees, works for ``rotation_quaternion`` (a hand-kept
         reverse ``translateX→(location,0)`` map missed it and silently returned ``[]``),
         and can't drift from ``attr_label``.  Falls back to a raw ``data_path`` substring
-        for non-standard/custom-property channels.
+        only when no curve's label matches exactly -- mayatk resolves the exact plug, and
+        an unconditional substring test let a custom property named ``scale`` (or ``x``)
+        drag sibling channels into a sub-row's move, resize or delete.
         """
+        return ClipMotionMixin.curves_for_attrs(obj_name, [attr_name])
+
+    @staticmethod
+    def curves_for_attrs(obj_name: str, attr_names) -> list:
+        """:meth:`curves_for_attr` over several labels: every fcurve behind
+        *attr_names* on *obj_name*, each once -- two segments of one channel
+        are one curve, and handed twice an edit would run over it twice.  One
+        read of the object's fcurves however many labels are asked for."""
         try:
             import bpy
         except ImportError:
@@ -802,11 +832,16 @@ class ClipMotionMixin(_ClipMotionMixinInternal):
         obj = bpy.data.objects.get(obj_name)
         if obj is None:
             return []
-        return [
-            fc
-            for fc in BlenderShotStore.iter_action_fcurves(obj)
-            if SegmentCollector.attr_label(fc) == attr_name or attr_name in fc.data_path
-        ]
+        curves = list(BlenderShotStore.iter_action_fcurves(obj))
+        labels = [SegmentCollector.attr_label(fc) for fc in curves]
+        out, seen = [], set()
+        for attr in dict.fromkeys(attr_names):
+            exact = [fc for fc, label in zip(curves, labels) if label == attr]
+            for fc in exact or [fc for fc in curves if attr in fc.data_path]:
+                if fc.as_pointer() not in seen:
+                    seen.add(fc.as_pointer())
+                    out.append(fc)
+        return out
 
     @staticmethod
     def scale_attribute_keys(

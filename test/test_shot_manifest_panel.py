@@ -100,7 +100,6 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         expected = [
             "header",
             "footer",
-            "chk_csv",
             "txt_csv_path",
             "tbl_steps",
             "b002",
@@ -119,12 +118,24 @@ class TestShotManifestPanelLoads(unittest.TestCase):
                 "btn_expand_extra",
                 "btn_manifest_colors",
                 "btn_audio_clips",
+                "btn_render_effects",
                 "btn_settings",
                 "cmb_csv_mapping",
             )
             if getattr(self.ui, name, None) is None
         ]
         self.assertEqual(missing, [])
+
+    def test_render_effects_entry_opens_its_panel(self):
+        """The header's Render Effects entry opens that panel the way Audio
+        Clips and Shots open theirs -- through the host's panel registry, so
+        the window is the one tentacle's own menus show."""
+        from unittest import mock
+
+        ctrl = self.ui.slots.controller
+        with mock.patch.object(ctrl, "sb") as sb:
+            self.ui.btn_render_effects.released.emit()
+        sb.handlers.marking_menu.show.assert_called_once_with("render_effects")
 
     def test_mapping_combo_populated(self):
         """The mapping combo lists the shipped built-in templates ('(none)' + default…)."""
@@ -145,6 +156,76 @@ class TestShotManifestPanelLoads(unittest.TestCase):
         # count may be default — assert the constant is the 6-col contract.
         self.assertEqual(len(HEADERS), 6)
         self.assertEqual(HEADERS[0], "Step")
+
+    def test_template_options_render_and_apply(self):
+        """The template declares its settings: the default's options appear as
+        rows in the header menu, and acting on one changes the template in
+        effect -- no option is hard-coded in the panel."""
+        ctrl = self.ui.slots.controller
+        ctrl._apply_mapping("default", persist=False)
+        menu = self.ui.header.menu
+        find = lambda name: menu.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        for name in ("opt_step_ids", "opt_audio", "opt_fill_missing_assets"):
+            self.assertIsNotNone(find(name), name)
+
+        self.addCleanup(ctrl._apply_mapping, "default", False)  # runs second
+        self.addCleanup(ctrl._settings.setValue, "mapping_options/default", "")
+        fill, ids = find("opt_fill_missing_assets"), find("opt_step_ids")
+        fill.setChecked(True)
+        ids.setCurrentIndex(ids.findData("numbered"))
+
+        self.assertTrue(ctrl._active_mapping.get("fill_missing_assets"))
+        self.assertIn("step_pattern", ctrl._active_mapping["columns"])
+        # Saved per template: a rebuild shows the values just chosen.
+        ctrl._build_option_rows()
+        self.assertTrue(find("opt_fill_missing_assets").isChecked())
+
+    def test_object_name_pickers_offer_the_strutils_cases_and_rules(self):
+        """The case and legal-name pickers list exactly what pythontk's
+        StrUtils applies, and picking one reshapes the names the sheet's
+        prose gives."""
+        import pythontk as ptk
+
+        ctrl = self.ui.slots.controller
+        ctrl._apply_mapping("default", persist=False)
+        self.addCleanup(ctrl._apply_mapping, "default", False)  # runs second
+        self.addCleanup(ctrl._settings.setValue, "mapping_options/default", "")
+        find = lambda name: self.ui.header.menu.findChild(QtWidgets.QWidget, name)  # noqa: E731
+        case, rule = find("opt_object_case"), find("opt_object_name_rule")
+        self.assertEqual(
+            [case.itemData(i) for i in range(case.count())],
+            ["keep", *ptk.StrUtils.CASES],
+        )
+        self.assertEqual(
+            sorted(rule.itemData(i) for i in range(rule.count())),
+            sorted(["keep", *ptk.StrUtils.NAME_RULES]),
+        )
+        case.setCurrentIndex(case.findData("lower"))
+        self.assertEqual(ctrl._active_mapping["columns"]["object_case"], "lower")
+
+    def test_empty_source_shows_the_scenes_shots_with_descriptions(self):
+        """No build sheet: the table lists the store's own shots, descriptions
+        included, instead of re-detecting blank steps from animation."""
+        from blendertk import BlenderShotStore
+        from blendertk.anim_utils.shots.shot_manifest.manifest_data import COL_DESC
+
+        ctrl = self.ui.slots.controller
+        BlenderShotStore.clear_active()
+        store = BlenderShotStore.active()
+        store.define_shot(
+            "intro", 1, 40, objects=["Arm"], description="Arm reaches out"
+        )
+        self.addCleanup(BlenderShotStore.clear_active)
+        self.addCleanup(setattr, ctrl, "_store", ctrl._store)
+        ctrl._store = store
+        self.ui.txt_csv_path.setText("")
+        ctrl._populate_from_source()
+
+        self.assertEqual(ctrl._source, "scene")
+        tree = self.ui.tbl_steps
+        self.assertEqual(tree.topLevelItemCount(), 1)
+        self.assertEqual(tree.topLevelItem(0).text(COL_DESC), "Arm reaches out")
+        self.assertTrue(self.ui.txt_csv_path.isEnabled())
 
     def _populate_one_step(self, ctrl):
         """Load one synthetic step into the tree (shared by the presenter tests)."""

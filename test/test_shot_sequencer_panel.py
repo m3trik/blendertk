@@ -162,6 +162,17 @@ class TestShotSequencerPanelLoads(unittest.TestCase):
         conns = getattr(w, "_slots_connections", [])
         self.assertGreater(len(conns), 0, "no widget signals were connected")
 
+    def test_zone_menu_reaches_the_controller(self):
+        """Right-clicks emit ``zone_context_menu_requested`` (mayatk parity).
+
+        The widget only emits it once ``zone_menu_enabled`` is set; otherwise
+        every right-click falls through to its built-in default menu and the
+        shot-lane menu (Edit / New Shot / Split / Merge / Trim ...) the
+        controller wires is unreachable.
+        """
+        w = self.assertPromoted("sequencer_widget", "zone_menu_enabled")
+        self.assertTrue(w.zone_menu_enabled)
+
     def test_shot_nav_options_built(self):
         """cmb_shot carries the full mayatk-mirror option set (prev/next/add/view/refresh).
 

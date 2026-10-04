@@ -18,6 +18,7 @@ structural guards (boundary-edit routing, the sequencer's hook overrides) need
 neither Qt nor bpy.
 """
 
+import contextlib
 import os
 import sys
 import tempfile
@@ -89,6 +90,14 @@ class TestBoundaryEditRefusesInsteadOfCrashing(unittest.TestCase):
 
             def discard_boundary_snapshot(self, *a, **k):
                 self.discarded += 1
+
+            @contextlib.contextmanager
+            def scene_edit(self, label="edit", snapshot=True):
+                # The real bracket's contract: the restore point is pushed on
+                # entry, before the body runs.
+                if snapshot:
+                    self.push_boundary_snapshot()
+                yield
 
         return _Store()
 
@@ -393,6 +402,23 @@ class TestShotsPanelLoads(unittest.TestCase):
         ctrl = getattr(self.ui.slots, "controller", None)
         self.assertIsNotNone(ctrl)
         self.assertEqual(type(ctrl).__name__, "ShotsController")
+
+    def test_store_owned_settings_never_restore_from_qsettings(self):
+        """Bug: the detection threshold and mode also persisted in per-user
+        QSettings, and the panel restores them AFTER its store sync -- through
+        the slot that writes the store -- so opening the panel replaced this
+        scene's detection settings with the last ones set in any scene.
+        Fixed: 2026-10-03
+        """
+        for name in (
+            "spn_detection",
+            "cmb_detection_mode",
+            "spn_initial_length",
+            "cmb_fit_mode",
+            "chk_snap_whole_frames",
+        ):
+            widget = getattr(self.ui, name)
+            self.assertFalse(getattr(widget, "restore_state", True), name)
 
     def test_all_referenced_widgets_exist(self):
         expected = [

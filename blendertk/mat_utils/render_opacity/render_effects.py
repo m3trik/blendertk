@@ -8,7 +8,9 @@ warning until blendertk 0.11.0).
 Adds a keyable custom property per channel to objects — ``opacity`` (0-1) and ``highlight`` with its
 colour ramp — the channels the deliverables carry. ``key_fade`` animates a fade and, for opacity,
 **mirrors it onto the object's render visibility** (stepped, hidden when opacity ≤ 0), as mayatk
-mirrors it onto ``visibility``. The exports read the authored channels, not that mirror: for an FBX
+mirrors it onto ``visibility``. ``key_fade`` / ``key_pulse`` key from the scene's effect recipe
+(``scene_recipe``) unless told otherwise, as the Shot Manifest's build does through ``apply_effect``
+-- every key landing through the one writer, ``write_keys``. The exports read the authored channels, not that mirror: for an FBX
 write ``prepare_for_export`` stages one transient curve proxy per keyed channel (a child
 ``<object>__<channel>`` whose ``scale.x`` carries the curve; ``finish_export`` removes them), which
 Unity's ``RenderEffectsImporter`` rebinds -- it reconstructs a fade from the visibility mirror only
@@ -291,13 +293,14 @@ class RenderEffects(ptk.LoggingMixin):
         ``mode`` mirrors mayatk: ``"attribute"`` adds the prop, ``"remove"``
         delegates to :meth:`remove`, and anything else -- the retired
         ``"material"`` included -- is refused (logged, ``{}`` returned) before
-        any object is touched. Objects with existing visibility keys raise
-        unless *delete_visibility_keys* is True.
+        any object is touched. Only the named *channel*'s prior state is
+        cleared. For the opacity (presence) channel alone, objects with
+        existing visibility keys raise unless *delete_visibility_keys* is True.
         """
         if mode not in ("attribute", "remove"):
-            # Refused up front, as mayatk does: past this point the objects'
-            # prior state (and, with delete_visibility_keys, their visibility
-            # keys) is cleared.
+            # Refused up front, as mayatk does: past this point the channel's
+            # prior state (and, with delete_visibility_keys, the objects'
+            # visibility keys) is cleared.
             cls.logger.error(f"Unknown mode: {mode}")
             return {}
 
@@ -306,7 +309,14 @@ class RenderEffects(ptk.LoggingMixin):
             cls.logger.warning("No objects selected.")
             return {}
 
-        vis_keyed = cls.objects_with_visibility_keys(objects)
+        # The presence channel's guard alone (mirror of mayatk): a highlight never
+        # writes render visibility, so an object's fade mirror is no reason to
+        # refuse one.
+        vis_keyed = (
+            cls.objects_with_visibility_keys(objects)
+            if channel == cls.ATTR_NAME
+            else []
+        )
         if vis_keyed:
             names = [o.name for o in vis_keyed]
             if delete_visibility_keys:
@@ -320,7 +330,10 @@ class RenderEffects(ptk.LoggingMixin):
                     "Keys' or remove them manually before applying opacity."
                 )
 
-        cls.remove(objects)  # always clean prior state first (legacy drivers too)
+        # Clean the named channel's prior state first (legacy drivers too) --
+        # only that channel, as mayatk: removing them all wiped a fading
+        # object's opacity keys to give it a highlight.
+        cls.remove(objects, channel=channel)
         if mode == "remove":
             return {}
 
@@ -334,19 +347,19 @@ class RenderEffects(ptk.LoggingMixin):
         return results
 
     @classmethod
-    def _ensure_highlight_props(
-        cls, obj, color=(0.0, 0.088656, 0.723055), dim_color=(0.0, 0.0, 0.0)
-    ):
+    def _ensure_highlight_props(cls, obj, color=None, dim_color=None):
         """Seed ``highlight`` (0-1, keyable) and both ends of its colour ramp.
 
-        The bright end is LINEAR light: the linear value OF #0054DD, which
-        is what the 8-bit colour editor hands back for it, matching mayatk's
-        ``highlight`` attribute preset and the panel's seed.
-
-        The dim end seeds BLACK on purpose: the published ramp rides between
-        the two ends, so a black low end collapses it to the one-colour shape
-        this channel had before the end existed.
+        An end the object already carries is kept: colours are written only
+        where the channel is being created. Unstated ends take the effect
+        recipe's defaults (``ptk.EffectRecipe``) -- the bright end the linear
+        value OF #0054DD, matching mayatk's ``highlight`` attribute preset; the
+        dim end BLACK on purpose, so the published ramp collapses to the
+        one-colour shape this channel had before the end existed.
         """
+        defaults = ptk.EffectRecipe().colors
+        color = defaults[0] if color is None else color
+        dim_color = defaults[1] if dim_color is None else dim_color
         if cls.HIGHLIGHT_ATTR not in obj:
             obj[cls.HIGHLIGHT_ATTR] = 0.0
         try:
@@ -395,9 +408,9 @@ class RenderEffects(ptk.LoggingMixin):
         objects=None,
         start=0,
         end=100,
-        period=86,
-        bright_fraction=0.59,
-        ramp_fraction=0.25,
+        period=None,
+        bright_fraction=None,
+        ramp_fraction=None,
         lead_in=None,
         lead_out=None,
         color=None,
@@ -406,14 +419,24 @@ class RenderEffects(ptk.LoggingMixin):
         channel="highlight",
         delete_visibility_keys=False,
         whole_frames=True,
+        recipe=None,
     ):
-        """Key a repeating bright/dim pulse on the highlight prop over ``start..end``.
+        """Key a repeating bright/dim pulse on *channel*'s prop over ``start..end``.
+
+        The highlight by default; on the opacity channel it is a blink (no
+        render-visibility mirror, as mayatk). A colour for a channel with no
+        colour ramp is skipped.
 
         Mirror of mayatk's ``RenderEffects.key_pulse``: four LINEAR keys per
         cycle (bright hold, ramp down, dim hold, ramp up), because the published
-        ramp is read linearly. The defaults are the cadence measured on the
-        WebXR reference at 30 fps. Channel creation is owned here too (see
-        :meth:`_ensure_channel`).
+        ramp is read linearly. Every cadence argument left ``None`` -- *period*
+        and the leads in FRAMES -- comes from *recipe* (the scene's,
+        :meth:`scene_recipe`, when omitted) at the scene's rate, so a pulse keyed
+        at 24 fps beats as one keyed at 30; a lead left ``None`` beside a given
+        *period* or *ramp_fraction* is that cycle's own ramp. Channel creation is owned here too
+        (see :meth:`_ensure_channel`); a channel created here takes the recipe's
+        colours, and *color* / *dim_color* are written over them when given.
+        The keys already in the window are replaced.
 
         The train is bracketed by dim keys at *start* and *end*, because an
         F-Curve holds its first key value backwards and its last forwards: a
@@ -431,28 +454,40 @@ class RenderEffects(ptk.LoggingMixin):
         Returns the keyed objects' names.
         """
         objects = cls._resolve(objects)
+        recipe = recipe or cls.scene_recipe()
+        cadence = recipe.pulse_cadence(cls._scene_fps() or recipe.REFERENCE_FPS)
+        given = {
+            "period": period,
+            "bright_fraction": bright_fraction,
+            "ramp_fraction": ramp_fraction,
+            "lead_in": lead_in,
+            "lead_out": lead_out,
+        }
+        if period is not None or ramp_fraction is not None:
+            # A caller's own cycle: a lead it does not state is that cycle's
+            # own ramp (the writer's rule), not the recipe's seconds -- which
+            # fit only the recipe's cycle.
+            cadence["lead_in"] = cadence["lead_out"] = None
+        cadence.update({k: v for k, v in given.items() if v is not None})
         # Planned once, host-free (``ptk.RampKeys.pulse``) -- the plan mayatk's
         # writer keys and the WebXR preview publishes without keying.
-        plan = ptk.RampKeys.pulse(
-            start,
-            end,
-            period,
-            bright_fraction=bright_fraction,
-            ramp_fraction=ramp_fraction,
-            lead_in=lead_in,
-            lead_out=lead_out,
-            whole_frames=whole_frames,
-        )
+        plan = ptk.RampKeys.pulse(start, end, whole_frames=whole_frames, **cadence)
         if not objects or not plan:
             return []
+        # The channel asked for -- this keyed the highlight whatever it was
+        # given, so an opacity pulse lit the object instead of blinking it.
         cls._ensure_channel(
-            objects, cls.HIGHLIGHT_ATTR, auto_create, delete_visibility_keys
+            objects,
+            channel,
+            auto_create,
+            delete_visibility_keys,
+            colors=recipe.colors,
         )
         start, end = plan[0][0], plan[-1][0]
-        path = f'["{cls.HIGHLIGHT_ATTR}"]'
+        path = f'["{channel}"]'
         keyed = []
         for obj in objects:
-            if cls.HIGHLIGHT_ATTR not in obj:
+            if channel not in obj:
                 continue
             fc = cls._fcurve(obj, path)
             if fc is not None:
@@ -466,12 +501,16 @@ class RenderEffects(ptk.LoggingMixin):
                 ]
                 for i in reversed(hits):
                     fc.keyframe_points.remove(fc.keyframe_points[i])
-            for frame, value in plan:
-                cls._set_key(obj, path, frame, value, "LINEAR")
+            # A blink on the presence channel stays one: no visibility mirror.
+            cls.write_keys(obj, plan, channel, "LINEAR", mirror=False)
             for stop, value in (("hi", color), ("lo", dim_color)):
                 if value is None:
                     continue
-                obj[cls._color_attr(channel, stop)] = [float(c) for c in value[:3]]
+                try:
+                    attr = cls._color_attr(channel, stop)
+                except ValueError:  # no colour ramp on this channel; mayatk skips
+                    continue
+                obj[attr] = [float(c) for c in value[:3]]
             keyed.append(obj.name)
         return keyed
 
@@ -837,20 +876,18 @@ class RenderEffects(ptk.LoggingMixin):
         return True if prev is None else prev < 0.5
 
     @classmethod
-    def _ensure_channel(cls, objects, channel, auto_create, delete_visibility_keys):
+    def _ensure_channel(
+        cls, objects, channel, auto_create, delete_visibility_keys, colors=None
+    ):
         """Give *objects* the channel's prop before keying.
 
         Mirror of mayatk's ``RenderEffects._ensure_channel``. Objects lacking the
-        prop get it; with *delete_visibility_keys* the opacity channel's create
-        path clears their render-visibility keys first, otherwise the keying
-        mirror writes over whatever is there -- NOT via :meth:`create`, whose
-        guard would raise.
+        prop get it -- a highlight with *colors* (``(bright, dim)``, the
+        recipe's) on the ends it does not carry yet; with
+        *delete_visibility_keys* the opacity channel's create path clears their
+        render-visibility keys first, otherwise the keying mirror writes over
+        whatever is there -- NOT via :meth:`create`, whose guard would raise.
         """
-        ensure = (
-            cls._ensure_highlight_props
-            if channel == cls.HIGHLIGHT_ATTR
-            else cls._ensure_opacity_prop
-        )
         if auto_create:
             for o in objects:
                 if channel in o:
@@ -858,37 +895,43 @@ class RenderEffects(ptk.LoggingMixin):
                 if delete_visibility_keys and channel == cls.ATTR_NAME:
                     cls._remove_fc(o, cls._fcurve(o, cls.VIS_PATH))
                     o.hide_render = False
-                ensure(o)
+                if channel == cls.HIGHLIGHT_ATTR:
+                    cls._ensure_highlight_props(o, *(colors or (None, None)))
+                else:
+                    cls._ensure_opacity_prop(o)
 
     @classmethod
     def key_fade(
         cls,
         objects=None,
         start=0,
-        end=15,
+        end=None,
         direction="in",
         auto_create=True,
         tangent="LINEAR",
         delete_visibility_keys=False,
         channel="opacity",
         whole_frames=True,
+        recipe=None,
     ):
         """Key an opacity fade (linear) and mirror it to render visibility (stepped).
 
         ``direction``: ``"in"`` (0→1), ``"out"`` (1→0), or ``"auto"`` (from the last key).
-        Channel creation is owned here (see :meth:`_ensure_channel`). ``channel`` picks the prop
-        (mirror of mayatk's); only the opacity channel mirrors to render visibility.
-        *whole_frames* (the default) snaps the window to whole frames.
+        *end* defaults to *start* plus the effect recipe's ``fade_frames`` (*recipe*, the
+        scene's when omitted). Channel creation is owned here (see :meth:`_ensure_channel`).
+        ``channel`` picks the prop (mirror of mayatk's); only the opacity channel mirrors to
+        render visibility. *whole_frames* (the default) snaps the window to whole frames.
         Returns ``[(object_name, "in"|"out")]``.
         """
         objects = cls._resolve(objects)
         if not objects:
             cls.logger.warning("No objects selected.")
             return []
+        if end is None:
+            end = float(start) + (recipe or cls.scene_recipe()).fade_frames
         start, end = ptk.RampKeys.frames(whole_frames, start, end)
         cls._ensure_channel(objects, channel, auto_create, delete_visibility_keys)
 
-        path = f'["{channel}"]'
         keyed = []
         for obj in objects:
             if channel not in obj:
@@ -902,16 +945,114 @@ class RenderEffects(ptk.LoggingMixin):
             plan = ptk.RampKeys.fade(
                 start, end, "in" if fade_in else "out", whole_frames=False
             )
-            for frame, value in plan:
-                cls._set_key(obj, path, frame, value, tangent)
-            if channel == cls.ATTR_NAME:
-                # Visibility mirror: hidden (hide_render=1) when opacity ≤ 0, else visible; stepped.
-                for frame, value in plan:
-                    cls._set_key(
-                        obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
-                    )
+            cls.write_keys(obj, plan, channel, tangent)
             keyed.append((obj.name, "in" if fade_in else "out"))
         return keyed
+
+    @classmethod
+    def write_keys(cls, obj, keys, channel="opacity", interp="LINEAR", mirror=None):
+        """Key a planned ``[(frame, value), ...]`` on *obj*'s channel prop -- the
+        one writer every render effect keys through (mirror of mayatk's
+        ``OpacityAttributeMode.write_keys``).
+
+        It deletes nothing: a caller replacing keys takes out its own first.
+        *mirror* keys the stepped ``hide_render`` mirror too (hidden when the
+        value is ``<= 0``); by default when *channel* is the presence channel.
+
+        Returns:
+            ``(ledger curve key, frame)`` for every key set, the mirror's
+            included -- what the manifest records as its own.
+        """
+        # The ledger's curve spelling is the shot store's, reached through
+        # the record owners (it sits above this layer).
+        store = cls.scene_store()
+        if mirror is None:
+            mirror = channel == cls.ATTR_NAME
+        path = f'["{channel}"]'
+        written = []
+        for frame, value in keys:
+            cls._set_key(obj, path, frame, value, interp)
+            written.append((store.curve_key(obj.name, path), float(frame)))
+            if mirror:
+                cls._set_key(
+                    obj, cls.VIS_PATH, frame, 0.0 if value > 0 else 1.0, "CONSTANT"
+                )
+                written.append((store.curve_key(obj.name, cls.VIS_PATH), float(frame)))
+        return written
+
+    @staticmethod
+    def scene_store():
+        """The class holding the scene's effect recipe -- the shot store. It
+        sits above this layer, so it is reached through the record owners
+        (``DataNodes.owner``), never imported; ``None`` when unavailable."""
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        return DataNodes.owner(ptk.SceneRecords.SHOT_STORE.key)
+
+    @classmethod
+    def scene_recipe(cls):
+        """The scene's effect recipe -- the shot store's, which the Render
+        Effects panel edits and the Shot Manifest's build keys with; the
+        defaults when no store can be had (mirror of mayatk's)."""
+        try:
+            return cls.scene_store().active().effect_recipe
+        except Exception:
+            return ptk.EffectRecipe()
+
+    #: The channel each recipe effect keys (mirror of mayatk's).
+    EFFECT_CHANNELS = {
+        "fade_in": "opacity",
+        "fade_out": "opacity",
+        "pulse": "highlight",
+    }
+
+    @classmethod
+    def apply_effect(
+        cls,
+        obj,
+        effect,
+        start,
+        end,
+        recipe=None,
+        fps=None,
+        place=None,
+        anchor=None,
+    ):
+        """Key one recipe effect on *obj*, placed in the range ``start..end``.
+
+        The Shot Manifest's writer -- mirror of mayatk's ``apply_effect``: the
+        plan :meth:`key_fade` / :meth:`key_pulse` key by hand
+        (``ptk.EffectRecipe.plan``), placed where a behavior template puts it
+        (``EffectRecipe.window``), written by :meth:`write_keys`. It deletes
+        nothing, and writes the recipe's colours only on a channel it creates.
+
+        Returns:
+            ``(ledger curve key, frame)`` for every key written.
+
+        Raises:
+            ValueError: An effect with no channel (``"clip"`` places audio).
+            RuntimeError: *obj* not in the scene.
+        """
+        import bpy
+
+        channel = cls.EFFECT_CHANNELS.get(effect)
+        if channel is None:
+            raise ValueError(f"The {effect!r} effect keys no render channel.")
+        node = bpy.data.objects.get(obj) if isinstance(obj, str) else obj
+        if node is None:
+            raise RuntimeError(f"Object '{obj}' not found in the scene")
+        recipe = recipe or cls.scene_recipe()
+        fps = float(fps or cls._scene_fps() or recipe.REFERENCE_FPS)
+        if place is None:
+            place = "end" if effect == "fade_out" else "start"
+        plan = recipe.plan(
+            effect, *recipe.window(effect, start, end, place, anchor), fps
+        )
+        if channel == cls.HIGHLIGHT_ATTR:
+            cls._ensure_highlight_props(node, *recipe.colors)
+        else:
+            cls._ensure_opacity_prop(node)
+        return cls.write_keys(node, plan, channel)
 
     @classmethod
     def sync_visibility_from_opacity(cls, objects=None) -> None:
@@ -1087,9 +1228,9 @@ class RenderEffects(ptk.LoggingMixin):
         ``KHR_animation_pointer`` alpha, which is why :meth:`_linear_ramp`
         matters: that consumer reads the ramp linearly.
 
-        Also publishes ``clip_span`` -- per take, the first and last authored
-        frame inside its window (the take's own zero: the converter rebases a
-        clip onto its first authored key).  The whole-timeline entry is the
+        Also publishes ``clip_span`` -- per take, its window (the take's own
+        zero: Blender's split bakes every frame of it, and the converter
+        rebases a clip onto its first key).  The whole-timeline entry is the
         exporter's ``ctx.clip_span`` when the pipeline measured one (the first
         and last frame the stack CARRIES), else the bake range as a seed.
 
@@ -1135,12 +1276,20 @@ class RenderEffects(ptk.LoggingMixin):
         # Widened by THIS assembly's takes: the carrier still holds the last
         # export's until the snapshot commits.
         stack_range = ctx.clip_span or FbxUtils.bake_range(takes)
+        spans = ptk.MeshConvert.clip_spans(
+            cls._scene_key_frames(), (), stack_range=stack_range
+        )
+        # Each take's span is its WINDOW: Blender's split bakes every frame of
+        # it, so the converter opens the clip at the window's start, not at the
+        # take's first authored key (measured 2026-10-04: ShotB 21-40 opened at
+        # 21 with its first key at 30, and a gate placed against 30 lost the
+        # shot's visible run). mayatk's split keeps a take to its authored
+        # keys, and publishes those.
+        spans.update(
+            {take["name"]: [float(take["start"]), float(take["end"])] for take in takes}
+        )
         payload = ptk.MeshConvert.build_visibility_tracks(
-            tracks,
-            fps=fps,
-            clip_spans=ptk.MeshConvert.clip_spans(
-                cls._scene_key_frames(), takes, stack_range=stack_range
-            ),
+            tracks, fps=fps, clip_spans=spans
         )
         if payload is None:
             return None

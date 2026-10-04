@@ -316,7 +316,7 @@ The button beside the field is Adaptive Sampling: each texel stops once its nois
             <number>4096</number>
            </property>
            <property name="value">
-            <number>256</number>
+            <number>1024</number>
            </property>
           </widget>
          </item>

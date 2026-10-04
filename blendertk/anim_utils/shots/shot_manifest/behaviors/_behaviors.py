@@ -9,8 +9,11 @@ in ``pythontk.core_utils.engines.shots.manifest.behaviors`` (JSON templates,
 shared with mayatk); :class:`Behaviors` extends that engine class.  This module
 supplies the **scene-touching** half:
 
-- :meth:`Behaviors.apply_behavior` / :meth:`Behaviors.apply_to_shots` key the
-  template's keyframes onto ``bpy`` objects.  Maya's ``opacity`` ↔
+- :meth:`Behaviors.apply_behavior` keys a template onto ``bpy`` objects -- an
+  ``effect`` template (the built-in fades and highlight) through
+  ``RenderEffects.apply_effect`` from the scene's effect recipe, the keys the
+  Render Effects panel writes by hand; :meth:`Behaviors.apply_to_shots` binds
+  the engine's build loop to Blender's checks.  Maya's ``opacity`` ↔
   ``visibility`` dual-keying maps to :class:`RenderEffects`'s ``opacity``
   custom property (smooth channel, drives material alpha) mirrored onto a
   stepped ``hide_render`` curve (the native render-visibility channel);
@@ -24,7 +27,6 @@ supplies the **scene-touching** half:
   strip's path).
 """
 
-import inspect
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -191,21 +193,6 @@ class _BehaviorsInternal(object):
         return abs(s - start) < 0.5 and (start - 0.5) <= e <= (end + 0.5)
 
     @staticmethod
-    def _binds(fn, *args, **kwargs) -> bool:
-        """True when *fn* accepts the given call shape (no call is made).
-
-        Callables without an introspectable signature (some builtins, C
-        extensions, mocks) are assumed to accept the full modern contract.
-        """
-        try:
-            inspect.signature(fn).bind(*args, **kwargs)
-            return True
-        except TypeError:
-            return False
-        except ValueError:
-            return True
-
-    @staticmethod
     def _ensure_opacity(obj) -> None:
         """Seed the :class:`RenderEffects` ``opacity`` property on *obj* when
         absent (Maya: ``OpacityAttributeMode.create``).
@@ -240,8 +227,20 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         search_path: Optional[Path] = None,
         source_path: str = "",
         anchor_override: Optional[str] = None,
-    ) -> None:
+        recipe: Optional[Any] = None,
+        fps: Optional[float] = None,
+    ) -> List[Tuple[str, float]]:
         """Apply a named behavior template to an object over a time range.
+
+        Returns ``(curve_key, time)`` for every key it set, the curve named
+        by :meth:`BlenderShotStore.curve_key` -- what the manifest records as
+        its own (``ShotEditLedger``), so a re-apply can replace exactly those.
+        An audio clip returns ``[]`` (its strip belongs to the audio track).
+
+        A template naming an ``effect`` is keyed by
+        ``RenderEffects.apply_effect`` from *recipe* (the scene's effect recipe
+        when omitted), placed by the template's ``place`` and
+        *anchor_override* -- mirror of mayatk's.
 
         Templates targeting ``visibility`` or ``opacity`` are dual-keyed the
         Blender-native way: the value lands on :class:`RenderEffects`'s
@@ -266,6 +265,8 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 Used by :meth:`apply_to_shots` to place behaviors based on
                 their position in the object's behavior list rather than
                 relying on hardcoded template anchors.
+            recipe: The scene's ``ptk.EffectRecipe``; queried when omitted.
+            fps: The scene's rate; queried when omitted.
 
         Raises:
             RuntimeError: Blender (``bpy``) unavailable, or *obj* not in the
@@ -282,9 +283,25 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         verify_mode = (template.get("verify") or {}).get("mode", "")
         if verify_mode == "audio_clip":
             Behaviors.apply_audio_clip(obj, start, end, source_path=source_path)
-            return
+            return []
 
         from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+        from blendertk.anim_utils.shots._shots import BlenderShotStore
+
+        effect = Behaviors.effect_of(template)
+        if effect is not None:
+            return RenderEffects.apply_effect(
+                str(obj),
+                effect,
+                start,
+                end,
+                recipe=recipe,
+                fps=fps,
+                place=Behaviors.place_of(template),
+                anchor=anchor_override,
+            )
+
+        written: List[Tuple[str, float]] = []
 
         node = bpy.data.objects.get(str(obj))
         if node is None:
@@ -296,6 +313,8 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         template_attrs = template.get("attributes", {})
         if "visibility" in template_attrs or "opacity" in template_attrs:
             _BehaviorsInternal._ensure_opacity(node)
+        if RenderEffects.HIGHLIGHT_ATTR in template_attrs:
+            RenderEffects._ensure_highlight_props(node)
 
         for attr_name, attr_def in template_attrs.items():
             if attrs and attr_name not in attrs:
@@ -321,6 +340,9 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                     RenderEffects._set_key(
                         node, target_path, k["time"], k["value"], interp
                     )
+                    written.append(
+                        (BlenderShotStore.curve_key(node.name, target_path), k["time"])
+                    )
                     # Mirror: stepped render-visibility key so exports carry a
                     # real visibility curve (hide_render is the inverse).
                     if mirror_to_vis:
@@ -331,6 +353,32 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                             0.0 if k["value"] > 0 else 1.0,
                             "CONSTANT",
                         )
+                        written.append(
+                            (
+                                BlenderShotStore.curve_key(
+                                    node.name, RenderEffects.VIS_PATH
+                                ),
+                                k["time"],
+                            )
+                        )
+        return written
+
+    @staticmethod
+    def behavior_paths(obj, behavior_name: str) -> List[str]:
+        """The fcurve data paths *behavior_name* keys on *obj*: its template's
+        channels as :meth:`apply_behavior` targets them, plus the stepped
+        ``hide_render`` mirror a presence channel brings.  ``[]`` when the
+        template does not exist."""
+        from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
+
+        try:
+            attrs = Behaviors.keyed(behavior_name).get("attributes") or {}
+        except (FileNotFoundError, ValueError):
+            return []
+        paths = {_BehaviorsInternal._data_path_for(obj, a)[0] for a in attrs}
+        if set(attrs) & {"visibility", "opacity"}:
+            paths.add(RenderEffects.VIS_PATH)
+        return sorted(paths)
 
     @staticmethod
     def verify_behavior(
@@ -341,6 +389,8 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         search_path: Optional[Path] = None,
         keyframe_fn: Optional[Any] = None,
         anchor_override: Optional[Any] = None,
+        recipe: Optional[Any] = None,
+        fps: Optional[float] = None,
     ) -> bool:
         """Check whether expected behavior keyframes exist on an object.
 
@@ -372,11 +422,16 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 (multi-behavior objects), ``exact`` verification must model
                 the same anchor or it checks the template's default
                 positions and permanently flags the object as broken.
+            recipe: The scene's effect recipe -- an ``effect`` template is
+                checked as :meth:`Behaviors.keyed` states it under *recipe*.
+            fps: The scene's rate, for an effect's lengths.
 
         Returns:
             ``True`` if every expected keyframe is found.
         """
-        template = Behaviors.load_behavior(behavior_name, search_path)
+        template = Behaviors.keyed(
+            Behaviors.load_behavior(behavior_name, search_path), recipe, fps
+        )
         verify_mode = (template.get("verify") or {}).get("mode", "exact")
 
         # Audio clip verification — strip exists at the shot start.
@@ -536,49 +591,19 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
         exists_fn=None,
         has_keys_fn=None,
         store=None,
+        resolve_fn=None,
+        conflict_fn=None,
+        release_fn=None,
     ) -> Dict[str, list]:
         """Apply declared behaviors from shot metadata to Blender objects.
 
-        Reads ``metadata["behaviors"]`` from each shot and applies keyframe
-        patterns via *apply_fn*.  Objects with existing keyframes in the
-        shot range are skipped to avoid overwriting user animation; locked
-        and zero-duration shots are never touched.
-
-        Audio-grow (expanding shot.end to fit audio clips and rippling
-        downstream shots) is handled upstream by
-        ``ShotManifest._compute_plan`` / ``_execute_plan``.  By the time
-        this function runs, ``shot.start`` / ``shot.end`` are already at
-        their final positions.
-
-        Processing uses a **two-pass-per-shot** design:
-
-        1. **Audio pass** — audio entries are applied first so their strips
-           exist before non-audio anchors are computed.
-        2. **Non-audio pass** — fade and other behavior entries are applied
-           using the finalized ``shot.start`` / ``shot.end``.  Positional
-           anchors are computed here.
-
-        Parameters:
-            shots: :class:`ShotBlock` instances to process.
-            apply_fn: Callable ``(obj, behavior, start, end)`` that applies
-                a behavior template.  May optionally accept ``source_path``
-                and/or ``anchor_override`` keywords — support is detected
-                once via signature introspection and the richest supported
-                form is used.
-            exists_fn: Callable ``(name) -> bool`` that checks whether an
-                object exists in the scene.  Defaults to ``bpy.data.objects``
-                (audio entries: a placed strip, or a ``source_path`` to place).
-            has_keys_fn: Callable ``(obj, start, end) -> bool``.  Defaults
-                to checking fcurve keys in range (audio: strip placed at
-                the shot start).
-            store: Accepted for signature parity with mayatk; unused.
-
-        Returns:
-            Dict with ``"applied"``, ``"skipped"``, and ``"failed"`` lists
-            of dicts containing ``object``, ``behavior``, and ``shot`` keys
-            (``failed`` entries also carry ``error``).  A failing entry —
-            e.g. keying a library-linked object — is recorded and the batch
-            continues instead of aborting the remaining behaviors mid-build.
+        The engine's build loop (``ptk`` ``Behaviors.apply_to_shots`` -- two
+        passes per shot, guards settled before anything is keyed, every
+        previous key released first) bound to Blender's checks: *exists_fn*
+        defaults to ``bpy.data.objects`` (an audio entry: a placed strip, or a
+        ``source_path`` to place) and *has_keys_fn* to fcurve keys in the range
+        (an audio entry: its strip placed at the shot start).  The other
+        parameters and the result are the engine's (mirror of mayatk's).
         """
         try:
             import bpy
@@ -604,9 +629,6 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                 return False
             return obj_name in bpy.data.objects
 
-        if exists_fn is None:
-            exists_fn = _default_exists
-
         def _default_has_keys(obj_name, start, end, entry=None):
             if entry is not None and _is_audio(entry):
                 return _BehaviorsInternal._verify_audio_clip(obj_name, start, end)
@@ -624,148 +646,13 @@ class Behaviors(_PyBehaviors, _BehaviorsInternal):
                     return True
             return False
 
-        if has_keys_fn is None:
-            has_keys_fn = _default_has_keys
-
-        # Adapters so callers that pass their own fns (old 3-arg signature)
-        # still work, while default fns may use the entry for audio dispatch.
-        # Signature support is probed once via ``inspect`` binding — calling
-        # inside ``except TypeError`` would conflate "wrong signature" with
-        # genuine TypeErrors raised *inside* the callable.
-        exists_takes_entry = _BehaviorsInternal._binds(exists_fn, "", None)
-        has_keys_takes_entry = _BehaviorsInternal._binds(
-            has_keys_fn, "", 0.0, 0.0, None
+        return _PyBehaviors.apply_to_shots(
+            shots,
+            apply_fn,
+            exists_fn=exists_fn if exists_fn is not None else _default_exists,
+            has_keys_fn=has_keys_fn if has_keys_fn is not None else _default_has_keys,
+            store=store,
+            resolve_fn=resolve_fn,
+            conflict_fn=conflict_fn,
+            release_fn=release_fn,
         )
-        apply_takes_anchor = _BehaviorsInternal._binds(
-            apply_fn, "", "", 0.0, 0.0, source_path="", anchor_override=0.0
-        )
-        apply_takes_source = _BehaviorsInternal._binds(
-            apply_fn, "", "", 0.0, 0.0, source_path=""
-        )
-
-        def _call_exists(obj_name, entry):
-            if exists_takes_entry:
-                return exists_fn(obj_name, entry)
-            return exists_fn(obj_name)
-
-        def _call_has_keys(obj_name, start, end, entry):
-            if has_keys_takes_entry:
-                return has_keys_fn(obj_name, start, end, entry)
-            return has_keys_fn(obj_name, start, end)
-
-        def _call_apply(obj_name, behavior, shot, source_path, anchor):
-            if anchor is not None and apply_takes_anchor:
-                apply_fn(
-                    obj_name,
-                    behavior,
-                    shot.start,
-                    shot.end,
-                    source_path=source_path,
-                    anchor_override=anchor,
-                )
-            elif apply_takes_source:
-                apply_fn(
-                    obj_name, behavior, shot.start, shot.end, source_path=source_path
-                )
-            else:
-                apply_fn(obj_name, behavior, shot.start, shot.end)
-
-        applied: list = []
-        skipped: list = []
-        failed: list = []
-
-        def _record_failure(obj_name, behavior, shot, exc):
-            log.warning(
-                "Behavior '%s' on '%s' (shot %s) failed: %s",
-                behavior,
-                obj_name,
-                shot.name,
-                exc,
-            )
-            failed.append(
-                {
-                    "object": obj_name,
-                    "behavior": behavior,
-                    "shot": shot.name,
-                    "error": str(exc),
-                }
-            )
-
-        for shot in shots:
-            if shot.locked:
-                continue  # user-finalized — never modified
-            if abs(shot.end - shot.start) < 1e-6:
-                continue  # nothing to key over
-
-            entries = shot.metadata.get("behaviors", [])
-
-            # Pass 1 — audio entries first so their strips exist before the
-            # non-audio behaviors compute positional anchors.
-            for entry in entries:
-                obj_name = entry.get("name", "")
-                behavior = entry.get("behavior", "")
-                if not behavior or not obj_name or not _is_audio(entry):
-                    continue
-                if not _call_exists(obj_name, entry):
-                    continue
-                rec = {"object": obj_name, "behavior": behavior, "shot": shot.name}
-                if _call_has_keys(obj_name, shot.start, shot.end, entry):
-                    skipped.append(rec)  # strip already placed
-                    continue
-                try:
-                    _call_apply(
-                        obj_name, behavior, shot, entry.get("source_path") or "", 0.0
-                    )
-                except Exception as exc:
-                    _record_failure(obj_name, behavior, shot, exc)
-                    continue
-                applied.append(rec)
-
-            # Pass 2 — non-audio entries over the finalized shot range.
-            non_audio = [e for e in entries if not _is_audio(e)]
-            obj_indices: Dict[str, int] = {}  # obj_name → count seen so far
-            obj_counts: Dict[str, int] = {}  # obj_name → total behaviors
-            # The existing-keys guard is evaluated ONCE per object, before any
-            # of its behaviors are applied: the first applied behavior keys the
-            # object, and a per-entry re-check would then skip its remaining
-            # behaviors (a "fade_in, fade_out" object would only ever get the
-            # fade_in).
-            obj_keyed: Dict[str, bool] = {}
-            for entry in non_audio:
-                n = entry.get("name", "")
-                if n:
-                    obj_counts[n] = obj_counts.get(n, 0) + 1
-                    if n not in obj_keyed:
-                        obj_keyed[n] = _call_has_keys(n, shot.start, shot.end, entry)
-
-            for entry in non_audio:
-                obj_name = entry.get("name", "")
-                behavior = entry.get("behavior", "")
-                if not behavior or not obj_name:
-                    continue
-                if not _call_exists(obj_name, entry):
-                    continue  # missing object — surfaced by assess, not here
-                rec = {"object": obj_name, "behavior": behavior, "shot": shot.name}
-                if obj_keyed.get(obj_name):
-                    skipped.append(rec)  # existing keys — never overwrite
-                    continue
-
-                # Positional anchor: distribute evenly across the shot when
-                # an object carries 2+ behaviors (2 → 0.0, 1.0; 3 → 0.0,
-                # 0.5, 1.0; N → idx / max(total-1, 1)).  A single behavior
-                # keeps its template anchor (e.g. ``anchor: end`` for
-                # fade_out).
-                idx = obj_indices.get(obj_name, 0)
-                obj_indices[obj_name] = idx + 1
-                total = obj_counts.get(obj_name, 1)
-                anchor = idx / max(total - 1, 1) if total > 1 else None
-                try:
-                    _call_apply(
-                        obj_name, behavior, shot, entry.get("source_path") or "", anchor
-                    )
-                except Exception as exc:
-                    _record_failure(obj_name, behavior, shot, exc)
-                    continue
-                applied.append(rec)
-
-        return {"applied": applied, "skipped": skipped, "failed": failed}

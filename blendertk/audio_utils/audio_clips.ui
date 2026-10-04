@@ -96,8 +96,8 @@
          <property name="toolTip">
           <string>Sound clips (VSE strips) in this scene.
 
-Use the folder icon to browse for audio files to add,
-or the option box to rename, replace, or remove clips.</string>
+The option box adds, renames, replaces
+or removes clips.</string>
          </property>
         </widget>
        </item>

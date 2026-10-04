@@ -235,6 +235,87 @@ try:
         right_blue and left_checker,
     )
 
+    # --- a target JOINED from several sources reads them all ---------------
+    # Joined with B active (B's faces first, the reverse of the source list),
+    # then laid out: B's face on the right half, A's on the left.
+    reset()
+    ja = plane("joinA")
+    ja.data.materials.append(material("joinTexMat", texture=checker_path))
+    jb = plane("joinB")
+    jb.location.x = 3.0
+    jb.data.materials.append(material("joinFlatMat", color=(0.0, 0.0, 1.0)))
+    bpy.context.view_layer.update()
+    copies = []
+    for o in (jb, ja):
+        c = o.copy()
+        c.data = o.data.copy()
+        bpy.context.collection.objects.link(c)
+        copies.append(c)
+    with bpy.context.temp_override(
+        active_object=copies[0], selected_editable_objects=copies
+    ):
+        bpy.ops.object.join()
+    joined = copies[0]
+    joined.name = "joined"
+    joined.data.materials.clear()
+    joined.data.materials.append(material("joinAtlasMat"))
+    uv = joined.data.uv_layers.active
+    for poly in joined.data.polygons:  # polygon 0 = B -> right, 1 = A -> left
+        poly.material_index = 0
+        for li in poly.loop_indices:
+            u = uv.uv[li].vector[0] if hasattr(uv, "uv") else uv.data[li].uv[0]
+            new_u = 0.5 + u * 0.5 if poly.index == 0 else u * 0.5
+            if hasattr(uv, "uv"):
+                uv.uv[li].vector[0] = new_u
+            else:
+                uv.data[li].uv[0] = new_u
+    order = TextureTransfer.pair_sources([joined], [ja, jb]).get(joined)
+    check(
+        "pair_sources reads the join order back",
+        isinstance(order, tuple) and [o.name for o in order] == ["joinB", "joinA"],
+        repr(order),
+    )
+    fa = ja.copy()
+    fa.data = ja.data.copy()
+    bpy.context.collection.objects.link(fa)
+    fb = ja.copy()
+    fb.data = ja.data.copy()
+    bpy.context.collection.objects.link(fb)
+    feed = TextureTransfer.pair_sources([fa, fb], [ja])
+    check(
+        "one source feeds every target",
+        feed == {fa: ja, fb: ja},
+        repr(feed),
+    )
+    found = TextureTransfer.find_combined([ja, joined, jb])
+    check(
+        "find_combined picks the joined mesh out of the selection",
+        found is not None
+        and found[0] == joined
+        and [o.name for o in found[1]] == ["joinB", "joinA"],
+        repr(found),
+    )
+    res = TextureTransfer().transfer(
+        joined, [ja, jb], size=32, supersample=1, padding=0, output_dir=out_dir
+    )
+    got = load(res["joinAtlasMat"]["baseColor"])
+    check(
+        "a joined target reads every source in join order",
+        bool(np.allclose(got[:, 20:], (0, 0, 255), atol=2.0))
+        and bool((got[:, :12, 0] > 200).any() and (got[:, :12, 0] < 60).any()),
+    )
+    from blendertk.light_utils.lightmap_baker.lightmap_records import (
+        LightmapRecords,
+    )
+
+    try:
+        LightmapRecords.transfer_lightmaps(joined, [ja, jb])
+        check("lightmaps refuse a joined target by name", False)
+    except ValueError as e:
+        check(
+            "lightmaps refuse a joined target by name", "one mesh to one mesh" in str(e)
+        )
+
     # --- assign creates copy material, original untouched ----------------
     reset()
     o = plane("assignPlane")
@@ -286,15 +367,28 @@ try:
         poly.material_index = 0 if poly.center.x < 0 else 1
     rotate_uv_copy(shared, "map2", 90)
     res = TextureTransfer().transfer(
-        shared, source_uv_set="UVMap", target_uv_set="map2", size=32, supersample=1,
-        padding=0, output_dir=out_dir, assign=True,
+        shared,
+        source_uv_set="UVMap",
+        target_uv_set="map2",
+        size=32,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        assign=True,
     )
-    check("two materials on one set -> one output named after the set", list(res) == ["map2"], str(list(res)))
+    check(
+        "two materials on one set -> one output named after the set",
+        list(res) == ["map2"],
+        str(list(res)),
+    )
     new = bpy.data.materials.get("map2_TRANSFER")
-    slot_of_new = next((i for i, sl in enumerate(shared.material_slots) if sl.material == new), None)
+    slot_of_new = next(
+        (i for i, sl in enumerate(shared.material_slots) if sl.material == new), None
+    )
     check(
         "one map2_TRANSFER material on every face",
-        new is not None and slot_of_new is not None
+        new is not None
+        and slot_of_new is not None
         and all(p.material_index == slot_of_new for p in shared.data.polygons),
     )
 
@@ -368,7 +462,9 @@ try:
     # re-reading the members afterwards is a dangling StructRNA.
     btk.TextureTransfer().transfer(o, **kwargs)
     named = [m.name for m in bpy.data.materials if m.name.startswith("hero_atlas")]
-    check("a re-run replaces rather than accumulates", named == ["hero_atlas"], str(named))
+    check(
+        "a re-run replaces rather than accumulates", named == ["hero_atlas"], str(named)
+    )
     slots = [sl.material.name if sl.material else None for sl in o.material_slots]
     check("the re-run is still assigned", "hero_atlas" in slots, str(slots))
     check("the re-run leaves no empty material slot", None not in slots, str(slots))
@@ -443,6 +539,449 @@ try:
         and bpy.data.materials.get("stackMat_TRANSFER_TRANSFER") is None,
         str(sorted(m.name for m in bpy.data.materials)),
     )
+    # A NAMED re-run over several layouts: each is `<name>_<layout>`, and a
+    # layout is named after its target material -- on a re-run, the previous
+    # result -- so the name stacked (`Table_Table_Table_deskMat_MAT`).
+    reset()
+    targets, sources = [], []
+    for name, mat_name in (("stackA", "deskMat"), ("stackB", "legsMat")):
+        o = plane(name)
+        o.data.materials.append(material(mat_name, texture=checker_path))
+        s = o.copy()
+        s.data = o.data.copy()
+        bpy.context.collection.objects.link(s)
+        s.name = f"{name}_src"
+        targets.append(o)
+        sources.append(s)
+    kwargs = dict(
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="Table",
+        assign=True,
+        assign_suffix="_MAT",
+    )
+    runs = [
+        btk.TextureTransfer().transfer(targets, sources, **kwargs) for _ in range(3)
+    ]
+    named = sorted(m.name for m in bpy.data.materials if m.name.startswith("Table_"))
+    check(
+        "a named re-run over several layouts does not stack the name",
+        named == ["Table_deskMat_MAT", "Table_legsMat_MAT"],
+        str(named),
+    )
+    files = [
+        sorted(os.path.basename(p) for ch in run.values() for p in ch.values())
+        for run in runs
+    ]
+    check(
+        "every named re-run writes the same maps",
+        files[0] == files[1] == files[2] and "Table_deskMat_BaseColor.png" in files[0],
+        str(files),
+    )
+
+    # ------------------------------------------- layouts, not names (2026-10-03)
+    # Mirror of mayatk: what each target contributes is grouped into LAYOUTS
+    # by overlap -- not by what its UV map is called or what it wears -- and
+    # where a target stands never enters a material transfer.
+    import logging
+
+    def twin(src, name):
+        """*src*'s object + mesh data copied, its materials cleared."""
+        o = src.copy()
+        o.data = src.data.copy()
+        bpy.context.collection.objects.link(o)
+        o.name = name
+        o.data.materials.clear()
+        return o
+
+    def used_materials(o):
+        """Names of the materials *o*'s faces actually wear."""
+        mats, per_face = TextureTransfer.face_materials(o)
+        return {mats[i].name for i in set(per_face.tolist()) if i >= 0}
+
+    class _Warnings(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.WARNING)
+            self.messages = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    def half_layout(name, side, uv_name=None):
+        """A target plane laid out in one HALF of 0-1, beside a full-square
+        source wearing the checker; *uv_name* renames the target's map."""
+        s = plane(f"{name}_src")
+        s.data.materials.append(material(f"{name}_srcMat", texture=checker_path))
+        t = twin(s, name)
+        layer = t.data.uv_layers.active
+        buf = np.empty(len(t.data.loops) * 2, np.float32)
+        layer.uv.foreach_get("vector", buf)
+        uv = buf.reshape(-1, 2)
+        uv[:, 0] = uv[:, 0] * 0.5 + 0.5 * side
+        layer.uv.foreach_set("vector", uv.ravel())
+        if uv_name:
+            layer.name = uv_name
+        return s, t
+
+    reset()
+    sa, ta = half_layout("tableTop", 0)
+    sb, tb = half_layout("tableLegs", 1, "UVChannel_1")
+    old = material("tableOld")
+    for t in (ta, tb):
+        t.data.materials.append(old)
+    res = TextureTransfer().transfer(
+        [ta, tb],
+        [sa, sb],
+        size=32,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="Table",
+        assign=True,
+    )
+    check("one layout under two UV map names is ONE output", len(res) == 1, str(res))
+    check(
+        "... and ONE material on both targets",
+        used_materials(ta) == {"Table"} and used_materials(tb) == {"Table"},
+        f"{used_materials(ta)} {used_materials(tb)}",
+    )
+
+    reset()
+    s = plane("bareSrc")
+    s.data.materials.append(material("bareSrcMat", texture=checker_path))
+    t = twin(s, "bareTgt")
+    t.data.materials.append(None)  # an empty slot: the material is gone
+    try:
+        res = TextureTransfer().transfer(
+            t,
+            s,
+            size=16,
+            supersample=1,
+            padding=0,
+            output_dir=out_dir,
+            output_name="bare",
+            assign=True,
+        )
+    except ValueError as e:
+        res = {"error": str(e)}
+    check(
+        "a target whose material is gone is still transferred",
+        len(res) == 1 and "error" not in res and used_materials(t) == {"bare"},
+        f"{res} {used_materials(t)}",
+    )
+
+    reset()
+    s = plane("movedSrc")
+    s.data.materials.append(material("movedSrcMat", texture=checker_path))
+    t = twin(s, "movedTgt")
+    t.data.materials.append(material("movedTgtMat"))
+    t.location.x += 5.0
+    t.data.vertices[0].co.z += 0.3  # and reshaped
+    bpy.context.view_layer.update()
+    tt = TextureTransfer()
+    caught = _Warnings()
+    tt.logger.addHandler(caught)
+    try:
+        tt.transfer(t, s, size=16, supersample=1, padding=0, output_dir=out_dir)
+    finally:
+        tt.logger.removeHandler(caught)
+    check(
+        "a moved, reshaped target transfers without a warning",
+        not caught.messages,
+        str(caught.messages),
+    )
+
+    reset()
+    srcs = [plane("stripA_src"), plane("stripB_src")]
+    strip_src = material("stripSrcMat", texture=checker_path)
+    for s in srcs:
+        s.data.materials.append(strip_src)
+    a = twin(srcs[0], "stripA")
+    a.data.materials.append(material("deskMat"))
+    b = twin(srcs[1], "stripB")
+    b.data.materials.append(material("Table_deskMat_MAT"))
+    try:
+        TextureTransfer().transfer(
+            [a, b],
+            srcs,
+            size=16,
+            supersample=1,
+            padding=0,
+            output_dir=out_dir,
+            output_name="Table",
+            assign=True,
+            assign_suffix="_MAT",
+        )
+        stripped = [
+            o.name
+            for o in (a, b)
+            if len(used_materials(o)) != 1
+            or not next(iter(used_materials(o))).startswith("Table_")
+        ]
+    except Exception as e:  # a dangling Material is part of the failure
+        stripped = [repr(e)]
+    check("assigning one layout never strips another", not stripped, str(stripped))
+
+    # ------------------------------------------------------- assign_from
+    # Mirror of mayatk: "source" copies the SOURCE's material (the look being
+    # transferred, with every node no channel owns), and a material a source
+    # of the run wears is never replaced by a colliding output name.
+    reset()
+    src = plane("fromSrc")
+    src_mat = material("held_MAT", texture=checker_path)
+    src_bsdf = next(n for n in src_mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    src_bsdf.inputs["Coat Weight"].default_value = 0.5
+    src_mat.node_tree.nodes.new("ShaderNodeTexNoise").name = "extra_noise"
+    src.data.materials.append(src_mat)
+    tgt = src.copy()
+    tgt.data = src.data.copy()
+    bpy.context.collection.objects.link(tgt)
+    tgt.name = "fromTgt"
+    tgt.data.materials.clear()
+    tgt.data.materials.append(material("placeholderMat", color=(0.5, 0.5, 0.5)))
+    btk.TextureTransfer().transfer(
+        tgt,
+        src,
+        size=16,
+        supersample=1,
+        padding=0,
+        output_dir=out_dir,
+        output_name="held",
+        assign=True,
+        assign_suffix="_MAT",
+        assign_from="source",
+    )
+    got = tgt.material_slots[tgt.data.polygons[0].material_index].material
+    got_bsdf = next(n for n in got.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    check(
+        "assign_from='source' copies the source's material",
+        abs(got_bsdf.inputs["Coat Weight"].default_value - 0.5) < 1e-6
+        and "extra_noise" in got.node_tree.nodes,
+        got.name,
+    )
+    check(
+        "a material a source wears survives a colliding output name",
+        bpy.data.materials.get("held_MAT") is src_mat
+        and src.material_slots[0].material is src_mat
+        and got is not src_mat,
+        f"{got.name} / {[sl.material and sl.material.name for sl in src.material_slots]}",
+    )
+
+    # ------------------------------------------------------------ lightmaps
+    # transfer_lightmaps (mirror of mayatk's TestLightmapTransfer): rebound
+    # when the lightmap layouts match, resampled into the target's layout
+    # when they do not, committed on the target either way.
+    from blendertk.light_utils.lightmap_baker.lightmap_records import (
+        LightmapRecords,
+    )
+
+    LM = LightmapRecords
+    lm_size = 32
+    ramp_u = (np.arange(lm_size) + 0.5) / lm_size
+    ramp_v = 1.0 - (np.arange(lm_size) + 0.5) / lm_size
+    hdr = np.zeros((lm_size, lm_size, 3), np.float32)
+    hdr[..., 0] = ramp_u[None, :] * 6.0
+    hdr[..., 1] = ramp_v[:, None] * 6.0
+    hdr[..., 2] = 0.25
+
+    def rotate_layer(o, layer, angle):
+        """Rotate UV map *layer* of *o* in place about the tile center."""
+        uvs = o.data.uv_layers[layer]
+        buf = np.empty(len(o.data.loops) * 2, np.float32)
+        uvs.uv.foreach_get("vector", buf)
+        uv = buf.reshape(-1, 2) - 0.5
+        rad = np.deg2rad(angle)
+        rot = np.stack(
+            [
+                uv[:, 0] * np.cos(rad) - uv[:, 1] * np.sin(rad),
+                uv[:, 0] * np.sin(rad) + uv[:, 1] * np.cos(rad),
+            ],
+            axis=1,
+        )
+        uvs.uv.foreach_set("vector", (rot + 0.5).astype(np.float32).ravel())
+
+    def lightmapped(name, image=None, rect=None, written=True):
+        """A plane with a ``Lightmap`` map (UVMap's layout) and a committed map."""
+        o = plane(name)
+        active = o.data.uv_layers.active
+        o.data.uv_layers.new(name="Lightmap", do_init=True)  # copies the active
+        o.data.uv_layers.active = active
+        path = os.path.join(tmp, f"{name}_Lightmap.exr").replace("\\", "/")
+        LM._write_lightmap(path, hdr if image is None else image)
+        LM.commit(
+            {o.name: path},
+            {o.name: rect} if rect else None,
+            intensity=1.5,
+            written=written,
+        )
+        return o, path
+
+    def lm_copy(src, name, rotate=0):
+        """*src* copied without its marker; its Lightmap map optionally rotated."""
+        o = src.copy()
+        o.data = src.data.copy()
+        bpy.context.collection.objects.link(o)
+        o.name = name
+        if LM.LIGHTMAP_INFO_PROP in o:
+            del o[LM.LIGHTMAP_INFO_PROP]
+        if rotate:
+            rotate_layer(o, "Lightmap", rotate)
+        return o
+
+    lm_out = os.path.join(tmp, "lm_out").replace("\\", "/")
+
+    reset()
+    rect = [0.5, 0.5, 0.25, 0.25]
+    src, path = lightmapped("lmSrcA", rect=rect)
+    tgt = lm_copy(src, "lmTgtA")
+    out = LM.transfer_lightmaps(tgt, src, output_dir=lm_out)
+    info = LM.lightmap_info(tgt)
+    check(
+        "a matching lightmap layout is rebound, not resampled",
+        list(out) == [tgt.name]
+        and out[tgt.name]["how"] == "rebound"
+        and os.path.normcase(out[tgt.name]["path"]) == os.path.normcase(path)
+        and not os.path.isdir(lm_out),
+        str(out),
+    )
+    check(
+        "the rebound target carries the source's rect, intensity and map",
+        info.get("map") == os.path.basename(path)
+        and info.get("scaleOffset") == rect
+        and info.get("intensity") == 1.5
+        and info.get("uv_set") == "Lightmap",
+        str(info),
+    )
+
+    reset()
+    src, _path = lightmapped("lmSrcB")
+    tgt = lm_copy(src, "lmTgtB", rotate=90)
+    out = LM.transfer_lightmaps(
+        tgt, src, output_dir=lm_out, output_name="hero", supersample=1
+    )
+    got_path = (out.get(tgt.name) or {}).get("path", "")
+    got = LM._read_lightmap(got_path) if got_path else None
+    check(
+        "a different lightmap layout is resampled into <name>_Lightmap.exr",
+        (out.get(tgt.name) or {}).get("how") == "resampled"
+        and os.path.basename(got_path) == "hero_Lightmap.exr",
+        str(out),
+    )
+    check(
+        "the resampled map follows the layout and keeps HDR values",
+        got is not None
+        and got.max() > 1.0
+        and float(np.abs(got - np.rot90(hdr, 1)).max()) < 0.05,
+        "" if got is None else f"max err {float(np.abs(got - np.rot90(hdr, 1)).max())}",
+    )
+    info = LM.lightmap_info(tgt)
+    check(
+        "the resampled target is committed on its own map at the identity rect",
+        info.get("map") == "hero_Lightmap.exr"
+        and info.get("scaleOffset") == [1.0, 1.0, 0.0, 0.0]
+        and info.get("intensity") == 1.5,
+        str(info),
+    )
+
+    reset()
+    atlas = np.full((32, 32, 3), 2.0, np.float32)
+    atlas[:, 16:] = 50.0  # another object's lighting in the shared map
+    src, _path = lightmapped("lmSrcC", image=atlas, rect=[0.5, 1.0, 0.0, 0.0])
+    tgt = lm_copy(src, "lmTgtC", rotate=90)
+    out = LM.transfer_lightmaps(tgt, src, output_dir=lm_out)
+    got = LM._read_lightmap(out[tgt.name]["path"])
+    check(
+        "a resample reads only the source's atlas cell",
+        bool(np.allclose(got, 2.0, atol=0.01)),
+        f"max {float(got.max())}",
+    )
+
+    reset()
+    src, path = lightmapped("lmSrcD", written=False)
+    tgt = lm_copy(src, "lmTgtD")
+    key = os.path.basename(path).lower()
+    LM.transfer_lightmaps(tgt, src, output_dir=lm_out)
+    check(
+        "a rebind does not claim the map was written here",
+        key not in LM._writers(),
+        str(LM._writers()),
+    )
+
+    reset()
+    src = plane("lmBare")
+    src.data.uv_layers.new(name="Lightmap", do_init=True)
+    tgt = lm_copy(src, "lmBareTgt")
+    out = LM.transfer_lightmaps(tgt, src, output_dir=lm_out)
+    check(
+        "a source without a lightmap carries nothing",
+        out == {} and LM.lightmap_info(tgt) == {},
+        str(out),
+    )
+
+    # Mirror of mayatk: the pair shares topology, so the source's own
+    # lightmap layout fits the target loop for loop -- it is given that, and
+    # the lightmap is REBOUND. It used to be skipped outright.
+    reset()
+    lm_rect = [0.5, 0.5, 0.25, 0.25]
+    src, path = lightmapped("lmSrcE", rect=lm_rect)
+    rotate_layer(src, "Lightmap", 90)  # not UVMap's layout: the copy is provable
+    tgt = lm_copy(src, "lmTgtE")
+    tgt.data.uv_layers.remove(tgt.data.uv_layers["Lightmap"])
+    lm_out_e = os.path.join(tmp, "lm_out_e").replace("\\", "/")
+    out = LM.transfer_lightmaps(tgt, src, output_dir=lm_out_e)
+    info = LM.lightmap_info(tgt)
+    given = info.get("uv_set") or ""
+
+    def lm_vectors(o, name):
+        buf = np.empty(len(o.data.loops) * 2, np.float32)
+        o.data.uv_layers[name].uv.foreach_get("vector", buf)
+        return buf
+
+    check(
+        "a target without a lightmap UV map takes the source's and is rebound",
+        (out.get(tgt.name) or {}).get("how") == "rebound"
+        and info.get("scaleOffset") == lm_rect
+        and given in tgt.data.uv_layers
+        and bool(
+            np.allclose(lm_vectors(tgt, given), lm_vectors(src, "Lightmap"), atol=1e-6)
+        )
+        and not os.path.isdir(lm_out_e),
+        f"{out} {info}",
+    )
+
+    reset()
+    src, _path = lightmapped("lmSrcF")
+    tgt = lm_copy(src, "lmTgtF")
+    tgt.location.x += 10.0
+    bpy.context.view_layer.update()
+    import logging
+
+    class _Recorder(logging.Handler):
+        def emit(self, record):
+            warned.append(record.getMessage())
+
+    warned = []
+    recorder = _Recorder(logging.WARNING)
+    LM.logger.addHandler(recorder)
+    try:
+        out = LM.transfer_lightmaps(tgt, src, output_dir=lm_out)
+    finally:
+        LM.logger.removeHandler(recorder)
+    check(
+        "a target elsewhere is carried, with a warning",
+        (out.get(tgt.name) or {}).get("how") == "rebound"
+        and any("different places" in m for m in warned),
+        f"{out} {warned}",
+    )
+
+    try:
+        LM.transfer_lightmaps(tgt, None)
+        raised = False
+    except ValueError:
+        raised = True
+    check("transfer_lightmaps without a source raises", raised)
 
     # ---------------------------------------------------- output dir rules
     # The panel's Output Folder field: blank = the default subfolder, a
@@ -460,7 +999,8 @@ try:
     )
     check(
         "blank resolves to the default subfolder, not the base",
-        os.path.normpath(TT.resolve_output_dir("")) == os.path.normpath(TT.default_output_dir())
+        os.path.normpath(TT.resolve_output_dir(""))
+        == os.path.normpath(TT.default_output_dir())
         and os.path.normpath(TT.default_output_dir()) != base,
         TT.resolve_output_dir(""),
     )

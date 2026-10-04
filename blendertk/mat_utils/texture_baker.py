@@ -160,6 +160,7 @@ class TextureBaker(ptk.LoggingMixin):
         on_progress: Optional[Callable[[int, int, str], bool]] = None,
         colorspace: str = "Non-Color",
         claims: Optional[Any] = None,
+        shader: Optional[Any] = None,
     ) -> Dict[str, str]:
         """Bake each object's shaded surface to a per-object EXR.
 
@@ -194,6 +195,10 @@ class TextureBaker(ptk.LoggingMixin):
                 output takes the next free ``_<k>`` spelling instead, exactly as a
                 collision within the bake does. A plain collection of names claims
                 each one outright. Mirror of mayatk's ``TextureBaker.bake``.
+            shader: A material each object is rendered through for its own bake --
+                the twin of mayatk's RTT ``-shader`` (a lighting bake's white card).
+                Object-linked for the duration (:meth:`_shader_override`), so the
+                neighbours keep their materials; ``None`` bakes the object's own.
 
         Returns ``{object_name: texture_path}`` for each successful bake.
         """
@@ -239,6 +244,7 @@ class TextureBaker(ptk.LoggingMixin):
                             colorspace=colorspace,
                             size=self._resolve_size(obj, size),
                             margin=margin,
+                            shader=shader,
                         )
                         if path:
                             result[obj.name] = path
@@ -277,6 +283,7 @@ class TextureBaker(ptk.LoggingMixin):
         colorspace: str,
         size: Tuple[int, int],
         margin: Optional[int],
+        shader: Optional[Any] = None,
     ) -> Optional[str]:
         """Bake a single object into a fresh EXR; returns its path (cleans up temp nodes)."""
         import bpy
@@ -313,6 +320,13 @@ class TextureBaker(ptk.LoggingMixin):
         )
         image.colorspace_settings.name = colorspace
 
+        # A shader override renders the object through *shader* alone, so the bake
+        # node goes there; the object's own materials (resolved above, which is what
+        # named the map) are untouched.
+        if shader is not None:
+            if not shader.use_nodes:
+                shader.use_nodes = True
+            materials = [shader]
         # Add a selected+active image-texture node to every material so Cycles bakes into it.
         added = []
         for mat in materials:
@@ -339,7 +353,7 @@ class TextureBaker(ptk.LoggingMixin):
             # exact-black map that then read as a lighting bug. Revealing the
             # whole batch instead would let hidden geometry occlude and bounce
             # into every OTHER object's bake -- a lighting change, not a fix.
-            with CoreUtils.visible_override(obj):
+            with CoreUtils.visible_override(obj), self._shader_override(obj, shader):
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.bake(**bake_kwargs)
@@ -924,6 +938,33 @@ class TextureBaker(ptk.LoggingMixin):
                     continue
             pool.setdefault(obj, None)
         return list(pool)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _shader_override(obj, shader):
+        """Render *obj* through *shader* for the duration: every slot, OBJECT-linked.
+
+        The twin of mayatk's RTT ``-shader`` -- the baked object alone wears the
+        override, its neighbours keep their materials (their colour still bleeds
+        into its bake). Object-linked so an instance sharing the mesh keeps its
+        own; each slot's link and object-level material come back exactly.
+        ``None`` is a no-op.
+        """
+        if shader is None:
+            yield
+            return
+        prior = []
+        try:
+            for slot in obj.material_slots:
+                link = slot.link
+                slot.link = "OBJECT"
+                prior.append((slot, link, slot.material))
+                slot.material = shader
+            yield
+        finally:
+            for slot, link, material in reversed(prior):
+                slot.material = material
+                slot.link = link
 
     @staticmethod
     def _ensure_materials(obj) -> Tuple[List[Any], Any]:

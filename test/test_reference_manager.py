@@ -626,7 +626,7 @@ try:
     btn = _Btn()
     s, _sb = make_slots()
     s.ui.tbl000 = _Tbl(btn)
-    s._selected_paths = lambda: [open_here]
+    s._context_paths = lambda: [open_here]
     s._is_current = lambda p, current=None: p == open_here
     s._label_open_action()
     check(
@@ -634,7 +634,7 @@ try:
         btn._t == "Reopen",
         btn._t,
     )
-    s._selected_paths = lambda: [os.path.join(tmp, "elsewhere.blend")]
+    s._context_paths = lambda: [os.path.join(tmp, "elsewhere.blend")]
     s._label_open_action()
     check(
         "panel: context menu reads 'Open' for any other row", btn._t == "Open", btn._t
@@ -652,6 +652,126 @@ try:
     s.ui.tbl000 = _NoMenuTbl()
     s._label_open_action()
     check("panel: a menuless table is left alone", True)
+
+    # Selection IS the reference set (mirror of mayatk's handle_item_selection): selecting a
+    # row links its .blend, deselecting removes it, and a library whose file is no row here
+    # is never touched. Regression: the panel wired no itemSelectionChanged at all, so
+    # selecting a file referenced nothing (the user-reported parity gap). Stub table, real
+    # bpy linking.
+    class _Qt:
+        UserRole = 256
+        ItemIsSelectable = 1
+
+    class _Item:
+        def __init__(self, path, selectable=True):
+            self.path, self.selected = path, False
+            self._flags = _Qt.ItemIsSelectable if selectable else 0
+
+        def data(self, role):
+            return self.path
+
+        def flags(self):
+            return self._flags
+
+        def isSelected(self):
+            return self.selected
+
+        def setSelected(self, on):
+            self.selected = on
+
+    class _Actions:
+        def __init__(self):
+            self.states = {}
+
+        def set(self, row, col, state):
+            self.states[(row, col)] = state
+
+    class _Idx:
+        def __init__(self, row):
+            self._row = row
+
+        def isValid(self):
+            return self._row is not None
+
+        def row(self):
+            return self._row
+
+    class _SelTbl:
+        has_menu = False
+
+        def __init__(self, items):
+            self.items, self.actions = items, _Actions()
+
+        def rowCount(self):
+            return len(self.items)
+
+        def item(self, row, col):
+            return self.items[row]
+
+        def indexAt(self, pos):
+            return _Idx(pos if pos is not None and pos < len(self.items) else None)
+
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    other_lib = os.path.join(tmp, "libs", "other_ws.blend")
+    shutil.copy2(lib_path, other_lib)
+    btk.link_blend_file(other_lib, link=True)  # linked, but no row lists it
+    rows = [_Item(lib_path), _Item(os.path.join(tmp, "scene.ma"), selectable=False)]
+    s, sb = make_slots()
+    s.sb.QtCore = type("_QtCore", (), {"Qt": _Qt})
+    s.ui.tbl000 = _SelTbl(rows)
+    s._syncing_selection = False
+    s._context_menu_row = None
+    s.ui.footer = type("_F", (), {"setText": lambda self, t: setattr(self, "t", t)})()
+    s._listing = (2, 0)
+    rows[0].selected = True
+    s._on_selection_changed()
+    check(
+        "panel: the footer count follows a selection link (no rebuild)",
+        getattr(s.ui.footer, "t", "") == "2 file(s); 2 linked.",
+        getattr(s.ui.footer, "t", None),
+    )
+    check(
+        "panel: selecting a row links its .blend",
+        btk.is_blend_linked(lib_path),
+        str(btk.list_libraries()),
+    )
+    check(
+        "panel: ...and its link icon reads referenced",
+        s.ui.tbl000.actions.states.get((0, s.COL_REF)) == "referenced",
+        str(s.ui.tbl000.actions.states),
+    )
+    rows[0].selected = False
+    s._on_selection_changed()
+    check("panel: deselecting the row removes it", not btk.is_blend_linked(lib_path))
+    check(
+        "panel: a library no row lists survives a selection change",
+        btk.is_blend_linked(other_lib),
+    )
+    s._syncing_selection = True  # a rebuild's clear() must never read as "unlink"
+    rows[0].selected = True
+    s._on_selection_changed()
+    check(
+        "panel: a programmatic selection change links nothing",
+        not btk.is_blend_linked(lib_path),
+    )
+    s._syncing_selection = False
+    # The sync drives the selection FROM the libraries (selectable rows only).
+    btk.link_blend_file(lib_path, link=True)
+    rows[0].selected = False
+    s._sync_reference_state(s.ui.tbl000)
+    check(
+        "panel: the reference sync selects a linked row",
+        rows[0].selected and not rows[1].selected and not s._syncing_selection,
+    )
+    # The row context menu acts on the right-clicked row, never on the selection.
+    s._capture_context_row(1)
+    check(
+        "panel: the context menu targets the right-clicked row",
+        s._context_paths() == [rows[1].path],
+        str(s._context_paths()),
+    )
+    s._capture_context_row(None)
+    check("panel: right-clicking empty space targets nothing", s._context_paths() == [])
 
     # Folder-structure filter must resolve {scenes} (regression: the filter passed no scenes= to
     # replace_placeholders, so a "{scenes}/…" pattern — now the header default — matched nothing
@@ -721,7 +841,7 @@ try:
     _victim = os.path.join(_del_ws, "victim_lod0.blend")
     open(_victim, "w").close()
     s, sb = make_slots("No")
-    s._selected_paths = lambda: [_victim]
+    s._context_paths = lambda: [_victim]
     s.delete_selected()
     check(
         "delete_selected shows the file name and honors 'No'",
@@ -740,7 +860,7 @@ try:
 
     s, sb = make_slots("Yes")
     s._notes = {}  # no notes to carry
-    s._selected_paths = lambda: [_victim]
+    s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
         _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", side_effect=_to_bin2),
@@ -756,7 +876,7 @@ try:
     open(_victim, "w").close()
     s, sb = make_slots("Yes")
     s._notes = {}  # no notes to carry
-    s._selected_paths = lambda: [_victim]
+    s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=False),
         _rm_mock.patch.object(ptk.FileUtils, "move_to_trash") as _never,
@@ -774,7 +894,7 @@ try:
     s._notes = {}  # no notes to carry
     _answers = iter(["Yes", "No"])
     sb.message_box = lambda msg, *b: (sb.messages.append(msg), next(_answers, None))[1]
-    s._selected_paths = lambda: [_victim]
+    s._context_paths = lambda: [_victim]
     with (
         _rm_mock.patch.object(ptk.FileUtils, "can_trash", return_value=True),
         _rm_mock.patch.object(ptk.FileUtils, "move_to_trash", return_value=None),

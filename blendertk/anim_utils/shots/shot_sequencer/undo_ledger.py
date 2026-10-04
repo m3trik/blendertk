@@ -19,7 +19,14 @@ class UndoLedgerMixin:
     # shared with the Shots settings panel; see mayatk's twin for the why.
 
     def _save_shot_state(self) -> None:
-        """Record the current shot boundaries as an undo restore point."""
+        """Record the current shot boundaries as an UNTAGGED restore point.
+
+        No production path calls this: every edit brackets through
+        ``BlenderShotStore.scene_edit``, which tags the point with the edit
+        serial its step carries.  An untagged point reads as "always ours" to
+        :meth:`_native_event_is_ours` (mayatk's pre-pairing behaviour), so a
+        caller that pushes one gives up the pairing.  Prefer ``scene_edit``.
+        """
         if self.sequencer is not None:
             self.sequencer.store.push_boundary_snapshot()
 
@@ -44,40 +51,56 @@ class UndoLedgerMixin:
         if self.sequencer is not None:
             self.sequencer.store.redo_boundary_snapshot()
 
-    def on_undo(self) -> None:
-        """Widget undo_requested — restore the shot snapshot, then Blender undo.
+    #: The scene's edit serial as the undo/redo handler found it BEFORE the
+    #: native step ran (``_on_undo_pre`` / ``_on_redo_pre``).
+    _serial_before_native = None
 
-        Mirror of mayatk's ``cmds.undo()`` path: the boundary snapshot is popped
-        here under the ``_syncing`` guard (so the ``undo_post`` handler doesn't
-        pop a second one), then ``bpy.ops.ed.undo`` reverts the key edits.
+    def _native_event_is_ours(self, redo: bool = False) -> bool:
+        """True when the undo/redo Blender JUST performed was our newest edit.
+
+        Mirror of mayatk's: Blender fires its undo/redo handlers for every step
+        in the session, and consuming a restore point for someone else's step
+        reverted shot bounds whose keys Blender had left where they were.
+        mayatk reads the step's NAME off the queue; Blender's undo exposes no
+        names, so each edit stamps :attr:`BlenderShotStore.EDIT_SERIAL_PROP`
+        inside its own step (``scene_edit``) and the restore point records it.
+        Memfile undo winds that property with the steps, so:
+
+        * an undo was ours when the serial moved AND it stood at our marker
+          before the step was taken;
+        * a redo was ours when the serial moved and now stands at the marker.
+
+        Any other step leaves the serial where it was.  An untagged restore
+        point (a legacy push) keeps the pre-pairing "always ours" behaviour.
         """
-        self._syncing = True
-        try:
-            try:
-                self._restore_shot_state()
-            except Exception:
-                self.logger.debug("on_undo: _restore_shot_state failed", exc_info=True)
-            self._native_undo("undo")
-        finally:
-            self._syncing = False
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._sync_to_widget()
+        store = self.sequencer.store if self.sequencer is not None else None
+        if store is None or not store.has_boundary_snapshot(redo=redo):
+            return False
+        tag = store.peek_boundary_tag(redo=redo)
+        if not isinstance(tag, tuple):
+            return True
+        paired, marker = tag
+        before, after = self._serial_before_native, store.edit_serial()
+        if not paired or before is None or before == after:
+            return False
+        return (after if redo else before) == marker
+
+    def on_undo(self) -> None:
+        """Widget undo_requested -- Blender's undo; the restore point follows
+        only when the step it undid was ours.
+
+        mayatk decides up front from the queue's step names (``_undo_plan``);
+        with no names to read, Blender decides from what the undo did: the
+        ``undo_post`` handler checks :meth:`_native_event_is_ours` and applies
+        the restore point for our own step alone.  An unrelated step on top is
+        undone by itself, as mayatk's plan passes it straight through.
+        """
+        self._native_undo("undo")
 
     def on_redo(self) -> None:
-        """Widget redo_requested — re-apply the redo-side bounds, then Blender redo."""
-        self._syncing = True
-        try:
-            try:
-                self._redo_shot_state()
-            except Exception:
-                self.logger.debug("on_redo: _redo_shot_state failed", exc_info=True)
-            self._native_undo("redo")
-        finally:
-            self._syncing = False
-        self._segment_cache.clear()
-        self._sub_row_cache.clear()
-        self._sync_to_widget()
+        """Widget redo_requested -- Blender's redo; ``redo_post`` re-applies the
+        redo-side bounds only when the step it redid was ours (see :meth:`on_undo`)."""
+        self._native_undo("redo")
 
     def _native_undo(self, which: str) -> None:
         """Run ``bpy.ops.ed.undo`` / ``redo`` under a window context (Qt-timer safe)."""

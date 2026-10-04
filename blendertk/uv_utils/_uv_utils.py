@@ -40,6 +40,9 @@ UvSetCleanupResult = namedtuple(
 # (not duplicated) — real scenes don't name it uniformly.
 LIGHTMAP_UV_SET = "Lightmap"
 _LIGHTMAP_UV_NAMES = ("lightmap", "lightmapuv", "uv2", "uvchannel_2", "uvmap.001")
+#: Overlapping texels a lightmap layout may carry and still count as clean: a sample
+#: lying exactly on the boundary two islands share is claimed by both.
+LIGHTMAP_OVERLAP_TOLERANCE: float = 1e-3
 
 
 # ---------------------------------------------------------------- UV islands / shells
@@ -492,6 +495,43 @@ class UvUtils(_UvUtilsInternal):
             _UvUtilsInternal._uv_read(o, _read)
 
         return tuple(box) if box else None
+
+    @staticmethod
+    def get_uv_triangles(obj, uv_set=None):
+        """``(N, 3, 2)`` array of *obj*'s UV-space triangles for *uv_set* —
+        mirror of mayatk's ``get_uv_triangles``.
+
+        The raw geometry of a UV layout, over Blender's own loop triangulation
+        (loop-indexed, so a seam keeps each side's UVs), for UV area / bounds /
+        coverage math (:meth:`pythontk.ImgUtils.rasterize_uv_triangles`).
+
+        Parameters:
+            obj: A mesh object.
+            uv_set: UV layer name. The active layer when omitted.
+
+        Returns:
+            ``(N, 3, 2)`` float array of ``(u, v)`` corners; ``(0, 3, 2)`` when
+            the layer is missing or the mesh has no faces.
+        """
+        import numpy as np
+
+        empty = np.zeros((0, 3, 2), dtype=np.float64)
+        me = getattr(obj, "data", None)
+        layers = getattr(me, "uv_layers", None)
+        if not layers:
+            return empty
+        layer = layers.get(uv_set) if uv_set else layers.active
+        if layer is None:
+            return empty
+        me.calc_loop_triangles()
+        count = len(me.loop_triangles)
+        if not count:
+            return empty
+        loops = np.empty(count * 3, dtype=np.int64)
+        me.loop_triangles.foreach_get("loops", loops)
+        uv = np.empty(len(me.loops) * 2, dtype=np.float64)
+        layer.data.foreach_get("uv", uv)
+        return uv.reshape(-1, 2)[loops].reshape(count, 3, 2)
 
     @staticmethod
     def get_neighbor_shell_bounds(objects):
@@ -1012,6 +1052,36 @@ class UvUtils(_UvUtilsInternal):
             )
         return results
 
+    @classmethod
+    def _is_bakeable_lightmap(
+        cls, obj, uv_set: str, overlap_tolerance: float = LIGHTMAP_OVERLAP_TOLERANCE
+    ) -> bool:
+        """Body of :meth:`UvDiagnostics.is_bakeable_lightmap` -- kept here, where
+        :meth:`create_lightmap_uvs` asks it (``uv_utils`` ranks below the
+        diagnostics)."""
+        import numpy as np
+
+        if not uv_set:
+            return False  # never the active layer by default: name the lightmap set
+        uv_tris = cls.get_uv_triangles(obj, uv_set)
+        count = len(uv_tris)
+        if not count:
+            return False
+        me = obj.data  # get_uv_triangles has just refreshed its loop triangles
+        verts = np.empty(count * 3, dtype=np.int64)
+        me.loop_triangles.foreach_get("vertices", verts)
+        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get("co", co)
+        pts = co.reshape(-1, 3)[verts].reshape(count, 3, 3)
+
+        if uv_tris.min() < -1e-4 or uv_tris.max() > 1.0 + 1e-4:
+            return False
+        e1, e2 = uv_tris[:, 1] - uv_tris[:, 0], uv_tris[:, 2] - uv_tris[:, 0]
+        if 0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() < 1e-6:
+            return False  # degenerate: everything stacked on a point or a line
+        overlaps, covered = ptk.UvTransfer.layout_overlaps(uv_tris, pts)
+        return covered > 0 and overlaps <= overlap_tolerance * covered
+
     @staticmethod
     def find_lightmap_uv_set(obj):
         """Name of *obj*'s existing lightmap UV layer, or ``None`` (mirror of
@@ -1080,23 +1150,98 @@ class UvUtils(_UvUtilsInternal):
         return out
 
     @staticmethod
+    def apply_uv_layout(layouts, uv_set=None, quiet=False):
+        """Write per-loop UV layouts onto meshes (mirror of ``mtk.UvUtils.apply_uv_layout``).
+
+        The receiving half of :meth:`export_uv_layout`'s format. A layout only
+        means something on the topology it was read from, so each is checked
+        against the mesh's polygon vertex-count sequence and vertex total
+        first: a mesh that differs is skipped, never given scrambled UVs. The
+        UVs land per LOOP in *uv_set* -- default the layer this mesh already
+        calls its lightmap, else the layout's own name, else
+        :data:`LIGHTMAP_UV_SET` -- created when missing, without disturbing
+        which layer is active or renders.
+
+        Parameters:
+            layouts: ``{object or object name: layout}`` as
+                :meth:`export_uv_layout` returns them.
+            uv_set: Override the layer to write into.
+            quiet: Suppress the per-object report of what was written or skipped.
+
+        Returns:
+            dict: ``{key: layer name}`` for each mesh written, keyed as given.
+        """
+        import array
+        import base64
+        import sys
+
+        import bpy
+
+        applied = {}
+        for key, layout in (layouts or {}).items():
+            obj = bpy.data.objects.get(key) if isinstance(key, str) else key
+            me = getattr(obj, "data", None)
+            if not layout or not hasattr(me, "uv_layers"):
+                continue
+            counts = [len(p.vertices) for p in me.polygons]
+            expected = [int(c) for c in layout.get("poly_counts") or []]
+            if counts != expected or len(me.vertices) != layout.get("num_verts"):
+                if not quiet:
+                    print(f"[uv-layout] {obj.name}: topology differs; skipped.")
+                continue
+            buf = array.array("f")
+            buf.frombytes(base64.b64decode(layout["uvs"]))
+            if sys.byteorder != "little":  # the wire format is pinned little-endian
+                buf.byteswap()
+            if len(buf) != len(me.loops) * 2:
+                if not quiet:
+                    print(f"[uv-layout] {obj.name}: wrong UV count; skipped.")
+                continue
+            name = (
+                uv_set
+                or UvUtils.find_lightmap_uv_set(obj)
+                or layout.get("uv_set")
+                or LIGHTMAP_UV_SET
+            )
+            layer = me.uv_layers.get(name)
+            if layer is None:
+                active = me.uv_layers.active
+                layer = me.uv_layers.new(name=name, do_init=False)
+                if layer is None:  # Blender's per-mesh UV layer limit
+                    if not quiet:
+                        print(f"[uv-layout] {obj.name}: no room for {name!r}.")
+                    continue
+                if active is not None:
+                    me.uv_layers.active = active
+            layer.data.foreach_set("uv", buf)
+            me.update()
+            applied[key] = layer.name
+            if not quiet:
+                print(
+                    f"[uv-layout] {obj.name}: wrote {len(me.loops)} UVs into "
+                    f"'{layer.name}'."
+                )
+        return applied
+
+    @staticmethod
     # The whole body in the window's view layer + context: windowless, the
     # mode_set / smart_project poll-fail and the selection writes address the
     # scene's default layer, not the one the window shows.
     @CoreUtils.window_context_override()
-    def create_lightmap_uvs(objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True):
+    def create_lightmap_uvs(
+        objects, uv_set=LIGHTMAP_UV_SET, margin=0.02, quiet=True, force=False
+    ):
         """Ensure each mesh has a packed, non-overlapping lightmap UV layer (UV2).
 
-        Mirror of ``mtk.UvUtils.create_lightmap_uvs`` in intent, not in reuse policy. It
-        targets a pre-existing lightmap-named layer (:func:`find_lightmap_uv_set`) when
-        present, else adds ``uv_set`` as a second UV layer — but the LAYOUT is always
-        regenerated into it by ``bpy.ops.uv.smart_project`` (``scale_to_bounds`` packs the
-        islands into the 0-1 square — exactly what a lightmap needs). What is reused is the
-        channel, never its UVs: measured, an existing layout is overwritten on every loop.
-        That suits the pipeline this serves — Blender owns the whole lightmap job, UVs
-        included, and hands the finished layout back (:meth:`export_uv_layout`) — but it
-        diverges from mayatk's twin, which keeps a set that passes
-        ``UvDiagnostics.is_bakeable_lightmap`` and takes ``force=`` to override.
+        Mirror of ``mtk.UvUtils.create_lightmap_uvs``: a pre-existing lightmap-named layer
+        (:func:`find_lightmap_uv_set`) whose layout passes
+        ``UvDiagnostics.is_bakeable_lightmap`` (in 0-1, non-overlapping) is REUSED unless
+        *force*; otherwise its layout is regenerated by ``bpy.ops.uv.smart_project``
+        (``scale_to_bounds`` packs the islands into the 0-1 square), into that layer or a
+        new second ``uv_set`` layer. Reuse is what keeps an artist's layout -- and, through
+        the Maya bridge, the Maya scene's own lightmap set -- intact: the bridge writes the
+        layout it baked back into Maya, so regenerating replaced a Maya layout with a Smart
+        UV Project one on every bake.
         The lightmap layer is left **active** so the subsequent bake targets it (measured:
         Cycles bakes through the ACTIVE layer, not ``active_render``).
 
@@ -1118,6 +1263,14 @@ class UvUtils(_UvUtilsInternal):
                 for o in EditUtils._meshes(objects):
                     me = o.data
                     name = UvUtils.find_lightmap_uv_set(o)
+                    if (
+                        name is not None
+                        and not force
+                        and UvUtils._is_bakeable_lightmap(o, name)
+                    ):
+                        me.uv_layers[name].active = True
+                        done.append(o.name)
+                        continue
                     if name is None:
                         if len(me.uv_layers) == 0:
                             # A lightmap is the *second* channel — keep an empty base (texture) layer

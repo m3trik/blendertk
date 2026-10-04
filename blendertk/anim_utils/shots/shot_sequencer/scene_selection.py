@@ -30,7 +30,14 @@ class SceneSelectionMixin:
         return name.rsplit("|", 1)[-1] if "|" in name else name
 
     def _select_and_show(self, obj_names) -> None:
-        """Select the given objects (Blender Outliner/Graph Editor follow selection)."""
+        """Select the given objects (Blender Outliner/Graph Editor follow selection).
+
+        Nothing to select leaves the selection alone, as mayatk returns early:
+        a click on an audio clip, an audio header or a missing object's clip
+        must not wipe what the user had selected.  An audio track's name is
+        its VSE strip's, so those names select the strip instead -- mayatk
+        selects the audio node behind the track.
+        """
         try:
             import bpy
         except ImportError:
@@ -40,23 +47,44 @@ class SceneSelectionMixin:
         # The window's view layer: windowless, bpy.context.selected_objects is absent
         # and context.view_layer / select_set address the scene's default layer.
         with CoreUtils.window_context_override():
-            for o in list(bpy.context.selected_objects):
-                o.select_set(False)
-            active = None
             # Selection state is a view-layer concept: ``select_set`` raises on objects
             # outside the active view layer (excluded collection, another scene — the
             # ``bpy.data.objects`` lookup is scene-wide), so skip those instead of
             # letting one abort the loop mid-way.
             view_layer = bpy.context.view_layer
-            for name in obj_names:
-                o = bpy.data.objects.get(name)
-                if o is not None and o.name in view_layer.objects:
-                    o.select_set(True)
-                    active = o
+            objects = [
+                o
+                for o in (bpy.data.objects.get(name) for name in obj_names)
+                if o is not None and o.name in view_layer.objects
+            ]
+            if not objects:
+                self._select_strips(obj_names)
+                return
+            for o in list(bpy.context.selected_objects):
+                o.select_set(False)
+            for o in objects:
+                o.select_set(True)
             try:
-                bpy.context.view_layer.objects.active = active
+                view_layer.objects.active = objects[-1]
             except Exception:
                 pass
+
+    @staticmethod
+    def _select_strips(names) -> bool:
+        """Select the VSE strips named *names* (the last one active); ``False``
+        when none of them is a strip, which leaves the strip selection alone."""
+        from blendertk.audio_utils._audio_utils import AudioUtils
+
+        strips = [st for st in (AudioUtils._find_strip(n) for n in names) if st]
+        if not strips:
+            return False
+        ed = AudioUtils.get_sequence_editor()
+        for st in ed.strips_all:
+            st.select = False
+        for st in strips:
+            st.select = True
+        ed.active_strip = strips[-1]
+        return True
 
     def _reveal_in_outliner(self, obj_names) -> None:
         """Select and scroll the Outliner to the object(s)."""
@@ -188,21 +216,26 @@ class SceneSelectionMixin:
             ClipMotionMixin,
         )
 
-        try:
-            import bpy
-        except ImportError:
-            return
-        objects = [
-            obj
-            for obj in (bpy.data.objects.get(name) for name in obj_names)
-            if obj is not None
-        ]
+        objects = self._resolve_objects(obj_names)
         for fc in AnimUtils.get_fcurves(objects):
             fc.select = False
         for obj in objects:
-            for attr in attrs:
-                for fc in ClipMotionMixin.curves_for_attr(obj.name, attr):
-                    fc.select = True
+            for fc in ClipMotionMixin.curves_for_attrs(obj.name, attrs):
+                fc.select = True
+
+    @staticmethod
+    def _resolve_objects(names) -> list:
+        """The ``bpy`` objects named by *names*, in order; missing ones dropped.
+
+        What every helper that reads ``animation_data`` needs: handed a name,
+        ``AnimUtils`` finds no fcurves and silently does nothing.
+        """
+        try:
+            import bpy
+        except ImportError:
+            return []
+        objs = (bpy.data.objects.get(name) for name in names)
+        return [obj for obj in objs if obj is not None]
 
     def on_clip_locked(self, clip_id: int, locked: bool) -> None:
         widget = self._get_sequencer_widget()
@@ -282,16 +315,16 @@ class SceneSelectionMixin:
     @staticmethod
     def _apply_key_selection(rows) -> int:
         """Select exactly the ``(obj, attr, times)`` *rows*' keys; return the
-        count.  Every keyframe point on those objects is deselected first --
-        handles included, or a stale handle selection outlives the edit."""
+        count.  Every keyframe point in the scene is deselected first, as
+        mayatk's ``selectKey(clear=True)`` clears every curve -- an emptied
+        panel selection must not leave keys selected on other objects for the
+        next Graph Editor / Dope Sheet operation to act on -- handles
+        included, or a stale handle selection outlives the edit."""
         try:
             import bpy
         except ImportError:
             return 0
-        for obj_name in dict.fromkeys(o for o, _a, _t in rows):
-            obj = bpy.data.objects.get(obj_name)
-            if obj is None:
-                continue
+        for obj in bpy.data.objects:
             for fc in BlenderShotStore.iter_action_fcurves(obj):
                 n = len(fc.keyframe_points)
                 if not n:
@@ -320,9 +353,11 @@ class SceneSelectionMixin:
         """Sync the Graph Editor's key selection to match the sequencer.
 
         *key_groups* is ``[{clip_id, times}, ...]`` — one entry per clip with
-        selected keyframe items.  Every keyframe point on the object's
-        transform fcurves is deselected first, then the named times are
-        selected on the clip's attribute curves (mirror of ``cmds.selectKey``).
+        selected keyframe items.  Every keyframe point in the scene is
+        deselected first, then the named times are selected on the clip's
+        attribute curves (mirror of ``cmds.selectKey``), and their channels
+        become the channel selection.  Object-level clips name no channel and
+        add nothing, as in mayatk.
         """
         if self._syncing:
             # During a rebuild the scene selection empties as items are torn
@@ -339,11 +374,18 @@ class SceneSelectionMixin:
                 continue
             obj_name = clip.data.get("obj")
             attr_name = clip.data.get("attr_name")
-            if not obj_name:
+            if not obj_name or not attr_name:
                 continue
-            # An object-level row carries no attribute; it still contributes
-            # its object, whose points must be cleared with the rest.
-            rows.append((obj_name, attr_name, group["times"] if attr_name else []))
+            rows.append((obj_name, attr_name, group["times"]))
         n = self._apply_key_selection(rows)
+        if rows:
+            # The picked keys' channels become the channel selection, as mayatk
+            # mirrors them onto the Channel Box.  An EMPTIED key selection says
+            # nothing about channel scope -- the clip selection that outlives
+            # it already made that call.
+            self._select_channels(
+                list(dict.fromkeys(o for o, _a, _t in rows)),
+                list(dict.fromkeys(a for _o, a, _t in rows)),
+            )
         if n:
             self._set_footer(f"{n} key{'s' if n != 1 else ''} selected")

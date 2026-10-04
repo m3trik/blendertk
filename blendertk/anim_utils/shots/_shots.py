@@ -64,6 +64,7 @@ Divergence from mayatk (by design):
       no-ops are the Blender twins of Maya's session-hook install/remove.
 """
 
+import contextlib
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -72,7 +73,7 @@ import pythontk as ptk
 from pythontk import ShotStore, ShotTransfer
 
 from blendertk.anim_utils.shots._detection import Detection
-from blendertk.anim_utils._anim_utils import AnimUtils
+from blendertk.anim_utils._anim_utils import AnimUtils, _VISIBILITY_PATHS
 from blendertk.mat_utils.render_opacity.render_effects import RenderEffects
 
 _log = logging.getLogger(__name__)
@@ -357,16 +358,25 @@ class _BlenderShotStoreInternal(object):
     @staticmethod
     def _is_transform_path(data_path: str) -> bool:
         """True if *data_path* is shot content: an object/bone transform
-        channel, or a render-effect property (``RenderEffects.PROP_PATHS`` --
-        deliverable animation, so a pulse keyed inside a shot is that shot's
-        content and travels with it; any other custom property, a marker such
-        as ``["audio_trigger"]``, never makes an object look animated).
+        channel, an object's visibility (``hide_viewport`` / ``hide_render``,
+        Maya's ``visibility``), or a render-effect property
+        (``RenderEffects.PROP_PATHS`` -- deliverable animation, so a pulse
+        keyed inside a shot is that shot's content and travels with it; any
+        other custom property, a marker such as ``["audio_trigger"]``, never
+        makes an object look animated).
 
-        The one predicate membership, detection, the tracks and the movers'
-        content walk share (mayatk: ``Detection.first_standard_destination``
-        over ``CONTENT_ATTRS``).
+        The one predicate membership, detection and the movers' content walk
+        share (mayatk: ``Detection.first_standard_destination`` over
+        ``CONTENT_ATTRS``, which is ``TRANSFORM_CHANNELS`` -- visibility
+        included -- plus the render-effect attributes).  What the sequencer
+        DRAWS is wider: every keyed channel, as Maya lists every animCurve on
+        the node.
         """
-        if data_path in _TRANSFORM_CHANNELS or data_path in RenderEffects.PROP_PATHS:
+        if (
+            data_path in _TRANSFORM_CHANNELS
+            or data_path in _VISIBILITY_PATHS
+            or data_path in RenderEffects.PROP_PATHS
+        ):
             return True
         return any(data_path.endswith("." + c) for c in _TRANSFORM_CHANNELS)
 
@@ -468,6 +478,101 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
 
     #: A deferred flush is already queued on ``bpy.app.timers`` (coalescing flag).
     _flush_pending: bool = False
+
+    def resolve_member(self, name: str) -> Tuple[str, str]:
+        """Resolve a doc object *name*: Blender object names are unique and
+        carry no namespace, so it is found as written or missing."""
+        try:
+            import bpy
+        except ImportError:
+            return str(name), "found"
+        return str(name), ("found" if str(name) in bpy.data.objects else "missing")
+
+    @staticmethod
+    def curve_key(obj_name: str, data_path: str, index: int = 0) -> str:
+        """Stable ledger key for an fcurve: owner plus channel identity.
+
+        Maya claims are keyed by anim-curve NODE name; a Blender fcurve has no
+        name, so this stands in -- the one spelling the sequencer and the
+        manifest's behavior keys share.
+        """
+        return f"{obj_name}|{data_path}|{index}"
+
+    #: Scene ID property every shot edit stamps INSIDE its undo step.  Maya
+    #: pairs a restore point with its edit by the undo chunk's name; Blender's
+    #: undo has no step names Python can read, but memfile undo restores an
+    #: ID property -- so this value moves exactly when one of OUR steps is
+    #: undone or redone, and never for anybody else's.  Leading underscore:
+    #: kept out of the Custom Properties panel.
+    EDIT_SERIAL_PROP = "_btk_shot_edit_serial"
+    #: Highest serial handed out this session.  A stamp is one past the larger
+    #: of this and the scene's own, so an undo (which winds the scene value
+    #: back) never lets a new edit reuse a serial a redo point still names.
+    _serial_floor = 0
+
+    @classmethod
+    def edit_serial(cls) -> int:
+        """The current scene's edit serial (0 before any shot edit, or no bpy)."""
+        try:
+            import bpy
+        except ImportError:
+            return 0
+        scene = bpy.context.scene
+        return int(scene.get(cls.EDIT_SERIAL_PROP, 0)) if scene is not None else 0
+
+    @classmethod
+    def _stamp_edit_serial(cls) -> int:
+        """Write a fresh serial into the current scene and return it."""
+        try:
+            import bpy
+        except ImportError:
+            return 0
+        scene = bpy.context.scene
+        if scene is None:
+            return 0
+        n = max(cls._serial_floor, int(scene.get(cls.EDIT_SERIAL_PROP, 0))) + 1
+        BlenderShotStore._serial_floor = n
+        scene[cls.EDIT_SERIAL_PROP] = n
+        return n
+
+    @contextlib.contextmanager
+    def scene_edit(self, label: str = "edit", snapshot: bool = True):
+        """Run a shot edit as one undo step with a boundary restore point.
+
+        Mirror of mayatk's ``ShotStore.scene_edit``: a restore point (the
+        full shot records and edit ledger) is pushed before the body, which
+        runs inside :meth:`CoreUtils.undo_chunk` named *label*, and the point
+        is tagged ``(paired, marker)`` as mayatk's is.  The marker is the
+        :attr:`EDIT_SERIAL_PROP` value stamped inside the step (mayatk's is
+        the chunk name), which is how the undo/redo handlers tell OUR step
+        from anybody else's (``_native_event_is_ours``).
+
+        Yields a handle: ``cancel()`` declares the edit a no-op, which drops
+        the restore point and pushes no undo step -- the twin of Maya
+        discarding an empty chunk, which Blender does not do on its own.
+        Pass ``snapshot=False`` for an edit that must not record a restore
+        point (it then only supplies the named step).
+        """
+        from blendertk.core_utils._core_utils import CoreUtils
+
+        if snapshot:
+            self.push_boundary_snapshot()
+        marker = chunk = None
+        try:
+            with CoreUtils.undo_chunk(label) as chunk:
+                try:
+                    yield chunk
+                finally:
+                    # Inside the step, and even when the body raised: a refused
+                    # drag may already have rippled (mayatk tags in its finally).
+                    if snapshot and not chunk.cancelled:
+                        marker = self._stamp_edit_serial()
+        finally:
+            if snapshot and chunk is not None:
+                if chunk.cancelled:
+                    self.discard_boundary_snapshot()
+                elif marker is not None:
+                    self.tag_boundary_snapshot((True, marker))
 
     @classmethod
     def active(cls) -> "BlenderShotStore":
@@ -922,6 +1027,15 @@ class BlenderShotStore(ShotStore, _BlenderShotStoreInternal):
         store from it, as a file open does.  Mirror of mayatk's."""
         if ptk.SceneRecords.SHOT_STORE in other:
             cls.invalidate()
+
+    @classmethod
+    def discard_carrier(cls, carriers, other, ctx) -> None:
+        """Another scene's shots were dropped with their carrier: the same
+        reload (:meth:`merge_carrier`) -- the active store may hold them, as
+        a carrier the import adopted was this scene's own until then.  Mirror
+        of mayatk's; the scene-records dispatcher calls it on a discarded
+        import, and without it the active store kept the dropped shots."""
+        cls.merge_carrier(carriers, other, ctx)
 
     # ---- scene acquisition (5.1 slotted-action API) -----------------------
 

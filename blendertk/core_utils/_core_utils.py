@@ -411,6 +411,19 @@ class _CoreUtilsInternal(object):
         return int(np.maximum(totals - 2, 0).sum()), int((totals > 4).sum())
 
 
+class _UndoChunkHandle:
+    """What :meth:`CoreUtils.undo_chunk` yields: ``cancel()`` skips the step's push."""
+
+    __slots__ = ("cancelled",)
+
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        """Push no undo step for this chunk (its body changed nothing)."""
+        self.cancelled = True
+
+
 class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
     """Blender ``CoreUtils`` — extends pythontk's DCC-agnostic ``CoreUtils`` (mirrors
     ``mayatk.CoreUtils(ptk.CoreUtils, ...)``), inheriting the shared helpers and adding the
@@ -471,7 +484,15 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
         off for the duration (which suppresses the steps nested operators would each push,
         without disabling the operators) and push exactly one consolidated step on exit.
         A no-op outside Blender (headless import / no ``bpy``).
+
+        Yields a handle whose ``cancel()`` skips that push -- the twin of Maya discarding an
+        EMPTY chunk, which Blender never does on its own: an edit that turns out to have
+        changed nothing calls it so no empty step lands in the user's history.  Only for
+        a body that really changed nothing; anything it did change would ride into the
+        next step instead.  ``with undo_chunk():`` callers that ignore the handle are
+        unaffected.
         """
+        handle = _UndoChunkHandle()
         try:
             import bpy
         except Exception:
@@ -486,14 +507,14 @@ class CoreUtils(ptk.CoreUtils, _CoreUtilsInternal):
             except Exception:
                 prefs = None
         try:
-            yield
+            yield handle
         finally:
             if prefs is not None:
                 try:
                     prefs.use_global_undo = prior_global_undo
                 except Exception:
                     pass
-            if bpy is not None:
+            if bpy is not None and not handle.cancelled:
                 try:
                     bpy.ops.ed.undo_push(message=name or "blendertk op")
                 except Exception:

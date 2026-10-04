@@ -742,8 +742,9 @@ class LightmapBakerSlots(ptk.LoggingMixin, ptk.HelpMixin):
             on="Beside material textures: each lightmap is saved in the folder "
             "its material's texture maps are in, named after that texture set. "
             "This field only takes the objects whose material has no texture "
-            "folder (a packed or embedded image has none). Click to save every "
-            "map here instead.",
+            "folder inside the project (a packed or embedded image has none, and "
+            "another project's is never written to). Click to save every map "
+            "here instead.",
             off="Saving every lightmap to this folder. Click to save each one "
             "beside its material's texture maps instead.",
             on_toggled=self._show_output_mode,

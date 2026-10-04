@@ -327,6 +327,27 @@ try:
     )
     bpy.data.objects.remove(_carrier, do_unlink=True)
 
+    # ---- a preset cannot strip what a GLB requires (mirror of mayatk) ----------------------
+    # The shipped "default" preset carries Blender's own use_tspace=False; under it a GLB
+    # shipped no TANGENT and the viewer invented the normal-map basis (measured in Maya,
+    # where the persisted preset did exactly this to a production assembly).
+    from types import SimpleNamespace as _NS
+
+    _glb_opts = dict(use_tspace=False, object_types="MESH")
+    exp._force_glb_requirements(_glb_opts, _NS(create_glb=True))
+    check(
+        "GLB run -> a preset's use_tspace=False is repaired, content choices kept",
+        _glb_opts["use_tspace"] is True and _glb_opts["object_types"] == "MESH",
+        f"{_glb_opts}",
+    )
+    _fbx_opts = dict(use_tspace=False)
+    exp._force_glb_requirements(_fbx_opts, _NS(create_glb=False))
+    check(
+        "FBX-only run -> the preset's tangent choice stands",
+        _fbx_opts["use_tspace"] is False,
+        f"{_fbx_opts}",
+    )
+
     # ---- a user preset shadows a built-in of the same name ("duplicate to edit") -----------
     SceneExporter.save_fbx_preset("default", {"path_mode": "STRIP"})
     check(
@@ -3227,98 +3248,87 @@ try:
     _ovr_dir = os.path.join(tmp, "check_override")
     os.makedirs(_ovr_dir, exist_ok=True)
 
-    _runs = []
+    # Changed 2026-10-04: decided where each check fails (decide_check_failure),
+    # driven through the real runner -- a 5-character budget fails every real path.
     _asked = []
 
-    def _make_failing_exporter(answer):
+    def _deciding_exporter(*answers):
         exp = SceneExporter(log_level="DEBUG")
+        replies = list(answers)
 
-        def _fail(tasks):
-            _runs.append(dict(tasks))
-            exp.task_manager._last_failed_checks = ["check_path_length"]
-            return False
+        def _decide(check, messages, remaining):
+            _asked.append((check, remaining))
+            return replies.pop(0)
 
-        exp.task_manager.run_tasks = _fail
-        exp.confirm = lambda question: (_asked.append(question), answer)[1]
+        exp.decide_check_failure = _decide
         return exp
 
-    _exp_ovr = _make_failing_exporter(True)
+    _exp_ovr = _deciding_exporter(ptk.TaskFactory.CHECK_OVERRIDE)
     _ovr_result = _exp_ovr.perform_export(
         objects=[bpy.context.object],
         export_dir=_ovr_dir,
         output_name="OverrideAccepted",
-        tasks={"check_path_length": 60},
+        tasks={"check_path_length": 5},
     )
     check(
-        "an accepted override writes the file without re-running the task pipeline",
+        "an accepted override writes the file in the same run",
         _ovr_result is True
-        and len(_runs) == 1
         and os.path.exists(os.path.join(_ovr_dir, "OverrideAccepted.fbx")),
-        f"result={_ovr_result}, task runs={len(_runs)}",
+        f"result={_ovr_result}",
     )
     check(
-        "the prompt names the failed check, and the run records what it shipped past",
-        len(_asked) == 1
-        and "check_path_length" in _asked[0]
+        "the failure is asked about once, and the run records what it shipped past",
+        [a[0] for a in _asked] == ["check_path_length"]
         and _exp_ovr._overridden_checks == ["check_path_length"],
         f"asked={_asked}, overridden={_exp_ovr._overridden_checks}",
     )
 
-    _exp_no = _make_failing_exporter(False)
+    _asked.clear()
+    _exp_no = _deciding_exporter(ptk.TaskFactory.CHECK_ABORT)
     _no_result = _exp_no.perform_export(
         objects=[bpy.context.object],
         export_dir=_ovr_dir,
         output_name="OverrideDeclined",
-        tasks={"check_path_length": 60},
+        tasks={"check_path_length": 5},
     )
     check(
-        "declining the override keeps the abort -- consent, never an automatic pass",
+        "Cancel keeps the abort -- consent, never an automatic pass",
         _no_result is False
         and _exp_no._overridden_checks == []
         and not os.path.exists(os.path.join(_ovr_dir, "OverrideDeclined.fbx")),
         f"result={_no_result}",
     )
 
-    # The runner stops dispatching tasks at the first failed check -- everything below it
-    # is work an aborted write would throw away. An override turns that write back on, so
-    # those tasks must run before it, or the file ships missing (say) the texture
-    # conversion the user asked for. Only the SKIPPED names re-dispatch; re-running the
-    # ones above would repeat their mutation. Mirror of mayatk's
-    # test_an_override_runs_the_tasks_the_failed_check_had_stopped.
-    _exp_res = SceneExporter(log_level="DEBUG")
-    _tm_res = _exp_res.task_manager
-    _dispatched = []
+    # An override used to be asked once, after the run had dropped every check below the
+    # failure -- so "OK" shipped a file whose remaining checks were never made. Asked
+    # where the check fails, an override carries the same run on: the next check still
+    # runs, and its own failure asks again. Mirror of mayatk's
+    # test_an_override_keeps_evaluating_the_checks_after_it.
+    _asked.clear()
+    _made = []
+    _exp_more = _deciding_exporter(
+        ptk.TaskFactory.CHECK_OVERRIDE, ptk.TaskFactory.CHECK_OVERRIDE
+    )
 
-    # The resume goes to the dispatcher directly, never through run_tasks:
-    # run_tasks re-derives the run's task-driven modes from what it is handed,
-    # and a subset would zero the Optimize Keys level mid-run (mirror of mayatk).
-    def _record(tasks_only, checks_only):
-        _dispatched.append(dict(tasks_only))
-        return True
+    def _check_after(*args):
+        _made.append("check_zz_after")
+        return False, ["the second failure"]
 
-    _tm_res._last_skipped_tasks = ["convert_to_relative_paths"]
-    _tm_res._last_task_count, _tm_res._last_check_count = 7, 4
-    _tm_res._execute_tasks_and_checks = _record
-    _exp_res._resume_skipped_tasks(
-        {"convert_to_relative_paths": True, "set_linear_unit": "cm"}
+    _exp_more.task_manager.check_zz_after = _check_after
+    _more_result = _exp_more.perform_export(
+        objects=[bpy.context.object],
+        export_dir=_ovr_dir,
+        output_name="OverrideContinues",
+        tasks={"check_path_length": 5, "check_zz_after": True},
     )
     check(
-        "an override resumes ONLY the tasks the failed check had stopped",
-        _dispatched == [{"convert_to_relative_paths": True}],
-        f"dispatched={_dispatched}",
-    )
-    check(
-        "...and the resume keeps the first pass's banner counts",
-        (_tm_res._last_task_count, _tm_res._last_check_count) == (7, 4),
-        f"counts={(_tm_res._last_task_count, _tm_res._last_check_count)}",
-    )
-    _dispatched.clear()
-    _tm_res._last_skipped_tasks = []
-    _exp_res._resume_skipped_tasks({"set_linear_unit": "cm"})
-    check(
-        "a run the gate never cut short dispatches no second pass",
-        _dispatched == [],
-        f"dispatched={_dispatched}",
+        "an override keeps evaluating the checks after it, each failure asking again",
+        _more_result is True
+        and _made == ["check_zz_after"]
+        and _asked
+        == [("check_path_length", ["check_zz_after"]), ("check_zz_after", [])]
+        and _exp_more._overridden_checks == ["check_path_length", "check_zz_after"],
+        f"result={_more_result}, made={_made}, asked={_asked}",
     )
 
     # sb.message_box hands its string to Qt's rich-text engine, which collapses a newline
@@ -3345,6 +3355,44 @@ try:
         and "<three>" not in _seen["string"]
         and _seen["buttons"] == ("Yes", "No"),
         f"string={_seen.get('string')!r}",
+    )
+
+    # The check-failure dialog: Override All / Override / Cancel mapped back to the
+    # runner's answers, Enter on Cancel, never timing out; anything unexpected stops.
+    # Mirror of mayatk's test_the_panel_asks_with_three_named_buttons_and_cancel_on_enter.
+    _ask = {}
+
+    class _AskSB:
+        def message_box(self, string, *buttons, **kwargs):
+            _ask.update(string=string, buttons=buttons, **kwargs)
+            return _ask.get("reply")
+
+    _ask_slots = _Slots.__new__(_Slots)
+    _ask_slots.sb = _AskSB()
+    _ask_slots._overridden_checks = []
+    _ask_slots._definition_tables_cache = ({}, {})
+    _answers = []
+    for _reply in ("Override All", "Override", "Cancel", None):
+        _ask["reply"] = _reply
+        _answers.append(
+            _ask_slots.decide_check_failure(
+                "check_path_length", ["too long"], ["check_valid_paths"]
+            )
+        )
+    check(
+        "the panel asks with three named buttons, Cancel on Enter",
+        _answers
+        == [
+            ptk.TaskFactory.CHECK_OVERRIDE_ALL,
+            ptk.TaskFactory.CHECK_OVERRIDE,
+            ptk.TaskFactory.CHECK_ABORT,
+            ptk.TaskFactory.CHECK_ABORT,
+        ]
+        and _ask["buttons"] == ("Override All", "Override", "Cancel")
+        and _ask["default"] == "Cancel"
+        and _ask["timeout"] is None
+        and "Valid Paths" in _ask["string"],
+        f"answers={_answers}, kwargs={ {k: _ask.get(k) for k in ('default', 'timeout')} }",
     )
 
     # Override Checks must not ride QSettings into the next session: a registered widget
@@ -5029,6 +5077,79 @@ try:
         and any(p.endswith("LegacyB_blade") for p in _lg_diff[1]),
         f"adopted={_lg_adopted} diff={_lg_diff}",
     )
+
+    # ---- a shot's visibility gate opens on its take's window (2026-10-04) --------------
+    # Blender's split bakes every frame of a take's window, so the converter opens
+    # each clip at the window's start; the gate was placed against the take's first
+    # AUTHORED key and lost ShotB's visible run (hidden from 21, not from 30). The
+    # conversion measures each take's span from the FBX it reads.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    reset_scene()
+    from blendertk import BlenderShotStore
+    from blendertk.mat_utils.render_opacity.render_effects import (
+        RenderEffects as _GateRE,
+    )
+
+    _gs = bpy.context.scene
+    _gs.render.fps, _gs.render.fps_base = 24, 1.0
+    bpy.ops.mesh.primitive_cube_add()
+    _g_mover = bpy.context.active_object
+    _g_mover.name = "gate_mover"
+    for _f, _x in ((1, 0.0), (40, 5.0)):
+        _g_mover.location.x = _x
+        _g_mover.keyframe_insert("location", index=0, frame=_f)
+    bpy.ops.mesh.primitive_cube_add(location=(0, 4, 0))
+    _g_blink = bpy.context.active_object
+    _g_blink.name = "gate_blink"
+    for _f, _hidden in ((1, False), (30, True)):
+        _g_blink.hide_render = _hidden
+        _g_blink.keyframe_insert("hide_render", frame=_f)
+    for _kp in _GateRE._fcurve(_g_blink, _GateRE.VIS_PATH).keyframe_points:
+        _kp.interpolation = "CONSTANT"
+    _g_blink.hide_render = False
+    BlenderShotStore._prefs_dir_override = os.path.join(tmp, "gate_prefs")
+    BlenderShotStore.clear_active()
+    _g_store = BlenderShotStore.active()
+    for _name, _start, _end in (("ShotA", 1, 20), ("ShotB", 21, 40)):
+        _g_store.define_shot(_name, _start, _end, objects=["gate_mover", "gate_blink"])
+    _g_store.publish_export_view()
+    _g_dir = os.path.join(tmp, "gate_export")
+    os.makedirs(_g_dir, exist_ok=True)
+    SceneExporter().perform_export(
+        export_dir=_g_dir,
+        objects=[_g_mover, _g_blink],
+        output_name="gate",
+        export_visible=True,
+        tasks={
+            "export_data_node": True,
+            "apply_declared_takes": "both",
+            "output_format": "fbx_glb",
+        },
+    )
+    _g_switch = None
+    with ptk.MeshConvert.open_glb(os.path.join(_g_dir, "gate.glb")) as _g_edit:
+        _g_reader = ptk.GlbReader(_g_edit)
+        _g_anim = _g_reader.animation("ShotB") or {}
+        _g_blink_index = _g_reader.node_index("gate_blink")
+        for _ch in _g_anim.get("channels") or []:
+            _target = _ch.get("target") or {}
+            if _target.get("node") != _g_blink_index or _target.get("path") != "scale":
+                continue
+            _sampler = _g_anim["samplers"][_ch.get("sampler", 0)]
+            for _t, _v in zip(
+                _g_reader.accessor(_sampler["input"]),
+                _g_reader.accessor(_sampler["output"]),
+            ):
+                if not any(_v):
+                    _g_switch = 21 + _t[0] * 24
+                    break
+    check(
+        "a shot's visibility gate opens on its take's window: hidden from frame 30",
+        _g_switch is not None and abs(_g_switch - 30) < 0.5,
+        f"ShotB hides at frame {_g_switch}",
+    )
+    BlenderShotStore.clear_active()
+    BlenderShotStore._prefs_dir_override = None
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     reset_scene()

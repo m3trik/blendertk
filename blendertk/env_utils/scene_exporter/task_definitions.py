@@ -470,19 +470,19 @@ class _TaskDefinitionsMixin:
                     bullets=[
                         "<b>Off (Pure Bake)</b> — the bake alone: no "
                         "reflection or gloss on a baked surface.",
-                        "<b>Quarter</b> — the default: the bake keeps its "
-                        "contrast, and gloss and normal maps still read.",
-                        "<b>Half / Full</b> — stronger reflections; Full "
-                        "lifts every dark glossy baked surface.",
+                        "<b>Quarter / Half</b> — weaker reflections "
+                        "everywhere, for a deliberately matte look.",
+                        "<b>Full</b> — the default: lit surfaces reflect "
+                        "fully, shadows stay dark.",
                     ],
                     notes=[
                         "A lightmap already holds the surface's diffuse "
                         "light, so a baked material only ever takes the "
                         "environment's specular; this sets how much. The "
                         "viewer's environment is a bright studio, not the room "
-                        "the bake lit: measured on a production room, the "
-                        "darkest baked surfaces read 0.06 of display baked "
-                        "alone, 0.22 at Full and 0.11 at Quarter.",
+                        "the bake lit, so each texel's reflection is first "
+                        "scaled by how lit its bake is: a shadow reflects next "
+                        "to nothing at any level.",
                         "Only lightmapped materials; everything else takes the "
                         "environment whole.",
                         "Decided here and carried by the deliverable (GLB and "

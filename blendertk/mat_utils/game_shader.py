@@ -496,6 +496,16 @@ class GameShaderSlots(GameShader):
             setText="Open in Editor",
             setToolTip="Open the created material in the Shader Editor.",
         )
+        widget.menu.add(
+            "QCheckBox",
+            setText="Assign to Selection",
+            setObjectName="chk_assign_to_selection",
+            setChecked=False,
+            setToolTip="Assign the created material to the objects selected "
+            "when Create Network is pressed.\n"
+            "Skipped when the textures build several materials — set a "
+            "Material Name to merge them into one.",
+        )
         widget.set_help_text(
             self.sb.tooltip.fmt(
                 title="Game Shader",
@@ -524,6 +534,8 @@ class GameShaderSlots(GameShader):
                     "<i>textures</i>.",
                     "Click the material name in the log (or <b>Open in Editor</b>) to inspect "
                     "the resulting node graph.",
+                    "Check <b>Assign to Selection</b> in the header menu to assign the new "
+                    "material to the selected objects.",
                 ],
             )
         )
@@ -684,8 +696,42 @@ class GameShaderSlots(GameShader):
                 "  'MAT_' → prefix (prepended)"
             )
 
+    def _assign_to_selection(self, materials, selection) -> None:
+        """Assign the one material just built to ``selection``.
+
+        Parameters:
+            materials: The materials ``create_network`` built.
+            selection: The objects selected before the build.
+        """
+        if not materials:
+            return
+        if not selection:
+            self.logger.warning("Assign to Selection: nothing was selected.")
+            return
+        if len(materials) > 1:
+            self.logger.warning(
+                f"Assign to Selection skipped: {len(materials)} materials were built. "
+                "Set a Material Name to merge them into one."
+            )
+            return
+        material = materials[0]
+        try:
+            MatUtils.assign_mat(selection, material)
+        except Exception as e:
+            self.logger.error(f"Assign to Selection failed: {material.name}: {e}")
+            return
+        self.logger.success(f"Assigned {material.name} to {len(selection)} object(s).")
+
     def b000(self):
         """Create Network — pick PBR texture files and build Principled material(s) from them."""
+        # Snapshot before the file dialog, so the assignment targets what was
+        # selected when the button was pressed.
+        selection = (
+            list(CoreUtils.selected_objects())
+            if self.ui.header.menu.chk_assign_to_selection.isChecked()
+            else None
+        )
+
         image_files = self.sb.file_dialog(
             file_types=[f"*.{ext}" for ext in ptk.ImgUtils.texture_file_types],
             title="Select one or more image files to open.",
@@ -726,6 +772,9 @@ class GameShaderSlots(GameShader):
 
         made = [m for m in ptk.make_iterable(results) if m is not None]
         self.last_created_materials = made
+
+        if selection is not None:
+            self._assign_to_selection(made, selection)
 
         if not made:
             self.sb.message_box(

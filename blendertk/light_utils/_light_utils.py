@@ -612,6 +612,7 @@ class LightUtils(_LightUtilsInternal):
              "color": [r, g, b], "energy": <watts>,
              "radiance": <W/m2/sr>,     # AREA: instead of energy, see below
              "aim": [x, y, z], "axis_up": "Y"|"Z",   # world aim, sender's axes
+             "right": [x, y, z],        # world local-X (the roll), sender's axes
              "spot_size": <radians>, "spot_blend": <0-1>,        # SPOT
              "shape": "RECTANGLE"|"SQUARE"|"DISK",
              "local_size": [x, y],                               # AREA, LOCAL units
@@ -733,23 +734,41 @@ class LightUtils(_LightUtilsInternal):
             aim = record.get("aim")
             if aim:
                 # Blender is Z-up: a Y-up sender's (x, y, z) is (x, -z, y) here.
-                # Applied to the world matrix's ROTATION only -- translation and
-                # scale stay as the import placed them.
-                vector = mathutils.Vector(
-                    (aim[0], -aim[2], aim[1])
-                    if str(record.get("axis_up", "Z")).upper() == "Y"
-                    else aim
-                )
+                y_up = str(record.get("axis_up", "Z")).upper() == "Y"
+
+                def _here(v):
+                    return mathutils.Vector((v[0], -v[2], v[1]) if y_up else v)
+
+                vector = _here(aim)
                 if vector.length > 1e-9:
-                    location, _, scale = matrix.decompose()
-                    matrix = (
-                        mathutils.Matrix.Translation(location)
-                        # Lights emit down local -Z in Blender, so track -Z to the
-                        # aim; Y is the roll reference, which only a rectangular
-                        # area light can notice.
-                        @ vector.to_track_quat("-Z", "Y").to_matrix().to_4x4()
-                        @ mathutils.Matrix.Diagonal(scale).to_4x4()
-                    )
+                    location, rotation, _scale = matrix.decompose()
+                    right = record.get("right")
+                    if right and _here(right).cross(vector).length > 1e-6:
+                        # The sender's own frame: -Z down the aim, X along its
+                        # local X. Only a rectangle shows the roll -- the
+                        # production office's fixture strips, under a group
+                        # turned 90 degrees, crossed turned 90 from their fixtures
+                        # when the roll was left to a reference axis.
+                        z = -vector.normalized()
+                        x = _here(right)
+                        x = (x - z * x.dot(z)).normalized()
+                        basis = mathutils.Matrix((x, z.cross(x), z)).transposed()
+                    else:
+                        # No roll sent: keep the empty's, turned only as far as
+                        # the aim needs.
+                        current = rotation @ mathutils.Vector((0.0, 0.0, -1.0))
+                        basis = (
+                            current.rotation_difference(vector) @ rotation
+                        ).to_matrix()
+                    matrix = mathutils.Matrix.Translation(location) @ basis.to_4x4()
+            # Placement only, never the empty's scale: the area size above already
+            # carries it, and Blender scales an emitter by its object's scale as
+            # well -- kept, the production office's 3.58 x 0.60 m fixture strips
+            # rendered 6.42 x 0.18 m and smeared every shadow along the strip.
+            location, rotation, _scale = matrix.decompose()
+            matrix = (
+                mathutils.Matrix.Translation(location) @ rotation.to_matrix().to_4x4()
+            )
 
             lamp = bpy.data.objects.new(name, light)
             for collection in collections:

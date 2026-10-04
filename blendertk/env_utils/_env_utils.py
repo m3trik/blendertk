@@ -457,6 +457,33 @@ class EnvUtils(_EnvUtilsInternal):
         return ws.root if ws else ""
 
     @staticmethod
+    def scene_project_root():
+        """The project the open file's files belong to; ``None`` without one.
+
+        Mirror of mayatk's, named by this workspace tool (:meth:`current_workspace`:
+        the session pin, else the nearest ``workspace.mel`` above the .blend, else
+        the .blend's own folder) -- a .blend rarely sits in a marked project, so the
+        workspace a user pins is what names one. A pin that does not hold the saved
+        file belongs to another project, and the file's own
+        (``DataNodes.project_root``) stands instead: a pin left on that project must
+        not open its folders to this file. The boundary a tool keeps when it writes,
+        renames or retires files (a lightmap bake).
+        """
+        from blendertk.node_utils.data_nodes import DataNodes
+
+        root = EnvUtils.workspace_root()
+        scene = DataNodes.scene_path()
+        if (
+            root
+            and scene
+            and not ptk.FileUtils.is_under(
+                os.path.abspath(scene), os.path.abspath(root)
+            )
+        ):
+            root = DataNodes.project_root()
+        return os.path.abspath(root) if root else None
+
+    @staticmethod
     def scene_artifact_path(suffix: str) -> str:
         """A file named for the open .blend, beside it: ``<blend dir>/<stem><suffix>``.
 

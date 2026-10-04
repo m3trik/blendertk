@@ -11,7 +11,6 @@ retrieving the keys under clips.
 from blendertk.anim_utils._anim_utils import AnimUtils
 from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
 from blendertk.anim_utils.shots.shot_sequencer.clip_motion import ClipMotionMixin
-from blendertk.core_utils._core_utils import CoreUtils
 
 
 class ClipMenuMixin:
@@ -192,8 +191,7 @@ class ClipMenuMixin:
                 color="#E0A0A0",
             )
             return
-        self._save_shot_state()
-        with CoreUtils.undo_chunk("Move to Shot"):
+        with self.sequencer.store.scene_edit("Move to Shot"):
             self.sequencer.move_sequences_to_shot(movable, dest_shot_id)
         self._segment_cache.clear()
         self._sub_row_cache.clear()
@@ -262,7 +260,6 @@ class ClipMenuMixin:
         except ImportError:
             return
 
-        self._save_shot_state()
         deleted = 0
         # Guarded like every other edit path here: removing a keyframe point
         # tags its Action and the depsgraph handler reacts to exactly that.
@@ -272,7 +269,7 @@ class ClipMenuMixin:
         was_syncing = self._syncing
         self._syncing = True
         try:
-            with CoreUtils.undo_chunk():
+            with self.sequencer.store.scene_edit("Delete Keys") as edit:
                 for cid in clip_ids:
                     clip = widget.get_clip(cid)
                     if clip is None or clip.data.get("read_only"):
@@ -283,13 +280,7 @@ class ClipMenuMixin:
                     s, e = clip.data.get("orig_start"), clip.data.get("orig_end")
                     if s is None or e is None:
                         continue
-                    attr = clip.data.get("attr_name")
-                    fcurves = (
-                        ClipMotionMixin.curves_for_attr(obj.name, attr)
-                        if attr
-                        else ShotSequencer._transform_fcurves(obj)
-                    )
-                    for fc in fcurves:
+                    for fc in ClipMenuMixin._clip_fcurves(obj, clip):
                         i0, i1 = AnimUtils.window_indices(
                             AnimUtils.key_times(fc), s - 1e-3, e + 1e-3
                         )
@@ -302,15 +293,29 @@ class ClipMenuMixin:
                     # A key edit like any other (``_key_scene_edit``): the claims
                     # on the deleted keys go with them and the gap holds re-settle.
                     self.sequencer.reconcile_system_edits()
+                else:
+                    edit.cancel()  # nothing happened -- no dead restore point
         finally:
             self._syncing = was_syncing
         if not deleted:
-            self._discard_shot_state()  # nothing happened -- no dead restore point
             return
         self._segment_cache.clear()
         self._sub_row_cache.clear()
         self._sync_to_widget()
         self._set_footer(f"Deleted {deleted} key{'s' if deleted != 1 else ''}")
+
+    @staticmethod
+    def _clip_fcurves(obj, clip) -> list:
+        """The fcurves *clip* stands for on *obj*: its channels, as mayatk scopes a
+        clip edit to the clip's ``attributes`` (a sub-row clip: its one
+        ``attr_name``).  A clip naming no channel -- a stepped point clip --
+        falls back to the object's content fcurves."""
+        attrs = list(clip.data.get("attributes") or [])
+        if not attrs and clip.data.get("attr_name"):
+            attrs = [clip.data["attr_name"]]
+        if not attrs:
+            return ShotSequencer._transform_fcurves(obj)
+        return ClipMotionMixin.curves_for_attrs(obj.name, attrs)
 
     def _stash_clip_keys(self, clip_ids: list) -> None:
         """Move the given clips' keys into the key stash (``KeyStash.stash``).
@@ -338,12 +343,7 @@ class ClipMenuMixin:
             s, e = clip.data.get("orig_start"), clip.data.get("orig_end")
             if s is None or e is None:
                 continue
-            attr = clip.data.get("attr_name")
-            fcurves = (
-                ClipMotionMixin.curves_for_attr(obj.name, attr)
-                if attr
-                else ShotSequencer._transform_fcurves(obj)
-            )
+            fcurves = ClipMenuMixin._clip_fcurves(obj, clip)
             if not fcurves:
                 continue
             shot_id = clip.data.get("shot_id")
@@ -372,9 +372,8 @@ class ClipMenuMixin:
         if not jobs or self.sequencer is None:
             return
         shots = {sid for *_scope, sid in jobs if sid is not None}
-        self._save_shot_state()
         try:
-            with CoreUtils.undo_chunk("Store Keys"):
+            with self.sequencer.store.scene_edit("Store Keys") as edit:
                 clip_rec = KeyStash.active().stash(
                     targets=[
                         (obj, fcurves, start, end)
@@ -382,14 +381,15 @@ class ClipMenuMixin:
                     ],
                     source_shot_id=shots.pop() if len(shots) == 1 else None,
                 )
+                stored = clip_rec.key_count if clip_rec is not None else 0
+                if not stored:
+                    edit.cancel()  # nothing happened -- keep the ledger clean
         except Exception:
             # One call for the whole gesture, so a raise means nothing landed
             # and the restore point would "restore" the state we are in.
             self._discard_shot_state()
             raise
-        stored = clip_rec.key_count if clip_rec is not None else 0
         if not stored:
-            self._discard_shot_state()  # nothing happened -- keep the ledger clean
             self._set_footer("No keys to store")
             return
         self._segment_cache.clear()
@@ -436,9 +436,10 @@ class ClipMenuMixin:
             return
         from blendertk.anim_utils.key_stash._key_stash import KeyStash
 
-        self._save_shot_state()
-        with CoreUtils.undo_chunk("Retrieve Stored Keys"):
+        with self.sequencer.store.scene_edit("Retrieve Stored Keys") as edit:
             restored = KeyStash.active().retrieve(clip_id)
+            if not restored:
+                edit.cancel()  # mayatk discards the dead restore point too
         if not restored:
             self._set_footer("Nothing retrieved — see the console")
             return
@@ -470,10 +471,9 @@ class ClipMenuMixin:
 
         if by_clip:
             deleted = 0
-            # The restore point BEFORE the edit (mirror of mayatk's scene_edit):
-            # its reconcile releases the deleted keys' claims, so a point taken
+            # The restore point is pushed BEFORE the edit (``scene_edit``): its
+            # reconcile releases the deleted keys' claims, so a point taken
             # after it handed undo a ledger without them.
-            self._save_shot_state()
             # Guarded like every other edit path here: removing a keyframe point
             # tags its Action and the depsgraph handler reacts to exactly that.
             # Whether Blender delivers that synchronously is NOT measured (mayatk's
@@ -482,7 +482,7 @@ class ClipMenuMixin:
             was_syncing = self._syncing
             self._syncing = True
             try:
-                with CoreUtils.undo_chunk("Delete Keys"):
+                with self.sequencer.store.scene_edit("Delete Keys") as edit:
                     for clip_id, times in by_clip.items():
                         clip = widget.get_clip(clip_id)
                         if clip is None:
@@ -510,10 +510,11 @@ class ClipMenuMixin:
                         # claims on the deleted keys go with them and the gap
                         # holds re-settle.
                         self.sequencer.reconcile_system_edits()
+                    else:
+                        edit.cancel()  # nothing happened -- no dead point
             finally:
                 self._syncing = was_syncing
             if not deleted:
-                self._discard_shot_state()  # nothing happened -- no dead point
                 return
             shot_id = self.active_shot_id
             self._segment_cache.clear()

@@ -256,23 +256,35 @@ A03.),Fuselage fades out,fuselage_geo,
     os.remove(wav_path)
 
     # ---- apply_behaviors guards (mirror of mayatk's apply_to_shots) -------
-    # existing-keys: a re-apply must skip objects already keyed in range,
-    # never overwrite (also what makes repeated Builds idempotent).
-    ail_keys_before = sorted(
-        kp.co[0]
-        for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects["aileron_geo"])
-        for kp in fc.keyframe_points
-    )
+    # Ownership: the keys a Build wrote are the manifest's (ShotEditLedger),
+    # so re-applying replaces exactly those -- repeated Builds are idempotent
+    # -- while a key the animator set on a fade's channel is never overwritten.
+    def _ail_keys():
+        return sorted(
+            (fc.data_path, kp.co[0])
+            for fc in BlenderShotStore.iter_action_fcurves(
+                bpy.data.objects["aileron_geo"]
+            )
+            for kp in fc.keyframe_points
+        )
+
+    ail_keys_before = _ail_keys()
     re_result = mani.apply_behaviors()
-    ail_keys_after = sorted(
-        kp.co[0]
-        for fc in BlenderShotStore.iter_action_fcurves(bpy.data.objects["aileron_geo"])
-        for kp in fc.keyframe_points
-    )
     check(
-        "guards: re-apply skips an already-keyed object (existing-keys guard)",
+        "guards: re-apply replaces only its own keys (idempotent)",
+        _ail_keys() == ail_keys_before
+        and any(r["object"] == "aileron_geo" for r in re_result.get("applied", [])),
+        f"applied={re_result.get('applied')} skipped={re_result.get('skipped')}",
+    )
+    aileron = bpy.data.objects["aileron_geo"]
+    mid = (shots["A01"].start + shots["A01"].end) / 2.0
+    aileron.keyframe_insert(data_path='["opacity"]', frame=mid)  # the animator's
+    animator_keys = _ail_keys()
+    re_result = mani.apply_behaviors()
+    check(
+        "guards: animator keys on a fade's channel are never overwritten",
         any(r["object"] == "aileron_geo" for r in re_result.get("skipped", []))
-        and ail_keys_before == ail_keys_after,
+        and _ail_keys() == animator_keys,
         f"skipped={re_result.get('skipped')}",
     )
 
@@ -504,9 +516,94 @@ A03.),Fuselage fades out,fuselage_geo,
         "reapply_object: re-keying an already-keyed object is allowed (no guard)",
         mani.reapply_object(re_shot, both),
     )
+    # The doc dropped both behaviors: the Apply gives back the keys they held
+    # (they are the manifest's own output), and then has nothing to do.
     check(
-        "reapply_object: no behaviors -> nothing applied",
+        "reapply_object: an object whose doc lists no behaviors gives its keys back",
+        mani.reapply_object(re_shot, _BO("wing_geo"))
+        and not any(
+            fc.keyframe_points
+            for fc in BlenderShotStore.iter_action_fcurves(wing)
+            if "opacity" in fc.data_path
+        )
+        and not store.edit_ledger.authored(owner=re_shot.shot_id, obj="wing_geo"),
+    )
+    check(
+        "reapply_object: no behaviors and no keys -> nothing applied",
         not mani.reapply_object(re_shot, _BO("wing_geo")),
+    )
+
+    # ---- the effect recipe through a build (mirror of mayatk's round trip) --
+    # Build keys the scene's recipe; a recipe change reads as stale until a
+    # Build re-keys it; a behavior the doc drops takes its keys -- never the
+    # animator's.
+    bpy.ops.mesh.primitive_cube_add()
+    bpy.context.active_object.name = "door_geo"
+    door = bpy.data.objects["door_geo"]
+    rt_store = BlenderShotStore()
+    rt = BlenderShotManifest(rt_store)
+    rt_range = {"D01": (1000.0, 1240.0)}
+    hl_path = '["highlight"]'
+
+    def rt_steps(*behaviors):
+        return [_BS("D01", "D", "t", "", [_BO("door_geo", behaviors=list(behaviors))])]
+
+    def door_keys(path):
+        return sorted(
+            (kp.co[0], kp.co[1])
+            for fc in BlenderShotStore.iter_action_fcurves(door)
+            if fc.data_path == path
+            for kp in fc.keyframe_points
+        )
+
+    def pulse_plan():
+        shot = next(s for s in rt_store.sorted_shots() if s.name == "D01")
+        return rt_store.effect_recipe.plan("pulse", shot.start, shot.end, 24)
+
+    rt_store.update_effect_recipe(pulse_period=2.0, pulse_duty=0.5)
+    _, _, built = rt.sync(rt_steps("highlight"), ranges=rt_range)
+    check(
+        "recipe: Build keys the scene recipe's pulse",
+        door_keys(hl_path) == pulse_plan(),
+        f"{door_keys(hl_path)[:4]} vs {pulse_plan()[:4]}",
+    )
+    check(
+        "recipe: a fresh build assesses valid and needs no build",
+        built[0].objects[0].status == "valid" and not built[0].needs_build,
+        f"{built[0].objects[0].status}",
+    )
+    rt_store.update_effect_recipe(pulse_period=2.5)
+    stale = rt.assess(rt_steps("highlight"))
+    check(
+        "recipe: a recipe change reads as stale, and Build is worth pressing",
+        stale[0].objects[0].status == "stale_behavior"
+        and stale[0].objects[0].stale_behaviors == ["highlight"]
+        and stale[0].needs_build,
+        f"{stale[0].objects[0].status} {stale[0].objects[0].stale_behaviors}",
+    )
+    _, _, rebuilt = rt.sync(rt_steps("highlight"), ranges=rt_range)
+    check(
+        "recipe: Build re-keys a stale behavior",
+        door_keys(hl_path) == pulse_plan() and rebuilt[0].objects[0].status == "valid",
+        f"{rebuilt[0].objects[0].status}",
+    )
+    rt.sync(rt_steps("highlight", "fade_in"), ranges=rt_range)
+    door["highlight"] = 0.5
+    door.keyframe_insert(data_path=hl_path, frame=2000)  # the animator's
+    dropped = rt.assess(rt_steps("fade_in"))
+    check(
+        "recipe: assess names a behavior the doc dropped",
+        dropped[0].dropped_behaviors == [["door_geo", "highlight"]]
+        and dropped[0].needs_build,
+        f"{dropped[0].dropped_behaviors}",
+    )
+    rt.sync(rt_steps("fade_in"), ranges=rt_range)
+    check(
+        "recipe: Build takes a dropped behavior's keys, never the animator's",
+        door_keys(hl_path) == [(2000.0, 0.5)]
+        and door_keys('["opacity"]')
+        and not rt_store.edit_ledger.authored(behavior="highlight"),
+        f"{door_keys(hl_path)}",
     )
 
     BlenderShotStore.clear_active()

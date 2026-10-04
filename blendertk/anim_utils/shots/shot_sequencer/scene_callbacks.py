@@ -40,12 +40,38 @@ class SceneCallbacksMixin:
 
         h = bpy.app.handlers
         _add(h.frame_change_post, self._on_frame_change)
+        _add(h.undo_pre, self._on_undo_pre)
+        _add(h.redo_pre, self._on_redo_pre)
         _add(h.undo_post, self._on_undo_post)
         _add(h.redo_post, self._on_redo_post)
         _add(h.depsgraph_update_post, self._on_depsgraph_update)
 
+        # An object rename (no app handler reports one): the next rebuild
+        # re-points the shots naming it (``reconcile_all_shots``) -- mayatk's
+        # DAG-path reconcile, reached the same way.  msgbus takes plain
+        # functions only, so the hook goes through this closure; file load
+        # drops the subscription and the invalidation re-runs this method.
+        def _on_rename(*_args):
+            self._on_object_renamed()
+
+        try:
+            bpy.msgbus.subscribe_rna(
+                key=(bpy.types.Object, "name"),
+                owner=self,
+                args=(),
+                notify=_on_rename,
+            )
+        except Exception:
+            self.logger.debug("object-rename watch unavailable", exc_info=True)
+
     def _unregister_scene_callbacks(self) -> None:
         """Detach the tracked bpy.app handlers (tolerates ones Blender already cleared)."""
+        try:
+            import bpy
+
+            bpy.msgbus.clear_by_owner(self)
+        except Exception:
+            pass
         for handler_list, fn in self._handlers:
             try:
                 handler_list.remove(fn)
@@ -61,12 +87,33 @@ class SceneCallbacksMixin:
         except Exception:
             pass
         self._unregister_scene_callbacks()
+        self._edited_objects.clear()
         if self._keyframe_debounce is not None:
             try:
                 self._keyframe_debounce.stop()
             except RuntimeError:
                 pass
             self._keyframe_debounce = None
+
+    def _on_object_renamed(self) -> None:
+        """An object was renamed: re-point the shots on the next (debounced)
+        rebuild, as a keyframe edit does."""
+        self._reconcile_needed = True
+        try:
+            self._arm_keyframe_debounce()
+        except Exception:
+            self.logger.debug("rename refresh not scheduled", exc_info=True)
+
+    def _arm_keyframe_debounce(self) -> None:
+        """(Re)start the 200 ms single-shot refresh, built on first use."""
+        from qtpy import QtCore
+
+        if self._keyframe_debounce is None:
+            self._keyframe_debounce = QtCore.QTimer()
+            self._keyframe_debounce.setSingleShot(True)
+            self._keyframe_debounce.setInterval(200)
+            self._keyframe_debounce.timeout.connect(self._on_keyframe_debounce_fire)
+        self._keyframe_debounce.start()
 
     def _on_frame_change(self, *args) -> None:
         """Update the widget playhead when the scene frame changes.
@@ -94,16 +141,33 @@ class SceneCallbacksMixin:
                 return  # evaluated copy from a render/bake job, not the UI scene
             widget = self._get_sequencer_widget()
             if widget is not None and scene is not None:
-                widget.set_playhead(scene.frame_current)
+                widget.set_playhead(scene.frame_current_final)
         except Exception:
             self.logger.debug("frame-change handler failed", exc_info=True)
 
+    def _on_undo_pre(self, *_args) -> None:
+        """Note the edit serial before the step runs (see ``_native_event_is_ours``)."""
+        self._serial_before_native = BlenderShotStore.edit_serial()
+
+    def _on_redo_pre(self, *_args) -> None:
+        """Note the edit serial before the step runs (see ``_native_event_is_ours``)."""
+        self._serial_before_native = BlenderShotStore.edit_serial()
+
     def _on_undo_post(self, *_args) -> None:
+        """Restore the newest restore point when Blender's undo was OUR edit.
+
+        Only then (mirror of mayatk's ``_on_maya_undo``): consuming a restore
+        point for somebody else's step would silently revert a boundary
+        change the user never undid.  The widget refreshes either way --
+        Blender has no per-key callback to report what an unrelated undo did
+        to the keys on screen, where mayatk's keyframe callback does.
+        """
         if self._syncing:
             return
         self._syncing = True
         try:
-            self._restore_shot_state()
+            if self._native_event_is_ours():
+                self._restore_shot_state()
         finally:
             self._syncing = False
         self._segment_cache.clear()
@@ -122,7 +186,8 @@ class SceneCallbacksMixin:
             return
         self._syncing = True
         try:
-            self._redo_shot_state()
+            if self._native_event_is_ours(redo=True):
+                self._redo_shot_state()
         finally:
             self._syncing = False
         self._segment_cache.clear()
@@ -163,26 +228,77 @@ class SceneCallbacksMixin:
                 return
             depsgraph = args[1] if len(args) > 1 else None
             if depsgraph is not None and not self._is_animation_update(depsgraph):
-                return
-            if depsgraph is not None:
+                # A sound strip moved, trimmed, added or removed in Blender's
+                # own Sequencer tags no Action -- mayatk hears the same edit
+                # through its keyframe callback, its audio being keyed on a
+                # carrier -- so compare the strips themselves.  Only when the
+                # SCENE is among the updates (a strip edit tags it; a viewport
+                # drag, every tick of it, does not).
+                scene_tagged = any(
+                    isinstance(u.id, bpy.types.Scene) for u in depsgraph.updates
+                )
+                if not scene_tagged or not self._sound_strips_changed():
+                    return
+            if (
+                depsgraph is not None
+                and len(self._edited_objects) <= self._EDITED_OBJECT_CAP
+            ):
                 # Bank NOW — the depsgraph is invalid by the time the 200ms
                 # debounce fires.  Object IDs arrive in the same updates
                 # batch as the Action (probed pairing: key insert →
                 # ['Object', 'Action']); updates carry EVALUATED ids, so
-                # take .original.
+                # take .original.  Past the cap the burst is a bake or an
+                # import and the refresh scans the selection instead.
                 for u in depsgraph.updates:
                     if isinstance(u.id, bpy.types.Object):
                         self._edited_objects.add(u.id.original.name)
-            from qtpy import QtCore
-
-            if self._keyframe_debounce is None:
-                self._keyframe_debounce = QtCore.QTimer()
-                self._keyframe_debounce.setSingleShot(True)
-                self._keyframe_debounce.setInterval(200)
-                self._keyframe_debounce.timeout.connect(self._on_keyframe_debounce_fire)
-            self._keyframe_debounce.start()
+            self._arm_keyframe_debounce()
         except Exception:
             self.logger.debug("depsgraph handler failed", exc_info=True)
+
+    #: The sound strips as :meth:`_sound_strips_changed` last saw them.
+    _strip_signature = None
+
+    def _note_sound_strips(self) -> None:
+        """Take the strip baseline (the audio track was just built from it)."""
+        self._strip_signature = None
+        self._sound_strips_changed()
+
+    def _sound_strips_changed(self) -> bool:
+        """True when the scene's sound strips differ from the last look.
+
+        Name, placement, trim, channel and mute of every sound strip: what the
+        audio track draws.  Cheap -- a scene holds a handful of strips -- which
+        matters, since it runs on every depsgraph update that is not a key edit.
+        """
+        scene = self._scene()
+        ed = getattr(scene, "sequence_editor", None) if scene is not None else None
+        sig = (
+            tuple(
+                sorted(
+                    (
+                        st.name,
+                        st.frame_start,
+                        st.frame_final_start,
+                        st.frame_final_end,
+                        st.channel,
+                        st.mute,
+                    )
+                    for st in ed.strips_all
+                    if st.type == "SOUND"
+                )
+            )
+            if ed is not None
+            else ()
+        )
+        if sig == self._strip_signature:
+            return False
+        first = self._strip_signature is None
+        self._strip_signature = sig
+        if first:
+            return False  # the baseline, not an edit
+        self._audio_segments_cache = None
+        return True
 
     @staticmethod
     def _is_animation_update(depsgraph) -> bool:
@@ -218,18 +334,35 @@ class SceneCallbacksMixin:
         else:
             self._segment_cache.clear()
             self._sub_row_cache.clear()
+            # Nothing to attribute the edits to -- drop them rather than let
+            # them join whichever shot is active next (mirror of mayatk).
+            self._edited_objects.clear()
             added = False
         if not added:
             self._sync_to_widget()
 
+    #: Above this many banked objects the burst is a bake / import, not a
+    #: keying gesture (mayatk's ``_EDITED_CURVE_CAP``): the refresh falls back
+    #: to the selection scan instead of probing every object.
+    _EDITED_OBJECT_CAP = 400
+
     def _auto_add_keyed_objects(self, shot_id: int) -> bool:
-        """Merge newly-keyed transforms into the active shot's objects.
+        """Merge newly-keyed objects into the active shot's objects.
 
         Candidates come from the objects whose Actions Blender reported as
         updated (banked by :meth:`_on_depsgraph_update`), falling back to
-        the current selection when the handler banked nothing — so scripted
-        or channel-pinned keying on UNSELECTED objects still joins the shot
-        (mirror of mayatk's banked-curve path).
+        the current selection when the handler banked nothing (or a bulk
+        edit overran the cap) — so scripted or channel-pinned keying on
+        UNSELECTED objects still joins the shot (mirror of mayatk's
+        banked-curve path).
+
+        A candidate qualifies on "has a key in the shot's range on a content
+        channel" (``_is_transform_path``: transforms, visibility, render
+        effects) and deliberately NOT on its values varying, as mayatk's
+        does: an object keyed on a hold inside the shot -- or keyed for the
+        first time -- is still the shot's content, and leaving it out of
+        ``shot.objects`` both hid it from the panel and stranded its keys
+        when the shot moved.
         """
         if self.sequencer is None:
             return False
@@ -237,10 +370,14 @@ class SceneCallbacksMixin:
         if shot is None:
             return False
         try:
-            import bpy  # noqa: F401 -- probe: no selection to read outside Blender
+            import bpy
         except ImportError:
             return False
-        candidates = set(self._edited_objects)
+        candidates = (
+            set(self._edited_objects)
+            if len(self._edited_objects) <= self._EDITED_OBJECT_CAP
+            else set()
+        )
         self._edited_objects.clear()
         if not candidates:
             from blendertk.core_utils._core_utils import CoreUtils
@@ -253,8 +390,12 @@ class SceneCallbacksMixin:
         candidates -= existing
         if not candidates:
             return False
-        keyed = set(self.sequencer._find_keyed_transforms(shot.start, shot.end))
-        new_objects = candidates & keyed
+        new_objects = {
+            name
+            for name in candidates
+            if (obj := bpy.data.objects.get(name)) is not None
+            and self.sequencer._has_keys(obj, shot.start, shot.end)
+        }
         if not new_objects:
             return False
         merged = sorted(existing | new_objects)

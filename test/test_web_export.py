@@ -264,6 +264,38 @@ try:
         f"scalar={hdr_scalar:.3f} (max was 100.0, body 0.5)",
     )
 
+    # A level between two 8-bit codes must average to itself (stochastic rounding,
+    # the pythontk twin's ImgUtils.quantize_8bit): rounding every texel to the nearer
+    # code terraced a production room's smooth walls into contour bands at 2K.
+    mid_src = os.path.join(tmp_dir, "between.exr")
+    side = 64
+    level = ((127.3 / 255.0 + 0.055) / 1.055) ** 2.4
+    mid = bpy.data.images.new("between", width=side, height=side, float_buffer=True)
+    mid.colorspace_settings.name = "Non-Color"
+    mbuf = np.ones(side * side * 4, dtype=np.float32)
+    for i in range(3):
+        mbuf[i::4] = level
+    mbuf[:3] = 1.0  # one bright texel: the percentile-100 divisor is 1.0
+    mid.pixels.foreach_set(mbuf)
+    mid.filepath_raw = mid_src
+    mid.file_format = "OPEN_EXR"
+    mid.save()
+    bpy.data.images.remove(mid)
+    mid_png, _s = LightmapWebExport.encode_for_web(
+        {"between": mid_src}, tmp_dir, percentile=100.0
+    )["between"]
+    back = bpy.data.images.load(mid_png)
+    back.colorspace_settings.name = "Non-Color"
+    mb = np.empty(len(back.pixels), dtype=np.float32)
+    back.pixels.foreach_get(mb)
+    bpy.data.images.remove(back)
+    codes = np.round(mb.reshape(-1, 4)[1:, :3] * 255.0)
+    check(
+        "an 8-bit level between codes is encoded unbiased",
+        abs(float(codes.mean()) - 127.3) < 0.05 and codes.max() - codes.min() <= 1,
+        f"mean={codes.mean():.3f} min={codes.min()} max={codes.max()}",
+    )
+
     # --- web texture budget exempts the lightmaps --------------------------
     # The lightmaps are loaded from disk like any other image, so a filepath check alone
     # would shrink them: a 4096 bake would silently ship at 2048 with nothing to show for
@@ -824,11 +856,18 @@ try:
     # The exporter and pythontk's WebXR viewer agree by convention, not by an interface,
     # so nothing but this catches a drift: edit the carrier here or the binder there and
     # the lightmap silently stops being applied (or is applied twice, or linear).
-    viewer_path = os.path.join(
-        MONO, "pythontk", "pythontk", "net_utils", "preview", "viewer.html"
-    )
+    preview_dir = os.path.join(MONO, "pythontk", "pythontk", "net_utils", "preview")
+    viewer_path = os.path.join(preview_dir, "viewer.html")
     if os.path.isfile(viewer_path) and manifest:
-        viewer = open(viewer_path, encoding="utf-8").read()
+        # The viewer is viewer.html PLUS the modules it loads (``kernel/``,
+        # ``features/`` since the 2026-10-03 split): the binder lives in
+        # ``kernel/lightmaps.js`` now, and the contract is wherever it is.
+        import glob
+
+        sources = [viewer_path] + sorted(
+            glob.glob(os.path.join(preview_dir, "**", "*.js"), recursive=True)
+        )
+        viewer = "\n".join(open(p, encoding="utf-8").read() for p in sources)
         slot = {"occlusion": "aoMap", "emissive": "emissiveMap"}.get(
             manifest["carrier"]
         )

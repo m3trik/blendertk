@@ -48,10 +48,15 @@ class ShotEditDialog:
         *validate* is ``(name) -> reason or None`` (a store's
         :meth:`~pythontk.ShotStore.name_error`): while it has a reason the
         dialog shows it and will not accept, so a name the export would
-        respell never reaches the store.  The name comes back as typed.
+        respell never reaches the store.  Without it the dialog still enforces
+        the clip-name rule (an empty store's ``name_error``, as mayatk's
+        does); only a store can refuse a taken name.  The name comes back as
+        typed.
         """
         from qtpy import QtWidgets
 
+        if validate is None:
+            validate = ptk.ShotStore().name_error
         dlg = QtWidgets.QDialog(parent)
         dlg.setWindowTitle(title)
         dlg.setMinimumWidth(280)
@@ -203,6 +208,9 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                 sig.connect(slot)
                 connections.append((sig_name, slot))
             sequencer._slots_connections = connections
+            # Right-clicks reach on_zone_context_menu (the shot-lane menu)
+            # instead of the widget's built-in default menu.
+            sequencer.zone_menu_enabled = True
 
             # The panel's own key bindings.  ``add_shortcut`` disposes and
             # replaces a same-sequence binding, so a slots re-init over the
@@ -388,6 +396,23 @@ class ShotSequencerSlots(ptk.LoggingMixin):
             cmb.customContextMenuRequested.connect(
                 lambda pos: cmb._nav_slots._cmb_context_menu(pos)
             )
+
+            # The mode selector (Shots / Markers): connected once, late-bound
+            # through ``cmb._nav_slots`` like every other nav callback, so a
+            # slots re-init re-points it instead of leaving it driving the
+            # retired controller (mirror of mayatk).
+            cmb_mode = getattr(self.ui, "cmb_mode", None)
+            if cmb_mode is not None:
+                cmb_mode.blockSignals(True)
+                cmb_mode.clear()
+                cmb_mode.addItem("Shots:", "shots")
+                cmb_mode.addItem("Markers:", "markers")
+                cmb_mode.setCurrentIndex(0)
+                cmb_mode.blockSignals(False)
+                cmb_mode.currentIndexChanged.connect(
+                    lambda i: cmb._nav_slots._on_cmb_mode_changed(i)
+                )
+                self.controller._cmb_mode_widget = cmb_mode
         except Exception:
             self.logger.debug("shot nav option-box setup failed", exc_info=True)
         self.controller._cmb_mode_widget = getattr(self.ui, "cmb_mode", None)
@@ -727,7 +752,7 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                         "Ruler / Tracks / Gaps / Markers",
                         [
                             "<b>Ruler:</b> Click/drag to move playhead, double-click to add a marker, scroll to zoom, middle-drag to pan.",
-                            "<b>Shot Lane:</b> Right-click a shot block on the ruler for its menu: Edit, New Shot (insert before / after), Split Here (or at the current time), Merge (previous / next), Move To (re-slot it among the other shots; the one holding that slot moves downstream), Add Frames, Trim Empty Space (leading / trailing). Hover a row to open its finer forms. Right-click the ruler, or the tracks clear of every shot, for the timeline's own menu (markers and display toggles). Double-click the shot dropdown to edit name / start / end / description in place.",
+                            "<b>Shot Lane:</b> Right-click a shot block on the ruler for its menu: Edit, New Shot (insert before / after), Split Here (or at the current time), Merge (previous / next), Move To (re-slot it among the other shots; the one holding that slot moves downstream), Add Frames, Trim Empty Space (leading / trailing). Hover a row to open its finer forms. Right-click the ruler, or the tracks clear of every shot, for the timeline's own menu (markers and display toggles). The selected shot is drawn with a tinted band, a rule along the top of the lane, and ticks at its two bounds. Double-click the shot dropdown to edit name / start / end / description in place.",
                             "<b>Tracks:</b> Double-click header to expand per-attribute sub-rows. Right-click to hide, delete, or reveal in Outliner.",
                             "<b>Gaps:</b> Drag an edge to slide the shot beyond it (Ctrl moves the bound only, Shift retimes); drag the body to slide the gap. Right-click to lock. The caps before the first shot and after the last are those shots' own bounds: a plain drag moves the bound and nothing else.",
                             "<b>Markers:</b> M or double-click ruler to add. Drag to move. Right-click to edit note, color, or style.",
@@ -763,25 +788,19 @@ class ShotSequencerSlots(ptk.LoggingMixin):
                                 + self.sb.tooltip.kbd("Ctrl", "Shift", "Z")
                                 + " — redo &nbsp;·&nbsp; "
                                 + self.sb.tooltip.kbd("Del")
-                                + " — delete keys"
+                                + " — delete keys, or the selected shot when the tracks have no selection"
+                            ),
+                            (
+                                self.sb.tooltip.kbd("Ctrl", "C")
+                                + " — copy the selected keys &nbsp;·&nbsp; "
+                                + self.sb.tooltip.kbd("Ctrl", "V")
+                                + " — paste them at the playhead"
                             ),
                         ],
                     ),
                 ],
             )
         )
-
-        # Wire the mode selector combobox (Shots / Markers).
-        cmb_mode = getattr(self.ui, "cmb_mode", None)
-        if cmb_mode is not None:
-            cmb_mode.blockSignals(True)
-            cmb_mode.clear()
-            cmb_mode.addItem("Shots:", "shots")
-            cmb_mode.addItem("Markers:", "markers")
-            cmb_mode.setCurrentIndex(0)
-            cmb_mode.blockSignals(False)
-            cmb_mode.currentIndexChanged.connect(self._on_cmb_mode_changed)
-            self.controller._cmb_mode_widget = cmb_mode
 
     # ---- auto-wired header slots -----------------------------------------
 

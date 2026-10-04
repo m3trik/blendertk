@@ -43,6 +43,12 @@ _QUAT_AXES = ("W", "X", "Y", "Z")  # Blender stores quaternions W-first
 # scalar -- ``hide_render``, a custom property -- and keys at array_index 0
 # without there being an "X" to name.
 _VECTOR_PATHS = tuple(_PATH_LABELS) + ("rotation_axis_angle",)
+# Scalar channels that stand in for a Maya attribute of another name:
+# ``hide_render`` is the deliverable visibility (what a Maya ``visibility``
+# replay keys -- ``BlenderShotStore._TRANSFER_LABEL_ALIASES``), so it reads as
+# Maya's channel and takes its colour.  ``hide_viewport`` is a viewport aid
+# with no Maya twin and keeps its own name.
+_SCALAR_LABELS = {"hide_render": "visibility"}
 
 
 class SegmentCollector:
@@ -58,7 +64,7 @@ class SegmentCollector:
         is W, not X), so it maps through :data:`_QUAT_AXES` — the shared X-first
         table mislabeled every quaternion channel by one axis.
         """
-        base = _PATH_LABELS.get(data_path, data_path)
+        base = _PATH_LABELS.get(data_path) or _SCALAR_LABELS.get(data_path, data_path)
         # A custom property is labelled by its name, as Maya spells the same
         # attribute (``["opacity"]`` -> ``opacity``).
         if base.startswith('["') and base.endswith('"]'):
@@ -180,11 +186,9 @@ class SegmentCollector:
                 obj = bpy.data.objects.get(seg.get("obj"))
                 if obj is None:
                     continue
-                from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import (
-                    ShotSequencer,
-                )
+                from blendertk.anim_utils.shots._shots import BlenderShotStore
 
-                curves = ShotSequencer._transform_fcurves(obj)
+                curves = list(BlenderShotStore.iter_action_fcurves(obj))
             for fc in curves:
                 try:
                     i0, i1 = AnimUtils.window_indices(
@@ -251,27 +255,42 @@ class SegmentCollector:
             interp = getattr(k0, "interpolation", "BEZIER")
             # Only true BEZIER keys have meaningful handles; the easing modes
             # (SINE/QUAD/BOUNCE/…) don't evaluate through them, so drawing their
-            # handles as control points renders a wrong curve — degrade those to a
-            # straight preview segment instead.
+            # handles as control points renders a wrong curve.  Those are drawn
+            # through samples of the curve itself (``samples``, which the
+            # shared painter follows), as mayatk draws each of its own tangent
+            # types faithfully; the segment stays "linear" for every consumer
+            # that reads the type (no handles to grab on an eased span).
             out_type = {"CONSTANT": "step", "LINEAR": "linear", "BEZIER": "bezier"}.get(
                 interp, "linear"
             )
             cp1 = cp2 = None
+            samples = None
             if out_type == "bezier":
                 cp1 = (k0.handle_right[0], k0.handle_right[1])
                 cp2 = (k1.handle_left[0], k1.handle_left[1])
                 all_vals.extend([cp1[1], cp2[1]])
-            vis_segs.append(
-                {
-                    "t0": t0,
-                    "v0": v0,
-                    "t1": t1,
-                    "v1": v1,
-                    "out_type": out_type,
-                    "cp1": cp1,
-                    "cp2": cp2,
-                }
-            )
+            elif interp not in ("CONSTANT", "LINEAR") and t1 > t0:
+                n_samples = max(8, min(48, int((t1 - t0) * 2)))
+                samples = [
+                    (t, fcurve.evaluate(t))
+                    for t in (
+                        t0 + (t1 - t0) * j / (n_samples + 1)
+                        for j in range(1, n_samples + 1)
+                    )
+                ]
+                all_vals.extend(v for _t, v in samples)
+            seg = {
+                "t0": t0,
+                "v0": v0,
+                "t1": t1,
+                "v1": v1,
+                "out_type": out_type,
+                "cp1": cp1,
+                "cp2": cp2,
+            }
+            if samples:
+                seg["samples"] = samples
+            vis_segs.append(seg)
 
         if not vis_keys:
             return None

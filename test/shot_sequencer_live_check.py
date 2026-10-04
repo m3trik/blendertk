@@ -506,6 +506,91 @@ try:
         f"{labels}",
     )
 
+    # ---- shot-lane menu (mirror of mayatk's TestShotLaneMenu) -------------------------------
+    # Unreachable before 2026-10-04: the slots never set ``zone_menu_enabled``,
+    # so every right-click fell through to the widget's default menu.
+    check(
+        "shot lane: right-clicks are routed to the controller's zone menu",
+        widget.zone_menu_enabled,
+    )
+
+    def menu_rows(lst):
+        return [w.text() for w in lst._row_widgets() if hasattr(w, "text")]
+
+    lane_shot = store.sorted_shots()[0]
+    mid = (lane_shot.start + lane_shot.end) / 2.0
+    lane = ctl._build_shot_lane_context_menu(mid)
+    try:
+        root = menu_rows(lane.list)
+        by_text = {w.text(): w for w in lane.list._row_widgets() if hasattr(w, "text")}
+        check(
+            "shot lane: Edit / New Shot / Split / Merge / Move To / Add Frames / Trim",
+            root
+            and root[0] == f'Edit "{lane_shot.name}"…'
+            and all(
+                lbl in root
+                for lbl in (
+                    "New Shot",
+                    f"Split Here ({mid:.0f})",
+                    "Merge",
+                    "Move To",
+                    "Add Frames",
+                    "Trim Empty Space",
+                )
+            ),
+            f"{root}",
+        )
+        check(
+            "shot lane: the verbs fan out into their forms",
+            menu_rows(by_text["New Shot"].sublist)
+            == ["Insert Shot Before", "Insert Shot After"]
+            and menu_rows(by_text["Trim Empty Space"].sublist)
+            == ["Trim Leading Space", "Trim Trailing Space"],
+            f"{menu_rows(by_text['New Shot'].sublist)} / "
+            f"{menu_rows(by_text['Trim Empty Space'].sublist)}",
+        )
+    finally:
+        lane.dispose()
+    gap_t = lane_shot.end + 1.0
+    if not any(s.start <= gap_t <= s.end for s in store.shots):
+        outside = ctl._build_shot_lane_context_menu(gap_t)
+        try:
+            check(
+                "shot lane: outside every shot only creation remains",
+                menu_rows(outside.list) == ["New Shot"],
+                f"{menu_rows(outside.list)}",
+            )
+        finally:
+            outside.dispose()
+    tl = ctl._build_timeline_context_menu(mid)
+    try:
+        check(
+            "timeline: its own menu (markers + display toggles)",
+            menu_rows(tl.list)[:1] == [f"Add Marker at {mid:.0f}…"],
+            f"{menu_rows(tl.list)}",
+        )
+    finally:
+        tl.dispose()
+
+    # A lane action through to the panel's undo: Split, then Undo restores the one
+    # shot, Redo brings the cut back -- the restore point paired with its own step.
+    n_shots = len(store.shots)
+    ctl.split_shot_at(lane_shot.shot_id, mid)
+    pump()
+    split_ok = len(store.shots) == n_shots + 1
+    ctl.on_undo()
+    pump()
+    undo_ok = len(store.shots) == n_shots
+    ctl.on_redo()
+    pump()
+    check(
+        "shot lane: Split, panel Undo, panel Redo (restore point paired to its step)",
+        split_ok and undo_ok and len(store.shots) == n_shots + 1,
+        f"split={split_ok} undo={undo_ok} redo={len(store.shots)}",
+    )
+    ctl.on_undo()
+    pump()
+
     # ---- shot combo helpers --------------------------------------------------------------------
     cand = ctl.sequencer.detect_next_shot(gap_threshold=5.0)
     check("detect_next_shot on a fully covered scene -> None", cand is None, f"{cand}")

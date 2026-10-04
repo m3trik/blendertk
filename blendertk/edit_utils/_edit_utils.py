@@ -581,6 +581,20 @@ class _EditUtilsInternal(object):
         ) in selected:  # join chokes on multi-user data — make each single-user first
             if c.data is not None and c.data.users > 1:
                 c.data = c.data.copy()
+        # join merges UV maps BY NAME: a source whose UVs live in "UVChannel_1" lands
+        # in a separate map and reads as unmapped in the result's primary one (verified
+        # live, Blender 5.1). Align every map by index to the surviving object's names
+        # (mirror of mayatk's ``_align_uv_sets``); a map already named like any of
+        # them, or whose target name already exists on that mesh, is left for the
+        # by-name merge.
+        ref = [uv.name for uv in copies[0].data.uv_layers]
+        for c in selected:
+            if c is copies[0]:
+                continue
+            layers = c.data.uv_layers
+            for layer, target in zip(list(layers), ref):
+                if layer.name not in ref and target not in layers:
+                    layer.name = target
         bpy.context.view_layer.update()
         for c in selected:
             if c is copies[0]:

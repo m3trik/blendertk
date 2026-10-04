@@ -1,6 +1,6 @@
 {
     "description": "Fast iteration / preview — low resolution, few samples, two bounces (denoised).",
     "resolution": 256,
-    "samples": 64,
+    "samples": 128,
     "bounces": 2
 }

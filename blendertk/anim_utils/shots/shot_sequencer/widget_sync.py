@@ -14,7 +14,7 @@ from typing import Optional
 
 import pythontk as ptk
 
-from blendertk.anim_utils.shots.shot_sequencer._shot_sequencer import ShotSequencer
+from blendertk.anim_utils.shots._shots import BlenderShotStore
 from blendertk.anim_utils.shots.shot_sequencer.segment_collector import SegmentCollector
 
 
@@ -146,7 +146,7 @@ class WidgetSyncMixin:
         scene = self._scene()
         if scene is None:
             return
-        start, end = float(scene.frame_start), float(scene.frame_end)
+        start, end = self._scene_playback_range(scene)
         h_scroll, zoom, expanded_names = self._save_viewport_state(widget)
         widget.clear()
         self._sync_header_settings(widget)
@@ -187,7 +187,7 @@ class WidgetSyncMixin:
         self._build_clips(widget, scene_shot, [scene_shot], segments_by_shot, track_ids)
         self._ensure_scene_attr_colors(widget)
         self._build_audio_tracks(widget, scene_shot, [scene_shot])
-        widget.set_playhead(scene.frame_current)
+        widget.set_playhead(scene.frame_current_final)
         widget.set_active_range(start, end)
         self._restore_viewport(widget, frame, h_scroll, zoom, expanded_names)
         n = len(scene_shot.objects)
@@ -212,17 +212,15 @@ class WidgetSyncMixin:
         return widget, shot
 
     def _save_viewport_state(self, widget):
-        try:
-            h_scroll = widget._timeline.horizontalScrollBar().value()
-            zoom = widget._timeline.pixels_per_unit
-            expanded_names = set()
-            for tid in list(widget._expanded_tracks):
-                td = widget.get_track(tid)
-                if td is not None:
-                    expanded_names.add(td.name)
-            return h_scroll, zoom, expanded_names
-        except Exception:
-            return 0, None, set()
+        """Capture scroll, zoom, and expanded tracks for later restoration."""
+        h_scroll = widget._timeline.horizontalScrollBar().value()
+        zoom = widget._timeline.pixels_per_unit
+        expanded_names = set()
+        for tid in list(widget._expanded_tracks):
+            td = widget.get_track(tid)
+            if td is not None:
+                expanded_names.add(td.name)
+        return h_scroll, zoom, expanded_names
 
     def _rebuild_content(self, widget, shot, visible_shots) -> None:
         """Clear widget and rebuild tracks + clips from segments (expensive)."""
@@ -276,7 +274,7 @@ class WidgetSyncMixin:
 
     def _rebuild_decoration(self, widget, shot, visible_shots) -> None:
         scene = self._scene()
-        current_time = scene.frame_current if scene is not None else shot.start
+        current_time = scene.frame_current_final if scene is not None else shot.start
         widget.set_playhead(current_time)
         widget.set_hidden_tracks(sorted(self.sequencer.hidden_objects))
         widget.set_active_range(shot.start, shot.end)
@@ -337,22 +335,20 @@ class WidgetSyncMixin:
         """
         frame = frame or not self._viewport_framed
         self._viewport_framed = True
-        try:
-            if frame:
-                widget._timeline._refresh_all()
-                widget.frame_shot()
-            else:
-                if zoom is not None:
-                    widget._timeline._pixels_per_unit = zoom
-                widget._timeline._refresh_all()
-                widget._timeline.horizontalScrollBar().setValue(h_scroll)
-            widget.sub_row_provider = self._provide_sub_rows
-            if expanded_names:
-                for td in widget.tracks():
-                    if td.name in expanded_names:
-                        widget.expand_track(td.track_id)
-        except Exception:
-            self.logger.debug("restore_viewport failed", exc_info=True)
+        if frame:
+            widget._timeline._refresh_all()
+            widget.frame_shot()
+        else:
+            widget._timeline._pixels_per_unit = zoom
+            widget._timeline._refresh_all()
+            widget._timeline.horizontalScrollBar().setValue(h_scroll)
+
+        widget.sub_row_provider = self._provide_sub_rows
+
+        if expanded_names:
+            for td in widget.tracks():
+                if td.name in expanded_names:
+                    widget.expand_track(td.track_id)
 
     def _sync_header_settings(self, widget) -> None:
         spn_snap = getattr(self.ui, "spn_snap", None)
@@ -509,9 +505,12 @@ class WidgetSyncMixin:
                         extra["status_color"] = pair[0]
 
                 # Merge adjacent segments separated only by flat-key gaps so
-                # the main track shows fewer, larger clips (stepped segments
-                # are point events and never join a span).
+                # the main track shows fewer, larger clips.  Stepped
+                # (zero-duration) segments are kept separate -- they are point
+                # events and must not be absorbed into spans.
                 gap = store.detection_threshold if store else 10.0
+                span_segs = [sg for sg in obj_segs if not sg.get("is_stepped")]
+                stepped_segs = [sg for sg in obj_segs if sg.get("is_stepped")]
                 merged = [
                     {
                         "start": cluster[0]["start"],
@@ -519,9 +518,7 @@ class WidgetSyncMixin:
                         "segs": cluster,
                     }
                     for cluster in ptk.ShotDetection.cluster_spans(
-                        [sg for sg in obj_segs if not sg.get("is_stepped")],
-                        gap=gap,
-                        inclusive=True,
+                        span_segs, gap=gap, inclusive=True
                     )
                 ]
 
@@ -533,27 +530,43 @@ class WidgetSyncMixin:
                         clip_extra["label_center"] = SegmentCollector.abbreviate_attrs(
                             attrs
                         )
-                    clip_extra.update(
-                        {
-                            "obj": obj_name,
-                            "shot_id": vs.shot_id,
-                            "orig_start": s,
-                            "orig_end": e,
-                            "attributes": attrs,
-                        }
+                    widget.add_clip(
+                        track_id=tid,
+                        start=s,
+                        duration=e - s,
+                        label="",
+                        shot_id=vs.shot_id,
+                        obj=obj_name,
+                        orig_start=s,
+                        orig_end=e,
+                        attributes=attrs,
+                        **clip_extra,
                     )
-                    try:
-                        widget.add_clip(
-                            track_id=tid,
-                            start=s,
-                            duration=max(e - s, 0.0),
-                            label="",
-                            **clip_extra,
-                        )
-                    except Exception:
+
+                # Stepped (zero-duration) clips, one per point event -- a
+                # hold-only member's own marks, or the lone key Move to Shot
+                # just brought here, so the row shows where it landed.
+                for seg in stepped_segs:
+                    t = seg["start"]
+                    # A stepped key inside a merged span is already covered.
+                    if any(m["start"] <= t <= m["end"] for m in merged):
                         self.logger.debug(
-                            "add_clip failed for %s", obj_name, exc_info=True
+                            "[SYNC]   stepped key at %s inside span -- skipped", t
                         )
+                        continue
+                    widget.add_clip(
+                        track_id=tid,
+                        start=t,
+                        duration=0.0,
+                        label="",
+                        shot_id=vs.shot_id,
+                        obj=obj_name,
+                        orig_start=t,
+                        orig_end=t,
+                        is_stepped=True,
+                        stepped_key_time=t,
+                        **dict(extra),
+                    )
 
     def _build_audio_tracks(self, widget, shot, visible_shots) -> None:
         """Add one track per VSE sound strip overlapping the visible shots.
@@ -564,6 +577,9 @@ class WidgetSyncMixin:
         """
         scene_start = min(vs.start for vs in visible_shots)
         scene_end = max(vs.end for vs in visible_shots)
+        # The strips this build reads are the baseline an external VSE edit
+        # is detected against (``_sound_strips_changed``).
+        self._note_sound_strips()
         cache_key = (scene_start, scene_end)
         cached = self._audio_segments_cache
         if cached is not None and cached[0] == cache_key:
@@ -576,7 +592,9 @@ class WidgetSyncMixin:
                     scene_start=scene_start, scene_end=scene_end, include_waveform=True
                 )
             except Exception:
-                self.logger.debug("audio segment collection failed", exc_info=True)
+                # Surfaced, not swallowed: mayatk's rebuild raises here, and a
+                # silently missing audio track reads as "no audio".
+                self.logger.warning("audio segment collection failed", exc_info=True)
                 segs = []
             self._audio_segments_cache = (cache_key, segs)
 
@@ -665,7 +683,9 @@ class WidgetSyncMixin:
             return []
         from blendertk.anim_utils.segment_keys import SegmentKeys
 
-        all_curves = ShotSequencer._transform_fcurves(obj)
+        # Every keyed channel on the object, as mayatk lists every animCurve
+        # on the node -- custom properties and visibility get rows too.
+        all_curves = list(BlenderShotStore.iter_action_fcurves(obj))
         if not all_curves:
             return []
 
@@ -780,3 +800,6 @@ class WidgetSyncMixin:
             return
         self.sequencer.store.select_on_load = checked
         self.sequencer.store.mark_dirty()
+        # A cross-scene preference: saved by the panel that changes it (a
+        # store save no longer writes the prefs file).
+        self.sequencer.store._save_user_prefs()
